@@ -37,7 +37,7 @@ When a machine connects, the server compares the machine's shot list with
 
 ## Protocol
 
-See [PROTOCOL.md](PROTOCOL.md).
+See [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Roadmap
 
@@ -46,7 +46,10 @@ See [PROTOCOL.md](PROTOCOL.md).
    so the server needs a global id and a `globalId ↔ localId` map per machine,
    plus a conflict rule (for example, last-writer-wins on `updatedAt`).
    Profiles are content-hashed, so they map directly.
-2. **Real storage.** Replace the JSON files with a database.
-3. **Internet deployment.** Issue a token per machine, and serve only `wss://`
+2. **Shot chunking.** Decaid limits a plugin's pending outbound data to 1 MiB,
+   so shots of roughly 7 minutes or longer can't be sent as one frame. See
+   `docs/AI_STORAGE_NOTES.md`.
+3. **Real storage.** Replace the JSON files with a database.
+4. **Internet deployment.** Issue a token per machine, and serve only `wss://`
    (TLS, for example behind a reverse proxy). Decaid's WebSocket transport
    can't send custom headers, so auth stays in the `hello` message.
