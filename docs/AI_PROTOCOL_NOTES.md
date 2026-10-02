@@ -4,7 +4,7 @@ Read this when changing message handling, acks, de-duplication, sessions, auth, 
 
 ## Why WebSocket
 
-Decaid plugins cannot open arbitrary sockets. The only outbound channel that reaches a LAN or internet host is `host.transport` with the `network.websocket` permission, which supports `ws://` and `wss://` with platform certificate validation. Plain HTTP `fetch` from a plugin is meant for Decaid's own API. A persistent socket also gives the server a push channel for future server-to-machine sync. See `decent-sync-plugin/docs/AI_RUNTIME_NOTES.md`.
+Decaid plugins cannot open arbitrary sockets. The only outbound channel that reaches a LAN or internet host is `host.transport` with the `network.websocket` permission, which supports `ws://` and `wss://` with platform certificate validation. Plain HTTP `fetch` from a plugin is meant for Decaid's own API. A persistent socket also gives the server a push channel for future server-to-machine sync. See `decent-sync-plugin:docs/AI_RUNTIME_NOTES.md`.
 
 ## Delivery Semantics
 
@@ -40,6 +40,14 @@ A shot stored live during a backfill can be requested too; the plugin's `sentSho
 - Sent in full on every `welcome`, then only when the plugin's poll detects a change (ETag from Decaid where available, otherwise a content hash).
 - Arrays over 256 KB arrive in `parts`. Parts of one collection arrive in order on one connection; a reconnect restarts at part 1, and `part === 1` resets the accumulator.
 - `appSettings` arrives without Decaid's `chargingState`, which carries live battery level and would otherwise trigger a resend on every poll.
+
+## Mixed Versions
+
+Every machine runs its own Decaid release and its own plugin release, and they update independently. `hello` reports both (`decaidVersion`, `pluginVersion`), and `machine.json` keeps the latest.
+
+- Decaid payloads (shots, workflow, collections) are opaque to the protocol. Store them as sent; their fields come and go between Decaid versions. Anything that interprets them, like terminal summaries today or a future cross-machine merge, must tolerate missing and unknown fields.
+- A collection may be absent entirely if a machine's Decaid lacks the endpoint. Treat "never received" as "unknown", not "empty".
+- Compare data across machines by meaning, not by Decaid version. When behavior must depend on a version, branch on the reported `decaidVersion` for that machine, never on a global assumption.
 
 ## Evolving the Protocol
 

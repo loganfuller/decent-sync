@@ -32,7 +32,9 @@ $DATA_DIR/machines/<machineId>/
 - Objects (settings) are diffed by top-level key.
 - The first sync of a collection prints everything; profiles are truncated to 12 lines because there are typically 70 or more.
 
-## Payload Sizes Seen on a DE1Pro (Decaid 0.8.6)
+## Payload Sizes
+
+Observed on one DE1Pro running Decaid 0.8.6. Other machines, profiles, and Decaid versions differ; use these as orders of magnitude.
 
 | Item | Size |
 |------|------|

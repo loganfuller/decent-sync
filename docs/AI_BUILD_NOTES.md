@@ -20,8 +20,8 @@ Only one server can bind a port. A stale instance gives `port 8787 is already in
 1. `node --check server.mjs` after every edit.
 2. Start a scratch instance on a spare port with a scratch `DATA_DIR`.
 3. Drive it with the plugin, either:
-   - the plugin repo's dev harness, `decent-sync-plugin/scripts/dev-harness.mjs`, which runs `plugin.js` in Node against a real machine's API and your server, with no tablet changes; or
-   - the real plugin on a tablet, via `decent-sync-plugin/scripts/install-plugin.sh`, pointed at your instance.
+   - the plugin repo's dev harness, `decent-sync-plugin:scripts/dev-harness.mjs`, which runs `plugin.js` in Node against a real machine's API and your server, with no tablet changes; or
+   - the real plugin on a tablet, via `decent-sync-plugin:scripts/install-plugin.sh`, pointed at your instance.
 4. Expect, in order: `connected`, one line per collection, `shot index`, then `shot (backfill)` lines until every shot is stored, with no `error` lines.
 5. Restart the server while the plugin is connected. The plugin should reconnect within 60 seconds, resend a full snapshot, and `shot index` should report `0 not yet stored`.
 

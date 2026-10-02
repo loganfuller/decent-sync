@@ -33,7 +33,7 @@ JSON text frame.
 |---|---|---|
 | `hello` | `protocol, pluginVersion, bootId, token, machineId, name, model, serialNumber, firmware, decaidVersion, localIp` | first frame on every connection |
 | `collection` | `collection, part, parts, value` | full set after `welcome`, then whenever a poll sees a change. Collections are `beans`, `beanBatches`, `grinders`, `profiles`, `appSettings`, `machineSettings` and `machineAdvancedSettings`. Arrays larger than 256 KB are split into `parts` |
-| `workflow` | Decaid workflow JSON | Decaid's `workflowUpdated` event fires |
+| `workflow` | Decaid workflow JSON | Decaid's `workflowUpdated` event fires, and the latest one again after each `welcome` |
 | `machineState` | `from, to, state, substate, at, groupTemperature, steamTemperature` | a state or substate transition |
 | `shot` | `reason` (`stored` or `backfill`), `shot` (full record with measurements) | a new shot, or one the server requested |
 | `shotUpdated` | `id, shot, patch` | a shot is edited |

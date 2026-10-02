@@ -26,6 +26,7 @@ node --check server.mjs                       # syntax check
 ## Hard Rules
 
 - `docs/PROTOCOL.md` is the authoritative wire contract. Any change to a message type, field, close code, or delivery rule updates `docs/PROTOCOL.md` in the same commit and needs a matching change in `decent-sync-plugin`. Call out the cross-repo change explicitly.
+- Don't couple the server to one Decaid or plugin version. Machines run different releases of both. Store Decaid payloads verbatim, treat every Decaid field as optional (display code uses optional chaining and `?? "–"`), and never reject a message because its Decaid data looks unfamiliar. See "Mixed Versions" in `docs/AI_PROTOCOL_NOTES.md`.
 - Keep handlers idempotent. Delivery is at-least-once: the plugin resends anything not acked after a reconnect. A message processed twice must leave the same stored state.
 - Ack only after the message is persisted. An ack tells the plugin it may drop the message forever.
 - Never add a server-to-plugin message without a plugin handler for it; unknown types are ignored by the plugin, which silently drops behavior.
@@ -51,6 +52,17 @@ node --check server.mjs                       # syntax check
 | backfill | shots the server requests with `requestShots` after comparing a `shotIndex` |
 | Decaid | the Flutter app on the tablet (internal name ReaPrime; plugin extension `.reaplugin`) |
 
+## External Sources
+
+Paths written `<name>:<path>` are relative to that repo's root. Notes cite files and symbols, never line numbers, because line numbers change between versions.
+
+| Name | Repo | Which version to read |
+|------|------|-----------------------|
+| `decent-sync-plugin` | [loganfuller/decent-sync-plugin](https://github.com/loganfuller/decent-sync-plugin) | `main`; the two repos change together. Machines may run older plugin releases (`hello.pluginVersion`) |
+| `decaid` | [decentespresso/decaid](https://github.com/decentespresso/decaid) | the one the question is about: a machine's `hello.decaidVersion`, or `main` for upcoming changes. Payload shapes differ between versions |
+
+To read one, use `$DECENT_SYNC_PLUGIN_DIR` or `$DECAID_DIR` if set, or a checkout you already have; never assume where a checkout lives. `git show <tag>:<path>` reads a version without checking it out. Without a checkout: `gh api 'repos/<owner>/<repo>/contents/<path>?ref=<ref>' -H 'Accept: application/vnd.github.raw'`.
+
 ## Deep References
 
 - Fast file routing: `docs/AI_REPO_MAP.md`.
@@ -58,7 +70,7 @@ node --check server.mjs                       # syntax check
 - Delivery, de-duplication, sessions, protocol evolution: `docs/AI_PROTOCOL_NOTES.md`.
 - `data/` layout, idempotent writes, collection diffing: `docs/AI_STORAGE_NOTES.md`.
 - Running, smoke-testing, and verifying against a machine: `docs/AI_BUILD_NOTES.md`.
-- The plugin and Decaid host constraints: `decent-sync-plugin/docs/AI_RUNTIME_NOTES.md`.
+- The plugin and Decaid host constraints: `decent-sync-plugin:docs/AI_RUNTIME_NOTES.md`.
 
 ## Don't
 

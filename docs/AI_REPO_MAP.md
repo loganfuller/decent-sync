@@ -18,7 +18,7 @@ This repo is half of a two-repo system. Every message the server handles is prod
 | Shot backfill | `docs/AI_PROTOCOL_NOTES.md` | `on_shotIndex`, `storedShotIds`, plugin `runBackfill` |
 | Terminal output formatting | — | `out`, `detail`, `shotSummary`, `collectionFormatters` |
 | Running, smoke-testing, verifying with a machine | `docs/AI_BUILD_NOTES.md` | `AGENTS.md` quick commands |
-| What Decaid sends, field meanings | `decent-sync-plugin/docs/AI_DATA_NOTES.md` | Decaid's `assets/api/rest_v1.yml` |
+| What Decaid sends, field meanings | `decent-sync-plugin:docs/AI_DATA_NOTES.md` | `decaid:assets/api/rest_v1.yml` at the machine's version |
 
 ## Coupling
 
@@ -44,7 +44,7 @@ This repo is half of a two-repo system. Every message the server handles is prod
 
 1. Current `server.mjs` and the plugin's `plugin.js`.
 2. `docs/PROTOCOL.md`.
-3. Decaid's own source and OpenAPI spec (`assets/api/rest_v1.yml`) for payload contents. Decaid is checked out at `../decaid` relative to this repo.
+3. Decaid's source and OpenAPI spec (`decaid:assets/api/rest_v1.yml`) at the version in question, for payload contents. See External Sources in `AGENTS.md`.
 4. README and AI notes.
 
 When sources disagree, describe the discrepancy and follow the higher item, unless the task is to reconcile documentation.
