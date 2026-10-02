@@ -1,7 +1,7 @@
 # decent-sync-server
 
 The central server for Decent Sync. Each Decent espresso machine running Decaid
-with [decent-sync-plugin](../decent-sync-plugin) connects here and streams its
+with [decent-sync-plugin](https://github.com/loganfuller/decent-sync-plugin) connects here and streams its
 shots, beans, batches, grinders, profiles, settings and machine activity.
 
 **Prototype status:** receive-only. The server prints everything it gets to the
