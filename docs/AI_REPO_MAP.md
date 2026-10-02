@@ -17,7 +17,7 @@ This repo is half of a two-repo system. Every message the server handles is prod
 | Collection diffs, multi-part collections | `docs/AI_STORAGE_NOTES.md` | `Session.on_collection` |
 | Shot backfill | `docs/AI_PROTOCOL_NOTES.md` | `on_shotIndex`, `storedShotIds`, plugin `runBackfill` |
 | Terminal output formatting | — | `out`, `detail`, `shotSummary`, `collectionFormatters` |
-| Running, smoke-testing, verifying with a machine | `docs/AI_BUILD_NOTES.md` | `CLAUDE.md` quick commands |
+| Running, smoke-testing, verifying with a machine | `docs/AI_BUILD_NOTES.md` | `AGENTS.md` quick commands |
 | What Decaid sends, field meanings | `decent-sync-plugin/docs/AI_DATA_NOTES.md` | Decaid's `assets/api/rest_v1.yml` |
 
 ## Coupling

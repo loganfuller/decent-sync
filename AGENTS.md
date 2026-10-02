@@ -4,6 +4,16 @@ For unfamiliar or multi-file tasks, read `docs/AI_REPO_MAP.md` first. For known 
 
 decent-sync-server is the central half of Decent Sync. Each Decent espresso machine runs the `decent-sync.reaplugin` from the sibling repo `decent-sync-plugin`, which streams its data here over one WebSocket. The two repos share one wire contract, `docs/PROTOCOL.md`.
 
+## Quick Commands
+
+```bash
+npm install                                   # once
+npm start                                     # listen on ws://0.0.0.0:8787/sync
+node server.mjs --full --verbose              # print payloads, heartbeats, duplicates
+PORT=8799 DATA_DIR=/tmp/ds node server.mjs    # scratch instance; leaves data/ alone
+node --check server.mjs                       # syntax check
+```
+
 ## Always
 
 - Preserve existing work. Keep changes focused; do not rewrite unrelated code or documentation.
