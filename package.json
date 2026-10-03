@@ -5,13 +5,35 @@
   "type": "module",
   "description": "Sync and manage Decent espresso machines across locations",
   "license": "MIT",
+  "workspaces": [
+    "protocol",
+    "plugin",
+    "decent-sync.reaplugin",
+    "server",
+    "web"
+  ],
   "scripts": {
-    "start": "node server.mjs"
+    "build": "npm run build -w protocol && npm run build -w plugin && npm run build -w web && npm run build -w server",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p e2e/tsconfig.json",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "check:plugin-build": "node scripts/check-plugin-build.mjs",
+    "db:up": "docker compose up -d --wait db",
+    "start": "npm run build && npm run start -w server",
+    "dev:server": "npm run build -w protocol && npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "prototype": "node server.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12"
   },
   "dependencies": {
     "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.0",
+    "@types/node": "^24.0.0",
+    "typescript": "~6.0.2",
+    "vitest": "^5.0.0"
   }
 }

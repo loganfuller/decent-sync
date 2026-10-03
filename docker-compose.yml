@@ -1,0 +1,21 @@
+# PostgreSQL for local development: `npm run db:up`. CI uses the same major
+# version. Ticket #3 adds the server image for self-hosting.
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: decent_sync
+      POSTGRES_PASSWORD: decent_sync
+      POSTGRES_DB: decent_sync
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U decent_sync -d decent_sync"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  db-data:

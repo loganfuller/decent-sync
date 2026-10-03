@@ -2,15 +2,17 @@
 
 ## Milestone 1 verification
 
-The workspace build and tests are introduced by ticket #2. Use the package scripts once they exist; the current root `npm start` runs only `server.mjs`. [The spec's Testing Decisions](https://github.com/loganfuller/decent-sync/issues/1) are the testing contract:
+Use the root package scripts listed in the README's Development section: `npm run typecheck`, `npm run build`, `npm test` (Vitest, after a build), `npm run test:e2e` (Playwright) and `npm run check:plugin-build`. CI (`.github/workflows/ci.yml`) runs all of them against a PostgreSQL service on every push and pull request. `npm run prototype` runs `server.mjs`. [The spec's Testing Decisions](https://github.com/loganfuller/decent-sync/issues/1) are the testing contract:
 
 - Seam 1 runs the built `decent-sync.reaplugin/plugin.js` in a simulated Decaid host against a real server and a fresh PostgreSQL database per test file. Assertions use the REST API. Raw frames exercise protocol failures and delivery cases.
 - Seam 2 uses Playwright against the management interface, with data seeded through Seam 1.
 - Vitest module tests cover the spec's listed pure modules through their public interfaces without mocks. Other behavior is tested through the two seams unless it proves untestable there.
 
-Ticket #5 builds Seam 1 from prior art in the archived [plugin dev harness](https://github.com/loganfuller/decent-sync-plugin/blob/main/scripts/dev-harness.mjs). That old harness calls a real tablet API; it is not yet the fixture-backed simulated tablet required by the spec. The scaffold ticket permits that harness or an equivalent stand-in host for its initial load check.
+Ticket #5 builds Seam 1 from prior art in the archived [plugin dev harness](https://github.com/loganfuller/decent-sync-plugin/blob/main/scripts/dev-harness.mjs). That old harness calls a real tablet API; it is not yet the fixture-backed simulated tablet required by the spec. Until then, `plugin/test/stand-in-host.ts` loads the built `plugin.js` the way Decaid does (source pasted into a function body, global `createPlugin(host)`, id check, synchronous `onLoad`).
 
-CI must verify that rebuilding the plugin leaves the committed bundle unchanged. Report verification commands and results, including anything not exercised.
+`npm run check:plugin-build` rebuilds the plugin and fails if `decent-sync.reaplugin/` then differs from the git index (on a CI checkout, the commit under test). Report verification commands and results, including anything not exercised.
+
+Vitest tests that need build output (the committed plugin, the compiled server) read it directly, so build before `npm test`. Server tests run the built server as a process rather than importing Nest modules: Vitest's esbuild transform does not emit the decorator metadata Nest's dependency injection needs.
 
 ## Fixtures
 

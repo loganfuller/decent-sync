@@ -13,9 +13,10 @@ business with a roastery lab and several cafes.
 
 ## Status
 
-**Milestone 1 is specified; implementation has not started.** The code in this repo
-today (`server.mjs`) is a receive-only prototype. It will be replaced by the
-layout below, starting with [the scaffold ticket](https://github.com/loganfuller/decent-sync/issues/2).
+**Milestone 1 is in progress.** The workspace, stack and CI are in place
+([the scaffold ticket](https://github.com/loganfuller/decent-sync/issues/2)), with no
+domain behavior yet. The receive-only prototype (`server.mjs`) remains until
+[ticket #19](https://github.com/loganfuller/decent-sync/issues/19) removes it.
 [Milestone 1](https://github.com/loganfuller/decent-sync/issues/1) and its child tickets
 define the build scope. The shared-library behavior below comes in later milestones;
 milestone 1 captures data without pushing changes to tablets.
@@ -44,14 +45,14 @@ The target sharing scopes are:
   edits resolve by last-writer-wins on the time of the original edit, and the
   management interface shows them. Sync never hard-deletes.
 
-## Planned layout
+## Layout
 
 One repo, laid out the way Decent lays out its own plugins (ADR-0012), as an
 npm workspace:
 
 ```
 plugin/                   Decaid plugin source (TypeScript)
-decent-sync.reaplugin/     the built plugin, committed and released as a ZIP
+decent-sync.reaplugin/    the built plugin, committed and released as a ZIP
 server/                   NestJS + Prisma on PostgreSQL
 web/                      management interface: React, Vite, shadcn/ui
 protocol/                 internal wire types and runtime validators
@@ -67,7 +68,47 @@ curl -X POST http://<tablet>:8080/api/v1/plugins/install/github-release \
 ```
 
 Milestone 1 will provide a Docker image containing the server and built web app,
-with PostgreSQL run alongside it. These deployment artifacts are not present yet.
+with PostgreSQL run alongside it. That image is not present yet.
+
+## Development
+
+Needs Node.js 22.12 or newer and PostgreSQL 14 or newer. `docker-compose.yml`
+runs a local PostgreSQL.
+
+```bash
+npm install
+cp .env.example .env         # DATABASE_URL and PUBLIC_URL for local use
+npm run db:up                # PostgreSQL in Docker
+npm start                    # build everything, migrate, serve http://localhost:3000
+```
+
+The server reads its configuration only from environment variables; `npm start`
+also loads `.env` if present. It refuses to start, naming each problem, when a
+required variable is missing or invalid.
+
+| Variable | |
+|---|---|
+| `DATABASE_URL` | required: PostgreSQL connection URL |
+| `PUBLIC_URL` | required: the `http(s)://` origin people and plugins use to reach the server |
+| `PORT` | listen port (default 3000) |
+| `HOST` | bind address (default `0.0.0.0`) |
+| `WEB_DIST_DIR` | the built management interface (default `web/dist`) |
+
+On startup the server applies pending database migrations, then serves the
+REST API under `/api` and the management interface everywhere else.
+
+| Command | |
+|---|---|
+| `npm run dev:server` | server with rebuild on change |
+| `npm run dev:web` | Vite dev server for `web/`, proxying `/api` to the dev server |
+| `npm run typecheck` | typecheck every workspace |
+| `npm run build` | build every workspace, including `decent-sync.reaplugin/` |
+| `npm test` | Vitest (run `npm run build` first: tests use the built plugin and server) |
+| `npm run test:e2e` | Playwright against the built server; starts it unless one is running |
+| `npm run check:plugin-build` | fail if the committed `decent-sync.reaplugin/` differs from a fresh build |
+
+Decaid installs whatever is committed in `decent-sync.reaplugin/`, so commit the
+rebuilt plugin with every change to `plugin/` or `protocol/`. CI checks it.
 
 ## Milestones
 
@@ -99,7 +140,7 @@ and the real-tablet installation rule.
 
 ```bash
 npm install
-npm start                    # ws://0.0.0.0:8787/sync, data in ./data
+npm run prototype            # ws://0.0.0.0:8787/sync, data in ./data
 node server.mjs --full --verbose
 ```
 
