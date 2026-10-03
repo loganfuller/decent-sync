@@ -2,21 +2,24 @@
 
 ## Start here
 
-The repository currently contains `server.mjs`, its package files and documentation. That code is a receive-only prototype. [Ticket #2](https://github.com/loganfuller/decent-sync/issues/2) scaffolds the replacement; [ticket #19](https://github.com/loganfuller/decent-sync/issues/19) removes the prototype after milestone 1 replaces it.
+The repository holds the milestone 1 workspace, scaffolded by [ticket #2](https://github.com/loganfuller/decent-sync/issues/2) with no domain behavior yet, plus the receive-only prototype (`server.mjs`) that [ticket #19](https://github.com/loganfuller/decent-sync/issues/19) removes once milestone 1 replaces it.
 
 Target requirements come from `GLOSSARY.md`, accepted `docs/adr/` decisions and [milestone 1](https://github.com/loganfuller/decent-sync/issues/1), then the assigned ticket. ADR-0010 is superseded by ADR-0012, and ADR-0015 extends ADR-0004. The prototype's code and protocol do not override these requirements.
 
-## Target layout (created by ticket #2)
+## Layout
 
-| Path | Responsibility |
-|---|---|
-| `plugin/` | TypeScript source for the Decaid plugin |
-| `decent-sync.reaplugin/` | Committed ES2020 bundle and manifest installed by Decaid |
-| `server/` | NestJS, Prisma, PostgreSQL, WebSocket gateway, REST API, serving the built web app |
-| `web/` | React, Vite, shadcn/ui management interface; uses the REST API |
-| `protocol/` | Internal shared wire types and runtime validators; never published |
+| Path | Responsibility | Entry points |
+|---|---|---|
+| `plugin/` | TypeScript source for the Decaid plugin | `src/index.ts`; `build.mjs` writes `decent-sync.reaplugin/`; `manifest.json` is the manifest template (the version comes from the root `package.json`) |
+| `decent-sync.reaplugin/` | Committed ES2020 bundle and manifest installed by Decaid | Generated; never edit by hand |
+| `server/` | NestJS, Prisma, PostgreSQL, WebSocket gateway, REST API, serving the built web app | `src/main.ts` (config, migrations, bootstrap), `src/config.ts`, `prisma/schema.prisma`, `prisma/migrations/` |
+| `web/` | React, Vite, shadcn/ui management interface; uses the REST API | `src/App.tsx`; add components with `npx shadcn add` |
+| `protocol/` | Internal shared wire types and runtime validators; never published | `src/index.ts` |
+| `e2e/` | Playwright tests (Seam 2) | `playwright.config.ts` at the root |
 
-These are planned paths, not existing entry points. Find actual commands in the workspace package files as implementation lands. One protocol change updates the plugin, server and shared package together here; the old plugin repo is archived.
+Root `package.json` scripts are the commands; the README's Development section lists them. One protocol change updates the plugin, server and shared package together here; the old plugin repo is archived.
+
+`protocol/` exports its TypeScript source under the `@decent-sync/source` condition, which esbuild, TypeScript and Vitest use, so they need no protocol build. Node at runtime uses `protocol/dist`, so the server needs `npm run build -w protocol` first (the root `build`, `start` and `dev:server` scripts do this). The Prisma client is generated into `server/src/generated/` (git-ignored) by the server's `build` and `typecheck` scripts.
 
 ## Task routing
 

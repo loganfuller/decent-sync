@@ -1,0 +1,13 @@
+// Decent Sync's database. PostgreSQL 14 or newer is required for lz4 column
+// compression; the first migration refuses older servers.
+
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  moduleFormat           = "esm"
+  importFileExtension    = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
