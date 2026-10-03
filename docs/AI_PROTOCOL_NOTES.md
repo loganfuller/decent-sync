@@ -25,7 +25,7 @@ Decaid plugins cannot open arbitrary sockets. The only outbound channel that rea
 
 - `SYNC_TOKEN` unset means no auth. Set, the `hello.token` must match or the server closes with 4401.
 - The token travels in `hello` because Decaid's WebSocket transport cannot send custom headers. Over the internet use `wss://` only, or the token is sent in clear.
-- Per-machine tokens are on the roadmap; the current token is shared.
+- The prototype's token is shared. The target design issues one token per machine, bound to the machine's model and serial (ADR-0004).
 
 ## Backfill
 

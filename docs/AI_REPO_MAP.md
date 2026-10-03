@@ -10,6 +10,7 @@ This repo is half of a two-repo system. Every message the server handles is prod
 
 | Task | Read first | Then |
 |------|-----------|------|
+| Anything about the target design, or a domain term | `GLOSSARY.md` | `docs/adr/` |
 | Adding or changing a message type | `docs/PROTOCOL.md` | `docs/AI_PROTOCOL_NOTES.md`, `Session.on_<type>` in `server.mjs`, then the plugin's `onServerMessage` / `enqueue` call sites |
 | Delivery, acks, duplicates, reconnects | `docs/AI_PROTOCOL_NOTES.md` | `Session.handle`, `Session.remember`, `Session.hello` |
 | Auth, tokens, machine identity | `docs/AI_PROTOCOL_NOTES.md` | `Session.hello`, `SYNC_TOKEN` |

@@ -1,6 +1,6 @@
 # AI Storage Notes
 
-Read this when changing where or how the server stores data, or when reading stored data. The current store is plain JSON files, a deliberate prototype choice; a database is on the roadmap.
+Read this when changing where or how the server stores data, or when reading stored data. The prototype stores plain JSON files. The target design uses PostgreSQL (ADR-0007).
 
 ## Layout
 
@@ -45,4 +45,4 @@ Observed on one DE1Pro running Decaid 0.8.6. Other machines, profiles, and Decai
 
 Sizes are compact JSON as sent; files on disk are pretty-printed and about 50 percent larger. Shots cost about 490 bytes per sample at about 4.8 samples per second.
 
-The server's `maxPayload` is 16 MiB. The binding limit is Decaid's 1 MiB per-transport outbound queue on the plugin side: a single `shot` frame over 1 MiB is rejected with `transport_resource_limit` and can never be sent. That is about 2100 samples, a shot of roughly 7 minutes. Long filter or tea shots will cross it. Shot chunking is on the roadmap in both repos.
+The server's `maxPayload` is 16 MiB. The binding limit is Decaid's 1 MiB per-transport outbound queue on the plugin side: a single `shot` frame over 1 MiB is rejected with `transport_resource_limit` and can never be sent. That is about 2100 samples, a shot of roughly 7 minutes. Long filter or tea shots will cross it. The target design splits large shots into chunks (ADR-0009).
