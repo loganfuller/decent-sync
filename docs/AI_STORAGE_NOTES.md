@@ -1,48 +1,35 @@
 # AI Storage Notes
 
-Read this when changing where or how the server stores data, or when reading stored data. The prototype stores plain JSON files. The target design uses PostgreSQL (ADR-0007).
+## Target capture storage
 
-## Layout
+Milestone 1 uses PostgreSQL through Prisma (ADR-0007 and ADR-0011). Follow [the spec's Capture and Schema outline sections](https://github.com/loganfuller/decent-sync/issues/1) for entities, identity attribution, editable Location history and idempotent storage. JSON files and `writeJson()` are prototype implementation details.
+
+Keep the Decaid record as sent, separating measurements into their own tables so lists do not load them. Extract analytics columns through optional fields. Record edits preserve existing measurements. Collections are the latest reported value per Machine in milestone 1; merging a shared library comes later.
+
+Shots and Steam Records are stored once by their Decaid ids and attributed using their recorded hardware identity, with the spec's inferred fallback. Never derive target storage ownership from the prototype's `machineId` directory. Workflow and state changes are timed events; the prototype's overwrite-only workflow file is not sufficient.
+
+No prototype-data migration is required. The tablet backfills its history on adoption. Any data still present locally remains user data and requires approval before destructive changes.
+
+## Prototype inspection only
+
+`server.mjs` stores:
 
 ```
 $DATA_DIR/machines/<machineId>/
-  machine.json         latest accepted hello minus token, plus lastSeen and remote
-  events.jsonl         every non-heartbeat message, append-only, with receivedAt
-  state/<name>.json    latest value of each collection, plus workflow.json
-  shots/<shotId>.json  full Decaid shot record, with measurements
+  machine.json         accepted hello without token, plus connection-time lastSeen and remote
+  events.jsonl         non-heartbeat envelopes processed after hello, excluding in-session duplicates
+  state/<name>.json    latest collection or workflow
+  shots/<shotId>.json  shot record with measurements
 ```
 
-`DATA_DIR` defaults to `./data`, which is git-ignored and holds the user's real history. Use a scratch `DATA_DIR` for experiments.
+`DATA_DIR` defaults to `./data`. Use a scratch directory for experiments.
 
-`machineId` is sanitized to `[a-zA-Z0-9._-]` for the directory name. Shot ids are Decaid UUIDs or legacy `de1app-<epoch>` ids imported from the old Tcl app; both are filename-safe.
+- `writeJson()` writes a temporary file and renames it; this is not a PostgreSQL persistence pattern.
+- The append-only envelope log can repeat ids after restart; it is not a deduplicated event store. Do not read it whole.
+- `on_shotUpdated` updates only an existing shot and retains its measurements.
+- `on_shotIndex` requests ids absent from the current Machine's `shots/` directory.
+- Collection diffs in terminal output are display-only, not a shared-library merge algorithm.
+- Multipart collections accumulate in memory, and each part is acknowledged after its envelope is logged. Reassembly is not recovered from that log after restart. The replacement must acknowledge only the complete stored logical message.
+- The prototype server accepts up to 16 MiB, but the host's outbound limit can prevent large shots reaching it at all. See `AI_RUNTIME_NOTES.md`; milestone 1 adds whole-message chunking.
 
-## Rules
-
-- Write through `writeJson()` (temp file, then rename) so readers never see a partial file.
-- Handlers must be idempotent; see `AI_PROTOCOL_NOTES.md`. Overwrite by key; never append to state files.
-- `events.jsonl` is the audit log. It may contain duplicate `id`s after a server restart. Its records are the raw envelope, so collection snapshots and shots make it large; do not read it whole.
-- `shotUpdated` merges `shot` into the stored record but keeps the stored `measurements`, because Decaid's `shotUpdated` event carries the shot without measurements.
-- Backfill decides what is missing by listing `shots/`. Renaming or moving shot files triggers a re-request of every shot on the next connect.
-
-## Collection Diffing
-
-`on_collection` compares the incoming value with the previous `state/<name>.json` before overwriting it:
-
-- Arrays are diffed by `id` into added, changed, and removed. This is display-only today, but it is the starting point for server-to-machine sync.
-- Objects (settings) are diffed by top-level key.
-- The first sync of a collection prints everything; profiles are truncated to 12 lines because there are typically 70 or more.
-
-## Payload Sizes
-
-Observed on one DE1Pro running Decaid 0.8.6. Other machines, profiles, and Decaid versions differ; use these as orders of magnitude.
-
-| Item | Size |
-|------|------|
-| `profiles` collection, 74 profiles | about 180 KB on the wire |
-| One espresso shot, about 140 samples | about 70 KB |
-| One filter shot, 1325 samples over 276 s | about 650 KB |
-| beans, batches, grinders, settings | under 4 KB each |
-
-Sizes are compact JSON as sent; files on disk are pretty-printed and about 50 percent larger. Shots cost about 490 bytes per sample at about 4.8 samples per second.
-
-The server's `maxPayload` is 16 MiB. The binding limit is Decaid's 1 MiB per-transport outbound queue on the plugin side: a single `shot` frame over 1 MiB is rejected with `transport_resource_limit` and can never be sent. That is about 2100 samples, a shot of roughly 7 minutes. Long filter or tea shots will cross it. The target design splits large shots into chunks (ADR-0009).
+Ticket #19 removes this section with the prototype.

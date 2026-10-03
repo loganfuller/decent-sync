@@ -1,7 +1,10 @@
-# Decent Sync protocol (v1)
+# Prototype wire format (unreleased)
 
-This is the wire contract between `decent-sync` and `decent-sync-plugin`.
-This file is the authoritative copy. If you change it, update both repos.
+Historical reference for `server.mjs` and the archived `decent-sync-plugin` only.
+The prototype is not the milestone 1 contract. The replacement also starts at
+version 1, without prototype compatibility, and defines messages and validators
+once in the new `protocol/` package. See [milestone 1](https://github.com/loganfuller/decent-sync/issues/1)
+and `AI_PROTOCOL_NOTES.md`. Ticket #19 removes this reference with the prototype.
 
 ## Transport
 
@@ -23,7 +26,9 @@ JSON text frame.
   `{"type":"ack","id":"<id>"}`.
 - After a reconnect, the plugin resends every message that wasn't acknowledged.
 - The server de-duplicates by `id`. Shots are stored by shot id. Together this
-  makes delivery at-least-once and idempotent.
+  suppresses ordinary duplicate deliveries. The event log can still repeat ids
+  after restart; multipart collections are acknowledged per part, with only
+  in-memory reassembly. These are prototype limitations, not target guarantees.
 - `hello` and `heartbeat` are control frames. They are not acknowledged and
   never resent.
 
@@ -47,4 +52,4 @@ JSON text frame.
 | `welcome` | `serverTime` | hello accepted. The plugin starts sending |
 | `ack` | `id` | message stored |
 | `requestShots` | `ids` | send these shots (a reply to `shotIndex`) |
-| `error` | `message` | sent before the server closes with 4400 (protocol), 4401 (bad token) or 4409 (replaced by a newer connection from the same machine) |
+| `error` | `message` | sent by `reject()` before close code 4400 (protocol) or 4401 (bad token). Replacement uses 4409 directly, without an `error` message |

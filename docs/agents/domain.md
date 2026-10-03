@@ -7,26 +7,15 @@ How the engineering skills should consume this repo's domain documentation when 
 - **`GLOSSARY.md`** at the repo root.
 - **`docs/adr/`**: read ADRs that touch the area you're about to work in.
 
-If either is missing, **proceed silently**. Don't flag its absence; don't suggest creating it upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
+`GLOSSARY.md` defines vocabulary; ADRs record decisions. ADR-0010 is superseded by ADR-0012, and ADR-0005 is interim. Read the milestone spec and ticket for implementation scope: an accepted later-milestone decision does not make its implementation part of milestone 1.
 
-## File structure
-
-Single-context repo:
-
-```
-/
-├── GLOSSARY.md
-├── docs/adr/
-│   ├── 0001-one-owner-per-server.md
-│   └── 0002-open-source-core-private-extensions.md
-└── ...
-```
+The glossary is at the repo root; all ADRs are under `docs/adr/`. List that directory for the current set rather than relying on an example tree.
 
 ## Use the glossary's vocabulary
 
 When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `GLOSSARY.md`. Don't drift to synonyms the glossary explicitly avoids.
 
-If the concept you need isn't in the glossary yet, that's a signal: either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
+If the concept you need isn't in the glossary yet, that's a signal: either you're inventing language the project doesn't use (reconsider) or there's a real gap (flag the gap and use the `domain-modeling` skill when resolving it).
 
 ## Flag ADR conflicts
 

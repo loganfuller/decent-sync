@@ -1,51 +1,38 @@
 # AI Repo Map
 
-Use this for orientation. Read the smallest matching topic note, inspect the named source, and widen only when the task crosses a boundary.
+## Start here
 
-## The One Thing To Know First
+The repository currently contains `server.mjs`, its package files and documentation. That code is a receive-only prototype. [Ticket #2](https://github.com/loganfuller/decent-sync/issues/2) scaffolds the replacement; [ticket #19](https://github.com/loganfuller/decent-sync/issues/19) removes the prototype after milestone 1 replaces it.
 
-This repo is half of a two-repo system. Every message the server handles is produced by `decent-sync-plugin` running inside Decaid on a Decent tablet, and every reply is consumed there. A change to message shape is a change to both repos. Start from `docs/PROTOCOL.md`.
+Target requirements come from `GLOSSARY.md`, accepted `docs/adr/` decisions and [milestone 1](https://github.com/loganfuller/decent-sync/issues/1), then the assigned ticket. ADR-0010 is superseded by ADR-0012. The prototype's code and protocol do not override these requirements.
 
-## Task Routing
+## Target layout (created by ticket #2)
 
-| Task | Read first | Then |
-|------|-----------|------|
-| Anything about the target design, or a domain term | `GLOSSARY.md` | `docs/adr/` |
-| Adding or changing a message type | `docs/PROTOCOL.md` | `docs/AI_PROTOCOL_NOTES.md`, `Session.on_<type>` in `server.mjs`, then the plugin's `onServerMessage` / `enqueue` call sites |
-| Delivery, acks, duplicates, reconnects | `docs/AI_PROTOCOL_NOTES.md` | `Session.handle`, `Session.remember`, `Session.hello` |
-| Auth, tokens, machine identity | `docs/AI_PROTOCOL_NOTES.md` | `Session.hello`, `SYNC_TOKEN` |
-| Where data lands, file layout | `docs/AI_STORAGE_NOTES.md` | `machineDir`, `writeJson`, `on_shot`, `on_collection` |
-| Collection diffs, multi-part collections | `docs/AI_STORAGE_NOTES.md` | `Session.on_collection` |
-| Shot backfill | `docs/AI_PROTOCOL_NOTES.md` | `on_shotIndex`, `storedShotIds`, plugin `runBackfill` |
-| Terminal output formatting | — | `out`, `detail`, `shotSummary`, `collectionFormatters` |
-| Running, smoke-testing, verifying with a machine | `docs/AI_BUILD_NOTES.md` | `AGENTS.md` quick commands |
-| What Decaid sends, field meanings | `decent-sync-plugin:docs/AI_DATA_NOTES.md` | `decaid:assets/api/rest_v1.yml` at the machine's version |
+| Path | Responsibility |
+|---|---|
+| `plugin/` | TypeScript source for the Decaid plugin |
+| `decent-sync.reaplugin/` | Committed ES2020 bundle and manifest installed by Decaid |
+| `server/` | NestJS, Prisma, PostgreSQL, WebSocket gateway, REST API, serving the built web app |
+| `web/` | React, Vite, shadcn/ui management interface; uses the REST API |
+| `protocol/` | Internal shared wire types and runtime validators; never published |
 
-## Coupling
+These are planned paths, not existing entry points. Find actual commands in the workspace package files as implementation lands. One protocol change updates the plugin, server and shared package together here; the old plugin repo is archived.
 
-| Changing... | Must also check... | Why |
-|-------------|---------------------|-----|
-| Any message type or field | `docs/PROTOCOL.md`, plugin `plugin.js` sender or handler, plugin `docs/AI_DATA_NOTES.md` | Two repos, one contract |
-| Ack timing | Plugin outbox (`ackMessage`, `pump`) | The plugin drops a message forever once acked |
-| `on_shotIndex` / `requestShots` | Plugin `runBackfill`, `BACKFILL_LOW_WATER`, `sentShots` | Backfill is flow-controlled by the plugin's outbox |
-| `hello` fields or identity | Plugin `resolveIdentity`, `data/machines/<id>/` directory names | Changing `machineId` derivation splits one machine's history into two directories |
-| Storage layout | `on_shotIndex` (reads `shots/`), README "Storage" section | Backfill decides what is missing from what is on disk |
+## Task routing
 
-## Production Entry Points
+| Task | Read |
+|---|---|
+| Scaffold, build, CI, release | ADR-0011, ADR-0012, ADR-0013; ticket #2; spec's Repo, build and release section |
+| Plugin runtime or simulated tablet | `AI_RUNTIME_NOTES.md`, `AI_BUILD_NOTES.md`; ticket #5 |
+| Wire messages, validators, delivery, chunking, backfill | `AI_PROTOCOL_NOTES.md`; spec's Protocol package and Testing Decisions sections |
+| Machine identity, tokens, adoption | ADR-0004; spec's Machines and Identity resolution sections |
+| Capture, extraction, database | `AI_STORAGE_NOTES.md`; ADR-0007; spec's Capture, Record extraction and Schema outline sections |
+| Accounts, Locations, management interface | Spec's Server modules and Management interface sections; ADR-0011 |
+| Later sharing behavior | ADR-0003, ADR-0005, ADR-0006, ADR-0008, ADR-0014; spec's Out of Scope section |
+| Inspecting the prototype | `server.mjs`, `PROTOCOL.md`, prototype sections of `AI_STORAGE_NOTES.md` and `AI_BUILD_NOTES.md` |
 
-- `server.mjs` — the whole server: `Session` (one per connection), `WebSocketServer` setup, output helpers, storage helpers.
-- `docs/PROTOCOL.md` — wire contract.
+For upstream paths and checkout conventions, see `AGENTS.md` External sources. Verify Decaid payload fields in its source at the relevant version; the local runtime note identifies useful entry points.
 
-## Read Late, Not First
+## Data
 
-- `data/` — the user's real synced data. Git-ignored. Large; never bulk-read it to learn the schema. Read one `shots/*.json` or `state/*.json` if you need an example.
-- `node_modules/`, `package-lock.json`.
-
-## Source-Of-Truth Order
-
-1. Current `server.mjs` and the plugin's `plugin.js`.
-2. `docs/PROTOCOL.md`.
-3. Decaid's source and OpenAPI spec (`decaid:assets/api/rest_v1.yml`) at the version in question, for payload contents. See External Sources in `AGENTS.md`.
-4. README and AI notes.
-
-When sources disagree, describe the discrepancy and follow the higher item, unless the task is to reconcile documentation.
+`data/` is git-ignored and may hold real history. Use a scratch `DATA_DIR` for prototype experiments. Do not bulk-read history to learn a schema. Milestone 1 requires no prototype-data migration; the tablet backfills its records when adopted.

@@ -16,7 +16,7 @@ The Android device running Decaid that is attached to a machine. It can be swapp
 _Avoid_: Machine, client, install
 
 **Location**:
-A physical site where machines are used, such as a roastery lab or a cafe, with its own time zone. A machine is at exactly one location at a time. The machines at one location work like the groups of a single commercial espresso machine: they share equipment and recipes.
+A physical site where machines are used, such as a roastery lab or a cafe, with its own time zone. A machine can be unassigned; once assigned, it is at one location at a time. The machines at one location work like the groups of a single commercial espresso machine: they share equipment and recipes.
 _Avoid_: Site, store, shop, venue
 
 **Equipment**:

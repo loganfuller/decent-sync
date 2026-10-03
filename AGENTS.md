@@ -1,98 +1,47 @@
 # Agent Instructions
 
-For unfamiliar or multi-file tasks, read `docs/AI_REPO_MAP.md` first. For known files or exact symbols, open them directly. Read the topic notes only when the task needs them; do not preload them all.
+Decent Sync's target is one repository containing the plugin, server and management interface. The code currently present is the receive-only prototype; milestone 1 replaces it. The prototype is evidence of Decaid integration, not a specification or implementation foundation.
 
-**The target design is in `GLOSSARY.md` and `docs/adr/`, and it replaces the prototype.** The rest of this file describes the receive-only prototype in `server.mjs`. Where the two disagree (stack, storage, identity, repo layout), the ADRs win.
+## Before implementation
 
-decent-sync is the central half of Decent Sync. Each Decent espresso machine runs the `decent-sync.reaplugin` from the sibling repo `decent-sync-plugin`, which streams its data here over one WebSocket. The two repos share one wire contract, `docs/PROTOCOL.md`.
+- Read `GLOSSARY.md` and ADRs 0001–0014 in `docs/adr/`, then [milestone 1's spec](https://github.com/loganfuller/decent-sync/issues/1) and the assigned ticket. ADR-0010 is superseded by ADR-0012; ADR-0005 is interim and its writes belong to a later milestone.
+- For orientation or a task spanning files, read `docs/AI_REPO_MAP.md`. Open known files directly.
+- Use the glossary's terms. Surface conflicts between a ticket, spec and ADR rather than silently choosing one. Inspect code to establish current behavior; use the spec and accepted ADRs for target behavior.
 
-## Quick Commands
+## Implementation rules
 
-```bash
-npm install                                   # once
-npm start                                     # listen on ws://0.0.0.0:8787/sync
-node server.mjs --full --verbose              # print payloads, heartbeats, duplicates
-PORT=8799 DATA_DIR=/tmp/ds node server.mjs    # scratch instance; leaves data/ alone
-node --check server.mjs                       # syntax check
-```
-
-## Always
-
-- Preserve existing work. Keep changes focused; do not rewrite unrelated code or documentation.
-- Default to the current branch and leave changes local. Never push, tag, publish, or create a PR or remote repository unless explicitly asked.
-- Verify behavior in current source and against a real or harnessed plugin before claiming it works. Show the terminal output, not just "it works."
-- Treat everything under `data/` as the user's real shot history. Never delete, rewrite, or migrate it without explicit approval. Use a scratch `DATA_DIR` for experiments.
-- Treat `SYNC_TOKEN`, plugin `AuthToken` values, and `hello.token` as secrets. Never log, print, or persist them; `hello()` strips `token` before storing `machine.json`.
-- Update an AI note only when a reusable, non-obvious constraint changes. Remove stale guidance instead of accumulating history.
-
-## Hard Rules
-
-- `docs/PROTOCOL.md` is the authoritative wire contract. Any change to a message type, field, close code, or delivery rule updates `docs/PROTOCOL.md` in the same commit and needs a matching change in `decent-sync-plugin`. Call out the cross-repo change explicitly.
-- Don't couple the server to one Decaid or plugin version. Machines run different releases of both. Store Decaid payloads verbatim, treat every Decaid field as optional (display code uses optional chaining and `?? "–"`), and never reject a message because its Decaid data looks unfamiliar. See "Mixed Versions" in `docs/AI_PROTOCOL_NOTES.md`.
-- Keep handlers idempotent. Delivery is at-least-once: the plugin resends anything not acked after a reconnect. A message processed twice must leave the same stored state.
-- Ack only after the message is persisted. An ack tells the plugin it may drop the message forever.
-- Never add a server-to-plugin message without a plugin handler for it; unknown types are ignored by the plugin, which silently drops behavior.
-- Write stored JSON through `writeJson()` (temp file plus rename) so a crash never leaves a truncated state or shot file.
-- Do not trust `env.machineId` for routing. A session's identity comes from its accepted `hello`.
-- Keep the server dependency-light. `ws` is the only runtime dependency; ask before adding another.
+- Use the TypeScript, NestJS, Prisma, PostgreSQL, React/Vite and shadcn/ui stack in ADR-0011 and the plain npm workspace layout in ADR-0012. The prototype's `.mjs` style and dependency list do not constrain new code.
+- Define wire messages and runtime validators once in `protocol/`, shared by `plugin/` and `server/`. Update both ends together in this repo. `docs/PROTOCOL.md` describes only the unreleased prototype; milestone 1 starts a new protocol version 1 without prototype compatibility.
+- Store Decaid payloads as sent. Keep envelope validation separate from opaque Decaid data, accept unknown fields, and tolerate missing fields when extracting or displaying data. Machines run different Decaid and plugin versions.
+- Keep capture handlers idempotent and acknowledge a logical message only after storage completes. Follow the spec for chunking, reconnects and backfill.
+- Resolve Machine identity using the token, reported hardware and aliases as specified in ADR-0004 and milestone 1. Attribute Shots and Steam Records using their capture-time identity, with the specified inferred fallback.
+- Treat tokens as secrets: never log them or persist plaintext server-side. Store Machine token hashes; keep the plugin token in a secure setting.
+- Verify behavior through the spec's testing seams. For plugin integration, run the built plugin in a simulated or real Decaid host. Report the commands, results and any verification limits. See `docs/AI_BUILD_NOTES.md` before using the test tablet.
 - No emojis in comments or documentation.
 
-## Code Style
+## Working safely
 
-- Plain Node ESM (`.mjs`), no build step, no TypeScript.
-- Message handlers are `Session` methods named `on_<type>`; `handle()` dispatches by name. Add a new type by adding a method, not a switch.
-- Terminal output goes through `out()` and `detail()` so every line carries time, machine, and tag. Full payloads print only under `--full`.
-- Put rationale and debugging history in the matching `docs/AI_*_NOTES.md`, not in long code comments.
+- Preserve existing work and keep changes focused. Leave commits, pushes, tags, publication and PR creation to explicit user requests.
+- Treat any `data/` or configured prototype `DATA_DIR` as user data. Use a scratch directory for experiments; deletion, rewriting or migration needs explicit approval.
+- Install or update code on the test tablet only when explicitly asked. Use the simulated tablet for routine work.
+- Keep notes current when a reusable constraint changes; remove stale instructions.
 
-## Vocabulary
+## External sources
 
-Domain terms are defined in `GLOSSARY.md`. This table covers protocol and implementation terms.
+References written `<name>:<path>` are relative to that checkout. Use an existing checkout or the corresponding environment variable; paths are not assumed. If a checkout is absent, read the linked GitHub repository instead. Read the version under investigation (`git show <tag>:<path>`), and cite files and symbols rather than line numbers.
 
-| Term | Meaning |
-|------|---------|
-| machine | one piece of Decent hardware (see `GLOSSARY.md`), identified by `machineId` (`de1-<BLE MAC>`) |
-| session | one WebSocket connection after a successful `hello` |
-| collection | a whole list or settings object the plugin polls: `beans`, `beanBatches`, `grinders`, `profiles`, `appSettings`, `machineSettings`, `machineAdvancedSettings` |
-| backfill | shots the server requests with `requestShots` after comparing a `shotIndex` |
-| Decaid | the Flutter app on the tablet (internal name ReaPrime; plugin extension `.reaplugin`) |
+| Name | Source | Use |
+|---|---|---|
+| `decaid` | [decentespresso/decaid](https://github.com/decentespresso/decaid), `$DECAID_DIR` | Verify host behavior in source at the supported version; milestone 1's minimum is v0.8.6 |
+| `dye2` | [decentespresso/dye2](https://github.com/decentespresso/dye2), existing checkout | Verify recipe, equipment and basket storage shapes; milestone 1 reads them only |
+| `decent-sync-plugin` | [loganfuller/decent-sync-plugin](https://github.com/loganfuller/decent-sync-plugin), `$DECENT_SYNC_PLUGIN_DIR` | Archived prototype, read-only prior art. Its `scripts/dev-harness.mjs` is input to ticket #5, not the finished simulated tablet |
 
-## External Sources
+## Task references
 
-Paths written `<name>:<path>` are relative to that repo's root. Notes cite files and symbols, never line numbers, because line numbers change between versions.
-
-| Name | Repo | Which version to read |
-|------|------|-----------------------|
-| `decent-sync-plugin` | [loganfuller/decent-sync-plugin](https://github.com/loganfuller/decent-sync-plugin) | `main`; the two repos change together. Machines may run older plugin releases (`hello.pluginVersion`) |
-| `decaid` | [decentespresso/decaid](https://github.com/decentespresso/decaid) | the one the question is about: a machine's `hello.decaidVersion`, or `main` for upcoming changes. Payload shapes differ between versions |
-
-To read one, use `$DECENT_SYNC_PLUGIN_DIR` or `$DECAID_DIR` if set, or a checkout you already have; never assume where a checkout lives. `git show <tag>:<path>` reads a version without checking it out. Without a checkout: `gh api 'repos/<owner>/<repo>/contents/<path>?ref=<ref>' -H 'Accept: application/vnd.github.raw'`.
-
-## Deep References
-
-- Fast file routing: `docs/AI_REPO_MAP.md`.
-- Wire contract: `docs/PROTOCOL.md`.
-- Delivery, de-duplication, sessions, protocol evolution: `docs/AI_PROTOCOL_NOTES.md`.
-- `data/` layout, idempotent writes, collection diffing: `docs/AI_STORAGE_NOTES.md`.
-- Running, smoke-testing, and verifying against a machine: `docs/AI_BUILD_NOTES.md`.
-- The plugin and Decaid host constraints: `decent-sync-plugin:docs/AI_RUNTIME_NOTES.md`.
-
-## Agent skills
-
-### Issue tracker
-
-GitHub Issues on `loganfuller/decent-sync`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-The five default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
-
-## Don't
-
-- Don't change `docs/PROTOCOL.md` or a message shape without the matching plugin change.
-- Don't ack before persisting.
-- Don't touch `data/` outside a scratch `DATA_DIR` without approval.
-- Don't print secrets, even under `--full` or `--verbose`.
+- Plugin host, transport limits, events and upstream evidence: `docs/AI_RUNTIME_NOTES.md`.
+- Protocol ownership and compatibility: `docs/AI_PROTOCOL_NOTES.md`.
+- Capture storage and prototype inspection: `docs/AI_STORAGE_NOTES.md`.
+- Verification and real-tablet rules: `docs/AI_BUILD_NOTES.md`.
+- GitHub Issues and dependency conventions: `docs/agents/issue-tracker.md`.
+- Triage label meanings: `docs/agents/triage-labels.md`.
+- Glossary use and ADR conflicts: `docs/agents/domain.md`.

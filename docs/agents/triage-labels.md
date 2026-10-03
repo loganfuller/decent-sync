@@ -12,4 +12,4 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
-Edit the right-hand column to match whatever vocabulary you actually use.
+`ready-for-agent` describes specification readiness. Before starting, also check native blocking dependencies and the assignee; a labelled ticket may still be blocked.
