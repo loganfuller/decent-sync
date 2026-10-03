@@ -1,6 +1,6 @@
 # decent-sync
 
-Decent Sync connects Decent espresso machines (DE1Pro, DE1XL, DE1XXL, Bengle)
+Decent Sync connects Decent espresso machines (any DE1 model or a Bengle)
 running [Decaid](https://github.com/decentespresso/decaid) to one self-hosted
 server. The target design lets Machines at several Locations share a library
 of Beans, Bean Batches and Profiles. Machines at the same location share equipment, recipes and steam
@@ -59,7 +59,7 @@ protocol/                 internal wire types and runtime validators
 
 The plugin talks to the server over one WebSocket, and everything else uses the
 server's REST API. Once releases are published, Machines will install and update
-the plugin from this repo's GitHub releases (minimum Decaid v0.8.6):
+the plugin from this repo's GitHub releases (minimum Decaid v0.8.7):
 
 ```bash
 curl -X POST http://<tablet>:8080/api/v1/plugins/install/github-release \

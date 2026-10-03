@@ -5,19 +5,34 @@ Decent Sync keeps the coffee data of several Decent espresso machines, across on
 ## Hardware and places
 
 **Machine**:
-A piece of Decent espresso hardware: a DE1Pro, DE1XL, DE1XXL or Bengle. Identity follows the hardware, so replacing its tablet does not make it a new machine.
+A piece of Decent espresso hardware: any DE1 model (DE1, DE1+, DE1Pro, DE1XL, DE1Cafe, DE1XXL, DE1XXXL) or a Bengle. Identity follows the hardware, so replacing its tablet does not make it a new machine.
 _Avoid_: Device, DE1 (when any model is meant), station
 
 **Unidentified Machine**:
 A machine that has connected without reporting a real serial number, and that nobody has yet linked to a known machine.
 
+**Pending Machine**:
+Hardware the server has seen but no machine entry covers: a tablet connected with another machine's token while reporting different hardware (a mismatch), or a shot recorded on hardware the server doesn't know. An Admin either creates a machine entry for it or dismisses it.
+_Avoid_: Unknown machine, orphan
+
+**Token**:
+The secret a machine's plugin connects with. It belongs to one machine and is bound to the hardware that machine first reports.
+_Avoid_: Key, password, API key
+
 **Tablet**:
 The Android device running Decaid that is attached to a machine. It can be swapped or moved to another machine without changing the machine's identity.
 _Avoid_: Machine, client, install
 
+**Connection Id**:
+The id Decaid uses to reach a machine: a Bluetooth address or a USB id. The server remembers a machine's connection ids as aliases, but they are not its identity.
+_Avoid_: Machine id, MAC (when a USB id is possible)
+
 **Location**:
 A physical site where machines are used, such as a roastery lab or a cafe, with its own time zone. A machine can be unassigned; once assigned, it is at one location at a time. The machines at one location work like the groups of a single commercial espresso machine: they share equipment and recipes.
 _Avoid_: Site, store, shop, venue
+
+**Location History**:
+The record of which location a machine was at from which time. It decides the location each shot and steam record is credited to, and correcting it re-credits them.
 
 **Equipment**:
 Gear used alongside a machine that can be shared between machines without changing what the machine is: grinders, baskets, portafilters, drippers. Equipment belongs to a location.

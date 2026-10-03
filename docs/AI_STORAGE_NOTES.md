@@ -6,7 +6,7 @@ Milestone 1 uses PostgreSQL through Prisma (ADR-0007 and ADR-0011). Follow [the 
 
 Keep the Decaid record as sent, separating measurements into their own tables so lists do not load them. Extract analytics columns through optional fields. Record edits preserve existing measurements. Collections are the latest reported value per Machine in milestone 1; merging a shared library comes later.
 
-Shots and Steam Records are stored once by their Decaid ids and attributed using their recorded hardware identity, with the spec's inferred fallback. Never derive target storage ownership from the prototype's `machineId` directory. Workflow and state changes are timed events; the prototype's overwrite-only workflow file is not sufficient.
+Shots and Steam Records are stored once by their Decaid ids. Shots are credited by their recorded hardware, to a Machine or a Pending Machine, with ADR-0015's inferred fallback; Steam Records carry no hardware identity and are credited to the reporting Machine. Records deleted on a tablet stay on the server. Never derive target storage ownership from the prototype's `machineId` directory. Workflow and state changes are timed events; the prototype's overwrite-only workflow file is not sufficient.
 
 No prototype-data migration is required. The tablet backfills its history on adoption. Any data still present locally remains user data and requires approval before destructive changes.
 

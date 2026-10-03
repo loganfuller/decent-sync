@@ -12,11 +12,15 @@ Ticket #5 builds Seam 1 from prior art in the archived [plugin dev harness](http
 
 CI must verify that rebuilding the plugin leaves the committed bundle unchanged. Report verification commands and results, including anything not exercised.
 
+## Fixtures
+
+Fixtures are records Decaid produced: real records from the test tablet where they exist, otherwise records from a Decaid build running simulated devices (it has a mock Bengle with a milk probe). A derived fixture, such as a real Shot with its measurements repeated past 1 MiB, is allowed if its file or test names it as derived. Never hand-write a record shape. Trim fixtures, and scrub Barista names and notes before committing them: the repo is public.
+
 ## Real tablet
 
 The last documented test endpoint is the DE1Pro tablet at `http://192.168.4.33:8080`. Confirm its identity and reachability before using it; a LAN address is not a permanent identity. Decaid's API definitions are in `decaid:assets/api/rest_v1.yml`.
 
-The tablet API is unauthenticated on the LAN. Installing or updating a plugin executes code there: do so only when explicitly asked, including uploads through `PUT /api/v1/plugins/:id/source` and release installation. Install only this project's code. Use the simulated tablet for routine verification. Check the relevant Decaid source before relying on host behavior.
+The tablet API is unauthenticated on the LAN. Read-only `GET` requests, for example to gather fixtures, are allowed once its identity is confirmed. Any write needs an explicit request. Installing or updating a plugin executes code there: do so only when explicitly asked, including uploads through `PUT /api/v1/plugins/:id/source` and release installation. Install only this project's code. Use the simulated tablet for routine verification. Check the relevant Decaid source before relying on host behavior.
 
 ## Prototype inspection only
 
