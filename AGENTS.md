@@ -76,6 +76,20 @@ To read one, use `$DECENT_SYNC_PLUGIN_DIR` or `$DECAID_DIR` if set, or a checkou
 - Running, smoke-testing, and verifying against a machine: `docs/AI_BUILD_NOTES.md`.
 - The plugin and Decaid host constraints: `decent-sync-plugin:docs/AI_RUNTIME_NOTES.md`.
 
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `loganfuller/decent-sync`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
 ## Don't
 
 - Don't change `docs/PROTOCOL.md` or a message shape without the matching plugin change.
