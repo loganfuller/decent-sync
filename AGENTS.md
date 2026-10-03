@@ -2,7 +2,9 @@
 
 For unfamiliar or multi-file tasks, read `docs/AI_REPO_MAP.md` first. For known files or exact symbols, open them directly. Read the topic notes only when the task needs them; do not preload them all.
 
-decent-sync-server is the central half of Decent Sync. Each Decent espresso machine runs the `decent-sync.reaplugin` from the sibling repo `decent-sync-plugin`, which streams its data here over one WebSocket. The two repos share one wire contract, `docs/PROTOCOL.md`.
+**The target design is in `GLOSSARY.md` and `docs/adr/`, and it replaces the prototype.** The rest of this file describes the receive-only prototype in `server.mjs`. Where the two disagree (stack, storage, identity, repo layout), the ADRs win.
+
+decent-sync is the central half of Decent Sync. Each Decent espresso machine runs the `decent-sync.reaplugin` from the sibling repo `decent-sync-plugin`, which streams its data here over one WebSocket. The two repos share one wire contract, `docs/PROTOCOL.md`.
 
 ## Quick Commands
 
@@ -44,9 +46,11 @@ node --check server.mjs                       # syntax check
 
 ## Vocabulary
 
+Domain terms are defined in `GLOSSARY.md`. This table covers protocol and implementation terms.
+
 | Term | Meaning |
 |------|---------|
-| machine | one Decent espresso machine plus its Decaid tablet, identified by `machineId` (`de1-<BLE MAC>`) |
+| machine | one piece of Decent hardware (see `GLOSSARY.md`), identified by `machineId` (`de1-<BLE MAC>`) |
 | session | one WebSocket connection after a successful `hello` |
 | collection | a whole list or settings object the plugin polls: `beans`, `beanBatches`, `grinders`, `profiles`, `appSettings`, `machineSettings`, `machineAdvancedSettings` |
 | backfill | shots the server requests with `requestShots` after comparing a `shotIndex` |

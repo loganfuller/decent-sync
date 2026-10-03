@@ -1,9 +1,10 @@
 {
-  "name": "decent-sync-server",
+  "name": "decent-sync",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Central sync server for Decent espresso machines running Decaid",
+  "description": "Sync and manage Decent espresso machines across locations",
+  "license": "MIT",
   "scripts": {
     "start": "node server.mjs"
   },

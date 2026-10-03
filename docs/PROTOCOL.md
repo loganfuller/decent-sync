@@ -1,6 +1,6 @@
 # Decent Sync protocol (v1)
 
-This is the wire contract between `decent-sync-server` and `decent-sync-plugin`.
+This is the wire contract between `decent-sync` and `decent-sync-plugin`.
 This file is the authoritative copy. If you change it, update both repos.
 
 ## Transport
