@@ -1,7 +1,10 @@
 name: CI
 
+# Pull requests run on their merge result; main runs again after each merge.
+# Branches without a pull request get no CI.
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
