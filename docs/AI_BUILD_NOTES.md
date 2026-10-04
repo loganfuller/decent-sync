@@ -16,7 +16,7 @@ Vitest tests that need build output (the committed plugin, the compiled server) 
 
 ## Releases
 
-`.github/workflows/release.yml` publishes on a pushed `vX.Y.Z` tag: it checks the tag against the committed manifest (`scripts/check-release-tag.mjs`), waits for CI to have passed on the tagged commit (it does not run CI again), pushes the server image to GHCR, then creates the GitHub release with the one plugin ZIP. The README's Releasing section has the procedure. Pushing a release tag publishes to every Machine that installed by repo name, so tag, push or create releases only when explicitly asked. To check packaging, run `npm run package:plugin` and `docker compose up --build` locally; use a separate Compose project name and ports (`-p`, `DECENT_SYNC_PORT`, `POSTGRES_PORT`) when the development database is already running.
+`.github/workflows/release.yml` publishes on a pushed `vX.Y.Z` tag: it checks the tag against the committed manifest (`scripts/check-release-tag.mjs`), waits for CI to have passed on the tagged commit as a push to `main` (it does not run CI again, and pull request runs do not count because they test a merge with `main`), pushes the server image to GHCR, then creates the GitHub release with the one plugin ZIP. The README's Releasing section has the procedure. Pushing a release tag publishes to every Machine that installed by repo name, so tag, push or create releases only when explicitly asked. To check packaging, run `npm run package:plugin` and `docker compose up --build` locally; use a separate Compose project name and ports (`-p`, `DECENT_SYNC_PORT`, `POSTGRES_PORT`) when the development database is already running.
 
 ## Fixtures
 

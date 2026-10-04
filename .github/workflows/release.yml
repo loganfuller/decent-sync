@@ -34,9 +34,10 @@ jobs:
       - name: Check the tag matches the plugin manifest's version
         run: node scripts/check-release-tag.mjs "$GITHUB_REF_NAME"
 
-      # CI has already run on the tagged commit, on main or its pull request,
-      # so use that result instead of running it again. A tag pushed right
-      # after a merge waits for main's run to start and finish.
+      # CI has already run on the tagged commit when it landed on main, so use
+      # that result instead of running it again. Only main's push runs count:
+      # pull request runs test a merge with main, not the tagged tree. A tag
+      # pushed right after a merge waits for main's run to start and finish.
       - name: Wait for CI to pass on the tagged commit
         env:
           GH_TOKEN: ${{ github.token }}
@@ -44,12 +45,12 @@ jobs:
           sha=$(git rev-parse HEAD)
           run=""
           for _ in $(seq 30); do
-            run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$sha" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+            run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --event push --branch main --commit "$sha" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
             [ -n "$run" ] && break
             sleep 10
           done
           if [ -z "$run" ]; then
-            echo "::error::CI has not run on $sha. Tag a commit on main or on a pull request."
+            echo "::error::CI has not run on $sha as a push to main. Tag a commit on main."
             exit 1
           fi
           gh run watch "$run" --repo "$GITHUB_REPOSITORY" --exit-status --interval 30 > /dev/null
