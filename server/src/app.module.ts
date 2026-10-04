@@ -4,6 +4,7 @@ import { AccountsModule } from "./accounts/accounts.module.js";
 import type { Config } from "./config.js";
 import { ConfigModule } from "./config.module.js";
 import { HealthController } from "./health.controller.js";
+import { LocationsModule } from "./locations/locations.module.js";
 import { PrismaModule } from "./prisma.module.js";
 
 @Module({})
@@ -15,6 +16,7 @@ export class AppModule {
         ConfigModule.register(config),
         PrismaModule,
         AccountsModule,
+        LocationsModule,
         // The management interface is a single-page app: unknown paths outside
         // the API fall back to its index.html.
         ServeStaticModule.forRoot({

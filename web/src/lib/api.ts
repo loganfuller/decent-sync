@@ -36,3 +36,10 @@ export interface Account {
   name: string;
   role: "admin" | "staff";
 }
+
+export interface Location {
+  id: string;
+  name: string;
+  /** An IANA time zone, such as America/Chicago. */
+  timeZone: string;
+}
