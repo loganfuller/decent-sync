@@ -24,7 +24,10 @@ import WebSocket from "ws";
 // - Unloading calls onUnload, then cancels the generation's timers and closes
 //   its transports, dropping their later events.
 // - Timers are the host's, so a test can run them faster with `timeScale` to
-//   reach the plugin's timeouts and backoff quickly.
+//   reach the plugin's timeouts and backoff quickly. The heartbeat interval
+//   in the server's `welcome` is real time, so it is slowed by the same
+//   factor: a sped-up plugin still heartbeats, and expects the server's
+//   answers, at the server's pace.
 //
 // RawConnection is the raw-frame mode, for protocol cases the plugin never
 // produces.
@@ -306,7 +309,7 @@ export class SimulatedTablet {
       const buffer = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer);
       const event = isBinary
         ? { type: "data", dataType: "binary", data: buffer.toString("base64") }
-        : { type: "data", dataType: "text", data: buffer.toString("utf8") };
+        : { type: "data", dataType: "text", data: this.atServerPace(buffer.toString("utf8")) };
       this.enqueue(record, event, buffer.length);
     });
     socket.on("error", (error) => {
@@ -314,6 +317,18 @@ export class SimulatedTablet {
     });
     socket.on("close", (code, reason) => this.terminate(record, failure, "transport_error", code, reason.toString()));
     return { handle: record.handle, ...(socket.protocol ? { protocol: socket.protocol } : {}) };
+  }
+
+  /** Scales the heartbeat interval in a `welcome` up by `timeScale`, which the plugin's timers then scale back down. */
+  private atServerPace(text: string): string {
+    if (this.timeScale === 1) return text;
+    try {
+      const message = JSON.parse(text) as { type?: unknown; heartbeatIntervalMs?: unknown };
+      if (message.type !== "welcome" || typeof message.heartbeatIntervalMs !== "number") return text;
+      return JSON.stringify({ ...message, heartbeatIntervalMs: message.heartbeatIntervalMs * this.timeScale });
+    } catch {
+      return text;
+    }
   }
 
   private onEvent(handle: string, listener: (event: TransportEvent) => void): void {

@@ -5,10 +5,12 @@ import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnModuleD
 import { HttpAdapterHost } from "@nestjs/core";
 import {
   CLOSE_CODES,
+  type Decoded,
   type ErrorCode,
   type Hello,
   MISSED_HEARTBEATS,
   PROTOCOL_VERSION,
+  type PluginMessage,
   SYNC_PATH,
   type ServerMessage,
   decodePluginMessage,
@@ -49,6 +51,8 @@ interface Session {
   live?: LiveConnection;
   /** Frames are handled one at a time, in the order they arrived. */
   queue: Promise<void>;
+  /** Set once `welcome` is sent. */
+  welcomed: boolean;
   closing: boolean;
   helloTimer?: NodeJS.Timeout;
   idleTimer?: NodeJS.Timeout;
@@ -137,6 +141,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       socket,
       remote: request.socket.remoteAddress ?? "an unknown address",
       queue: Promise.resolve(),
+      welcomed: false,
       closing: false,
     };
     this.connections.add(session);
@@ -146,9 +151,11 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     );
 
     socket.on("message", (data, isBinary) => {
+      const decoded = isBinary ? undefined : decodePluginMessage(rawToString(data));
+      const answered = decoded?.ok === true && decoded.message.type === "heartbeat" && this.answerHeartbeat(session);
       session.queue = this.track(
         session.queue
-          .then(() => this.receive(session, data, isBinary))
+          .then(() => this.receive(session, decoded, answered))
           .catch((error: unknown) => {
             this.logger.error(`Failed handling a message from ${this.describe(session)}: ${String(error)}`);
             this.end(session, INTERNAL_ERROR, "Server error");
@@ -160,11 +167,24 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     socket.on("error", (error) => this.logger.warn(`Sync connection from ${this.describe(session)} failed: ${error.message}`));
   }
 
-  private async receive(session: Session, data: RawData, isBinary: boolean): Promise<void> {
-    if (session.closing) return;
-    if (isBinary) return this.refuse(session, "protocol_error", "Messages must be sent as text frames");
+  /**
+   * Answers a welcomed connection's heartbeat as it arrives, rather than after
+   * earlier messages and the database work they wait on, so a slow database
+   * does not make either end give up on a working connection. Says whether
+   * it did.
+   */
+  private answerHeartbeat(session: Session): boolean {
+    if (!session.welcomed || session.closing) return false;
+    this.resetIdleTimer(session);
+    this.send(session, { type: "heartbeat" });
+    return true;
+  }
 
-    const decoded = decodePluginMessage(rawToString(data));
+  /** Handles a frame in turn: `decoded` is undefined for a binary frame, and `answered` says a heartbeat was answered on arrival. */
+  private async receive(session: Session, decoded: Decoded<PluginMessage> | undefined, answered: boolean): Promise<void> {
+    if (session.closing) return;
+    if (!decoded) return this.refuse(session, "protocol_error", "Messages must be sent as text frames");
+
     if (!decoded.ok) {
       // A hello of an unsupported version: its Machine, if the token is valid, shows why.
       if (!session.machine && decoded.token !== undefined) await this.recordVersionRefusal(decoded.token, decoded.problem);
@@ -180,9 +200,11 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       case "hello":
         return this.refuse(session, "protocol_error", "hello was already sent on this connection");
       case "heartbeat":
-        this.resetIdleTimer(session);
-        // Answered before the database is, so a slow one does not make the plugin give up on a working connection.
-        this.send(session, { type: "heartbeat" });
+        // One sent before its connection was welcomed is answered now.
+        if (!answered) {
+          this.resetIdleTimer(session);
+          this.send(session, { type: "heartbeat" });
+        }
         if (session.live) {
           const live = session.live;
           await this.enforce([live], async () => [await this.machines.heard(live)]);
@@ -218,6 +240,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     if (session.closing) return;
 
     this.send(session, { type: "welcome", protocolVersion: PROTOCOL_VERSION, heartbeatIntervalMs: this.config.heartbeatIntervalMs });
+    session.welcomed = true;
     this.resetIdleTimer(session);
     this.logger.log(
       `Machine ${machine.name} connected from ${session.remote}: plugin ${hello.pluginVersion}, Decaid ${hello.decaidVersion ?? "unknown"}, ${describeIdentity(identity, hardware)}`,
