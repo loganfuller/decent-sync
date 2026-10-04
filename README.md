@@ -21,9 +21,10 @@ domain behavior yet. The receive-only prototype (`server.mjs`) remains until
 define the build scope. The shared-library behavior below comes in later milestones;
 milestone 1 captures data without pushing changes to tablets.
 
-The release workflow and self-hosting packaging are in place, but no release has
-been published yet. Until the first one, the image and plugin ZIP below exist
-only when built from a checkout: `docker compose up` there builds the image.
+Releases publish the server image and the plugin ZIP, starting with
+[v0.1.0](https://github.com/loganfuller/decent-sync/releases/tag/v0.1.0). Until
+milestone 1's capture work lands, the plugin only loads and the server only
+serves a placeholder page.
 
 ## Design
 
@@ -259,9 +260,6 @@ commit, publishes the server image (amd64 and arm64) to
 creates the GitHub release with `decent-sync.reaplugin-v0.2.0.zip` as its only
 asset. Decaid's release install and update read the latest release, and refuse
 prerelease-style tags, so publish only versions meant for every Machine.
-
-After the first release, make the container package public in its GitHub
-package settings so self-hosters can pull it without signing in.
 
 ## Milestones
 
