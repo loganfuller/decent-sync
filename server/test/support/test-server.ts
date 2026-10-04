@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import pg from "pg";
 
 // Runs the built server (`npm run build` first) as a self-hoster does, on its
@@ -13,6 +13,7 @@ import pg from "pg";
 
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const main = path.join(repoDir, "server/dist/main.js");
+const clockOffset = path.join(repoDir, "server/test/support/clock-offset.mjs");
 
 export interface TestServer {
   /** The server's origin, for example http://127.0.0.1:41234. */
@@ -39,6 +40,8 @@ export interface TestServerOptions {
   env?: Record<string, string>;
   /** Runs another instance on this server's database instead of a fresh one, as a horizontally scaled deployment does. */
   sharing?: TestServer;
+  /** Runs the server with its clock this far ahead of real time (behind if negative), as on a drifting host. */
+  clockOffsetMs?: number;
 }
 
 export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
@@ -60,6 +63,9 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
       PUBLIC_URL: options.publicUrl ?? url,
       HOST: "127.0.0.1",
       PORT: String(port),
+      ...(options.clockOffsetMs === undefined
+        ? {}
+        : { NODE_OPTIONS: `--import=${pathToFileURL(clockOffset).href}`, TEST_CLOCK_OFFSET_MS: String(options.clockOffsetMs) }),
       ...options.env,
     },
     stdio: ["ignore", "pipe", "pipe"],

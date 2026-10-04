@@ -32,9 +32,10 @@ const ENDED = Prisma.sql`w.started_at <= now() - ${WINDOW}`;
  *
  * Counts live in PostgreSQL (`sign_in_windows`), so every server instance
  * enforces one limit and a restart keeps it (ADR-0016). Windows start and end
- * by the database's clock, and each attempt is counted by one statement that
- * locks the email's row. It is keyed by email, not client address, because
- * behind a hosting proxy (fly.io) every client can share one address.
+ * by the database's clock, and one statement that locks the email's row both
+ * counts each attempt and decides it. It is keyed by email, not client
+ * address, because behind a hosting proxy (fly.io) every client can share one
+ * address.
  */
 @Injectable()
 export class SignInLimiter {
@@ -49,26 +50,24 @@ export class SignInLimiter {
     await this.prisma.$executeRaw`
       DELETE FROM sign_in_windows AS w WHERE ${ENDED}`;
 
-    // A window that ended since is restarted here rather than counted on.
-    const counted = await this.prisma.$queryRaw<unknown[]>`
+    // A window that ended since is restarted here rather than counted on. An
+    // email over the limit is counted as one attempt past it, so the decision
+    // and the wait both come from its row, locked by this statement.
+    const [row] = await this.prisma.$queryRaw<{ attempts: number; seconds: number }[]>`
       INSERT INTO sign_in_windows AS w (email, attempts)
       SELECT ${email}, 1
       WHERE EXISTS (SELECT 1 FROM sign_in_windows WHERE email = ${email})
          OR (SELECT count(*) FROM sign_in_windows) < ${CAPACITY}
       ON CONFLICT (email) DO UPDATE SET
-        attempts = CASE WHEN ${ENDED} THEN 1 ELSE w.attempts + 1 END,
+        attempts = CASE WHEN ${ENDED} THEN 1 ELSE least(w.attempts + 1, ${MAX_ATTEMPTS + 1}) END,
         started_at = CASE WHEN ${ENDED} THEN now() ELSE w.started_at END
-      WHERE ${ENDED} OR w.attempts < ${MAX_ATTEMPTS}
-      RETURNING 1`;
-    if (counted.length > 0) return undefined;
+      RETURNING w.attempts, ceil(extract(epoch FROM w.started_at + ${WINDOW} - now()))::int AS seconds`;
+    if (row) return row.attempts > MAX_ATTEMPTS ? Math.max(row.seconds, 1) : undefined;
 
-    // Refused: the email's window ends, or, when the table is full, the oldest.
-    // Either may have ended or gone meanwhile, and then the wait is a second.
+    // Not tracked, and every slot holds a live window: wait for the oldest to
+    // end. It may have ended meanwhile, and then the wait is a second.
     const [{ seconds }] = await this.prisma.$queryRaw<[{ seconds: number | null }]>`
-      SELECT ceil(extract(epoch FROM coalesce(
-        (SELECT started_at FROM sign_in_windows WHERE email = ${email}),
-        (SELECT min(started_at) FROM sign_in_windows)
-      ) + ${WINDOW} - now()))::int AS seconds`;
+      SELECT ceil(extract(epoch FROM min(started_at) + ${WINDOW} - now()))::int AS seconds FROM sign_in_windows`;
     return Math.max(seconds ?? 1, 1);
   }
 
