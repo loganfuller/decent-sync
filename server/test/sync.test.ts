@@ -2,8 +2,8 @@ import net from "node:net";
 import { CLOSE_CODES, PROTOCOL_VERSION } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import { AdminApi, type MachineView, helloWith, settingsFor } from "./support/admin-api.js";
-import { RawConnection, SimulatedTablet } from "./support/simulated-tablet.js";
+import { AdminApi, type MachineView } from "./support/admin-api.js";
+import { RawConnection, SimulatedTablet, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1: machine entries created through the REST API, simulated tablets

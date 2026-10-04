@@ -207,10 +207,12 @@ checks, or when you press **Check for updates** under Plugins
 permissions waits under Plugins for approval.
 
 Then enter the server URL and the Machine's token in the plugin's settings.
-Both are shown once, when an Admin creates the Machine's entry
-(`POST /api/machines` until the management interface has a Machines page).
-The plugin connects to `ws(s)://<server host>/sync`, derived from the server
-URL, and the Machine shows as online.
+Both are shown once, with copy buttons, when an Admin creates the Machine's
+entry under **Machines** in the management interface. A lost token can't be
+shown again: issue a new one from the Machine's page, which disconnects any
+tablet still using the old one. The plugin connects to
+`ws(s)://<server host>/sync`, derived from the server URL, and the Machine
+shows as online.
 
 | Setting | |
 |---|---|
