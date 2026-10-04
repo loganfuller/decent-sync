@@ -12,6 +12,8 @@ export interface SyncSettings {
 }
 
 const DEFAULT_POLL_SECONDS = 30;
+/** Each poll reads Decaid's API; anything shorter is raised to this. */
+export const MIN_POLL_SECONDS = 5;
 
 /** The settings needed to connect, or what is missing or wrong, for the log. */
 export function readSettings(settings: PluginSettings): { ok: true; settings: SyncSettings } | { ok: false; problems: string[] } {
@@ -27,7 +29,8 @@ export function readSettings(settings: PluginSettings): { ok: true; settings: Sy
   if (!token) problems.push("Token is not set");
 
   const poll = Number(settings.PollSeconds);
-  const pollSeconds = settings.PollSeconds !== undefined && Number.isFinite(poll) && poll > 0 ? poll : DEFAULT_POLL_SECONDS;
+  const pollSeconds =
+    settings.PollSeconds !== undefined && Number.isFinite(poll) && poll > 0 ? Math.max(poll, MIN_POLL_SECONDS) : DEFAULT_POLL_SECONDS;
 
   if (problems.length > 0) return { ok: false, problems };
   return { ok: true, settings: { syncUrl: syncUrl!, token, pollSeconds } };

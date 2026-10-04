@@ -29,7 +29,7 @@
       "type": "number",
       "label": "Poll interval (seconds)",
       "default": 30,
-      "description": "How often to check the library, settings and paired devices for changes."
+      "description": "How often to check the machine, library, settings and paired devices for changes. At least 5."
     }
   },
   "api": []

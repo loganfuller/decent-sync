@@ -69,22 +69,57 @@ model Location {
   @@map("locations")
 }
 
+/// How a Machine's identity stood at the last accepted `hello` from its
+/// token (ADR-0004, ADR-0015), or since an Admin entered its hardware.
+enum MachineIdentification {
+  /// Its token has not reported hardware yet: it never connected, or its
+  /// tablet's machine was off and its connection id is not a known alias.
+  HARDWARE_NOT_REPORTED
+  IDENTIFIED
+  /// Its machine reports no real serial ("0" or none).
+  UNIDENTIFIED
+  /// Its token reported real hardware other than the hardware it is bound to.
+  MISMATCH
+
+  @@map("machine_identification")
+}
+
 /// A piece of Decent espresso hardware, adopted by an Admin creating its
 /// machine entry. Its identity is its model and serial (ADR-0004), bound when
-/// a connection with its token first reports real ones.
+/// a connection with its token first reports real ones, or entered by an Admin.
 model Machine {
-  id         String    @id @default(uuid(7)) @db.Uuid
+  id             String                @id @default(uuid(7)) @db.Uuid
   /// Stored trimmed; unique so lists and choosers name a Machine unambiguously.
-  name       String    @unique
-  /// Null until the hardware is bound.
-  model      String?
-  serial     String?
+  name           String                @unique
+  /// The hardware its token is bound to; null until bound.
+  model          String?
+  serial         String?
+  identification MachineIdentification @default(HARDWARE_NOT_REPORTED)
+  /// The hardware the latest `hello` that reported any did, as reported:
+  /// for a mismatch, the other hardware; for an Unidentified Machine, its "0".
+  reportedModel  String?               @map("reported_model")
+  reportedSerial String?               @map("reported_serial")
+  firmware       String?
+  /// The connection id, plugin and Decaid versions of the latest accepted `hello`.
+  connectionId   String?               @map("connection_id")
+  pluginVersion  String?               @map("plugin_version")
+  decaidVersion  String?               @map("decaid_version")
+  /// Why a connection with its token was last refused, until one is accepted.
+  refusalReason  String?               @map("refusal_reason")
+  refusedAt      DateTime?             @map("refused_at") @db.Timestamptz(3)
   /// When a plugin connected with its token was last heard from.
-  lastSeenAt DateTime? @map("last_seen_at") @db.Timestamptz(3)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  lastSeenAt     DateTime?             @map("last_seen_at") @db.Timestamptz(3)
+  /// The connection that holds the Machine, on whichever server instance:
+  /// written when a hello is accepted, cleared when that connection closes.
+  /// Online while set and heard from recently, so a crashed instance's
+  /// connections go offline by themselves.
+  connectedSessionId String?           @map("connected_session_id") @db.Uuid
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  tokens MachineToken[]
+  tokens            MachineToken[]
+  aliases           MachineAlias[]
+  dismissedHardware DismissedHardware[]
 
   /// One Machine per piece of hardware. Unbound Machines (nulls) never clash.
   @@unique([model, serial])
@@ -104,4 +139,49 @@ model MachineToken {
 
   @@index([machineId])
   @@map("machine_tokens")
+}
+
+/// A connection id (Decaid's preferredMachineId: a Bluetooth address or a USB
+/// id) shown to belong to a Machine. It recognises the Machine when its
+/// hardware cannot, but is not its identity. USB ids can repeat across
+/// tablets, so the same id may be an alias of several Machines.
+model MachineAlias {
+  machineId    String   @map("machine_id") @db.Uuid
+  machine      Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  connectionId String   @map("connection_id")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@id([machineId, connectionId])
+  @@map("machine_aliases")
+}
+
+/// Hardware the server has seen that no Machine has: reported by a tablet
+/// connected with another Machine's token (a mismatch), or, from ticket #9,
+/// named by a Shot. An Admin creates a machine entry for it, which takes over
+/// what was held for it, or dismisses it.
+model PendingMachine {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  model       String
+  serial      String
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// When a connection last reported it.
+  lastSeenAt  DateTime? @map("last_seen_at") @db.Timestamptz(3)
+  /// Dismissed Pending Machines stay, so creating a machine entry later restores what they hold.
+  dismissedAt DateTime? @map("dismissed_at") @db.Timestamptz(3)
+
+  @@unique([model, serial])
+  @@map("pending_machines")
+}
+
+/// Hardware an Admin dismissed for one reporting Machine. Connections using
+/// that Machine's tokens are refused for this hardware, including after token rotation.
+model DismissedHardware {
+  machineId String   @map("machine_id") @db.Uuid
+  machine   Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  model     String
+  serial    String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@id([machineId, model, serial])
+  @@map("dismissed_hardware")
 }

@@ -20,7 +20,7 @@ export const OLDEST_SUPPORTED_PROTOCOL_VERSION = 1;
 export const SYNC_PATH = "/sync";
 
 /** Why the server refused or ended a connection, sent in an `error` before it closes. */
-export type ErrorCode = "protocol_error" | "bad_token" | "plugin_too_old" | "replaced";
+export type ErrorCode = "protocol_error" | "bad_token" | "plugin_too_old" | "replaced" | "hardware_dismissed";
 
 /** The WebSocket close code that goes with each error. */
 export const CLOSE_CODES: Readonly<Record<ErrorCode, number>> = {
@@ -32,6 +32,11 @@ export const CLOSE_CODES: Readonly<Record<ErrorCode, number>> = {
   plugin_too_old: 4002,
   /** A newer connection with the same token took over. */
   replaced: 4003,
+  /**
+   * An Admin dismissed the hardware this tablet reports for this token: its
+   * machine is not the one the token was issued for.
+   */
+  hardware_dismissed: 4004,
 };
 
 /** The hardware a machine reports while it is connected to its tablet. */
@@ -41,6 +46,37 @@ export interface MachineHardware {
   /** The serial number; older DE1s report "0". */
   serial: string;
   firmware?: string | null;
+}
+
+/**
+ * A machine's identity: its model and serial together, so the same serial on
+ * another model is other hardware. Both ends compare reports with the helpers
+ * below, so they agree on what is the same hardware.
+ */
+export interface Hardware {
+  model: string;
+  serial: string;
+}
+
+/** Whether a serial identifies hardware: not empty, and not the "0" older DE1s report. */
+export function isRealSerial(serial: string): boolean {
+  const trimmed = serial.trim();
+  return trimmed !== "" && trimmed !== "0";
+}
+
+/** The reported model and serial, trimmed, if they name real hardware. */
+export function realHardware(reported: MachineHardware | null | undefined): Hardware | null {
+  if (!reported) return null;
+  const model = reported.model.trim();
+  const serial = reported.serial.trim();
+  if (model === "" || !isRealSerial(serial)) return null;
+  return { model, serial };
+}
+
+/** Whether two reports name the same hardware: model and serial, trimmed, whatever the firmware. Two absent reports are the same. */
+export function sameHardware(a: Hardware | null, b: Hardware | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.model.trim() === b.model.trim() && a.serial.trim() === b.serial.trim();
 }
 
 /** The plugin's first message on every connection. */
@@ -83,7 +119,16 @@ export type ServerMessage = Welcome | ErrorMessage;
 
 export type Decoded<T> =
   | { ok: true; message: T }
-  | { ok: false; error: Extract<ErrorCode, "protocol_error" | "plugin_too_old">; problem: string };
+  | {
+      ok: false;
+      error: Extract<ErrorCode, "protocol_error" | "plugin_too_old">;
+      problem: string;
+      /**
+       * The token of a `hello` refused for its protocol version, so the server
+       * can show the reason on that token's Machine. Never log it.
+       */
+      token?: string;
+    };
 
 export function encode(message: PluginMessage | ServerMessage): string {
   return JSON.stringify(message);
@@ -104,15 +149,21 @@ export function decodePluginMessage(frame: string): Decoded<PluginMessage> {
       if (typeof version !== "number" || !Number.isInteger(version)) {
         return invalid("hello.protocolVersion must be a whole number");
       }
+      // A hello of another version need not have today's fields, but a string token is kept.
+      const token = typeof object.token === "string" && object.token !== "" ? { token: object.token } : {};
       if (version < OLDEST_SUPPORTED_PROTOCOL_VERSION) {
         return {
           ok: false,
           error: "plugin_too_old",
           problem: `The plugin speaks protocol version ${version}, but this server needs ${OLDEST_SUPPORTED_PROTOCOL_VERSION} or newer: update the plugin`,
+          ...token,
         };
       }
       if (version > PROTOCOL_VERSION) {
-        return invalid(`The plugin speaks protocol version ${version}, newer than this server's ${PROTOCOL_VERSION}: update the server`);
+        return {
+          ...invalid(`The plugin speaks protocol version ${version}, newer than this server's ${PROTOCOL_VERSION}: update the server`),
+          ...token,
+        };
       }
       return check<Hello>(object, "hello", (fields) => {
         fields.string("token", { nonEmpty: true });

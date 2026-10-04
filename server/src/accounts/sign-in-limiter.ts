@@ -25,10 +25,10 @@ interface Attempts {
  * emails could lift a lockout. When every slot holds a live window, emails
  * not already tracked are refused until the oldest window ends.
  *
- * Kept in memory: one server instance is enough for v1 (ADR-0011), and a
- * restart only forgets recent failures. It is keyed by email, not client
- * address, because behind a hosting proxy (fly.io) every client can share one
- * address.
+ * Kept in memory, so each server instance counts attempts separately and a
+ * restart forgets recent failures. Deployments run one instance until these
+ * counts move to PostgreSQL. It is keyed by email, not client address,
+ * because behind a hosting proxy (fly.io) every client can share one address.
  */
 export class SignInLimiter {
   /** In order of window start, oldest first. */

@@ -17,9 +17,19 @@ const main = path.join(repoDir, "server/dist/main.js");
 export interface TestServer {
   /** The server's origin, for example http://127.0.0.1:41234. */
   url: string;
+  /** The test database it uses. */
+  database: string;
   /** Everything the server has written to stdout and stderr so far. */
   output(): string;
+  /** Shuts the server down as a self-hoster's stop does, then drops its database unless it shares another's. */
   stop(): Promise<void>;
+  /** Kills the server without letting it shut down, as a crash does. */
+  kill(): Promise<void>;
+  /**
+   * A client of its database, for changes the server is not told about, or
+   * locks held while it works. The caller ends it.
+   */
+  connectDatabase(): Promise<pg.Client>;
 }
 
 export interface TestServerOptions {
@@ -27,12 +37,14 @@ export interface TestServerOptions {
   publicUrl?: string;
   /** Further environment variables, such as SYNC_HELLO_TIMEOUT_SECONDS. */
   env?: Record<string, string>;
+  /** Runs another instance on this server's database instead of a fresh one, as a horizontally scaled deployment does. */
+  sharing?: TestServer;
 }
 
 export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
   const baseUrl = adminDatabaseUrl();
-  const database = `decent_sync_test_${randomBytes(6).toString("hex")}`;
-  await withClient(baseUrl, (client) => client.query(`CREATE DATABASE "${database}"`));
+  const database = options.sharing?.database ?? `decent_sync_test_${randomBytes(6).toString("hex")}`;
+  if (!options.sharing) await withClient(baseUrl, (client) => client.query(`CREATE DATABASE "${database}"`));
 
   const databaseUrl = new URL(baseUrl);
   databaseUrl.pathname = `/${database}`;
@@ -57,7 +69,13 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
 
   const stop = async () => {
     await terminate(child);
-    await withClient(baseUrl, (client) => client.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`));
+    if (!options.sharing) await withClient(baseUrl, (client) => client.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`));
+  };
+  const kill = async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+    child.kill("SIGKILL");
+    await exited;
   };
 
   try {
@@ -66,7 +84,12 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     await stop();
     throw error;
   }
-  return { url, output: () => output.join(""), stop };
+  const connectDatabase = async () => {
+    const client = new pg.Client({ connectionString: databaseUrl.href });
+    await client.connect();
+    return client;
+  };
+  return { url, database, output: () => output.join(""), stop, kill, connectDatabase };
 }
 
 function adminDatabaseUrl(): string {

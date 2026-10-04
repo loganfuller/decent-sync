@@ -38,8 +38,17 @@ var __decentSync = (() => {
     /** The plugin speaks a protocol version older than the server supports. */
     plugin_too_old: 4002,
     /** A newer connection with the same token took over. */
-    replaced: 4003
+    replaced: 4003,
+    /**
+     * An Admin dismissed the hardware this tablet reports for this token: its
+     * machine is not the one the token was issued for.
+     */
+    hardware_dismissed: 4004
   };
+  function sameHardware(a, b) {
+    if (a === null || b === null) return a === b;
+    return a.model.trim() === b.model.trim() && a.serial.trim() === b.serial.trim();
+  }
   function encode(message) {
     return JSON.stringify(message);
   }
@@ -121,13 +130,16 @@ var __decentSync = (() => {
   // src/decaid.ts
   var API = "http://localhost:8080/api/v1";
   async function readTabletIdentity() {
-    const [info, settings, machine] = await Promise.all([getObject("/info"), getObject("/settings"), getObject("/machine/info")]);
+    const [info, settings, machine] = await Promise.all([getObject("/info"), getObject("/settings"), readMachineHardware()]);
     return {
       decaidVersion: stringField(info, "fullVersion"),
       // Decaid keeps the preferred machine's id, so it is known before the machine connects.
       connectionId: stringField(settings, "preferredMachineId"),
-      machine: readHardware(machine)
+      machine
     };
+  }
+  async function readMachineHardware() {
+    return readHardware(await getObject("/machine/info"));
   }
   function readHardware(info) {
     const model = info?.model;
@@ -155,6 +167,7 @@ var __decentSync = (() => {
   var MAX_RECONNECT_MS = 6e4;
   var CONNECT_TIMEOUT_MS = 15e3;
   var MAX_TRANSPORTS = 8;
+  var HARDWARE_CHECK_COOLDOWN_MS = 5e3;
   var FINAL_CLOSES = /* @__PURE__ */ new Map([
     [CLOSE_CODES.bad_token, "The server refused the token. Enter the token shown when the machine entry was created, or a newly issued one."],
     [CLOSE_CODES.plugin_too_old, "The server needs a newer version of this plugin. Update the plugin."],
@@ -176,10 +189,26 @@ var __decentSync = (() => {
       /** Transports opening, open or closing, as Decaid counts them against MAX_TRANSPORTS. */
       __publicField(this, "transportsInUse", 0);
       __publicField(this, "timers", /* @__PURE__ */ new Map());
+      /** The hardware the latest `hello` reported, null while no machine was connected. */
+      __publicField(this, "sentHardware", null);
+      /** Hardware the server dismissed for this token; while set, the plugin does not connect. */
+      __publicField(this, "dismissedHardware", null);
+      __publicField(this, "checkingHardware", false);
+      __publicField(this, "hardwareCooldown", false);
     }
     /** Connects from a timer, so the caller (onLoad) returns at once. */
     start() {
       this.setTimer("reconnect", 0, () => void this.connect());
+      this.scheduleHardwarePoll();
+    }
+    /** A machine state update: the machine is connected, and may have just reported its hardware. */
+    machineActive() {
+      if (this.stopped || this.hardwareCooldown) return;
+      this.hardwareCooldown = true;
+      this.setTimer("hardwareCooldown", HARDWARE_CHECK_COOLDOWN_MS, () => {
+        this.hardwareCooldown = false;
+      });
+      void this.checkHardware();
     }
     stop() {
       this.stopped = true;
@@ -212,6 +241,7 @@ var __decentSync = (() => {
         }
         this.handle = handle;
         this.welcomed = false;
+        this.sentHardware = identity.machine;
         this.host.transport.onEvent(handle, (event) => this.onTransportEvent(handle, event));
         await this.send(handle, {
           type: "hello",
@@ -238,6 +268,14 @@ var __decentSync = (() => {
           this.drop(`connection error (${event.code}): ${event.message}`);
           break;
         case "close": {
+          if (event.code === CLOSE_CODES.hardware_dismissed && this.sentHardware) {
+            this.dismissedHardware = this.sentHardware;
+            this.abandon();
+            this.log(
+              "The server refused this machine's hardware for this Machine's token. Not connecting until the machine reports other hardware, or another token is entered."
+            );
+            break;
+          }
           const final = event.code === void 0 ? void 0 : FINAL_CLOSES.get(event.code);
           if (final) {
             this.log(final);
@@ -286,11 +324,56 @@ var __decentSync = (() => {
     send(handle, message) {
       return this.host.transport.send(handle, { type: "text", data: encode(message) });
     }
-    /** Abandons the current connection or attempt, if any, and tries again after the backoff delay. */
-    drop(reason) {
+    /**
+     * Reads the machine's hardware and reconnects if the current connection
+     * reported other hardware, or none, or if it differs from hardware the
+     * server dismissed.
+     */
+    async checkHardware() {
+      if (this.stopped || this.checkingHardware) return;
+      this.checkingHardware = true;
+      try {
+        const hardware = await readMachineHardware();
+        if (this.stopped || hardware === null) return;
+        if (this.dismissedHardware) {
+          if (sameHardware(hardware, this.dismissedHardware)) return;
+          this.dismissedHardware = null;
+          this.log("The machine reports other hardware than the server refused. Connecting.");
+          this.reconnectNow();
+          return;
+        }
+        if (!this.welcomed || sameHardware(hardware, this.sentHardware)) return;
+        this.log(
+          this.sentHardware === null ? "The machine reports its hardware now. Reconnecting to tell the server." : "The machine reports different hardware. Reconnecting to tell the server."
+        );
+        this.reconnectNow();
+      } finally {
+        this.checkingHardware = false;
+      }
+    }
+    scheduleHardwarePoll() {
+      this.setTimer("hardwarePoll", this.settings.pollSeconds * 1e3, () => {
+        void this.checkHardware().finally(() => {
+          if (!this.stopped) this.scheduleHardwarePoll();
+        });
+      });
+    }
+    /** Replaces the current connection, or ends a wait, with a new attempt at once. */
+    reconnectNow() {
+      this.abandon();
+      this.reconnectDelayMs = MIN_RECONNECT_MS;
+      this.setTimer("reconnect", 0, () => void this.connect());
+    }
+    /** Abandons the current connection or attempt, if any, without trying again. */
+    abandon() {
       this.attempt++;
       this.connecting = false;
+      this.clearTimer("reconnect");
       this.closeHandle();
+    }
+    /** Abandons the current connection or attempt, if any, and tries again after the backoff delay. */
+    drop(reason) {
+      this.abandon();
       if (this.stopped) return;
       const delay = this.reconnectDelayMs;
       this.reconnectDelayMs = Math.min(delay * 2, MAX_RECONNECT_MS);
@@ -346,6 +429,7 @@ var __decentSync = (() => {
 
   // src/settings.ts
   var DEFAULT_POLL_SECONDS = 30;
+  var MIN_POLL_SECONDS = 5;
   function readSettings(settings) {
     const problems = [];
     const serverUrl = typeof settings.ServerUrl === "string" ? settings.ServerUrl.trim() : "";
@@ -355,7 +439,7 @@ var __decentSync = (() => {
     const token = typeof settings.Token === "string" ? settings.Token.trim() : "";
     if (!token) problems.push("Token is not set");
     const poll = Number(settings.PollSeconds);
-    const pollSeconds = settings.PollSeconds !== void 0 && Number.isFinite(poll) && poll > 0 ? poll : DEFAULT_POLL_SECONDS;
+    const pollSeconds = settings.PollSeconds !== void 0 && Number.isFinite(poll) && poll > 0 ? Math.max(poll, MIN_POLL_SECONDS) : DEFAULT_POLL_SECONDS;
     if (problems.length > 0) return { ok: false, problems };
     return { ok: true, settings: { syncUrl, token, pollSeconds } };
   }
@@ -386,7 +470,8 @@ var __decentSync = (() => {
         connection?.stop();
         connection = void 0;
       },
-      onEvent() {
+      onEvent(event) {
+        if (event?.name === "stateUpdate") connection?.machineActive();
       }
     };
   }

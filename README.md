@@ -73,7 +73,9 @@ The server needs only PostgreSQL 14 or newer. Each release publishes a Docker
 image of the server and the built management interface to
 `ghcr.io/loganfuller/decent-sync`, tagged with its version (`0.1.0`), its minor
 series (`0.1`) and `latest`. On startup the server applies any pending database
-migrations, so upgrading is running a newer image.
+migrations, so upgrading is running a newer image. Before version 1.0, a
+release may change the database incompatibly: stop the running server before
+starting a new version, and expect to recreate the database.
 
 ### Docker Compose
 
@@ -140,13 +142,17 @@ database on fly.io; any PostgreSQL 14 or newer that fly.io can reach works.
 
 ```bash
 fly apps create my-decent-sync
-fly mpg create                  # Fly Managed Postgres; note its connection URL
+fly mpg create                  # Fly Managed Postgres; note its direct connection URL
 fly secrets set --app my-decent-sync DATABASE_URL='postgresql://...'
 ```
 
+Use the database's direct URL, not the pooled one. The server sets connection
+parameters that the pooler may refuse, and it listens for PostgreSQL
+notifications, which the pooler drops in transaction mode.
+
 Save a `fly.toml` like this one, with your app's name and the image version to
-run, then deploy one machine. Milestone 1 runs as a single server instance, so
-skip fly.io's default second machine:
+run, then deploy one machine. The server's sign-in rate limit still counts
+attempts per instance, so skip fly.io's default second machine for now:
 
 ```bash
 fly deploy --ha=false
@@ -209,7 +215,7 @@ URL, and the Machine shows as online.
 |---|---|
 | Server URL | the server's `PUBLIC_URL`, such as `https://sync.example.com` |
 | Token | the Machine's token (stored securely by Decaid) |
-| Poll interval | seconds between checks for library, settings and device changes (default 30) |
+| Poll interval | seconds between checks for machine, library, settings and device changes (default 30, at least 5) |
 
 ## Development
 
