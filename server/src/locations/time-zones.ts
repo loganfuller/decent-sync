@@ -6,7 +6,8 @@ import { PrismaService } from "../prisma.service.js";
  * current IANA names, and PostgreSQL built with tzdata lacking the "backward"
  * links does not know them: Chrome in India reports Asia/Calcutta, which such a
  * server refuses in AT TIME ZONE. These are every identifier that
- * `Intl.supportedValuesOf("timeZone")` lists under a name other than IANA's.
+ * `Intl.supportedValuesOf("timeZone")` lists under a name other than IANA's,
+ * which are also the names `Intl` resolves other aliases to.
  */
 const CLDR_TO_IANA = new Map(
   Object.entries({
@@ -46,14 +47,21 @@ export class TimeZones {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * The zone's name as PostgreSQL spells it, with older CLDR names replaced by
-   * their IANA names, or undefined if it is not a usable time zone. Matching
-   * ignores case and surrounding spaces.
+   * The zone's name as PostgreSQL spells it, or undefined if it is not a
+   * usable time zone. A name PostgreSQL lacks, such as the IANA alias
+   * US/Eastern or the CLDR name Asia/Calcutta, is replaced by the zone `Intl`
+   * resolves it to, under its IANA name. Matching ignores case and surrounding
+   * spaces.
    */
   async normalise(timeZone: string): Promise<string | undefined> {
-    const lower = timeZone.trim().toLowerCase();
-    const name = (await this.load()).get(CLDR_TO_IANA.get(lower)?.toLowerCase() ?? lower);
-    return name !== undefined && understoodByIntl(name) ? name : undefined;
+    const known = await this.load();
+    const given = known.get(timeZone.trim().toLowerCase());
+    if (given !== undefined) return understoodByIntl(given) ? given : undefined;
+
+    const resolved = resolveWithIntl(timeZone.trim());
+    if (resolved === undefined) return undefined;
+    const lower = resolved.toLowerCase();
+    return known.get(CLDR_TO_IANA.get(lower)?.toLowerCase() ?? lower);
   }
 
   /** The zones a browser would offer, under the names `normalise` stores, sorted. */
@@ -75,10 +83,14 @@ export class TimeZones {
 }
 
 function understoodByIntl(timeZone: string): boolean {
+  return resolveWithIntl(timeZone) !== undefined;
+}
+
+/** The zone `Intl` takes the name to mean, under its canonical name, or undefined if it knows none. */
+function resolveWithIntl(timeZone: string): string | undefined {
   try {
-    new Intl.DateTimeFormat("en", { timeZone });
-    return true;
+    return new Intl.DateTimeFormat("en", { timeZone }).resolvedOptions().timeZone;
   } catch {
-    return false;
+    return undefined;
   }
 }

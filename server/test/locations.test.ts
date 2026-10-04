@@ -90,6 +90,16 @@ describe("Locations", () => {
     ]);
   });
 
+  it("accepts IANA aliases PostgreSQL may not know, stored under a name it does", async () => {
+    // From tzdata's "backward" file, which PostgreSQL's time zone data may lack.
+    const aliases = { "US/Eastern": "America/New_York", EST5EDT: "America/New_York", "Canada/Eastern": "America/Toronto", Japan: "Asia/Tokyo" };
+    for (const [alias, stored] of Object.entries(aliases)) {
+      const response = await call("POST", "/locations", { name: `Alias ${alias}`, timeZone: alias });
+      expect(response.status, alias).toBe(201);
+      expect(((await response.json()) as { location: LocationView }).location.timeZone, alias).toBe(stored);
+    }
+  });
+
   it("renames a Location and changes its time zone", async () => {
     const renamed = await call("PATCH", `/locations/${uptown.id}`, { name: "Belmont" });
     expect(renamed.status).toBe(200);
