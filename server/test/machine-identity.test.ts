@@ -376,14 +376,16 @@ describe("Machine identity", { timeout: 20_000 }, () => {
     });
 
     it("never lets an invalid token change any Machine's status", async () => {
-      const before = await api.machines();
+      // Refusals only: a Machine that disconnected moments ago may still be having its last-seen time recorded.
+      const refusals = async () => (await api.machines()).map(({ name, lastRefusal }) => ({ name, lastRefusal }));
+      const before = await refusals();
       for (const token of ["not-a-token-this-server-issued", api.tokens[0]!.slice(1)]) {
         const raw = await RawConnection.open(server.url);
         connections.push(raw);
         raw.send({ type: "hello", protocolVersion: 0, token });
         await expectRefusal(raw, "plugin_too_old");
       }
-      expect(await api.machines()).toEqual(before);
+      expect(await refusals()).toEqual(before);
     });
   });
 
@@ -476,6 +478,71 @@ describe("Machine identity", { timeout: 20_000 }, () => {
       await api.waitForMachine("Cafe", (machine) => machine.online && machine.identification === "identified");
       expect(await api.machineNamed("Cafe")).toMatchObject({ lastRefusal: null });
       await tablet.unload();
+    });
+  });
+
+  describe("at the same time (raw frames)", () => {
+    // Each race is run several times: without the Machine's lock its outcome depends on timing.
+    const ROUNDS = 5;
+
+    it("binds a token to the hardware of the first of two simultaneous connections, and the other is a mismatch", async () => {
+      for (let round = 0; round < ROUNDS; round++) {
+        const name = `First of two ${round}`;
+        const { token } = await api.createMachine(name);
+        const [a, b] = await Promise.all([RawConnection.open(server.url), RawConnection.open(server.url)]);
+        connections.push(a!, b!);
+        a!.send(helloWith(token, { machine: de1Pro(`106${round}1`), connectionId: `00:00:5E:00:53:6${round}` }));
+        b!.send(helloWith(token, { machine: de1Pro(`106${round}2`), connectionId: `00:00:5E:00:53:7${round}` }));
+        await Promise.all([a!.message(0), b!.message(0)]);
+
+        const machine = (await api.machineNamed(name))!;
+        const bound = machine.serial === `106${round}1` ? 0 : 1;
+        expect([`106${round}1`, `106${round}2`]).toContain(machine.serial);
+        // The second, decided after the first bound, is the mismatch.
+        expect(machine).toMatchObject({
+          identification: "mismatch",
+          mismatch: { serial: bound === 0 ? `106${round}2` : `106${round}1` },
+          aliases: [bound === 0 ? `00:00:5E:00:53:6${round}` : `00:00:5E:00:53:7${round}`],
+        });
+      }
+    });
+
+    it("leaves only the last of two simultaneous reissued tokens valid", async () => {
+      for (let round = 0; round < ROUNDS; round++) {
+        const created = await api.createMachine(`Reissued twice ${round}`);
+        const responses = await Promise.all([1, 2].map(() => api.call("POST", `/machines/${created.machine.id}/token`)));
+        const tokens = [created.token];
+        for (const response of responses) {
+          expect(response.status).toBe(201);
+          tokens.push((await api.issued(response)).token);
+        }
+
+        const answers = [];
+        for (const token of tokens) {
+          const raw = await connect(helloWith(token, { machine: de1Pro(`107${round}1`) }));
+          answers.push((raw.messages[0] as { type: string; code?: string }).code ?? "welcome");
+          await raw.close();
+        }
+        expect(answers[0]).toBe("bad_token");
+        expect(answers.slice(1).sort()).toEqual(["bad_token", "welcome"]);
+      }
+    });
+
+    it("closes a connection whose hello is accepted while its token is reissued", async () => {
+      for (let round = 0; round < ROUNDS * 2; round++) {
+        const created = await api.createMachine(`Reissued mid-hello ${round}`);
+        const raw = await RawConnection.open(server.url);
+        connections.push(raw);
+        raw.send(helloWith(created.token, { machine: de1Pro(`108${round}1`) }));
+        const response = await api.call("POST", `/machines/${created.machine.id}/token`);
+        expect(response.status).toBe(201);
+        await api.issued(response);
+
+        // Welcomed or not, the connection must not outlive its token.
+        const closed = await Promise.race([raw.closed, new Promise((resolve) => setTimeout(() => resolve("still open"), 3_000))]);
+        expect(closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
+        await api.waitForMachine(`Reissued mid-hello ${round}`, (machine) => !machine.online);
+      }
     });
   });
 

@@ -1,9 +1,9 @@
 import { ConflictException, Injectable } from "@nestjs/common";
-import type { Hello } from "@decent-sync/protocol";
+import type { ErrorCode, Hello } from "@decent-sync/protocol";
 import { type Machine, MachineIdentification, Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
-import { type Hardware, type Identity, type TokenMachine, realHardware, sameHardware } from "../sync/identity.js";
+import { type Hardware, type Identity, realHardware, resolveIdentity, sameHardware } from "../sync/identity.js";
 import { type NewMachine, machineNotFound } from "./input.js";
 import { Presence } from "./presence.js";
 
@@ -47,8 +47,24 @@ export interface MachineView {
   lastSeenAt: string | null;
 }
 
-/** The token's Machine, with what identity resolution needs. */
-export type MachineForHello = Machine & { tokenMachine: TokenMachine };
+/** What became of a `hello`, decided and recorded while its Machine was locked. */
+export type HelloOutcome =
+  | { accepted: false; code: Extract<ErrorCode, "bad_token" | "hardware_dismissed">; reason: string }
+  | {
+      accepted: true;
+      machine: { id: string; name: string };
+      identity: Exclude<Identity, { kind: "rejected" }>;
+      /** The real hardware the `hello` reported, if any. */
+      hardware: Hardware | null;
+      /** For a mismatch no Machine has the hardware of: the Pending Machine holding what the session sends. */
+      pendingMachineId: string | null;
+    };
+
+/** Why a welcomed connection may no longer stay, if it may not. */
+export type Refusal = { code: Extract<ErrorCode, "bad_token" | "hardware_dismissed">; reason: string };
+
+const BAD_TOKEN = "No Machine on this server has this token; it may have been replaced by a newer one";
+const REPLACED_TOKEN = "This Machine's token was replaced by a newer one; enter the new token in the plugin's settings";
 
 type MachineWithAliases = Machine & { aliases: { connectionId: string }[] };
 
@@ -91,12 +107,14 @@ export class MachinesService {
   /** Issues the Machine a new token and revokes the old one, closing any connection that uses it. */
   async reissueToken(id: string): Promise<{ machine: MachineView; token: string }> {
     const token = newSecret();
+    // Locked, so a concurrent reissue revokes this one's token rather than missing it.
     await this.prisma.$transaction(async (tx) => {
-      if (!(await tx.machine.findUnique({ where: { id }, select: { id: true } }))) throw machineNotFound();
+      if (!(await lockMachine(tx, id))) throw machineNotFound();
       await tx.machineToken.updateMany({ where: { machineId: id, revokedAt: null }, data: { revokedAt: new Date() } });
       await tx.machineToken.create({ data: { machineId: id, tokenHash: hashSecret(token) } });
     });
-    this.presence.end(id, "bad_token", "This Machine's token was replaced by a newer one; enter the new token in the plugin's settings");
+    // Only once committed: a hello accepted meanwhile is checked again after it joins Presence.
+    this.presence.end(id, "bad_token", REPLACED_TOKEN);
     return { machine: await this.get(id), token };
   }
 
@@ -108,8 +126,9 @@ export class MachinesService {
    */
   async identify(id: string, hardware: Hardware): Promise<MachineView> {
     await this.prisma.$transaction(async (tx) => {
-      const machine = await tx.machine.findUnique({ where: { id } });
-      if (!machine) throw machineNotFound();
+      // Locked, so a hello binding other hardware cannot interleave.
+      if (!(await lockMachine(tx, id))) throw machineNotFound();
+      const machine = (await tx.machine.findUnique({ where: { id } }))!;
       if (machine.identification !== MachineIdentification.UNIDENTIFIED) {
         throw new ConflictException(`Only an Unidentified Machine's model and serial can be entered; ${machine.name} is not one`);
       }
@@ -133,73 +152,112 @@ export class MachinesService {
   }
 
   /** The Machine a token belongs to, unless the token is unknown or revoked. */
-  async findByToken(token: string): Promise<MachineForHello | null> {
-    const found = await this.prisma.machineToken.findUnique({
-      where: { tokenHash: hashSecret(token) },
-      include: { machine: { include: { ...withAliases, dismissedHardware: { select: { model: true, serial: true } } } } },
-    });
-    if (!found || found.revokedAt !== null) return null;
-    const { aliases, dismissedHardware, ...machine } = found.machine;
-    return {
-      ...machine,
-      tokenMachine: {
-        binding: bindingOf(machine),
-        aliases: aliases.map((alias) => alias.connectionId),
-        dismissed: dismissedHardware,
-      },
-    };
-  }
-
-  /** Whether a Machine other than this one is bound to the hardware. */
-  async anotherMachineHas(machineId: string, hardware: Hardware): Promise<boolean> {
-    return (await this.prisma.machine.count({ where: { ...hardware, NOT: { id: machineId } } })) > 0;
+  async findByToken(token: string): Promise<Machine | null> {
+    const found = await this.prisma.machineToken.findUnique({ where: { tokenHash: hashSecret(token) }, include: { machine: true } });
+    return found && found.revokedAt === null ? found.machine : null;
   }
 
   /**
-   * Records an accepted `hello` and what identity resolution decided: binds
-   * the hardware, remembers the connection id, and holds a mismatch's
-   * hardware as a Pending Machine when no Machine has it. Returns that
-   * Pending Machine's id.
+   * Decides who a tablet is and records it, with its Machine locked: binding
+   * the hardware, remembering the connection id, holding a mismatch's
+   * hardware as a Pending Machine, or recording why it was refused. Two
+   * hellos with the same token, a token reissue and an Admin entering the
+   * hardware are therefore decided one at a time, each seeing what the one
+   * before it committed.
    */
-  async recordHello(machineId: string, hello: Hello, identity: Identity, at: Date): Promise<{ pendingMachineId: string | null }> {
-    if (identity.kind === "rejected") throw new Error("A rejected hello is recorded as a refusal");
-    const reported = hello.machine;
-    const hardware = realHardware(reported);
-    const connectionId = hello.connectionId?.trim() || null;
+  async acceptHello(hello: Hello, at: Date): Promise<HelloOutcome> {
+    try {
+      return await this.prisma.$transaction((tx) => this.decideHello(tx, hello, at));
+    } catch (error) {
+      // Another Machine bound the same hardware meanwhile; decided again, this is a mismatch.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        return this.prisma.$transaction((tx) => this.decideHello(tx, hello, at));
+      }
+      throw error;
+    }
+  }
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.machine.update({
-        where: { id: machineId },
-        data: {
-          identification: identificationOf(identity),
-          ...(reported
-            ? { reportedModel: reported.model.trim(), reportedSerial: reported.serial.trim(), firmware: reported.firmware ?? null }
-            : {}),
-          ...(identity.kind === "identified" && identity.bind ? hardware! : {}),
-          connectionId,
-          pluginVersion: hello.pluginVersion,
-          decaidVersion: hello.decaidVersion ?? null,
-          refusalReason: null,
-          refusedAt: null,
-          lastSeenAt: at,
-        },
-      });
-      if ("rememberAlias" in identity && identity.rememberAlias && connectionId) {
-        await tx.machineAlias.createMany({ data: [{ machineId, connectionId }], skipDuplicates: true });
-      }
-      if (identity.kind === "identified" && identity.bind) {
-        await tx.pendingMachine.deleteMany({ where: hardware! });
-      }
-      if (identity.kind === "mismatch" && !identity.anotherMachineHasIt) {
-        const pending = await tx.pendingMachine.upsert({
-          where: { model_serial: identity.hardware },
-          create: { ...identity.hardware, lastSeenAt: at },
-          update: { lastSeenAt: at },
-        });
-        return { pendingMachineId: pending.id };
-      }
-      return { pendingMachineId: null };
+  /**
+   * Whether a welcomed connection must close after all: its token was
+   * revoked, or the hardware it reported as a mismatch dismissed for this
+   * token, while its hello was being accepted. Asked once it is in Presence,
+   * where reissuing and dismissing close connections after they commit.
+   */
+  async refusalSince(machineId: string, token: string, mismatch: Hardware | null): Promise<Refusal | null> {
+    const found = await this.prisma.machineToken.findUnique({ where: { tokenHash: hashSecret(token) }, select: { revokedAt: true } });
+    if (!found || found.revokedAt !== null) return { code: "bad_token", reason: REPLACED_TOKEN };
+    if (mismatch && (await this.prisma.dismissedHardware.count({ where: { machineId, ...mismatch } })) > 0) {
+      return { code: "hardware_dismissed", reason: dismissedReason(mismatch) };
+    }
+    return null;
+  }
+
+  private async decideHello(tx: Prisma.TransactionClient, hello: Hello, at: Date): Promise<HelloOutcome> {
+    const token = await tx.machineToken.findUnique({ where: { tokenHash: hashSecret(hello.token) }, select: { machineId: true } });
+    if (!token) return { accepted: false, code: "bad_token", reason: BAD_TOKEN };
+    await lockMachine(tx, token.machineId);
+    // Read again under the lock: a reissue may have revoked it since.
+    const current = await tx.machineToken.findUnique({ where: { tokenHash: hashSecret(hello.token) }, select: { revokedAt: true } });
+    if (!current || current.revokedAt !== null) return { accepted: false, code: "bad_token", reason: BAD_TOKEN };
+
+    const machine = (await tx.machine.findUnique({
+      where: { id: token.machineId },
+      include: { ...withAliases, dismissedHardware: { select: { model: true, serial: true } } },
+    }))!;
+    const hardware = realHardware(hello.machine);
+    const anotherMachineHasIt =
+      hardware !== null && (await tx.machine.count({ where: { ...hardware, NOT: { id: machine.id } } })) > 0;
+    const identity = resolveIdentity(
+      hello,
+      {
+        binding: bindingOf(machine),
+        aliases: machine.aliases.map((alias) => alias.connectionId),
+        dismissed: machine.dismissedHardware,
+      },
+      anotherMachineHasIt,
+    );
+
+    if (identity.kind === "rejected") {
+      const reason = dismissedReason(identity.hardware);
+      await tx.machine.update({ where: { id: machine.id }, data: { refusalReason: reason, refusedAt: at } });
+      return { accepted: false, code: "hardware_dismissed", reason };
+    }
+
+    const reported = hello.machine;
+    const connectionId = hello.connectionId?.trim() || null;
+    await tx.machine.update({
+      where: { id: machine.id },
+      data: {
+        identification: identificationOf(identity),
+        ...(reported
+          ? { reportedModel: reported.model.trim(), reportedSerial: reported.serial.trim(), firmware: reported.firmware ?? null }
+          : {}),
+        ...(identity.kind === "identified" && identity.bind ? hardware! : {}),
+        connectionId,
+        pluginVersion: hello.pluginVersion,
+        decaidVersion: hello.decaidVersion ?? null,
+        refusalReason: null,
+        refusedAt: null,
+        lastSeenAt: at,
+      },
     });
+    if ("rememberAlias" in identity && identity.rememberAlias && connectionId) {
+      await tx.machineAlias.createMany({ data: [{ machineId: machine.id, connectionId }], skipDuplicates: true });
+    }
+    if (identity.kind === "identified" && identity.bind) {
+      // The Machine takes over whatever was held for its hardware.
+      await tx.pendingMachine.deleteMany({ where: hardware! });
+    }
+    let pendingMachineId: string | null = null;
+    if (identity.kind === "mismatch" && !identity.anotherMachineHasIt) {
+      const pending = await tx.pendingMachine.upsert({
+        where: { model_serial: identity.hardware },
+        create: { ...identity.hardware, lastSeenAt: at },
+        update: { lastSeenAt: at },
+      });
+      pendingMachineId = pending.id;
+    }
+    return { accepted: true, machine: { id: machine.id, name: machine.name }, identity, hardware, pendingMachineId };
   }
 
   /** Records why a connection with the Machine's token was refused, for its page. */
@@ -262,6 +320,19 @@ export class MachinesService {
 
 export function describeHardware(hardware: Hardware): string {
   return `${hardware.model} serial ${hardware.serial}`;
+}
+
+export function dismissedReason(hardware: Hardware): string {
+  return `An Admin dismissed ${describeHardware(hardware)}, which a tablet reported with this Machine's token`;
+}
+
+/**
+ * Locks the Machine's row until the transaction ends, so whatever decides
+ * its identity or tokens runs one at a time. Returns false if there is none.
+ */
+async function lockMachine(tx: Prisma.TransactionClient, id: string): Promise<boolean> {
+  const rows = await tx.$queryRaw<unknown[]>`SELECT 1 FROM machines WHERE id = ${id}::uuid FOR UPDATE`;
+  return rows.length > 0;
 }
 
 /** Turns a unique-name violation into a message naming the clash. */

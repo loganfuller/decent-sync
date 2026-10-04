@@ -17,7 +17,7 @@ import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { MachinesService, describeHardware } from "../machines/machines.service.js";
 import { type LiveConnection, Presence } from "../machines/presence.js";
-import { type Hardware, type Identity, realHardware, resolveIdentity } from "./identity.js";
+import type { Hardware, Identity } from "./identity.js";
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
 const MAX_FRAME_BYTES = 1 << 20;
@@ -162,31 +162,24 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
 
   private async hello(session: Session, hello: Hello): Promise<void> {
     clearTimeout(session.helloTimer);
-    const machine = await this.machines.findByToken(hello.token);
+    const outcome = await this.machines.acceptHello(hello, session.lastHeardAt);
     if (session.closing) return;
-    if (!machine) {
-      return this.refuse(session, "bad_token", "No Machine on this server has this token; it may have been replaced by a newer one");
-    }
+    if (!outcome.accepted) return this.refuse(session, outcome.code, outcome.reason);
 
-    const hardware = realHardware(hello.machine);
-    const anotherMachineHasIt = hardware !== null && (await this.machines.anotherMachineHas(machine.id, hardware));
-    const identity = resolveIdentity(hello, machine.tokenMachine, anotherMachineHasIt);
-    if (identity.kind === "rejected") {
-      const reason = `An Admin dismissed ${describeHardware(identity.hardware)}, which a tablet reported with this Machine's token`;
-      await this.machines.recordRefusal(machine.id, reason);
-      return this.refuse(session, "hardware_dismissed", reason);
-    }
-    if (session.closing) return;
-
-    const { pendingMachineId } = await this.machines.recordHello(machine.id, hello, identity, session.lastHeardAt);
-    if (session.closing) return;
-
-    session.machine = { id: machine.id, name: machine.name };
+    const { machine, identity, hardware } = outcome;
+    session.machine = machine;
     session.identity = identity;
-    session.pendingMachineId = pendingMachineId;
+    session.pendingMachineId = outcome.pendingMachineId;
     session.live = { hardware, end: (code, message) => this.refuse(session, code, message) };
     const previous = this.presence.connect(machine.id, session.live);
     previous?.end("replaced", "A newer connection with this Machine's token took over");
+
+    // Reissuing a token or dismissing hardware closes the connections in
+    // Presence once it has committed. One that committed while this hello
+    // was being accepted, before the session joined Presence, shows here.
+    const refusal = await this.machines.refusalSince(machine.id, hello.token, identity.kind === "mismatch" ? identity.hardware : null);
+    if (refusal) return this.refuse(session, refusal.code, refusal.reason);
+    if (session.closing) return;
 
     this.send(session, { type: "welcome", protocolVersion: PROTOCOL_VERSION, heartbeatIntervalMs: this.config.heartbeatIntervalMs });
     this.resetIdleTimer(session);

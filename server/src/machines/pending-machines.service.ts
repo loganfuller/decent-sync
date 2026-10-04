@@ -4,7 +4,7 @@ import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
 import { sameHardware } from "../sync/identity.js";
 import { type NewMachine, pendingMachineNotFound } from "./input.js";
-import { type MachineView, MachinesService, describeHardware, refuseDuplicateName } from "./machines.service.js";
+import { type MachineView, MachinesService, describeHardware, dismissedReason, refuseDuplicateName } from "./machines.service.js";
 import { Presence } from "./presence.js";
 
 /** A Pending Machine as the REST API returns it. */
@@ -101,7 +101,8 @@ export class PendingMachinesService {
     });
 
     const hardware = { model: pending.model, serial: pending.serial };
-    const reason = `An Admin dismissed ${describeHardware(hardware)}, which a tablet reported with this Machine's token`;
+    const reason = dismissedReason(hardware);
+    // Only once committed: a hello accepted meanwhile is checked again after it joins Presence.
     for (const machine of refused) {
       await this.machines.recordRefusal(machine.id, reason, at);
       this.presence.end(machine.id, "hardware_dismissed", reason, (connection) =>
