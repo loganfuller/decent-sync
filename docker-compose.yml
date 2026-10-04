@@ -1,14 +1,36 @@
-# PostgreSQL for local development: `npm run db:up`. CI uses the same major
-# version. Ticket #3 adds the server image for self-hosting.
+# Self-hosting: `docker compose up -d` runs the Decent Sync server and
+# PostgreSQL. The server applies migrations on startup and serves the
+# management interface on port 3000. Set PUBLIC_URL to the address people and
+# tablets use to reach it, in the environment or a .env file next to this one;
+# see the README's Self-hosting section for the other variables.
+#
+# Development: `npm run db:up` starts only PostgreSQL, published on
+# 127.0.0.1:5432 for a server run from source. CI uses the same major version.
 services:
+  server:
+    image: ghcr.io/loganfuller/decent-sync:${DECENT_SYNC_VERSION:-latest}
+    # Used when the image above cannot be pulled, for example in a checkout
+    # before the first release.
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://decent_sync:${POSTGRES_PASSWORD:-decent_sync}@db:5432/decent_sync
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
+    ports:
+      - "${DECENT_SYNC_PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
   db:
     image: postgres:17
+    restart: unless-stopped
     environment:
       POSTGRES_USER: decent_sync
-      POSTGRES_PASSWORD: decent_sync
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-decent_sync}
       POSTGRES_DB: decent_sync
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:

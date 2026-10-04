@@ -16,6 +16,9 @@ Target requirements come from `GLOSSARY.md`, accepted `docs/adr/` decisions and 
 | `web/` | React, Vite, shadcn/ui management interface; uses the REST API | `src/App.tsx`; add components with `npx shadcn add` |
 | `protocol/` | Internal shared wire types and runtime validators; never published | `src/index.ts` |
 | `e2e/` | Playwright tests (Seam 2) | `playwright.config.ts` at the root |
+| `Dockerfile`, `docker-compose.yml` | Server image (server plus built web app) and the self-hosting stack with PostgreSQL; `npm run db:up` starts only its `db` service | |
+| `scripts/` | Repo checks and release packaging | `check-plugin-build.mjs`, `check-release-tag.mjs`, `package-plugin.mjs`; tests in `scripts/test/` |
+| `.github/workflows/` | CI on pull requests and `main`; release on `vX.Y.Z` tags | `ci.yml` (also called by the release), `release.yml` |
 
 Root `package.json` scripts are the commands; the README's Development section lists them. One protocol change updates the plugin, server and shared package together here; the old plugin repo is archived.
 

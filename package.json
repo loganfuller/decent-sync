@@ -14,10 +14,11 @@
   ],
   "scripts": {
     "build": "npm run build -w protocol && npm run build -w plugin && npm run build -w web && npm run build -w server",
-    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p e2e/tsconfig.json",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p e2e/tsconfig.json && tsc -p scripts/test/tsconfig.json",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "check:plugin-build": "node scripts/check-plugin-build.mjs",
+    "package:plugin": "node scripts/package-plugin.mjs",
     "db:up": "docker compose up -d --wait db",
     "start": "npm run build && npm run start -w server",
     "dev:server": "npm run build -w protocol && npm run dev -w server",
