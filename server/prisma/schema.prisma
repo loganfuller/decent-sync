@@ -55,6 +55,19 @@ model Session {
   @@map("sessions")
 }
 
+/// Recent sign-in attempts for one email, shared by every server instance.
+/// See server/src/accounts/sign-in-limiter.ts.
+model SignInWindow {
+  /// As entered at sign-in, whether or not an account has it.
+  email     String   @id
+  attempts  Int
+  /// By PostgreSQL's clock, which every instance judges it by.
+  startedAt DateTime @default(now()) @map("started_at") @db.Timestamptz(3)
+
+  @@index([startedAt])
+  @@map("sign_in_windows")
+}
+
 /// A physical site where machines are used, such as a roastery lab or a cafe.
 model Location {
   id        String   @id @default(uuid(7)) @db.Uuid

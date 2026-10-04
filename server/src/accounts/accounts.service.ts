@@ -58,7 +58,7 @@ export class AccountsService {
    * password are refused alike, in about the same time.
    */
   async authenticate(email: string, password: string): Promise<Account> {
-    const retryAfter = this.limiter.begin(email);
+    const retryAfter = await this.limiter.begin(email);
     if (retryAfter !== undefined) throw new TooManySignInAttempts(retryAfter);
 
     const account = await this.prisma.account.findUnique({ where: { email } });
@@ -67,7 +67,7 @@ export class AccountsService {
       : await verifyAgainstDummy(password);
     if (!account || !valid) throw new UnauthorizedException("The email or password is incorrect");
 
-    this.limiter.succeeded(email);
+    await this.limiter.succeeded(email);
     return account;
   }
 }
