@@ -200,6 +200,16 @@ checks, or when you press **Check for updates** under Plugins
 permissions waits under Plugins for approval.
 
 Then enter the server URL and the Machine's token in the plugin's settings.
+Both are shown once, when an Admin creates the Machine's entry
+(`POST /api/machines` until the management interface has a Machines page).
+The plugin connects to `ws(s)://<server host>/sync`, derived from the server
+URL, and the Machine shows as online.
+
+| Setting | |
+|---|---|
+| Server URL | the server's `PUBLIC_URL`, such as `https://sync.example.com` |
+| Token | the Machine's token (stored securely by Decaid) |
+| Poll interval | seconds between checks for library, settings and device changes (default 30) |
 
 ## Development
 
@@ -224,9 +234,12 @@ required variable is missing or invalid.
 | `PORT` | listen port (default 3000) |
 | `HOST` | bind address (default `0.0.0.0`) |
 | `WEB_DIST_DIR` | the built management interface (default `web/dist`) |
+| `SYNC_HELLO_TIMEOUT_SECONDS` | how long a plugin connection has to send `hello` (default 10) |
+| `SYNC_HEARTBEAT_SECONDS` | how often plugins send a heartbeat (default 30); a connection silent for three is closed |
 
 On startup the server applies pending database migrations, then serves the
-REST API under `/api` and the management interface everywhere else.
+REST API under `/api`, the plugin's WebSocket at `/sync`, and the management
+interface everywhere else.
 
 | Command | |
 |---|---|

@@ -1,0 +1,10 @@
+{
+  "version": "1333",
+  "model": "DE1Pro",
+  "serialNumber": "10001",
+  "GHC": true,
+  "extra": {
+    "refillKit": false,
+    "voltage": 110
+  }
+}

@@ -1,9 +1,9 @@
-import { createHash, randomBytes } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { PrismaService } from "../prisma.service.js";
+import { hashSecret, newSecret } from "../secrets.js";
 import type { Account } from "../generated/prisma/client.js";
 
 const COOKIE_NAME = "decent_sync_session";
@@ -37,11 +37,11 @@ export class SessionsService {
 
   /** Starts a session for the account and sets its cookie on the response. */
   async start(accountId: string, response: Response): Promise<void> {
-    const token = randomBytes(32).toString("base64url");
+    const token = newSecret();
     const now = Date.now();
     await this.prisma.session.deleteMany({ where: { expiresAt: { lte: new Date(now) } } });
     await this.prisma.session.create({
-      data: { tokenHash: hashToken(token), accountId, expiresAt: new Date(now + LIFETIME_MS) },
+      data: { tokenHash: hashSecret(token), accountId, expiresAt: new Date(now + LIFETIME_MS) },
     });
     this.setCookie(response, token, LIFETIME_MS);
   }
@@ -56,7 +56,7 @@ export class SessionsService {
 
     const now = Date.now();
     const session = await this.prisma.session.findUnique({
-      where: { tokenHash: hashToken(token) },
+      where: { tokenHash: hashSecret(token) },
       include: { account: true },
     });
     if (!session || session.expiresAt.getTime() <= now) {
@@ -95,10 +95,6 @@ export class SessionsService {
   private clearCookie(response: Response): void {
     this.setCookie(response, "", 0);
   }
-}
-
-function hashToken(token: string): Uint8Array<ArrayBuffer> {
-  return new Uint8Array(createHash("sha256").update(token).digest());
 }
 
 function readCookie(header: string | undefined, name: string): string | undefined {

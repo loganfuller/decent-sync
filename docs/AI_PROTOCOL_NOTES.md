@@ -4,7 +4,9 @@ Read when changing messages, validators, authentication, delivery or backfill.
 
 ## Contract ownership
 
-[Milestone 1's Protocol package section](https://github.com/loganfuller/decent-sync/issues/1) defines the requirements. `protocol/` will hold the single definition of wire types and runtime validators used by the plugin and server. Ticket #2 creates the package; ticket #5 starts its handshake contract, and subsequent tickets extend it. Read the assigned ticket for scope.
+[Milestone 1's Protocol package section](https://github.com/loganfuller/decent-sync/issues/1) defines the requirements. `protocol/src/index.ts` is the single definition of wire types and runtime validators used by the plugin and server. Ticket #5 defined the handshake: `hello`, `welcome`, `heartbeat`, `error`, the close codes in `CLOSE_CODES` and the `/sync` path. Subsequent tickets extend it; read the assigned ticket for scope.
+
+Validators report problems by field name, never by value, because a `hello` carries the token; keep it that way, and never log frames. The server checks a `hello`'s protocol version before its shape, so an old plugin is told it is too old. Every refusal is an `error` message followed by a close with that error's code. The plugin stops reconnecting after a bad-token, too-old or replaced close, and retries with backoff after anything else.
 
 The replacement begins at protocol version 1. The prototype also used the number 1 but was never released; compatibility with it is not required. `PROTOCOL.md` is historical prototype documentation only. Do not copy its Bluetooth identity, shared token, collection-part format or numeric close codes as requirements for the new contract.
 

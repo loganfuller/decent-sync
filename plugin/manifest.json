@@ -12,6 +12,24 @@
     "events.workflow",
     "network.websocket"
   ],
-  "settings": {},
+  "settings": {
+    "ServerUrl": {
+      "type": "string",
+      "label": "Server URL",
+      "description": "The Decent Sync server's address, shown with the token when the machine entry was created, such as https://sync.example.com or http://192.168.1.20:3000."
+    },
+    "Token": {
+      "type": "string",
+      "label": "Token",
+      "secure": true,
+      "description": "This machine's token, shown once when its machine entry was created on the server."
+    },
+    "PollSeconds": {
+      "type": "number",
+      "label": "Poll interval (seconds)",
+      "default": 30,
+      "description": "How often to check the library, settings and paired devices for changes."
+    }
+  },
   "api": []
 }

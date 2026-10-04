@@ -17,12 +17,16 @@ const main = path.join(repoDir, "server/dist/main.js");
 export interface TestServer {
   /** The server's origin, for example http://127.0.0.1:41234. */
   url: string;
+  /** Everything the server has written to stdout and stderr so far. */
+  output(): string;
   stop(): Promise<void>;
 }
 
 export interface TestServerOptions {
   /** PUBLIC_URL for the server; defaults to the address it listens on. */
   publicUrl?: string;
+  /** Further environment variables, such as SYNC_HELLO_TIMEOUT_SECONDS. */
+  env?: Record<string, string>;
 }
 
 export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
@@ -44,6 +48,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
       PUBLIC_URL: options.publicUrl ?? url,
       HOST: "127.0.0.1",
       PORT: String(port),
+      ...options.env,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -61,7 +66,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     await stop();
     throw error;
   }
-  return { url, stop };
+  return { url, output: () => output.join(""), stop };
 }
 
 function adminDatabaseUrl(): string {

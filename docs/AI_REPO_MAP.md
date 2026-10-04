@@ -10,9 +10,9 @@ Target requirements come from `GLOSSARY.md`, accepted `docs/adr/` decisions and 
 
 | Path | Responsibility | Entry points |
 |---|---|---|
-| `plugin/` | TypeScript source for the Decaid plugin | `src/index.ts`; `build.mjs` writes `decent-sync.reaplugin/`; `manifest.json` is the manifest template (the version comes from the root `package.json`) |
+| `plugin/` | TypeScript source for the Decaid plugin | `src/index.ts`, `src/connection.ts` (hello, heartbeats, reconnects), `src/settings.ts`, `src/decaid.ts` (Decaid's local API); `build.mjs` writes `decent-sync.reaplugin/`; `manifest.json` is the manifest template (the version comes from the root `package.json`) |
 | `decent-sync.reaplugin/` | Committed ES2020 bundle and manifest installed by Decaid | Generated; never edit by hand |
-| `server/` | NestJS, Prisma, PostgreSQL, WebSocket gateway, REST API, serving the built web app | `src/main.ts` (config, migrations, bootstrap), `src/config.ts`, `src/accounts/` (accounts, sessions and the guards every route passes), `src/locations/` (Locations and the time zones they may use), `prisma/schema.prisma`, `prisma/migrations/` |
+| `server/` | NestJS, Prisma, PostgreSQL, WebSocket gateway, REST API, serving the built web app | `src/main.ts` (config, migrations, bootstrap), `src/config.ts`, `src/accounts/` (accounts, sessions and the guards every route passes), `src/locations/` (Locations and the time zones they may use), `src/machines/` (machine entries, tokens, online status), `src/sync/` (the plugin's WebSocket gateway at `/sync` and identity resolution), `prisma/schema.prisma`, `prisma/migrations/` |
 | `web/` | React, Vite, shadcn/ui management interface; uses the REST API | `src/App.tsx` (routes), `src/auth.tsx`, `src/pages/Shell.tsx` (the signed-in frame later pages join); add components with `npx shadcn add` |
 | `protocol/` | Internal shared wire types and runtime validators; never published | `src/index.ts` |
 | `e2e/` | Playwright tests (Seam 2) | `playwright.config.ts` at the root |
@@ -24,7 +24,9 @@ Root `package.json` scripts are the commands; the README's Development section l
 
 `protocol/` exports its TypeScript source under the `@decent-sync/source` condition, which esbuild, TypeScript and Vitest use, so they need no protocol build. Node at runtime uses `protocol/dist`, so the server needs `npm run build -w protocol` first (the root `build`, `start` and `dev:server` scripts do this). The Prisma client is generated into `server/src/generated/` (git-ignored) by the server's `build` and `typecheck` scripts. Tables and columns are snake_case (`@@map`, `@map`) while models keep Prisma's casing.
 
-Every REST route requires a signed-in account unless marked `@Public()` (`server/src/accounts/guards.ts`); only health, first-run setup and sign-in are public so far. Role checks (Admin-only actions such as editing Locations) arrive with Staff accounts in ticket #15. State-changing requests are refused as cross-site unless their `Origin` is `PUBLIC_URL`, or the requested host when that host is an IP address or `localhost` (not another domain name, which would admit DNS rebinding).
+Every REST route requires a signed-in account unless marked `@Public()` (`server/src/accounts/guards.ts`); only health, first-run setup and sign-in are public so far. Role checks (Admin-only actions such as editing Locations or creating machine entries) arrive with Staff accounts in ticket #15. State-changing requests are refused as cross-site unless their `Origin` is `PUBLIC_URL`, or the requested host when that host is an IP address or `localhost` (not another domain name, which would admit DNS rebinding).
+
+The plugin's WebSocket at `/sync` is outside the REST guards: it authenticates by the Machine token in `hello`. Tokens and session cookies are random secrets stored only as SHA-256 hashes (`server/src/secrets.ts`); a token is returned once, when its machine entry is created. Online status is kept in memory by the single server instance (`Presence`); last-seen times are stored.
 
 A Location's time zone is an IANA name spelled as PostgreSQL's `pg_timezone_names` lists it, so date filters can use it in `AT TIME ZONE`. PostgreSQL built without tzdata's backward links lacks aliases such as `US/Eastern` and the older CLDR names browsers report (such as `Asia/Calcutta`); `server/src/locations/time-zones.ts` resolves those through `Intl` to a zone PostgreSQL knows.
 
@@ -33,7 +35,7 @@ A Location's time zone is an IANA name spelled as PostgreSQL's `pg_timezone_name
 | Task | Read |
 |---|---|
 | Scaffold, build, CI, release | ADR-0011, ADR-0012, ADR-0013; ticket #2; spec's Repo, build and release section |
-| Plugin runtime or simulated tablet | `AI_RUNTIME_NOTES.md`, `AI_BUILD_NOTES.md`; ticket #5 |
+| Plugin runtime or simulated tablet | `AI_RUNTIME_NOTES.md`, `AI_BUILD_NOTES.md`; `server/test/support/simulated-tablet.ts` |
 | Wire messages, validators, delivery, chunking, backfill | `AI_PROTOCOL_NOTES.md`; spec's Protocol package and Testing Decisions sections |
 | Machine identity, tokens, adoption | ADR-0004, ADR-0015; spec's Machines and Identity resolution sections |
 | Capture, extraction, database | `AI_STORAGE_NOTES.md`; ADR-0007; spec's Capture, Record extraction and Schema outline sections |

@@ -22,6 +22,7 @@ Inspect `decaid:lib/src/plugins/plugin_transport_service.dart`, especially `_ope
 
 - `host.transport` opens `ws://` or `wss://` connections with `network.websocket`. The WebSocket open options support URL and subprotocols, not custom headers. Authenticate in the protocol handshake.
 - `send` acceptance is not a server acknowledgment. Keep delivery state until the server acknowledges the stored logical message.
+- A plugin generation may hold 8 transports, counting opens still in progress. `open()` has no timeout and cannot be cancelled: an upgrade the server never answers holds its slot until TCP gives up, possibly never. The plugin abandons an attempt after its connect deadline and counts its own transports so it never asks for a ninth (`plugin/src/connection.ts`); eight hung opens stop it reconnecting until it is reloaded.
 - Default pending outbound and queued inbound limits are each 1 MiB per transport. The outbound check covers both a single payload and the sum already pending; sends exceeding it fail with `transport_resource_limit`.
 - Chunking must leave room for the encoded envelope and regulate pending sends. Splitting into frames just below 1 MiB is insufficient if several are pending. The simulated host must enforce the pending-byte limit, not just maximum frame size.
 - Unloading retires the plugin's transports. Milestone 1's in-memory outbox cannot preserve every transient event across an unload; record history is recovered by backfill. A durable outbox belongs to milestone 2.
