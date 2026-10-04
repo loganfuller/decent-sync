@@ -3,7 +3,7 @@
   "author": "Logan Fuller",
   "name": "Decent Sync",
   "description": "Sends everything this machine records to a Decent Sync server: shots, steam records, workflow changes, machine state, the library, settings and paired devices. Requires Decaid v0.8.7 or newer.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "apiVersion": 1,
   "permissions": [
     "log",
