@@ -21,6 +21,8 @@ import WebSocket from "ws";
 //   delivers events asynchronously and in order, ending with a close event.
 // - Unloading calls onUnload, then cancels the generation's timers and closes
 //   its transports, dropping their later events.
+// - Timers are the host's, so a test can run them faster with `timeScale` to
+//   reach the plugin's timeouts and backoff quickly.
 //
 // RawConnection is the raw-frame mode, for protocol cases the plugin never
 // produces.
@@ -65,6 +67,8 @@ export interface SimulatedTabletOptions {
   api?: DecaidApi;
   /** Whether a machine is connected to the tablet; while not, /machine/info fails. Defaults to true. */
   machineConnected?: boolean;
+  /** Runs the plugin's timers this many times faster than they ask for. Defaults to 1. */
+  timeScale?: number;
 }
 
 type TransportEvent = Record<string, unknown> & { type: string };
@@ -96,6 +100,7 @@ export class SimulatedTablet {
   readonly plugin: BuiltPlugin;
   machineConnected: boolean;
   private readonly api: DecaidApi;
+  private readonly timeScale: number;
   private readonly transports = new Map<string, TransportRecord>();
   private readonly timers = new Map<number, NodeJS.Timeout>();
   private nextTimerId = 0;
@@ -110,6 +115,7 @@ export class SimulatedTablet {
   private constructor(options: SimulatedTabletOptions) {
     this.api = options.api ?? de1ProOnDecaid086();
     this.machineConnected = options.machineConnected ?? true;
+    this.timeScale = options.timeScale ?? 1;
     const { source, manifest } = readBuiltPlugin();
     this.plugin = loadPlugin(source, String(manifest.id), {
       host: {
@@ -187,7 +193,7 @@ export class SimulatedTablet {
           this.timers.delete(id);
           if (!this.unloaded) callback();
         },
-        Math.max(0, Math.trunc(Number(delayMs) || 0)),
+        Math.max(0, Math.trunc(Number(delayMs) || 0)) / this.timeScale,
       ),
     );
     return id;

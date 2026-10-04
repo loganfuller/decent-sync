@@ -58,7 +58,7 @@ var __decentSync = (() => {
           fields.string("message");
         });
       default:
-        return invalid(unknownType(object.type));
+        return invalid("Unknown message type");
     }
   }
   var FieldChecker = class _FieldChecker {
@@ -114,9 +114,6 @@ var __decentSync = (() => {
   function isObject(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
-  function unknownType(type) {
-    return `Unknown message type ${JSON.stringify(type.slice(0, 40))}`;
-  }
   function invalid(problem) {
     return { ok: false, error: "protocol_error", problem };
   }
@@ -156,7 +153,7 @@ var __decentSync = (() => {
   // src/connection.ts
   var MIN_RECONNECT_MS = 1e3;
   var MAX_RECONNECT_MS = 6e4;
-  var WELCOME_TIMEOUT_MS = 3e4;
+  var CONNECT_TIMEOUT_MS = 15e3;
   var FINAL_CLOSES = /* @__PURE__ */ new Map([
     [CLOSE_CODES.bad_token, "The server refused the token. Enter the token shown when the machine entry was created, or a newly issued one."],
     [CLOSE_CODES.plugin_too_old, "The server needs a newer version of this plugin. Update the plugin."],
@@ -191,6 +188,11 @@ var __decentSync = (() => {
       if (this.stopped || this.connecting || this.handle !== void 0) return;
       this.connecting = true;
       const attempt = ++this.attempt;
+      this.setTimer(
+        "connect",
+        CONNECT_TIMEOUT_MS,
+        () => this.drop(`the server did not answer within ${CONNECT_TIMEOUT_MS / 1e3} s`)
+      );
       try {
         const identity = await readTabletIdentity();
         const { handle } = await this.host.transport.open({ kind: "websocket", url: this.settings.syncUrl });
@@ -202,7 +204,6 @@ var __decentSync = (() => {
         this.handle = handle;
         this.welcomed = false;
         this.host.transport.onEvent(handle, (event) => this.onTransportEvent(handle, event));
-        this.setTimer("welcome", WELCOME_TIMEOUT_MS, () => this.drop("the server sent no welcome"));
         await this.send(handle, {
           type: "hello",
           protocolVersion: PROTOCOL_VERSION,
@@ -215,7 +216,7 @@ var __decentSync = (() => {
       } catch (error) {
         if (attempt === this.attempt) this.drop(`could not connect to ${this.settings.syncUrl}: ${describe(error)}`);
       } finally {
-        this.connecting = false;
+        if (attempt === this.attempt) this.connecting = false;
       }
     }
     onTransportEvent(handle, event) {
@@ -253,7 +254,7 @@ var __decentSync = (() => {
           if (this.welcomed) return;
           this.welcomed = true;
           this.reconnectDelayMs = MIN_RECONNECT_MS;
-          this.clearTimer("welcome");
+          this.clearTimer("connect");
           this.log(`Connected to ${this.settings.syncUrl}`);
           this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
           break;
@@ -276,9 +277,10 @@ var __decentSync = (() => {
     send(handle, message) {
       return this.host.transport.send(handle, { type: "text", data: encode(message) });
     }
-    /** Abandons the current connection, if any, and tries again after the backoff delay. */
+    /** Abandons the current connection or attempt, if any, and tries again after the backoff delay. */
     drop(reason) {
       this.attempt++;
+      this.connecting = false;
       this.closeHandle();
       if (this.stopped) return;
       const delay = this.reconnectDelayMs;
@@ -291,7 +293,7 @@ var __decentSync = (() => {
       this.handle = void 0;
       this.welcomed = false;
       this.clearTimer("heartbeat");
-      this.clearTimer("welcome");
+      this.clearTimer("connect");
       if (handle !== void 0) this.host.transport.close(handle).catch(() => {
       });
     }

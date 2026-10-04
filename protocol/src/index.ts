@@ -129,7 +129,7 @@ export function decodePluginMessage(frame: string): Decoded<PluginMessage> {
     case "heartbeat":
       return check<Heartbeat>(object, "heartbeat", () => {});
     default:
-      return invalid(unknownType(object.type));
+      return invalid("Unknown message type");
   }
 }
 
@@ -150,7 +150,7 @@ export function decodeServerMessage(frame: string): Decoded<ServerMessage> {
         fields.string("message");
       });
     default:
-      return invalid(unknownType(object.type));
+      return invalid("Unknown message type");
   }
 }
 
@@ -218,11 +218,6 @@ function parseObject(frame: string): (Fields & { type: string }) | string {
 
 function isObject(value: unknown): value is Fields {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function unknownType(type: string): string {
-  // Bounded, since the type comes from the other end.
-  return `Unknown message type ${JSON.stringify(type.slice(0, 40))}`;
 }
 
 function invalid(problem: string): { ok: false; error: "protocol_error"; problem: string } {

@@ -80,6 +80,7 @@ describe("decodePluginMessage", () => {
       { ...hello, pluginVersion: { token } },
       { ...hello, protocolVersion: token },
       { ...hello, machine: { model: token, serial: [token] } },
+      { ...hello, type: token },
     ]) {
       const result = decodePluginMessage(frame(bad));
       expect(result.ok).toBe(false);
@@ -120,7 +121,7 @@ describe("decodePluginMessage", () => {
     expect(decodePluginMessage(frame({ type: "welcome", protocolVersion: 1, heartbeatIntervalMs: 1 }))).toMatchObject({
       ok: false,
       error: "protocol_error",
-      problem: 'Unknown message type "welcome"',
+      problem: "Unknown message type",
     });
   });
 });
@@ -140,6 +141,6 @@ describe("decodeServerMessage", () => {
   });
 
   it("refuses messages only the plugin sends", () => {
-    expect(decodeServerMessage(encode(hello))).toMatchObject({ ok: false, problem: 'Unknown message type "hello"' });
+    expect(decodeServerMessage(encode(hello))).toMatchObject({ ok: false, problem: "Unknown message type" });
   });
 });

@@ -13,8 +13,13 @@ import type { SyncSettings } from "./settings.js";
 
 const MIN_RECONNECT_MS = 1_000;
 const MAX_RECONNECT_MS = 60_000;
-/** A connection the server has not welcomed by then is dropped and retried. */
-const WELCOME_TIMEOUT_MS = 30_000;
+/**
+ * An attempt the server has not welcomed by then is abandoned and retried.
+ * It covers opening the transport, which Decaid does not time out: a server
+ * that accepts the TCP connection but never answers the WebSocket upgrade
+ * would otherwise hold the attempt open for good.
+ */
+const CONNECT_TIMEOUT_MS = 15_000;
 
 /** Close codes after which retrying cannot help until someone changes something. */
 const FINAL_CLOSES = new Map<number, string>([
@@ -22,6 +27,8 @@ const FINAL_CLOSES = new Map<number, string>([
   [CLOSE_CODES.plugin_too_old, "The server needs a newer version of this plugin. Update the plugin."],
   [CLOSE_CODES.replaced, "Another tablet connected with this Machine's token, so this one stopped. Reload the plugin to take over again."],
 ]);
+
+type TimerName = "reconnect" | "heartbeat" | "connect";
 
 /**
  * The plugin's one connection to the sync server: `hello` on every connect,
@@ -37,7 +44,7 @@ export class SyncConnection {
   private stopped = false;
   private welcomed = false;
   private reconnectDelayMs = MIN_RECONNECT_MS;
-  private readonly timers = new Map<"reconnect" | "heartbeat" | "welcome", number>();
+  private readonly timers = new Map<TimerName, number>();
 
   constructor(
     private readonly host: PluginHost,
@@ -61,9 +68,13 @@ export class SyncConnection {
     if (this.stopped || this.connecting || this.handle !== undefined) return;
     this.connecting = true;
     const attempt = ++this.attempt;
+    this.setTimer("connect", CONNECT_TIMEOUT_MS, () =>
+      this.drop(`the server did not answer within ${CONNECT_TIMEOUT_MS / 1000} s`),
+    );
     try {
       const identity = await readTabletIdentity();
       const { handle } = await this.host.transport.open({ kind: "websocket", url: this.settings.syncUrl });
+      // Opened after the attempt was abandoned, by the deadline or by stop().
       if (this.stopped || attempt !== this.attempt) {
         this.host.transport.close(handle).catch(() => {});
         return;
@@ -71,7 +82,6 @@ export class SyncConnection {
       this.handle = handle;
       this.welcomed = false;
       this.host.transport.onEvent(handle, (event) => this.onTransportEvent(handle, event));
-      this.setTimer("welcome", WELCOME_TIMEOUT_MS, () => this.drop("the server sent no welcome"));
       await this.send(handle, {
         type: "hello",
         protocolVersion: PROTOCOL_VERSION,
@@ -84,7 +94,8 @@ export class SyncConnection {
     } catch (error) {
       if (attempt === this.attempt) this.drop(`could not connect to ${this.settings.syncUrl}: ${describe(error)}`);
     } finally {
-      this.connecting = false;
+      // An abandoned attempt was released by drop(), and a newer one may be under way.
+      if (attempt === this.attempt) this.connecting = false;
     }
   }
 
@@ -127,7 +138,7 @@ export class SyncConnection {
         if (this.welcomed) return;
         this.welcomed = true;
         this.reconnectDelayMs = MIN_RECONNECT_MS;
-        this.clearTimer("welcome");
+        this.clearTimer("connect");
         this.log(`Connected to ${this.settings.syncUrl}`);
         this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
         break;
@@ -154,9 +165,10 @@ export class SyncConnection {
     return this.host.transport.send(handle, { type: "text", data: encode(message) });
   }
 
-  /** Abandons the current connection, if any, and tries again after the backoff delay. */
+  /** Abandons the current connection or attempt, if any, and tries again after the backoff delay. */
   private drop(reason: string): void {
     this.attempt++;
+    this.connecting = false;
     this.closeHandle();
     if (this.stopped) return;
     const delay = this.reconnectDelayMs;
@@ -170,11 +182,11 @@ export class SyncConnection {
     this.handle = undefined;
     this.welcomed = false;
     this.clearTimer("heartbeat");
-    this.clearTimer("welcome");
+    this.clearTimer("connect");
     if (handle !== undefined) this.host.transport.close(handle).catch(() => {});
   }
 
-  private setTimer(name: "reconnect" | "heartbeat" | "welcome", delay: number, callback: () => void): void {
+  private setTimer(name: TimerName, delay: number, callback: () => void): void {
     this.clearTimer(name);
     this.timers.set(
       name,
@@ -185,7 +197,7 @@ export class SyncConnection {
     );
   }
 
-  private clearTimer(name: "reconnect" | "heartbeat" | "welcome"): void {
+  private clearTimer(name: TimerName): void {
     const id = this.timers.get(name);
     if (id !== undefined) clearTimeout(id);
     this.timers.delete(name);

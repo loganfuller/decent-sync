@@ -252,7 +252,7 @@ describe("Machines and the sync connection", () => {
         [helloWith(token, { pluginVersion: 7, machine: { model: "DE1Pro" } }), "hello.pluginVersion must be a string; hello.machine.serial must be a string"],
         ["{not json", "The frame is not JSON"],
         [{ type: "heartbeat" }, "The first message must be hello"],
-        [{ type: "shot" }, 'Unknown message type "shot"'],
+        [{ type: "shot" }, "Unknown message type"],
         [helloWith(token, { protocolVersion: PROTOCOL_VERSION + 1 }), expect.stringContaining("update the server")],
       ];
       for (const [frame, problem] of invalid) {
