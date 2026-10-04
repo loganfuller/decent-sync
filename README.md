@@ -151,8 +151,9 @@ parameters that the pooler may refuse, and it listens for PostgreSQL
 notifications, which the pooler drops in transaction mode.
 
 Save a `fly.toml` like this one, with your app's name and the image version to
-run, then deploy one machine. The server's sign-in rate limit still counts
-attempts per instance, so skip fly.io's default second machine for now:
+run, then deploy one machine. Before version 1.0, a new version must not run
+beside the old one, and fly.io deploys to several machines one at a time, so
+skip its default second machine for now:
 
 ```bash
 fly deploy --ha=false
