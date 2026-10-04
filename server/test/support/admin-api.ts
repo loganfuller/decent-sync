@@ -60,6 +60,11 @@ export class AdminApi {
     return new AdminApi(serverUrl, setup.headers.getSetCookie()[0]!.split(";")[0]!);
   }
 
+  /** The same signed-in Admin, using another server instance on the same database. */
+  at(serverUrl: string): AdminApi {
+    return new AdminApi(serverUrl, this.cookie);
+  }
+
   call(method: string, path: string, body?: unknown, headers: Record<string, string> = { Cookie: this.cookie }): Promise<Response> {
     return fetch(`${this.serverUrl}/api${path}`, {
       method,

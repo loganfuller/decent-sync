@@ -209,7 +209,7 @@ URL, and the Machine shows as online.
 |---|---|
 | Server URL | the server's `PUBLIC_URL`, such as `https://sync.example.com` |
 | Token | the Machine's token (stored securely by Decaid) |
-| Poll interval | seconds between checks for library, settings and device changes (default 30) |
+| Poll interval | seconds between checks for machine, library, settings and device changes (default 30, at least 5) |
 
 ## Development
 

@@ -109,6 +109,11 @@ model Machine {
   refusedAt      DateTime?             @map("refused_at") @db.Timestamptz(3)
   /// When a plugin connected with its token was last heard from.
   lastSeenAt     DateTime?             @map("last_seen_at") @db.Timestamptz(3)
+  /// The connection that holds the Machine, on whichever server instance:
+  /// written when a hello is accepted, cleared when that connection closes.
+  /// Online while set and heard from recently, so a crashed instance's
+  /// connections go offline by themselves.
+  connectedSessionId String?           @map("connected_session_id") @db.Uuid
   createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 

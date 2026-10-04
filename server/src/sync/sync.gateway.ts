@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
@@ -15,20 +16,22 @@ import {
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
-import { MachinesService, describeHardware } from "../machines/machines.service.js";
-import { type LiveConnection, Presence } from "../machines/presence.js";
+import { AccessChanges } from "../machines/access-changes.js";
+import { type LiveConnection, LiveConnections } from "../machines/connections.js";
+import { MISSED_HEARTBEATS, MachinesService, describeHardware } from "../machines/machines.service.js";
+import { hashSecret } from "../secrets.js";
 import type { Hardware, Identity } from "./identity.js";
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
 const MAX_FRAME_BYTES = 1 << 20;
-/** A session silent for this many heartbeat intervals is closed. */
-const MISSED_HEARTBEATS = 3;
 /** Received when the connection ended without a close frame. */
 const ABNORMAL_CLOSURE = 1006;
 const INTERNAL_ERROR = 1011;
 const GOING_AWAY = 1001;
 
 interface Session {
+  /** Written to its Machine's row once its hello is accepted, marking the connection that holds the Machine. */
+  id: string;
   socket: WebSocket;
   remote: string;
   /** The token's Machine, once its `hello` is accepted. */
@@ -40,12 +43,10 @@ interface Session {
    */
   identity?: Identity;
   pendingMachineId?: string | null;
-  /** The session as Presence knows it, once welcomed. */
+  /** Set once its hello is accepted and the session holds its Machine. */
   live?: LiveConnection;
   /** Frames are handled one at a time, in the order they arrived. */
   queue: Promise<void>;
-  /** When a frame last arrived, for the Machine's last-seen time. */
-  lastHeardAt: Date;
   closing: boolean;
   helloTimer?: NodeJS.Timeout;
   idleTimer?: NodeJS.Timeout;
@@ -56,9 +57,14 @@ interface Session {
  * `hello` within the hello timeout; its token decides the Machine, and its
  * reported hardware and connection id the session's identity (ADR-0004,
  * ADR-0015), once. A newer connection with the same token replaces an older
- * one. Every refusal sends an `error`, then closes
- * with that error's close code. Messages never reach the log: a `hello`
- * carries the token.
+ * one. Every refusal sends an `error`, then closes with that error's close
+ * code. Messages never reach the log: a `hello` carries the token.
+ *
+ * Any number of server instances may run. Which connection holds a Machine is
+ * stored on its row; a change that may end a connection (another accepted
+ * hello, a reissued token, dismissed hardware) is notified to every
+ * instance, which checks its connections to that Machine against the
+ * database. Heartbeats check too, in case a notification was missed.
  */
 @Injectable()
 export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
@@ -72,17 +78,26 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly adapterHost: HttpAdapterHost,
     @Inject(CONFIG) private readonly config: Config,
     private readonly machines: MachinesService,
-    private readonly presence: Presence,
-  ) {}
+    private readonly live: LiveConnections,
+    accessChanges: AccessChanges,
+  ) {
+    accessChanges.subscribe((machineId) => {
+      for (const connection of this.live.of(machineId)) this.check(connection);
+    });
+  }
 
   onApplicationBootstrap(): void {
     const httpServer = this.adapterHost.httpAdapter.getHttpServer() as Server;
     httpServer.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => this.upgrade(request, socket, head));
   }
 
-  /** Runs before the database disconnects: closes every connection without recording it. */
+  /** Runs before the database disconnects: releases this instance's Machines, then closes every connection. */
   async onModuleDestroy(): Promise<void> {
     this.shuttingDown = true;
+    const held = [...this.connections].flatMap((session) => (session.live ? [session.id] : []));
+    await this.machines.releaseAll(held).catch((error: unknown) => {
+      this.logger.error(`Could not record this instance's Machines as offline: ${String(error)}`);
+    });
     const closed = [...this.connections].map((session) => new Promise((resolve) => session.socket.once("close", resolve)));
     for (const session of this.connections) {
       this.clearTimers(session);
@@ -108,10 +123,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
 
   private open(socket: WebSocket, request: IncomingMessage): void {
     const session: Session = {
+      id: randomUUID(),
       socket,
       remote: request.socket.remoteAddress ?? "an unknown address",
       queue: Promise.resolve(),
-      lastHeardAt: new Date(),
       closing: false,
     };
     this.connections.add(session);
@@ -121,7 +136,6 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     );
 
     socket.on("message", (data, isBinary) => {
-      session.lastHeardAt = new Date();
       session.queue = session.queue
         .then(() => this.receive(session, data, isBinary))
         .catch((error: unknown) => {
@@ -155,42 +169,62 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return this.refuse(session, "protocol_error", "hello was already sent on this connection");
       case "heartbeat":
         this.resetIdleTimer(session);
-        await this.machines.markSeen(session.machine.id, session.lastHeardAt);
+        if (session.live) {
+          await this.machines.heard(session.live);
+          await this.check(session.live);
+        }
         return;
     }
   }
 
   private async hello(session: Session, hello: Hello): Promise<void> {
     clearTimeout(session.helloTimer);
-    const machineId = await this.machines.machineIdOfToken(hello.token);
+    const outcome = await this.machines.acceptHello(hello, session.id, new Date());
+    if (!outcome.accepted) return this.refuse(session, outcome.code, outcome.reason);
+
+    const { machine, identity, hardware } = outcome;
+    session.machine = machine;
+    session.identity = identity;
+    session.pendingMachineId = outcome.pendingMachineId;
+    const live: LiveConnection = {
+      sessionId: session.id,
+      machineId: machine.id,
+      tokenHash: hashSecret(hello.token),
+      mismatch: identity.kind === "mismatch" ? identity.hardware : null,
+      end: (code, message) => this.refuse(session, code, message),
+    };
+    session.live = live;
+    // Closed while being accepted: the Machine it was just given is released again.
+    if (session.closing) return void this.release(session);
+    this.live.add(live);
+
+    // A change committed while this hello was being accepted was notified
+    // before the session could be found; checked once it can be, it is seen
+    // here or by the notification.
+    if (await this.check(live)) return;
     if (session.closing) return;
-    if (!machineId) return this.refuse(session, "bad_token", "No Machine on this server has this token; it may have been replaced by a newer one");
 
-    // Accepted and joined to Presence in one turn, so a token reissued or
-    // hardware dismissed meanwhile either refuses this hello or closes it
-    // once joined. A refused hello never replaces a connection.
-    const accepted = await this.presence.exclusive(machineId, async () => {
-      const outcome = await this.machines.acceptHello(hello, session.lastHeardAt);
-      if (session.closing) return undefined;
-      if (!outcome.accepted) {
-        this.refuse(session, outcome.code, outcome.reason);
-        return undefined;
-      }
-      session.machine = outcome.machine;
-      session.identity = outcome.identity;
-      session.pendingMachineId = outcome.pendingMachineId;
-      session.live = { hardware: outcome.hardware, end: (code, message) => this.refuse(session, code, message) };
-      this.presence.connect(outcome.machine.id, session.live)?.end("replaced", "A newer connection with this Machine's token took over");
-      return outcome;
-    });
-    if (!accepted || session.closing) return;
-
-    const { machine, identity, hardware } = accepted;
     this.send(session, { type: "welcome", protocolVersion: PROTOCOL_VERSION, heartbeatIntervalMs: this.config.heartbeatIntervalMs });
     this.resetIdleTimer(session);
     this.logger.log(
       `Machine ${machine.name} connected from ${session.remote}: plugin ${hello.pluginVersion}, Decaid ${hello.decaidVersion ?? "unknown"}, ${describeIdentity(identity, hardware)}`,
     );
+  }
+
+  /** Ends the connection if it may no longer stay, and says whether it did. */
+  private async check(connection: LiveConnection): Promise<boolean> {
+    try {
+      const refusal = await this.machines.standing(connection);
+      // Shutting down releases this instance's Machines before closing their
+      // connections, which must then close as going away, to be retried, not
+      // as replaced, after which the plugin stops.
+      if (!refusal || this.shuttingDown) return false;
+      connection.end(refusal.code, refusal.reason);
+      return true;
+    } catch (error) {
+      this.logger.error(`Could not check a sync connection: ${String(error)}`);
+      return false;
+    }
   }
 
   /** Shows why a plugin of an unsupported protocol version was refused on its token's Machine, if the token is valid. */
@@ -203,17 +237,21 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     this.connections.delete(session);
     this.clearTimers(session);
     session.closing = true;
-    const machine = session.machine;
-    // A replaced session closes without taking its Machine offline.
-    if (!machine || !session.live || !this.presence.disconnect(machine.id, session.live)) return;
-
-    this.logger.log(`Machine ${machine.name} disconnected (${code})`);
+    if (!session.live) return;
+    this.live.delete(session.live);
+    // Released together on shutdown.
     if (this.shuttingDown) return;
-    // A close frame is heard from the plugin too; a dropped connection is not.
-    const lastSeen = code === ABNORMAL_CLOSURE ? session.lastHeardAt : new Date();
-    this.machines.markSeen(machine.id, lastSeen).catch((error: unknown) => {
-      this.logger.error(`Could not record when Machine ${machine.name} was last seen: ${String(error)}`);
-    });
+    void this.release(session, code !== ABNORMAL_CLOSURE);
+  }
+
+  /** Releases the Machine the session held, unless a newer connection holds it now. */
+  private async release(session: Session, closeFrameHeard = false): Promise<void> {
+    const name = session.machine?.name ?? "unknown";
+    try {
+      if (await this.machines.released(session.id, closeFrameHeard)) this.logger.log(`Machine ${name} disconnected`);
+    } catch (error) {
+      this.logger.error(`Could not record Machine ${name} as offline: ${String(error)}`);
+    }
   }
 
   /** Tells the plugin why, then closes with the error's close code. */

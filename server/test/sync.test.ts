@@ -210,14 +210,15 @@ describe("Machines and the sync connection", () => {
     it("connects when Decaid's API is slower than the connect deadline", async () => {
       const slow = await createMachine("Slow API");
       // Each read takes 20 s of the tablet's time: longer than the 15 s deadline, within Decaid's 30 s fetch timeout.
-      const tablet = loadTablet(settingsFor(slow), { timeScale: 100, apiDelayMs: 20_000 });
+      // 20 times faster, the deadline still leaves a busy test server 750 ms to welcome it.
+      const tablet = loadTablet(settingsFor(slow), { timeScale: 20, apiDelayMs: 20_000 });
       await waitForMachine("Slow API", (machine) => machine.online);
       expect(tablet.logs.filter((log) => log.startsWith("Disconnected"))).toEqual([]);
       await tablet.unload();
 
       // Reads that time out leave the hello without hardware, which is still accepted.
       const timedOut = await createMachine("API timing out");
-      const second = loadTablet(settingsFor(timedOut), { timeScale: 100, apiDelayMs: 30_000 });
+      const second = loadTablet(settingsFor(timedOut), { timeScale: 20, apiDelayMs: 30_000 });
       expect(await waitForMachine("API timing out", (machine) => machine.online)).toMatchObject({ model: null, serial: null });
       await second.unload();
     });

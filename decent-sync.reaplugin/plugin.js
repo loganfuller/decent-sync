@@ -429,6 +429,7 @@ var __decentSync = (() => {
 
   // src/settings.ts
   var DEFAULT_POLL_SECONDS = 30;
+  var MIN_POLL_SECONDS = 5;
   function readSettings(settings) {
     const problems = [];
     const serverUrl = typeof settings.ServerUrl === "string" ? settings.ServerUrl.trim() : "";
@@ -438,7 +439,7 @@ var __decentSync = (() => {
     const token = typeof settings.Token === "string" ? settings.Token.trim() : "";
     if (!token) problems.push("Token is not set");
     const poll = Number(settings.PollSeconds);
-    const pollSeconds = settings.PollSeconds !== void 0 && Number.isFinite(poll) && poll > 0 ? poll : DEFAULT_POLL_SECONDS;
+    const pollSeconds = settings.PollSeconds !== void 0 && Number.isFinite(poll) && poll > 0 ? Math.max(poll, MIN_POLL_SECONDS) : DEFAULT_POLL_SECONDS;
     if (problems.length > 0) return { ok: false, problems };
     return { ok: true, settings: { syncUrl, token, pollSeconds } };
   }

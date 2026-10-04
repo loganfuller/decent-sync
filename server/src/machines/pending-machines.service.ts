@@ -1,11 +1,11 @@
 import { ConflictException, Injectable } from "@nestjs/common";
-import { MachineIdentification, type PendingMachine } from "../generated/prisma/client.js";
+import { MachineIdentification, type PendingMachine, Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
-import { sameHardware } from "../sync/identity.js";
+import type { Hardware } from "../sync/identity.js";
 import { type NewMachine, pendingMachineNotFound } from "./input.js";
 import { type MachineView, MachinesService, describeHardware, dismissedReason, refuseDuplicateName } from "./machines.service.js";
-import { Presence } from "./presence.js";
+import { notifyAccessChanged } from "./access-changes.js";
 
 /** A Pending Machine as the REST API returns it. */
 export interface PendingMachineView {
@@ -31,7 +31,6 @@ export class PendingMachinesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly machines: MachinesService,
-    private readonly presence: Presence,
   ) {}
 
   /** Every Pending Machine, dismissed or not, newest first. */
@@ -55,67 +54,77 @@ export class PendingMachinesService {
    */
   async createMachine(id: string, fields: NewMachine): Promise<{ machine: MachineView; token: string }> {
     const token = newSecret();
-    const machineId = await this.prisma.$transaction(async (tx) => {
-      const pending = await tx.pendingMachine.findUnique({ where: { id } });
-      if (!pending) throw pendingMachineNotFound();
-      const hardware = { model: pending.model, serial: pending.serial };
-      const owner = await tx.machine.findFirst({ where: hardware, select: { name: true } });
-      if (owner) throw new ConflictException(`Machine ${owner.name} already has ${describeHardware(hardware)}`);
+    let hardware: Hardware | undefined;
+    const machineId = await this.prisma
+      .$transaction(async (tx) => {
+        const pending = await tx.pendingMachine.findUnique({ where: { id } });
+        if (!pending) throw pendingMachineNotFound();
+        hardware = { model: pending.model, serial: pending.serial };
+        const owner = await tx.machine.findFirst({ where: hardware, select: { name: true } });
+        if (owner) throw hardwareTaken(owner.name, hardware);
 
-      const machine = await tx.machine
-        .create({
+        const machine = await tx.machine.create({
           data: {
             name: fields.name,
             ...hardware,
             identification: MachineIdentification.IDENTIFIED,
             tokens: { create: { tokenHash: hashSecret(token) } },
           },
-        })
-        .catch(refuseDuplicateName(fields.name));
-      await tx.pendingMachine.delete({ where: { id } });
-      return machine.id;
-    });
+        });
+        await tx.pendingMachine.delete({ where: { id } });
+        return machine.id;
+      })
+      .catch(async (error: unknown) => {
+        // The name, or the hardware, which a hello may have bound to another Machine meanwhile.
+        if (hardware && error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          const owner = await this.prisma.machine.findFirst({ where: hardware, select: { name: true } });
+          if (owner) throw hardwareTaken(owner.name, hardware);
+        }
+        return refuseDuplicateName(fields.name)(error);
+      });
     return { machine: await this.machines.get(machineId), token };
   }
 
   /**
    * Dismisses the Pending Machine. Every Machine whose token's connection
-   * reports it as a mismatch has that hardware refused from now on, and its
-   * connection is closed.
+   * reports it as a mismatch has that hardware refused from now on, with the
+   * reason shown on it, and its connection is closed by whichever instance
+   * holds it.
    */
   async dismiss(id: string): Promise<PendingMachineView> {
     const at = new Date();
     const { pending, refused } = await this.prisma.$transaction(async (tx) => {
       const found = await tx.pendingMachine.findUnique({ where: { id } });
       if (!found) throw pendingMachineNotFound();
+      // Machines first, then the Pending Machine: the order a hello takes them in, so neither waits on the other in a cycle.
+      const refused = await tx.$queryRaw<{ id: string; name: string }[]>`
+        SELECT id, name FROM machines
+        WHERE identification = 'MISMATCH' AND reported_model = ${found.model} AND reported_serial = ${found.serial}
+        ORDER BY id
+        FOR UPDATE`;
       const pending = found.dismissedAt ? found : await tx.pendingMachine.update({ where: { id }, data: { dismissedAt: at } });
-      const refused = await tx.machine.findMany({
-        where: { identification: MachineIdentification.MISMATCH, reportedModel: pending.model, reportedSerial: pending.serial },
-        select: { id: true, name: true },
-      });
       await tx.dismissedHardware.createMany({
         data: refused.map((machine) => ({ machineId: machine.id, model: pending.model, serial: pending.serial })),
         skipDuplicates: true,
       });
+      await tx.machine.updateMany({
+        where: { id: { in: refused.map((machine) => machine.id) } },
+        data: { refusalReason: dismissedReason(pending), refusedAt: at },
+      });
+      // Delivered on commit: each instance closes its connections reporting this hardware with those tokens.
+      for (const machine of refused) await notifyAccessChanged(tx, machine.id);
       return { pending, refused };
     });
 
-    const hardware = { model: pending.model, serial: pending.serial };
-    const reason = dismissedReason(hardware);
-    for (const machine of refused) {
-      await this.machines.recordRefusal(machine.id, reason, at);
-      // In turn with hellos, after the commit: one that read the dismissal is refused, and one that did not has joined Presence.
-      await this.presence.exclusive(machine.id, async () =>
-        this.presence.end(machine.id, "hardware_dismissed", reason, (connection) =>
-          connection.hardware !== null && sameHardware(connection.hardware, hardware),
-        ),
-      );
-    }
     return view(
       pending,
       refused.map((machine) => ({ ...machine, reportedModel: pending.model, reportedSerial: pending.serial })),
     );
   }
+}
+
+function hardwareTaken(owner: string, hardware: Hardware): ConflictException {
+  return new ConflictException(`Machine ${owner} already has ${describeHardware(hardware)}`);
 }
 
 function view(

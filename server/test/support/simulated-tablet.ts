@@ -122,6 +122,8 @@ class TransportError extends Error {
 
 export class SimulatedTablet {
   readonly logs: string[] = [];
+  /** The Decaid API routes the plugin requested, in order, such as "/machine/info". */
+  readonly requests: string[] = [];
   readonly plugin: BuiltPlugin;
   machineConnected: boolean;
   private api: DecaidApi;
@@ -228,6 +230,7 @@ export class SimulatedTablet {
     const url = String(input);
     if (!url.startsWith(`${API_ORIGIN}/api/v1/`)) throw new Error(`The simulated tablet has no network for ${url}`);
     const route = url.slice(`${API_ORIGIN}/api/v1`.length).split("?")[0]!;
+    this.requests.push(route);
     if (route === "/machine/info" && !this.machineConnected) {
       // de1handler.dart answers a DeviceNotConnectedException with a 500.
       return response(500, JSON.stringify({ error: "DeviceNotConnectedException: no machine connected" }));
