@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import { AuthProvider, useAuth } from "@/auth";
 import { LocationsPage } from "@/pages/LocationsPage";
+import { MachinePage } from "@/pages/MachinePage";
+import { MachinesPage } from "@/pages/MachinesPage";
 import { SetupPage } from "@/pages/SetupPage";
 import { HomePage, Shell } from "@/pages/Shell";
 import { SignInPage, type SignInState } from "@/pages/SignInPage";
@@ -16,6 +18,8 @@ export function App() {
           <Route element={<Gate page="signed-in" />}>
             <Route index element={<HomePage />} />
             <Route path="/locations" element={<LocationsPage />} />
+            <Route path="/machines" element={<MachinesPage />} />
+            <Route path="/machines/:id" element={<MachinePage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

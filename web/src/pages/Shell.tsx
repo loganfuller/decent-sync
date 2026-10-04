@@ -26,10 +26,10 @@ export function Shell() {
             Decent Sync
           </Link>
           <nav aria-label="Main" className="flex flex-1 items-center gap-4 text-sm">
-            <NavLink
-              to="/locations"
-              className={({ isActive }) => (isActive ? "font-medium" : "text-muted-foreground hover:text-foreground")}
-            >
+            <NavLink to="/machines" className={navLinkClass}>
+              Machines
+            </NavLink>
+            <NavLink to="/locations" className={navLinkClass}>
               Locations
             </NavLink>
           </nav>
@@ -48,6 +48,10 @@ export function Shell() {
       </main>
     </div>
   );
+}
+
+function navLinkClass({ isActive }: { isActive: boolean }): string {
+  return isActive ? "font-medium" : "text-muted-foreground hover:text-foreground";
 }
 
 export function HomePage() {

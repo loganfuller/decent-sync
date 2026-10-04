@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { SYNC_PATH } from "@decent-sync/protocol";
+import { PROTOCOL_VERSION, SYNC_PATH } from "@decent-sync/protocol";
 import WebSocket from "ws";
 
 // Seam 1's simulated tablet: runs the built decent-sync.reaplugin/plugin.js
@@ -83,6 +83,24 @@ export function derivedDe1Pro(changes: { model?: string; serial?: string; connec
       ...(changes.serial === undefined ? {} : { serialNumber: changes.serial }),
     },
     "/settings": { ...settings, ...(changes.connectionId === undefined ? {} : { preferredMachineId: changes.connectionId }) },
+  };
+}
+
+/** Plugin settings for a machine entry, as someone at the machine enters them. */
+export function settingsFor({ token, serverUrl }: { token: string; serverUrl: string }): Record<string, unknown> {
+  return { ServerUrl: serverUrl, Token: token };
+}
+
+/** A valid `hello` of this protocol version, for raw frames. */
+export function helloWith(token: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    type: "hello",
+    protocolVersion: PROTOCOL_VERSION,
+    token,
+    pluginVersion: "0.1.0",
+    decaidVersion: "0.8.7+2850",
+    connectionId: "00:00:5E:00:53:01",
+    ...extra,
   };
 }
 

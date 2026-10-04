@@ -1,7 +1,7 @@
 import { CLOSE_CODES } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { AdminApi, type CreatedMachine, type MachineView, helloWith, settingsFor } from "./support/admin-api.js";
-import { RawConnection, SimulatedTablet, derivedDe1Pro } from "./support/simulated-tablet.js";
+import { AdminApi, type CreatedMachine, type MachineView } from "./support/admin-api.js";
+import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1: who a connecting tablet is (ADR-0004, ADR-0015). Raw frames and

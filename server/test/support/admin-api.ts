@@ -1,4 +1,3 @@
-import { PROTOCOL_VERSION } from "@decent-sync/protocol";
 import { expect } from "vitest";
 
 // The REST API as a signed-in Admin uses it, for Seam 1 tests. Requests carry
@@ -108,22 +107,4 @@ export class AdminApi {
     this.tokens.push(created.token);
     return created;
   }
-}
-
-/** Plugin settings for a machine entry, as someone at the machine enters them. */
-export function settingsFor({ token, serverUrl }: { token: string; serverUrl: string }): Record<string, unknown> {
-  return { ServerUrl: serverUrl, Token: token };
-}
-
-/** A valid `hello` of this protocol version, for raw frames. */
-export function helloWith(token: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    type: "hello",
-    protocolVersion: PROTOCOL_VERSION,
-    token,
-    pluginVersion: "0.1.0",
-    decaidVersion: "0.8.7+2850",
-    connectionId: "00:00:5E:00:53:01",
-    ...extra,
-  };
 }
