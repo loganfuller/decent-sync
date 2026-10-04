@@ -54,3 +54,17 @@ model Session {
   @@index([expiresAt])
   @@map("sessions")
 }
+
+/// A physical site where machines are used, such as a roastery lab or a cafe.
+model Location {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  /// Stored trimmed; unique so choosers can name a Location unambiguously.
+  name      String   @unique
+  /// An IANA time zone, spelled as PostgreSQL knows it, so date filters can
+  /// use it with AT TIME ZONE. See server/src/locations/time-zones.ts.
+  timeZone  String   @map("time_zone")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("locations")
+}

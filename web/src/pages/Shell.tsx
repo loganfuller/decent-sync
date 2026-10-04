@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, Outlet } from "react-router";
+import { Link, NavLink, Outlet } from "react-router";
 import { useAuth } from "@/auth";
 import { Button } from "@/components/ui/button";
 
@@ -25,8 +25,14 @@ export function Shell() {
           <Link to="/" className="font-semibold">
             Decent Sync
           </Link>
-          {/* Later tickets add their pages' links here. */}
-          <nav aria-label="Main" className="flex flex-1 items-center gap-4" />
+          <nav aria-label="Main" className="flex flex-1 items-center gap-4 text-sm">
+            <NavLink
+              to="/locations"
+              className={({ isActive }) => (isActive ? "font-medium" : "text-muted-foreground hover:text-foreground")}
+            >
+              Locations
+            </NavLink>
+          </nav>
           {account && (
             <span className="text-sm text-muted-foreground" data-testid="signed-in-account">
               {account.name}
