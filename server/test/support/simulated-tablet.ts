@@ -24,10 +24,18 @@ import WebSocket from "ws";
 // - Unloading calls onUnload, then cancels the generation's timers and closes
 //   its transports, dropping their later events.
 // - Timers are the host's, so a test can run them faster with `timeScale` to
-//   reach the plugin's timeouts and backoff quickly. The heartbeat interval
-//   in the server's `welcome` is real time, so it is slowed by the same
-//   factor: a sped-up plugin still heartbeats, and expects the server's
-//   answers, at the server's pace.
+//   reach the plugin's timeouts and backoff quickly. The server keeps real
+//   time, though. The heartbeat interval in its `welcome` is slowed by the
+//   same factor, so a sped-up plugin still heartbeats, and expects the
+//   server's answers, at the server's pace. And while a connection waits for
+//   the server's first answer, the tablet's clock runs at real time: the
+//   server's work on a hello takes real time however fast the tablet runs,
+//   and a sped-up connect deadline would otherwise give up on a server that
+//   is merely busy. Until the server accepts the upgrade, though, the clock
+//   keeps the sped-up pace, since a stalled upgrade and a slow one look the
+//   same: a connection the server never upgrades still times out quickly,
+//   and at 100x the server has 150 ms to accept one. Its upgrade handler is
+//   synchronous; the database work comes after.
 //
 // RawConnection is the raw-frame mode, for protocol cases the plugin never
 // produces.
@@ -111,7 +119,10 @@ export interface SimulatedTabletOptions {
   api?: DecaidApi;
   /** Whether a machine is connected to the tablet; while not, /machine/info fails. Defaults to true. */
   machineConnected?: boolean;
-  /** Runs the plugin's timers, and the delays below, this many times faster. Defaults to 1. */
+  /**
+   * Runs the plugin's timers, and the delays below, this many times faster,
+   * except while a connection waits for the server's first answer. Defaults to 1.
+   */
   timeScale?: number;
   /** How long Decaid's API takes to answer each request; from 30 s on, the request times out. Defaults to 0. */
   apiDelayMs?: number;
@@ -128,8 +139,17 @@ interface TransportRecord {
   pendingOutboundBytes: number;
   /** Closed, by either end or a failure; no further sends. */
   terminal: boolean;
+  /** Open, with nothing yet from the server, and not closing; the tablet's clock runs at real time meanwhile. */
+  awaitingServer: boolean;
   closing: boolean;
   draining: boolean;
+}
+
+interface Timer {
+  /** When it fires, on the tablet's clock. */
+  due: number;
+  callback: () => void;
+  timeout?: NodeJS.Timeout;
 }
 
 class TransportError extends Error {
@@ -153,7 +173,12 @@ export class SimulatedTablet {
   /** Opens not yet connected; Decaid counts them against the transport limit. */
   private opening = 0;
   private readonly transports = new Map<string, TransportRecord>();
-  private readonly timers = new Map<number, NodeJS.Timeout>();
+  /** Transports awaiting the server's first answer. */
+  private awaitingServer = 0;
+  /** The tablet's clock in ms, as of `clockReadAt` in real time (performance.now()). */
+  private clockMs = 0;
+  private clockReadAt = performance.now();
+  private readonly timers = new Map<number, Timer>();
   private nextTimerId = 0;
   private nextHandle = 0;
   private unloaded = false;
@@ -218,7 +243,7 @@ export class SimulatedTablet {
       this.plugin.onUnload();
     } finally {
       this.unloaded = true;
-      for (const timer of this.timers.values()) clearTimeout(timer);
+      for (const timer of this.timers.values()) clearTimeout(timer.timeout);
       this.timers.clear();
       const closing = [...this.transports.values()].map((record) => this.closeNative(record));
       await Promise.all(closing);
@@ -246,7 +271,7 @@ export class SimulatedTablet {
 
   // Decaid's plugin fetch, limited to its own API.
   private async fetch(input: unknown): Promise<unknown> {
-    await delay(Math.min(this.apiDelayMs, FETCH_TIMEOUT_MS) / this.timeScale);
+    await new Promise<void>((resolve) => this.setTimer(resolve, Math.min(this.apiDelayMs, FETCH_TIMEOUT_MS)));
     if (this.apiDelayMs >= FETCH_TIMEOUT_MS) throw new Error("Fetch timed out");
     const url = String(input);
     if (!url.startsWith(`${API_ORIGIN}/api/v1/`)) throw new Error(`The simulated tablet has no network for ${url}`);
@@ -262,22 +287,49 @@ export class SimulatedTablet {
 
   private setTimer(callback: () => void, delayMs: number): number {
     const id = ++this.nextTimerId;
-    this.timers.set(
-      id,
-      setTimeout(
-        () => {
-          this.timers.delete(id);
-          if (!this.unloaded) callback();
-        },
-        Math.max(0, Math.trunc(Number(delayMs) || 0)) / this.timeScale,
-      ),
-    );
+    this.arm(id, { due: this.now() + Math.max(0, Math.trunc(Number(delayMs) || 0)), callback });
     return id;
   }
 
   private clearTimer(id: number): void {
-    clearTimeout(this.timers.get(id));
+    clearTimeout(this.timers.get(id)?.timeout);
     this.timers.delete(id);
+  }
+
+  /** (Re)schedules a timer for its due time at the clock's current rate; call `now()` first. */
+  private arm(id: number, timer: Timer): void {
+    clearTimeout(timer.timeout);
+    timer.timeout = setTimeout(
+      () => {
+        this.timers.delete(id);
+        if (!this.unloaded) timer.callback();
+      },
+      Math.max(0, timer.due - this.clockMs) / this.rate(),
+    );
+    this.timers.set(id, timer);
+  }
+
+  /** Reads the tablet's clock. */
+  private now(): number {
+    const realNow = performance.now();
+    this.clockMs += (realNow - this.clockReadAt) * this.rate();
+    this.clockReadAt = realNow;
+    return this.clockMs;
+  }
+
+  /** How many times faster than real time the tablet's clock runs. */
+  private rate(): number {
+    return this.awaitingServer > 0 ? 1 : this.timeScale;
+  }
+
+  /** Marks whether a transport awaits the server's first answer, rescheduling every timer if the clock's rate changes. */
+  private setAwaitingServer(record: TransportRecord, awaiting: boolean): void {
+    if (record.awaitingServer === awaiting) return;
+    const before = this.rate();
+    this.now();
+    record.awaitingServer = awaiting;
+    this.awaitingServer += awaiting ? 1 : -1;
+    if (this.rate() !== before) for (const [id, timer] of this.timers) this.arm(id, timer);
   }
 
   private async open(options: unknown): Promise<{ handle: string; protocol?: string }> {
@@ -318,12 +370,15 @@ export class SimulatedTablet {
       inboundBytes: 0,
       pendingOutboundBytes: 0,
       terminal: false,
+      awaitingServer: false,
       closing: false,
       draining: false,
     };
     this.transports.set(record.handle, record);
+    this.setAwaitingServer(record, true);
     let failure: string | undefined;
     socket.on("message", (data, isBinary) => {
+      this.setAwaitingServer(record, false);
       const buffer = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer);
       const event = isBinary
         ? { type: "data", dataType: "binary", data: buffer.toString("base64") }
@@ -381,6 +436,7 @@ export class SimulatedTablet {
 
   private closeNative(record: TransportRecord): Promise<void> {
     record.closing = true;
+    this.setAwaitingServer(record, false);
     if (record.socket.readyState === WebSocket.CLOSED) return Promise.resolve();
     const closed = new Promise<void>((resolve) => record.socket.once("close", () => resolve()));
     record.socket.close(1000);
@@ -409,6 +465,7 @@ export class SimulatedTablet {
   private terminate(record: TransportRecord, error: string | undefined, code: string, closeCode?: number, reason?: string): void {
     if (record.terminal) return;
     record.terminal = true;
+    this.setAwaitingServer(record, false);
     if (error !== undefined) record.inbound.push({ event: { type: "error", code, message: error }, size: 0 });
     // Decaid omits the code when the connection ended without a close frame.
     const close: TransportEvent = { type: "close" };

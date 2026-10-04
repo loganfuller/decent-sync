@@ -46,15 +46,11 @@ describe("sign-in limits across server instances", { timeout: 30_000 }, () => {
   beforeAll(async () => {
     first = await startTestServer();
     second = await startTestServer({ sharing: first, ...ahead });
-    await AdminApi.setUp(first.url);
+    const api = await AdminApi.setUp(first.url);
     database = await first.connectDatabase();
 
-    // The offset reaches the server's code: a session it starts expires an hour late.
-    expect((await signIn(second, admin.email, admin.password)).status).toBe(200);
-    const { rows } = await database.query<{ late: boolean }>(
-      "SELECT max(expires_at) > now() + interval '30 days 50 minutes' AS late FROM sessions",
-    );
-    expect(rows[0]!.late).toBe(true);
+    // The offset reaches the server's code.
+    expect(await api.at(second.url).instanceClockOffsetMs(database)).toBeGreaterThan(ahead.clockOffsetMs - 60_000);
   }, 60_000);
   afterAll(async () => {
     await database?.end();
