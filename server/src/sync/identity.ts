@@ -18,7 +18,7 @@ export interface TokenMachine {
   binding: Hardware | null;
   /** Connection ids already shown to belong to this Machine. */
   aliases: readonly string[];
-  /** Hardware an Admin dismissed for this Machine's token. */
+  /** Hardware an Admin dismissed for this Machine, surviving token rotation. */
   dismissed: readonly Hardware[];
 }
 
@@ -43,7 +43,7 @@ export type Identity =
    * hardware: to the Machine that has it, otherwise to a Pending Machine.
    */
   | { kind: "mismatch"; hardware: Hardware; anotherMachineHasIt: boolean }
-  /** Hardware an Admin dismissed for this token. */
+  /** Hardware an Admin dismissed for the token's Machine. */
   | { kind: "rejected"; hardware: Hardware };
 
 export interface Reported {

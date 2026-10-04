@@ -200,7 +200,7 @@ describe("Machine identity", { timeout: 20_000 }, () => {
       expect(await api.pendingMachines()).toMatchObject([{ model: "DE1XL", serial: "10101", dismissed: false }]);
     });
 
-    it("dismissing the Pending Machine closes and refuses that hardware with this token, and shows why", async () => {
+    it("dismissal survives token rotation for the reporting Machine but allows another Machine to report the hardware", async () => {
       const live = await connect(helloWith(lab.token, { machine: { model: "DE1XL", serial: "10101" } }));
       expectWelcomed(live);
       const [pending] = await api.pendingMachines();
@@ -221,7 +221,22 @@ describe("Machine identity", { timeout: 20_000 }, () => {
       // Dismissed Pending Machines are kept, so a machine entry can still be created for them.
       expect(await api.pendingMachines()).toMatchObject([{ id: pending!.id, dismissed: true }]);
 
-      // The token's own hardware still connects, which clears the refusal.
+      const reissued = await api.call("POST", `/machines/${lab.machine.id}/token`);
+      expect(reissued.status).toBe(201);
+      lab = await api.issued(reissued);
+      const rotated = await connect(helloWith(lab.token, { machine: { model: "DE1XL", serial: "10101" } }));
+      await expectRefusal(rotated, "hardware_dismissed");
+
+      // A different Machine was not part of the dismissal; its mismatch is accepted and flagged.
+      const other = await boundMachine("Other dismissal reporter", "10103", "00:00:5E:00:53:23");
+      const later = await connect(helloWith(other.token, { machine: { model: "DE1XL", serial: "10101" } }));
+      expectWelcomed(later);
+      expect(await api.machineNamed("Other dismissal reporter")).toMatchObject({
+        identification: "mismatch",
+        mismatch: { model: "DE1XL", serial: "10101", pendingMachineId: pending!.id },
+      });
+
+      // The Machine's own hardware still connects with its new token, which clears the refusal.
       const own = await connect(helloWith(lab.token, { machine: de1Pro("10101"), connectionId: "00:00:5E:00:53:20" }));
       expectWelcomed(own);
       expect(await api.machineNamed("Mismatch lab")).toMatchObject({ identification: "identified", mismatch: null, lastRefusal: null });
