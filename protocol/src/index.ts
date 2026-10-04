@@ -48,6 +48,37 @@ export interface MachineHardware {
   firmware?: string | null;
 }
 
+/**
+ * A machine's identity: its model and serial together, so the same serial on
+ * another model is other hardware. Both ends compare reports with the helpers
+ * below, so they agree on what is the same hardware.
+ */
+export interface Hardware {
+  model: string;
+  serial: string;
+}
+
+/** Whether a serial identifies hardware: not empty, and not the "0" older DE1s report. */
+export function isRealSerial(serial: string): boolean {
+  const trimmed = serial.trim();
+  return trimmed !== "" && trimmed !== "0";
+}
+
+/** The reported model and serial, trimmed, if they name real hardware. */
+export function realHardware(reported: MachineHardware | null | undefined): Hardware | null {
+  if (!reported) return null;
+  const model = reported.model.trim();
+  const serial = reported.serial.trim();
+  if (model === "" || !isRealSerial(serial)) return null;
+  return { model, serial };
+}
+
+/** Whether two reports name the same hardware: model and serial, trimmed, whatever the firmware. Two absent reports are the same. */
+export function sameHardware(a: Hardware | null, b: Hardware | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.model.trim() === b.model.trim() && a.serial.trim() === b.serial.trim();
+}
+
 /** The plugin's first message on every connection. */
 export interface Hello {
   type: "hello";

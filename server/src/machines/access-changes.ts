@@ -29,6 +29,8 @@ export class AccessChanges implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger("AccessChanges");
   private readonly listeners = new Set<(machineId: string | null) => void>();
   private client: pg.Client | undefined;
+  /** A client still connecting or starting to listen, ended on shutdown so it cannot outlive it. */
+  private connecting: pg.Client | undefined;
   private retryMs = MIN_RETRY_MS;
   private retryTimer: NodeJS.Timeout | undefined;
   private closing = false;
@@ -46,7 +48,7 @@ export class AccessChanges implements OnModuleInit, OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     this.closing = true;
     clearTimeout(this.retryTimer);
-    await this.client?.end().catch(() => {});
+    await Promise.all([this.client?.end().catch(() => {}), this.connecting?.end().catch(() => {})]);
   }
 
   private async listen(): Promise<void> {
@@ -56,13 +58,18 @@ export class AccessChanges implements OnModuleInit, OnModuleDestroy {
     });
     client.on("error", (error) => this.lost(client, error.message));
     client.on("end", () => this.lost(client, "the connection ended"));
+    this.connecting = client;
     try {
       await client.connect();
       await client.query(`LISTEN ${CHANNEL}`);
     } catch (error) {
       this.lost(client, error instanceof Error ? error.message : String(error));
       return;
+    } finally {
+      this.connecting = undefined;
     }
+    // Shut down between connecting and here: shutdown saw neither field set, so this ends it.
+    if (this.closing) return void (await client.end().catch(() => {}));
     this.client = client;
     this.retryMs = MIN_RETRY_MS;
     // Anything sent while not listening was missed.
@@ -70,6 +77,7 @@ export class AccessChanges implements OnModuleInit, OnModuleDestroy {
   }
 
   private lost(client: pg.Client, reason: string): void {
+    // Shutdown ends the clients itself.
     if (this.closing || (this.client !== undefined && this.client !== client)) return;
     this.client = undefined;
     client.end().catch(() => {});

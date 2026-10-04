@@ -42,8 +42,7 @@ export function readHardware(body: unknown): Hardware {
 
 /** A Machine id from a path; anything that is not a UUID names no Machine. */
 export function readMachineId(id: string): string {
-  if (!UUID.test(id)) throw machineNotFound();
-  return id;
+  return readId(id, machineNotFound);
 }
 
 export function machineNotFound(): NotFoundException {
@@ -52,12 +51,16 @@ export function machineNotFound(): NotFoundException {
 
 /** A Pending Machine id from a path. */
 export function readPendingMachineId(id: string): string {
-  if (!UUID.test(id)) throw pendingMachineNotFound();
-  return id;
+  return readId(id, pendingMachineNotFound);
 }
 
 export function pendingMachineNotFound(): NotFoundException {
   return new NotFoundException("No such Pending Machine");
+}
+
+function readId(id: string, notFound: () => NotFoundException): string {
+  if (!UUID.test(id)) throw notFound();
+  return id;
 }
 
 function asObject(body: unknown): Record<string, unknown> {

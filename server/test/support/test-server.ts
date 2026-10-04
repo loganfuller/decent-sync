@@ -25,6 +25,11 @@ export interface TestServer {
   stop(): Promise<void>;
   /** Kills the server without letting it shut down, as a crash does. */
   kill(): Promise<void>;
+  /**
+   * A client of its database, for changes the server is not told about, or
+   * locks held while it works. The caller ends it.
+   */
+  connectDatabase(): Promise<pg.Client>;
 }
 
 export interface TestServerOptions {
@@ -79,7 +84,12 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     await stop();
     throw error;
   }
-  return { url, database, output: () => output.join(""), stop, kill };
+  const connectDatabase = async () => {
+    const client = new pg.Client({ connectionString: databaseUrl.href });
+    await client.connect();
+    return client;
+  };
+  return { url, database, output: () => output.join(""), stop, kill, connectDatabase };
 }
 
 function adminDatabaseUrl(): string {

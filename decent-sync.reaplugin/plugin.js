@@ -45,6 +45,10 @@ var __decentSync = (() => {
      */
     hardware_dismissed: 4004
   };
+  function sameHardware(a, b) {
+    if (a === null || b === null) return a === b;
+    return a.model.trim() === b.model.trim() && a.serial.trim() === b.serial.trim();
+  }
   function encode(message) {
     return JSON.stringify(message);
   }
@@ -136,10 +140,6 @@ var __decentSync = (() => {
   }
   async function readMachineHardware() {
     return readHardware(await getObject("/machine/info"));
-  }
-  function sameHardware(a, b) {
-    if (a === null || b === null) return a === b;
-    return a.model.trim() === b.model.trim() && a.serial.trim() === b.serial.trim();
   }
   function readHardware(info) {
     const model = info?.model;

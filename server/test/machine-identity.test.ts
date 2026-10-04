@@ -329,6 +329,23 @@ describe("Machine identity", { timeout: 20_000 }, () => {
       });
     });
 
+    it("remembers only the connection id that reported serial 0 when its hardware is entered", async () => {
+      const shared = await api.createMachine("Old DE1 with two tablets");
+      const zero = await connect(helloWith(shared.token, { machine: { model: "DE1", serial: "0" }, connectionId: "00:00:5E:00:53:2A" }));
+      expectWelcomed(zero);
+      await zero.close();
+      // Another tablet, whose machine is off, connects with the same token.
+      const other = await connect(helloWith(shared.token, { connectionId: "00:00:5E:00:53:2B" }));
+      expectWelcomed(other);
+
+      const response = await api.call("PUT", `/machines/${shared.machine.id}/hardware`, { model: "DE1", serial: "10212" });
+      expect(response.status).toBe(200);
+      expect(((await response.json()) as { machine: MachineView }).machine).toMatchObject({
+        identification: "identified",
+        aliases: ["00:00:5E:00:53:2A"],
+      });
+    });
+
     it("is flagged again when its token reports serial 0 from an unknown connection id", async () => {
       const raw = await connect(helloWith(old.token, { machine: { model: "DE1", serial: "0" }, connectionId: "00:00:5E:00:53:29" }));
       expectWelcomed(raw);
@@ -356,7 +373,9 @@ describe("Machine identity", { timeout: 20_000 }, () => {
       await tablet.waitForLog(/^The server refused the token\./);
       await api.waitForMachine("Reissued", (machine) => !machine.online);
       const old = await connect(helloWith(created.token, { machine: de1Pro("10001") }));
-      await expectRefusal(old, "bad_token");
+      expect(await expectRefusal(old, "bad_token")).toMatch(/replaced by a newer one/);
+      // The Machine's page says why its tablet cannot connect.
+      expect((await api.machineNamed("Reissued"))!.lastRefusal?.reason).toMatch(/token that was replaced/);
 
       const fresh = loadTablet(settingsFor(reissued));
       await api.waitForMachine("Reissued", (machine) => machine.online);

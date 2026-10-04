@@ -7,8 +7,9 @@ import {
   type ServerMessage,
   decodeServerMessage,
   encode,
+  sameHardware,
 } from "@decent-sync/protocol";
-import { readMachineHardware, readTabletIdentity, sameHardware } from "./decaid.js";
+import { readMachineHardware, readTabletIdentity } from "./decaid.js";
 import type { PluginHost, TransportEvent } from "./host.js";
 import type { SyncSettings } from "./settings.js";
 

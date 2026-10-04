@@ -18,7 +18,7 @@ import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { AccessChanges } from "../machines/access-changes.js";
 import { type LiveConnection, LiveConnections } from "../machines/connections.js";
-import { MISSED_HEARTBEATS, MachinesService, describeHardware } from "../machines/machines.service.js";
+import { MISSED_HEARTBEATS, MachinesService, type Refusal, describeHardware } from "../machines/machines.service.js";
 import { hashSecret } from "../secrets.js";
 import type { Hardware, Identity } from "./identity.js";
 
@@ -39,10 +39,11 @@ interface Session {
   /**
    * Who the tablet is, decided at `hello` and never changed for the session.
    * What a mismatched session sends belongs to the reported hardware: to the
-   * Machine that has it, otherwise to `pendingMachineId`.
+   * Machine that has it, otherwise to the Pending Machine for it. Which is
+   * looked up when it is stored, as an Admin may create a machine entry for
+   * the hardware meanwhile.
    */
   identity?: Identity;
-  pendingMachineId?: string | null;
   /** Set once its hello is accepted and the session holds its Machine. */
   live?: LiveConnection;
   /** Frames are handled one at a time, in the order they arrived. */
@@ -72,6 +73,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly server = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
   /** Every open connection, welcomed or not. */
   private readonly connections = new Set<Session>();
+  /** Message handling and releases still running, which shutdown waits for before the database disconnects. */
+  private readonly inFlight = new Set<Promise<void>>();
   private shuttingDown = false;
 
   constructor(
@@ -81,9 +84,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly live: LiveConnections,
     accessChanges: AccessChanges,
   ) {
-    accessChanges.subscribe((machineId) => {
-      for (const connection of this.live.of(machineId)) this.check(connection);
-    });
+    accessChanges.subscribe((machineId) => void this.check(this.live.of(machineId)));
   }
 
   onApplicationBootstrap(): void {
@@ -91,22 +92,29 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     httpServer.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => this.upgrade(request, socket, head));
   }
 
-  /** Runs before the database disconnects: releases this instance's Machines, then closes every connection. */
+  /**
+   * Runs before the database disconnects: closes every connection, waits for
+   * hellos still being accepted, then releases this instance's Machines.
+   */
   async onModuleDestroy(): Promise<void> {
     this.shuttingDown = true;
-    const held = [...this.connections].flatMap((session) => (session.live ? [session.id] : []));
-    await this.machines.releaseAll(held).catch((error: unknown) => {
-      this.logger.error(`Could not record this instance's Machines as offline: ${String(error)}`);
-    });
-    const closed = [...this.connections].map((session) => new Promise((resolve) => session.socket.once("close", resolve)));
-    for (const session of this.connections) {
+    const sessions = [...this.connections];
+    const closed = sessions.map((session) => new Promise((resolve) => session.socket.once("close", resolve)));
+    for (const session of sessions) {
       this.clearTimers(session);
       session.closing = true;
       session.socket.close(GOING_AWAY, "Server shutting down");
     }
     const grace = setTimeout(() => {
-      for (const session of this.connections) session.socket.terminate();
+      for (const session of sessions) session.socket.terminate();
     }, 1_000);
+    // A hello still being accepted may yet give its session a Machine, so the
+    // Machines held are known only once every hello has finished.
+    while (this.inFlight.size > 0) await Promise.all(this.inFlight);
+    const held = sessions.flatMap((session) => (session.live ? [session.id] : []));
+    await this.machines.releaseAll(held).catch((error: unknown) => {
+      this.logger.error(`Could not record this instance's Machines as offline: ${String(error)}`);
+    });
     await Promise.all(closed);
     clearTimeout(grace);
     await new Promise((resolve) => this.server.close(resolve));
@@ -122,6 +130,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   private open(socket: WebSocket, request: IncomingMessage): void {
+    if (this.shuttingDown) return void socket.close(GOING_AWAY, "Server shutting down");
     const session: Session = {
       id: randomUUID(),
       socket,
@@ -136,12 +145,14 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     );
 
     socket.on("message", (data, isBinary) => {
-      session.queue = session.queue
-        .then(() => this.receive(session, data, isBinary))
-        .catch((error: unknown) => {
-          this.logger.error(`Failed handling a message from ${this.describe(session)}: ${String(error)}`);
-          this.end(session, INTERNAL_ERROR, "Server error");
-        });
+      session.queue = this.track(
+        session.queue
+          .then(() => this.receive(session, data, isBinary))
+          .catch((error: unknown) => {
+            this.logger.error(`Failed handling a message from ${this.describe(session)}: ${String(error)}`);
+            this.end(session, INTERNAL_ERROR, "Server error");
+          }),
+      );
     });
     socket.on("close", (code) => this.closed(session, code));
     // Failures such as an oversized frame; ws closes the connection after them.
@@ -170,8 +181,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       case "heartbeat":
         this.resetIdleTimer(session);
         if (session.live) {
-          await this.machines.heard(session.live);
-          await this.check(session.live);
+          const live = session.live;
+          await this.enforce([live], async () => [await this.machines.heard(live)]);
         }
         return;
     }
@@ -185,7 +196,6 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     const { machine, identity, hardware } = outcome;
     session.machine = machine;
     session.identity = identity;
-    session.pendingMachineId = outcome.pendingMachineId;
     const live: LiveConnection = {
       sessionId: session.id,
       machineId: machine.id,
@@ -201,7 +211,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     // A change committed while this hello was being accepted was notified
     // before the session could be found; checked once it can be, it is seen
     // here or by the notification.
-    if (await this.check(live)) return;
+    await this.check([live]);
     if (session.closing) return;
 
     this.send(session, { type: "welcome", protocolVersion: PROTOCOL_VERSION, heartbeatIntervalMs: this.config.heartbeatIntervalMs });
@@ -211,26 +221,40 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     );
   }
 
-  /** Ends the connection if it may no longer stay, and says whether it did. */
-  private async check(connection: LiveConnection): Promise<boolean> {
+  /** Ends those of the connections that may no longer stay, read together. */
+  private check(connections: LiveConnection[]): Promise<void> {
+    if (connections.length === 0) return Promise.resolve();
+    return this.enforce(connections, () => this.machines.standings(connections));
+  }
+
+  /** Ends each connection whose refusal, read in the same order, says it may no longer stay. */
+  private async enforce(connections: LiveConnection[], read: () => Promise<(Refusal | null)[]>): Promise<void> {
     try {
-      const refusal = await this.machines.standing(connection);
-      // Shutting down releases this instance's Machines before closing their
-      // connections, which must then close as going away, to be retried, not
-      // as replaced, after which the plugin stops.
-      if (!refusal || this.shuttingDown) return false;
-      connection.end(refusal.code, refusal.reason);
-      return true;
+      const refusals = await read();
+      // Shutting down closes every connection as going away, to be retried,
+      // not as replaced, after which the plugin stops.
+      if (this.shuttingDown) return;
+      connections.forEach((connection, index) => {
+        const refusal = refusals[index];
+        if (refusal) connection.end(refusal.code, refusal.reason);
+      });
     } catch (error) {
-      this.logger.error(`Could not check a sync connection: ${String(error)}`);
-      return false;
+      this.logger.error(`Could not check ${connections.length === 1 ? "a sync connection" : "sync connections"}: ${String(error)}`);
     }
   }
 
-  /** Shows why a plugin of an unsupported protocol version was refused on its token's Machine, if the token is valid. */
+  /**
+   * Shows why a plugin of an unsupported protocol version was refused on its
+   * token's Machine, if the token is valid. Failing to only logs: the plugin
+   * must still be told it is too old, or it would retry instead of stopping.
+   */
   private async recordVersionRefusal(token: string, reason: string): Promise<void> {
-    const machine = await this.machines.findByToken(token);
-    if (machine) await this.machines.recordRefusal(machine.id, reason);
+    try {
+      const machine = await this.machines.findByToken(token);
+      if (machine) await this.machines.recordRefusal(machine.id, reason);
+    } catch (error) {
+      this.logger.error(`Could not record why a plugin was refused: ${String(error)}`);
+    }
   }
 
   private closed(session: Session, code: number): void {
@@ -245,13 +269,23 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /** Releases the Machine the session held, unless a newer connection holds it now. */
-  private async release(session: Session, closeFrameHeard = false): Promise<void> {
+  private release(session: Session, closeFrameHeard = false): Promise<void> {
     const name = session.machine?.name ?? "unknown";
-    try {
-      if (await this.machines.released(session.id, closeFrameHeard)) this.logger.log(`Machine ${name} disconnected`);
-    } catch (error) {
-      this.logger.error(`Could not record Machine ${name} as offline: ${String(error)}`);
-    }
+    return this.track(
+      this.machines.released(session.id, closeFrameHeard).then(
+        (released) => {
+          if (released) this.logger.log(`Machine ${name} disconnected`);
+        },
+        (error: unknown) => this.logger.error(`Could not record Machine ${name} as offline: ${String(error)}`),
+      ),
+    );
+  }
+
+  /** Keeps work that writes to the database in `inFlight` until it settles. The work must not reject. */
+  private track(work: Promise<void>): Promise<void> {
+    this.inFlight.add(work);
+    void work.then(() => this.inFlight.delete(work));
+    return work;
   }
 
   /** Tells the plugin why, then closes with the error's close code. */

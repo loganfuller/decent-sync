@@ -1,10 +1,10 @@
-import { ConflictException, Injectable } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { MachineIdentification, type PendingMachine, Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
 import type { Hardware } from "../sync/identity.js";
 import { type NewMachine, pendingMachineNotFound } from "./input.js";
-import { type MachineView, MachinesService, describeHardware, dismissedReason, refuseDuplicateName } from "./machines.service.js";
+import { type MachineView, MachinesService, dismissedReason, hardwareTaken, lockHardware, refuseDuplicateName } from "./machines.service.js";
 import { notifyAccessChanged } from "./access-changes.js";
 
 /** A Pending Machine as the REST API returns it. */
@@ -57,8 +57,7 @@ export class PendingMachinesService {
     let hardware: Hardware | undefined;
     const machineId = await this.prisma
       .$transaction(async (tx) => {
-        const pending = await tx.pendingMachine.findUnique({ where: { id } });
-        if (!pending) throw pendingMachineNotFound();
+        const pending = await lockedPendingMachine(tx, id);
         hardware = { model: pending.model, serial: pending.serial };
         const owner = await tx.machine.findFirst({ where: hardware, select: { name: true } });
         if (owner) throw hardwareTaken(owner.name, hardware);
@@ -94,8 +93,9 @@ export class PendingMachinesService {
   async dismiss(id: string): Promise<PendingMachineView> {
     const at = new Date();
     const { pending, refused } = await this.prisma.$transaction(async (tx) => {
-      const found = await tx.pendingMachine.findUnique({ where: { id } });
-      if (!found) throw pendingMachineNotFound();
+      // A hello reporting the hardware, which may make its Machine a mismatch of it, waits for the
+      // dismissal or is waited for, so every Machine that is one when this commits is found here.
+      const found = await lockedPendingMachine(tx, id);
       // Machines first, then the Pending Machine: the order a hello takes them in, so neither waits on the other in a cycle.
       const refused = await tx.$queryRaw<{ id: string; name: string }[]>`
         SELECT id, name FROM machines
@@ -123,8 +123,18 @@ export class PendingMachinesService {
   }
 }
 
-function hardwareTaken(owner: string, hardware: Hardware): ConflictException {
-  return new ConflictException(`Machine ${owner} already has ${describeHardware(hardware)}`);
+/**
+ * The Pending Machine, with its hardware locked: it is read again under the
+ * lock, as a hello or an Admin may have given the hardware to a Machine,
+ * which removes it, while the lock was awaited.
+ */
+async function lockedPendingMachine(tx: Prisma.TransactionClient, id: string): Promise<PendingMachine> {
+  const found = await tx.pendingMachine.findUnique({ where: { id } });
+  if (!found) throw pendingMachineNotFound();
+  await lockHardware(tx, found);
+  const pending = await tx.pendingMachine.findUnique({ where: { id } });
+  if (!pending) throw pendingMachineNotFound();
+  return pending;
 }
 
 function view(

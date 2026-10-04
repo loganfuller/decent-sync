@@ -29,12 +29,6 @@ export async function readMachineHardware(): Promise<MachineHardware | null> {
   return readHardware(await getObject("/machine/info"));
 }
 
-/** Whether two reports name the same hardware: model and serial, whatever the firmware. */
-export function sameHardware(a: MachineHardware | null, b: MachineHardware | null): boolean {
-  if (a === null || b === null) return a === b;
-  return a.model.trim() === b.model.trim() && a.serial.trim() === b.serial.trim();
-}
-
 /** The machine's hardware as reported, including an empty or "0" serial: the server decides what identifies it. */
 function readHardware(info: Record<string, unknown> | null): MachineHardware | null {
   const model = info?.model;

@@ -132,6 +132,80 @@ describe("several server instances", { timeout: 30_000 }, () => {
     }
   });
 
+  it("releases a Machine whose hello is accepted while its instance shuts down", async () => {
+    const leaving = await startTestServer({ env, sharing: first });
+    const [holdingBusy, holdingLate] = await Promise.all([first.connectDatabase(), first.connectDatabase()]);
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    try {
+      const busy = await api.createMachine("Busy while stopping");
+      const late = await api.createMachine("Accepted while stopping");
+      expect((await connect(leaving, helloWith(busy.token, { machine: de1Pro("12601") }))).messages[0]).toMatchObject({ type: "welcome" });
+      // Holding the busy Machine's row keeps the shutdown releasing it; holding the
+      // late one's keeps its hello waiting. The hello then finishes during shutdown.
+      for (const [client, id] of [[holdingBusy, busy.machine.id], [holdingLate, late.machine.id]] as const) {
+        await client.query("BEGIN");
+        await client.query("SELECT 1 FROM machines WHERE id = $1 FOR UPDATE", [id]);
+      }
+      const raw = await RawConnection.open(leaving.url);
+      connections.push(raw);
+      raw.send(helloWith(late.token, { machine: de1Pro("12602") }));
+      await sleep(200);
+
+      const stopping = leaving.stop();
+      await sleep(300);
+      await holdingLate.query("COMMIT");
+      await sleep(300);
+      await holdingBusy.query("COMMIT");
+      await stopping;
+      expect((await raw.closed).code).toBe(1001);
+      expect(await api.machineNamed("Accepted while stopping")).toMatchObject({ online: false });
+      expect(await api.machineNamed("Busy while stopping")).toMatchObject({ online: false });
+    } finally {
+      await Promise.all([holdingBusy.end(), holdingLate.end()]);
+      await leaving.stop();
+    }
+  });
+
+  it("closes a connection at its next heartbeat after a change no instance was notified of", async () => {
+    const created = await api.createMachine("Unnotified");
+    const raw = await connect(first, helloWith(created.token, { machine: de1Pro("12701") }));
+    expect(raw.messages[0]).toMatchObject({ type: "welcome" });
+    const database = await first.connectDatabase();
+    try {
+      await database.query("UPDATE machine_tokens SET revoked_at = now() WHERE machine_id = $1", [created.machine.id]);
+    } finally {
+      await database.end();
+    }
+    raw.send({ type: "heartbeat" });
+    expect(await raw.closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
+  });
+
+  it("checks every connection once it listens for changes again, closing those changed meanwhile", async () => {
+    // Heartbeats too rare to do the checking within the test.
+    const quiet = await startTestServer({ env: { ...env, SYNC_HEARTBEAT_SECONDS: "10" }, sharing: first });
+    const database = await first.connectDatabase();
+    try {
+      const kept = await api.createMachine("Kept while not listening");
+      const revoked = await api.createMachine("Revoked while not listening");
+      const keptRaw = await connect(quiet, helloWith(kept.token, { machine: de1Pro("12801") }));
+      const revokedRaw = await connect(quiet, helloWith(revoked.token, { machine: de1Pro("12802") }));
+
+      // Every instance loses its listening connection, then a token is revoked with no notification.
+      await database.query(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND query = 'LISTEN machine_access'",
+      );
+      await database.query("UPDATE machine_tokens SET revoked_at = now() WHERE machine_id = $1", [revoked.machine.id]);
+
+      expect(await revokedRaw.closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
+      expect(quiet.output()).toMatch(/Not listening for access changes/);
+      expect(keptRaw.messages).toEqual([expect.objectContaining({ type: "welcome" })]);
+      expect(await api.machineNamed("Kept while not listening")).toMatchObject({ online: true });
+    } finally {
+      await database.end();
+      await quiet.stop();
+    }
+  });
+
   it("never writes a token to any instance's log", () => {
     const logs = [first.output(), second.output(), ...tablets.flatMap((tablet) => tablet.logs)].join("\n");
     expect(api.tokens.length).toBeGreaterThan(3);

@@ -1,4 +1,6 @@
-import type { MachineHardware } from "@decent-sync/protocol";
+import { type Hardware, type MachineHardware, realHardware, sameHardware } from "@decent-sync/protocol";
+
+export { type Hardware, isRealSerial, realHardware, sameHardware } from "@decent-sync/protocol";
 
 // Identity resolution (ADR-0004, ADR-0015): what a `hello` means for the
 // token's Machine. Decided once per connection, at `hello`, and never changed
@@ -9,11 +11,6 @@ import type { MachineHardware } from "@decent-sync/protocol";
 // older DE1s report "0" unless Decaid can resolve their serial. Connection
 // ids (Decaid's preferredMachineId) are remembered as aliases once a session
 // shows they belong to the Machine, and recognise it when its hardware cannot.
-
-export interface Hardware {
-  model: string;
-  serial: string;
-}
 
 /** What the server knows about the token's Machine when its `hello` arrives. */
 export interface TokenMachine {
@@ -80,21 +77,3 @@ export function resolveIdentity(reported: Reported, machine: TokenMachine, anoth
   return { kind: "identified", bind: true, recognisedBy: "hardware", rememberAlias: connectionId !== null && !knownAlias };
 }
 
-/** The reported model and serial, trimmed, if they name real hardware. */
-export function realHardware(reported: MachineHardware | null | undefined): Hardware | null {
-  if (!reported) return null;
-  const model = reported.model.trim();
-  const serial = reported.serial.trim();
-  if (model === "" || !isRealSerial(serial)) return null;
-  return { model, serial };
-}
-
-/** Whether a serial identifies hardware: not empty, and not the "0" older DE1s report. */
-export function isRealSerial(serial: string): boolean {
-  const trimmed = serial.trim();
-  return trimmed !== "" && trimmed !== "0";
-}
-
-export function sameHardware(a: Hardware, b: Hardware): boolean {
-  return a.model === b.model && a.serial === b.serial;
-}
