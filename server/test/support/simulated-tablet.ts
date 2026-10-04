@@ -13,9 +13,11 @@ import WebSocket from "ws";
 //   `setTimeout` and `clearTimeout` in scope; the global createPlugin(host)
 //   must return an object whose id matches the manifest, and onLoad is called
 //   synchronously without awaiting it.
-// - `fetch` answers Decaid's local API from fixtures.
+// - `fetch` answers Decaid's local API from fixtures, failing after Decaid's
+//   30 s timeout.
 // - `host.transport` opens real WebSockets with only a URL and subprotocols
-//   (no custom headers), allows 8 live transports per plugin generation,
+//   (no custom headers), allows 8 live transports per plugin generation
+//   (counting opens still in progress, which cannot be cancelled),
 //   rejects a send that would take the pending outbound bytes past 1 MiB,
 //   closes a transport whose undelivered inbound bytes pass 1 MiB, and
 //   delivers events asynchronously and in order, ending with a close event.
@@ -32,6 +34,7 @@ const reapluginDir = path.join(repoDir, "decent-sync.reaplugin");
 const fixturesDir = path.join(repoDir, "server/test/fixtures/decaid");
 
 const API_ORIGIN = "http://localhost:8080";
+const FETCH_TIMEOUT_MS = 30_000;
 const MAX_LIVE_TRANSPORTS = 8;
 const MAX_PENDING_OUTBOUND_BYTES = 1 << 20;
 const MAX_QUEUED_INBOUND_BYTES = 1 << 20;
@@ -67,8 +70,10 @@ export interface SimulatedTabletOptions {
   api?: DecaidApi;
   /** Whether a machine is connected to the tablet; while not, /machine/info fails. Defaults to true. */
   machineConnected?: boolean;
-  /** Runs the plugin's timers this many times faster than they ask for. Defaults to 1. */
+  /** Runs the plugin's timers, and the delays below, this many times faster. Defaults to 1. */
   timeScale?: number;
+  /** How long Decaid's API takes to answer each request; from 30 s on, the request times out. Defaults to 0. */
+  apiDelayMs?: number;
 }
 
 type TransportEvent = Record<string, unknown> & { type: string };
@@ -101,6 +106,9 @@ export class SimulatedTablet {
   machineConnected: boolean;
   private readonly api: DecaidApi;
   private readonly timeScale: number;
+  private readonly apiDelayMs: number;
+  /** Opens not yet connected; Decaid counts them against the transport limit. */
+  private opening = 0;
   private readonly transports = new Map<string, TransportRecord>();
   private readonly timers = new Map<number, NodeJS.Timeout>();
   private nextTimerId = 0;
@@ -116,6 +124,7 @@ export class SimulatedTablet {
     this.api = options.api ?? de1ProOnDecaid086();
     this.machineConnected = options.machineConnected ?? true;
     this.timeScale = options.timeScale ?? 1;
+    this.apiDelayMs = options.apiDelayMs ?? 0;
     const { source, manifest } = readBuiltPlugin();
     this.plugin = loadPlugin(source, String(manifest.id), {
       host: {
@@ -161,18 +170,26 @@ export class SimulatedTablet {
 
   /** Resolves with the first log line, past or future, that matches. */
   async waitForLog(pattern: RegExp, timeoutMs = 10_000): Promise<string> {
+    return (await this.waitForLogs(pattern, 1, timeoutMs))[0]!;
+  }
+
+  /** Resolves once at least `count` log lines, past or future, match. */
+  async waitForLogs(pattern: RegExp, count: number, timeoutMs = 10_000): Promise<string[]> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-      const line = this.logs.find((log) => pattern.test(log));
-      if (line !== undefined) return line;
-      if (Date.now() > deadline) throw new Error(`No log matched ${pattern} within ${timeoutMs} ms. Logs:\n${this.logs.join("\n")}`);
+      const lines = this.logs.filter((log) => pattern.test(log));
+      if (lines.length >= count) return lines;
+      if (Date.now() > deadline) {
+        throw new Error(`${lines.length} of ${count} logs matched ${pattern} within ${timeoutMs} ms. Logs:\n${this.logs.join("\n")}`);
+      }
       await delay(20);
     }
   }
 
   // Decaid's plugin fetch, limited to its own API.
   private async fetch(input: unknown): Promise<unknown> {
-    await delay(0);
+    await delay(Math.min(this.apiDelayMs, FETCH_TIMEOUT_MS) / this.timeScale);
+    if (this.apiDelayMs >= FETCH_TIMEOUT_MS) throw new Error("Fetch timed out");
     const url = String(input);
     if (!url.startsWith(`${API_ORIGIN}/api/v1/`)) throw new Error(`The simulated tablet has no network for ${url}`);
     const route = url.slice(`${API_ORIGIN}/api/v1`.length).split("?")[0]!;
@@ -214,16 +231,21 @@ export class SimulatedTablet {
       throw new TransportError("WebSocket protocols must be an array of strings");
     }
     const live = [...this.transports.values()].filter((record) => !record.terminal || record.inbound.length > 0);
-    if (live.length >= MAX_LIVE_TRANSPORTS) {
+    if (live.length + this.opening >= MAX_LIVE_TRANSPORTS) {
       throw new TransportError("Too many open transports for this plugin", "transport_resource_limit");
     }
 
     // Only the URL and subprotocols: Decaid cannot send custom headers.
     const socket = new WebSocket(url, protocols as string[] | undefined);
-    await new Promise<void>((resolve, reject) => {
-      socket.once("open", resolve);
-      socket.once("error", (error) => reject(new TransportError(`WebSocket connect failed: ${error.message}`)));
-    });
+    this.opening++;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.once("open", resolve);
+        socket.once("error", (error) => reject(new TransportError(`WebSocket connect failed: ${error.message}`)));
+      });
+    } finally {
+      this.opening--;
+    }
     socket.removeAllListeners("error");
     if (this.unloaded) {
       socket.terminate();

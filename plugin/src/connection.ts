@@ -17,9 +17,17 @@ const MAX_RECONNECT_MS = 60_000;
  * An attempt the server has not welcomed by then is abandoned and retried.
  * It covers opening the transport, which Decaid does not time out: a server
  * that accepts the TCP connection but never answers the WebSocket upgrade
- * would otherwise hold the attempt open for good.
+ * would otherwise hold the attempt open for good. Reading Decaid's API comes
+ * before it, since Decaid already times out its fetches (after 30 s).
  */
 const CONNECT_TIMEOUT_MS = 15_000;
+/**
+ * Decaid's limit on transports per plugin generation, which counts opens
+ * still in progress (plugin_transport_service.dart). An abandoned open cannot
+ * be cancelled: it holds its slot until it ends, which for an upgrade the
+ * server never answers may be never.
+ */
+const MAX_TRANSPORTS = 8;
 
 /** Close codes after which retrying cannot help until someone changes something. */
 const FINAL_CLOSES = new Map<number, string>([
@@ -44,6 +52,8 @@ export class SyncConnection {
   private stopped = false;
   private welcomed = false;
   private reconnectDelayMs = MIN_RECONNECT_MS;
+  /** Transports opening, open or closing, as Decaid counts them against MAX_TRANSPORTS. */
+  private transportsInUse = 0;
   private readonly timers = new Map<TimerName, number>();
 
   constructor(
@@ -68,15 +78,22 @@ export class SyncConnection {
     if (this.stopped || this.connecting || this.handle !== undefined) return;
     this.connecting = true;
     const attempt = ++this.attempt;
-    this.setTimer("connect", CONNECT_TIMEOUT_MS, () =>
-      this.drop(`the server did not answer within ${CONNECT_TIMEOUT_MS / 1000} s`),
-    );
     try {
       const identity = await readTabletIdentity();
-      const { handle } = await this.host.transport.open({ kind: "websocket", url: this.settings.syncUrl });
+      if (this.stopped || attempt !== this.attempt) return;
+      if (this.transportsInUse >= MAX_TRANSPORTS) {
+        this.drop(
+          `${this.transportsInUse} earlier connection attempts are still waiting for the server to answer, and Decaid allows no more until one ends. Reloading the plugin releases them`,
+        );
+        return;
+      }
+      this.setTimer("connect", CONNECT_TIMEOUT_MS, () =>
+        this.drop(`the server did not answer within ${CONNECT_TIMEOUT_MS / 1000} s`),
+      );
+      const handle = await this.openTransport();
       // Opened after the attempt was abandoned, by the deadline or by stop().
       if (this.stopped || attempt !== this.attempt) {
-        this.host.transport.close(handle).catch(() => {});
+        this.closeTransport(handle);
         return;
       }
       this.handle = handle;
@@ -183,7 +200,25 @@ export class SyncConnection {
     this.welcomed = false;
     this.clearTimer("heartbeat");
     this.clearTimer("connect");
-    if (handle !== undefined) this.host.transport.close(handle).catch(() => {});
+    if (handle !== undefined) this.closeTransport(handle);
+  }
+
+  private async openTransport(): Promise<string> {
+    this.transportsInUse++;
+    try {
+      return (await this.host.transport.open({ kind: "websocket", url: this.settings.syncUrl })).handle;
+    } catch (error) {
+      this.transportsInUse--;
+      throw error;
+    }
+  }
+
+  /** Closes a transport, which counts against the limit until Decaid has closed it. */
+  private closeTransport(handle: string): void {
+    const release = () => {
+      this.transportsInUse--;
+    };
+    this.host.transport.close(handle).then(release, release);
   }
 
   private setTimer(name: TimerName, delay: number, callback: () => void): void {

@@ -1,3 +1,4 @@
+import net from "node:net";
 import { CLOSE_CODES, PROTOCOL_VERSION } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
@@ -56,7 +57,10 @@ describe("Machines and the sync connection", () => {
     return created;
   };
 
-  const loadTablet = (settings: Record<string, unknown>, options: { machineConnected?: boolean } = {}) => {
+  const loadTablet = (
+    settings: Record<string, unknown>,
+    options: { machineConnected?: boolean; timeScale?: number; apiDelayMs?: number } = {},
+  ) => {
     const tablet = SimulatedTablet.load({ settings, ...options });
     tablets.push(tablet);
     return tablet;
@@ -165,8 +169,9 @@ describe("Machines and the sync connection", () => {
 
       tablet.dropConnections();
       await tablet.waitForLog(/^Disconnected: the server closed the connection\. Reconnecting in 1 s\.$/);
+      // Until the server notices the drop, the REST API still lists the old connection, so wait for the new one.
+      expect(await tablet.waitForLogs(/^Connected to /, 2)).toHaveLength(2);
       await waitForMachine("Uptown", (machine) => machine.online);
-      expect(tablet.logs.filter((log) => log.startsWith("Connected to "))).toHaveLength(2);
     });
 
     it("replaces an older connection with the same token, and the older tablet stops", async () => {
@@ -197,6 +202,56 @@ describe("Machines and the sync connection", () => {
       expect(refused.logs).toContain("The server reported bad token: No Machine on this server has this token; it may have been replaced by a newer one");
       await new Promise((resolve) => setTimeout(resolve, 1_500));
       expect(refused.logs.filter((log) => log.startsWith("Disconnected"))).toEqual([]);
+    });
+
+    it("connects while earlier attempts the server never answered still hold their transports", async () => {
+      const lab = await createMachine("Behind a stalling proxy");
+      const proxy = await startStallingProxy(server.url, 2);
+      try {
+        // 100 times faster: each 15 s connect deadline passes in 150 ms.
+        const tablet = loadTablet(settingsFor({ ...lab, serverUrl: proxy.url }), { timeScale: 100 });
+        await waitForMachine("Behind a stalling proxy", (machine) => machine.online);
+        expect(tablet.logs.filter((log) => log.includes("the server did not answer within 15 s"))).toHaveLength(2);
+        expect(proxy.stalled.filter((socket) => !socket.destroyed)).toHaveLength(2);
+        await tablet.unload();
+      } finally {
+        await proxy.close();
+      }
+    });
+
+    it("stays within Decaid's transport limit while the server never answers, and connects once those attempts end", async () => {
+      const lab = await createMachine("Behind a hung proxy");
+      const proxy = await startStallingProxy(server.url, Infinity);
+      try {
+        const tablet = loadTablet(settingsFor({ ...lab, serverUrl: proxy.url }), { timeScale: 100 });
+        await tablet.waitForLog(/^Disconnected: 8 earlier connection attempts are still waiting for the server to answer/);
+        expect(proxy.stalled).toHaveLength(8);
+        // The plugin never asked Decaid for a ninth transport.
+        expect(tablet.logs.join("\n")).not.toContain("Too many open transports");
+
+        // The hung server finally drops them, and answers from now on.
+        proxy.stallNext(0);
+        for (const socket of proxy.stalled) socket.destroy();
+        await waitForMachine("Behind a hung proxy", (machine) => machine.online);
+        await tablet.unload();
+      } finally {
+        await proxy.close();
+      }
+    });
+
+    it("connects when Decaid's API is slower than the connect deadline", async () => {
+      const slow = await createMachine("Slow API");
+      // Each read takes 20 s of the tablet's time: longer than the 15 s deadline, within Decaid's 30 s fetch timeout.
+      const tablet = loadTablet(settingsFor(slow), { timeScale: 100, apiDelayMs: 20_000 });
+      await waitForMachine("Slow API", (machine) => machine.online);
+      expect(tablet.logs.filter((log) => log.startsWith("Disconnected"))).toEqual([]);
+      await tablet.unload();
+
+      // Reads that time out leave the hello without hardware, which is still accepted.
+      const timedOut = await createMachine("API timing out");
+      const second = loadTablet(settingsFor(timedOut), { timeScale: 100, apiDelayMs: 30_000 });
+      expect(await waitForMachine("API timing out", (machine) => machine.online)).toMatchObject({ model: null, serial: null });
+      await second.unload();
     });
 
     it("does not connect without a server URL and token, and says what is missing", async () => {
@@ -324,3 +379,40 @@ describe("Machines and the sync connection", () => {
     expect(server.output()).toMatch(/Machine Uptown connected from .*bound to DE1Pro 10001/);
   });
 });
+
+/**
+ * A TCP proxy to a server that leaves its next `stalled` connections
+ * unanswered, as a server that accepts connections but never completes the
+ * WebSocket upgrade does, and passes the rest through.
+ */
+async function startStallingProxy(serverUrl: string, stall: number) {
+  const target = new URL(serverUrl);
+  let toStall = stall;
+  const stalled: net.Socket[] = [];
+  const passed: net.Socket[] = [];
+  const proxy = net.createServer((socket) => {
+    if (toStall > 0) {
+      toStall--;
+      stalled.push(socket);
+      return;
+    }
+    const upstream = net.connect(Number(target.port), target.hostname);
+    passed.push(socket, upstream);
+    socket.pipe(upstream).pipe(socket);
+    socket.on("error", () => upstream.destroy());
+    upstream.on("error", () => socket.destroy());
+  });
+  await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
+  const { port } = proxy.address() as net.AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    stalled,
+    stallNext(count: number) {
+      toStall = count;
+    },
+    async close() {
+      for (const socket of [...stalled, ...passed]) socket.destroy();
+      await new Promise((resolve) => proxy.close(resolve));
+    },
+  };
+}

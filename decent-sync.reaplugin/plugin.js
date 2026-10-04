@@ -154,6 +154,7 @@ var __decentSync = (() => {
   var MIN_RECONNECT_MS = 1e3;
   var MAX_RECONNECT_MS = 6e4;
   var CONNECT_TIMEOUT_MS = 15e3;
+  var MAX_TRANSPORTS = 8;
   var FINAL_CLOSES = /* @__PURE__ */ new Map([
     [CLOSE_CODES.bad_token, "The server refused the token. Enter the token shown when the machine entry was created, or a newly issued one."],
     [CLOSE_CODES.plugin_too_old, "The server needs a newer version of this plugin. Update the plugin."],
@@ -172,6 +173,8 @@ var __decentSync = (() => {
       __publicField(this, "stopped", false);
       __publicField(this, "welcomed", false);
       __publicField(this, "reconnectDelayMs", MIN_RECONNECT_MS);
+      /** Transports opening, open or closing, as Decaid counts them against MAX_TRANSPORTS. */
+      __publicField(this, "transportsInUse", 0);
       __publicField(this, "timers", /* @__PURE__ */ new Map());
     }
     /** Connects from a timer, so the caller (onLoad) returns at once. */
@@ -188,17 +191,23 @@ var __decentSync = (() => {
       if (this.stopped || this.connecting || this.handle !== void 0) return;
       this.connecting = true;
       const attempt = ++this.attempt;
-      this.setTimer(
-        "connect",
-        CONNECT_TIMEOUT_MS,
-        () => this.drop(`the server did not answer within ${CONNECT_TIMEOUT_MS / 1e3} s`)
-      );
       try {
         const identity = await readTabletIdentity();
-        const { handle } = await this.host.transport.open({ kind: "websocket", url: this.settings.syncUrl });
+        if (this.stopped || attempt !== this.attempt) return;
+        if (this.transportsInUse >= MAX_TRANSPORTS) {
+          this.drop(
+            `${this.transportsInUse} earlier connection attempts are still waiting for the server to answer, and Decaid allows no more until one ends. Reloading the plugin releases them`
+          );
+          return;
+        }
+        this.setTimer(
+          "connect",
+          CONNECT_TIMEOUT_MS,
+          () => this.drop(`the server did not answer within ${CONNECT_TIMEOUT_MS / 1e3} s`)
+        );
+        const handle = await this.openTransport();
         if (this.stopped || attempt !== this.attempt) {
-          this.host.transport.close(handle).catch(() => {
-          });
+          this.closeTransport(handle);
           return;
         }
         this.handle = handle;
@@ -294,8 +303,23 @@ var __decentSync = (() => {
       this.welcomed = false;
       this.clearTimer("heartbeat");
       this.clearTimer("connect");
-      if (handle !== void 0) this.host.transport.close(handle).catch(() => {
-      });
+      if (handle !== void 0) this.closeTransport(handle);
+    }
+    async openTransport() {
+      this.transportsInUse++;
+      try {
+        return (await this.host.transport.open({ kind: "websocket", url: this.settings.syncUrl })).handle;
+      } catch (error) {
+        this.transportsInUse--;
+        throw error;
+      }
+    }
+    /** Closes a transport, which counts against the limit until Decaid has closed it. */
+    closeTransport(handle) {
+      const release = () => {
+        this.transportsInUse--;
+      };
+      this.host.transport.close(handle).then(release, release);
     }
     setTimer(name, delay, callback) {
       this.clearTimer(name);
