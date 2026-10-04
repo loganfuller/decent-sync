@@ -8,9 +8,9 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // REST API. accounts.test.ts covers the session cookie itself. One instance's
 // clock runs two days ahead and another's two days behind, more than the day
 // after which a used session is renewed, so expiry set or judged by an
-// instance's clock would differ from the database's in every test below.
-// Sessions are aged through the database directly: waiting days would not fit
-// in a test.
+// instance's clock would differ from the database's in every expiry test
+// below. Sessions are aged through the database directly: waiting days would
+// not fit in a test.
 
 const DAY_MS = 24 * 60 * 60_000;
 const LIFETIME_SECONDS = 30 * 24 * 60 * 60;
@@ -57,6 +57,19 @@ describe("session expiry across server instances", { timeout: 30_000 }, () => {
   const expectNotRenewed = (response: Response) => {
     expect(response.status).toBe(200);
     expect(response.headers.getSetCookie()).toEqual([]);
+  };
+
+  /** Waits until a query on the test database is waiting for a row lock. */
+  const waitForLockWait = async () => {
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const { rows } = await database.query<{ waiting: boolean }>(
+        "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock') AS waiting",
+      );
+      if (rows[0]!.waiting) return;
+      if (Date.now() > deadline) throw new Error("No query waited for a lock within 10 seconds");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
   };
 
   beforeAll(async () => {
@@ -126,6 +139,28 @@ describe("session expiry across server instances", { timeout: 30_000 }, () => {
       await signIn(server);
       expect(await secondsLeft(expired)).toBeUndefined();
       expect((await current(first, live)).status).toBe(200);
+    }
+  });
+
+  it("refuses a session signed out while it was being renewed", async () => {
+    const cookie = await signIn(first);
+    await expiresIn(cookie, "1 day");
+
+    // A sign-out, as on another instance, deletes the session but has not committed yet.
+    const signOut = await first.connectDatabase();
+    try {
+      await signOut.query("BEGIN");
+      await signOut.query("DELETE FROM sessions WHERE token_hash = $1", [hashOf(cookie)]);
+      // The request has read the session and waits to renew it.
+      const request = current(ahead, cookie);
+      await waitForLockWait();
+      await signOut.query("COMMIT");
+
+      const response = await request;
+      expect(response.status).toBe(401);
+      expect(response.headers.getSetCookie()[0]).toContain("Max-Age=0");
+    } finally {
+      await signOut.end();
     }
   });
 });

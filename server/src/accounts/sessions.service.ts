@@ -70,10 +70,15 @@ export class SessionsService {
     }
 
     if (session.expiresAt.getTime() - now < LIFETIME_MS - RENEW_AFTER_MS) {
-      await this.prisma.session.update({
+      const { count } = await this.prisma.session.updateMany({
         where: { id: session.id },
         data: { expiresAt: new Date(now + LIFETIME_MS) },
       });
+      // Signed out meanwhile, perhaps on another instance.
+      if (count === 0) {
+        this.clearCookie(response);
+        return undefined;
+      }
       this.setCookie(response, token, LIFETIME_MS);
     }
     return { account: session.account, sessionId: session.id };
