@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+server/src/generated
+.git
+.github
+.env
+data
+e2e
+test-results
+playwright-report

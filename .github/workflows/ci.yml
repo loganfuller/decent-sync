@@ -1,11 +1,13 @@
 name: CI
 
 # Pull requests run on their merge result; main runs again after each merge.
-# Branches without a pull request get no CI.
+# Branches without a pull request get no CI. The release workflow runs it on the
+# tagged commit before publishing.
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
@@ -74,3 +76,43 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
+
+  # Builds what a release publishes without publishing it: the plugin ZIP, and
+  # the server image run the way a self-hoster runs it.
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Package the plugin ZIP
+        run: npm run package:plugin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-zip
+          path: dist/*.zip
+          retention-days: 7
+
+      # --build uses this commit's image rather than a published one.
+      - name: Start the server image and PostgreSQL with Docker Compose
+        run: docker compose up --build --detach --wait --wait-timeout 120
+
+      - name: Check the server migrated and serves the management interface
+        run: |
+          curl --fail --silent --show-error http://localhost:3000/api/health
+          curl --fail --silent --show-error http://localhost:3000/ | grep --quiet '<div id="root">'
+          docker compose logs server | grep --quiet "All migrations have been successfully applied"
+
+      - name: Server logs
+        if: always()
+        run: docker compose logs
+
+      - name: Stop
+        if: always()
+        run: docker compose down --volumes

@@ -2,7 +2,7 @@
 
 ## Milestone 1 verification
 
-Use the root package scripts listed in the README's Development section: `npm run typecheck`, `npm run build`, `npm test` (Vitest, after a build), `npm run test:e2e` (Playwright) and `npm run check:plugin-build`. CI (`.github/workflows/ci.yml`) runs all of them against a PostgreSQL service on every push and pull request. `npm run prototype` runs `server.mjs`. [The spec's Testing Decisions](https://github.com/loganfuller/decent-sync/issues/1) are the testing contract:
+Use the root package scripts listed in the README's Development section: `npm run typecheck`, `npm run build`, `npm test` (Vitest, after a build), `npm run test:e2e` (Playwright) and `npm run check:plugin-build`. CI (`.github/workflows/ci.yml`) runs all of them against a PostgreSQL service on every push and pull request. Its `package` job writes the plugin ZIP (`npm run package:plugin`) and runs `docker compose up --build`, checking that the image migrates and serves the management interface, without publishing anything. `npm run prototype` runs `server.mjs`. [The spec's Testing Decisions](https://github.com/loganfuller/decent-sync/issues/1) are the testing contract:
 
 - Seam 1 runs the built `decent-sync.reaplugin/plugin.js` in a simulated Decaid host against a real server and a fresh PostgreSQL database per test file. Assertions use the REST API. Raw frames exercise protocol failures and delivery cases.
 - Seam 2 uses Playwright against the management interface, with data seeded through Seam 1.
@@ -13,6 +13,10 @@ Ticket #5 builds Seam 1 from prior art in the archived [plugin dev harness](http
 `npm run check:plugin-build` rebuilds the plugin and fails if `decent-sync.reaplugin/` then differs from the git index (on a CI checkout, the commit under test). Report verification commands and results, including anything not exercised.
 
 Vitest tests that need build output (the committed plugin, the compiled server) read it directly, so build before `npm test`. Server tests run the built server as a process rather than importing Nest modules: Vitest's esbuild transform does not emit the decorator metadata Nest's dependency injection needs.
+
+## Releases
+
+`.github/workflows/release.yml` publishes on a pushed `vX.Y.Z` tag: it checks the tag against the committed manifest (`scripts/check-release-tag.mjs`), reruns CI on the tagged commit, pushes the server image to GHCR, then creates the GitHub release with the one plugin ZIP. The README's Releasing section has the procedure. Pushing a release tag publishes to every Machine that installed by repo name, so tag, push or create releases only when explicitly asked. To check packaging, run `npm run package:plugin` and `docker compose up --build` locally; use a separate Compose project name and ports (`-p`, `DECENT_SYNC_PORT`, `POSTGRES_PORT`) when the development database is already running.
 
 ## Fixtures
 

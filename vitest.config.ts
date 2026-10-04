@@ -14,6 +14,7 @@ export default defineConfig({
       { extends: true, test: { name: "protocol", include: ["protocol/test/**/*.test.ts"] } },
       { extends: true, test: { name: "plugin", include: ["plugin/test/**/*.test.ts"] } },
       { extends: true, test: { name: "server", include: ["server/test/**/*.test.ts"] } },
+      { extends: true, test: { name: "scripts", include: ["scripts/test/**/*.test.ts"] } },
     ],
   },
 });
