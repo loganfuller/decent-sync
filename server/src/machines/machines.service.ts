@@ -316,10 +316,12 @@ export class MachinesService {
     let pendingMachineId: string | null = null;
     let decided: typeof identity = identity;
     if (identity.kind === "mismatch" && !identity.anotherMachineHasIt) {
+      // Seen by the database's clock, as Machines are, whatever the instances' clocks say.
+      const [{ now }] = await tx.$queryRaw<[{ now: Date }]>`SELECT now() AS now`;
       const pending = await tx.pendingMachine.upsert({
         where: { model_serial: identity.hardware },
-        create: { ...identity.hardware, lastSeenAt: at },
-        update: { lastSeenAt: at },
+        create: { ...identity.hardware, lastSeenAt: now },
+        update: { lastSeenAt: now },
       });
       // The upsert may have waited for an Admin creating a machine entry for this hardware;
       // then that Machine has it, and the Pending Machine just written is not needed.

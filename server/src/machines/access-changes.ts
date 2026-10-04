@@ -13,7 +13,7 @@ const MAX_RETRY_MS = 30_000;
  * changed: a hello was accepted (replacing the previous connection), its
  * token was reissued, or hardware was dismissed for it. Sent with PostgreSQL
  * NOTIFY inside the transaction making the change, so it is delivered only
- * once that commits (ADR-0011's route to more than one instance).
+ * once that commits (ADR-0016).
  */
 export async function notifyAccessChanged(tx: Prisma.TransactionClient, machineId: string): Promise<void> {
   await tx.$executeRaw`SELECT pg_notify(${CHANNEL}, ${machineId})`;
