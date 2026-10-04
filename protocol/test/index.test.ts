@@ -92,8 +92,19 @@ describe("decodePluginMessage", () => {
     for (const protocolVersion of [0, -1]) {
       // An older hello need not have today's fields.
       const result = decodePluginMessage(frame({ type: "hello", protocolVersion, key: token }));
-      expect(result).toMatchObject({ ok: false, error: "plugin_too_old" });
-      expect(result.ok || result.problem).toContain("update the plugin");
+      expect(result).toEqual({ ok: false, error: "plugin_too_old", problem: expect.stringContaining("update the plugin") });
+    }
+  });
+
+  it("keeps the token of a hello refused for its version, so the server can tell its Machine why", () => {
+    const old = decodePluginMessage(frame({ type: "hello", protocolVersion: 0, token }));
+    expect(old).toMatchObject({ ok: false, error: "plugin_too_old", token });
+    const newer = decodePluginMessage(frame({ ...hello, protocolVersion: PROTOCOL_VERSION + 1 }));
+    expect(newer).toMatchObject({ ok: false, error: "protocol_error", token });
+    // Only the token: the problem never repeats it.
+    expect(old.ok || old.problem).not.toContain(token);
+    for (const notAToken of [7, "", { token }]) {
+      expect(decodePluginMessage(frame({ type: "hello", protocolVersion: 0, token: notAToken }))).not.toHaveProperty("token");
     }
   });
 

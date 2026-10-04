@@ -2,6 +2,7 @@ import net from "node:net";
 import { CLOSE_CODES, PROTOCOL_VERSION } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
+import { AdminApi, type MachineView, helloWith, settingsFor } from "./support/admin-api.js";
 import { RawConnection, SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -10,52 +11,17 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // raw frames for protocol failures. Assertions go through the REST API. The
 // tests share one server and run in order.
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const HEARTBEAT_SECONDS = 0.5;
-
-interface MachineView {
-  id: string;
-  name: string;
-  model: string | null;
-  serial: string | null;
-  online: boolean;
-  lastSeenAt: string | null;
-}
 
 describe("Machines and the sync connection", () => {
   let server: TestServer;
-  let cookie: string;
-  const tokens: string[] = [];
+  let api: AdminApi;
   const tablets: SimulatedTablet[] = [];
 
-  const call = (method: string, path: string, body?: unknown, headers: Record<string, string> = { Cookie: cookie }) =>
-    fetch(`${server.url}/api${path}`, {
-      method,
-      headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...headers },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-
-  const listMachines = async () => ((await (await call("GET", "/machines")).json()) as { machines: MachineView[] }).machines;
-  const machineNamed = async (name: string) => (await listMachines()).find((machine) => machine.name === name);
-
-  /** Polls the REST API until the Machine matches. */
-  const waitForMachine = async (name: string, matches: (machine: MachineView) => boolean, timeoutMs = 10_000) => {
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-      const machine = await machineNamed(name);
-      if (machine && matches(machine)) return machine;
-      if (Date.now() > deadline) throw new Error(`Machine ${name} did not match within ${timeoutMs} ms: ${JSON.stringify(machine)}`);
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-  };
-
-  const createMachine = async (name: string) => {
-    const response = await call("POST", "/machines", { name });
-    expect(response.status).toBe(201);
-    const created = (await response.json()) as { machine: MachineView; token: string; serverUrl: string };
-    tokens.push(created.token);
-    return created;
-  };
+  const call = (...args: Parameters<AdminApi["call"]>) => api.call(...args);
+  const machineNamed = (name: string) => api.machineNamed(name);
+  const waitForMachine = (name: string, matches: (machine: MachineView) => boolean) => api.waitForMachine(name, matches);
+  const createMachine = (name: string) => api.createMachine(name);
 
   const loadTablet = (
     settings: Record<string, unknown>,
@@ -66,24 +32,11 @@ describe("Machines and the sync connection", () => {
     return tablet;
   };
 
-  const settingsFor = ({ token, serverUrl }: { token: string; serverUrl: string }) => ({ ServerUrl: serverUrl, Token: token });
-
-  const helloWith = (token: string, extra: Record<string, unknown> = {}) => ({
-    type: "hello",
-    protocolVersion: PROTOCOL_VERSION,
-    token,
-    pluginVersion: "0.1.0",
-    decaidVersion: "0.8.7+2850",
-    connectionId: "00:00:5E:00:53:01",
-    ...extra,
-  });
-
   beforeAll(async () => {
     server = await startTestServer({
       env: { SYNC_HELLO_TIMEOUT_SECONDS: "1", SYNC_HEARTBEAT_SECONDS: String(HEARTBEAT_SECONDS) },
     });
-    const setup = await call("POST", "/setup", admin, {});
-    cookie = setup.headers.getSetCookie()[0]!.split(";")[0]!;
+    api = await AdminApi.setUp(server.url);
   }, 60_000);
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
@@ -99,7 +52,22 @@ describe("Machines and the sync connection", () => {
     it("are created with a token shown once, beside the server URL the plugin needs", async () => {
       const { machine, token, serverUrl } = await createMachine("  Lab ");
 
-      expect(machine).toEqual({ id: expect.any(String), name: "Lab", model: null, serial: null, online: false, lastSeenAt: null });
+      expect(machine).toEqual({
+        id: expect.any(String),
+        name: "Lab",
+        model: null,
+        serial: null,
+        identification: "hardwareNotReported",
+        reported: null,
+        connectionId: null,
+        pluginVersion: null,
+        decaidVersion: null,
+        aliases: [],
+        mismatch: null,
+        lastRefusal: null,
+        online: false,
+        lastSeenAt: null,
+      });
       expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
       expect(serverUrl).toBe(server.url);
     });
@@ -108,7 +76,7 @@ describe("Machines and the sync connection", () => {
       const response = await call("GET", "/machines");
       const body = await response.text();
       expect(JSON.parse(body)).toEqual({ machines: [expect.objectContaining({ name: "Lab" })] });
-      for (const token of tokens) expect(body).not.toContain(token);
+      for (const token of api.tokens) expect(body).not.toContain(token);
     });
 
     it("need a name no other Machine has", async () => {
@@ -371,12 +339,12 @@ describe("Machines and the sync connection", () => {
 
   it("never writes a token to the server's or any tablet's log", () => {
     const logs = [server.output(), ...tablets.flatMap((tablet) => tablet.logs)].join("\n");
-    expect(tokens.length).toBeGreaterThan(5);
-    for (const token of [...tokens, "not-a-token-this-server-issued", "aGVsbG8gd29ybGQgdGhpcyBpcyBub3QgYSB0b2tlbg"]) {
+    expect(api.tokens.length).toBeGreaterThan(5);
+    for (const token of [...api.tokens, "not-a-token-this-server-issued", "aGVsbG8gd29ybGQgdGhpcyBpcyBub3QgYSB0b2tlbg"]) {
       expect(logs).not.toContain(token);
     }
     // The server did log the connections, so there was something to check.
-    expect(server.output()).toMatch(/Machine Uptown connected from .*bound to DE1Pro 10001/);
+    expect(server.output()).toMatch(/Machine Uptown connected from .*bound to DE1Pro serial 10001/);
   });
 });
 

@@ -26,6 +26,9 @@ export function createPlugin(host: PluginHost): Plugin {
       connection?.stop();
       connection = undefined;
     },
-    onEvent() {},
+    onEvent(event) {
+      // Sent only while a machine is connected, so it may now report its hardware.
+      if (event?.name === "stateUpdate") connection?.machineActive();
+    },
   };
 }

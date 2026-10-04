@@ -63,6 +63,26 @@ export function de1ProOnDecaid086(): DecaidApi {
   return { "/info": read("info.json"), "/machine/info": read("machine-info.json"), "/settings": read("settings.json") };
 }
 
+/**
+ * Derived from de1ProOnDecaid086(): the same responses, with the machine's
+ * reported model and serial, or the preferred machine's connection id,
+ * changed. Every other field is as Decaid sent it.
+ */
+export function derivedDe1Pro(changes: { model?: string; serial?: string; connectionId?: string }): DecaidApi {
+  const api = de1ProOnDecaid086();
+  const machineInfo = api["/machine/info"] as Record<string, unknown>;
+  const settings = api["/settings"] as Record<string, unknown>;
+  return {
+    ...api,
+    "/machine/info": {
+      ...machineInfo,
+      ...(changes.model === undefined ? {} : { model: changes.model }),
+      ...(changes.serial === undefined ? {} : { serialNumber: changes.serial }),
+    },
+    "/settings": { ...settings, ...(changes.connectionId === undefined ? {} : { preferredMachineId: changes.connectionId }) },
+  };
+}
+
 export interface SimulatedTabletOptions {
   /** Plugin settings as Decaid passes them: only the ones that are set. */
   settings: Record<string, unknown>;
@@ -104,7 +124,7 @@ export class SimulatedTablet {
   readonly logs: string[] = [];
   readonly plugin: BuiltPlugin;
   machineConnected: boolean;
-  private readonly api: DecaidApi;
+  private api: DecaidApi;
   private readonly timeScale: number;
   private readonly apiDelayMs: number;
   /** Opens not yet connected; Decaid counts them against the transport limit. */
@@ -141,6 +161,21 @@ export class SimulatedTablet {
       clearTimeout: (id: number) => this.clearTimer(id),
     });
     this.plugin.onLoad(options.settings);
+  }
+
+  /** Answers Decaid's API with these responses from now on, as when another machine is connected. */
+  serve(api: DecaidApi): void {
+    this.api = api;
+  }
+
+  /**
+   * Connects the machine to the tablet: /machine/info answers from now on,
+   * and Decaid starts sending machine state updates, of which this delivers
+   * one. The plugin reads nothing from its payload, so none is sent.
+   */
+  connectMachine(): void {
+    this.machineConnected = true;
+    this.fire("stateUpdate");
   }
 
   /** Delivers a Decaid event to the plugin. */

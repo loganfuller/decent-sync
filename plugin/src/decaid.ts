@@ -15,13 +15,24 @@ export interface TabletIdentity {
 }
 
 export async function readTabletIdentity(): Promise<TabletIdentity> {
-  const [info, settings, machine] = await Promise.all([getObject("/info"), getObject("/settings"), getObject("/machine/info")]);
+  const [info, settings, machine] = await Promise.all([getObject("/info"), getObject("/settings"), readMachineHardware()]);
   return {
     decaidVersion: stringField(info, "fullVersion"),
     // Decaid keeps the preferred machine's id, so it is known before the machine connects.
     connectionId: stringField(settings, "preferredMachineId"),
-    machine: readHardware(machine),
+    machine,
   };
+}
+
+/** The connected machine's hardware, or null while no machine is connected. */
+export async function readMachineHardware(): Promise<MachineHardware | null> {
+  return readHardware(await getObject("/machine/info"));
+}
+
+/** Whether two reports name the same hardware: model and serial, whatever the firmware. */
+export function sameHardware(a: MachineHardware | null, b: MachineHardware | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.model.trim() === b.model.trim() && a.serial.trim() === b.serial.trim();
 }
 
 /** The machine's hardware as reported, including an empty or "0" serial: the server decides what identifies it. */

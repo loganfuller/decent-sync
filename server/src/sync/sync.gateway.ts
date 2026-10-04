@@ -15,9 +15,9 @@ import {
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
-import { MachinesService } from "../machines/machines.service.js";
-import { Presence } from "../machines/presence.js";
-import { type Identity, resolveIdentity } from "./identity.js";
+import { MachinesService, describeHardware } from "../machines/machines.service.js";
+import { type LiveConnection, Presence } from "../machines/presence.js";
+import { type Hardware, type Identity, realHardware, resolveIdentity } from "./identity.js";
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
 const MAX_FRAME_BYTES = 1 << 20;
@@ -33,6 +33,15 @@ interface Session {
   remote: string;
   /** The token's Machine, once its `hello` is accepted. */
   machine?: { id: string; name: string };
+  /**
+   * Who the tablet is, decided at `hello` and never changed for the session.
+   * What a mismatched session sends belongs to the reported hardware: to the
+   * Machine that has it, otherwise to `pendingMachineId`.
+   */
+  identity?: Identity;
+  pendingMachineId?: string | null;
+  /** The session as Presence knows it, once welcomed. */
+  live?: LiveConnection;
   /** Frames are handled one at a time, in the order they arrived. */
   queue: Promise<void>;
   /** When a frame last arrived, for the Machine's last-seen time. */
@@ -45,8 +54,9 @@ interface Session {
 /**
  * The plugin's WebSocket endpoint at /sync (ADR-0009). A connection must send
  * `hello` within the hello timeout; its token decides the Machine, and its
- * reported hardware the Machine's identity. A newer connection with the same
- * token replaces an older one. Every refusal sends an `error`, then closes
+ * reported hardware and connection id the session's identity (ADR-0004,
+ * ADR-0015), once. A newer connection with the same token replaces an older
+ * one. Every refusal sends an `error`, then closes
  * with that error's close code. Messages never reach the log: a `hello`
  * carries the token.
  */
@@ -56,8 +66,6 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly server = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
   /** Every open connection, welcomed or not. */
   private readonly connections = new Set<Session>();
-  /** The welcomed session of each online Machine. */
-  private readonly sessions = new Map<string, Session>();
   private shuttingDown = false;
 
   constructor(
@@ -131,7 +139,11 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     if (isBinary) return this.refuse(session, "protocol_error", "Messages must be sent as text frames");
 
     const decoded = decodePluginMessage(rawToString(data));
-    if (!decoded.ok) return this.refuse(session, decoded.error, decoded.problem);
+    if (!decoded.ok) {
+      // A hello of an unsupported version: its Machine, if the token is valid, shows why.
+      if (!session.machine && decoded.token !== undefined) await this.recordVersionRefusal(decoded.token, decoded.problem);
+      return this.refuse(session, decoded.error, decoded.problem);
+    }
     const message = decoded.message;
 
     if (!session.machine) {
@@ -156,25 +168,37 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       return this.refuse(session, "bad_token", "No Machine on this server has this token; it may have been replaced by a newer one");
     }
 
-    const identity = resolveIdentity(hello.machine, machine);
-    if (identity.kind === "bind" && !(await this.machines.bindHardware(machine.id, { model: identity.model, serial: identity.serial }))) {
-      this.logger.warn(`Machine ${machine.name} reported ${identity.model} ${identity.serial}, which another Machine already has; it was not bound`);
+    const hardware = realHardware(hello.machine);
+    const anotherMachineHasIt = hardware !== null && (await this.machines.anotherMachineHas(machine.id, hardware));
+    const identity = resolveIdentity(hello, machine.tokenMachine, anotherMachineHasIt);
+    if (identity.kind === "rejected") {
+      const reason = `An Admin dismissed ${describeHardware(identity.hardware)}, which a tablet reported with this Machine's token`;
+      await this.machines.recordRefusal(machine.id, reason);
+      return this.refuse(session, "hardware_dismissed", reason);
     }
     if (session.closing) return;
 
-    const previous = this.sessions.get(machine.id);
-    session.machine = { id: machine.id, name: machine.name };
-    this.sessions.set(machine.id, session);
-    this.presence.setOnline(machine.id, true);
-    if (previous) this.refuse(previous, "replaced", "A newer connection with this Machine's token took over");
-
-    await this.machines.markSeen(machine.id, session.lastHeardAt);
+    const { pendingMachineId } = await this.machines.recordHello(machine.id, hello, identity, session.lastHeardAt);
     if (session.closing) return;
+
+    session.machine = { id: machine.id, name: machine.name };
+    session.identity = identity;
+    session.pendingMachineId = pendingMachineId;
+    session.live = { hardware, end: (code, message) => this.refuse(session, code, message) };
+    const previous = this.presence.connect(machine.id, session.live);
+    previous?.end("replaced", "A newer connection with this Machine's token took over");
+
     this.send(session, { type: "welcome", protocolVersion: PROTOCOL_VERSION, heartbeatIntervalMs: this.config.heartbeatIntervalMs });
     this.resetIdleTimer(session);
     this.logger.log(
-      `Machine ${machine.name} connected from ${session.remote}: plugin ${hello.pluginVersion}, Decaid ${hello.decaidVersion ?? "unknown"}, ${describeIdentity(identity)}`,
+      `Machine ${machine.name} connected from ${session.remote}: plugin ${hello.pluginVersion}, Decaid ${hello.decaidVersion ?? "unknown"}, ${describeIdentity(identity, hardware)}`,
     );
+  }
+
+  /** Shows why a plugin of an unsupported protocol version was refused on its token's Machine, if the token is valid. */
+  private async recordVersionRefusal(token: string, reason: string): Promise<void> {
+    const machine = await this.machines.findByToken(token);
+    if (machine) await this.machines.recordRefusal(machine.id, reason);
   }
 
   private closed(session: Session, code: number): void {
@@ -182,10 +206,9 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     this.clearTimers(session);
     session.closing = true;
     const machine = session.machine;
-    if (!machine || this.sessions.get(machine.id) !== session) return;
+    // A replaced session closes without taking its Machine offline.
+    if (!machine || !session.live || !this.presence.disconnect(machine.id, session.live)) return;
 
-    this.sessions.delete(machine.id);
-    this.presence.setOnline(machine.id, false);
     this.logger.log(`Machine ${machine.name} disconnected (${code})`);
     if (this.shuttingDown) return;
     // A close frame is heard from the plugin too; a dropped connection is not.
@@ -235,18 +258,19 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   }
 }
 
-function describeIdentity(identity: Identity): string {
+function describeIdentity(identity: Identity, hardware: Hardware | null): string {
   switch (identity.kind) {
-    case "bind":
-      return `bound to ${identity.model} ${identity.serial}`;
     case "identified":
-      return "identified";
+      if (identity.recognisedBy === "alias" || !hardware) return "identified by its connection id";
+      return `${identity.bind ? "bound to" : "identified as"} ${describeHardware(hardware)}`;
     case "hardwareNotReported":
       return "no machine connected to its tablet yet";
     case "unidentified":
       return "the machine reports no serial";
     case "mismatch":
-      return `reports ${identity.model} ${identity.serial}, not the hardware its token is bound to`;
+      return `reports ${describeHardware(identity.hardware)}, not the hardware its token is bound to`;
+    case "rejected":
+      return `reports dismissed hardware ${describeHardware(identity.hardware)}`;
   }
 }
 
