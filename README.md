@@ -86,8 +86,12 @@ echo 'PUBLIC_URL=http://192.168.1.20:3000' > .env
 docker compose up -d
 ```
 
-The management interface is then at `PUBLIC_URL`. PostgreSQL's data lives in
-the `db-data` volume. These variables in `.env` configure the stack:
+The management interface is then at `PUBLIC_URL`. The first person to open it
+creates the first Admin account; after that, setup is closed and everyone
+signs in. Open it yourself before sharing the address. Use `PUBLIC_URL` or the
+server's IP address: to guard against cross-site attacks, the server refuses
+setup and sign-in from a page loaded under any other name. PostgreSQL's data lives
+in the `db-data` volume. These variables in `.env` configure the stack:
 
 | Variable | |
 |---|---|
@@ -231,10 +235,15 @@ REST API under `/api` and the management interface everywhere else.
 | `npm run typecheck` | typecheck every workspace |
 | `npm run build` | build every workspace, including `decent-sync.reaplugin/` |
 | `npm test` | Vitest (run `npm run build` first: tests use the built plugin and server) |
-| `npm run test:e2e` | Playwright against the built server; starts it unless one is running |
+| `npm run test:e2e` | Playwright against the built server (run `npm run build` first) |
 | `npm run check:plugin-build` | fail if the committed `decent-sync.reaplugin/` differs from a fresh build |
 | `npm run package:plugin` | write the release ZIP of the committed plugin to `dist/` |
 | `docker compose up --build` | build the server image from this checkout and run it with PostgreSQL |
+
+Server tests and Playwright start the built server once per test file, each on
+a fresh database they create and drop on the PostgreSQL server named by
+`DATABASE_URL`, so they need it running and its user allowed to create
+databases (true of `npm run db:up`'s).
 
 Decaid installs whatever is committed in `decent-sync.reaplugin/`, so commit the
 rebuilt plugin with every change to `plugin/` or `protocol/`. CI checks it, and

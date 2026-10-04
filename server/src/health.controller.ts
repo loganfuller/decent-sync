@@ -1,5 +1,6 @@
 import { Controller, Get, ServiceUnavailableException } from "@nestjs/common";
 import { PROTOCOL_VERSION } from "@decent-sync/protocol";
+import { Public } from "./accounts/guards.js";
 import { PrismaService } from "./prisma.service.js";
 
 @Controller("api/health")
@@ -7,6 +8,7 @@ export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Reports whether the server is up and can reach its database. */
+  @Public()
   @Get()
   async check(): Promise<{ status: "ok"; protocolVersion: number }> {
     try {

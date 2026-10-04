@@ -11,3 +11,46 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+// Tables and columns use PostgreSQL's snake_case; models keep Prisma's casing.
+
+enum AccountRole {
+  ADMIN
+  STAFF
+
+  @@map("account_role")
+}
+
+/// A person who signs in to the management interface. Baristas named on
+/// tablets need no account.
+model Account {
+  id           String      @id @default(uuid(7)) @db.Uuid
+  /// Stored trimmed and lower-cased, so sign-in ignores case.
+  email        String      @unique
+  name         String
+  role         AccountRole
+  /// scrypt, in the self-describing format of server/src/accounts/passwords.ts.
+  passwordHash String      @map("password_hash")
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sessions Session[]
+
+  @@map("accounts")
+}
+
+/// A signed-in browser. The cookie holds a random token; only its SHA-256
+/// hash is stored, so a database leak cannot be replayed as a session.
+model Session {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  tokenHash  Bytes    @unique @map("token_hash")
+  accountId  String   @map("account_id") @db.Uuid
+  account    Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// Pushed forward as the session is used, so a device in use stays signed in.
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(3)
+
+  @@index([accountId])
+  @@index([expiresAt])
+  @@map("sessions")
+}

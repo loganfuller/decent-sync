@@ -1,36 +1,63 @@
-import { useEffect, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import type { ReactNode } from "react";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
+import { AuthProvider, useAuth } from "@/auth";
+import { SetupPage } from "@/pages/SetupPage";
+import { HomePage, Shell } from "@/pages/Shell";
+import { SignInPage, type SignInState } from "@/pages/SignInPage";
 
-type ServerStatus = "checking" | "connected" | "unreachable";
-
-// A placeholder until the milestone 1 screens arrive. It checks that the
-// server answering this page can also reach its database.
 export function App() {
-  const [status, setStatus] = useState<ServerStatus>("checking");
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          <Route path="/setup" element={<Gate page="setup" />} />
+          <Route path="/sign-in" element={<Gate page="sign-in" />} />
+          <Route element={<Gate page="signed-in" />}>
+            <Route index element={<HomePage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
+  );
+}
 
-  useEffect(() => {
-    fetch("/api/health")
-      .then((response) => setStatus(response.ok ? "connected" : "unreachable"))
-      .catch(() => setStatus("unreachable"));
-  }, []);
+interface ReturnTo {
+  from?: string;
+}
 
+/**
+ * Shows a page only in the state it belongs to: setup while the server has no
+ * accounts, sign-in while signed out, and everything else while signed in.
+ * Any other page redirects.
+ */
+function Gate({ page }: { page: "setup" | "sign-in" | "signed-in" }): ReactNode {
+  const { state } = useAuth();
+  const location = useLocation();
+
+  if (state.status === "loading") return null;
+  if (state.status === "unreachable") return <Unreachable />;
+
+  if (state.status === "signed-in") {
+    if (page === "signed-in") return <Shell />;
+    return <Navigate to={(location.state as ReturnTo | null)?.from ?? "/"} replace />;
+  }
+
+  if (state.setupRequired) {
+    return page === "setup" ? <SetupPage /> : <Navigate to="/setup" replace />;
+  }
+  if (page === "sign-in") return <SignInPage />;
+  if (page === "setup") {
+    const notice: SignInState = { notice: "This server is already set up. Sign in instead." };
+    return <Navigate to="/sign-in" replace state={notice} />;
+  }
+  return <Navigate to="/sign-in" replace state={{ from: location.pathname } satisfies ReturnTo} />;
+}
+
+function Unreachable() {
   return (
     <main className="flex min-h-svh items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>
-            <h1>Decent Sync</h1>
-          </CardTitle>
-          <CardDescription>The management interface is on its way.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p role="status">
-            {status === "checking" && "Checking the server..."}
-            {status === "connected" && "Server connected"}
-            {status === "unreachable" && "Server unreachable"}
-          </p>
-        </CardContent>
-      </Card>
+      <p role="alert">The Decent Sync server can't be reached. Reload the page to try again.</p>
     </main>
   );
 }

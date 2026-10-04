@@ -14,6 +14,8 @@ Ticket #5 builds Seam 1 from prior art in the archived [plugin dev harness](http
 
 Vitest tests that need build output (the committed plugin, the compiled server) read it directly, so build before `npm test`. Server tests run the built server as a process rather than importing Nest modules: Vitest's esbuild transform does not emit the decorator metadata Nest's dependency injection needs.
 
+`server/test/support/test-server.ts` starts the built server on a fresh database (created and dropped on the PostgreSQL server in `DATABASE_URL`) and a free port; call it once per test file. Playwright spec files call `useFreshServer()` from `e2e/support/fresh-server.ts`, which does the same, points `baseURL` at it and runs the file's tests serially. REST API tests send no `Origin`, as non-browser clients do; a test of browser behaviour must set it.
+
 ## Releases
 
 `.github/workflows/release.yml` publishes on a pushed `vX.Y.Z` tag: it checks the tag against the committed manifest (`scripts/check-release-tag.mjs`), waits for CI to have passed on the tagged commit as a push to `main` (it does not run CI again, and pull request runs do not count because they test a merge with `main`), pushes the server image to GHCR, then creates the GitHub release with the one plugin ZIP. The README's Releasing section has the procedure. Pushing a release tag publishes to every Machine that installed by repo name, so tag, push or create releases only when explicitly asked. To check packaging, run `npm run package:plugin` and `docker compose up --build` locally; use a separate Compose project name and ports (`-p`, `DECENT_SYNC_PORT`, `POSTGRES_PORT`) when the development database is already running.
