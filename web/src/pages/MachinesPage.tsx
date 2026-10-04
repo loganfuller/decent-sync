@@ -58,7 +58,8 @@ export function MachinesPage() {
         </p>
       </div>
 
-      {issued && <TokenNotice issued={issued} onDone={() => setIssued(undefined)} />}
+      {/* Keyed, so a new token never inherits the last one's "Copied". */}
+      {issued && <TokenNotice key={issued.token} issued={issued} onDone={() => setIssued(undefined)} />}
 
       {error && (
         <Alert variant="destructive">

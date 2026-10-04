@@ -85,7 +85,7 @@ test("creating a Machine shows its token once, and a tablet using it shows the M
   await expect(notice).toHaveCount(0);
   await page.reload();
   await expect(machineRow(page, "Lab")).toContainText("Online");
-  await expect(page.getByText(token)).toHaveCount(0);
+  await expectTokenNotShown(page, token);
 
   await machineRow(page, "Lab").getByRole("link", { name: "Lab" }).click();
   await expect(page.getByRole("heading", { name: "Lab", level: 1 })).toBeVisible();
@@ -98,6 +98,9 @@ test("creating a Machine shows its token once, and a tablet using it shows the M
   await expect(field(page, "Plugin")).toHaveText(/^\d+\.\d+\.\d+/);
   await expect(field(page, "Status")).toHaveText("Online");
 });
+
+let uptown: { serverUrl: string; token: string };
+let uptownTablet: SimulatedTablet;
 
 test("a mismatch is resolved by creating a machine entry for the reported hardware", async ({ page }) => {
   // Lab's tablet moves onto another machine, still with Lab's token.
@@ -117,8 +120,8 @@ test("a mismatch is resolved by creating a machine entry for the reported hardwa
   const notice = page.getByRole("region", { name: "Token for Uptown 1" });
   await expect(notice).toContainText("It will not be shown again");
   const token = await notice.getByRole("textbox", { name: "Token" }).inputValue();
-  await expect(page.getByRole("list", { name: "Pending Machines" })).toHaveCount(0);
   await expect(machineRow(page, "Uptown 1")).toContainText("DE1Pro");
+  await expect(page.getByRole("list", { name: "Pending Machines", exact: true })).toHaveCount(0);
 
   // Lab's page now names the Machine that has the hardware.
   await machineRow(page, "Lab").getByRole("link", { name: "Lab" }).click();
@@ -126,7 +129,8 @@ test("a mismatch is resolved by creating a machine entry for the reported hardwa
 
   // The moved tablet gets the new Machine's token.
   await moved.unload();
-  loadTablet({ serverUrl: lab.serverUrl, token }, { api: derivedDe1Pro({ serial: "10002", connectionId: "00:00:5E:00:53:02" }) });
+  uptown = { serverUrl: lab.serverUrl, token };
+  uptownTablet = loadTablet(uptown, { api: derivedDe1Pro({ serial: "10002", connectionId: "00:00:5E:00:53:02" }) });
   await page.getByRole("region", { name: "Mismatch" }).getByRole("link", { name: "Uptown 1" }).click();
   await expect(page.getByRole("heading", { name: "Uptown 1", level: 1 })).toBeVisible();
   await expect(field(page, "Status")).toHaveText("Online");
@@ -138,26 +142,31 @@ test("a mismatch is resolved by dismissing the reported hardware, which refuses 
   loadTablet(lab, { api: derivedDe1Pro({ serial: "10003", connectionId: "00:00:5E:00:53:03" }) });
 
   await page.goto("/machines");
-  const pending = pendingMachine(page, "Pending Machines", "DE1Pro serial 10003");
-  await expect(pending).toContainText("Reported with the token of Lab");
-  await pending.getByRole("button", { name: "Dismiss" }).click();
+  await expect(pendingMachine(page, "Pending Machines", "DE1Pro serial 10003")).toContainText("Reported with the token of Lab");
+
+  // Resolved from the mismatched Machine's page this time.
+  await machineRow(page, "Lab").getByRole("link", { name: "Lab" }).click();
+  const mismatch = page.getByRole("region", { name: "Mismatch" });
+  await expect(mismatch).toContainText("No machine entry covers DE1Pro serial 10003");
+  // The firmware the server holds is the other hardware's, and says so.
+  await expect(field(page, "Firmware")).toContainText("from DE1Pro serial 10003");
+  await mismatch.getByRole("button", { name: "Dismiss" }).click();
   const dialog = page.getByRole("alertdialog", { name: "Dismiss DE1Pro serial 10003?" });
   await expect(dialog).toContainText("disconnected and refused");
   await dialog.getByRole("button", { name: "Dismiss" }).click();
 
-  await expect(page.getByRole("list", { name: "Pending Machines" })).toHaveCount(0);
-  await expect(pendingMachine(page, "Dismissed Pending Machines", "DE1Pro serial 10003")).toBeVisible();
-  await expect(machineRow(page, "Lab")).toContainText("Refused");
-  await expect(machineRow(page, "Lab")).toContainText("Offline");
-
-  await machineRow(page, "Lab").getByRole("link", { name: "Lab" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "A connection was refused" })).toContainText(
     "An Admin dismissed DE1Pro serial 10003, which a tablet reported with this Machine's token",
   );
-  const mismatch = page.getByRole("region", { name: "Mismatch" });
   await expect(mismatch).toContainText("DE1Pro serial 10003 was dismissed");
   await expect(mismatch.getByRole("button", { name: "Dismiss" })).toHaveCount(0);
   await expect(mismatch.getByRole("button", { name: "Create machine entry" })).toBeVisible();
+
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Machines" }).click();
+  await expect(pendingMachine(page, "Dismissed Pending Machines", "DE1Pro serial 10003")).toBeVisible();
+  await expect(page.getByRole("list", { name: "Pending Machines", exact: true })).toHaveCount(0);
+  await expect(machineRow(page, "Lab")).toContainText("Refused");
+  await expect(machineRow(page, "Lab")).toContainText("Offline");
 });
 
 let home: { serverUrl: string; token: string };
@@ -194,6 +203,26 @@ test("an Unidentified Machine is identified by entering its model and serial", a
   await expect(field(page, "Aliases")).toHaveText("00:00:5E:00:53:20");
 });
 
+test("a bound Machine connecting from a machine without a serial can be confirmed as its own hardware", async ({ page }) => {
+  // Uptown 1's tablet connects from a new connection id while its machine reports no serial.
+  await uptownTablet.unload();
+  uptownTablet = loadTablet(uptown, { api: derivedDe1Pro({ serial: "0", connectionId: "00:00:5E:00:53:31" }) });
+
+  await page.goto("/machines");
+  await expect(machineRow(page, "Uptown 1")).toContainText("Unidentified");
+  await machineRow(page, "Uptown 1").getByRole("link", { name: "Uptown 1" }).click();
+  const unidentified = page.getByRole("region", { name: "Unidentified Machine" });
+  await expect(unidentified).toContainText("from connection id 00:00:5E:00:53:31");
+  // The server accepts only the bound hardware, so no form offers other hardware.
+  await expect(unidentified.getByRole("form")).toHaveCount(0);
+  await expect(field(page, "Firmware")).toContainText("from DE1Pro serial 0");
+
+  await unidentified.getByRole("button", { name: "Confirm it is DE1Pro serial 10002" }).click();
+  await expect(unidentified).toHaveCount(0);
+  await expect(field(page, "Identification")).toHaveText("Identified by its model and serial");
+  await expect(field(page, "Aliases")).toHaveText("00:00:5E:00:53:02, 00:00:5E:00:53:31");
+});
+
 test("reissuing a token shows the new token once, and the old token can no longer connect", async ({ page }) => {
   await page.goto("/machines");
   await machineRow(page, "Home").getByRole("link", { name: "Home" }).click();
@@ -207,8 +236,17 @@ test("reissuing a token shows the new token once, and the old token can no longe
   const notice = page.getByRole("region", { name: "Token for Home" });
   await expect(notice).toContainText("It will not be shown again");
   await notice.getByRole("button", { name: "Copy token" }).click();
+  const replaced = await clipboard(page);
+  expect(replaced).not.toBe(home.token);
+
+  // Reissued again before Done: the new token's copy button starts afresh.
+  await page.getByRole("button", { name: "Issue new token" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Issue new token" }).click();
+  await expect(notice.getByRole("textbox", { name: "Token" })).not.toHaveValue(replaced);
+  await expect(notice.getByRole("button", { name: "Copy token" })).toHaveText("Copy");
+  await notice.getByRole("button", { name: "Copy token" }).click();
   const token = await clipboard(page);
-  expect(token).not.toBe(home.token);
+  expect(token).not.toBe(replaced);
 
   // The tablet still using the old token is disconnected, and its reconnects are refused.
   await expect(field(page, "Status")).toHaveText("Offline");
@@ -223,7 +261,8 @@ test("reissuing a token shows the new token once, and the old token can no longe
   await notice.getByRole("button", { name: "Done" }).click();
   await expect(notice).toHaveCount(0);
   await page.reload();
-  await expect(page.getByText(token)).toHaveCount(0);
+  await expect(field(page, "Status")).toBeVisible();
+  await expectTokenNotShown(page, token);
 
   // With the new token entered, the Machine is back.
   await homeTablet.unload();
@@ -251,6 +290,14 @@ async function createMachine(page: Page, name: string): Promise<{ serverUrl: str
   baseExpect(response.status()).toBe(201);
   const { serverUrl, token } = (await response.json()) as { serverUrl: string; token: string };
   return { serverUrl, token };
+}
+
+/** Checks the page shows no token: no token notice, and the token nowhere in its text or fields. */
+async function expectTokenNotShown(page: Page, token: string) {
+  await expect(page.getByRole("region", { name: /^Token for / })).toHaveCount(0);
+  const values = await page.locator("input").evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value));
+  expect(values).not.toContain(token);
+  expect(await page.content()).not.toContain(token);
 }
 
 async function clipboard(page: Page): Promise<string> {

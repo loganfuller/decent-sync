@@ -35,9 +35,19 @@ export function describeHardware(hardware: { model: string; serial: string }): s
 }
 
 /** Whether a serial identifies hardware: not empty, and not the "0" older DE1s report. As the protocol package decides. */
-function isRealSerial(serial: string): boolean {
+export function isRealSerial(serial: string): boolean {
   const trimmed = serial.trim();
   return trimmed !== "" && trimmed !== "0";
+}
+
+/** The hardware a Machine's token is bound to, or null until it is bound. */
+export function bindingOf(machine: Machine): { model: string; serial: string } | null {
+  return machine.model !== null && machine.serial !== null ? { model: machine.model, serial: machine.serial } : null;
+}
+
+/** Whether two pieces of hardware are the same, ignoring surrounding spaces, as the protocol package decides. */
+export function sameHardware(a: { model: string; serial: string }, b: { model: string; serial: string }): boolean {
+  return a.model.trim() === b.model.trim() && a.serial.trim() === b.serial.trim();
 }
 
 /**

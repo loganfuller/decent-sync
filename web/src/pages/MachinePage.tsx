@@ -3,6 +3,9 @@ import { Link, useParams } from "react-router";
 import {
   ConfirmButton,
   IdentificationBadge,
+  bindingOf,
+  isRealSerial,
+  sameHardware,
   PendingMachineActions,
   StatusBadge,
   describeHardware,
@@ -87,7 +90,8 @@ function MachineDetails({ id }: { id: string }) {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {issued && <TokenNotice issued={issued} onDone={() => setIssued(undefined)} />}
+      {/* Keyed, so a new token never inherits the last one's "Copied". */}
+      {issued && <TokenNotice key={issued.token} issued={issued} onDone={() => setIssued(undefined)} />}
       {machine && (
         <>
           <div className="flex flex-wrap items-center gap-3">
@@ -104,7 +108,12 @@ function MachineDetails({ id }: { id: string }) {
           )}
 
           {machine.mismatch && <Mismatch machine={machine} pending={data.pending} onCreated={created} onDismissed={reload} />}
-          {needsHardware(machine) && <EnterHardware machine={machine} onSaved={reload} />}
+          {needsHardware(machine) &&
+            (machine.model === null ? (
+              <EnterHardware machine={machine} onSaved={reload} />
+            ) : (
+              <ConfirmHardware machine={machine} onSaved={reload} />
+            ))}
 
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
@@ -147,7 +156,7 @@ function MachineDetails({ id }: { id: string }) {
               </CardHeader>
               <CardContent>
                 <Fields label="Versions">
-                  <Field term="Firmware">{machine.reported?.firmware ?? "Not reported"}</Field>
+                  <Field term="Firmware">{firmwareText(machine)}</Field>
                   <Field term="Decaid">{machine.decaidVersion ?? "Not reported"}</Field>
                   <Field term="Plugin">{machine.pluginVersion ?? "Not reported"}</Field>
                 </Fields>
@@ -226,14 +235,34 @@ function identificationText(machine: Machine): string {
     case "identified":
       return "Identified by its model and serial";
     case "hardwareNotReported":
-      return machine.model === null
-        ? "Hardware not reported: its token has not yet connected while its machine was on"
-        : "Hardware not reported: its tablet last connected while its machine was off, from a connection id not known to be this Machine's";
+      if (machine.lastSeenAt === null) return "Hardware not reported: no tablet has connected with its token yet";
+      if (machine.model !== null) {
+        return "Hardware not reported: its tablet last connected while its machine was off, from a connection id not known to be this Machine's";
+      }
+      return needsHardware(machine)
+        ? "Hardware not reported: its tablet last connected while its machine was off; before that, its machine reported no serial number"
+        : "Hardware not reported: its tablet has connected only while its machine was off, so it is not yet bound to any hardware";
     case "unidentified":
-      return "Unidentified: its machine reports no serial number, so it is recognised by its token and connection id";
+      return machine.model === null
+        ? "Unidentified: its machine reports no serial number, so it is recognised by its token and connection id"
+        : "Unidentified: its token is connecting from a machine that reports no serial number, from a connection id not known to be this Machine's";
     case "mismatch":
       return "Mismatch: its token is connecting from other hardware";
   }
+}
+
+/**
+ * The firmware of the Machine's own hardware. The server keeps only the
+ * firmware of the hardware its token last reported, which during a mismatch,
+ * or after one, may be other hardware's: that is named beside it.
+ */
+function firmwareText(machine: Machine): string {
+  const reported = machine.reported;
+  if (!reported) return "Not reported";
+  const firmware = reported.firmware ?? "Not reported";
+  const binding = bindingOf(machine);
+  const own = binding ? sameHardware(reported, binding) : !isRealSerial(reported.serial);
+  return own ? firmware : `${firmware}, from ${describeHardware(reported)}, which its token last reported`;
 }
 
 /** The other hardware a Machine's token reports, and how to resolve it. */
@@ -291,7 +320,64 @@ function Mismatch({
   );
 }
 
-/** An Admin entering an Unidentified Machine's model and serial, which makes it identified. */
+/**
+ * A bound Machine whose token connects from a machine reporting no serial,
+ * from a connection id not known to be its own. The server accepts only the
+ * hardware it is bound to, so an Admin either confirms that this is it,
+ * which remembers the connection id, or adopts the other machine separately.
+ */
+function ConfirmHardware({ machine, onSaved }: { machine: Machine; onSaved(): Promise<void> }) {
+  const binding = bindingOf(machine)!;
+  const hardware = describeHardware(binding);
+  const [error, setError] = useState<string>();
+  const [submitting, setSubmitting] = useState(false);
+
+  async function confirm() {
+    setSubmitting(true);
+    setError(undefined);
+    try {
+      await api("PUT", `/machines/${machine.id}/hardware`, binding);
+      await onSaved();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Something went wrong");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Card role="region" aria-label="Unidentified Machine" className="max-w-xl border-destructive">
+      <CardHeader>
+        <CardTitle>
+          <h2>Unidentified Machine</h2>
+        </CardTitle>
+        <CardDescription>
+          {machine.name}'s token is connecting from a machine that reports no serial number
+          {machine.connectionId ? `, from connection id ${machine.connectionId}` : ""}, which is not known to be{" "}
+          {machine.name}'s. If it is {machine.name}, its {hardware}, confirm it and the connection id is remembered. If
+          it is another machine, create a machine entry for that machine and enter the new token on its tablet.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void confirm()} disabled={submitting}>
+            Confirm it is {hardware}
+          </Button>
+          <Button variant="outline" asChild>
+            <Link to="/machines">Create a machine entry</Link>
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** An Admin entering an unbound Unidentified Machine's model and serial, which makes it identified. */
 function EnterHardware({ machine, onSaved }: { machine: Machine; onSaved(): Promise<void> }) {
   const id = useId();
   const [models, setModels] = useState<string[]>([]);
@@ -333,7 +419,7 @@ function EnterHardware({ machine, onSaved }: { machine: Machine; onSaved(): Prom
           <h2>Unidentified Machine</h2>
         </CardTitle>
         <CardDescription>
-          Its machine reports no serial number, as older DE1s do. Enter the model and serial from the machine's label to
+          Its machine reported no serial number, as older DE1s do. Enter the model and serial from the machine's label to
           identify it; its tablet's connection id is remembered so it is recognised again.
         </CardDescription>
       </CardHeader>
