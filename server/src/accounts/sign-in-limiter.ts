@@ -32,10 +32,11 @@ const ENDED = Prisma.sql`w.started_at <= now() - ${WINDOW}`;
  *
  * Counts live in PostgreSQL (`sign_in_windows`), so every server instance
  * enforces one limit and a restart keeps it (ADR-0016). Windows start and end
- * by the database's clock, and one statement that locks the email's row both
- * counts each attempt and decides it. It is keyed by email, not client
- * address, because behind a hosting proxy (fly.io) every client can share one
- * address.
+ * by the database's clock. One statement that locks the email's row counts
+ * each attempt and decides it, unless the email is not tracked and every slot
+ * is taken; an email another instance is starting to track at that moment may
+ * be refused then too. It is keyed by email, not client address, because
+ * behind a hosting proxy (fly.io) every client can share one address.
  */
 @Injectable()
 export class SignInLimiter {

@@ -63,10 +63,13 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
       PUBLIC_URL: options.publicUrl ?? url,
       HOST: "127.0.0.1",
       PORT: String(port),
+      ...options.env,
       ...(options.clockOffsetMs === undefined
         ? {}
-        : { NODE_OPTIONS: `--import=${pathToFileURL(clockOffset).href}`, TEST_CLOCK_OFFSET_MS: String(options.clockOffsetMs) }),
-      ...options.env,
+        : {
+            NODE_OPTIONS: [options.env?.NODE_OPTIONS, `--import=${pathToFileURL(clockOffset).href}`].filter(Boolean).join(" "),
+            TEST_CLOCK_OFFSET_MS: String(options.clockOffsetMs),
+          }),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
