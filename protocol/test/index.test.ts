@@ -138,9 +138,10 @@ describe("decodePluginMessage", () => {
 });
 
 describe("decodeServerMessage", () => {
-  it("reads a welcome and an error, accepting fields it does not know", () => {
+  it("reads a welcome, a heartbeat and an error, accepting fields it does not know", () => {
     const welcome = { type: "welcome", protocolVersion: 1, heartbeatIntervalMs: 30_000, machineName: "Uptown left" };
     expect(decodeServerMessage(frame(welcome))).toEqual({ ok: true, message: welcome });
+    expect(decodeServerMessage(encode({ type: "heartbeat" }))).toEqual({ ok: true, message: { type: "heartbeat" } });
     const error: ErrorMessage = { type: "error", code: "bad_token", message: "No Machine has this token" };
     expect(decodeServerMessage(encode(error))).toEqual({ ok: true, message: error });
   });

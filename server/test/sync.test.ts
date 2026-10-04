@@ -142,6 +142,33 @@ describe("Machines and the sync connection", () => {
       await waitForMachine("Uptown", (machine) => machine.online);
     });
 
+    it("reconnects when the server stops answering without closing the connection", async () => {
+      const lab = await createMachine("Behind a lost path");
+      const proxy = await startPartitioningProxy(server.url);
+      try {
+        // Not sped up: the server's heartbeat interval is real time, and a faster tablet would expect answers sooner than they come.
+        const tablet = loadTablet(settingsFor({ ...lab, serverUrl: proxy.url }));
+        await tablet.waitForLog(/^Connected to /);
+        // A server answering its heartbeats keeps the connection.
+        await new Promise((resolve) => setTimeout(resolve, HEARTBEAT_SECONDS * 4000));
+        expect(tablet.logs.filter((log) => log.startsWith("Disconnected"))).toEqual([]);
+
+        // The path to the server is lost, as when its host vanishes: nothing arrives, and nothing closes.
+        proxy.partition();
+        const lostAt = Date.now();
+        await tablet.waitForLog(/^Disconnected: heard nothing from the server for 1\.5 s\. Reconnecting in 1 s\.$/);
+        expect(Date.now() - lostAt).toBeLessThan(HEARTBEAT_SECONDS * 3000 + 500);
+
+        // The path stays lost until the plugin gives up on it, however quickly the server answers (#30).
+        proxy.heal();
+        expect(await tablet.waitForLogs(/^Connected to /, 2)).toHaveLength(2);
+        await waitForMachine("Behind a lost path", (machine) => machine.online);
+        await tablet.unload();
+      } finally {
+        await proxy.close();
+      }
+    }, 15_000);
+
     it("replaces an older connection with the same token, and the older tablet stops", async () => {
       const replacement = loadTablet(settingsFor(uptown));
       await replacement.waitForLog(/^Connected to /);
@@ -244,7 +271,7 @@ describe("Machines and the sync connection", () => {
       return (connection.messages[0] as { message: string }).message;
     };
 
-    it("welcome a valid hello, with the heartbeat interval", async () => {
+    it("welcome a valid hello, with the heartbeat interval, and answer each heartbeat", async () => {
       const { token } = await createMachine("Raw");
       raw = await RawConnection.open(server.url);
       raw.send(helloWith(token));
@@ -254,6 +281,10 @@ describe("Machines and the sync connection", () => {
         heartbeatIntervalMs: HEARTBEAT_SECONDS * 1000,
       });
       await waitForMachine("Raw", (machine) => machine.online);
+      raw.send({ type: "heartbeat" });
+      expect(await raw.message(1)).toEqual({ type: "heartbeat" });
+      raw.send({ type: "heartbeat" });
+      expect(await raw.message(2)).toEqual({ type: "heartbeat" });
     });
 
     it("close a connection whose token is unknown with the bad-token code", async () => {
@@ -381,6 +412,73 @@ async function startStallingProxy(serverUrl: string, stall: number) {
     },
     async close() {
       for (const socket of [...stalled, ...passed]) socket.destroy();
+      await new Promise((resolve) => proxy.close(resolve));
+    },
+  };
+}
+
+/**
+ * A TCP proxy to a server whose path can be lost without anything closing, as
+ * when the server's host vanishes or a NAT drops the connection's state.
+ * `partition()` silently drops every byte on the connections passed through
+ * so far, for good, and holds new connections unanswered until `heal()`
+ * passes them through.
+ */
+async function startPartitioningProxy(serverUrl: string) {
+  const target = new URL(serverUrl);
+  const sockets = new Set<net.Socket>();
+  const held: net.Socket[] = [];
+  let lose: (() => void)[] = [];
+  let partitioned = false;
+
+  const track = (socket: net.Socket) => {
+    sockets.add(socket);
+    socket.on("error", () => {});
+    socket.on("close", () => sockets.delete(socket));
+  };
+  const pass = (socket: net.Socket) => {
+    const upstream = net.connect(Number(target.port), target.hostname);
+    track(upstream);
+    let lost = false;
+    const forward = (from: net.Socket, to: net.Socket) => {
+      from.on("data", (chunk) => {
+        if (!lost) to.write(chunk);
+      });
+      from.on("end", () => {
+        if (!lost) to.end();
+      });
+      from.on("close", () => {
+        if (!lost) to.destroy();
+      });
+    };
+    forward(socket, upstream);
+    forward(upstream, socket);
+    lose.push(() => {
+      lost = true;
+    });
+  };
+
+  const proxy = net.createServer((socket) => {
+    track(socket);
+    // Until passed through, what the client sends waits unread.
+    if (partitioned) held.push(socket);
+    else pass(socket);
+  });
+  await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
+  const { port } = proxy.address() as net.AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    partition() {
+      partitioned = true;
+      for (const cut of lose) cut();
+      lose = [];
+    },
+    heal() {
+      partitioned = false;
+      for (const socket of held.splice(0)) if (!socket.destroyed) pass(socket);
+    },
+    async close() {
+      for (const socket of sockets) socket.destroy();
       await new Promise((resolve) => proxy.close(resolve));
     },
   };

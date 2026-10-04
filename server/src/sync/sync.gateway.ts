@@ -7,6 +7,7 @@ import {
   CLOSE_CODES,
   type ErrorCode,
   type Hello,
+  MISSED_HEARTBEATS,
   PROTOCOL_VERSION,
   SYNC_PATH,
   type ServerMessage,
@@ -18,7 +19,7 @@ import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { AccessChanges } from "../machines/access-changes.js";
 import { type LiveConnection, LiveConnections } from "../machines/connections.js";
-import { MISSED_HEARTBEATS, MachinesService, type Refusal, describeHardware } from "../machines/machines.service.js";
+import { MachinesService, type Refusal, describeHardware } from "../machines/machines.service.js";
 import { hashSecret } from "../secrets.js";
 import type { Hardware, Identity } from "./identity.js";
 
@@ -180,6 +181,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return this.refuse(session, "protocol_error", "hello was already sent on this connection");
       case "heartbeat":
         this.resetIdleTimer(session);
+        // Answered before the database is, so a slow one does not make the plugin give up on a working connection.
+        this.send(session, { type: "heartbeat" });
         if (session.live) {
           const live = session.live;
           await this.enforce([live], async () => [await this.machines.heard(live)]);

@@ -19,6 +19,12 @@ export const OLDEST_SUPPORTED_PROTOCOL_VERSION = 1;
 /** The path of the server's sync endpoint, under its public URL's host. */
 export const SYNC_PATH = "/sync";
 
+/**
+ * Either end closes a connection it has heard nothing on for this many
+ * heartbeat intervals, so neither waits on a dead one until TCP gives up.
+ */
+export const MISSED_HEARTBEATS = 3;
+
 /** Why the server refused or ended a connection, sent in an `error` before it closes. */
 export type ErrorCode = "protocol_error" | "bad_token" | "plugin_too_old" | "replaced" | "hardware_dismissed";
 
@@ -93,7 +99,10 @@ export interface Hello {
   machine?: MachineHardware | null;
 }
 
-/** Sent by the plugin every `heartbeatIntervalMs` from `welcome`. */
+/**
+ * Sent by the plugin every `heartbeatIntervalMs` from `welcome`, and by the
+ * server in reply to each, so each end hears from the other every interval.
+ */
 export interface Heartbeat {
   type: "heartbeat";
 }
@@ -102,7 +111,7 @@ export interface Heartbeat {
 export interface Welcome {
   type: "welcome";
   protocolVersion: number;
-  /** How often the plugin sends `heartbeat`; the server closes a connection silent for three intervals. */
+  /** How often the plugin sends `heartbeat`; either end closes a connection silent for `MISSED_HEARTBEATS` intervals. */
   heartbeatIntervalMs: number;
 }
 
@@ -115,7 +124,7 @@ export interface ErrorMessage {
 }
 
 export type PluginMessage = Hello | Heartbeat;
-export type ServerMessage = Welcome | ErrorMessage;
+export type ServerMessage = Welcome | Heartbeat | ErrorMessage;
 
 export type Decoded<T> =
   | { ok: true; message: T }
@@ -195,6 +204,8 @@ export function decodeServerMessage(frame: string): Decoded<ServerMessage> {
         fields.integer("protocolVersion");
         fields.integer("heartbeatIntervalMs", { positive: true });
       });
+    case "heartbeat":
+      return check<Heartbeat>(object, "heartbeat", () => {});
     case "error":
       return check<ErrorMessage>(object, "error", (fields) => {
         fields.string("code");
