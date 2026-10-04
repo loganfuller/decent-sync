@@ -76,6 +76,7 @@ export interface Machine {
   lastRefusal: { reason: string; at: string } | null;
   online: boolean;
   lastSeenAt: string | null;
+  lastShot: { id: string; pulledAt: string | null } | null;
 }
 
 /** Hardware the server has seen that no Machine has, for an Admin to adopt or dismiss. */

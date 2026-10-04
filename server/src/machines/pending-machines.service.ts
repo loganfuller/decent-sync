@@ -70,6 +70,7 @@ export class PendingMachinesService {
             tokens: { create: { tokenHash: hashSecret(token) } },
           },
         });
+        await tx.shot.updateMany({ where: { pendingMachineId: id }, data: { machineId: machine.id, pendingMachineId: null } });
         await tx.pendingMachine.delete({ where: { id } });
         return machine.id;
       })

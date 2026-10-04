@@ -2,7 +2,7 @@
 
 ## Start here
 
-The repository holds the milestone 1 workspace, scaffolded by [ticket #2](https://github.com/loganfuller/decent-sync/issues/2) with no domain behavior yet, plus the receive-only prototype (`server.mjs`) that [ticket #19](https://github.com/loganfuller/decent-sync/issues/19) removes once milestone 1 replaces it.
+The repository holds the milestone 1 workspace, scaffolded by [ticket #2](https://github.com/loganfuller/decent-sync/issues/2), with accounts, Locations, Machine identity and Shot capture, plus the receive-only prototype (`server.mjs`) that [ticket #19](https://github.com/loganfuller/decent-sync/issues/19) removes once milestone 1 replaces it.
 
 Target requirements come from `GLOSSARY.md`, accepted `docs/adr/` decisions and [milestone 1](https://github.com/loganfuller/decent-sync/issues/1), then the assigned ticket. ADR-0010 is superseded by ADR-0012, and ADR-0015 extends ADR-0004. The prototype's code and protocol do not override these requirements.
 
@@ -10,9 +10,9 @@ Target requirements come from `GLOSSARY.md`, accepted `docs/adr/` decisions and 
 
 | Path | Responsibility | Entry points |
 |---|---|---|
-| `plugin/` | TypeScript source for the Decaid plugin | `src/index.ts`, `src/connection.ts` (hello, heartbeats, reconnects), `src/settings.ts`, `src/decaid.ts` (Decaid's local API); `build.mjs` writes `decent-sync.reaplugin/`; `manifest.json` is the manifest template (the version comes from the root `package.json`) |
+| `plugin/` | TypeScript source for the Decaid plugin | `src/index.ts`, `src/connection.ts` (hello, heartbeats, reconnects), `src/shots.ts` (outbox and paged reconciliation), `src/settings.ts`, `src/decaid.ts` (Decaid's local API); `build.mjs` writes `decent-sync.reaplugin/`; `manifest.json` is the manifest template (the version comes from the root `package.json`) |
 | `decent-sync.reaplugin/` | Committed ES2020 bundle and manifest installed by Decaid | Generated; never edit by hand |
-| `server/` | NestJS, Prisma, PostgreSQL, WebSocket gateway, REST API, serving the built web app | `src/main.ts` (config, migrations, bootstrap), `src/config.ts`, `src/accounts/` (accounts, sessions and the guards every route passes), `src/locations/` (Locations and the time zones they may use), `src/machines/` (machine entries, tokens, identification, aliases, Pending Machines, online status), `src/sync/` (the plugin's WebSocket gateway at `/sync`, and `identity.ts`, the pure identity resolution module), `prisma/schema.prisma`, `prisma/migrations/` |
+| `server/` | NestJS, Prisma, PostgreSQL, WebSocket gateway, REST API, serving the built web app | `src/main.ts` (config, migrations, bootstrap), `src/config.ts`, `src/accounts/` (accounts, sessions and the guards every route passes), `src/locations/` (Locations and the time zones they may use), `src/machines/` (machine entries, tokens, identification, aliases, Pending Machines, online status), `src/sync/` (the plugin's WebSocket gateway at `/sync`, and `identity.ts`, the pure identity resolution module), `src/shots/` (capture, optional-field extraction and REST reads), `prisma/schema.prisma`, `prisma/migrations/` |
 | `web/` | React, Vite, shadcn/ui management interface; uses the REST API | `src/App.tsx` (routes), `src/auth.tsx`, `src/pages/Shell.tsx` (the signed-in frame later pages join), `src/pages/MachinesPage.tsx` and `src/pages/MachinePage.tsx` (Machines, Pending Machines, tokens and identity resolution), `src/components/TokenNotice.tsx` (a token shown once, with copy buttons that also work on a plain-`http://` LAN address); add components with `npx shadcn add` |
 | `protocol/` | Internal shared wire types and runtime validators; never published | `src/index.ts` |
 | `e2e/` | Playwright tests (Seam 2) | `playwright.config.ts` at the root |
@@ -52,3 +52,12 @@ For upstream paths and checkout conventions, see `AGENTS.md` External sources. V
 ## Data
 
 `data/` is git-ignored and may hold real history. Use a scratch `DATA_DIR` for prototype experiments. Do not bulk-read history to learn a schema. Milestone 1 requires no prototype-data migration; the tablet backfills its records when adopted.
+
+Shot storage and reconciliation are described in `docs/SHOTS.md`. `ShotCapture`
+runs beside `SyncConnection`: the built plugin captures shot events, scans
+bounded summary pages once per load, and replays its in-memory outbox on
+reconnect. `ShotsService` stores early edits durably, compares versions under
+a PostgreSQL advisory lock, and separates metadata from compressed curves.
+All hardware adoption paths transfer Pending Shot credit before deleting the
+Pending Machine. `server/test/shots.test.ts` covers this through Seam 1 and
+two instances on one database.

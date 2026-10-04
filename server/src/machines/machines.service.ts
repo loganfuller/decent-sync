@@ -48,6 +48,7 @@ export interface MachineView {
   online: boolean;
   /** When a plugin connected with its token was last heard from, or null if never. */
   lastSeenAt: string | null;
+  lastShot: { id: string; pulledAt: string | null } | null;
 }
 
 /** What became of a `hello`, decided and recorded while its Machine was locked. */
@@ -158,6 +159,7 @@ export class MachinesService {
           await tx.machineAlias.createMany({ data: [{ machineId: id, connectionId: machine.connectionId }], skipDuplicates: true });
         }
         // The Machine takes over whatever was held for its hardware.
+        await transferPendingShots(tx, hardware, id);
         await tx.pendingMachine.deleteMany({ where: hardware });
       })
       .catch(async (error: unknown) => {
@@ -341,6 +343,7 @@ export class MachinesService {
     }
     if (identity.kind === "identified" && identity.bind) {
       // The Machine takes over whatever was held for its hardware.
+      await transferPendingShots(tx, hardware!, machine.id);
       await tx.pendingMachine.deleteMany({ where: hardware! });
     }
     if (identity.kind === "mismatch" && !identity.anotherMachineHasIt) {
@@ -379,6 +382,11 @@ export class MachinesService {
             this.prisma.pendingMachine.findMany({ where: { OR: mismatched }, select: { id: true, model: true, serial: true } }),
           ]);
 
+    const lastShots = machines.length === 0 ? [] : await this.prisma.$queryRaw<{ id: string; machineId: string; pulledAt: Date | null }[]>(Prisma.sql`
+      SELECT DISTINCT ON (machine_id) id, machine_id AS "machineId", pulled_at AS "pulledAt"
+      FROM shots WHERE has_full_record AND machine_id IN (${Prisma.join(machines.map((machine) => Prisma.sql`${machine.id}::uuid`))})
+      ORDER BY machine_id, pulled_at DESC NULLS LAST, id ASC`);
+    const lastByMachine = new Map(lastShots.map((shot) => [shot.machineId, { id: shot.id, pulledAt: shot.pulledAt?.toISOString() ?? null }]));
     return machines.map((machine) => {
       const hardware = machine.identification === MachineIdentification.MISMATCH ? reportedHardware(machine) : null;
       const owner = hardware && owners.find((candidate) => sameHardware(bindingOf(candidate)!, hardware));
@@ -409,6 +417,7 @@ export class MachinesService {
             : null,
         online: machine.connectedSessionId !== null && machine.lastSeenAt !== null && machine.lastSeenAt.getTime() >= heardSince,
         lastSeenAt: machine.lastSeenAt?.toISOString() ?? null,
+        lastShot: lastByMachine.get(machine.id) ?? null,
       };
     });
   }
@@ -513,4 +522,9 @@ function identificationOf(identity: Exclude<Identity, { kind: "rejected" }>): Ma
     case "mismatch":
       return MachineIdentification.MISMATCH;
   }
+}
+
+/** Hardware adoption restores even Shots held by dismissed Pending Machines. */
+async function transferPendingShots(tx: Prisma.TransactionClient, hardware: Hardware, machineId: string): Promise<void> {
+  await tx.shot.updateMany({ where: { pendingMachine: hardware }, data: { machineId, pendingMachineId: null } });
 }

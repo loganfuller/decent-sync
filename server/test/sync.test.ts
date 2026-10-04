@@ -68,6 +68,7 @@ describe("Machines and the sync connection", () => {
         lastRefusal: null,
         online: false,
         lastSeenAt: null,
+        lastShot: null,
       });
       expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
       expect(serverUrl).toBe(server.url);
@@ -355,7 +356,7 @@ describe("Machines and the sync connection", () => {
         [helloWith(token, { pluginVersion: 7, machine: { model: "DE1Pro" } }), "hello.pluginVersion must be a string; hello.machine.serial must be a string"],
         ["{not json", "The frame is not JSON"],
         [{ type: "heartbeat" }, "The first message must be hello"],
-        [{ type: "shot" }, "Unknown message type"],
+        [{ type: "shot" }, "shot.id must be a string; shot.shotId must be a string; shot.shot must be an object"],
         [helloWith(token, { protocolVersion: PROTOCOL_VERSION + 1 }), expect.stringContaining("update the server")],
       ];
       for (const [frame, problem] of invalid) {

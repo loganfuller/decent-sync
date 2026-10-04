@@ -54,19 +54,25 @@ var __decentSync = (() => {
     return JSON.stringify(message);
   }
   function decodeServerMessage(frame) {
-    const object = parseObject(frame);
-    if (typeof object === "string") return invalid(object);
-    switch (object.type) {
+    const object2 = parseObject(frame);
+    if (typeof object2 === "string") return invalid(object2);
+    switch (object2.type) {
       case "welcome":
-        return check(object, "welcome", (fields) => {
+        return check(object2, "welcome", (fields) => {
           fields.integer("protocolVersion");
           fields.integer("heartbeatIntervalMs", { positive: true });
         });
+      case "ack":
+        return check(object2, "ack", (fields) => fields.string("id", { nonEmpty: true }));
+      case "requestShots":
+        return check(object2, "requestShots", (fields) => {
+          fields.array("shotIds", (value) => typeof value === "string" && value !== "", 100);
+        });
       case "heartbeat":
-        return check(object, "heartbeat", () => {
+        return check(object2, "heartbeat", () => {
         });
       case "error":
-        return check(object, "error", (fields) => {
+        return check(object2, "error", (fields) => {
           fields.string("code");
           fields.string("message");
         });
@@ -75,8 +81,8 @@ var __decentSync = (() => {
     }
   }
   var FieldChecker = class _FieldChecker {
-    constructor(object, path, problems) {
-      __publicField(this, "object", object);
+    constructor(object2, path, problems) {
+      __publicField(this, "object", object2);
       __publicField(this, "path", path);
       __publicField(this, "problems", problems);
     }
@@ -94,6 +100,18 @@ var __decentSync = (() => {
       if (typeof value !== "number" || !Number.isInteger(value)) this.problem(key, "must be a whole number");
       else if (options.positive && value <= 0) this.problem(key, "must be positive");
     }
+    optionalBoolean(key) {
+      if (this.object[key] !== void 0 && typeof this.object[key] !== "boolean") this.problem(key, "must be a boolean");
+    }
+    objectField(key) {
+      if (!isObject(this.object[key])) this.problem(key, "must be an object");
+    }
+    array(key, valid, max) {
+      const value = this.object[key];
+      if (!Array.isArray(value) || value.length > max || !value.every(valid)) {
+        this.problem(key, `must be an array of at most ${max} valid entries`);
+      }
+    }
     optionalObject(key, checkFields) {
       const value = this.object[key];
       if (value === void 0 || value === null) return;
@@ -107,11 +125,11 @@ var __decentSync = (() => {
       this.problems.push(`${this.path}.${key} ${what}`);
     }
   };
-  function check(object, type, checkFields) {
-    const fields = new FieldChecker(object, type, []);
+  function check(object2, type, checkFields) {
+    const fields = new FieldChecker(object2, type, []);
     checkFields(fields);
     if (fields.problems.length > 0) return invalid(fields.problems.join("; "));
-    return { ok: true, message: object };
+    return { ok: true, message: object2 };
   }
   function parseObject(frame) {
     let value;
@@ -161,9 +179,190 @@ var __decentSync = (() => {
       return null;
     }
   }
-  function stringField(object, key) {
-    const value = object?.[key];
+  function stringField(object2, key) {
+    const value = object2?.[key];
     return typeof value === "string" && value !== "" ? value : null;
+  }
+  async function readShotPage(limit, offset) {
+    const page = await getObject(`/shots?limit=${limit}&offset=${offset}&order=desc`);
+    return Array.isArray(page?.items) ? { items: page.items } : null;
+  }
+  async function readShot(id) {
+    const response = await fetch(`${API}/shots/${encodeURIComponent(id)}`);
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error("Shot unavailable");
+    const body = await response.json();
+    if (body === null || typeof body !== "object" || Array.isArray(body)) throw new Error("Shot response unavailable");
+    return body;
+  }
+
+  // src/shots.ts
+  var PAGE_SIZE = 100;
+  var SHORT_OUTBOX = 4;
+  var ShotCapture = class {
+    constructor(log) {
+      __publicField(this, "log", log);
+      __publicField(this, "outbox", /* @__PURE__ */ new Map());
+      __publicField(this, "requested", /* @__PURE__ */ new Set());
+      __publicField(this, "ids", /* @__PURE__ */ new Set());
+      __publicField(this, "runtimeId", `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
+      __publicField(this, "sequence", 0);
+      __publicField(this, "sendFrame");
+      __publicField(this, "generation", 0);
+      __publicField(this, "sent");
+      __publicField(this, "working", false);
+      __publicField(this, "scanning", false);
+      __publicField(this, "scanned", false);
+      __publicField(this, "welcomed", false);
+      __publicField(this, "stopped", false);
+      __publicField(this, "timer");
+      __publicField(this, "retryTimer");
+      __publicField(this, "events", Promise.resolve());
+    }
+    welcome(send) {
+      this.sendFrame = send;
+      this.generation++;
+      this.sent = void 0;
+      if (this.welcomed) void this.indexKnownIds();
+      this.welcomed = true;
+      if (!this.scanned && !this.scanning && this.timer === void 0) void this.scan();
+      this.pump();
+    }
+    disconnected() {
+      this.sendFrame = void 0;
+      this.generation++;
+      this.sent = void 0;
+    }
+    stop() {
+      this.stopped = true;
+      this.disconnected();
+      if (this.timer !== void 0) clearTimeout(this.timer);
+      if (this.retryTimer !== void 0) clearTimeout(this.retryTimer);
+    }
+    acknowledge(id) {
+      this.outbox.delete(id);
+      if (this.sent === id) this.sent = void 0;
+      this.pump();
+    }
+    request(ids) {
+      for (const id of ids) this.requested.add(id);
+      this.pump();
+    }
+    event(type, payload) {
+      const event = object(payload);
+      if (typeof event?.id !== "string" || event.id === "") return;
+      const id = event.id;
+      this.events = this.events.then(async () => {
+        const supplied = type === "shotUpdated" ? object(event.shot) : void 0;
+        let shot;
+        try {
+          shot = supplied ?? await readShot(id);
+        } catch {
+          this.requested.add(id);
+          this.retry();
+          return;
+        }
+        if (this.stopped) return;
+        if (!shot) {
+          this.requested.add(id);
+          this.log("Could not read a Shot from Decaid; it will be retried.");
+        } else {
+          this.ids.add(id);
+          this.enqueue({ type, id: this.nextId(), shotId: id, shot, ...type === "shotUpdated" ? { snapshot: true } : {} });
+        }
+        this.pump();
+      }).catch(() => this.log("Could not capture a Shot event; reconciliation will recover it."));
+    }
+    /** Read bounded summaries once per load; never use the unbounded ids endpoint. */
+    async scan() {
+      this.scanning = true;
+      try {
+        for (let offset = 0; !this.stopped; offset += PAGE_SIZE) {
+          await this.waitForRoom();
+          if (this.stopped) return;
+          const page = await readShotPage(PAGE_SIZE, offset);
+          if (!page) throw new Error("Shot summaries unavailable");
+          const shots = page.items.flatMap((item) => {
+            const summary = object(item);
+            if (typeof summary?.id !== "string" || summary.id === "") return [];
+            this.ids.add(summary.id);
+            const version = summary.updatedAt ?? summary.createdAt ?? summary.timestamp;
+            return [{ id: summary.id, ...typeof version === "string" ? { updatedAt: version } : {} }];
+          });
+          this.enqueue({ type: "shotIndex", id: this.nextId(), shots });
+          if (page.items.length < PAGE_SIZE) break;
+        }
+        this.scanned = !this.stopped;
+      } catch {
+        this.log("Could not reconcile Shot history; retrying the summary scan.");
+        if (!this.stopped) this.timer = setTimeout(() => {
+          this.timer = void 0;
+          void this.scan();
+        }, 5e3);
+      } finally {
+        this.scanning = false;
+      }
+    }
+    async indexKnownIds() {
+      const generation = this.generation;
+      const ids = [...this.ids];
+      for (let offset = 0; offset < ids.length; offset += PAGE_SIZE) {
+        await this.waitForRoom();
+        if (this.stopped || generation !== this.generation) return;
+        this.enqueue({ type: "shotIndex", id: this.nextId(), shots: ids.slice(offset, offset + PAGE_SIZE).map((id) => ({ id })) });
+      }
+    }
+    async waitForRoom() {
+      while (!this.stopped && this.outbox.size >= SHORT_OUTBOX) await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    enqueue(message) {
+      this.outbox.set(message.id, message);
+      this.pump();
+    }
+    /** One logical message awaits ack at a time, leaving Decaid's pending transport room for heartbeats. */
+    pump() {
+      if (this.retryTimer !== void 0 || this.working || this.stopped || !this.sendFrame || this.sent !== void 0 || this.outbox.size === 0 && this.requested.size === 0) return;
+      this.working = true;
+      void this.work().catch(() => {
+        this.log("Shot delivery interrupted; unacknowledged data remains queued.");
+        this.retry();
+      }).finally(() => {
+        this.working = false;
+        if (!this.stopped && this.sendFrame && this.sent === void 0) this.pump();
+      });
+    }
+    async work() {
+      const generation = this.generation;
+      if (this.outbox.size === 0 && this.requested.size > 0) {
+        const id2 = this.requested.values().next().value;
+        const shot = await readShot(id2);
+        if (this.stopped) return;
+        this.requested.delete(id2);
+        if (shot) {
+          const envelopeId = this.nextId();
+          this.outbox.set(envelopeId, { type: "shot", id: envelopeId, shotId: id2, shot });
+        }
+      }
+      if (generation !== this.generation || !this.sendFrame) return;
+      const next = this.outbox.entries().next().value;
+      if (!next) return;
+      const [id, message] = next;
+      this.sent = id;
+      await this.sendFrame(message);
+    }
+    retry() {
+      if (this.stopped || this.retryTimer !== void 0) return;
+      this.retryTimer = setTimeout(() => {
+        this.retryTimer = void 0;
+        this.pump();
+      }, 5e3);
+    }
+    nextId() {
+      return `${this.runtimeId}-${++this.sequence}`;
+    }
+  };
+  function object(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
   }
 
   // src/connection.ts
@@ -199,8 +398,10 @@ var __decentSync = (() => {
       __publicField(this, "sentHardware", null);
       /** Hardware the server dismissed for this token; while set, the plugin does not connect. */
       __publicField(this, "dismissedHardware", null);
+      __publicField(this, "shots");
       __publicField(this, "checkingHardware", false);
       __publicField(this, "hardwareCooldown", false);
+      this.shots = new ShotCapture(log);
     }
     /** Connects from a timer, so the caller (onLoad) returns at once. */
     start() {
@@ -216,8 +417,12 @@ var __decentSync = (() => {
       });
       void this.checkHardware();
     }
+    shotEvent(type, payload) {
+      this.shots.event(type, payload);
+    }
     stop() {
       this.stopped = true;
+      this.shots.stop();
       for (const id of this.timers.values()) clearTimeout(id);
       this.timers.clear();
       this.closeHandle();
@@ -312,6 +517,20 @@ var __decentSync = (() => {
           this.log(`Connected to ${this.settings.syncUrl}`);
           this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
           this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
+          this.shots.welcome(async (frame) => {
+            try {
+              await this.send(handle, frame);
+            } catch (error) {
+              if (handle === this.handle) this.drop("could not send a Shot delivery");
+              throw error;
+            }
+          });
+          break;
+        case "ack":
+          this.shots.acknowledge(message.id);
+          break;
+        case "requestShots":
+          this.shots.request(message.shotIds);
           break;
         case "heartbeat":
           break;
@@ -400,6 +619,7 @@ var __decentSync = (() => {
       const handle = this.handle;
       this.handle = void 0;
       this.welcomed = false;
+      this.shots.disconnected();
       this.clearTimer("heartbeat");
       this.clearTimer("silence");
       this.clearTimer("connect");
@@ -488,6 +708,8 @@ var __decentSync = (() => {
         connection = void 0;
       },
       onEvent(event) {
+        if (event?.name === "shotStored") connection?.shotEvent("shot", event.payload);
+        if (event?.name === "shotUpdated") connection?.shotEvent("shotUpdated", event.payload);
         if (event?.name === "stateUpdate") connection?.machineActive();
       }
     };

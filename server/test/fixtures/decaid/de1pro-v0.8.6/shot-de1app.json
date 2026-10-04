@@ -1,0 +1,271 @@
+{
+  "id": "de1app-1790428090",
+  "timestamp": "2026-09-26T13:08:10.000Z",
+  "createdAt": "2026-09-26T16:19:49.544858Z",
+  "updatedAt": "2026-09-26T16:19:49.544858Z",
+  "measurements": [
+    {
+      "machine": {
+        "timestamp": "2026-09-26T13:08:10.000Z",
+        "state": {
+          "state": "espresso",
+          "substate": "pouring"
+        },
+        "flow": 0.0,
+        "pressure": 0.0,
+        "targetFlow": -1.0,
+        "targetPressure": -1.0,
+        "mixTemperature": 90.0,
+        "groupTemperature": 90.0,
+        "targetMixTemperature": 90.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 0,
+        "steamTemperature": 0
+      },
+      "scale": {
+        "timestamp": "2026-09-26T13:08:10.000Z",
+        "weight": 0.0,
+        "weightFlow": 0.0,
+        "battery": null,
+        "timerValue": null
+      },
+      "volume": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-26T13:08:14.583Z",
+        "state": {
+          "state": "espresso",
+          "substate": "pouring"
+        },
+        "flow": 7.92,
+        "pressure": 1.83,
+        "targetFlow": 8.0,
+        "targetPressure": -1.0,
+        "mixTemperature": 91.91,
+        "groupTemperature": 81.59,
+        "targetMixTemperature": 90.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 1,
+        "steamTemperature": 0
+      },
+      "scale": {
+        "timestamp": "2026-09-26T13:08:14.583Z",
+        "weight": 0.0,
+        "weightFlow": 0.0,
+        "battery": null,
+        "timerValue": null
+      },
+      "volume": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-26T13:08:24.769Z",
+        "state": {
+          "state": "espresso",
+          "substate": "pouring"
+        },
+        "flow": 1.42,
+        "pressure": 6.01,
+        "targetFlow": -1.0,
+        "targetPressure": 6.0625,
+        "mixTemperature": 86.45,
+        "groupTemperature": 87.45,
+        "targetMixTemperature": 81.0,
+        "targetGroupTemperature": 81.0,
+        "profileFrame": 1,
+        "steamTemperature": 0
+      },
+      "scale": {
+        "timestamp": "2026-09-26T13:08:24.769Z",
+        "weight": 6.9,
+        "weightFlow": 1.59,
+        "battery": null,
+        "timerValue": null
+      },
+      "volume": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-26T13:08:37.301Z",
+        "state": {
+          "state": "espresso",
+          "substate": "pouring"
+        },
+        "flow": 2.68,
+        "pressure": 5.2,
+        "targetFlow": -1.0,
+        "targetPressure": 5.125,
+        "mixTemperature": 82.37,
+        "groupTemperature": 85.83,
+        "targetMixTemperature": 81.0,
+        "targetGroupTemperature": 81.0,
+        "profileFrame": 2,
+        "steamTemperature": 0
+      },
+      "scale": {
+        "timestamp": "2026-09-26T13:08:37.301Z",
+        "weight": 40.0,
+        "weightFlow": 2.89,
+        "battery": null,
+        "timerValue": null
+      },
+      "volume": null
+    }
+  ],
+  "workflow": {
+    "id": "d43e032e-78f8-4b4c-a8e2-0f64d21ceb09",
+    "name": "TurboBloom",
+    "description": "",
+    "profile": {
+      "version": "2",
+      "title": "TurboBloom",
+      "notes": "",
+      "author": "Decent",
+      "beverage_type": "espresso",
+      "steps": [
+        {
+          "name": "preinfusion start",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": null,
+          "volume": 100.0,
+          "seconds": 2.0,
+          "weight": 0.0,
+          "temperature": 90.0,
+          "sensor": "coffee",
+          "flow": 8.0,
+          "limiter": {
+            "value": 0.0,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "preinfusion",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 4.0
+          },
+          "volume": 100.0,
+          "seconds": 20.0,
+          "weight": 0.0,
+          "temperature": 90.0,
+          "sensor": "coffee",
+          "flow": 8.0,
+          "limiter": {
+            "value": 0.0,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "dynamic bloom",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "under",
+            "value": 2.2
+          },
+          "volume": 100.0,
+          "seconds": 40.0,
+          "weight": 0.0,
+          "temperature": 74.0,
+          "sensor": "coffee",
+          "flow": 0.0,
+          "limiter": {
+            "value": 0.0,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "ramp",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 100.0,
+          "seconds": 4.0,
+          "weight": 0.0,
+          "temperature": 84.0,
+          "sensor": "coffee",
+          "pressure": 6.0,
+          "limiter": {
+            "value": 0.0,
+            "range": 1.0
+          }
+        },
+        {
+          "name": "6 bar",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": {
+            "type": "flow",
+            "condition": "under",
+            "value": 0.0
+          },
+          "volume": 100.0,
+          "seconds": 2.0,
+          "weight": 0.0,
+          "temperature": 81.0,
+          "sensor": "coffee",
+          "pressure": 6.0,
+          "limiter": {
+            "value": 4.5,
+            "range": 1.0
+          }
+        },
+        {
+          "name": "decline",
+          "pump": "pressure",
+          "transition": "smooth",
+          "exit": null,
+          "volume": 100.0,
+          "seconds": 40.0,
+          "weight": 0.0,
+          "temperature": 81.0,
+          "sensor": "coffee",
+          "pressure": 3.0,
+          "limiter": {
+            "value": 4.5,
+            "range": 1.0
+          }
+        }
+      ],
+      "target_volume": 0.0,
+      "target_weight": 42.0,
+      "target_volume_count_start": 2,
+      "tank_temperature": 0.0
+    },
+    "context": {
+      "targetDoseWeight": 0.0,
+      "targetYield": 42.0
+    },
+    "steamSettings": {
+      "targetTemperature": 150,
+      "duration": 50,
+      "flow": 0.8,
+      "stopAtTemperature": 0.0
+    },
+    "hotWaterData": {
+      "targetTemperature": 75,
+      "duration": 30,
+      "volume": 50,
+      "flow": 10.0
+    },
+    "rinseData": {
+      "targetTemperature": 90,
+      "duration": 10,
+      "flow": 6.0
+    }
+  },
+  "annotations": {
+    "actualDoseWeight": 0.0,
+    "actualYield": 42.5,
+    "drinkTds": 0.0,
+    "drinkEy": 0.0,
+    "enjoyment": 0.0,
+    "extras": {}
+  }
+}

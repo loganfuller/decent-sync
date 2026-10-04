@@ -20,6 +20,7 @@ export interface MachineView {
   lastRefusal: { reason: string; at: string } | null;
   online: boolean;
   lastSeenAt: string | null;
+  lastShot: { id: string; pulledAt: string | null } | null;
 }
 
 export interface PendingMachineView {

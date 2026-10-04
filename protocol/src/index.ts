@@ -123,8 +123,37 @@ export interface ErrorMessage {
   message: string;
 }
 
-export type PluginMessage = Hello | Heartbeat;
-export type ServerMessage = Welcome | Heartbeat | ErrorMessage;
+/** Decaid data stays opaque; only the delivery envelope is validated. */
+export interface ShotDelivery {
+  type: "shot" | "shotUpdated";
+  /** An id for this logical delivery, retained until acknowledged. */
+  id: string;
+  shotId: string;
+  shot: Record<string, unknown>;
+  /** A complete metadata snapshot, as Decaid supplies on shotUpdated. Omitted for a partial edit. */
+  snapshot?: boolean;
+}
+
+/** One bounded page of the tablet's history. Reloads include edit times; reconnects omit them. */
+export interface ShotIndex {
+  type: "shotIndex";
+  id: string;
+  shots: { id: string; updatedAt?: string | null }[];
+}
+
+export interface RequestShots {
+  type: "requestShots";
+  shotIds: string[];
+}
+
+/** A logical delivery acknowledged only after its transaction commits. */
+export interface Ack {
+  type: "ack";
+  id: string;
+}
+
+export type PluginMessage = Hello | Heartbeat | ShotDelivery | ShotIndex;
+export type ServerMessage = Welcome | Heartbeat | ErrorMessage | RequestShots | Ack;
 
 export type Decoded<T> =
   | { ok: true; message: T }
@@ -186,6 +215,20 @@ export function decodePluginMessage(frame: string): Decoded<PluginMessage> {
         });
       });
     }
+    case "shot":
+    case "shotUpdated":
+      return check<ShotDelivery>(object, object.type, (fields) => {
+        fields.string("id", { nonEmpty: true });
+        fields.string("shotId", { nonEmpty: true });
+        fields.objectField("shot");
+        fields.optionalBoolean("snapshot");
+      });
+    case "shotIndex":
+      return check<ShotIndex>(object, "shotIndex", (fields) => {
+        fields.string("id", { nonEmpty: true });
+        fields.array("shots", (value) => isObject(value) && typeof value.id === "string" && value.id !== "" &&
+          (value.updatedAt === undefined || value.updatedAt === null || typeof value.updatedAt === "string"), 100);
+      });
     case "heartbeat":
       return check<Heartbeat>(object, "heartbeat", () => {});
     default:
@@ -203,6 +246,12 @@ export function decodeServerMessage(frame: string): Decoded<ServerMessage> {
       return check<Welcome>(object, "welcome", (fields) => {
         fields.integer("protocolVersion");
         fields.integer("heartbeatIntervalMs", { positive: true });
+      });
+    case "ack":
+      return check<Ack>(object, "ack", (fields) => fields.string("id", { nonEmpty: true }));
+    case "requestShots":
+      return check<RequestShots>(object, "requestShots", (fields) => {
+        fields.array("shotIds", (value) => typeof value === "string" && value !== "", 100);
       });
     case "heartbeat":
       return check<Heartbeat>(object, "heartbeat", () => {});
@@ -241,6 +290,21 @@ class FieldChecker {
     const value = this.object[key];
     if (typeof value !== "number" || !Number.isInteger(value)) this.problem(key, "must be a whole number");
     else if (options.positive && value <= 0) this.problem(key, "must be positive");
+  }
+
+  optionalBoolean(key: string): void {
+    if (this.object[key] !== undefined && typeof this.object[key] !== "boolean") this.problem(key, "must be a boolean");
+  }
+
+  objectField(key: string): void {
+    if (!isObject(this.object[key])) this.problem(key, "must be an object");
+  }
+
+  array(key: string, valid: (value: unknown) => boolean, max: number): void {
+    const value = this.object[key];
+    if (!Array.isArray(value) || value.length > max || !value.every(valid)) {
+      this.problem(key, `must be an array of at most ${max} valid entries`);
+    }
   }
 
   optionalObject(key: string, checkFields: (fields: FieldChecker) => void): void {

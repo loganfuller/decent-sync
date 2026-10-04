@@ -130,6 +130,7 @@ model Machine {
   createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  shots             Shot[]
   tokens            MachineToken[]
   aliases           MachineAlias[]
   dismissedHardware DismissedHardware[]
@@ -173,6 +174,7 @@ model MachineAlias {
 /// named by a Shot. An Admin creates a machine entry for it, which takes over
 /// what was held for it, or dismisses it.
 model PendingMachine {
+  shots       Shot[]
   id          String    @id @default(uuid(7)) @db.Uuid
   model       String
   serial      String
@@ -197,4 +199,50 @@ model DismissedHardware {
 
   @@id([machineId, model, serial])
   @@map("dismissed_hardware")
+}
+
+/// A Decaid Shot, unique across reporting tablets. An edit may arrive before
+/// its full record: it is durable here, but hidden until the full record arrives.
+model Shot {
+  id               String   @id
+  hasFullRecord    Boolean  @default(false) @map("has_full_record")
+  /// Distinguishes a complete early edit snapshot from a partial metadata patch.
+  metadataComplete Boolean  @default(false) @map("metadata_complete")
+  record           Json     @db.JsonB
+  versionAt        DateTime @map("version_at") @db.Timestamptz(6)
+  machineId        String?  @map("machine_id") @db.Uuid
+  machine          Machine? @relation(fields: [machineId], references: [id])
+  pendingMachineId String?  @map("pending_machine_id") @db.Uuid
+  pendingMachine   PendingMachine? @relation(fields: [pendingMachineId], references: [id])
+  machineInferred  Boolean  @default(false) @map("machine_inferred")
+  pulledAt         DateTime? @map("pulled_at") @db.Timestamptz(3)
+  beanBatchId      String?  @map("bean_batch_id")
+  coffeeName       String?  @map("coffee_name")
+  coffeeRoaster    String?  @map("coffee_roaster")
+  profileTitle     String?  @map("profile_title")
+  profileId        String?  @map("profile_id")
+  targetDose       Float?   @map("target_dose")
+  actualDose       Float?   @map("actual_dose")
+  targetYield      Float?   @map("target_yield")
+  actualYield      Float?   @map("actual_yield")
+  duration         Float?
+  enjoyment        Float?
+  barista          String?
+  peakPressure     Float?   @map("peak_pressure")
+  peakFlow         Float?   @map("peak_flow")
+  measurements     ShotMeasurements?
+
+  @@index([pulledAt(sort: Desc), id])
+  @@index([machineId, pulledAt(sort: Desc)])
+  @@index([pendingMachineId])
+  @@map("shots")
+}
+
+model ShotMeasurements {
+  shotId String @id @map("shot_id")
+  shot Shot @relation(fields: [shotId], references: [id], onDelete: Cascade)
+  /// lz4 column compression is set by the migration.
+  data Json @db.JsonB
+
+  @@map("shot_measurements")
 }
