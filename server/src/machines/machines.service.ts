@@ -60,9 +60,6 @@ export type HelloOutcome =
       pendingMachineId: string | null;
     };
 
-/** Why a welcomed connection may no longer stay, if it may not. */
-export type Refusal = { code: Extract<ErrorCode, "bad_token" | "hardware_dismissed">; reason: string };
-
 const BAD_TOKEN = "No Machine on this server has this token; it may have been replaced by a newer one";
 const REPLACED_TOKEN = "This Machine's token was replaced by a newer one; enter the new token in the plugin's settings";
 
@@ -86,13 +83,15 @@ export class MachinesService {
 
   /** Every Machine, by name. */
   async list(): Promise<MachineView[]> {
-    return this.views(await this.prisma.machine.findMany({ orderBy: { name: "asc" }, include: withAliases }));
+    const online = this.presence.onlineNow();
+    return this.views(await this.prisma.machine.findMany({ orderBy: { name: "asc" }, include: withAliases }), online);
   }
 
   async get(id: string): Promise<MachineView> {
+    const online = this.presence.onlineNow();
     const machine = await this.prisma.machine.findUnique({ where: { id }, include: withAliases });
     if (!machine) throw machineNotFound();
-    return (await this.views([machine]))[0]!;
+    return (await this.views([machine], online))[0]!;
   }
 
   /** Creates a machine entry and its first token. The token is returned only here. */
@@ -107,14 +106,16 @@ export class MachinesService {
   /** Issues the Machine a new token and revokes the old one, closing any connection that uses it. */
   async reissueToken(id: string): Promise<{ machine: MachineView; token: string }> {
     const token = newSecret();
-    // Locked, so a concurrent reissue revokes this one's token rather than missing it.
-    await this.prisma.$transaction(async (tx) => {
-      if (!(await lockMachine(tx, id))) throw machineNotFound();
-      await tx.machineToken.updateMany({ where: { machineId: id, revokedAt: null }, data: { revokedAt: new Date() } });
-      await tx.machineToken.create({ data: { machineId: id, tokenHash: hashSecret(token) } });
+    // In turn with hellos: one accepted before is closed here, and one after reads the revocation.
+    await this.presence.exclusive(id, async () => {
+      // Locked, so a concurrent reissue revokes this one's token rather than missing it.
+      await this.prisma.$transaction(async (tx) => {
+        if (!(await lockMachine(tx, id))) throw machineNotFound();
+        await tx.machineToken.updateMany({ where: { machineId: id, revokedAt: null }, data: { revokedAt: new Date() } });
+        await tx.machineToken.create({ data: { machineId: id, tokenHash: hashSecret(token) } });
+      });
+      this.presence.end(id, "bad_token", REPLACED_TOKEN);
     });
-    // Only once committed: a hello accepted meanwhile is checked again after it joins Presence.
-    this.presence.end(id, "bad_token", REPLACED_TOKEN);
     return { machine: await this.get(id), token };
   }
 
@@ -151,6 +152,12 @@ export class MachinesService {
     return this.get(id);
   }
 
+  /** The id of the Machine a token was issued to, revoked or not. */
+  async machineIdOfToken(token: string): Promise<string | null> {
+    const found = await this.prisma.machineToken.findUnique({ where: { tokenHash: hashSecret(token) }, select: { machineId: true } });
+    return found?.machineId ?? null;
+  }
+
   /** The Machine a token belongs to, unless the token is unknown or revoked. */
   async findByToken(token: string): Promise<Machine | null> {
     const found = await this.prisma.machineToken.findUnique({ where: { tokenHash: hashSecret(token) }, include: { machine: true } });
@@ -163,7 +170,8 @@ export class MachinesService {
    * hardware as a Pending Machine, or recording why it was refused. Two
    * hellos with the same token, a token reissue and an Admin entering the
    * hardware are therefore decided one at a time, each seeing what the one
-   * before it committed.
+   * before it committed. The gateway also runs it inside Presence.exclusive,
+   * which orders it against closing connections.
    */
   async acceptHello(hello: Hello, at: Date): Promise<HelloOutcome> {
     try {
@@ -175,21 +183,6 @@ export class MachinesService {
       }
       throw error;
     }
-  }
-
-  /**
-   * Whether a welcomed connection must close after all: its token was
-   * revoked, or the hardware it reported as a mismatch dismissed for this
-   * token, while its hello was being accepted. Asked once it is in Presence,
-   * where reissuing and dismissing close connections after they commit.
-   */
-  async refusalSince(machineId: string, token: string, mismatch: Hardware | null): Promise<Refusal | null> {
-    const found = await this.prisma.machineToken.findUnique({ where: { tokenHash: hashSecret(token) }, select: { revokedAt: true } });
-    if (!found || found.revokedAt !== null) return { code: "bad_token", reason: REPLACED_TOKEN };
-    if (mismatch && (await this.prisma.dismissedHardware.count({ where: { machineId, ...mismatch } })) > 0) {
-      return { code: "hardware_dismissed", reason: dismissedReason(mismatch) };
-    }
-    return null;
   }
 
   private async decideHello(tx: Prisma.TransactionClient, hello: Hello, at: Date): Promise<HelloOutcome> {
@@ -269,7 +262,12 @@ export class MachinesService {
     await this.prisma.machine.updateMany({ where: { id: machineId }, data: { lastSeenAt: at } });
   }
 
-  private async views(machines: MachineWithAliases[]): Promise<MachineView[]> {
+  /**
+   * `online` is read before the Machines: a hello is recorded before its
+   * connection joins Presence, so a Machine shown online shows what that
+   * connection reported.
+   */
+  private async views(machines: MachineWithAliases[], online: ReadonlySet<string>): Promise<MachineView[]> {
     // A mismatch's hardware belongs to a Machine, or else to a Pending Machine.
     const mismatched = machines.flatMap((machine) => {
       const hardware = machine.identification === MachineIdentification.MISMATCH ? reportedHardware(machine) : null;
@@ -311,7 +309,7 @@ export class MachinesService {
           machine.refusalReason !== null && machine.refusedAt !== null
             ? { reason: machine.refusalReason, at: machine.refusedAt.toISOString() }
             : null,
-        online: this.presence.isOnline(machine.id),
+        online: online.has(machine.id),
         lastSeenAt: machine.lastSeenAt?.toISOString() ?? null,
       };
     });

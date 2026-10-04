@@ -162,25 +162,30 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
 
   private async hello(session: Session, hello: Hello): Promise<void> {
     clearTimeout(session.helloTimer);
-    const outcome = await this.machines.acceptHello(hello, session.lastHeardAt);
+    const machineId = await this.machines.machineIdOfToken(hello.token);
     if (session.closing) return;
-    if (!outcome.accepted) return this.refuse(session, outcome.code, outcome.reason);
+    if (!machineId) return this.refuse(session, "bad_token", "No Machine on this server has this token; it may have been replaced by a newer one");
 
-    const { machine, identity, hardware } = outcome;
-    session.machine = machine;
-    session.identity = identity;
-    session.pendingMachineId = outcome.pendingMachineId;
-    session.live = { hardware, end: (code, message) => this.refuse(session, code, message) };
-    const previous = this.presence.connect(machine.id, session.live);
-    previous?.end("replaced", "A newer connection with this Machine's token took over");
+    // Accepted and joined to Presence in one turn, so a token reissued or
+    // hardware dismissed meanwhile either refuses this hello or closes it
+    // once joined. A refused hello never replaces a connection.
+    const accepted = await this.presence.exclusive(machineId, async () => {
+      const outcome = await this.machines.acceptHello(hello, session.lastHeardAt);
+      if (session.closing) return undefined;
+      if (!outcome.accepted) {
+        this.refuse(session, outcome.code, outcome.reason);
+        return undefined;
+      }
+      session.machine = outcome.machine;
+      session.identity = outcome.identity;
+      session.pendingMachineId = outcome.pendingMachineId;
+      session.live = { hardware: outcome.hardware, end: (code, message) => this.refuse(session, code, message) };
+      this.presence.connect(outcome.machine.id, session.live)?.end("replaced", "A newer connection with this Machine's token took over");
+      return outcome;
+    });
+    if (!accepted || session.closing) return;
 
-    // Reissuing a token or dismissing hardware closes the connections in
-    // Presence once it has committed. One that committed while this hello
-    // was being accepted, before the session joined Presence, shows here.
-    const refusal = await this.machines.refusalSince(machine.id, hello.token, identity.kind === "mismatch" ? identity.hardware : null);
-    if (refusal) return this.refuse(session, refusal.code, refusal.reason);
-    if (session.closing) return;
-
+    const { machine, identity, hardware } = accepted;
     this.send(session, { type: "welcome", protocolVersion: PROTOCOL_VERSION, heartbeatIntervalMs: this.config.heartbeatIntervalMs });
     this.resetIdleTimer(session);
     this.logger.log(

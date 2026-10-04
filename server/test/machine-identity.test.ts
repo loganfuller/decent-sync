@@ -257,7 +257,7 @@ describe("Machine identity", { timeout: 20_000 }, () => {
       old = await api.createMachine("Old DE1");
       tablet = loadTablet(settingsFor(old), { api: derivedDe1Pro({ model: "DE1", serial: "0" }) });
 
-      const machine = await api.waitForMachine("Old DE1", (candidate) => candidate.online);
+      const machine = await api.waitForMachine("Old DE1", (candidate) => candidate.online && candidate.identification === "unidentified");
       expect(machine).toMatchObject({
         model: null,
         serial: null,
@@ -542,6 +542,24 @@ describe("Machine identity", { timeout: 20_000 }, () => {
         const closed = await Promise.race([raw.closed, new Promise((resolve) => setTimeout(() => resolve("still open"), 3_000))]);
         expect(closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
         await api.waitForMachine(`Reissued mid-hello ${round}`, (machine) => !machine.online);
+      }
+    });
+
+    it("never lets a hello refused for its revoked token replace the connection using the new one", async () => {
+      for (let round = 0; round < ROUNDS * 2; round++) {
+        const name = `Stale hello ${round}`;
+        const created = await api.createMachine(name);
+        const stale = await RawConnection.open(server.url);
+        connections.push(stale);
+        stale.send(helloWith(created.token, { machine: de1Pro(`109${round}1`) }));
+        const reissued = await api.issued(await api.call("POST", `/machines/${created.machine.id}/token`));
+        const current = await connect(helloWith(reissued.token, { machine: de1Pro(`109${round}1`) }));
+        expectWelcomed(current);
+
+        expect(await stale.closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(current.messages).toHaveLength(1);
+        expect(await api.machineNamed(name)).toMatchObject({ online: true, identification: "identified" });
       }
     });
   });

@@ -15,13 +15,39 @@ export interface LiveConnection {
  * sync gateway keeps it; it lives in memory because one server instance holds
  * every connection (ADR-0011), so a restarted server rightly starts with every
  * Machine offline.
+ *
+ * Whatever changes who may stay connected for a Machine (accepting a hello,
+ * reissuing its token, dismissing hardware) runs through `exclusive`, so a
+ * hello is accepted and joins Presence entirely before or after a revocation
+ * closes connections, never in between.
  */
 @Injectable()
 export class Presence {
   private readonly connections = new Map<string, LiveConnection>();
+  /** The tail of each Machine's queue of exclusive tasks. */
+  private readonly queues = new Map<string, Promise<void>>();
 
   isOnline(machineId: string): boolean {
     return this.connections.has(machineId);
+  }
+
+  /** The Machines online now. Read before a Machine's stored state, online implies its connection's hello is recorded. */
+  onlineNow(): ReadonlySet<string> {
+    return new Set(this.connections.keys());
+  }
+
+  /** Runs the task once every earlier one for this Machine has finished, failed or not. */
+  exclusive<T>(machineId: string, task: () => Promise<T>): Promise<T> {
+    const run = (this.queues.get(machineId) ?? Promise.resolve()).then(task);
+    const tail = run.then(
+      () => {},
+      () => {},
+    );
+    this.queues.set(machineId, tail);
+    void tail.then(() => {
+      if (this.queues.get(machineId) === tail) this.queues.delete(machineId);
+    });
+    return run;
   }
 
   /** Makes this the Machine's connection, returning the one it replaces. */

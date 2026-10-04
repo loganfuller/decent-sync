@@ -102,11 +102,13 @@ export class PendingMachinesService {
 
     const hardware = { model: pending.model, serial: pending.serial };
     const reason = dismissedReason(hardware);
-    // Only once committed: a hello accepted meanwhile is checked again after it joins Presence.
     for (const machine of refused) {
       await this.machines.recordRefusal(machine.id, reason, at);
-      this.presence.end(machine.id, "hardware_dismissed", reason, (connection) =>
-        connection.hardware !== null && sameHardware(connection.hardware, hardware),
+      // In turn with hellos, after the commit: one that read the dismissal is refused, and one that did not has joined Presence.
+      await this.presence.exclusive(machine.id, async () =>
+        this.presence.end(machine.id, "hardware_dismissed", reason, (connection) =>
+          connection.hardware !== null && sameHardware(connection.hardware, hardware),
+        ),
       );
     }
     return view(
