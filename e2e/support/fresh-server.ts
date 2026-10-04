@@ -1,0 +1,30 @@
+import { test } from "@playwright/test";
+import { type TestServer, startTestServer } from "../../server/test/support/test-server.js";
+
+/**
+ * Gives the calling spec file its own server on a fresh database, and points
+ * `baseURL` at it. Call at the top of the file; its tests share the server
+ * and run in order, since each builds on the state the previous one left.
+ */
+export function useFreshServer(): { url(): string } {
+  let server: Promise<TestServer> | undefined;
+
+  test.describe.configure({ mode: "serial" });
+  // Started by the first test that needs it: Playwright resolves baseURL
+  // before beforeAll hooks run.
+  test.use({ baseURL: async ({}, use) => use((await (server ??= startTestServer())).url) });
+  test.afterAll(async () => {
+    await (await server)?.stop();
+  });
+
+  let url: string | undefined;
+  test.beforeEach(async ({ baseURL }) => {
+    url = baseURL;
+  });
+  return {
+    url: () => {
+      if (!url) throw new Error("The fresh server is available only inside tests");
+      return url;
+    },
+  };
+}
