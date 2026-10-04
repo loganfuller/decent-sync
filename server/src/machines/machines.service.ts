@@ -1,5 +1,5 @@
 import { ConflictException, Inject, Injectable } from "@nestjs/common";
-import type { ErrorCode, Hello } from "@decent-sync/protocol";
+import { type ErrorCode, type Hello, MISSED_HEARTBEATS } from "@decent-sync/protocol";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { type Machine, MachineIdentification, Prisma } from "../generated/prisma/client.js";
@@ -9,13 +9,6 @@ import { type Hardware, type Identity, isRealSerial, realHardware, resolveIdenti
 import { notifyAccessChanged } from "./access-changes.js";
 import type { LiveConnection } from "./connections.js";
 import { type NewMachine, machineNotFound } from "./input.js";
-
-/**
- * A connection not heard from for this many heartbeat intervals no longer
- * keeps its Machine online, as when the instance holding it crashed. The
- * instance closes a connection that silent itself.
- */
-export const MISSED_HEARTBEATS = 3;
 
 /** How a Machine's identity stands, as the REST API names it. */
 export type IdentificationView = "identified" | "hardwareNotReported" | "unidentified" | "mismatch";
@@ -371,6 +364,7 @@ export class MachinesService {
   private async views(machines: MachineWithAliases[]): Promise<MachineView[]> {
     // Last-seen times are written by the database's clock, so they are judged by it too, whatever the instances' clocks say.
     const [{ now }] = await this.prisma.$queryRaw<[{ now: Date }]>`SELECT now() AS now`;
+    // A connection unheard for MISSED_HEARTBEATS intervals no longer keeps its Machine online, as when the instance holding it crashed.
     const heardSince = now.getTime() - this.config.heartbeatIntervalMs * MISSED_HEARTBEATS;
     // A mismatch's hardware belongs to a Machine, or else to a Pending Machine.
     const mismatched = machines.flatMap((machine) => {

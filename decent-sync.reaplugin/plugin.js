@@ -30,6 +30,7 @@ var __decentSync = (() => {
   // ../protocol/src/index.ts
   var PROTOCOL_VERSION = 1;
   var SYNC_PATH = "/sync";
+  var MISSED_HEARTBEATS = 3;
   var CLOSE_CODES = {
     /** A frame that is not a valid message here, including no `hello` in time. */
     protocol_error: 4e3,
@@ -60,6 +61,9 @@ var __decentSync = (() => {
         return check(object, "welcome", (fields) => {
           fields.integer("protocolVersion");
           fields.integer("heartbeatIntervalMs", { positive: true });
+        });
+      case "heartbeat":
+        return check(object, "heartbeat", () => {
         });
       case "error":
         return check(object, "error", (fields) => {
@@ -185,6 +189,8 @@ var __decentSync = (() => {
       __publicField(this, "connecting", false);
       __publicField(this, "stopped", false);
       __publicField(this, "welcomed", false);
+      /** How long a welcomed connection may go without hearing from the server, from its `welcome`. */
+      __publicField(this, "silenceMs", 0);
       __publicField(this, "reconnectDelayMs", MIN_RECONNECT_MS);
       /** Transports opening, open or closing, as Decaid counts them against MAX_TRANSPORTS. */
       __publicField(this, "transportsInUse", 0);
@@ -263,6 +269,7 @@ var __decentSync = (() => {
       switch (event.type) {
         case "data":
           if (event.dataType === "text") this.onFrame(handle, event.data);
+          if (handle === this.handle && this.welcomed) this.awaitServer(handle);
           break;
         case "error":
           this.drop(`connection error (${event.code}): ${event.message}`);
@@ -303,7 +310,10 @@ var __decentSync = (() => {
           this.reconnectDelayMs = MIN_RECONNECT_MS;
           this.clearTimer("connect");
           this.log(`Connected to ${this.settings.syncUrl}`);
+          this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
           this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
+          break;
+        case "heartbeat":
           break;
         case "error":
           this.log(`The server reported ${describeError(message.code)}: ${message.message}`);
@@ -319,6 +329,12 @@ var __decentSync = (() => {
             if (handle === this.handle) this.drop(`could not send a heartbeat: ${describe(error)}`);
           }
         );
+      });
+    }
+    /** Restarts the wait for the server's next message, dropping the connection if none comes in time. */
+    awaitServer(handle) {
+      this.setTimer("silence", this.silenceMs, () => {
+        if (handle === this.handle) this.drop(`heard nothing from the server for ${this.silenceMs / 1e3} s`);
       });
     }
     send(handle, message) {
@@ -385,6 +401,7 @@ var __decentSync = (() => {
       this.handle = void 0;
       this.welcomed = false;
       this.clearTimer("heartbeat");
+      this.clearTimer("silence");
       this.clearTimer("connect");
       if (handle !== void 0) this.closeTransport(handle);
     }

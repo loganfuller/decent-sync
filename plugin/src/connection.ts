@@ -1,6 +1,7 @@
 import {
   CLOSE_CODES,
   type ErrorCode,
+  MISSED_HEARTBEATS,
   type MachineHardware,
   PROTOCOL_VERSION,
   type PluginMessage,
@@ -43,12 +44,17 @@ const FINAL_CLOSES = new Map<number, string>([
   [CLOSE_CODES.replaced, "Another tablet connected with this Machine's token, so this one stopped. Reload the plugin to take over again."],
 ]);
 
-type TimerName = "reconnect" | "heartbeat" | "connect" | "hardwarePoll" | "hardwareCooldown";
+type TimerName = "reconnect" | "heartbeat" | "silence" | "connect" | "hardwarePoll" | "hardwareCooldown";
 
 /**
  * The plugin's one connection to the sync server: `hello` on every connect,
  * heartbeats once welcomed, and reconnecting with backoff after a drop.
  * Stops for good on a close that retrying cannot fix.
+ *
+ * The server answers every heartbeat, so a welcomed connection the server has
+ * sent nothing on for `MISSED_HEARTBEATS` intervals is dropped. A server host
+ * that vanished without resetting the connection would otherwise leave it
+ * open, capturing nothing, until Android's TCP retransmissions give up.
  *
  * The server decides who the tablet is only at `hello` (ADR-0015), so when
  * the machine first reports its hardware, or reports different hardware,
@@ -65,6 +71,8 @@ export class SyncConnection {
   private connecting = false;
   private stopped = false;
   private welcomed = false;
+  /** How long a welcomed connection may go without hearing from the server, from its `welcome`. */
+  private silenceMs = 0;
   private reconnectDelayMs = MIN_RECONNECT_MS;
   /** Transports opening, open or closing, as Decaid counts them against MAX_TRANSPORTS. */
   private transportsInUse = 0;
@@ -154,6 +162,8 @@ export class SyncConnection {
     switch (event.type) {
       case "data":
         if (event.dataType === "text") this.onFrame(handle, event.data);
+        // Anything the server sends shows it is there, even a message this plugin cannot read.
+        if (handle === this.handle && this.welcomed) this.awaitServer(handle);
         break;
       case "error":
         this.drop(`connection error (${event.code}): ${event.message}`);
@@ -197,7 +207,11 @@ export class SyncConnection {
         this.reconnectDelayMs = MIN_RECONNECT_MS;
         this.clearTimer("connect");
         this.log(`Connected to ${this.settings.syncUrl}`);
+        this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
         this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
+        break;
+      case "heartbeat":
+        // Its arrival is what counts.
         break;
       case "error":
         // The close that follows decides what happens next.
@@ -215,6 +229,13 @@ export class SyncConnection {
           if (handle === this.handle) this.drop(`could not send a heartbeat: ${describe(error)}`);
         },
       );
+    });
+  }
+
+  /** Restarts the wait for the server's next message, dropping the connection if none comes in time. */
+  private awaitServer(handle: string): void {
+    this.setTimer("silence", this.silenceMs, () => {
+      if (handle === this.handle) this.drop(`heard nothing from the server for ${this.silenceMs / 1000} s`);
     });
   }
 
@@ -291,6 +312,7 @@ export class SyncConnection {
     this.handle = undefined;
     this.welcomed = false;
     this.clearTimer("heartbeat");
+    this.clearTimer("silence");
     this.clearTimer("connect");
     if (handle !== undefined) this.closeTransport(handle);
   }
