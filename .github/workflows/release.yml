@@ -29,7 +29,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 26
 
       - name: Check the tag matches the plugin manifest's version
         run: node scripts/check-release-tag.mjs "$GITHUB_REF_NAME"
@@ -91,4 +91,7 @@ jobs:
       - name: Create the GitHub release with the plugin ZIP
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.zip --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+        run: >-
+          gh release create "$GITHUB_REF_NAME" dist/*.zip --verify-tag --title "$GITHUB_REF_NAME"
+          --notes "Self-hosting from source with npm start requires Node.js 26 or newer. The Docker image includes the required runtime."
+          --generate-notes

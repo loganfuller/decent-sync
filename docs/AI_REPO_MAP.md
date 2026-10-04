@@ -26,7 +26,7 @@ Root `package.json` scripts are the commands; the README's Development section l
 
 Every REST route requires a signed-in account unless marked `@Public()` (`server/src/accounts/guards.ts`); only health, first-run setup and sign-in are public so far. Role checks (Admin-only actions such as editing Locations) arrive with Staff accounts in ticket #15. State-changing requests are refused as cross-site unless their `Origin` is `PUBLIC_URL`, or the requested host when that host is an IP address or `localhost` (not another domain name, which would admit DNS rebinding).
 
-A Location's time zone is an IANA name spelled as PostgreSQL's `pg_timezone_names` lists it, so date filters can use it in `AT TIME ZONE`. PostgreSQL built without tzdata's backward links lacks aliases such as `US/Eastern` and the older CLDR names browsers report (such as `Asia/Calcutta`); `server/src/locations/time-zones.ts` resolves those through `Intl` to a zone PostgreSQL knows.
+A Location's time zone is an IANA name spelled as PostgreSQL's `pg_timezone_names` lists it, so date filters can use it in `AT TIME ZONE`. PostgreSQL built without tzdata's backward links lacks aliases such as `US/Eastern` and the older CLDR names browsers report (such as `Asia/Calcutta`). On Node 26, `server/src/locations/time-zones.ts` compares Temporal values at the same instant to find an equivalent zone PostgreSQL knows, choosing the last name alphabetically when several match. PostgreSQL names and their Temporal values are loaded once; names already listed by PostgreSQL keep its spelling. Both Intl and Temporal must accept a name, and numeric offsets are refused. No alias map or Intl canonicalization is needed.
 
 ## Task routing
 

@@ -112,6 +112,22 @@ describe("Locations", () => {
     expect(await both.json()).toEqual({ location: uptown });
   });
 
+  it("stores renamed Ukrainian time zones under the name PostgreSQL knows", async () => {
+    for (const timeZone of ["Europe/Kiev", "Europe/Zaporozhye"]) {
+      const response = await call("POST", "/locations", { name: `Alias ${timeZone}`, timeZone });
+      expect(response.status, timeZone).toBe(201);
+      expect(((await response.json()) as { location: LocationView }).location.timeZone, timeZone).toBe("Europe/Kyiv");
+    }
+  });
+
+  it("refuses PostgreSQL-only names and numeric offsets", async () => {
+    for (const timeZone of ["Factory", "localtime", "+00:00", "-05:00", "+0530"]) {
+      const response = await call("POST", "/locations", { name: `Invalid ${timeZone}`, timeZone });
+      expect(response.status, timeZone).toBe(400);
+      expect(await problems(response)).toEqual(["Choose a time zone from the list, such as Europe/London"]);
+    }
+  });
+
   it("refuses edits that are empty, invalid or clash with another name", async () => {
     const empty = await call("PATCH", `/locations/${uptown.id}`, {});
     expect(empty.status).toBe(400);

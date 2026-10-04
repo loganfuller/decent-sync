@@ -203,7 +203,7 @@ Then enter the server URL and the Machine's token in the plugin's settings.
 
 ## Development
 
-Needs Node.js 22.12 or newer and PostgreSQL 14 or newer. `docker-compose.yml`
+Needs Node.js 26 or newer and PostgreSQL 14 or newer. `docker-compose.yml`
 runs a local PostgreSQL.
 
 ```bash
