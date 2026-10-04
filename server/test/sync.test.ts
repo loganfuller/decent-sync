@@ -174,10 +174,11 @@ describe("Machines and the sync connection", () => {
       const proxy = await startPartitioningProxy(server.url, { latencyMs: 100 });
       try {
         const tablet = loadTablet(settingsFor({ ...far, serverUrl: proxy.url }), { timeScale: 25 });
-        await tablet.waitForLog(/^Connected to /);
+        const connected = await tablet.waitForLog(/^Connected to /);
         await new Promise((resolve) => setTimeout(resolve, HEARTBEAT_SECONDS * 4000));
-        // Only this check counts: the sped-up connect deadline is #30's.
-        expect(tablet.logs.filter((log) => log.startsWith("Disconnected: heard nothing"))).toEqual([]);
+        // The sped-up connect deadline (#30) ends at welcome, so nothing may drop the connection after it.
+        const since = tablet.logs.slice(tablet.logs.indexOf(connected) + 1);
+        expect(since.filter((log) => log.startsWith("Disconnected"))).toEqual([]);
         await tablet.unload();
       } finally {
         await proxy.close();
@@ -484,7 +485,7 @@ async function startPartitioningProxy(serverUrl: string, { latencyMs = 0 } = {})
       const later = (action: () => void) => {
         const due = Date.now() + delayMs;
         delivered = delivered
-          .then(() => new Promise((resolve) => setTimeout(resolve, due - Date.now())))
+          .then(() => new Promise((resolve) => setTimeout(resolve, Math.max(0, due - Date.now()))))
           .then(() => {
             if (!lost) action();
           });

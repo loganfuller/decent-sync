@@ -325,7 +325,7 @@ export class SimulatedTablet {
     try {
       const message = JSON.parse(text) as { type?: unknown; heartbeatIntervalMs?: unknown };
       if (message.type !== "welcome" || typeof message.heartbeatIntervalMs !== "number") return text;
-      return JSON.stringify({ ...message, heartbeatIntervalMs: message.heartbeatIntervalMs * this.timeScale });
+      return JSON.stringify({ ...message, heartbeatIntervalMs: Math.round(message.heartbeatIntervalMs * this.timeScale) });
     } catch {
       return text;
     }
