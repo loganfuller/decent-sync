@@ -22,6 +22,7 @@ describe("Machines and the sync connection", () => {
   const machineNamed = (name: string) => api.machineNamed(name);
   const waitForMachine = (name: string, matches: (machine: MachineView) => boolean) => api.waitForMachine(name, matches);
   const createMachine = (name: string) => api.createMachine(name);
+  const disconnects = (tablet: SimulatedTablet) => tablet.logs.filter((log) => log.startsWith("Disconnected"));
 
   const loadTablet = (
     settings: Record<string, unknown>,
@@ -219,16 +220,21 @@ describe("Machines and the sync connection", () => {
       const lab = await createMachine("Behind a stalling proxy");
       const proxy = await startStallingProxy(server.url, 2);
       try {
-        // 100 times faster: each 15 s connect deadline passes in 150 ms.
+        // 100 times faster: the deadline for each attempt the proxy stalls passes in 150 ms. The attempt it passes
+        // through waits for the server's answer in real time, so a busy server does not add a third timeout.
         const tablet = loadTablet(settingsFor({ ...lab, serverUrl: proxy.url }), { timeScale: 100 });
+        await tablet.waitForLog(/^Connected to /);
+        expect(disconnects(tablet)).toEqual([
+          "Disconnected: the server did not answer within 15 s. Reconnecting in 1 s.",
+          "Disconnected: the server did not answer within 15 s. Reconnecting in 2 s.",
+        ]);
+        expect(proxy.stalled.filter((socket) => !socket.destroyed), disconnects(tablet).join("\n")).toHaveLength(2);
         await waitForMachine("Behind a stalling proxy", (machine) => machine.online);
-        expect(tablet.logs.filter((log) => log.includes("the server did not answer within 15 s"))).toHaveLength(2);
-        expect(proxy.stalled.filter((socket) => !socket.destroyed)).toHaveLength(2);
         await tablet.unload();
       } finally {
         await proxy.close();
       }
-    });
+    }, 15_000);
 
     it("stays within Decaid's transport limit while the server never answers, and connects once those attempts end", async () => {
       const lab = await createMachine("Behind a hung proxy");
@@ -236,35 +242,37 @@ describe("Machines and the sync connection", () => {
       try {
         const tablet = loadTablet(settingsFor({ ...lab, serverUrl: proxy.url }), { timeScale: 100 });
         await tablet.waitForLog(/^Disconnected: 8 earlier connection attempts are still waiting for the server to answer/);
-        expect(proxy.stalled).toHaveLength(8);
+        expect(proxy.stalled, disconnects(tablet).join("\n")).toHaveLength(8);
         // The plugin never asked Decaid for a ninth transport.
         expect(tablet.logs.join("\n")).not.toContain("Too many open transports");
 
         // The hung server finally drops them, and answers from now on.
         proxy.stallNext(0);
         for (const socket of proxy.stalled) socket.destroy();
+        await tablet.waitForLog(/^Connected to /);
         await waitForMachine("Behind a hung proxy", (machine) => machine.online);
         await tablet.unload();
       } finally {
         await proxy.close();
       }
-    });
+    }, 15_000);
 
     it("connects when Decaid's API is slower than the connect deadline", async () => {
       const slow = await createMachine("Slow API");
       // Each read takes 20 s of the tablet's time: longer than the 15 s deadline, within Decaid's 30 s fetch timeout.
-      // 20 times faster, the deadline still leaves a busy test server 750 ms to welcome it.
-      const tablet = loadTablet(settingsFor(slow), { timeScale: 20, apiDelayMs: 20_000 });
+      // 100 times faster, the reads take 200 ms, while the deadline would pass in 150 ms if it covered them.
+      const tablet = loadTablet(settingsFor(slow), { timeScale: 100, apiDelayMs: 20_000 });
+      await tablet.waitForLog(/^Connected to /);
+      expect(disconnects(tablet)).toEqual([]);
       await waitForMachine("Slow API", (machine) => machine.online);
-      expect(tablet.logs.filter((log) => log.startsWith("Disconnected"))).toEqual([]);
       await tablet.unload();
 
       // Reads that time out leave the hello without hardware, which is still accepted.
       const timedOut = await createMachine("API timing out");
-      const second = loadTablet(settingsFor(timedOut), { timeScale: 20, apiDelayMs: 30_000 });
+      const second = loadTablet(settingsFor(timedOut), { timeScale: 100, apiDelayMs: 30_000 });
       expect(await waitForMachine("API timing out", (machine) => machine.online)).toMatchObject({ model: null, serial: null });
       await second.unload();
-    });
+    }, 15_000);
 
     it("does not connect without a server URL and token, and says what is missing", async () => {
       const unset = loadTablet({});
