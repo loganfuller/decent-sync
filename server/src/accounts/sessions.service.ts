@@ -23,6 +23,11 @@ export interface SignedIn {
  * token that lives on the device until it expires, so a browser restart keeps
  * the person signed in. The server stores only the token's hash, and signing
  * out deletes the stored session.
+ *
+ * Expiry is set, renewed and judged by the database's clock, never an
+ * instance's (ADR-0016): one instance may start a session that another
+ * renews, judges or deletes, and their clocks drift apart. The cookie's
+ * Max-Age is only a hint to the browser; the stored expiry decides.
  */
 @Injectable()
 export class SessionsService {
@@ -38,7 +43,7 @@ export class SessionsService {
   /** Starts a session for the account and sets its cookie on the response. */
   async start(accountId: string, response: Response): Promise<void> {
     const token = newSecret();
-    const now = Date.now();
+    const now = await this.databaseNow();
     await this.prisma.session.deleteMany({ where: { expiresAt: { lte: new Date(now) } } });
     await this.prisma.session.create({
       data: { tokenHash: hashSecret(token), accountId, expiresAt: new Date(now + LIFETIME_MS) },
@@ -54,7 +59,7 @@ export class SessionsService {
     const token = readCookie(request.headers.cookie, COOKIE_NAME);
     if (!token) return undefined;
 
-    const now = Date.now();
+    const now = await this.databaseNow();
     const session = await this.prisma.session.findUnique({
       where: { tokenHash: hashSecret(token) },
       include: { account: true },
@@ -65,10 +70,15 @@ export class SessionsService {
     }
 
     if (session.expiresAt.getTime() - now < LIFETIME_MS - RENEW_AFTER_MS) {
-      await this.prisma.session.update({
+      const { count } = await this.prisma.session.updateMany({
         where: { id: session.id },
         data: { expiresAt: new Date(now + LIFETIME_MS) },
       });
+      // Signed out meanwhile, perhaps on another instance.
+      if (count === 0) {
+        this.clearCookie(response);
+        return undefined;
+      }
       this.setCookie(response, token, LIFETIME_MS);
     }
     return { account: session.account, sessionId: session.id };
@@ -78,6 +88,11 @@ export class SessionsService {
   async end(sessionId: string, response: Response): Promise<void> {
     await this.prisma.session.deleteMany({ where: { id: sessionId } });
     this.clearCookie(response);
+  }
+
+  private async databaseNow(): Promise<number> {
+    const [{ now }] = await this.prisma.$queryRaw<[{ now: Date }]>`SELECT now() AS now`;
+    return now.getTime();
   }
 
   private setCookie(response: Response, token: string, maxAgeMs: number): void {
