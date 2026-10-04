@@ -254,8 +254,8 @@ plugin build copies it into `decent-sync.reaplugin/manifest.json`.
 2. Tag that commit `v0.2.0` and push the tag.
 
 The [release workflow](.github/workflows/release.yml) then fails unless the tag
-is `vX.Y.Z` matching the committed manifest's version, runs CI on the tagged
-commit, publishes the server image (amd64 and arm64) to
+is `vX.Y.Z` matching the committed manifest's version and CI has passed on the
+tagged commit (waiting for it rather than running it again), publishes the server image (amd64 and arm64) to
 `ghcr.io/loganfuller/decent-sync` as `0.2.0`, `0.2` and `latest`, and finally
 creates the GitHub release with `decent-sync.reaplugin-v0.2.0.zip` as its only
 asset. Decaid's release install and update read the latest release, and refuse

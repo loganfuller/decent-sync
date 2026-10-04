@@ -2,9 +2,9 @@ name: Release
 
 # Pushing a vX.Y.Z tag releases the whole repo at that version (ADR-0012): the
 # server image goes to GitHub's container registry, then a GitHub release
-# attaches the one plugin ZIP that Decaid's release install downloads. The tag
-# must match the committed plugin manifest's version, and CI must pass on the
-# tagged commit, before anything is published.
+# attaches the one plugin ZIP that Decaid's release install downloads. Nothing
+# is published unless the tag matches the committed plugin manifest's version
+# and CI has passed on the tagged commit.
 on:
   push:
     tags: ["v*"]
@@ -16,8 +16,14 @@ concurrency:
   group: release-${{ github.ref }}
 
 jobs:
-  tag:
+  publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: write
+      packages: write
+
     steps:
       - uses: actions/checkout@v4
 
@@ -28,24 +34,26 @@ jobs:
       - name: Check the tag matches the plugin manifest's version
         run: node scripts/check-release-tag.mjs "$GITHUB_REF_NAME"
 
-  ci:
-    needs: tag
-    uses: ./.github/workflows/ci.yml
-
-  publish:
-    needs: ci
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    permissions:
-      contents: write
-      packages: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
+      # CI has already run on the tagged commit, on main or its pull request,
+      # so use that result instead of running it again. A tag pushed right
+      # after a merge waits for main's run to start and finish.
+      - name: Wait for CI to pass on the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          run=""
+          for _ in $(seq 30); do
+            run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$sha" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+            [ -n "$run" ] && break
+            sleep 10
+          done
+          if [ -z "$run" ]; then
+            echo "::error::CI has not run on $sha. Tag a commit on main or on a pull request."
+            exit 1
+          fi
+          gh run watch "$run" --repo "$GITHUB_REPOSITORY" --exit-status --interval 30 > /dev/null
+          echo "CI passed on $sha: https://github.com/$GITHUB_REPOSITORY/actions/runs/$run"
 
       - name: Package the plugin ZIP
         run: npm run package:plugin

@@ -1,13 +1,12 @@
 name: CI
 
 # Pull requests run on their merge result; main runs again after each merge.
-# Branches without a pull request get no CI. The release workflow runs it on the
-# tagged commit before publishing.
+# Branches without a pull request get no CI. The release workflow publishes
+# only a commit this workflow has passed on.
 on:
   push:
     branches: [main]
   pull_request:
-  workflow_call:
 
 permissions:
   contents: read
