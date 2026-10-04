@@ -20,10 +20,12 @@
     "@prisma/client": "7.10.0",
     "prisma": "7.10.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.0"
+    "rxjs": "^7.8.0",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^12.0.0",
-    "@types/express": "^5.0.6"
+    "@types/express": "^5.0.6",
+    "@types/ws": "^8.18.1"
   }
 }

@@ -68,3 +68,40 @@ model Location {
 
   @@map("locations")
 }
+
+/// A piece of Decent espresso hardware, adopted by an Admin creating its
+/// machine entry. Its identity is its model and serial (ADR-0004), bound when
+/// a connection with its token first reports real ones.
+model Machine {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  /// Stored trimmed; unique so lists and choosers name a Machine unambiguously.
+  name       String    @unique
+  /// Null until the hardware is bound.
+  model      String?
+  serial     String?
+  /// When a plugin connected with its token was last heard from.
+  lastSeenAt DateTime? @map("last_seen_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tokens MachineToken[]
+
+  /// One Machine per piece of hardware. Unbound Machines (nulls) never clash.
+  @@unique([model, serial])
+  @@map("machines")
+}
+
+/// The secret a Machine's plugin connects with. It is shown once, when it is
+/// issued; only its SHA-256 hash is stored.
+model MachineToken {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  tokenHash Bytes     @unique @map("token_hash")
+  machineId String    @map("machine_id") @db.Uuid
+  machine   Machine   @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// Set when a newer token replaces it; a revoked token connects nothing.
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  @@index([machineId])
+  @@map("machine_tokens")
+}

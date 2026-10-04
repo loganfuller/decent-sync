@@ -14,6 +14,10 @@ export interface Config {
   port: number;
   /** The built management interface (web/dist). */
   webDistDir: string;
+  /** How long a new plugin connection has to send `hello`. */
+  helloTimeoutMs: number;
+  /** How often plugins send a heartbeat; a connection silent for three intervals is closed. */
+  heartbeatIntervalMs: number;
 }
 
 /** A reason the server cannot start that its message fully explains. */
@@ -51,6 +55,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const publicUrl = parsePublicUrl(env.PUBLIC_URL, problems);
 
   const port = parsePort(env.PORT, problems);
+  const helloTimeoutMs = parseSeconds("SYNC_HELLO_TIMEOUT_SECONDS", env.SYNC_HELLO_TIMEOUT_SECONDS, 10, problems);
+  const heartbeatIntervalMs = parseSeconds("SYNC_HEARTBEAT_SECONDS", env.SYNC_HEARTBEAT_SECONDS, 30, problems);
 
   if (problems.length > 0) throw new ConfigError(problems);
 
@@ -60,6 +66,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     host: env.HOST?.trim() || "0.0.0.0",
     port,
     webDistDir: path.resolve(env.WEB_DIST_DIR?.trim() || path.join(serverDir, "../web/dist")),
+    helloTimeoutMs,
+    heartbeatIntervalMs,
   };
 }
 
@@ -95,4 +103,15 @@ function parsePort(value: string | undefined, problems: string[]): number {
     problems.push(`PORT must be a whole number from 1 to 65535, not ${raw}`);
   }
   return port;
+}
+
+/** A positive number of seconds, possibly fractional, in milliseconds. */
+function parseSeconds(name: string, value: string | undefined, defaultSeconds: number, problems: string[]): number {
+  const raw = value?.trim();
+  if (!raw) return defaultSeconds * 1000;
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    problems.push(`${name} must be a positive number of seconds, not ${raw}`);
+  }
+  return Math.round(seconds * 1000);
 }

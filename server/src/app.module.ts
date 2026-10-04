@@ -5,7 +5,9 @@ import type { Config } from "./config.js";
 import { ConfigModule } from "./config.module.js";
 import { HealthController } from "./health.controller.js";
 import { LocationsModule } from "./locations/locations.module.js";
+import { MachinesModule } from "./machines/machines.module.js";
 import { PrismaModule } from "./prisma.module.js";
+import { SyncModule } from "./sync/sync.module.js";
 
 @Module({})
 export class AppModule {
@@ -17,6 +19,8 @@ export class AppModule {
         PrismaModule,
         AccountsModule,
         LocationsModule,
+        MachinesModule,
+        SyncModule,
         // The management interface is a single-page app: unknown paths outside
         // the API fall back to its index.html.
         ServeStaticModule.forRoot({

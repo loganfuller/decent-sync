@@ -8,7 +8,7 @@ Use the root package scripts listed in the README's Development section: `npm ru
 - Seam 2 uses Playwright against the management interface, with data seeded through Seam 1.
 - Vitest module tests cover the spec's listed pure modules through their public interfaces without mocks. Other behavior is tested through the two seams unless it proves untestable there.
 
-Ticket #5 builds Seam 1 from prior art in the archived [plugin dev harness](https://github.com/loganfuller/decent-sync-plugin/blob/main/scripts/dev-harness.mjs). That old harness calls a real tablet API; it is not yet the fixture-backed simulated tablet required by the spec. Until then, `plugin/test/stand-in-host.ts` loads the built `plugin.js` the way Decaid does (source pasted into a function body, global `createPlugin(host)`, id check, synchronous `onLoad`).
+Seam 1's simulated tablet is `server/test/support/simulated-tablet.ts` (ticket #5, promoted from the archived [plugin dev harness](https://github.com/loganfuller/decent-sync-plugin/blob/main/scripts/dev-harness.mjs)). `SimulatedTablet.load()` runs the built `plugin.js` as Decaid does, with `host`, `fetch`, `setTimeout` and `clearTimeout` in scope; `fetch` answers Decaid's API from `server/test/fixtures/decaid/`, and `host.transport` enforces Decaid's limits (8 live transports, 1 MiB pending outbound per send and in total, 1 MiB undelivered inbound, no custom headers). `dropConnections()` simulates a lost network and `unload()` a plugin unload. `RawConnection` sends raw frames. Seam 1 tests (`server/test/sync.test.ts`) start a server with `startTestServer({ env })`, which also exposes its log through `output()`, and pass short `SYNC_HELLO_TIMEOUT_SECONDS` and `SYNC_HEARTBEAT_SECONDS` values to keep timeouts fast.
 
 `npm run check:plugin-build` rebuilds the plugin and fails if `decent-sync.reaplugin/` then differs from the git index (on a CI checkout, the commit under test). Report verification commands and results, including anything not exercised.
 
@@ -22,7 +22,7 @@ Vitest tests that need build output (the committed plugin, the compiled server) 
 
 ## Fixtures
 
-Fixtures are records Decaid produced: real records from the test tablet where they exist, otherwise records from a Decaid build running simulated devices (it has a mock Bengle with a milk probe). A derived fixture, such as a real Shot with its measurements repeated past 1 MiB, is allowed if its file or test names it as derived. Never hand-write a record shape. Trim fixtures, and scrub Barista names and notes before committing them: the repo is public.
+Fixtures are records Decaid produced: real records from the test tablet where they exist, otherwise records from a Decaid build running simulated devices (it has a mock Bengle with a milk probe). A derived fixture, such as a real Shot with its measurements repeated past 1 MiB, is allowed if its file or test names it as derived. Never hand-write a record shape. Trim fixtures, and scrub Barista names and notes before committing them: the repo is public. Replace hardware identifiers too (machine serials, Bluetooth and USB ids, LAN addresses) with made-up values, such as serial `10001`, addresses in `00:00:5E:00:53:xx` and IPs in `192.0.2.0/24`, and say so in the fixture's README.
 
 ## Real tablet
 
