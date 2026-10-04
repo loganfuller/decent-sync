@@ -1,9 +1,12 @@
-import { Injectable } from "@nestjs/common";
-
 const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 15 * 60 * 1000;
-/** Bounds memory when someone tries many different emails. */
-const MAX_TRACKED = 10_000;
+/**
+ * Bounds memory to a few tens of MB, since sign-in refuses emails longer than
+ * 254 characters. Filling it means starting this many sign-ins for distinct
+ * emails within one window, each costing a password hash: more than the
+ * server can check in 15 minutes.
+ */
+const DEFAULT_CAPACITY = 100_000;
 
 interface Attempts {
   count: number;
@@ -18,29 +21,37 @@ interface Attempts {
  * limited the same way, so the limit reveals nothing about which accounts
  * exist.
  *
+ * A window is never forgotten before it ends, or flooding sign-in with other
+ * emails could lift a lockout. When every slot holds a live window, emails
+ * not already tracked are refused until the oldest window ends.
+ *
  * Kept in memory: one server instance is enough for v1 (ADR-0011), and a
  * restart only forgets recent failures. It is keyed by email, not client
  * address, because behind a hosting proxy (fly.io) every client can share one
  * address.
  */
-@Injectable()
 export class SignInLimiter {
+  /** In order of window start, oldest first. */
   private readonly attempts = new Map<string, Attempts>();
+
+  constructor(private readonly capacity = DEFAULT_CAPACITY) {}
 
   /**
    * Records the start of an attempt for the email. Returns the seconds to wait
    * when the email has had too many attempts, or undefined to go ahead.
    */
   begin(email: string, now = Date.now()): number | undefined {
+    this.prune(now);
     let entry = this.attempts.get(email);
-    if (!entry || now - entry.windowStart >= WINDOW_MS) {
-      this.prune(now);
+    if (!entry) {
+      if (this.attempts.size >= this.capacity) {
+        const [oldest] = this.attempts.values();
+        return secondsUntilEnd(oldest!, now);
+      }
       entry = { count: 0, windowStart: now };
       this.attempts.set(email, entry);
     }
-    if (entry.count >= MAX_ATTEMPTS) {
-      return Math.ceil((entry.windowStart + WINDOW_MS - now) / 1000);
-    }
+    if (entry.count >= MAX_ATTEMPTS) return secondsUntilEnd(entry, now);
     entry.count += 1;
     return undefined;
   }
@@ -50,15 +61,15 @@ export class SignInLimiter {
     this.attempts.delete(email);
   }
 
+  /** Forgets windows that have ended; they are all at the front. */
   private prune(now: number): void {
-    if (this.attempts.size < MAX_TRACKED) return;
     for (const [email, entry] of this.attempts) {
-      if (now - entry.windowStart >= WINDOW_MS) this.attempts.delete(email);
-    }
-    // Still full of live windows: drop the oldest rather than grow without bound.
-    for (const email of this.attempts.keys()) {
-      if (this.attempts.size < MAX_TRACKED) break;
+      if (now - entry.windowStart < WINDOW_MS) break;
       this.attempts.delete(email);
     }
   }
+}
+
+function secondsUntilEnd(entry: Attempts, now: number): number {
+  return Math.ceil((entry.windowStart + WINDOW_MS - now) / 1000);
 }

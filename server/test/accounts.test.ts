@@ -29,7 +29,7 @@ describe("accounts and sessions", () => {
   afterAll(() => server?.stop());
 
   it("requires first-run setup on a server with no accounts", async () => {
-    expect(await (await call("GET", "/setup")).json()).toEqual({ required: true });
+    expect(await (await call("GET", "/setup")).json()).toEqual({ required: true, passwordMinLength: 12 });
   });
 
   it("refuses protected endpoints without a session", async () => {
@@ -48,7 +48,7 @@ describe("accounts and sessions", () => {
       "Enter a valid email address",
       "Use a password of at least 12 characters",
     ]);
-    expect(await (await call("GET", "/setup")).json()).toEqual({ required: true });
+    expect(await (await call("GET", "/setup")).json()).toMatchObject({ required: true });
   });
 
   let adminCookie: string;
@@ -90,7 +90,7 @@ describe("accounts and sessions", () => {
   });
 
   it("refuses setup once an account exists, signed in or not", async () => {
-    expect(await (await call("GET", "/setup")).json()).toEqual({ required: false });
+    expect(await (await call("GET", "/setup")).json()).toMatchObject({ required: false });
 
     const anonymous = await call("POST", "/setup", { body: { ...admin, email: "late@example.com" } });
     expect(anonymous.status).toBe(409);
@@ -202,7 +202,7 @@ describe("accounts behind https", () => {
     });
 
     expect(status).toBe(403);
-    expect(await (await fetch(`${server.url}/api/setup`)).json()).toEqual({ required: true });
+    expect(await (await fetch(`${server.url}/api/setup`)).json()).toMatchObject({ required: true });
   });
 
   it("marks the session cookie Secure when the public URL is https", async () => {

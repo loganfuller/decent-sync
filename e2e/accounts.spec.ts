@@ -11,6 +11,8 @@ test("first-run setup creates the first Admin and signs them in", async ({ page 
 
   await expect(page).toHaveURL(/\/setup$/);
   await expect(page.getByRole("heading", { name: "Set up Decent Sync" })).toBeVisible();
+  // The server's password rule, not a copy in the web app.
+  await expect(page.getByText("At least 12 characters.")).toBeVisible();
   await page.getByLabel("Name").fill(admin.name);
   await page.getByLabel("Email").fill(admin.email);
   await page.getByLabel("Password").fill(admin.password);

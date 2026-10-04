@@ -4,6 +4,9 @@ import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./passwords.js";
 // Request bodies for the account endpoints, checked by hand: there are few
 // fields, and each problem gets a message the management interface can show.
 
+/** The longest valid email address. */
+const MAX_EMAIL_LENGTH = 254;
+
 export interface Credentials {
   email: string;
   password: string;
@@ -20,6 +23,7 @@ export function readCredentials(body: unknown): Credentials {
   if (!email || typeof password !== "string" || password.length === 0) {
     throw new BadRequestException("Enter an email and password");
   }
+  if (email.length > MAX_EMAIL_LENGTH) throw new BadRequestException("Enter a valid email address");
   return { email, password };
 }
 
@@ -32,7 +36,7 @@ export function readNewAccount(body: unknown): NewAccount {
   else if (name.length > 100) problems.push("Use a name of at most 100 characters");
 
   const email = normaliseEmail(fields.email);
-  if (!email || !/^[^\s@]+@[^\s@]+$/.test(email) || email.length > 254) {
+  if (!email || !/^[^\s@]+@[^\s@]+$/.test(email) || email.length > MAX_EMAIL_LENGTH) {
     problems.push("Enter a valid email address");
   }
 

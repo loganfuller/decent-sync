@@ -5,6 +5,7 @@ import { SessionsService } from "./sessions.service.js";
 import { AccountsService, type AccountView, TooManySignInAttempts, setupClosed, viewAccount } from "./accounts.service.js";
 import { CurrentSession, Public } from "./guards.js";
 import { readCredentials, readNewAccount } from "./input.js";
+import { MIN_PASSWORD_LENGTH } from "./passwords.js";
 
 /** First-run setup: creating the first Admin on a server with no accounts. */
 @Controller("api/setup")
@@ -14,10 +15,11 @@ export class SetupController {
     private readonly sessions: SessionsService,
   ) {}
 
+  /** Whether setup is needed, and the password rule the setup form shows. */
   @Public()
   @Get()
-  async status(): Promise<{ required: boolean }> {
-    return { required: await this.accounts.setupRequired() };
+  async status(): Promise<{ required: boolean; passwordMinLength: number }> {
+    return { required: await this.accounts.setupRequired(), passwordMinLength: MIN_PASSWORD_LENGTH };
   }
 
   /** Creates the first Admin and signs them in. Refused once any account exists. */

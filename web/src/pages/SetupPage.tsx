@@ -1,11 +1,8 @@
 import { useAuth } from "@/auth";
 import { AuthForm } from "./AuthForm";
 
-// Matches the server's minimum; the server's message covers any change.
-const MIN_PASSWORD_LENGTH = 12;
-
 /** First-run setup: shown only while the server has no accounts. */
-export function SetupPage() {
+export function SetupPage({ passwordMinLength }: { passwordMinLength: number }) {
   const { setUp } = useAuth();
 
   return (
@@ -21,8 +18,8 @@ export function SetupPage() {
           label: "Password",
           type: "password",
           autoComplete: "new-password",
-          minLength: MIN_PASSWORD_LENGTH,
-          hint: `At least ${MIN_PASSWORD_LENGTH} characters.`,
+          minLength: passwordMinLength,
+          hint: `At least ${passwordMinLength} characters.`,
         },
       ]}
       onSubmit={({ name = "", email = "", password = "" }) => setUp({ name, email, password })}

@@ -4,7 +4,8 @@ import { type Account, ApiError, api } from "@/lib/api";
 type AuthState =
   | { status: "loading" }
   | { status: "unreachable" }
-  | { status: "signed-out"; setupRequired: boolean }
+  | { status: "signed-out"; setupRequired: false }
+  | { status: "signed-out"; setupRequired: true; passwordMinLength: number }
   | { status: "signed-in"; account: Account };
 
 interface Auth {
@@ -30,8 +31,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       try {
-        const { required } = await api<{ required: boolean }>("GET", "/setup");
-        setState({ status: "signed-out", setupRequired: required });
+        const setup = await api<{ required: boolean; passwordMinLength: number }>("GET", "/setup");
+        setState(
+          setup.required
+            ? { status: "signed-out", setupRequired: true, passwordMinLength: setup.passwordMinLength }
+            : { status: "signed-out", setupRequired: false },
+        );
       } catch {
         setState({ status: "unreachable" });
       }

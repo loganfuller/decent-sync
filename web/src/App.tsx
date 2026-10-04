@@ -44,7 +44,11 @@ function Gate({ page }: { page: "setup" | "sign-in" | "signed-in" }): ReactNode 
   }
 
   if (state.setupRequired) {
-    return page === "setup" ? <SetupPage /> : <Navigate to="/setup" replace />;
+    return page === "setup" ? (
+      <SetupPage passwordMinLength={state.passwordMinLength} />
+    ) : (
+      <Navigate to="/setup" replace />
+    );
   }
   if (page === "sign-in") return <SignInPage />;
   if (page === "setup") {

@@ -17,7 +17,7 @@ import { SignInLimiter } from "./sign-in-limiter.js";
   providers: [
     AccountsService,
     SessionsService,
-    SignInLimiter,
+    { provide: SignInLimiter, useFactory: () => new SignInLimiter() },
     { provide: APP_GUARD, useClass: SameOriginGuard },
     { provide: APP_GUARD, useClass: SessionGuard },
   ],
