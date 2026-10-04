@@ -1,67 +1,40 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma.service.js";
 
-/**
- * Browsers name a few zones by CLDR's older identifiers, which differ from
- * current IANA names, and PostgreSQL built with tzdata lacking the "backward"
- * links does not know them: Chrome in India reports Asia/Calcutta, which such a
- * server refuses in AT TIME ZONE. These are every identifier that
- * `Intl.supportedValuesOf("timeZone")` lists under a name other than IANA's,
- * which are also the names `Intl` resolves other aliases to.
- */
-const CLDR_TO_IANA = new Map(
-  Object.entries({
-    "Africa/Asmera": "Africa/Asmara",
-    "America/Buenos_Aires": "America/Argentina/Buenos_Aires",
-    "America/Catamarca": "America/Argentina/Catamarca",
-    "America/Cordoba": "America/Argentina/Cordoba",
-    "America/Godthab": "America/Nuuk",
-    "America/Indianapolis": "America/Indiana/Indianapolis",
-    "America/Jujuy": "America/Argentina/Jujuy",
-    "America/Louisville": "America/Kentucky/Louisville",
-    "America/Mendoza": "America/Argentina/Mendoza",
-    "Asia/Calcutta": "Asia/Kolkata",
-    "Asia/Katmandu": "Asia/Kathmandu",
-    "Asia/Rangoon": "Asia/Yangon",
-    "Asia/Saigon": "Asia/Ho_Chi_Minh",
-    "Atlantic/Faeroe": "Atlantic/Faroe",
-    "Europe/Kiev": "Europe/Kyiv",
-    "Pacific/Enderbury": "Pacific/Kanton",
-    "Pacific/Ponape": "Pacific/Pohnpei",
-    "Pacific/Truk": "Pacific/Chuuk",
-  }).map(([cldr, iana]) => [cldr.toLowerCase(), iana]),
-);
+interface KnownZone {
+  name: string;
+  atEpoch: Temporal.ZonedDateTime;
+}
 
 /**
- * The time zones a Location may use: IANA names that both PostgreSQL (for
- * date filters in each Location's local time) and browsers (for showing local
- * times) understand. Offsets such as "+05:00" are not time zones and are
- * refused, since PostgreSQL does not list them.
+ * The named time zones a Location may use: understood by PostgreSQL for date
+ * filters and by Intl and Temporal for displaying and comparing local times.
  */
 @Injectable()
 export class TimeZones {
-  // PostgreSQL's zone names by lower-cased name, read once: its time zone
-  // data changes only when the database server is upgraded.
-  private known?: Promise<Map<string, string>>;
+  // PostgreSQL's zone data changes only when the database server is upgraded.
+  private known?: Promise<Map<string, KnownZone>>;
 
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * The zone's name as PostgreSQL spells it, or undefined if it is not a
-   * usable time zone. A name PostgreSQL lacks, such as the IANA alias
-   * US/Eastern or the CLDR name Asia/Calcutta, is replaced by the zone `Intl`
-   * resolves it to, under its IANA name. Matching ignores case and surrounding
-   * spaces.
+   * Preserve PostgreSQL's spelling, ignoring case and surrounding spaces.
+   * For names it lacks, choose the last equivalent alphabetically.
    */
   async normalise(timeZone: string): Promise<string | undefined> {
+    const name = timeZone.trim();
     const known = await this.load();
-    const given = known.get(timeZone.trim().toLowerCase());
-    if (given !== undefined) return understoodByIntl(given) ? given : undefined;
+    const given = known.get(name.toLowerCase());
+    if (given !== undefined) return given.name;
 
-    const resolved = resolveWithIntl(timeZone.trim());
-    if (resolved === undefined) return undefined;
-    const lower = resolved.toLowerCase();
-    return known.get(CLDR_TO_IANA.get(lower)?.toLowerCase() ?? lower);
+    const atEpoch = namedZoneAtEpoch(name);
+    if (atEpoch === undefined) return undefined;
+    for (const zone of known.values()) {
+      // At the same instant and calendar, equals compares zone identity,
+      // not merely the UTC offset (different zones can share an offset).
+      if (atEpoch.equals(zone.atEpoch)) return zone.name;
+    }
+    return undefined;
   }
 
   /** The zones a browser would offer, under the names `normalise` stores, sorted. */
@@ -70,9 +43,20 @@ export class TimeZones {
     return [...new Set(names.filter((name) => name !== undefined))].sort();
   }
 
-  private load(): Promise<Map<string, string>> {
+  private load(): Promise<Map<string, KnownZone>> {
     this.known ??= this.prisma.$queryRaw<{ name: string }[]>`SELECT name FROM pg_timezone_names`.then(
-      (rows) => new Map(rows.map(({ name }) => [name.toLowerCase(), name])),
+      (rows) => {
+        const known = new Map<string, KnownZone>();
+        // Reverse alphabetical order is a deterministic tie-breaker when
+        // several PostgreSQL names share an identity. It also preserves
+        // existing alias resolution without relying on Intl canonicalization.
+        const names = rows.map(({ name }) => name).sort().reverse();
+        for (const name of names) {
+          const atEpoch = namedZoneAtEpoch(name);
+          if (atEpoch !== undefined) known.set(name.toLowerCase(), { name, atEpoch });
+        }
+        return known;
+      },
       (error: unknown) => {
         this.known = undefined;
         throw error;
@@ -82,14 +66,13 @@ export class TimeZones {
   }
 }
 
-function understoodByIntl(timeZone: string): boolean {
-  return resolveWithIntl(timeZone) !== undefined;
-}
-
-/** The zone `Intl` takes the name to mean, under its canonical name, or undefined if it knows none. */
-function resolveWithIntl(timeZone: string): string | undefined {
+/** Validate in both runtimes without asking Intl to canonicalize the name. */
+function namedZoneAtEpoch(timeZone: string): Temporal.ZonedDateTime | undefined {
+  // Temporal and newer Intl versions also accept numeric offsets.
+  if (/^[+-]/.test(timeZone)) return undefined;
   try {
-    return new Intl.DateTimeFormat("en", { timeZone }).resolvedOptions().timeZone;
+    new Intl.DateTimeFormat("en", { timeZone });
+    return new Temporal.ZonedDateTime(0n, timeZone);
   } catch {
     return undefined;
   }

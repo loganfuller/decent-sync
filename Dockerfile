@@ -3,7 +3,7 @@
 # pending migrations on startup. docker-compose.yml runs it with PostgreSQL;
 # the README covers configuration.
 
-ARG NODE_VERSION=24
+ARG NODE_VERSION=26
 
 # npm needs every workspace's package.json to install from the lockfile.
 FROM scratch AS manifests
