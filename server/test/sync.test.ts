@@ -220,8 +220,9 @@ describe("Machines and the sync connection", () => {
       const lab = await createMachine("Behind a stalling proxy");
       const proxy = await startStallingProxy(server.url, 2);
       try {
-        // 100 times faster: the deadline for each attempt the proxy stalls passes in 150 ms. The attempt it passes
-        // through waits for the server's answer in real time, so a busy server does not add a third timeout.
+        // 100 times faster: the deadline for each attempt the proxy stalls passes in 150 ms. Once the server accepts
+        // the upgrade of the attempt the proxy passes through, it waits for welcome in real time, so a server slow to
+        // welcome does not add a third timeout.
         const tablet = loadTablet(settingsFor({ ...lab, serverUrl: proxy.url }), { timeScale: 100 });
         await tablet.waitForLog(/^Connected to /);
         expect(disconnects(tablet)).toEqual([

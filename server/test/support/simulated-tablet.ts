@@ -31,8 +31,11 @@ import WebSocket from "ws";
 //   the server's first answer, the tablet's clock runs at real time: the
 //   server's work on a hello takes real time however fast the tablet runs,
 //   and a sped-up connect deadline would otherwise give up on a server that
-//   is merely busy. A connection the server never upgrades still times out
-//   at the sped-up pace.
+//   is merely busy. Until the server accepts the upgrade, though, the clock
+//   keeps the sped-up pace, since a stalled upgrade and a slow one look the
+//   same: a connection the server never upgrades still times out quickly,
+//   and at 100x the server has 150 ms to accept one. Its upgrade handler is
+//   synchronous; the database work comes after.
 //
 // RawConnection is the raw-frame mode, for protocol cases the plugin never
 // produces.
