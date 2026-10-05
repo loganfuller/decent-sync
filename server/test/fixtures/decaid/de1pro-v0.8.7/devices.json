@@ -1,0 +1,16 @@
+[
+  {
+    "name": "Bookoo Mini Scale",
+    "id": "00:00:5E:00:53:02",
+    "state": "disconnected",
+    "type": "scale",
+    "available": false
+  },
+  {
+    "name": "DE1",
+    "id": "00:00:5E:00:53:01",
+    "state": "connected",
+    "type": "machine",
+    "available": true
+  }
+]

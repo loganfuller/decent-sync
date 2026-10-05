@@ -143,6 +143,7 @@ model Machine {
   workflowEvents     WorkflowEvent[]
   machineStateEvents MachineStateEvent[]
   eventDeliveries    MachineEventDelivery[]
+  collections        ReportedCollection[]
 
   /// One Machine per piece of hardware. Unbound Machines (nulls) never clash.
   @@unique([model, serial])
@@ -213,6 +214,7 @@ model PendingMachine {
 
   workflowEvents     WorkflowEvent[]
   machineStateEvents MachineStateEvent[]
+  collections        ReportedCollection[]
 
   @@unique([model, serial])
   @@map("pending_machines")
@@ -369,8 +371,8 @@ model MachineStateEvent {
   @@map("machine_state_events")
 }
 
-/// A Workflow or machine state delivery the server has handled, recorded
-/// whether or not it changed anything. The plugin keeps a delivery's id when
+/// A Workflow, machine state or collection delivery the server has handled,
+/// recorded whether or not it changed anything. The plugin keeps a delivery's id when
 /// it sends it again, so a delivery recorded here changes nothing when it
 /// arrives again, through any connection or instance, however late.
 model MachineEventDelivery {
@@ -383,4 +385,34 @@ model MachineEventDelivery {
 
   @@id([machineId, deliveryId])
   @@map("machine_event_deliveries")
+}
+
+/// The latest value of one of the collections a tablet reports (its library,
+/// settings and paired devices; COLLECTION_NAMES in protocol/), for a Machine,
+/// or held by a Pending Machine for hardware a mismatched connection reported
+/// until a Machine takes it over. Only the latest is kept. See
+/// server/src/collections/collections.service.ts.
+model ReportedCollection {
+  id               BigInt          @id @default(autoincrement())
+  machineId        String?         @map("machine_id") @db.Uuid
+  machine          Machine?        @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  pendingMachineId String?         @map("pending_machine_id") @db.Uuid
+  pendingMachine   PendingMachine? @relation(fields: [pendingMachineId], references: [id], onDelete: Cascade)
+  /// One of the protocol's COLLECTION_NAMES.
+  name             String
+  /// Whether the latest report had a value: false while, say, no scale is connected.
+  available        Boolean
+  /// When the latest report, available or not, was received, by PostgreSQL's clock.
+  reportedAt       DateTime        @map("reported_at") @db.Timestamptz(3)
+  /// The latest value reported, as Decaid sent it; null until one is. An
+  /// unavailable report keeps it. lz4 column compression is set by the migration.
+  value            Json?           @db.JsonB
+  /// When that value was received, by PostgreSQL's clock.
+  receivedAt       DateTime?       @map("received_at") @db.Timestamptz(3)
+  /// How many entries the value lists, if it is a list, so summaries need not read it.
+  items            Int?
+
+  @@unique([machineId, name])
+  @@unique([pendingMachineId, name])
+  @@map("reported_collections")
 }

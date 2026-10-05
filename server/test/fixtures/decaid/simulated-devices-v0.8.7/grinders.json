@@ -1,0 +1,11 @@
+[
+  {
+    "id": "cb3bbe68-f5db-4289-b933-cc69c2c9242f",
+    "model": "Fixture Grinder",
+    "burrType": "flat",
+    "archived": true,
+    "settingType": "numeric",
+    "createdAt": "2026-10-05T14:03:13.110837",
+    "updatedAt": "2026-10-05T14:03:13.166690"
+  }
+]

@@ -1,4 +1,5 @@
 import type { MachineHardware } from "@decent-sync/protocol";
+import type { Reading } from "./change-detection.js";
 
 // Reads from Decaid's local API (assets/api/rest_v1.yml) through the
 // plugin-scoped fetch. Any request can fail, as /machine/info does while no
@@ -92,4 +93,22 @@ async function readRecord(collection: "shots" | "steams", id: string): Promise<R
   const body: unknown = await response.json();
   if (body === null || typeof body !== "object" || Array.isArray(body)) throw new Error("Record response unavailable");
   return body as Record<string, unknown>;
+}
+
+/**
+ * One read of a collection at `path`, a route under the API with its query.
+ * With an ETag, Decaid answers 304 if it is still current. A failed read, a
+ * refusal (such as 500 while no machine is connected, or 503 while no scale
+ * is) and `null` (a key never written to plugin storage) are unavailable.
+ */
+export async function readCollection(path: string, etag: string | null): Promise<Reading> {
+  try {
+    const response = await fetch(API + path, etag === null ? undefined : { headers: { "If-None-Match": etag } });
+    if (response.status === 304) return { kind: "notModified" };
+    if (!response.ok) return { kind: "unavailable" };
+    const value: unknown = await response.json();
+    return value === null ? { kind: "unavailable" } : { kind: "value", value, etag: response.headers.get("etag") };
+  } catch {
+    return { kind: "unavailable" };
+  }
 }

@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   CLOSE_CODES,
+  COLLECTION_NAMES,
   type ErrorMessage,
   type Hello,
   PROTOCOL_VERSION,
   decodePluginMessage,
   decodeServerMessage,
   encode,
+  isCollectionName,
 } from "@decent-sync/protocol";
 
 const token = "8cTqXr0b2m6Yw1zH4kLpQeNvSa7uJdFg9oIiBhC3E5s";
@@ -313,5 +315,48 @@ describe("Workflow and machine state envelopes", () => {
         });
       }
     }
+  });
+});
+
+describe("Collection envelopes", () => {
+  const beans = { type: "collection", id: "delivery-1", name: "beans", available: true, value: [{ id: "bean-1", roaster: "Fixture Roaster", future: true }] };
+  const noScale = { type: "collection", id: "delivery-2", name: "scaleInfo", available: false };
+
+  it("names every collection the plugin reports", () => {
+    expect(COLLECTION_NAMES).toHaveLength(13);
+    for (const name of COLLECTION_NAMES) expect(isCollectionName(name)).toBe(true);
+    expect(isCollectionName("recipes")).toBe(false);
+  });
+
+  it("validates the envelope without validating Decaid's value, and keeps fields it does not know", () => {
+    for (const message of [
+      beans,
+      noScale,
+      { ...beans, value: [] },
+      { ...beans, value: {} },
+      { ...beans, value: 0 },
+      { ...beans, value: false },
+      { ...noScale, futureField: { reason: 503 } },
+    ]) {
+      expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
+    }
+  });
+
+  it("accepts a name it does not know, which a server then ignores", () => {
+    expect(decodePluginMessage(frame({ ...beans, name: "recipes" })).ok).toBe(true);
+    expect(decodePluginMessage(frame({ ...beans, name: "" }))).toMatchObject({ ok: false, problem: "collection.name must not be empty" });
+    expect(decodePluginMessage(frame({ ...beans, name: 3 }))).toMatchObject({ ok: false, problem: "collection.name must be a string" });
+  });
+
+  it("requires a value, and not null, while available, and none while unavailable", () => {
+    for (const value of [undefined, null]) {
+      expect(decodePluginMessage(frame({ ...beans, value }))).toMatchObject({ ok: false, problem: "collection.value must be present and not null" });
+    }
+    expect(decodePluginMessage(frame({ ...noScale, value: {} }))).toMatchObject({ ok: false, problem: "collection.value must be absent" });
+    expect(decodePluginMessage(frame({ ...noScale, value: null }))).toMatchObject({ ok: false, problem: "collection.value must be absent" });
+    for (const available of [undefined, "true", 1]) {
+      expect(decodePluginMessage(frame({ ...beans, available }))).toMatchObject({ ok: false, problem: "collection.available must be true or false" });
+    }
+    expect(decodePluginMessage(frame({ ...beans, id: "" }))).toMatchObject({ ok: false, problem: "collection.id must not be empty" });
   });
 });

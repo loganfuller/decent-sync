@@ -1,0 +1,22 @@
+[
+  {
+    "id": "18a42f43-2a93-4b3f-a157-4ac8e9069397",
+    "model": "1ZPresso ZP6",
+    "burrType": "conical",
+    "archived": false,
+    "settingType": "numeric",
+    "createdAt": "2026-10-01T11:53:18.477743",
+    "updatedAt": "2026-10-01T11:53:18.477743"
+  },
+  {
+    "id": "e2d50b3d-a6d9-48bb-9b50-1efb4df60229",
+    "model": "DF64 v2",
+    "burrs": "SSP MP",
+    "burrSize": 64.0,
+    "burrType": "flat",
+    "archived": false,
+    "settingType": "numeric",
+    "createdAt": "2026-09-26T20:15:52.176295",
+    "updatedAt": "2026-09-26T20:15:52.176295"
+  }
+]

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +17,11 @@ import WebSocket from "ws";
 //   Workflow in a `workflowUpdated` event, as Decaid sends it after every load.
 // - `fetch` answers Decaid's local API from fixtures, failing after Decaid's
 //   30 s timeout. `GET /shots` pages the Shots served at `/shots/{id}`, and
-//   `GET /steams/ids` lists the Steam Records served at `/steams/{id}`.
+//   `GET /steams/ids` lists the Steam Records served at `/steams/{id}`. The
+//   library's lists leave out archived and hidden records unless asked for
+//   them, and send an ETag, answering 304 to it in If-None-Match. A key of
+//   plugin storage never written answers `null`. The machine's settings, like
+//   its info, fail while no machine is connected.
 // - The plugin's local time, as JavaScript reads it, is this process's time
 //   zone: set `process.env.TZ` to put the tablet in another one.
 // - `host.transport` opens real WebSockets with only a URL and subprotocols
@@ -74,10 +79,26 @@ export function readBuiltPlugin(): { source: string; manifest: Record<string, un
   };
 }
 
-/** Decaid API responses, by path under /api/v1 (such as "/machine/info"). */
+/**
+ * Decaid API responses, by path under /api/v1 (such as "/machine/info"):
+ * each answered with status 200, or, if it is a `Refusal`, with its status.
+ */
 export type DecaidApi = Record<string, unknown>;
 
-/** The test tablet's DE1Pro on Decaid 0.8.7, with its hardware ids replaced (see the fixtures' README). */
+/** A response Decaid's API refuses with, such as 503 while no scale is connected. */
+export class Refusal {
+  constructor(
+    readonly status: number,
+    readonly body: unknown,
+  ) {}
+}
+
+/**
+ * The test tablet's DE1Pro on Decaid 0.8.7, with its hardware ids replaced
+ * (see the fixtures' README): its library, settings and paired devices
+ * included. Its scale is off, so `/scale/info` answers 503, and DYE2 has
+ * never written its equipment, which therefore answers `null`.
+ */
 export function de1ProOnDecaid087(): DecaidApi {
   return {
     "/info": readFixture("info.json"),
@@ -85,12 +106,96 @@ export function de1ProOnDecaid087(): DecaidApi {
     "/settings": readFixture("settings.json"),
     "/workflow": readFixture("workflow.json"),
     "/machine/state": readFixture("machine-state.json"),
+    "/beans": readFixture("beans.json"),
+    "/bean-batches": readFixture("bean-batches.json"),
+    "/grinders": readFixture("grinders.json"),
+    "/profiles": readFixture("profiles.json"),
+    "/store/dye2.reaplugin/recipes": readFixture("dye2-recipes.json"),
+    "/store/dye2.reaplugin/baskets": readFixture("dye2-baskets.json"),
+    "/machine/settings": readFixture("machine-settings.json"),
+    "/machine/settings/advanced": readFixture("machine-settings-advanced.json"),
+    "/devices": readFixture("devices.json"),
+    "/scale/info": new Refusal(503, readFixture("scale-info-no-scale.json")),
+    "/sensors": readFixture("sensors.json"),
   };
 }
 
-function readFixture(file: string): Record<string, unknown> {
-  return JSON.parse(fs.readFileSync(path.join(fixturesDir, "de1pro-v0.8.7", file), "utf8"));
+/**
+ * Decaid's own simulated devices (simulated-devices-v0.8.7/): a connected
+ * scale, which reports no firmware or battery level, two sensors, and a
+ * second machine only discovered nearby, with the app settings recorded
+ * beside them, which prefer that scale and name that machine's connection
+ * id. Merge it into a tablet's API.
+ */
+export function simulatedDevices(): DecaidApi {
+  return {
+    "/settings": readFixture("settings.json", "simulated-devices-v0.8.7"),
+    "/devices": readFixture("devices.json", "simulated-devices-v0.8.7"),
+    "/sensors": readFixture("sensors.json", "simulated-devices-v0.8.7"),
+    "/scale/info": readFixture("scale-info.json", "simulated-devices-v0.8.7"),
+  };
 }
+
+/**
+ * Decaid's simulated devices after its machine and scale were disconnected:
+ * the inventory lists them disconnected, and `/scale/info` answers 503. The
+ * sensors stay connected. Merge it into a tablet's API, and set
+ * `machineConnected` false for the machine.
+ */
+export function simulatedDevicesSwitchedOff(): DecaidApi {
+  return {
+    ...simulatedDevices(),
+    "/devices": readFixture("devices-disconnected.json", "simulated-devices-v0.8.7"),
+    "/scale/info": new Refusal(503, readFixture("scale-info-no-scale.json")),
+  };
+}
+
+/**
+ * The library Decaid's simulated devices were recorded with, which has an
+ * archived bean, bean batch and grinder and a hidden profile, and their
+ * machine's settings and advanced settings. Merge it into a tablet's API.
+ */
+export function simulatedLibrary(): DecaidApi {
+  const simulated = (file: string) => readFixture(file, "simulated-devices-v0.8.7");
+  return {
+    "/beans": simulated("beans.json"),
+    "/bean-batches": simulated("bean-batches.json"),
+    "/grinders": simulated("grinders.json"),
+    "/profiles": simulated("profiles.json"),
+    "/machine/settings": simulated("machine-settings.json"),
+    "/machine/settings/advanced": simulated("machine-settings-advanced.json"),
+  };
+}
+
+/**
+ * Derived: the test tablet's profiles, repeated with their ids changed (each
+ * repeat's suffixed `-copy-N`) until their JSON is larger than `minBytes`,
+ * as a tablet with many profiles would answer.
+ */
+export function manyProfiles(minBytes = 1.25 * 1024 * 1024): Record<string, unknown>[] {
+  const profiles = readFixture<Record<string, unknown>[]>("profiles.json");
+  const copies = Math.ceil(minBytes / Buffer.byteLength(JSON.stringify(profiles))) + 1;
+  return Array.from({ length: copies }, (_, copy) =>
+    profiles.map((profile) => (copy === 0 ? profile : { ...profile, id: `${String(profile.id)}-copy-${copy}` })),
+  ).flat();
+}
+
+function readFixture<T = Record<string, unknown>>(file: string, folder = "de1pro-v0.8.7"): T {
+  return JSON.parse(fs.readFileSync(path.join(fixturesDir, folder, file), "utf8"));
+}
+
+/** What /machine/info and the machine's settings answer, with status 500, while no machine is connected. */
+function machineNotConnected(): Refusal {
+  return new Refusal(500, readFixture("machine-not-connected.json", "simulated-devices-v0.8.7"));
+}
+
+/** Routes Decaid answers with ETags (jsonOkConditional in json_response.dart), and the query that includes archived or hidden records. */
+const LIBRARY_LISTS: Readonly<Record<string, { include: string; hidden(record: Record<string, unknown>): boolean }>> = {
+  "/beans": { include: "includeArchived", hidden: (record) => record.archived === true },
+  "/bean-batches": { include: "includeArchived", hidden: (record) => record.archived === true },
+  "/grinders": { include: "includeArchived", hidden: (record) => record.archived === true },
+  "/profiles": { include: "includeHidden", hidden: (record) => record.visibility !== "visible" },
+};
 
 /** The test tablet's Workflow: what `GET /workflow` answers and `workflowUpdated` carries. */
 export function workflowFixture(): Record<string, unknown> {
@@ -228,6 +333,8 @@ export class SimulatedTablet {
   readonly logs: string[] = [];
   /** The Decaid API routes the plugin requested, in order, such as "/machine/info". */
   readonly requests: string[] = [];
+  /** Requests that could change the tablet's data (any method but GET), such as "POST /store/dye2.reaplugin/recipes". */
+  readonly writes: string[] = [];
   readonly plugin: BuiltPlugin;
   machineConnected: boolean;
   private api: DecaidApi;
@@ -281,7 +388,7 @@ export class SimulatedTablet {
           close: (handle: string) => this.close(handle),
         },
       },
-      fetch: (input: unknown) => this.fetch(input),
+      fetch: (input: unknown, init?: unknown) => this.fetch(input, init),
       setTimeout: (callback: () => void, delay: number) => this.setTimer(callback, delay),
       clearTimeout: (id: number) => this.clearTimer(id),
     });
@@ -374,21 +481,37 @@ export class SimulatedTablet {
   }
 
   // Decaid's plugin fetch, limited to its own API.
-  private async fetch(input: unknown): Promise<unknown> {
+  private async fetch(input: unknown, init: unknown): Promise<unknown> {
     await new Promise<void>((resolve) => this.setTimer(resolve, Math.min(this.apiDelayMs, FETCH_TIMEOUT_MS)));
     if (this.apiDelayMs >= FETCH_TIMEOUT_MS) throw new Error("Fetch timed out");
     const url = String(input);
     if (!url.startsWith(`${API_ORIGIN}/api/v1/`)) throw new Error(`The simulated tablet has no network for ${url}`);
     const route = url.slice(`${API_ORIGIN}/api/v1`.length).split("?")[0]!;
     this.requests.push(route);
+    // Decaid's fetch sends a request's headers, with any case, as given (plugin_manager.dart).
+    const { method = "GET", headers = {} } = (init ?? {}) as { method?: string; headers?: Record<string, string> };
+    if (method.toUpperCase() !== "GET") {
+      this.writes.push(`${method.toUpperCase()} ${route}`);
+      throw new Error("The simulated tablet's API is read only");
+    }
     const failures = this.apiFailures.get(route) ?? 0;
     if (failures > 0) {
       this.apiFailures.set(route, failures - 1);
       return response(503, JSON.stringify({ error: "Local API temporarily unavailable" }));
     }
-    if (route === "/machine/info" && !this.machineConnected) {
+    if (["/machine/info", "/machine/settings", "/machine/settings/advanced"].includes(route) && !this.machineConnected) {
       // de1handler.dart answers a DeviceNotConnectedException with a 500.
-      return response(500, JSON.stringify({ error: "DeviceNotConnectedException: no machine connected" }));
+      const refusal = machineNotConnected();
+      return response(refusal.status, JSON.stringify(refusal.body));
+    }
+    const list = LIBRARY_LISTS[route];
+    if (list && Array.isArray(this.api[route])) {
+      const all = this.api[route] as Record<string, unknown>[];
+      const body = JSON.stringify(new URL(url).searchParams.get(list.include) === "true" ? all : all.filter((record) => !list.hidden(record)));
+      // A strong tag derived from the body, as Decaid's is.
+      const etag = `"${createHash("sha256").update(body).digest("hex").slice(0, 16)}"`;
+      const ifNoneMatch = Object.entries(headers).find(([name]) => name.toLowerCase() === "if-none-match")?.[1]?.trim();
+      return ifNoneMatch === etag || ifNoneMatch === "*" ? response(304, "", { etag }) : response(200, body, { etag });
     }
     if (route === "/shots") {
       const params = new URL(url).searchParams;
@@ -405,8 +528,12 @@ export class SimulatedTablet {
       const ids = Object.keys(this.api).filter((path) => path.startsWith("/steams/")).map((path) => decodeURIComponent(path.slice("/steams/".length)));
       return response(200, JSON.stringify(ids.sort()));
     }
+    const answer = this.api[route];
+    if (answer instanceof Refusal) return response(answer.status, JSON.stringify(answer.body));
+    // A key of plugin storage nothing has written (KvStoreHandler in kv_store_handler.dart).
+    if (!(route in this.api) && route.startsWith("/store/") && route.split("/").length === 4) return response(200, "null");
     if (!(route in this.api)) return response(404, "");
-    return response(200, JSON.stringify(this.api[route]));
+    return response(200, JSON.stringify(answer));
   }
 
   private setTimer(callback: () => void, delayMs: number): number {
@@ -657,7 +784,7 @@ export class SimulatedTablet {
 
 interface PluginScope {
   host: Record<string, unknown>;
-  fetch: (input: unknown) => Promise<unknown>;
+  fetch: (input: unknown, init?: unknown) => Promise<unknown>;
   setTimeout: (callback: () => void, delay: number) => number;
   clearTimeout: (id: number) => void;
 }
@@ -758,11 +885,11 @@ export class RawConnection {
   }
 }
 
-function response(status: number, body: string) {
+function response(status: number, body: string, headers: Record<string, string> = {}) {
   return {
     status,
     ok: status >= 200 && status < 300,
-    headers: new Headers({ "content-type": "application/json" }),
+    headers: new Headers({ "content-type": "application/json", ...headers }),
     text: async () => body,
     json: async () => JSON.parse(body || "null"),
   };

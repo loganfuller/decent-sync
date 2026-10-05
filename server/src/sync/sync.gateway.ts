@@ -24,6 +24,7 @@ import {
   encode,
 } from "@decent-sync/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
+import { CollectionsService } from "../collections/collections.service.js";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { MachineEventsService } from "../machine-events/machine-events.service.js";
@@ -117,6 +118,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly shots: ShotsService,
     private readonly steamRecords: SteamRecordsService,
     private readonly machineEvents: MachineEventsService,
+    private readonly collections: CollectionsService,
     accessChanges: AccessChanges,
   ) {
     accessChanges.subscribe((machineId) => void this.check(this.live.of(machineId)));
@@ -273,6 +275,9 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return this.acknowledge(session, message.id, null);
       case "machineState":
         await this.machineEvents.storeMachineState(message, reporter);
+        return this.acknowledge(session, message.id, null);
+      case "collection":
+        await this.collections.store(message, reporter);
         return this.acknowledge(session, message.id, null);
       case "shotIndex":
         return this.acknowledge(session, message.id, { type: "requestShots", shotIds: await this.shots.requested(message) });

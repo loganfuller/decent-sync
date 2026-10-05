@@ -12,10 +12,21 @@ Responses from Decaid's local API on the test tablet (a DE1Pro, Decaid
 | `steam.json` | `GET /api/v1/steams/1bec3908-e160-41c7-9b68-05de6d44b637`, read on 2026-10-05 |
 | `workflow.json` | `GET /api/v1/workflow`, read on 2026-10-05 |
 | `machine-state.json` | `GET /api/v1/machine/state`, read on 2026-10-05 |
+| `beans.json` | `GET /api/v1/beans?includeArchived=true`, read on 2026-10-05 |
+| `bean-batches.json` | `GET /api/v1/bean-batches?includeArchived=true`, read on 2026-10-05 |
+| `grinders.json` | `GET /api/v1/grinders?includeArchived=true`, read on 2026-10-05 |
+| `profiles.json` | `GET /api/v1/profiles?includeHidden=true`, read on 2026-10-05, trimmed |
+| `dye2-recipes.json` | `GET /api/v1/store/dye2.reaplugin/recipes`, read on 2026-10-05 |
+| `dye2-baskets.json` | `GET /api/v1/store/dye2.reaplugin/baskets`, read on 2026-10-05 |
+| `machine-settings.json` | `GET /api/v1/machine/settings`, read on 2026-10-05 |
+| `machine-settings-advanced.json` | `GET /api/v1/machine/settings/advanced`, read on 2026-10-05 |
+| `devices.json` | `GET /api/v1/devices`, read on 2026-10-05 |
+| `scale-info-no-scale.json` | `GET /api/v1/scale/info`, read on 2026-10-05, which answered 503 with this body: no scale was connected |
+| `sensors.json` | `GET /api/v1/sensors`, read on 2026-10-05 |
 
 Edited: the machine's serial number, the Bluetooth addresses of the preferred
-machine and scale, and the tablet's LAN address are replaced with made-up
-values (serial `10001`, addresses from the `00:00:5E:00:53:xx` documentation
+machine and scale (in `settings.json` and `devices.json`), and the tablet's
+LAN address are replaced with made-up values (serial `10001`, addresses from the `00:00:5E:00:53:xx` documentation
 range, IP from `192.0.2.0/24`). Everything else is as Decaid sent it.
 
 `workflow.json` is what Decaid's `workflowUpdated` event carries, and
@@ -49,3 +60,13 @@ the tablet's local time (UTC-4) without an offset; Decaid records no UTC time
 or hardware on Steam Records. This DE1Pro has no milk probe, so every sample's
 `milkTemperature` is null. `bengle-simulated-v0.8.7/` has one with milk
 temperatures.
+
+The library and settings are as Decaid sent them, except that the profiles are
+trimmed to 5 of the tablet's 75 (the two made on the tablet, and three of
+Decaid's bundled ones) and the DYE2 recipe's Barista is replaced with
+`Fixture Barista`. Nothing on this tablet was archived or hidden, and DYE2 had
+never written its `equipment` key, which Decaid then answers with `null`
+(`KvStoreHandler` in `decaid:lib/src/services/webserver/kv_store_handler.dart`);
+`simulated-devices-v0.8.7/` has archived and hidden records. Its paired scale
+was off: `devices.json` lists it as Decaid remembers it, `disconnected` and not
+`available`.

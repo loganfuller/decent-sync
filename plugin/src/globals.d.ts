@@ -8,11 +8,13 @@ declare function setTimeout(callback: () => void, delay: number): number;
 declare function clearTimeout(id: number): void;
 
 /** Plugin-scoped fetch, with `api`. Responses are capped at 10 MiB and time out after 30 s. */
-declare function fetch(url: string): Promise<DecaidResponse>;
+declare function fetch(url: string, init?: { headers?: Record<string, string> }): Promise<DecaidResponse>;
 
 interface DecaidResponse {
   status: number;
   ok: boolean;
+  /** Response headers, by name in any case; null for one not sent. */
+  headers: { get(name: string): string | null };
   text(): Promise<string>;
   json(): Promise<unknown>;
 }

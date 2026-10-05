@@ -1,0 +1,65 @@
+[
+  {
+    "id": "da24e4da-6986-4da2-9bdb-15b7b47d9617",
+    "beanId": "015bc64c-9ec7-4931-9e3b-8460854d3aa8",
+    "roastDate": "2026-08-27T00:00:00.000Z",
+    "frozen": false,
+    "archived": false,
+    "createdAt": "2026-10-01T15:06:01.922205",
+    "updatedAt": "2026-10-01T15:06:01.922205"
+  },
+  {
+    "id": "40be120d-62f9-4785-98af-aedfc42a341f",
+    "beanId": "add10397-8055-487f-bd5d-2949f66427b1",
+    "roastDate": "2026-09-26T00:00:00.000Z",
+    "frozen": false,
+    "archived": false,
+    "createdAt": "2026-09-28T19:20:29.708877",
+    "updatedAt": "2026-09-28T19:20:29.708877"
+  },
+  {
+    "id": "5d0b09a0-984e-4168-a86e-6ef4e9b21f34",
+    "beanId": "037a9603-f9be-4fdc-9e99-9a682c6c0580",
+    "roastDate": "2026-09-26T00:00:00.000Z",
+    "frozen": false,
+    "archived": false,
+    "createdAt": "2026-09-28T16:02:49.875523",
+    "updatedAt": "2026-09-28T16:02:49.875523"
+  },
+  {
+    "id": "d1234dbe-aac0-4637-ad86-679633b1731f",
+    "beanId": "aaa67fee-cad8-4adb-aaef-35905e5e0c27",
+    "roastDate": "2026-09-26T00:00:00.000Z",
+    "frozen": false,
+    "archived": false,
+    "createdAt": "2026-09-28T10:29:38.876558",
+    "updatedAt": "2026-09-28T10:29:38.876558"
+  },
+  {
+    "id": "0e87ee96-ee76-444b-aa86-8028db1f7e08",
+    "beanId": "2b6a0e2c-1697-4a2c-903e-a3d3f8abbaa7",
+    "roastDate": "2026-09-14T00:00:00.000Z",
+    "frozen": false,
+    "archived": false,
+    "createdAt": "2026-09-27T17:26:14.696603",
+    "updatedAt": "2026-09-27T17:26:14.696603"
+  },
+  {
+    "id": "df0b2e1a-67c9-43cf-a50f-75be70da96fc",
+    "beanId": "84a24d9b-6fb9-4c89-83fc-87e84635b9ea",
+    "roastDate": "2026-09-25T00:00:00.000Z",
+    "frozen": false,
+    "archived": false,
+    "createdAt": "2026-09-27T17:15:52.311909",
+    "updatedAt": "2026-09-27T17:15:52.311909"
+  },
+  {
+    "id": "416d62df-2554-4a8a-b266-c0029bc459b2",
+    "beanId": "1d5a68ed-115a-4201-b4e8-e39fd0d5ccdc",
+    "roastDate": "2026-09-25T00:00:00.000Z",
+    "frozen": false,
+    "archived": false,
+    "createdAt": "2026-09-26T20:04:43.436848",
+    "updatedAt": "2026-09-26T20:04:43.436848"
+  }
+]

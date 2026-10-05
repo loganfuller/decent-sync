@@ -228,6 +228,58 @@ export interface MachineStateDelivery {
   substate: string;
 }
 
+/**
+ * The collections a tablet reports, each read from Decaid's local API (or
+ * DYE2's storage in it) and stored by the server as the latest value for its
+ * Machine:
+ *
+ * - `beans`, `beanBatches` and `grinders`, archived ones included;
+ * - `profiles`, hidden ones included;
+ * - `dye2Recipes`, `dye2Equipment` and `dye2Baskets`, DYE2's keys, read only;
+ * - `appSettings`, `machineSettings` and `advancedSettings`;
+ * - `pairedDevices`, the device inventory without devices only discovered nearby;
+ * - `scaleInfo`, the connected scale's firmware and battery level;
+ * - `sensors`.
+ */
+export const COLLECTION_NAMES = [
+  "beans",
+  "beanBatches",
+  "grinders",
+  "profiles",
+  "dye2Recipes",
+  "dye2Equipment",
+  "dye2Baskets",
+  "appSettings",
+  "machineSettings",
+  "advancedSettings",
+  "pairedDevices",
+  "scaleInfo",
+  "sensors",
+] as const;
+
+export type CollectionName = (typeof COLLECTION_NAMES)[number];
+
+export function isCollectionName(name: string): name is CollectionName {
+  return (COLLECTION_NAMES as readonly string[]).includes(name);
+}
+
+/**
+ * One collection, as Decaid's API answered it, sent when it changed and in
+ * full on every `welcome`. A read that failed or had nothing to report (no
+ * machine or scale connected, a DYE2 key never written) is sent as
+ * unavailable, without a value, so it never replaces what the server knows.
+ */
+export interface CollectionDelivery {
+  type: "collection";
+  /** An id for this logical delivery, retained until acknowledged and kept when it is sent again, as for a Workflow. */
+  id: string;
+  /** One of COLLECTION_NAMES. A server ignores a name it does not know. */
+  name: string;
+  available: boolean;
+  /** Decaid's response, as sent, while available: anything but null. Absent while unavailable. */
+  value?: unknown;
+}
+
 /** A logical delivery acknowledged only after its transaction commits. */
 export interface Ack {
   type: "ack";
@@ -248,7 +300,16 @@ export interface ChunkReceived {
 }
 
 /** Messages the plugin sends, each in a frame of its own or in chunks. */
-export type PluginMessage = Hello | Heartbeat | ShotDelivery | ShotIndex | SteamDelivery | SteamIndex | WorkflowDelivery | MachineStateDelivery;
+export type PluginMessage =
+  | Hello
+  | Heartbeat
+  | ShotDelivery
+  | ShotIndex
+  | SteamDelivery
+  | SteamIndex
+  | WorkflowDelivery
+  | MachineStateDelivery
+  | CollectionDelivery;
 export type ServerMessage = Welcome | Heartbeat | ErrorMessage | RequestShots | RequestSteams | Ack | ChunkReceived;
 
 export type Decoded<T> =
@@ -384,6 +445,14 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         fields.string("state", { nonEmpty: true });
         fields.string("substate", { nonEmpty: true });
       });
+    case "collection":
+      return check<CollectionDelivery>(object, "collection", (fields) => {
+        fields.string("id", { nonEmpty: true });
+        fields.string("name", { nonEmpty: true });
+        fields.boolean("available");
+        if (object.available === true) fields.present("value");
+        else if (object.available === false) fields.absent("value");
+      });
     case "heartbeat":
       return check<Heartbeat>(object, "heartbeat", () => {});
     default:
@@ -481,8 +550,22 @@ class FieldChecker {
     else if (options.nonNegative && value < 0) this.problem(key, "must not be negative");
   }
 
+  boolean(key: string): void {
+    if (typeof this.object[key] !== "boolean") this.problem(key, "must be true or false");
+  }
+
   objectField(key: string): void {
     if (!isObject(this.object[key])) this.problem(key, "must be an object");
+  }
+
+  /** Any JSON value but null. */
+  present(key: string): void {
+    const value = this.object[key];
+    if (value === undefined || value === null) this.problem(key, "must be present and not null");
+  }
+
+  absent(key: string): void {
+    if (this.object[key] !== undefined) this.problem(key, "must be absent");
   }
 
   /** A UTC instant as `Date.prototype.toISOString` writes it. Read back, it must be written the same, so times that do not exist, which Date rolls over, are refused. */

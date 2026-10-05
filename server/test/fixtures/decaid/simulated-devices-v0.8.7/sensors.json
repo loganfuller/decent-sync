@@ -1,0 +1,70 @@
+[
+  {
+    "id": "mockSensorBasket",
+    "info": {
+      "name": "SensorBasket",
+      "vendor": "DecentEspresso",
+      "data": [
+        {
+          "key": "timestamp",
+          "type": "string",
+          "unit": null
+        },
+        {
+          "key": "temperature",
+          "type": "number",
+          "unit": "°C"
+        },
+        {
+          "key": "pressure",
+          "type": "number",
+          "unit": "Bar"
+        },
+        {
+          "key": "weight",
+          "type": "number",
+          "unit": "g"
+        },
+        {
+          "key": "weightFlow",
+          "type": "number",
+          "unit": "g/s"
+        }
+      ],
+      "commands": [
+        {
+          "id": "tare",
+          "name": "Tare",
+          "description": "Tare sensor scale",
+          "paramsSchema": null,
+          "resultsSchema": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "mockDebugPort",
+    "info": {
+      "name": "DebugPort",
+      "vendor": "DecentEspresso",
+      "data": [
+        {
+          "key": "output",
+          "type": "string",
+          "unit": null
+        }
+      ],
+      "commands": [
+        {
+          "id": "input",
+          "name": "input",
+          "description": "Send line to debug port",
+          "paramsSchema": {
+            "command": "string"
+          },
+          "resultsSchema": null
+        }
+      ]
+    }
+  }
+]

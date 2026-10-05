@@ -1,5 +1,6 @@
 import { ConflictException, Inject, Injectable } from "@nestjs/common";
 import { type ErrorCode, type Hello, MISSED_HEARTBEATS } from "@decent-sync/protocol";
+import { transferPendingCollections } from "../collections/transfer.js";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { type Machine, MachineIdentification, Prisma } from "../generated/prisma/client.js";
@@ -569,8 +570,8 @@ function identificationOf(identity: Exclude<Identity, { kind: "rejected" }>): Ma
 /**
  * Gives the Machine whatever is held for its hardware, even by a dismissed
  * Pending Machine: its Shots and Steam Records, credited by its Location
- * History, and its Workflow and machine state events. The Machine's row lock
- * must be held, or the Machine created in this transaction.
+ * History, its Workflow and machine state events, and its collections. The
+ * Machine's row lock must be held, or the Machine created in this transaction.
  */
 export async function transferPendingRecords(tx: Prisma.TransactionClient, hardware: Hardware, machineId: string): Promise<void> {
   const handover = { machineId, pendingMachineId: null };
@@ -578,5 +579,6 @@ export async function transferPendingRecords(tx: Prisma.TransactionClient, hardw
   await tx.steamRecord.updateMany({ where: { pendingMachine: hardware }, data: handover });
   await tx.workflowEvent.updateMany({ where: { pendingMachine: hardware }, data: handover });
   await tx.machineStateEvent.updateMany({ where: { pendingMachine: hardware }, data: handover });
+  await transferPendingCollections(tx, hardware, machineId);
   await creditLocations(tx, machineId);
 }

@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import type { MachineStateDelivery, WorkflowDelivery } from "@decent-sync/protocol";
 import { type MachineStateEvent, Prisma, type WorkflowEvent } from "../generated/prisma/client.js";
-import { type Credit, creditReporter } from "../machines/credit.js";
+import { type Credit, creditReporter, firstDelivery } from "../machines/credit.js";
 import { machineNotFound } from "../machines/input.js";
 import type { MachineStateView } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
@@ -108,21 +108,6 @@ export class MachineEventsService {
   private async requireMachine(id: string): Promise<void> {
     if ((await this.prisma.machine.count({ where: { id } })) === 0) throw machineNotFound();
   }
-}
-
-/**
- * Records that the session's token delivered this id, and says whether it is
- * the first time. A delivery's ids are its token's Machine's own, since a
- * resend always comes through the same plugin and token. Recorded before the
- * credit is locked, as by every delivery, so a resend arriving meanwhile
- * waits for this one to commit and then finds it.
- */
-async function firstDelivery(tx: Prisma.TransactionClient, reporter: Reporter, deliveryId: string): Promise<boolean> {
-  const recorded = await tx.$executeRaw`
-    INSERT INTO machine_event_deliveries (machine_id, delivery_id)
-    VALUES (${reporter.machineId}::uuid, ${deliveryId})
-    ON CONFLICT DO NOTHING`;
-  return recorded > 0;
 }
 
 /** The events credited as this one is, as a condition on an event table. */
