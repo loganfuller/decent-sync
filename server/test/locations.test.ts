@@ -134,7 +134,9 @@ describe("Locations", () => {
     expect((await call("PATCH", "/locations/not-an-id", { name: "Gone" })).status).toBe(404);
   });
 
-  it("lists the time zones a Location may use, under the names it stores", async () => {
+  // Creates a Location in each of PostgreSQL's several hundred time zones, one request at a time: about 2 s
+  // alone, and more while other test files load the machine.
+  it("lists the time zones a Location may use, under the names it stores", { timeout: 20_000 }, async () => {
     const { timeZones } = (await (await call("GET", "/time-zones")).json()) as { timeZones: string[] };
 
     expect(timeZones).toEqual([...timeZones].sort());

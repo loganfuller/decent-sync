@@ -36,8 +36,8 @@ export function AccountsPage() {
             <h2>Invite someone</h2>
           </CardTitle>
           <CardDescription>
-            Admins can change everything on this server. Staff see only the Locations they work at, and can move Machines
-            between them.
+            Admins can change everything on this server. Staff can see everything except other people's accounts, and
+            can move Machines between the Locations they work at.
           </CardDescription>
         </CardHeader>
         <CardContent>

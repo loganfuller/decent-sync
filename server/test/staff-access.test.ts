@@ -3,15 +3,15 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView, acceptInvite } from "./support/admin-api.js";
 import { derivedShot, shotFixture } from "./support/shot-fixtures.js";
 import { derivedSteam } from "./support/steam-fixtures.js";
-import { RawConnection, helloWith } from "./support/simulated-tablet.js";
+import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // What Staff see and do through the REST API. Staff read everything an
 // Admin reads but other accounts' personal information, and change only one
 // thing: which of the Locations they work at a Machine is at. Data is
-// seeded with raw connections; the Shot and Steam Record are derived from
-// scrubbed real records, changing only their ids, times and recorded
-// hardware. Hardware ids are made up.
+// seeded with raw connections and the built plugin on a simulated tablet;
+// the Shot and Steam Record are derived from scrubbed real records, changing
+// only their ids, times and recorded hardware. Hardware ids are made up.
 
 interface Sent {
   type: string;
@@ -138,6 +138,25 @@ describe("Staff access", () => {
     const mismatched = await api.waitForMachine("Uptown 1", (seen) => seen.mismatch?.serial === unknown.serial);
     expect(mismatched.mismatch?.pendingMachineId).toEqual(expect.any(String));
     expect(mismatched.lastShot).toMatchObject({ id: "staff-shot" });
+
+    // Lab 1's tablet, at the Lab, reports its Workflow, a machine state, its library, settings and paired devices.
+    const lab1Path = `/machines/${lab1.machine.id}`;
+    const tablet = SimulatedTablet.load({
+      settings: { ...settingsFor(lab1), PollSeconds: 5 },
+      api: derivedDe1Pro({ serial: "10005" }),
+      timeScale: 50,
+    });
+    try {
+      await expect.poll(async () => (await read(api, `${lab1Path}/workflow`))[1], { timeout: 10_000 }).toMatchObject({ workflow: { id: expect.any(String) } });
+      tablet.reportState("espresso", "preinfusion");
+      await expect.poll(async () => (await read(api, `${lab1Path}/machine-state-events`))[1], { timeout: 10_000 }).toMatchObject({ total: 1 });
+      await expect.poll(async () => (await read(api, `${lab1Path}/collections/appSettings`))[1], { timeout: 10_000 }).toMatchObject({ collection: { available: true } });
+      await expect.poll(async () => (await read(api, `${lab1Path}/paired-devices`))[1], { timeout: 10_000 }).toMatchObject({ pairedDevices: { available: true } });
+    } finally {
+      // Its polls would otherwise change report times between the Admin's reads and Sam's.
+      await tablet.unload();
+    }
+    expect(((await read(api, `${lab1Path}/collections`))[1] as { collections: unknown[] }).collections.length).toBeGreaterThan(1);
 
     expect(names(await staff.machines())).toEqual(["Belmont 1", "Lab 1", "Spare", "Uptown 1"]);
     const paths = [

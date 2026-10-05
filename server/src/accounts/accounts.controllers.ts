@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Post, Res } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Post, Res, UnauthorizedException } from "@nestjs/common";
 import type { Response } from "express";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
@@ -62,8 +62,11 @@ export class SessionController {
 
   @AllowStaff()
   @Get()
-  current(@CurrentSession() { account }: SignedIn): { account: AccountView } {
-    return { account: viewAccount(account) };
+  async current(@CurrentSession() { account }: SignedIn): Promise<{ account: AccountView }> {
+    // Its Locations' names are read only here: every request needs only their ids.
+    const view = await this.accounts.view(account.id);
+    if (!view) throw new UnauthorizedException("Sign in to continue");
+    return { account: view };
   }
 
   /** Signs out: ends the session on the server, not only in the browser. */

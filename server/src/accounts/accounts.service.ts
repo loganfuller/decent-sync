@@ -42,6 +42,12 @@ export class AccountsService {
     private readonly limiter: SignInLimiter,
   ) {}
 
+  /** The account as the REST API returns it, or undefined if there is none. */
+  async view(id: string): Promise<AccountView | undefined> {
+    const account = await this.prisma.account.findUnique({ where: { id }, include: withStaffLocations });
+    return account ? viewAccount(account) : undefined;
+  }
+
   /** Whether the server still needs its first Admin. */
   async setupRequired(): Promise<boolean> {
     return (await this.prisma.account.count()) === 0;
