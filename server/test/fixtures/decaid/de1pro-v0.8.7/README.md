@@ -9,6 +9,7 @@ Responses from Decaid's local API on the test tablet (a DE1Pro, Decaid
 | `machine-info.json` | `GET /api/v1/machine/info` |
 | `settings.json` | `GET /api/v1/settings` |
 | `shot-espresso.json` | `GET /api/v1/shots/45648d13-bb4c-4371-ba84-f34f2e89c583` |
+| `steam.json` | `GET /api/v1/steams/1bec3908-e160-41c7-9b68-05de6d44b637`, read on 2026-10-05 |
 
 Edited: the machine's serial number, the Bluetooth addresses of the preferred
 machine and scale, and the tablet's LAN address are replaced with made-up
@@ -28,3 +29,10 @@ ids, times, hardware, annotations or unknown fields explicitly in tests. Their
 measurement samples still come from this record. `longShot()` in
 `server/test/support/shot-fixtures.ts` derives Shots larger than one frame by
 repeating those samples.
+
+The Steam Record is whole, measurements included, with only its Barista
+name replaced with `Fixture Barista`. Its `timestamp` and sample times are
+the tablet's local time (UTC-4) without an offset; Decaid records no UTC time
+or hardware on Steam Records. This DE1Pro has no milk probe, so every sample's
+`milkTemperature` is null. `bengle-simulated-v0.8.7/` has one with milk
+temperatures.

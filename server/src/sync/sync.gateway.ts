@@ -16,6 +16,7 @@ import {
   Reassembly,
   type ReassemblyLimits,
   type RequestShots,
+  type RequestSteams,
   SYNC_PATH,
   type ServerMessage,
   decodePluginFrame,
@@ -29,8 +30,9 @@ import { AccessChanges } from "../machines/access-changes.js";
 import { type LiveConnection, LiveConnections } from "../machines/connections.js";
 import { MachinesService, type Refusal, describeHardware } from "../machines/machines.service.js";
 import { ShotsService } from "../shots/shots.service.js";
+import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { hashSecret } from "../secrets.js";
-import type { Hardware, Identity } from "./identity.js";
+import type { Hardware, Identity, Reporter } from "./identity.js";
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
 const MAX_PAYLOAD_BYTES = 1 << 20;
@@ -70,7 +72,8 @@ interface Session {
    * plugin that reconnects sends a message again from its first chunk.
    */
   chunks: Reassembly;
-  processed: Map<string, RequestShots | null>;
+  /** Deliveries handled on this connection, with the request an index was answered with. */
+  processed: Map<string, RequestShots | RequestSteams | null>;
   /** Set once `welcome` is sent. */
   welcomed: boolean;
   closing: boolean;
@@ -111,6 +114,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly machines: MachinesService,
     private readonly live: LiveConnections,
     private readonly shots: ShotsService,
+    private readonly steamRecords: SteamRecordsService,
     accessChanges: AccessChanges,
   ) {
     accessChanges.subscribe((machineId) => void this.check(this.live.of(machineId)));
@@ -251,26 +255,21 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       this.send(session, { type: "ack", id: message.id });
       return;
     }
+    const reporter: Reporter = { machineId: session.machine.id, identity: session.identity! };
     switch (message.type) {
       case "hello":
         return this.refuse(session, "protocol_error", "hello was already sent on this connection");
       case "shot":
       case "shotUpdated":
-        await this.shots.store(message, { machineId: session.machine.id, identity: session.identity! });
-        session.processed.set(message.id, null);
-        if (!session.closing) this.send(session, { type: "ack", id: message.id });
-        return;
-      case "shotIndex": {
-        const response: RequestShots = { type: "requestShots", shotIds: await this.shots.requested(message) };
-        // Cache the response as well as the receipt: replaying an index after
-        // losing its request must still let the tablet continue backfill.
-        session.processed.set(message.id, response);
-        if (!session.closing) {
-          this.send(session, response);
-          this.send(session, { type: "ack", id: message.id });
-        }
-        return;
-      }
+        await this.shots.store(message, reporter);
+        return this.acknowledge(session, message.id, null);
+      case "steam":
+        await this.steamRecords.store(message, reporter);
+        return this.acknowledge(session, message.id, null);
+      case "shotIndex":
+        return this.acknowledge(session, message.id, { type: "requestShots", shotIds: await this.shots.requested(message) });
+      case "steamIndex":
+        return this.acknowledge(session, message.id, { type: "requestSteams", steamIds: await this.steamRecords.requested(message) });
       case "heartbeat":
         // One sent before its connection was welcomed is answered now.
         if (!answered) {
@@ -283,6 +282,18 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         }
         return;
     }
+  }
+
+  /**
+   * Acknowledges a delivery once stored, after the request answering it if it
+   * is an index. Both are kept: replaying an index after losing its request
+   * must still let the tablet continue backfill.
+   */
+  private acknowledge(session: Session, id: string, response: RequestShots | RequestSteams | null): void {
+    session.processed.set(id, response);
+    if (session.closing) return;
+    if (response) this.send(session, response);
+    this.send(session, { type: "ack", id });
   }
 
   private async hello(session: Session, hello: Hello): Promise<void> {

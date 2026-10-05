@@ -12,7 +12,7 @@ import {
   hardwareTaken,
   lockHardware,
   refuseDuplicateName,
-  transferPendingShots,
+  transferPendingRecords,
 } from "./machines.service.js";
 import { notifyAccessChanged } from "./access-changes.js";
 
@@ -81,7 +81,7 @@ export class PendingMachinesService {
           },
         });
         await startLocationHistory(tx, machine.id, fields.locationId);
-        await transferPendingShots(tx, hardware, machine.id);
+        await transferPendingRecords(tx, hardware, machine.id);
         await tx.pendingMachine.delete({ where: { id } });
         return machine.id;
       })

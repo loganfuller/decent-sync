@@ -11,9 +11,11 @@ import {
 } from "@decent-sync/protocol";
 import { readMachineHardware, readTabletIdentity } from "./decaid.js";
 import type { PluginHost, TransportEvent } from "./host.js";
+import { Outbox } from "./outbox.js";
 import { Sender } from "./sender.js";
 import { ShotCapture } from "./shots.js";
 import type { SyncSettings } from "./settings.js";
+import { SteamCapture } from "./steams.js";
 
 const MIN_RECONNECT_MS = 1_000;
 const MAX_RECONNECT_MS = 60_000;
@@ -85,7 +87,10 @@ export class SyncConnection {
   private sentHardware: MachineHardware | null = null;
   /** Hardware the server dismissed for this token; while set, the plugin does not connect. */
   private dismissedHardware: MachineHardware | null = null;
+  /** Everything awaiting the server's acknowledgment, kept across reconnects in this runtime. */
+  private readonly outbox: Outbox;
   private readonly shots: ShotCapture;
+  private readonly steams: SteamCapture;
   private checkingHardware = false;
   private hardwareCooldown = false;
 
@@ -93,12 +98,20 @@ export class SyncConnection {
     private readonly host: PluginHost,
     private readonly settings: SyncSettings,
     private readonly log: (message: string) => void,
-  ) { this.shots = new ShotCapture(log); }
+  ) {
+    this.outbox = new Outbox(log, {
+      shot: (id, deliveryId) => this.shots.read(id, deliveryId),
+      steam: (id, deliveryId) => this.steams.read(id, deliveryId),
+    });
+    this.shots = new ShotCapture(this.outbox, log);
+    this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1000, log);
+  }
 
   /** Connects from a timer, so the caller (onLoad) returns at once. */
   start(): void {
     this.setTimer("reconnect", 0, () => void this.connect());
     this.scheduleHardwarePoll();
+    this.steams.start();
   }
 
   /** A machine state update: the machine is connected, and may have just reported its hardware. */
@@ -115,7 +128,9 @@ export class SyncConnection {
 
   stop(): void {
     this.stopped = true;
+    this.outbox.stop();
     this.shots.stop();
+    this.steams.stop();
     for (const id of this.timers.values()) clearTimeout(id);
     this.timers.clear();
     this.closeHandle();
@@ -223,23 +238,28 @@ export class SyncConnection {
         this.log(`Connected to ${this.settings.syncUrl}`);
         this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
         this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
-        this.shots.welcome(async (delivery) => {
+        this.outbox.welcome(async (delivery) => {
           try { await this.send(handle, delivery); }
           catch (error) {
-            if (handle === this.handle) this.drop("could not send a Shot delivery");
+            if (handle === this.handle) this.drop("could not send a delivery");
             throw error;
           }
         });
+        this.shots.welcome();
+        this.steams.welcome();
         break;
       case "ack":
         this.sender?.acknowledged(message.id);
-        this.shots.acknowledge(message.id);
+        this.outbox.acknowledge(message.id);
         break;
       case "chunkReceived":
         this.sender?.received(message.id, message.index);
         break;
       case "requestShots":
-        this.shots.request(message.shotIds);
+        this.outbox.request("shot", message.shotIds);
+        break;
+      case "requestSteams":
+        this.outbox.request("steam", message.steamIds);
         break;
       case "heartbeat":
         // Its arrival is what counts.
@@ -347,7 +367,7 @@ export class SyncConnection {
     // A message cut off here is sent again whole, from its first chunk, on the next connection.
     this.sender?.close();
     this.sender = undefined;
-    this.shots.disconnected();
+    this.outbox.disconnected();
     this.clearTimer("heartbeat");
     this.clearTimer("silence");
     this.clearTimer("connect");

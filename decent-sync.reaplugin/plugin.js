@@ -151,6 +151,10 @@ var __decentSync = (() => {
         return check(object2, "requestShots", (fields) => {
           fields.array("shotIds", (value) => typeof value === "string" && value !== "", 100);
         });
+      case "requestSteams":
+        return check(object2, "requestSteams", (fields) => {
+          fields.array("steamIds", (value) => typeof value === "string" && value !== "", 100);
+        });
       case "heartbeat":
         return check(object2, "heartbeat", () => {
         });
@@ -186,6 +190,12 @@ var __decentSync = (() => {
     }
     objectField(key) {
       if (!isObject(this.object[key])) this.problem(key, "must be an object");
+    }
+    /** A UTC instant as `Date.prototype.toISOString` writes it. Read back, it must be written the same, so times that do not exist, which Date rolls over, are refused. */
+    instant(key) {
+      const value = this.object[key];
+      const ms = typeof value === "string" ? Date.parse(value) : NaN;
+      if (!Number.isFinite(ms) || new Date(ms).toISOString() !== value) this.problem(key, "must be a UTC time such as 2026-10-05T14:07:03.341Z");
     }
     array(key, valid, max) {
       const value = this.object[key];
@@ -268,14 +278,150 @@ var __decentSync = (() => {
     const page = await getObject(`/shots?limit=${limit}&offset=${offset}&order=desc`);
     return Array.isArray(page?.items) ? { items: page.items } : null;
   }
-  async function readShot(id) {
-    const response = await fetch(`${API}/shots/${encodeURIComponent(id)}`);
+  function readShot(id) {
+    return readRecord("shots", id);
+  }
+  function readSteam(id) {
+    return readRecord("steams", id);
+  }
+  async function readSteamIds() {
+    try {
+      const response = await fetch(`${API}/steams/ids`);
+      if (!response.ok) return null;
+      const body = await response.json();
+      return Array.isArray(body) ? body.filter((id) => typeof id === "string" && id !== "") : null;
+    } catch {
+      return null;
+    }
+  }
+  async function readRecord(collection, id) {
+    const response = await fetch(`${API}/${collection}/${encodeURIComponent(id)}`);
     if (response.status === 404) return null;
-    if (!response.ok) throw new Error("Shot unavailable");
+    if (!response.ok) throw new Error("Record unavailable");
     const body = await response.json();
-    if (body === null || typeof body !== "object" || Array.isArray(body)) throw new Error("Shot response unavailable");
+    if (body === null || typeof body !== "object" || Array.isArray(body)) throw new Error("Record response unavailable");
     return body;
   }
+
+  // src/outbox.ts
+  var SHORT_OUTBOX = 4;
+  var Outbox = class {
+    constructor(log, readers) {
+      __publicField(this, "log", log);
+      __publicField(this, "readers", readers);
+      __publicField(this, "queued", /* @__PURE__ */ new Map());
+      __publicField(this, "requested", /* @__PURE__ */ new Map());
+      __publicField(this, "runtimeId", `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
+      __publicField(this, "sequence", 0);
+      __publicField(this, "sendMessage");
+      /** Bumped by every welcome and disconnect, so work for an earlier connection stops. */
+      __publicField(this, "connections", 0);
+      /** The delivery awaiting acknowledgment. */
+      __publicField(this, "sent");
+      __publicField(this, "working", false);
+      __publicField(this, "stopped", false);
+      __publicField(this, "retryTimer");
+    }
+    /** Changes with every welcome and disconnect: work started for one connection checks it before sending. */
+    get generation() {
+      return this.connections;
+    }
+    welcome(send) {
+      this.sendMessage = send;
+      this.connections++;
+      this.sent = void 0;
+      this.pump();
+    }
+    disconnected() {
+      this.sendMessage = void 0;
+      this.connections++;
+      this.sent = void 0;
+    }
+    stop() {
+      this.stopped = true;
+      this.disconnected();
+      if (this.retryTimer !== void 0) clearTimeout(this.retryTimer);
+    }
+    enqueue(delivery) {
+      this.queued.set(delivery.id, delivery);
+      this.pump();
+    }
+    acknowledge(id) {
+      this.queued.delete(id);
+      if (this.sent === id) this.sent = void 0;
+      this.pump();
+    }
+    /**
+     * Records to read and send: requested by the server, after those already
+     * requested, where a record requested again keeps its place, or, with
+     * `first`, ahead of them all, as for records new on the tablet.
+     */
+    request(kind, ids, options = {}) {
+      const records = ids.map((id) => [`${kind}:${id}`, { kind, id }]);
+      if (options.first) {
+        const keys = new Set(records.map(([key]) => key));
+        const others = [...this.requested].filter(([key]) => !keys.has(key));
+        this.requested.clear();
+        for (const [key, record] of [...records, ...others]) this.requested.set(key, record);
+      } else {
+        for (const [key, record] of records) this.requested.set(key, record);
+      }
+      this.pump();
+    }
+    /** A record that could not be read now, to be read again, as if requested, after a pause. */
+    retryLater(kind, id) {
+      this.requested.set(`${kind}:${id}`, { kind, id });
+      this.retry();
+    }
+    /** Resolves once few enough deliveries are queued for an index to add a page. */
+    async waitForRoom() {
+      while (!this.stopped && this.queued.size >= SHORT_OUTBOX) await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    nextId() {
+      return `${this.runtimeId}-${++this.sequence}`;
+    }
+    pump() {
+      if (this.retryTimer !== void 0 || this.working || this.stopped || !this.sendMessage || this.sent !== void 0 || this.queued.size === 0 && this.requested.size === 0) return;
+      this.working = true;
+      void this.work().catch(() => {
+        this.log("Delivery interrupted; unacknowledged data remains queued.");
+        this.retry();
+      }).finally(() => {
+        this.working = false;
+        if (!this.stopped && this.sendMessage && this.sent === void 0) this.pump();
+      });
+    }
+    async work() {
+      const generation = this.connections;
+      if (this.queued.size === 0 && this.requested.size > 0) {
+        const [key, record] = this.requested.entries().next().value;
+        let delivery;
+        try {
+          delivery = await this.readers[record.kind](record.id, this.nextId());
+        } catch (error) {
+          this.requested.delete(key);
+          this.requested.set(key, record);
+          throw error;
+        }
+        if (this.stopped) return;
+        this.requested.delete(key);
+        if (delivery) this.queued.set(delivery.id, delivery);
+      }
+      if (generation !== this.connections || !this.sendMessage) return;
+      const next = this.queued.entries().next().value;
+      if (!next) return;
+      const [id, message] = next;
+      this.sent = id;
+      await this.sendMessage(message);
+    }
+    retry() {
+      if (this.stopped || this.retryTimer !== void 0) return;
+      this.retryTimer = setTimeout(() => {
+        this.retryTimer = void 0;
+        this.pump();
+      }, 5e3);
+    }
+  };
 
   // src/sender.ts
   var MAX_UNCONFIRMED_BYTES = 512 * 1024;
@@ -353,55 +499,26 @@ var __decentSync = (() => {
 
   // src/shots.ts
   var PAGE_SIZE = 100;
-  var SHORT_OUTBOX = 4;
   var ShotCapture = class {
-    constructor(log) {
+    constructor(outbox, log) {
+      __publicField(this, "outbox", outbox);
       __publicField(this, "log", log);
-      __publicField(this, "outbox", /* @__PURE__ */ new Map());
-      __publicField(this, "requested", /* @__PURE__ */ new Set());
       __publicField(this, "ids", /* @__PURE__ */ new Set());
-      __publicField(this, "runtimeId", `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
-      __publicField(this, "sequence", 0);
-      __publicField(this, "sendMessage");
-      __publicField(this, "generation", 0);
-      __publicField(this, "sent");
-      __publicField(this, "working", false);
       __publicField(this, "scanning", false);
       __publicField(this, "scanned", false);
       __publicField(this, "welcomed", false);
       __publicField(this, "stopped", false);
       __publicField(this, "timer");
-      __publicField(this, "retryTimer");
       __publicField(this, "events", Promise.resolve());
     }
-    welcome(send) {
-      this.sendMessage = send;
-      this.generation++;
-      this.sent = void 0;
+    welcome() {
       if (this.welcomed) void this.indexKnownIds();
       this.welcomed = true;
       if (!this.scanned && !this.scanning && this.timer === void 0) void this.scan();
-      this.pump();
-    }
-    disconnected() {
-      this.sendMessage = void 0;
-      this.generation++;
-      this.sent = void 0;
     }
     stop() {
       this.stopped = true;
-      this.disconnected();
       if (this.timer !== void 0) clearTimeout(this.timer);
-      if (this.retryTimer !== void 0) clearTimeout(this.retryTimer);
-    }
-    acknowledge(id) {
-      this.outbox.delete(id);
-      if (this.sent === id) this.sent = void 0;
-      this.pump();
-    }
-    request(ids) {
-      for (const id of ids) this.requested.add(id);
-      this.pump();
     }
     event(type, payload) {
       const event = object(payload);
@@ -417,23 +534,27 @@ var __decentSync = (() => {
         try {
           shot = await readShot(id);
         } catch {
-          this.requested.add(id);
-          this.retry();
+          this.outbox.retryLater("shot", id);
           return;
         }
         if (shot && !this.stopped) this.capture(type, id, shot);
       }).catch(() => this.log("Could not capture a Shot event; reconciliation will recover it."));
     }
+    /** A Shot the server requested, as a delivery, or null if the tablet no longer has it. */
+    async read(id, deliveryId) {
+      const shot = await readShot(id);
+      return shot && { type: "shot", id: deliveryId, shotId: id, shot };
+    }
     capture(type, id, shot) {
       this.ids.add(id);
-      this.enqueue({ type, id: this.nextId(), shotId: id, shot });
+      this.outbox.enqueue({ type, id: this.outbox.nextId(), shotId: id, shot });
     }
     /** Read bounded summaries once per load; never use the unbounded ids endpoint. */
     async scan() {
       this.scanning = true;
       try {
         for (let offset = 0; !this.stopped; offset += PAGE_SIZE) {
-          await this.waitForRoom();
+          await this.outbox.waitForRoom();
           if (this.stopped) return;
           const page = await readShotPage(PAGE_SIZE, offset);
           if (!page) throw new Error("Shot summaries unavailable");
@@ -443,7 +564,7 @@ var __decentSync = (() => {
             this.ids.add(summary.id);
             return [{ id: summary.id, updatedAt: summary.updatedAt }];
           });
-          this.enqueue({ type: "shotIndex", id: this.nextId(), shots });
+          this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots });
           if (page.items.length < PAGE_SIZE) break;
         }
         this.scanned = !this.stopped;
@@ -458,68 +579,13 @@ var __decentSync = (() => {
       }
     }
     async indexKnownIds() {
-      const generation = this.generation;
+      const generation = this.outbox.generation;
       const ids = [...this.ids];
       for (let offset = 0; offset < ids.length; offset += PAGE_SIZE) {
-        await this.waitForRoom();
-        if (this.stopped || generation !== this.generation) return;
-        this.enqueue({ type: "shotIndex", id: this.nextId(), shots: ids.slice(offset, offset + PAGE_SIZE).map((id) => ({ id })) });
+        await this.outbox.waitForRoom();
+        if (this.stopped || generation !== this.outbox.generation) return;
+        this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots: ids.slice(offset, offset + PAGE_SIZE).map((id) => ({ id })) });
       }
-    }
-    async waitForRoom() {
-      while (!this.stopped && this.outbox.size >= SHORT_OUTBOX) await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    enqueue(message) {
-      this.outbox.set(message.id, message);
-      this.pump();
-    }
-    /** One logical message awaits ack at a time; the connection's Sender keeps it, chunked or not, within Decaid's pending limit. */
-    pump() {
-      if (this.retryTimer !== void 0 || this.working || this.stopped || !this.sendMessage || this.sent !== void 0 || this.outbox.size === 0 && this.requested.size === 0) return;
-      this.working = true;
-      void this.work().catch(() => {
-        this.log("Shot delivery interrupted; unacknowledged data remains queued.");
-        this.retry();
-      }).finally(() => {
-        this.working = false;
-        if (!this.stopped && this.sendMessage && this.sent === void 0) this.pump();
-      });
-    }
-    async work() {
-      const generation = this.generation;
-      if (this.outbox.size === 0 && this.requested.size > 0) {
-        const id2 = this.requested.values().next().value;
-        let shot;
-        try {
-          shot = await readShot(id2);
-        } catch (error) {
-          this.requested.delete(id2);
-          this.requested.add(id2);
-          throw error;
-        }
-        if (this.stopped) return;
-        this.requested.delete(id2);
-        if (shot) {
-          const envelopeId = this.nextId();
-          this.outbox.set(envelopeId, { type: "shot", id: envelopeId, shotId: id2, shot });
-        }
-      }
-      if (generation !== this.generation || !this.sendMessage) return;
-      const next = this.outbox.entries().next().value;
-      if (!next) return;
-      const [id, message] = next;
-      this.sent = id;
-      await this.sendMessage(message);
-    }
-    retry() {
-      if (this.stopped || this.retryTimer !== void 0) return;
-      this.retryTimer = setTimeout(() => {
-        this.retryTimer = void 0;
-        this.pump();
-      }, 5e3);
-    }
-    nextId() {
-      return `${this.runtimeId}-${++this.sequence}`;
     }
   };
   function isLegacyImport(id) {
@@ -527,6 +593,111 @@ var __decentSync = (() => {
   }
   function object(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+  }
+
+  // src/steams.ts
+  var PAGE_SIZE2 = 100;
+  var RETRY_MS = 5e3;
+  var SteamCapture = class {
+    constructor(outbox, pollMs, log) {
+      __publicField(this, "outbox", outbox);
+      __publicField(this, "pollMs", pollMs);
+      __publicField(this, "log", log);
+      /** The ids the latest read found, or null before the first, which finds none new. */
+      __publicField(this, "known", null);
+      __publicField(this, "stopped", false);
+      __publicField(this, "pollTimer");
+      __publicField(this, "indexTimer");
+    }
+    start() {
+      this.schedulePoll();
+    }
+    stop() {
+      this.stopped = true;
+      if (this.pollTimer !== void 0) clearTimeout(this.pollTimer);
+      if (this.indexTimer !== void 0) clearTimeout(this.indexTimer);
+    }
+    welcome() {
+      if (this.indexTimer !== void 0) clearTimeout(this.indexTimer);
+      this.indexTimer = void 0;
+      void this.index(this.outbox.generation);
+    }
+    /** A Steam Record, as a delivery placed in time, or null if the tablet no longer has it or its time cannot be read. */
+    async read(id, deliveryId) {
+      const steam = await readSteam(id);
+      if (!steam) return null;
+      const steamedAt = utcTime(steam.timestamp);
+      if (steamedAt === null) {
+        this.log(`Not sending Steam Record ${id}: its time is not one Decaid writes.`);
+        return null;
+      }
+      return { type: "steam", id: deliveryId, steamId: id, steamedAt, steam };
+    }
+    async index(generation) {
+      if (this.stopped || generation !== this.outbox.generation) return;
+      const ids = await this.readIds();
+      if (this.stopped || generation !== this.outbox.generation) return;
+      if (!ids) {
+        this.log("Could not read the Steam Record ids; retrying.");
+        this.indexTimer = setTimeout(() => {
+          this.indexTimer = void 0;
+          void this.index(generation);
+        }, RETRY_MS);
+        return;
+      }
+      for (let offset = 0; offset < ids.all.length; offset += PAGE_SIZE2) {
+        await this.outbox.waitForRoom();
+        if (this.stopped || generation !== this.outbox.generation) return;
+        this.outbox.enqueue({ type: "steamIndex", id: this.outbox.nextId(), steams: ids.all.slice(offset, offset + PAGE_SIZE2).map((id) => ({ id })) });
+      }
+    }
+    schedulePoll() {
+      this.pollTimer = setTimeout(() => {
+        this.pollTimer = void 0;
+        void this.poll().finally(() => {
+          if (!this.stopped) this.schedulePoll();
+        });
+      }, this.pollMs);
+    }
+    /** Requests the Steam Records recorded since the last read, ahead of those the server requested. */
+    async poll() {
+      const ids = await this.readIds();
+      if (ids && ids.fresh.length > 0 && !this.stopped) this.outbox.request("steam", ids.fresh, { first: true });
+    }
+    /** Every Steam Record id, and those new since the last read; null if they cannot be read now. */
+    async readIds() {
+      const all = await readSteamIds();
+      if (!all) return null;
+      const known = this.known;
+      this.known = new Set(all);
+      return { all, fresh: known ? all.filter((id) => !known.has(id)) : [] };
+    }
+  };
+  var ISO_TIME = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d)?$/;
+  function utcTime(timestamp) {
+    const match = typeof timestamp === "string" ? ISO_TIME.exec(timestamp) : null;
+    if (!match) return null;
+    const parts = match.slice(1, 7).map(Number);
+    const [year, month, day, hour, minute, second] = parts;
+    const ms = Number((match[7] ?? "").padEnd(3, "0").slice(0, 3));
+    const offset = match[8];
+    if (offset === void 0) {
+      const local = new Date(year, month - 1, day, hour, minute, second, ms);
+      const readBack2 = [local.getFullYear(), local.getMonth() + 1, local.getDate(), local.getHours(), local.getMinutes(), local.getSeconds()];
+      return readBack2.every((part, index) => part === parts[index]) ? local.toISOString() : null;
+    }
+    const minutes = offsetMinutes(offset);
+    const utc = new Date(Date.UTC(year, month - 1, day, hour, minute, second, ms));
+    const readBack = [utc.getUTCFullYear(), utc.getUTCMonth() + 1, utc.getUTCDate(), utc.getUTCHours(), utc.getUTCMinutes(), utc.getUTCSeconds()];
+    if (minutes === null || !readBack.every((part, index) => part === parts[index])) return null;
+    return new Date(utc.getTime() - minutes * 6e4).toISOString();
+  }
+  function offsetMinutes(offset) {
+    if (offset === "Z") return 0;
+    const hours = Number(offset.slice(1, 3));
+    const minutes = Number(offset.slice(4, 6));
+    if (hours > 23 || minutes > 59) return null;
+    return (offset.startsWith("-") ? -1 : 1) * (hours * 60 + minutes);
   }
 
   // src/connection.ts
@@ -565,15 +736,24 @@ var __decentSync = (() => {
       __publicField(this, "sentHardware", null);
       /** Hardware the server dismissed for this token; while set, the plugin does not connect. */
       __publicField(this, "dismissedHardware", null);
+      /** Everything awaiting the server's acknowledgment, kept across reconnects in this runtime. */
+      __publicField(this, "outbox");
       __publicField(this, "shots");
+      __publicField(this, "steams");
       __publicField(this, "checkingHardware", false);
       __publicField(this, "hardwareCooldown", false);
-      this.shots = new ShotCapture(log);
+      this.outbox = new Outbox(log, {
+        shot: (id, deliveryId) => this.shots.read(id, deliveryId),
+        steam: (id, deliveryId) => this.steams.read(id, deliveryId)
+      });
+      this.shots = new ShotCapture(this.outbox, log);
+      this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1e3, log);
     }
     /** Connects from a timer, so the caller (onLoad) returns at once. */
     start() {
       this.setTimer("reconnect", 0, () => void this.connect());
       this.scheduleHardwarePoll();
+      this.steams.start();
     }
     /** A machine state update: the machine is connected, and may have just reported its hardware. */
     machineActive() {
@@ -589,7 +769,9 @@ var __decentSync = (() => {
     }
     stop() {
       this.stopped = true;
+      this.outbox.stop();
       this.shots.stop();
+      this.steams.stop();
       for (const id of this.timers.values()) clearTimeout(id);
       this.timers.clear();
       this.closeHandle();
@@ -689,24 +871,29 @@ var __decentSync = (() => {
           this.log(`Connected to ${this.settings.syncUrl}`);
           this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
           this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
-          this.shots.welcome(async (delivery) => {
+          this.outbox.welcome(async (delivery) => {
             try {
               await this.send(handle, delivery);
             } catch (error) {
-              if (handle === this.handle) this.drop("could not send a Shot delivery");
+              if (handle === this.handle) this.drop("could not send a delivery");
               throw error;
             }
           });
+          this.shots.welcome();
+          this.steams.welcome();
           break;
         case "ack":
           this.sender?.acknowledged(message.id);
-          this.shots.acknowledge(message.id);
+          this.outbox.acknowledge(message.id);
           break;
         case "chunkReceived":
           this.sender?.received(message.id, message.index);
           break;
         case "requestShots":
-          this.shots.request(message.shotIds);
+          this.outbox.request("shot", message.shotIds);
+          break;
+        case "requestSteams":
+          this.outbox.request("steam", message.steamIds);
           break;
         case "heartbeat":
           break;
@@ -799,7 +986,7 @@ var __decentSync = (() => {
       this.welcomed = false;
       this.sender?.close();
       this.sender = void 0;
-      this.shots.disconnected();
+      this.outbox.disconnected();
       this.clearTimer("heartbeat");
       this.clearTimer("silence");
       this.clearTimer("connect");

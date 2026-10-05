@@ -29,6 +29,24 @@ describe("Shot extraction", () => {
     expect(extractCurves(shot, []).pulledAt).toBeNull();
   });
 
+  it("measures duration across a daylight-saving change in the tablet's local times", () => {
+    // Derived: the Shot's first two samples, at times either side of Chicago's changes, two seconds apart.
+    const shot = shotFixture();
+    const [first, second] = shot.measurements as { machine: Record<string, unknown> }[];
+    const at = (sample: { machine: Record<string, unknown> }, timestamp: string) => ({ ...sample, machine: { ...sample.machine, timestamp } });
+    for (const [before, after] of [
+      ["2026-03-08T01:59:59.000000", "2026-03-08T03:00:01.000000"],
+      ["2026-11-01T01:59:59.000000", "2026-11-01T01:00:01.000000"],
+    ]) {
+      expect(extractCurves(shot, [at(first!, before!), at(second!, after!)]).duration).toBe(2);
+    }
+    // A jump that is not whole quarter hours, or a clock set back, is a correction of unknown size.
+    expect(extractCurves(shot, [at(first!, "2026-10-04T14:14:10.000000"), at(second!, "2026-10-04T14:21:10.000000")]).duration).toBe(0);
+    expect(extractCurves(shot, [at(first!, "2026-10-04T14:14:10.000000"), at(second!, "2026-10-04T13:59:09.000000")]).duration).toBe(0);
+    const setBack = ["2026-10-04T14:14:10.000000", "2026-10-04T14:14:11.000000", "2026-10-04T14:14:01.000000", "2026-10-04T14:14:02.000000"];
+    expect(extractCurves(shot, setBack.map((timestamp) => at(first!, timestamp))).duration).toBe(2);
+  });
+
   it("tolerates absent, unfamiliar and mistyped optional fields", () => {
     for (const shot of [{}, { workflow: null, annotations: "unknown", measurements: [{ machine: null }, { machine: { pressure: "high" } }] }]) {
       expect(Object.values(extractShot(shot))).toEqual(expect.arrayContaining([null]));

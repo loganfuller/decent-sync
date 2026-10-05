@@ -216,3 +216,51 @@ describe("Shot envelopes", () => {
     expect(decodeServerMessage(frame({ type: "requestShots", shotIds: [1] })).ok).toBe(false);
   });
 });
+
+describe("Steam Record envelopes", () => {
+  const steam = { type: "steam", id: "delivery-1", steamId: "steam-1", steamedAt: "2026-10-05T14:07:03.341Z", steam: { unfamiliar: true } };
+
+  it("validates delivery and its UTC time without validating Decaid's record contents", () => {
+    const message = { ...steam, futureField: {} };
+    expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
+    expect(decodePluginMessage(frame({ ...steam, id: "" })).ok).toBe(false);
+    expect(decodePluginMessage(frame({ ...steam, steamId: 7 })).ok).toBe(false);
+    expect(decodePluginMessage(frame({ ...steam, steam: [] })).ok).toBe(false);
+  });
+
+  it("refuses a time that is not a UTC instant, or that does not exist, without repeating it", () => {
+    for (const steamedAt of [
+      undefined,
+      null,
+      1791209223341,
+      // The record's own local time, without an offset.
+      "2026-10-05T09:07:03.341484",
+      "2026-10-05T09:07:03.341-05:00",
+      "2026-10-05T14:07:03Z",
+      "2026-02-30T12:00:00.000Z",
+      "2026-10-05T24:00:00.000Z",
+      "unfamiliar",
+    ]) {
+      const result = decodePluginMessage(frame({ ...steam, steamedAt }));
+      expect(result).toEqual({ ok: false, error: "protocol_error", problem: "steam.steamedAt must be a UTC time such as 2026-10-05T14:07:03.341Z" });
+    }
+    expect(JSON.stringify(decodePluginMessage(frame({ ...steam, steamedAt: token })))).not.toContain(token);
+  });
+
+  it("accepts bounded indices of ids, and validates their requests", () => {
+    for (const steams of [[{ id: "1" }, { id: "2", futureField: true }], []]) {
+      const message = { type: "steamIndex", id: "index-1", steams };
+      expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
+    }
+    expect(decodePluginMessage(frame({ type: "steamIndex", id: "index", steams: Array.from({ length: 101 }, (_, n) => ({ id: `${n}` })) })).ok).toBe(false);
+    for (const steams of [["1"], [{ id: "" }], [{}], { id: "1" }]) {
+      expect(decodePluginMessage(frame({ type: "steamIndex", id: "index", steams })).ok).toBe(false);
+    }
+    expect(decodePluginMessage(frame({ type: "steamIndex", steams: [] })).ok).toBe(false);
+    const request = { type: "requestSteams", steamIds: ["1", "2"] };
+    expect(decodeServerMessage(frame(request))).toEqual({ ok: true, message: request });
+    for (const steamIds of [[1], [""], Array.from({ length: 101 }, (_, n) => `${n}`), undefined]) {
+      expect(decodeServerMessage(frame({ type: "requestSteams", steamIds })).ok).toBe(false);
+    }
+  });
+});

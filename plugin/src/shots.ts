@@ -1,63 +1,39 @@
-import type { PluginMessage, ShotDelivery, ShotIndex } from "@decent-sync/protocol";
+import type { ShotDelivery } from "@decent-sync/protocol";
 import { readShot, readShotPage } from "./decaid.js";
+import type { Outbox } from "./outbox.js";
 
 const PAGE_SIZE = 100;
-const SHORT_OUTBOX = 4;
-type Delivery = ShotDelivery | ShotIndex;
 
-/** One runtime's at-least-once outbox. Reloads recover its lost contents through reconciliation. */
+/**
+ * Shots, through the outbox: captured from Decaid's events as they are
+ * stored or edited, and reconciled once per load by paging through every
+ * Shot summary with its edit time, so the server requests the Shots it lacks
+ * or holds an older version of. A reconnect in the same runtime sends the
+ * known ids only, since the outbox still holds unacknowledged edits.
+ */
 export class ShotCapture {
-  private readonly outbox = new Map<string, Delivery>();
-  private readonly requested = new Set<string>();
   private readonly ids = new Set<string>();
-  private readonly runtimeId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  private sequence = 0;
-  private sendMessage?: (message: PluginMessage) => Promise<void>;
-  private generation = 0;
-  private sent?: string;
-  private working = false;
   private scanning = false;
   private scanned = false;
   private welcomed = false;
   private stopped = false;
   private timer?: number;
-  private retryTimer?: number;
   private events: Promise<void> = Promise.resolve();
 
-  constructor(private readonly log: (message: string) => void) {}
+  constructor(
+    private readonly outbox: Outbox,
+    private readonly log: (message: string) => void,
+  ) {}
 
-  welcome(send: (message: PluginMessage) => Promise<void>): void {
-    this.sendMessage = send;
-    this.generation++;
-    this.sent = undefined;
+  welcome(): void {
     if (this.welcomed) void this.indexKnownIds();
     this.welcomed = true;
     if (!this.scanned && !this.scanning && this.timer === undefined) void this.scan();
-    this.pump();
-  }
-
-  disconnected(): void {
-    this.sendMessage = undefined;
-    this.generation++;
-    this.sent = undefined;
   }
 
   stop(): void {
     this.stopped = true;
-    this.disconnected();
     if (this.timer !== undefined) clearTimeout(this.timer);
-    if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
-  }
-
-  acknowledge(id: string): void {
-    this.outbox.delete(id);
-    if (this.sent === id) this.sent = undefined;
-    this.pump();
-  }
-
-  request(ids: string[]): void {
-    for (const id of ids) this.requested.add(id);
-    this.pump();
   }
 
   event(type: "shot" | "shotUpdated", payload: unknown): void {
@@ -75,8 +51,7 @@ export class ShotCapture {
       let shot: Record<string, unknown> | null;
       try { shot = await readShot(id); }
       catch {
-        this.requested.add(id);
-        this.retry();
+        this.outbox.retryLater("shot", id);
         return;
       }
       // Absent means the Shot was deleted since it was stored.
@@ -84,9 +59,15 @@ export class ShotCapture {
     }).catch(() => this.log("Could not capture a Shot event; reconciliation will recover it."));
   }
 
+  /** A Shot the server requested, as a delivery, or null if the tablet no longer has it. */
+  async read(id: string, deliveryId: string): Promise<ShotDelivery | null> {
+    const shot = await readShot(id);
+    return shot && { type: "shot", id: deliveryId, shotId: id, shot };
+  }
+
   private capture(type: "shot" | "shotUpdated", id: string, shot: Record<string, unknown>): void {
     this.ids.add(id);
-    this.enqueue({ type, id: this.nextId(), shotId: id, shot });
+    this.outbox.enqueue({ type, id: this.outbox.nextId(), shotId: id, shot });
   }
 
   /** Read bounded summaries once per load; never use the unbounded ids endpoint. */
@@ -94,7 +75,7 @@ export class ShotCapture {
     this.scanning = true;
     try {
       for (let offset = 0; !this.stopped; offset += PAGE_SIZE) {
-        await this.waitForRoom();
+        await this.outbox.waitForRoom();
         if (this.stopped) return;
         const page = await readShotPage(PAGE_SIZE, offset);
         if (!page) throw new Error("Shot summaries unavailable");
@@ -105,7 +86,7 @@ export class ShotCapture {
           this.ids.add(summary.id);
           return [{ id: summary.id, updatedAt: summary.updatedAt }];
         });
-        this.enqueue({ type: "shotIndex", id: this.nextId(), shots });
+        this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots });
         if (page.items.length < PAGE_SIZE) break;
       }
       this.scanned = !this.stopped;
@@ -118,69 +99,14 @@ export class ShotCapture {
   }
 
   private async indexKnownIds(): Promise<void> {
-    const generation = this.generation;
+    const generation = this.outbox.generation;
     const ids = [...this.ids];
     for (let offset = 0; offset < ids.length; offset += PAGE_SIZE) {
-      await this.waitForRoom();
-      if (this.stopped || generation !== this.generation) return;
-      this.enqueue({ type: "shotIndex", id: this.nextId(), shots: ids.slice(offset, offset + PAGE_SIZE).map((id) => ({ id })) });
+      await this.outbox.waitForRoom();
+      if (this.stopped || generation !== this.outbox.generation) return;
+      this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots: ids.slice(offset, offset + PAGE_SIZE).map((id) => ({ id })) });
     }
   }
-
-  private async waitForRoom(): Promise<void> {
-    while (!this.stopped && this.outbox.size >= SHORT_OUTBOX) await new Promise<void>((resolve) => setTimeout(resolve, 50));
-  }
-
-  private enqueue(message: Delivery): void {
-    this.outbox.set(message.id, message);
-    this.pump();
-  }
-
-  /** One logical message awaits ack at a time; the connection's Sender keeps it, chunked or not, within Decaid's pending limit. */
-  private pump(): void {
-    if (this.retryTimer !== undefined || this.working || this.stopped || !this.sendMessage || this.sent !== undefined || (this.outbox.size === 0 && this.requested.size === 0)) return;
-    this.working = true;
-    void this.work().catch(() => {
-      // SyncConnection drops a transport whose send failed; the outbox stays for its replacement.
-      this.log("Shot delivery interrupted; unacknowledged data remains queued.");
-      this.retry();
-    }).finally(() => {
-      this.working = false;
-      if (!this.stopped && this.sendMessage && this.sent === undefined) this.pump();
-    });
-  }
-
-  private async work(): Promise<void> {
-    const generation = this.generation;
-    if (this.outbox.size === 0 && this.requested.size > 0) {
-      const id = this.requested.values().next().value!;
-      let shot: Record<string, unknown> | null;
-      try { shot = await readShot(id); }
-      catch (error) {
-        // Retry it after the others, so one unreadable Shot cannot hold up the rest.
-        this.requested.delete(id);
-        this.requested.add(id);
-        throw error;
-      }
-      if (this.stopped) return;
-      this.requested.delete(id);
-      if (shot) { const envelopeId = this.nextId(); this.outbox.set(envelopeId, { type: "shot", id: envelopeId, shotId: id, shot }); }
-      // A record deleted on the tablet is absent; nothing deletes its server copy.
-    }
-    if (generation !== this.generation || !this.sendMessage) return;
-    const next = this.outbox.entries().next().value;
-    if (!next) return;
-    const [id, message] = next;
-    this.sent = id;
-    await this.sendMessage(message);
-  }
-
-  private retry(): void {
-    if (this.stopped || this.retryTimer !== undefined) return;
-    this.retryTimer = setTimeout(() => { this.retryTimer = undefined; this.pump(); }, 5_000);
-  }
-
-  private nextId(): string { return `${this.runtimeId}-${++this.sequence}`; }
 }
 
 /** Decaid's imports from the legacy de1app; Decent Sync does not capture them. */

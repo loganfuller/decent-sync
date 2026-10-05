@@ -172,7 +172,7 @@ export class MachinesService {
           await tx.machineAlias.createMany({ data: [{ machineId: id, connectionId: machine.connectionId }], skipDuplicates: true });
         }
         // The Machine takes over whatever was held for its hardware.
-        await transferPendingShots(tx, hardware, id);
+        await transferPendingRecords(tx, hardware, id);
         await tx.pendingMachine.deleteMany({ where: hardware });
       })
       .catch(async (error: unknown) => {
@@ -356,7 +356,7 @@ export class MachinesService {
     }
     if (identity.kind === "identified" && identity.bind) {
       // The Machine takes over whatever was held for its hardware.
-      await transferPendingShots(tx, hardware!, machine.id);
+      await transferPendingRecords(tx, hardware!, machine.id);
       await tx.pendingMachine.deleteMany({ where: hardware! });
     }
     if (identity.kind === "mismatch" && !identity.anotherMachineHasIt) {
@@ -547,11 +547,13 @@ function identificationOf(identity: Exclude<Identity, { kind: "rejected" }>): Ma
 }
 
 /**
- * Gives the Machine the Shots held for its hardware, even by a dismissed
- * Pending Machine, crediting them by its Location History. The Machine's row
- * lock must be held, or the Machine created in this transaction.
+ * Gives the Machine the Shots and Steam Records held for its hardware, even
+ * by a dismissed Pending Machine, crediting them by its Location History. The
+ * Machine's row lock must be held, or the Machine created in this transaction.
  */
-export async function transferPendingShots(tx: Prisma.TransactionClient, hardware: Hardware, machineId: string): Promise<void> {
-  await tx.shot.updateMany({ where: { pendingMachine: hardware }, data: { machineId, pendingMachineId: null } });
+export async function transferPendingRecords(tx: Prisma.TransactionClient, hardware: Hardware, machineId: string): Promise<void> {
+  const handover = { machineId, pendingMachineId: null };
+  await tx.shot.updateMany({ where: { pendingMachine: hardware }, data: handover });
+  await tx.steamRecord.updateMany({ where: { pendingMachine: hardware }, data: handover });
   await creditLocations(tx, machineId);
 }
