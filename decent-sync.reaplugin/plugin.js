@@ -132,34 +132,34 @@ var __decentSync = (() => {
     return JSON.stringify(message);
   }
   function decodeServerMessage(frame) {
-    const object2 = parseObject(frame);
-    if (typeof object2 === "string") return invalid(object2);
-    switch (object2.type) {
+    const object3 = parseObject(frame);
+    if (typeof object3 === "string") return invalid(object3);
+    switch (object3.type) {
       case "welcome":
-        return check(object2, "welcome", (fields) => {
+        return check(object3, "welcome", (fields) => {
           fields.integer("protocolVersion");
           fields.integer("heartbeatIntervalMs", { positive: true });
         });
       case "ack":
-        return check(object2, "ack", (fields) => fields.string("id", { nonEmpty: true }));
+        return check(object3, "ack", (fields) => fields.string("id", { nonEmpty: true }));
       case "chunkReceived":
-        return check(object2, "chunkReceived", (fields) => {
+        return check(object3, "chunkReceived", (fields) => {
           fields.string("id", { nonEmpty: true });
           fields.integer("index", { nonNegative: true });
         });
       case "requestShots":
-        return check(object2, "requestShots", (fields) => {
+        return check(object3, "requestShots", (fields) => {
           fields.array("shotIds", (value) => typeof value === "string" && value !== "", 100);
         });
       case "requestSteams":
-        return check(object2, "requestSteams", (fields) => {
+        return check(object3, "requestSteams", (fields) => {
           fields.array("steamIds", (value) => typeof value === "string" && value !== "", 100);
         });
       case "heartbeat":
-        return check(object2, "heartbeat", () => {
+        return check(object3, "heartbeat", () => {
         });
       case "error":
-        return check(object2, "error", (fields) => {
+        return check(object3, "error", (fields) => {
           fields.string("code");
           fields.string("message");
         });
@@ -168,8 +168,8 @@ var __decentSync = (() => {
     }
   }
   var FieldChecker = class _FieldChecker {
-    constructor(object2, path, problems) {
-      __publicField(this, "object", object2);
+    constructor(object3, path, problems) {
+      __publicField(this, "object", object3);
       __publicField(this, "path", path);
       __publicField(this, "problems", problems);
     }
@@ -216,11 +216,11 @@ var __decentSync = (() => {
       this.problems.push(`${this.path}.${key} ${what}`);
     }
   };
-  function check(object2, type, checkFields) {
-    const fields = new FieldChecker(object2, type, []);
+  function check(object3, type, checkFields) {
+    const fields = new FieldChecker(object3, type, []);
     checkFields(fields);
     if (fields.problems.length > 0) return invalid(fields.problems.join("; "));
-    return { ok: true, message: object2 };
+    return { ok: true, message: object3 };
   }
   function parseObject(frame) {
     let value;
@@ -270,8 +270,8 @@ var __decentSync = (() => {
       return null;
     }
   }
-  function stringField(object2, key) {
-    const value = object2?.[key];
+  function stringField(object3, key) {
+    const value = object3?.[key];
     return typeof value === "string" && value !== "" ? value : null;
   }
   async function readShotPage(limit, offset) {
@@ -301,6 +301,68 @@ var __decentSync = (() => {
     const body = await response.json();
     if (body === null || typeof body !== "object" || Array.isArray(body)) throw new Error("Record response unavailable");
     return body;
+  }
+
+  // src/machine-events.ts
+  var MachineEvents = class {
+    constructor(outbox) {
+      __publicField(this, "outbox", outbox);
+      /** The latest Workflow Decaid reported. */
+      __publicField(this, "workflow");
+      /** The delivery that sent it again on the latest welcome, which the next welcome's replaces. */
+      __publicField(this, "resent");
+      /** The state and substate last queued, so repeated state updates send nothing. */
+      __publicField(this, "state");
+    }
+    /** Decaid's `workflowUpdated`: the whole Workflow, sent on every load and every change. */
+    workflowUpdated(payload) {
+      const workflow = object(payload);
+      if (!workflow) return;
+      this.workflow = workflow;
+      this.queueWorkflow(workflow);
+    }
+    /**
+     * Decaid's `stateUpdate`, which arrives several times a second while a
+     * machine is connected: only a change of state or substate is sent.
+     */
+    stateUpdate(payload) {
+      const reported = object(object(payload)?.state);
+      const state = reported?.state;
+      const substate = reported?.substate;
+      if (typeof state !== "string" || state === "" || typeof substate !== "string" || substate === "") return;
+      if (this.state?.state === state && this.state.substate === substate) return;
+      this.state = { state, substate };
+      this.outbox.enqueue({ type: "machineState", id: this.outbox.nextId(), observedAt: now(), state, substate });
+    }
+    /**
+     * On every welcome, before the outbox sends, the latest Workflow again,
+     * observed now, behind whatever the last connection left unacknowledged.
+     * The connection may stand for other hardware than the last one did,
+     * after the tablet moved to another machine, and the server changes nothing
+     * for a delivery it has handled, even one handled for the last hardware but
+     * not acknowledged, so it is always a new delivery; the server records
+     * nothing if it is unchanged. It replaces the one the last welcome queued,
+     * if that is still queued. The next state update is sent whatever it is,
+     * for the same reason.
+     */
+    welcome() {
+      this.state = void 0;
+      if (!this.workflow) return;
+      if (this.resent !== void 0) this.outbox.discard(this.resent);
+      this.resent = this.queueWorkflow(this.workflow);
+    }
+    /** Queues the Workflow as observed now, returning its delivery's id. */
+    queueWorkflow(workflow) {
+      const delivery = { type: "workflow", id: this.outbox.nextId(), observedAt: now(), workflow };
+      this.outbox.enqueue(delivery);
+      return delivery.id;
+    }
+  };
+  function now() {
+    return (/* @__PURE__ */ new Date()).toISOString();
+  }
+  function object(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
   }
 
   // src/outbox.ts
@@ -350,6 +412,10 @@ var __decentSync = (() => {
       this.queued.delete(id);
       if (this.sent === id) this.sent = void 0;
       this.pump();
+    }
+    /** Drops a queued delivery that a newer one makes unnecessary; one being sent now stays, to be acknowledged. */
+    discard(id) {
+      if (this.sent !== id) this.queued.delete(id);
     }
     /**
      * Records to read and send: requested by the server, after those already
@@ -521,12 +587,12 @@ var __decentSync = (() => {
       if (this.timer !== void 0) clearTimeout(this.timer);
     }
     event(type, payload) {
-      const event = object(payload);
+      const event = object2(payload);
       if (typeof event?.id !== "string" || event.id === "" || isLegacyImport(event.id)) return;
       const id = event.id;
       this.events = this.events.then(async () => {
         if (type === "shotUpdated") {
-          const shot2 = object(event.shot);
+          const shot2 = object2(event.shot);
           if (shot2 && !this.stopped) this.capture(type, id, shot2);
           return;
         }
@@ -559,7 +625,7 @@ var __decentSync = (() => {
           const page = await readShotPage(PAGE_SIZE, offset);
           if (!page) throw new Error("Shot summaries unavailable");
           const shots = page.items.flatMap((item) => {
-            const summary = object(item);
+            const summary = object2(item);
             if (typeof summary?.id !== "string" || summary.id === "" || isLegacyImport(summary.id) || typeof summary.updatedAt !== "string") return [];
             this.ids.add(summary.id);
             return [{ id: summary.id, updatedAt: summary.updatedAt }];
@@ -591,7 +657,7 @@ var __decentSync = (() => {
   function isLegacyImport(id) {
     return id.startsWith("de1app-");
   }
-  function object(value) {
+  function object2(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
   }
 
@@ -740,6 +806,7 @@ var __decentSync = (() => {
       __publicField(this, "outbox");
       __publicField(this, "shots");
       __publicField(this, "steams");
+      __publicField(this, "machineEvents");
       __publicField(this, "checkingHardware", false);
       __publicField(this, "hardwareCooldown", false);
       this.outbox = new Outbox(log, {
@@ -748,6 +815,7 @@ var __decentSync = (() => {
       });
       this.shots = new ShotCapture(this.outbox, log);
       this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1e3, log);
+      this.machineEvents = new MachineEvents(this.outbox);
     }
     /** Connects from a timer, so the caller (onLoad) returns at once. */
     start() {
@@ -755,14 +823,17 @@ var __decentSync = (() => {
       this.scheduleHardwarePoll();
       this.steams.start();
     }
-    /** A machine state update: the machine is connected, and may have just reported its hardware. */
-    machineActive() {
-      if (this.stopped || this.hardwareCooldown) return;
-      this.hardwareCooldown = true;
-      this.setTimer("hardwareCooldown", HARDWARE_CHECK_COOLDOWN_MS, () => {
-        this.hardwareCooldown = false;
-      });
-      void this.checkHardware();
+    /**
+     * A machine state update, sent only while a machine is connected: a change
+     * of state is recorded, and the machine may have just reported its hardware.
+     */
+    stateUpdate(payload) {
+      if (this.stopped) return;
+      this.machineEvents.stateUpdate(payload);
+      this.checkHardwareSoon();
+    }
+    workflowUpdated(payload) {
+      if (!this.stopped) this.machineEvents.workflowUpdated(payload);
     }
     shotEvent(type, payload) {
       this.shots.event(type, payload);
@@ -775,6 +846,15 @@ var __decentSync = (() => {
       for (const id of this.timers.values()) clearTimeout(id);
       this.timers.clear();
       this.closeHandle();
+    }
+    /** Checks the machine's hardware, unless a check started within the cooldown. */
+    checkHardwareSoon() {
+      if (this.hardwareCooldown) return;
+      this.hardwareCooldown = true;
+      this.setTimer("hardwareCooldown", HARDWARE_CHECK_COOLDOWN_MS, () => {
+        this.hardwareCooldown = false;
+      });
+      void this.checkHardware();
     }
     async connect() {
       if (this.stopped || this.connecting || this.handle !== void 0) return;
@@ -871,6 +951,7 @@ var __decentSync = (() => {
           this.log(`Connected to ${this.settings.syncUrl}`);
           this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
           this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
+          this.machineEvents.welcome();
           this.outbox.welcome(async (delivery) => {
             try {
               await this.send(handle, delivery);
@@ -1077,7 +1158,8 @@ var __decentSync = (() => {
       onEvent(event) {
         if (event?.name === "shotStored") connection?.shotEvent("shot", event.payload);
         if (event?.name === "shotUpdated") connection?.shotEvent("shotUpdated", event.payload);
-        if (event?.name === "stateUpdate") connection?.machineActive();
+        if (event?.name === "workflowUpdated") connection?.workflowUpdated(event.payload);
+        if (event?.name === "stateUpdate") connection?.stateUpdate(event.payload);
       }
     };
   }

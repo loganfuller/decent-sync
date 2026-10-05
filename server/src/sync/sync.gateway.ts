@@ -26,6 +26,7 @@ import {
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
+import { MachineEventsService } from "../machine-events/machine-events.service.js";
 import { AccessChanges } from "../machines/access-changes.js";
 import { type LiveConnection, LiveConnections } from "../machines/connections.js";
 import { MachinesService, type Refusal, describeHardware } from "../machines/machines.service.js";
@@ -115,6 +116,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly live: LiveConnections,
     private readonly shots: ShotsService,
     private readonly steamRecords: SteamRecordsService,
+    private readonly machineEvents: MachineEventsService,
     accessChanges: AccessChanges,
   ) {
     accessChanges.subscribe((machineId) => void this.check(this.live.of(machineId)));
@@ -265,6 +267,12 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return this.acknowledge(session, message.id, null);
       case "steam":
         await this.steamRecords.store(message, reporter);
+        return this.acknowledge(session, message.id, null);
+      case "workflow":
+        await this.machineEvents.storeWorkflow(message, reporter);
+        return this.acknowledge(session, message.id, null);
+      case "machineState":
+        await this.machineEvents.storeMachineState(message, reporter);
         return this.acknowledge(session, message.id, null);
       case "shotIndex":
         return this.acknowledge(session, message.id, { type: "requestShots", shotIds: await this.shots.requested(message) });

@@ -27,10 +27,11 @@ export function createPlugin(host: PluginHost): Plugin {
       connection = undefined;
     },
     onEvent(event) {
-      // Sent only while a machine is connected, so it may now report its hardware.
       if (event?.name === "shotStored") connection?.shotEvent("shot", event.payload);
       if (event?.name === "shotUpdated") connection?.shotEvent("shotUpdated", event.payload);
-      if (event?.name === "stateUpdate") connection?.machineActive();
+      // Decaid sends the current Workflow just after loading the plugin, and again on every change.
+      if (event?.name === "workflowUpdated") connection?.workflowUpdated(event.payload);
+      if (event?.name === "stateUpdate") connection?.stateUpdate(event.payload);
     },
   };
 }

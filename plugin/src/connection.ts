@@ -11,6 +11,7 @@ import {
 } from "@decent-sync/protocol";
 import { readMachineHardware, readTabletIdentity } from "./decaid.js";
 import type { PluginHost, TransportEvent } from "./host.js";
+import { MachineEvents } from "./machine-events.js";
 import { Outbox } from "./outbox.js";
 import { Sender } from "./sender.js";
 import { ShotCapture } from "./shots.js";
@@ -91,6 +92,7 @@ export class SyncConnection {
   private readonly outbox: Outbox;
   private readonly shots: ShotCapture;
   private readonly steams: SteamCapture;
+  private readonly machineEvents: MachineEvents;
   private checkingHardware = false;
   private hardwareCooldown = false;
 
@@ -105,6 +107,7 @@ export class SyncConnection {
     });
     this.shots = new ShotCapture(this.outbox, log);
     this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1000, log);
+    this.machineEvents = new MachineEvents(this.outbox);
   }
 
   /** Connects from a timer, so the caller (onLoad) returns at once. */
@@ -114,14 +117,18 @@ export class SyncConnection {
     this.steams.start();
   }
 
-  /** A machine state update: the machine is connected, and may have just reported its hardware. */
-  machineActive(): void {
-    if (this.stopped || this.hardwareCooldown) return;
-    this.hardwareCooldown = true;
-    this.setTimer("hardwareCooldown", HARDWARE_CHECK_COOLDOWN_MS, () => {
-      this.hardwareCooldown = false;
-    });
-    void this.checkHardware();
+  /**
+   * A machine state update, sent only while a machine is connected: a change
+   * of state is recorded, and the machine may have just reported its hardware.
+   */
+  stateUpdate(payload: unknown): void {
+    if (this.stopped) return;
+    this.machineEvents.stateUpdate(payload);
+    this.checkHardwareSoon();
+  }
+
+  workflowUpdated(payload: unknown): void {
+    if (!this.stopped) this.machineEvents.workflowUpdated(payload);
   }
 
   shotEvent(type: "shot" | "shotUpdated", payload: unknown): void { this.shots.event(type, payload); }
@@ -134,6 +141,16 @@ export class SyncConnection {
     for (const id of this.timers.values()) clearTimeout(id);
     this.timers.clear();
     this.closeHandle();
+  }
+
+  /** Checks the machine's hardware, unless a check started within the cooldown. */
+  private checkHardwareSoon(): void {
+    if (this.hardwareCooldown) return;
+    this.hardwareCooldown = true;
+    this.setTimer("hardwareCooldown", HARDWARE_CHECK_COOLDOWN_MS, () => {
+      this.hardwareCooldown = false;
+    });
+    void this.checkHardware();
   }
 
   private async connect(): Promise<void> {
@@ -238,6 +255,10 @@ export class SyncConnection {
         this.log(`Connected to ${this.settings.syncUrl}`);
         this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
         this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
+        // What the last connection left unacknowledged goes first, then the
+        // latest Workflow, queued before the outbox starts sending, then the
+        // Shot and Steam Record indices.
+        this.machineEvents.welcome();
         this.outbox.welcome(async (delivery) => {
           try { await this.send(handle, delivery); }
           catch (error) {

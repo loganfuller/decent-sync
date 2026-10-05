@@ -195,6 +195,39 @@ export interface RequestSteams {
   steamIds: string[];
 }
 
+/**
+ * The tablet's Workflow, as Decaid's `workflowUpdated` event gave it, sent on
+ * every change and again on every `welcome`. The Workflow stays opaque.
+ */
+export interface WorkflowDelivery {
+  type: "workflow";
+  /**
+   * An id for this logical delivery, retained until acknowledged and kept
+   * when it is sent again: the server records every one it has handled, so a
+   * resend changes nothing.
+   */
+  id: string;
+  /**
+   * When the plugin observed it, by the tablet's clock, in UTC, such as
+   * 2026-10-05T14:05:43.648Z. Delivery may come much later.
+   */
+  observedAt: string;
+  workflow: Record<string, unknown>;
+}
+
+/** A change of the machine's state or substate, from Decaid's `stateUpdate` event. */
+export interface MachineStateDelivery {
+  type: "machineState";
+  /** As for a Workflow: kept when it is sent again. */
+  id: string;
+  /** When the plugin observed it, as for a Workflow. */
+  observedAt: string;
+  /** Decaid's name for the state, such as espresso. */
+  state: string;
+  /** Decaid's name for the substate, such as preinfusion. */
+  substate: string;
+}
+
 /** A logical delivery acknowledged only after its transaction commits. */
 export interface Ack {
   type: "ack";
@@ -215,7 +248,7 @@ export interface ChunkReceived {
 }
 
 /** Messages the plugin sends, each in a frame of its own or in chunks. */
-export type PluginMessage = Hello | Heartbeat | ShotDelivery | ShotIndex | SteamDelivery | SteamIndex;
+export type PluginMessage = Hello | Heartbeat | ShotDelivery | ShotIndex | SteamDelivery | SteamIndex | WorkflowDelivery | MachineStateDelivery;
 export type ServerMessage = Welcome | Heartbeat | ErrorMessage | RequestShots | RequestSteams | Ack | ChunkReceived;
 
 export type Decoded<T> =
@@ -337,6 +370,19 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
       return check<SteamIndex>(object, "steamIndex", (fields) => {
         fields.string("id", { nonEmpty: true });
         fields.array("steams", (value) => isObject(value) && typeof value.id === "string" && value.id !== "", 100);
+      });
+    case "workflow":
+      return check<WorkflowDelivery>(object, "workflow", (fields) => {
+        fields.string("id", { nonEmpty: true });
+        fields.instant("observedAt");
+        fields.objectField("workflow");
+      });
+    case "machineState":
+      return check<MachineStateDelivery>(object, "machineState", (fields) => {
+        fields.string("id", { nonEmpty: true });
+        fields.instant("observedAt");
+        fields.string("state", { nonEmpty: true });
+        fields.string("substate", { nonEmpty: true });
       });
     case "heartbeat":
       return check<Heartbeat>(object, "heartbeat", () => {});

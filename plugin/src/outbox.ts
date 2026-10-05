@@ -1,7 +1,15 @@
-import type { PluginMessage, ShotDelivery, ShotIndex, SteamDelivery, SteamIndex } from "@decent-sync/protocol";
+import type {
+  MachineStateDelivery,
+  PluginMessage,
+  ShotDelivery,
+  ShotIndex,
+  SteamDelivery,
+  SteamIndex,
+  WorkflowDelivery,
+} from "@decent-sync/protocol";
 
-/** A logical delivery, acknowledged once the server has stored it: a record, or a page of an index. */
-export type Delivery = ShotDelivery | ShotIndex | SteamDelivery | SteamIndex;
+/** A logical delivery, acknowledged once the server has stored it: a record, a page of an index, or a Workflow or machine state event. */
+export type Delivery = ShotDelivery | ShotIndex | SteamDelivery | SteamIndex | WorkflowDelivery | MachineStateDelivery;
 
 /** The kinds of record the server can request by their ids. */
 export type RecordKind = "shot" | "steam";
@@ -18,12 +26,13 @@ const SHORT_OUTBOX = 4;
 
 /**
  * The plugin's one at-least-once outbox, for Shots, Steam Records and their
- * indices, in memory for one runtime: a reload loses what it holds, and the
- * indices sent after the reload recover it. A delivery stays until the
- * server acknowledges it. One logical delivery awaits acknowledgment at a
- * time; the connection's Sender keeps it, chunked or not, within Decaid's
- * pending limit. Requested records are read from Decaid's API one at a time,
- * when nothing else is queued, oldest request first.
+ * indices, and Workflow and machine state events, in memory for one runtime:
+ * a reload loses what it holds, and the indices sent after the reload
+ * recover the records. A delivery stays until the server acknowledges it.
+ * One logical delivery awaits acknowledgment at a time; the connection's
+ * Sender keeps it, chunked or not, within Decaid's pending limit. Requested
+ * records are read from Decaid's API one at a time, when nothing else is
+ * queued, oldest request first.
  */
 export class Outbox {
   private readonly queued = new Map<string, Delivery>();
@@ -75,6 +84,11 @@ export class Outbox {
     this.queued.delete(id);
     if (this.sent === id) this.sent = undefined;
     this.pump();
+  }
+
+  /** Drops a queued delivery that a newer one makes unnecessary; one being sent now stays, to be acknowledged. */
+  discard(id: string): void {
+    if (this.sent !== id) this.queued.delete(id);
   }
 
   /**

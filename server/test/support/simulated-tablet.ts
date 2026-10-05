@@ -12,7 +12,8 @@ import WebSocket from "ws";
 // - The source is pasted into a function body with `host`, `fetch`,
 //   `setTimeout` and `clearTimeout` in scope; the global createPlugin(host)
 //   must return an object whose id matches the manifest, and onLoad is called
-//   synchronously without awaiting it.
+//   synchronously without awaiting it. Then the plugin is sent the current
+//   Workflow in a `workflowUpdated` event, as Decaid sends it after every load.
 // - `fetch` answers Decaid's local API from fixtures, failing after Decaid's
 //   30 s timeout. `GET /shots` pages the Shots served at `/shots/{id}`, and
 //   `GET /steams/ids` lists the Steam Records served at `/steams/{id}`.
@@ -78,8 +79,41 @@ export type DecaidApi = Record<string, unknown>;
 
 /** The test tablet's DE1Pro on Decaid 0.8.7, with its hardware ids replaced (see the fixtures' README). */
 export function de1ProOnDecaid087(): DecaidApi {
-  const read = (file: string) => JSON.parse(fs.readFileSync(path.join(fixturesDir, "de1pro-v0.8.7", file), "utf8"));
-  return { "/info": read("info.json"), "/machine/info": read("machine-info.json"), "/settings": read("settings.json") };
+  return {
+    "/info": readFixture("info.json"),
+    "/machine/info": readFixture("machine-info.json"),
+    "/settings": readFixture("settings.json"),
+    "/workflow": readFixture("workflow.json"),
+    "/machine/state": readFixture("machine-state.json"),
+  };
+}
+
+function readFixture(file: string): Record<string, unknown> {
+  return JSON.parse(fs.readFileSync(path.join(fixturesDir, "de1pro-v0.8.7", file), "utf8"));
+}
+
+/** The test tablet's Workflow: what `GET /workflow` answers and `workflowUpdated` carries. */
+export function workflowFixture(): Record<string, unknown> {
+  return readFixture("workflow.json");
+}
+
+/**
+ * Derived from workflowFixture(): the same Workflow with the named changes
+ * to its `context` (dose, yield, bean, grinder and so on), as when a barista
+ * dials in. Everything else is as Decaid sent it.
+ */
+export function derivedWorkflow(context: Record<string, unknown>): Record<string, unknown> {
+  const workflow = workflowFixture();
+  return { ...workflow, context: { ...(workflow.context as Record<string, unknown>), ...context } };
+}
+
+/**
+ * Derived from the test tablet's machine state: the same snapshot, as a
+ * `stateUpdate` carries it, in another of Decaid's states and substates
+ * (MachineState and MachineSubstate in decaid:lib/src/models/device/machine.dart).
+ */
+export function machineSnapshot(state: string, substate: string): Record<string, unknown> {
+  return { ...readFixture("machine-state.json"), state: { state, substate } };
 }
 
 /**
@@ -252,6 +286,8 @@ export class SimulatedTablet {
       clearTimeout: (id: number) => this.clearTimer(id),
     });
     this.plugin.onLoad(options.settings);
+    // PluginManager sends the current Workflow once the plugin has loaded.
+    if (this.api["/workflow"] !== undefined) this.fire("workflowUpdated", this.api["/workflow"]);
   }
 
   /** Answers Decaid's API with these responses from now on, as when another machine is connected. */
@@ -262,11 +298,33 @@ export class SimulatedTablet {
   /**
    * Connects the machine to the tablet: /machine/info answers from now on,
    * and Decaid starts sending machine state updates, of which this delivers
-   * one. The plugin reads nothing from its payload, so none is sent.
+   * one, with the state /machine/state answers.
    */
   connectMachine(): void {
     this.machineConnected = true;
-    this.fire("stateUpdate");
+    this.fire("stateUpdate", this.api["/machine/state"]);
+  }
+
+  /**
+   * Changes the tablet's Workflow, as a barista or a skin does: /workflow
+   * answers with it from now on, and the plugin is sent it in a
+   * `workflowUpdated` event.
+   */
+  setWorkflow(workflow: Record<string, unknown>): void {
+    this.api = { ...this.api, "/workflow": workflow };
+    this.fire("workflowUpdated", workflow);
+  }
+
+  /**
+   * The connected machine reports a state, as Decaid does several times a
+   * second while one is connected: /machine/state answers with it from now
+   * on, and the plugin is sent it in a `stateUpdate` event.
+   */
+  reportState(state: string, substate: string): void {
+    if (!this.machineConnected) throw new Error("Decaid sends machine state updates only while a machine is connected");
+    const snapshot = machineSnapshot(state, substate);
+    this.api = { ...this.api, "/machine/state": snapshot };
+    this.fire("stateUpdate", snapshot);
   }
 
   /** Fails this many upcoming reads of a local API route, as a transient Decaid failure does. */

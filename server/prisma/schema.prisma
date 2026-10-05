@@ -134,12 +134,15 @@ model Machine {
   createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  shots             Shot[]
-  steamRecords      SteamRecord[]
-  tokens            MachineToken[]
-  aliases           MachineAlias[]
-  dismissedHardware DismissedHardware[]
-  locationHistory   LocationAssignment[]
+  shots              Shot[]
+  steamRecords       SteamRecord[]
+  tokens             MachineToken[]
+  aliases            MachineAlias[]
+  dismissedHardware  DismissedHardware[]
+  locationHistory    LocationAssignment[]
+  workflowEvents     WorkflowEvent[]
+  machineStateEvents MachineStateEvent[]
+  eventDeliveries    MachineEventDelivery[]
 
   /// One Machine per piece of hardware. Unbound Machines (nulls) never clash.
   @@unique([model, serial])
@@ -207,6 +210,9 @@ model PendingMachine {
   lastSeenAt   DateTime? @map("last_seen_at") @db.Timestamptz(3)
   /// Dismissed Pending Machines stay, so creating a machine entry later restores what they hold.
   dismissedAt  DateTime? @map("dismissed_at") @db.Timestamptz(3)
+
+  workflowEvents     WorkflowEvent[]
+  machineStateEvents MachineStateEvent[]
 
   @@unique([model, serial])
   @@map("pending_machines")
@@ -315,4 +321,66 @@ model SteamMeasurements {
   data          Json        @db.JsonB
 
   @@map("steam_measurements")
+}
+
+/// A Workflow a tablet reported: what its Machine was set up to do next, from
+/// when the plugin observed it. Stored only when it differs from the latest
+/// one stored for the same Machine or Pending Machine, so the latest is the
+/// current Workflow. A mismatched connection's belong to its reported
+/// hardware, as its inferred Shots do. See
+/// server/src/machine-events/machine-events.service.ts.
+model WorkflowEvent {
+  /// Rises as events are stored; the highest is the latest.
+  id               BigInt          @id @default(autoincrement())
+  machineId        String?         @map("machine_id") @db.Uuid
+  machine          Machine?        @relation(fields: [machineId], references: [id])
+  pendingMachineId String?         @map("pending_machine_id") @db.Uuid
+  pendingMachine   PendingMachine? @relation(fields: [pendingMachineId], references: [id])
+  /// By the tablet's clock; the plugin may deliver it much later.
+  observedAt       DateTime        @map("observed_at") @db.Timestamptz(3)
+  /// By PostgreSQL's clock.
+  receivedAt       DateTime        @default(now()) @map("received_at") @db.Timestamptz(3)
+  /// Decaid's Workflow, as sent.
+  workflow         Json            @db.JsonB
+
+  @@index([machineId, id])
+  @@index([pendingMachineId, id])
+  @@map("workflow_events")
+}
+
+/// A machine state transition: a change of the state or substate Decaid
+/// reported, from when the plugin observed it. Stored and credited as
+/// Workflow events are.
+model MachineStateEvent {
+  /// Rises as events are stored; the highest is the latest.
+  id               BigInt          @id @default(autoincrement())
+  machineId        String?         @map("machine_id") @db.Uuid
+  machine          Machine?        @relation(fields: [machineId], references: [id])
+  pendingMachineId String?         @map("pending_machine_id") @db.Uuid
+  pendingMachine   PendingMachine? @relation(fields: [pendingMachineId], references: [id])
+  observedAt       DateTime        @map("observed_at") @db.Timestamptz(3)
+  receivedAt       DateTime        @default(now()) @map("received_at") @db.Timestamptz(3)
+  /// Decaid's names, such as espresso and preinfusion.
+  state            String
+  substate         String
+
+  @@index([machineId, id])
+  @@index([pendingMachineId, id])
+  @@map("machine_state_events")
+}
+
+/// A Workflow or machine state delivery the server has handled, recorded
+/// whether or not it changed anything. The plugin keeps a delivery's id when
+/// it sends it again, so a delivery recorded here changes nothing when it
+/// arrives again, through any connection or instance, however late.
+model MachineEventDelivery {
+  /// The Machine whose token delivered it: its plugin's delivery ids are its own.
+  machineId  String   @map("machine_id") @db.Uuid
+  machine    Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  deliveryId String   @map("delivery_id")
+  /// By PostgreSQL's clock.
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+
+  @@id([machineId, deliveryId])
+  @@map("machine_event_deliveries")
 }

@@ -9,7 +9,9 @@ import {
   PendingMachineActions,
   StatusBadge,
   describeHardware,
+  describeMachineState,
   formatTime,
+  lastShotText,
   needsHardware,
   useLocations,
 } from "@/components/machines";
@@ -20,7 +22,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ApiError, api, type IssuedToken, type LocationHistoryEntry, type Machine, type PendingMachine } from "@/lib/api";
+import {
+  ApiError,
+  api,
+  type IssuedToken,
+  type LocationHistoryEntry,
+  type Machine,
+  type PendingMachine,
+  type WorkflowEvent,
+} from "@/lib/api";
 import { usePolled } from "@/lib/use-polled";
 import { formatInZone, fromZonedInput, toZonedInput } from "@/lib/zoned-time";
 
@@ -28,9 +38,11 @@ interface MachineData {
   machine: Machine;
   /** The Pending Machine holding a mismatch's hardware, if one does. */
   pending: PendingMachine | null;
+  /** Its current Workflow, or null until its tablet reports one. */
+  workflow: WorkflowEvent | null;
 }
 
-/** One Machine: its identity, versions and status, its Location, its token, and resolving its identity. */
+/** One Machine: its identity, versions and status, its Workflow, its Location, its token, and resolving its identity. */
 export function MachinePage() {
   const { id = "" } = useParams();
   // Keyed, so a token or error shown for one Machine never carries over to the next one opened.
@@ -41,7 +53,10 @@ function MachineDetails({ id }: { id: string }) {
   const [notFound, setNotFound] = useState(false);
   const load = useCallback(async (): Promise<MachineData> => {
     try {
-      const { machine } = await api<{ machine: Machine }>("GET", `/machines/${encodeURIComponent(id)}`);
+      const [{ machine }, { workflow }] = await Promise.all([
+        api<{ machine: Machine }>("GET", `/machines/${encodeURIComponent(id)}`),
+        api<{ workflow: WorkflowEvent | null }>("GET", `/machines/${encodeURIComponent(id)}/workflow`),
+      ]);
       const pendingId = machine.mismatch?.pendingMachineId;
       const pending = pendingId
         ? ((await api<{ pendingMachines: PendingMachine[] }>("GET", "/pending-machines")).pendingMachines.find(
@@ -49,7 +64,7 @@ function MachineDetails({ id }: { id: string }) {
           ) ?? null)
         : null;
       setNotFound(false);
-      return { machine, pending };
+      return { machine, pending, workflow };
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) setNotFound(true);
       throw error;
@@ -145,6 +160,12 @@ function MachineDetails({ id }: { id: string }) {
                 <Fields label="Status">
                   <Field term="Status">{machine.online ? "Online" : "Offline"}</Field>
                   <Field term="Last seen">{machine.lastSeenAt ? formatTime(machine.lastSeenAt) : "Never"}</Field>
+                  <Field term="Machine state">
+                    {machine.machineState
+                      ? `${describeMachineState(machine.machineState)}, since ${formatTime(machine.machineState.observedAt)}`
+                      : "Not reported yet"}
+                  </Field>
+                  <Field term="Last Shot">{lastShotText(machine)}</Field>
                 </Fields>
               </CardContent>
             </Card>
@@ -194,6 +215,7 @@ function MachineDetails({ id }: { id: string }) {
             </Card>
           </div>
 
+          <MachineWorkflow current={data.workflow} />
           <MachineLocation machine={machine} onChanged={reload} />
         </>
       )}
@@ -267,6 +289,85 @@ function firmwareText(machine: Machine): string {
   const binding = bindingOf(machine);
   const own = binding ? sameHardware(reported, binding) : !isRealSerial(reported.serial);
   return own ? firmware : `${firmware}, from ${describeHardware(reported)}, which its token last reported`;
+}
+
+/** What the Machine is set up to do next, from the Workflow its tablet last reported. */
+function MachineWorkflow({ current }: { current: WorkflowEvent | null }) {
+  const fields = current ? workflowFields(current.workflow) : [];
+  return (
+    <Card role="region" aria-label="Workflow">
+      <CardHeader>
+        <CardTitle>
+          <h2>Workflow</h2>
+        </CardTitle>
+        <CardDescription>
+          {current
+            ? `What it is set up to pull next, as its tablet reported at ${formatTime(current.observedAt)}.`
+            : "What it is set up to pull next. Its tablet has not reported it yet."}
+        </CardDescription>
+      </CardHeader>
+      {current && (
+        <CardContent>
+          {fields.length > 0 ? (
+            <Fields label="Workflow">
+              {fields.map(([term, value]) => (
+                <Field key={term} term={term}>
+                  {value}
+                </Field>
+              ))}
+            </Fields>
+          ) : (
+            <p className="text-sm text-muted-foreground">This Workflow has none of the parts shown here.</p>
+          )}
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * The parts of a Workflow shown, as Decaid names them in its Workflow, each
+ * only if present: another Decaid version may send others or fewer.
+ */
+function workflowFields(workflow: Record<string, unknown>): [string, string][] {
+  const profile = record(workflow.profile);
+  const context = record(workflow.context);
+  const steam = record(workflow.steamSettings);
+  const hotWater = record(workflow.hotWaterData);
+  const rinse = record(workflow.rinseData);
+  const fields: [string, string | undefined][] = [
+    ["Profile", text(profile?.title)],
+    ["Dose", amount(context?.targetDoseWeight, "g")],
+    ["Yield", amount(context?.targetYield, "g")],
+    ["Bean", text(context?.coffeeName)],
+    ["Roaster", text(context?.coffeeRoaster)],
+    ["Grinder", text(context?.grinderModel)],
+    ["Grind setting", text(context?.grinderSetting)],
+    ["Barista", text(context?.baristaName)],
+    ["Steam", list(amount(steam?.targetTemperature, "°C"), amount(steam?.duration, "s"), amount(steam?.flow, "ml/s"))],
+    ["Hot water", list(amount(hotWater?.targetTemperature, "°C"), amount(hotWater?.volume, "ml"))],
+    ["Rinse", list(amount(rinse?.targetTemperature, "°C"), amount(rinse?.duration, "s"))],
+  ];
+  return fields.filter((field): field is [string, string] => field[1] !== undefined);
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function text(value: unknown): string | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+/** A number with its unit, to two decimal places at most: Decaid sends 2.500000000000001 for 2.5. */
+function amount(value: unknown, unit: string): string | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? `${Number(value.toFixed(2))} ${unit}` : undefined;
+}
+
+function list(...parts: (string | undefined)[]): string | undefined {
+  const present = parts.filter((part) => part !== undefined);
+  return present.length > 0 ? present.join(", ") : undefined;
 }
 
 /**

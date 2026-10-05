@@ -69,6 +69,7 @@ describe("Machines and the sync connection", () => {
         online: false,
         lastSeenAt: null,
         lastShot: null,
+        machineState: null,
         location: null,
         locationHistory: [],
       });
