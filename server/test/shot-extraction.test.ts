@@ -23,6 +23,8 @@ describe("Shot extraction", () => {
     // The same wall-clock times on a tablet at UTC+5:30.
     expect(extractCurves({ ...shot, createdAt: "2026-10-04T08:44:42.666246Z" }, shot.measurements).pulledAt).toEqual(new Date("2026-10-04T08:44:10.690Z"));
     expect(extractCurves({ ...shot, timestamp: "2026-10-04T14:14:10.690+02:00" }, shot.measurements).pulledAt).toEqual(new Date("2026-10-04T12:14:10.690Z"));
+    // Read back after the tablet moved from UTC-4 to UTC+1; its samples keep the zone they were recorded in.
+    expect(extractCurves({ ...shot, timestamp: "2026-10-04T19:14:10.690852" }, shot.measurements).pulledAt).toEqual(new Date("2026-10-04T18:14:10.690Z"));
     expect(extractCurves({ ...shot, createdAt: undefined }, shot.measurements).pulledAt).toBeNull();
     expect(extractCurves(shot, []).pulledAt).toBeNull();
   });

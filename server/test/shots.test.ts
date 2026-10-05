@@ -199,7 +199,8 @@ describe("Shot capture and reconciliation", () => {
     const later = shot("native-after-legacy");
     tablet.serve(withShots(tabletApi(machine), [legacy, native, later]));
     tablet.fire("shotStored", { id: legacy.id });
-    tablet.fire("shotUpdated", { id: legacy.id });
+    const { measurements: omitted, ...legacySummary } = legacy;
+    tablet.fire("shotUpdated", { id: legacy.id, shot: { ...legacySummary, updatedAt: "2026-11-01T12:00:00Z" } });
     // Events are handled in order, so the legacy ones are done once this arrives.
     tablet.fire("shotStored", { id: later.id });
     await waitShot(String(later.id));
@@ -307,6 +308,15 @@ describe("Shot capture and reconciliation", () => {
     expect(await measurements(String(unknown.id))).toEqual(unknown.measurements);
     expect((await list(adopted.machine.id)).shots).toHaveLength(1);
     await ownerRaw.close();
+  });
+
+  it("keeps a Shot's credit when a newer full record arrives through another Machine", async () => {
+    const first = await api.createMachine("First reporter");
+    const second = await api.createMachine("Second reporter");
+    const record = shot("credited-once");
+    await deliver(await connect(first), record);
+    await deliver(await connect(second, other.url), { ...record, updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 77 } });
+    expect(await detail(String(record.id))).toMatchObject({ machineId: first.machine.id, machineInferred: true, enjoyment: 77 });
   });
 
   it("uses inferred reporting credit for missing machine, serial zero and unavailable provenance", async () => {

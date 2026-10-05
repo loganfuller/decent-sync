@@ -263,11 +263,7 @@ var __decentSync = (() => {
           this.retry();
           return;
         }
-        if (this.stopped) return;
-        if (shot) return this.capture(type, id, shot);
-        this.requested.add(id);
-        this.log("Could not read a Shot from Decaid; it will be retried.");
-        this.pump();
+        if (shot && !this.stopped) this.capture(type, id, shot);
       }).catch(() => this.log("Could not capture a Shot event; reconciliation will recover it."));
     }
     capture(type, id, shot) {

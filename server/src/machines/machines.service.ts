@@ -380,9 +380,10 @@ export class MachinesService {
       mismatched.length === 0 ? [] : this.prisma.pendingMachine.findMany({ where: { OR: mismatched }, select: { id: true, model: true, serial: true } }),
       machines.length === 0 ? [] : this.prisma.$queryRaw<{ id: string; machineId: string; pulledAt: Date | null }[]>(Prisma.sql`
         SELECT last.id, listed.id AS "machineId", last.pulled_at AS "pulledAt"
-        FROM unnest(ARRAY[${Prisma.join(machines.map((machine) => Prisma.sql`${machine.id}::uuid`))}]) AS listed(id)
+        FROM unnest(${machines.map((machine) => machine.id)}::uuid[]) AS listed(id)
         CROSS JOIN LATERAL (
-          SELECT id, pulled_at FROM shots WHERE machine_id = listed.id AND has_full_record
+          -- Only full records are credited, so this needs no has_full_record check.
+          SELECT id, pulled_at FROM shots WHERE machine_id = listed.id
           ORDER BY pulled_at DESC NULLS LAST, id ASC LIMIT 1
         ) AS last`),
     ]);

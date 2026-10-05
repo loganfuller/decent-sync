@@ -83,7 +83,7 @@ export function extractCurves(record: unknown, measurements: unknown) {
     if (flow !== null) peakFlow = peakFlow === null ? flow : Math.max(peakFlow, flow);
   }
   return {
-    pulledAt: pulledAt(object(record), last),
+    pulledAt: pulledAt(object(record), first, last),
     duration: first !== null && last !== null ? (last - first) / 1000 : null,
     peakPressure,
     peakFlow,
@@ -93,13 +93,21 @@ export function extractCurves(record: unknown, measurements: unknown) {
 /**
  * Decaid writes a Shot's `timestamp` and sample times in the tablet's local
  * time without an offset, and `createdAt` in UTC as it saves the Shot, just
- * after the last sample. That gap, rounded to a quarter hour, is the offset.
+ * after the last sample. That gap, rounded to a quarter hour, is the samples'
+ * offset. Decaid reads `timestamp` back in the tablet's current zone, while
+ * samples keep the zone they were recorded in, so any whole-quarter-hour gap
+ * between `timestamp` and the first sample is a zone change, removed first.
  */
-function pulledAt(shot: Record<string, unknown>, lastSample: number | null): Date | null {
+function pulledAt(shot: Record<string, unknown>, firstSample: number | null, lastSample: number | null): Date | null {
   const start = date(shot.timestamp);
   if (!start || typeof shot.timestamp !== "string") return null;
   if (/(?:Z|[+-]\d\d:\d\d)$/.test(shot.timestamp)) return start;
   const created = date(shot.createdAt);
-  if (!created || lastSample === null) return null;
-  return new Date(start.getTime() + Math.round((created.getTime() - lastSample) / QUARTER_HOUR) * QUARTER_HOUR);
+  if (!created || firstSample === null || lastSample === null) return null;
+  const zoneChange = quarterHours(start.getTime() - firstSample);
+  return new Date(start.getTime() - zoneChange + quarterHours(created.getTime() - lastSample));
+}
+
+function quarterHours(ms: number): number {
+  return Math.round(ms / QUARTER_HOUR) * QUARTER_HOUR;
 }
