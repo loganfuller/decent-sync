@@ -16,6 +16,7 @@ import { Outbox } from "./outbox.js";
 import { Sender } from "./sender.js";
 import { ShotCapture } from "./shots.js";
 import type { SyncSettings } from "./settings.js";
+import { SteamCapture } from "./steams.js";
 
 const MIN_RECONNECT_MS = 1_000;
 const MAX_RECONNECT_MS = 60_000;
@@ -87,9 +88,10 @@ export class SyncConnection {
   private sentHardware: MachineHardware | null = null;
   /** Hardware the server dismissed for this token; while set, the plugin does not connect. */
   private dismissedHardware: MachineHardware | null = null;
-  /** Everything the server acknowledges goes through it, across connections. */
+  /** Everything awaiting the server's acknowledgment, kept across reconnects in this runtime. */
   private readonly outbox: Outbox;
   private readonly shots: ShotCapture;
+  private readonly steams: SteamCapture;
   private readonly machineEvents: MachineEvents;
   private checkingHardware = false;
   private hardwareCooldown = false;
@@ -99,8 +101,12 @@ export class SyncConnection {
     private readonly settings: SyncSettings,
     private readonly log: (message: string) => void,
   ) {
-    this.outbox = new Outbox(log);
-    this.shots = new ShotCapture(log, this.outbox);
+    this.outbox = new Outbox(log, {
+      shot: (id, deliveryId) => this.shots.read(id, deliveryId),
+      steam: (id, deliveryId) => this.steams.read(id, deliveryId),
+    });
+    this.shots = new ShotCapture(this.outbox, log);
+    this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1000, log);
     this.machineEvents = new MachineEvents(this.outbox);
   }
 
@@ -108,6 +114,7 @@ export class SyncConnection {
   start(): void {
     this.setTimer("reconnect", 0, () => void this.connect());
     this.scheduleHardwarePoll();
+    this.steams.start();
   }
 
   /**
@@ -130,6 +137,7 @@ export class SyncConnection {
     this.stopped = true;
     this.outbox.stop();
     this.shots.stop();
+    this.steams.stop();
     for (const id of this.timers.values()) clearTimeout(id);
     this.timers.clear();
     this.closeHandle();
@@ -249,7 +257,7 @@ export class SyncConnection {
         this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
         // What the last connection left unacknowledged goes first, then the
         // latest Workflow, queued before the outbox starts sending, then the
-        // Shot index.
+        // Shot and Steam Record indices.
         this.machineEvents.welcome();
         this.outbox.welcome(async (delivery) => {
           try { await this.send(handle, delivery); }
@@ -259,6 +267,7 @@ export class SyncConnection {
           }
         });
         this.shots.welcome();
+        this.steams.welcome();
         break;
       case "ack":
         this.sender?.acknowledged(message.id);
@@ -268,7 +277,10 @@ export class SyncConnection {
         this.sender?.received(message.id, message.index);
         break;
       case "requestShots":
-        this.shots.request(message.shotIds);
+        this.outbox.request("shot", message.shotIds);
+        break;
+      case "requestSteams":
+        this.outbox.request("steam", message.steamIds);
         break;
       case "heartbeat":
         // Its arrival is what counts.
@@ -377,7 +389,6 @@ export class SyncConnection {
     this.sender?.close();
     this.sender = undefined;
     this.outbox.disconnected();
-    this.shots.disconnected();
     this.clearTimer("heartbeat");
     this.clearTimer("silence");
     this.clearTimer("connect");

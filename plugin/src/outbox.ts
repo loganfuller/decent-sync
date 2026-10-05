@@ -1,74 +1,71 @@
-import type { MachineStateDelivery, PluginMessage, ShotDelivery, ShotIndex, WorkflowDelivery } from "@decent-sync/protocol";
+import type {
+  MachineStateDelivery,
+  PluginMessage,
+  ShotDelivery,
+  ShotIndex,
+  SteamDelivery,
+  SteamIndex,
+  WorkflowDelivery,
+} from "@decent-sync/protocol";
 
-/** Every message the server acknowledges once it has stored it. */
-export type Delivery = ShotDelivery | ShotIndex | WorkflowDelivery | MachineStateDelivery;
+/** A logical delivery, acknowledged once the server has stored it: a record, a page of an index, or a Workflow or machine state event. */
+export type Delivery = ShotDelivery | ShotIndex | SteamDelivery | SteamIndex | WorkflowDelivery | MachineStateDelivery;
 
-/** How long to wait before trying again when a delivery could not be produced or sent. */
-const RETRY_MS = 5_000;
+/** The kinds of record the server can request by their ids. */
+export type RecordKind = "shot" | "steam";
 
 /**
- * Deliveries produced only when the outbox has nothing queued, as backfill
- * fetches each Shot the server requested only when its turn comes.
+ * Reads a requested record from Decaid's API as a delivery with the given id:
+ * null if the tablet no longer has it, or it is not a record Decent Sync
+ * sends. Throws if it cannot be read now, so it is tried again later.
  */
-export interface Backlog {
-  /** Whether it has anything left to produce. */
-  hasMore(): boolean;
-  /** The next delivery, or null if what it had is gone. Throws if it cannot be produced now; the outbox tries again later. */
-  next(): Promise<Delivery | null>;
-}
+export type RecordReader = (id: string, deliveryId: string) => Promise<Delivery | null>;
+
+/** Index pages wait while this many deliveries are queued. */
+const SHORT_OUTBOX = 4;
 
 /**
- * The plugin's one outbox, at least once: every delivery waits in order until
- * the server acknowledges it, and is sent again on the next connection if it
- * was not. One awaits acknowledgment at a time; the connection's Sender keeps
- * it, chunked or not, within Decaid's pending limit. It lives in memory for
- * one runtime, so an unload loses what it holds; Shots and edits are
- * recovered by the next load's reconciliation.
+ * The plugin's one at-least-once outbox, for Shots, Steam Records and their
+ * indices, and Workflow and machine state events, in memory for one runtime:
+ * a reload loses what it holds, and the indices sent after the reload
+ * recover the records. A delivery stays until the server acknowledges it.
+ * One logical delivery awaits acknowledgment at a time; the connection's
+ * Sender keeps it, chunked or not, within Decaid's pending limit. Requested
+ * records are read from Decaid's API one at a time, when nothing else is
+ * queued, oldest request first.
  */
 export class Outbox {
   private readonly queued = new Map<string, Delivery>();
+  private readonly requested = new Map<string, { kind: RecordKind; id: string }>();
   private readonly runtimeId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   private sequence = 0;
   private sendMessage?: (message: PluginMessage) => Promise<void>;
-  private generation = 0;
+  /** Bumped by every welcome and disconnect, so work for an earlier connection stops. */
+  private connections = 0;
+  /** The delivery awaiting acknowledgment. */
   private sent?: string;
   private working = false;
   private stopped = false;
   private retryTimer?: number;
-  private backlog?: Backlog;
 
-  constructor(private readonly log: (message: string) => void) {}
+  constructor(
+    private readonly log: (message: string) => void,
+    private readonly readers: Readonly<Record<RecordKind, RecordReader>>,
+  ) {}
 
-  /** An id for a new delivery, unique to this runtime. */
-  nextId(): string { return `${this.runtimeId}-${++this.sequence}`; }
+  /** Changes with every welcome and disconnect: work started for one connection checks it before sending. */
+  get generation(): number { return this.connections; }
 
-  /** How many deliveries await acknowledgment. */
-  get size(): number { return this.queued.size; }
-
-  /** Draws on the backlog whenever nothing is queued. */
-  drawOn(backlog: Backlog): void { this.backlog = backlog; }
-
-  enqueue(message: Delivery): void {
-    this.queued.set(message.id, message);
-    this.pump();
-  }
-
-  /** Drops a queued delivery that a newer one makes unnecessary; one being sent now stays, to be acknowledged. */
-  discard(id: string): void {
-    if (this.sent !== id) this.queued.delete(id);
-  }
-
-  /** A connection was welcomed: sends through it, starting with what the last one left unacknowledged. */
   welcome(send: (message: PluginMessage) => Promise<void>): void {
     this.sendMessage = send;
-    this.generation++;
+    this.connections++;
     this.sent = undefined;
     this.pump();
   }
 
   disconnected(): void {
     this.sendMessage = undefined;
-    this.generation++;
+    this.connections++;
     this.sent = undefined;
   }
 
@@ -78,16 +75,55 @@ export class Outbox {
     if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
   }
 
+  enqueue(delivery: Delivery): void {
+    this.queued.set(delivery.id, delivery);
+    this.pump();
+  }
+
   acknowledge(id: string): void {
     this.queued.delete(id);
     if (this.sent === id) this.sent = undefined;
     this.pump();
   }
 
-  /** One logical message awaits acknowledgment at a time. */
-  pump(): void {
-    if (this.retryTimer !== undefined || this.working || this.stopped || !this.sendMessage || this.sent !== undefined) return;
-    if (this.queued.size === 0 && !this.backlog?.hasMore()) return;
+  /** Drops a queued delivery that a newer one makes unnecessary; one being sent now stays, to be acknowledged. */
+  discard(id: string): void {
+    if (this.sent !== id) this.queued.delete(id);
+  }
+
+  /**
+   * Records to read and send: requested by the server, after those already
+   * requested, where a record requested again keeps its place, or, with
+   * `first`, ahead of them all, as for records new on the tablet.
+   */
+  request(kind: RecordKind, ids: string[], options: { first?: boolean } = {}): void {
+    const records = ids.map((id) => [`${kind}:${id}`, { kind, id }] as const);
+    if (options.first) {
+      const keys = new Set<string>(records.map(([key]) => key));
+      const others = [...this.requested].filter(([key]) => !keys.has(key));
+      this.requested.clear();
+      for (const [key, record] of [...records, ...others]) this.requested.set(key, record);
+    } else {
+      for (const [key, record] of records) this.requested.set(key, record);
+    }
+    this.pump();
+  }
+
+  /** A record that could not be read now, to be read again, as if requested, after a pause. */
+  retryLater(kind: RecordKind, id: string): void {
+    this.requested.set(`${kind}:${id}`, { kind, id });
+    this.retry();
+  }
+
+  /** Resolves once few enough deliveries are queued for an index to add a page. */
+  async waitForRoom(): Promise<void> {
+    while (!this.stopped && this.queued.size >= SHORT_OUTBOX) await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  }
+
+  nextId(): string { return `${this.runtimeId}-${++this.sequence}`; }
+
+  private pump(): void {
+    if (this.retryTimer !== undefined || this.working || this.stopped || !this.sendMessage || this.sent !== undefined || (this.queued.size === 0 && this.requested.size === 0)) return;
     this.working = true;
     void this.work().catch(() => {
       // SyncConnection drops a transport whose send failed; the outbox stays for its replacement.
@@ -99,24 +135,33 @@ export class Outbox {
     });
   }
 
-  /** Tries again after a while, as after a failure that may pass. */
-  retry(): void {
-    if (this.stopped || this.retryTimer !== undefined) return;
-    this.retryTimer = setTimeout(() => { this.retryTimer = undefined; this.pump(); }, RETRY_MS);
-  }
-
   private async work(): Promise<void> {
-    const generation = this.generation;
-    if (this.queued.size === 0 && this.backlog?.hasMore()) {
-      const produced = await this.backlog.next();
+    const generation = this.connections;
+    if (this.queued.size === 0 && this.requested.size > 0) {
+      const [key, record] = this.requested.entries().next().value!;
+      let delivery: Delivery | null;
+      try { delivery = await this.readers[record.kind](record.id, this.nextId()); }
+      catch (error) {
+        // Retry it after the others, so one unreadable record cannot hold up the rest.
+        this.requested.delete(key);
+        this.requested.set(key, record);
+        throw error;
+      }
       if (this.stopped) return;
-      if (produced) this.queued.set(produced.id, produced);
+      this.requested.delete(key);
+      // A record deleted on the tablet is absent; nothing deletes its server copy.
+      if (delivery) this.queued.set(delivery.id, delivery);
     }
-    if (generation !== this.generation || !this.sendMessage) return;
+    if (generation !== this.connections || !this.sendMessage) return;
     const next = this.queued.entries().next().value;
     if (!next) return;
     const [id, message] = next;
     this.sent = id;
     await this.sendMessage(message);
+  }
+
+  private retry(): void {
+    if (this.stopped || this.retryTimer !== undefined) return;
+    this.retryTimer = setTimeout(() => { this.retryTimer = undefined; this.pump(); }, 5_000);
   }
 }

@@ -62,20 +62,19 @@ limit on how late a resend may arrive.
 
 An event belongs to the session's token's Machine, or for a mismatched
 session, to its reported hardware: the Machine that has it, or else its
-Pending Machine (ADR-0015), as an inferred Shot does (`reporterHolder` in
-`server/src/machines/machines.service.ts`). Whoever is chosen is locked: the
-Machine's row, or the hardware's advisory lock for a Pending Machine. Under
-that lock, one statement inserts the event unless the latest event stored for
-the same Machine or Pending Machine (the highest `id`) has the same Workflow
-(jsonb equality) or state and substate. That makes the history transitions
-only, judged by what is stored rather than what any instance or connection
-remembers, so it holds across reconnects, instances and restarts. A
-mismatched session's events are judged against the latest of whoever has its
-hardware, so a tablet moved onto another Machine's hardware adds only what
-changes that Machine's own.
-Creating a machine entry for a Pending Machine's hardware, binding it at
-`hello` or entering it by hand hands its events over with its Shots
-(`handOverHeld`).
+Pending Machine (ADR-0015), as an inferred Shot or a Steam Record is
+(`creditReporter` in `server/src/machines/credit.ts`). Whoever is chosen is
+locked: the Machine's row, or the hardware's advisory lock for a Pending
+Machine. Under that lock, one statement inserts the event unless the latest
+event stored for the same Machine or Pending Machine (the highest `id`) has
+the same Workflow (jsonb equality) or state and substate. That makes the
+history transitions only, judged by what is stored rather than what any
+instance or connection remembers, so it holds across reconnects, instances and
+restarts. A mismatched session's events are judged against the latest of
+whoever has its hardware, so a tablet moved onto another Machine's hardware
+adds only what changes that Machine's own. Creating a machine entry for a
+Pending Machine's hardware, binding it at `hello` or entering it by hand hands
+its events over with its Shots and Steam Records (`transferPendingRecords`).
 
 The current Workflow and machine state are the latest events stored, which
 for one tablet are also the latest observed. `observed_at` keeps the tablet's

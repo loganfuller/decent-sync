@@ -181,7 +181,7 @@ export class MachinesService {
           await tx.machineAlias.createMany({ data: [{ machineId: id, connectionId: machine.connectionId }], skipDuplicates: true });
         }
         // The Machine takes over whatever was held for its hardware.
-        await handOverHeld(tx, hardware, id);
+        await transferPendingRecords(tx, hardware, id);
         await tx.pendingMachine.deleteMany({ where: hardware });
       })
       .catch(async (error: unknown) => {
@@ -365,7 +365,7 @@ export class MachinesService {
     }
     if (identity.kind === "identified" && identity.bind) {
       // The Machine takes over whatever was held for its hardware.
-      await handOverHeld(tx, hardware!, machine.id);
+      await transferPendingRecords(tx, hardware!, machine.id);
       await tx.pendingMachine.deleteMany({ where: hardware! });
     }
     if (identity.kind === "mismatch" && !identity.anotherMachineHasIt) {
@@ -568,51 +568,15 @@ function identificationOf(identity: Exclude<Identity, { kind: "rejected" }>): Ma
 
 /**
  * Gives the Machine whatever is held for its hardware, even by a dismissed
- * Pending Machine: its Shots, credited by the Machine's Location History, and
- * its Workflow and machine state events. The Machine's row lock must be held,
- * or the Machine created in this transaction.
+ * Pending Machine: its Shots and Steam Records, credited by its Location
+ * History, and its Workflow and machine state events. The Machine's row lock
+ * must be held, or the Machine created in this transaction.
  */
-export async function handOverHeld(tx: Prisma.TransactionClient, hardware: Hardware, machineId: string): Promise<void> {
-  const held = { where: { pendingMachine: hardware }, data: { machineId, pendingMachineId: null } };
-  await tx.shot.updateMany(held);
-  await tx.workflowEvent.updateMany(held);
-  await tx.machineStateEvent.updateMany(held);
+export async function transferPendingRecords(tx: Prisma.TransactionClient, hardware: Hardware, machineId: string): Promise<void> {
+  const handover = { machineId, pendingMachineId: null };
+  await tx.shot.updateMany({ where: { pendingMachine: hardware }, data: handover });
+  await tx.steamRecord.updateMany({ where: { pendingMachine: hardware }, data: handover });
+  await tx.workflowEvent.updateMany({ where: { pendingMachine: hardware }, data: handover });
+  await tx.machineStateEvent.updateMany({ where: { pendingMachine: hardware }, data: handover });
   await creditLocations(tx, machineId);
-}
-
-/** The session a record or event came through: its token's Machine, and who its tablet is, decided at hello. */
-export interface Reporter {
-  machineId: string;
-  identity: Identity;
-}
-
-/** Whose a record or event is: a Machine's, or a Pending Machine's until a Machine has its hardware. */
-export type Holder = { machineId: string; pendingMachineId: null } | { machineId: null; pendingMachineId: string };
-
-/**
- * Whose what was recorded on the hardware is: the Machine that has it, its
- * row locked as lockMachine locks it, or else the Pending Machine for it,
- * created if need be. The hardware is locked first, as everything that gives
- * hardware to a Machine or holds it does, so neither can change before the
- * transaction ends.
- */
-export async function holderOf(tx: Prisma.TransactionClient, hardware: Hardware): Promise<Holder> {
-  await lockHardware(tx, hardware);
-  // Machine rows before the Pending Machine, matching hello and dismissal.
-  const [owner] = await tx.$queryRaw<{ id: string }[]>`
-    SELECT id FROM machines WHERE model = ${hardware.model} AND serial = ${hardware.serial} FOR NO KEY UPDATE`;
-  if (owner) return { machineId: owner.id, pendingMachineId: null };
-  const pending = await tx.pendingMachine.upsert({ where: { model_serial: hardware }, create: hardware, update: {} });
-  return { machineId: null, pendingMachineId: pending.id };
-}
-
-/**
- * Whose what a session reports is when nothing in it names hardware
- * (ADR-0015): its token's Machine's, locked, or for a mismatched session,
- * its reported hardware's.
- */
-export async function reporterHolder(tx: Prisma.TransactionClient, reporter: Reporter): Promise<Holder> {
-  if (reporter.identity.kind === "mismatch") return holderOf(tx, reporter.identity.hardware);
-  await lockMachine(tx, reporter.machineId);
-  return { machineId: reporter.machineId, pendingMachineId: null };
 }

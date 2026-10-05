@@ -24,16 +24,16 @@ sending each page's ids and edit times. A reconnect in that runtime sends
 cached ids only and resends unacknowledged deliveries. Backfill fetches one
 Shot at a time, when the outbox has nothing else queued. Only one logical
 delivery awaits acknowledgment at a time, and the scan waits while the outbox
-has four deliveries. The outbox (`plugin/src/outbox.ts`) is the plugin's only
-one: Workflow and machine state events go through it too
-(`WORKFLOW-AND-STATE.md`). A Shot whose fetch
+has four deliveries. A Shot whose fetch
 fails is retried after the other requested Shots; a 404 means the tablet
 deleted the record. Shots Decaid imported from the legacy de1app (`de1app-*`
 ids) are never indexed or sent (ADR-0004). Deletion
-never removes a server record. The outbox is in memory; reload reconciliation
-recovers lost Shots and edits. A delivery too large for one frame, such as a
-long filter or tea shot, is sent in chunks and acknowledged once
-(`AI_PROTOCOL_NOTES.md`).
+never removes a server record. The outbox (`plugin/src/outbox.ts`) is in
+memory, and Steam Records and Workflow and machine state events share it
+(`STEAM_RECORDS.md`, `WORKFLOW-AND-STATE.md`); reload reconciliation recovers
+lost Shots and edits.
+A delivery too large for one frame, such as a long filter or tea shot, is sent
+in chunks and acknowledged once (`AI_PROTOCOL_NOTES.md`).
 
 `ShotsService` serializes a Shot's deliveries with a PostgreSQL advisory lock,
 then compares `updatedAt` in PostgreSQL. Edit-time
@@ -64,7 +64,10 @@ last sample. `extractCurves` takes the tablet's offset from that gap, rounded
 to a quarter hour, so the pulled-at time needs the curves and is set by the
 first full record, which also credits the Shot. Later records and edits change
 neither, so a Shot's credit and the time its Location is credited by are
-written once, with its Machine's row locked.
+written once, with its Machine's row locked. Duration adds up the gaps between
+consecutive samples, leaving out the whole quarter hours a daylight-saving
+change adds or takes away; a gap where the tablet's clock was otherwise
+corrected counts for nothing (`elapsedSeconds`).
 
 ## REST API
 

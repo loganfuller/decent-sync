@@ -1,9 +1,10 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { ShotDelivery, ShotIndex } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
+import { creditHardware, creditReporter } from "../machines/credit.js";
 import { creditShotLocation } from "../machines/location-history.js";
-import { type Reporter, holderOf, reporterHolder } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
+import type { Reporter } from "../sync/identity.js";
 import { extractCurves, extractShot, shotHardware, shotVersion } from "./extraction.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
@@ -102,11 +103,11 @@ export class ShotsService {
     return (await this.prisma.shotMeasurements.findUnique({ where: { shotId: id } }))?.data ?? null;
   }
 
-  /** By the hardware the Shot recorded, or else, inferred, by the session that reported it (ADR-0015). */
+  /** Credited by the hardware it recorded, otherwise, as inferred, to whoever reported it. */
   private async credit(tx: Prisma.TransactionClient, record: unknown, reporter: Reporter) {
     const recordedHardware = shotHardware(record);
-    const holder = recordedHardware ? await holderOf(tx, recordedHardware) : await reporterHolder(tx, reporter);
-    return { ...holder, machineInferred: recordedHardware === null };
+    const credit = recordedHardware ? await creditHardware(tx, recordedHardware) : await creditReporter(tx, reporter);
+    return { ...credit, machineInferred: recordedHardware === null };
   }
 }
 

@@ -1,12 +1,7 @@
 import { BadRequestException } from "@nestjs/common";
 
-/** A page of a list, from a request's `limit` (1 to 100, 20 if absent) and `offset` (0 if absent). */
-export interface Page {
-  limit: number;
-  offset: number;
-}
-
-export function readPage(limit: string | undefined, offset: string | undefined): Page {
+/** A list's page, from its query: `limit`, 1–100 and 20 if not given, and `offset`, from 0. */
+export function readPage(limit: string | undefined, offset: string | undefined): { limit: number; offset: number } {
   return { limit: integer(limit, 20, 1, 100), offset: integer(offset, 0, 0, 1 << 30) };
 }
 

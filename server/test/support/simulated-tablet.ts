@@ -15,7 +15,10 @@ import WebSocket from "ws";
 //   synchronously without awaiting it. Then the plugin is sent the current
 //   Workflow in a `workflowUpdated` event, as Decaid sends it after every load.
 // - `fetch` answers Decaid's local API from fixtures, failing after Decaid's
-//   30 s timeout.
+//   30 s timeout. `GET /shots` pages the Shots served at `/shots/{id}`, and
+//   `GET /steams/ids` lists the Steam Records served at `/steams/{id}`.
+// - The plugin's local time, as JavaScript reads it, is this process's time
+//   zone: set `process.env.TZ` to put the tablet in another one.
 // - `host.transport` opens real WebSockets with only a URL and subprotocols
 //   (no custom headers), allows 8 live transports per plugin generation
 //   (counting opens still in progress, which cannot be cancelled),
@@ -396,6 +399,11 @@ export class SimulatedTablet {
       records.sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)) || String(a.id).localeCompare(String(b.id)));
       const items = records.slice(offset, offset + Math.min(100, Math.max(1, limit))).map(({ measurements, ...summary }) => summary);
       return response(200, JSON.stringify({ items, total: records.length, limit, offset }));
+    }
+    if (route === "/steams/ids") {
+      // Every id at once, unpaginated, in the order of Decaid's primary key index.
+      const ids = Object.keys(this.api).filter((path) => path.startsWith("/steams/")).map((path) => decodeURIComponent(path.slice("/steams/".length)));
+      return response(200, JSON.stringify(ids.sort()));
     }
     if (!(route in this.api)) return response(404, "");
     return response(200, JSON.stringify(this.api[route]));

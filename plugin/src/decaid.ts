@@ -41,15 +41,11 @@ async function getObject(path: string): Promise<Record<string, unknown> | null> 
   try {
     const response = await fetch(API + path);
     if (!response.ok) return null;
-    return asObject(await response.json()) ?? null;
+    const body = await response.json();
+    return typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
   } catch {
     return null;
   }
-}
-
-/** A JSON object Decaid sent, or undefined if it sent anything else. */
-export function asObject(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
 function stringField(object: Record<string, unknown> | null, key: string): string | null {
@@ -63,11 +59,37 @@ export async function readShotPage(limit: number, offset: number): Promise<{ ite
   return Array.isArray(page?.items) ? { items: page.items } : null;
 }
 
-export async function readShot(id: string): Promise<Record<string, unknown> | null> {
-  const response = await fetch(`${API}/shots/${encodeURIComponent(id)}`);
+export function readShot(id: string): Promise<Record<string, unknown> | null> {
+  return readRecord("shots", id);
+}
+
+export function readSteam(id: string): Promise<Record<string, unknown> | null> {
+  return readRecord("steams", id);
+}
+
+/**
+ * Every Steam Record id, or null if they cannot be read now. Ids are all
+ * Decaid offers to find new Steam Records by: it has no event for them, and
+ * `GET /steams` returns every record, workflow included, in one response
+ * that outgrows the fetch limit.
+ */
+export async function readSteamIds(): Promise<string[] | null> {
+  try {
+    const response = await fetch(`${API}/steams/ids`);
+    if (!response.ok) return null;
+    const body: unknown = await response.json();
+    return Array.isArray(body) ? body.filter((id): id is string => typeof id === "string" && id !== "") : null;
+  } catch {
+    return null;
+  }
+}
+
+/** One record, or null if the tablet no longer has it. Throws if it cannot be read now. */
+async function readRecord(collection: "shots" | "steams", id: string): Promise<Record<string, unknown> | null> {
+  const response = await fetch(`${API}/${collection}/${encodeURIComponent(id)}`);
   if (response.status === 404) return null;
-  if (!response.ok) throw new Error("Shot unavailable");
+  if (!response.ok) throw new Error("Record unavailable");
   const body: unknown = await response.json();
-  if (body === null || typeof body !== "object" || Array.isArray(body)) throw new Error("Shot response unavailable");
+  if (body === null || typeof body !== "object" || Array.isArray(body)) throw new Error("Record response unavailable");
   return body as Record<string, unknown>;
 }

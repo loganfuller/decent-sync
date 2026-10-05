@@ -57,33 +57,43 @@ export async function databaseNow(tx: Prisma.TransactionClient): Promise<Date> {
 
 /** Credits every record of the Machine by its Location History. Its row lock must be held. */
 export async function creditLocations(tx: Prisma.TransactionClient, machineId: string): Promise<void> {
-  await creditShots(tx, Prisma.sql`machine_id = ${machineId}::uuid`);
+  for (const records of ["shots", "steam_records"] as const) await credit(tx, records, Prisma.sql`machine_id = ${machineId}::uuid`);
 }
 
 /** Credits one Shot by its Machine's Location History. The Machine's row lock must be held. */
 export async function creditShotLocation(tx: Prisma.TransactionClient, shotId: string): Promise<void> {
-  await creditShots(tx, Prisma.sql`id = ${shotId}`);
+  await credit(tx, "shots", Prisma.sql`id = ${shotId}`);
 }
 
+/** Credits one Steam Record by its Machine's Location History. The Machine's row lock must be held. */
+export async function creditSteamRecordLocation(tx: Prisma.TransactionClient, steamRecordId: string): Promise<void> {
+  await credit(tx, "steam_records", Prisma.sql`id = ${steamRecordId}`);
+}
+
+/** When each kind of record was recorded, by the column its Location is credited by. */
+const RECORDED_AT = { shots: "pulled_at", steam_records: "steamed_at" } as const;
+
 /**
- * Sets each chosen Shot's Location to the one its Machine's latest entry
- * from or before its pull time names. A Shot pulled before the first entry,
- * without a pull time, or held by a Pending Machine gets none. Only Shots
- * whose Location changes are written.
+ * Sets each chosen record's Location to the one its Machine's latest entry
+ * from or before the time it was recorded names. A record from before the
+ * first entry, without a time, or held by a Pending Machine gets none. Only
+ * records whose Location changes are written.
  */
-async function creditShots(tx: Prisma.TransactionClient, chosen: Prisma.Sql): Promise<void> {
+async function credit(tx: Prisma.TransactionClient, table: keyof typeof RECORDED_AT, chosen: Prisma.Sql): Promise<void> {
+  const records = Prisma.raw(table);
+  const recordedAt = Prisma.raw(RECORDED_AT[table]);
   await tx.$executeRaw`
     WITH credited AS (
       SELECT id, (
         SELECT location_id FROM location_assignments
-        WHERE location_assignments.machine_id = shots.machine_id AND effective_from <= shots.pulled_at
+        WHERE location_assignments.machine_id = ${records}.machine_id AND effective_from <= ${records}.${recordedAt}
         ORDER BY effective_from DESC
         LIMIT 1
       ) AS location_id
-      FROM shots
+      FROM ${records}
       WHERE ${chosen}
     )
-    UPDATE shots SET location_id = credited.location_id
+    UPDATE ${records} SET location_id = credited.location_id
     FROM credited
-    WHERE shots.id = credited.id AND shots.location_id IS DISTINCT FROM credited.location_id`;
+    WHERE ${records}.id = credited.id AND ${records}.location_id IS DISTINCT FROM credited.location_id`;
 }

@@ -15,10 +15,11 @@ business with a roastery lab and several cafes.
 
 **Milestone 1 is in progress.** Admins sign in, manage Locations, and adopt
 Machines, which are identified by their hardware and record where they were
-in a Location History. Adopted tablets send their Shots, which the REST API
-serves, each credited to the Location its Machine was at when it was pulled,
-and their Workflow changes and machine state transitions, so the management
-interface shows what each Machine is set up to pull next and what it is doing. [Milestone 1](https://github.com/loganfuller/decent-sync/issues/1)
+in a Location History. Adopted tablets send their Shots and Steam Records, which
+the REST API serves, each credited to the Location its Machine was at when it
+was recorded, and their Workflow changes and machine state transitions, so the
+management interface shows what each Machine is set up to pull next and what it
+is doing. [Milestone 1](https://github.com/loganfuller/decent-sync/issues/1)
 and its child tickets define the rest of its scope. The shared-library behavior
 below comes in later milestones; milestone 1 captures data without pushing
 changes to tablets.

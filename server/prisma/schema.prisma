@@ -79,8 +79,9 @@ model Location {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  assignments LocationAssignment[]
-  shots       Shot[]
+  assignments  LocationAssignment[]
+  shots        Shot[]
+  steamRecords SteamRecord[]
 
   @@map("locations")
 }
@@ -134,6 +135,7 @@ model Machine {
   updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   shots              Shot[]
+  steamRecords       SteamRecord[]
   tokens             MachineToken[]
   aliases            MachineAlias[]
   dismissedHardware  DismissedHardware[]
@@ -198,15 +200,16 @@ model MachineAlias {
 /// named by a Shot. An Admin creates a machine entry for it, which takes over
 /// what was held for it, or dismisses it.
 model PendingMachine {
-  shots       Shot[]
-  id          String    @id @default(uuid(7)) @db.Uuid
-  model       String
-  serial      String
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  shots        Shot[]
+  steamRecords SteamRecord[]
+  id           String    @id @default(uuid(7)) @db.Uuid
+  model        String
+  serial       String
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   /// When a connection last reported it.
-  lastSeenAt  DateTime? @map("last_seen_at") @db.Timestamptz(3)
+  lastSeenAt   DateTime? @map("last_seen_at") @db.Timestamptz(3)
   /// Dismissed Pending Machines stay, so creating a machine entry later restores what they hold.
-  dismissedAt DateTime? @map("dismissed_at") @db.Timestamptz(3)
+  dismissedAt  DateTime? @map("dismissed_at") @db.Timestamptz(3)
 
   workflowEvents     WorkflowEvent[]
   machineStateEvents MachineStateEvent[]
@@ -275,6 +278,49 @@ model ShotMeasurements {
   data Json @db.JsonB
 
   @@map("shot_measurements")
+}
+
+/// A Decaid Steam Record, stored once by its id, whichever tablet reported it.
+/// Decaid records no hardware on Steam Records, so it is credited to the
+/// Machine whose tablet reported it, or, from a mismatched connection, to the
+/// hardware that connection reported: the Machine that has it, otherwise its
+/// Pending Machine (ADR-0015). Decaid offers no way to detect edits to Steam
+/// Records, so a stored one never changes; only its credit moves, when a
+/// machine entry takes over its Pending Machine's hardware or its Machine's
+/// Location History changes.
+model SteamRecord {
+  id                   String             @id
+  /// The record as Decaid sent it, without its measurements.
+  record               Json               @db.JsonB
+  machineId            String?            @map("machine_id") @db.Uuid
+  machine              Machine?           @relation(fields: [machineId], references: [id])
+  pendingMachineId     String?            @map("pending_machine_id") @db.Uuid
+  pendingMachine       PendingMachine?    @relation(fields: [pendingMachineId], references: [id])
+  /// Where its Machine was when it was recorded, by the Machine's Location
+  /// History; null when unknown. Re-derived whenever that history changes.
+  locationId           String?            @map("location_id") @db.Uuid
+  location             Location?          @relation(fields: [locationId], references: [id])
+  /// When it was recorded, as the plugin placed the record's local time in UTC.
+  steamedAt            DateTime           @map("steamed_at") @db.Timestamptz(3)
+  duration             Float?
+  peakMilkTemperature  Float?             @map("peak_milk_temperature")
+  finalMilkTemperature Float?             @map("final_milk_temperature")
+  barista              String?
+  measurements         SteamMeasurements?
+
+  @@index([steamedAt(sort: Desc), id])
+  @@index([machineId, steamedAt(sort: Desc), id])
+  @@index([pendingMachineId])
+  @@map("steam_records")
+}
+
+model SteamMeasurements {
+  steamRecordId String      @id @map("steam_record_id")
+  steamRecord   SteamRecord @relation(fields: [steamRecordId], references: [id], onDelete: Cascade)
+  /// lz4 column compression is set by the migration.
+  data          Json        @db.JsonB
+
+  @@map("steam_measurements")
 }
 
 /// A Workflow a tablet reported: what its Machine was set up to do next, from

@@ -1,5 +1,4 @@
 import type { WorkflowDelivery } from "@decent-sync/protocol";
-import { asObject } from "./decaid.js";
 import type { Outbox } from "./outbox.js";
 
 /**
@@ -22,7 +21,7 @@ export class MachineEvents {
 
   /** Decaid's `workflowUpdated`: the whole Workflow, sent on every load and every change. */
   workflowUpdated(payload: unknown): void {
-    const workflow = asObject(payload);
+    const workflow = object(payload);
     if (!workflow) return;
     this.workflow = workflow;
     this.queueWorkflow(workflow);
@@ -33,7 +32,7 @@ export class MachineEvents {
    * machine is connected: only a change of state or substate is sent.
    */
   stateUpdate(payload: unknown): void {
-    const reported = asObject(asObject(payload)?.state);
+    const reported = object(object(payload)?.state);
     const state = reported?.state;
     const substate = reported?.substate;
     if (typeof state !== "string" || state === "" || typeof substate !== "string" || substate === "") return;
@@ -71,4 +70,8 @@ export class MachineEvents {
 /** Now, by the tablet's clock, in UTC. */
 function now(): string {
   return new Date().toISOString();
+}
+
+function object(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }

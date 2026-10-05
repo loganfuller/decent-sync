@@ -1,10 +1,14 @@
 import { Injectable } from "@nestjs/common";
 import type { MachineStateDelivery, WorkflowDelivery } from "@decent-sync/protocol";
 import { type MachineStateEvent, Prisma, type WorkflowEvent } from "../generated/prisma/client.js";
+import { type Credit, creditReporter } from "../machines/credit.js";
 import { machineNotFound } from "../machines/input.js";
-import { type Holder, type MachineStateView, type Reporter, reporterHolder } from "../machines/machines.service.js";
-import type { Page } from "../pagination.js";
+import type { MachineStateView } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
+import type { Reporter } from "../sync/identity.js";
+
+/** A page of a history, as `readPage` reads it from a request. */
+type Page = { limit: number; offset: number };
 
 /** A Workflow recorded for a Machine, as the REST API returns it. */
 export interface WorkflowEventView {
@@ -48,12 +52,12 @@ export class MachineEventsService {
     const workflow = JSON.stringify(message.workflow);
     await this.prisma.$transaction(async (tx) => {
       if (!(await firstDelivery(tx, reporter, message.id))) return;
-      const holder = await reporterHolder(tx, reporter);
+      const credit = await creditReporter(tx, reporter);
       await tx.$executeRaw`
         INSERT INTO workflow_events (machine_id, pending_machine_id, observed_at, workflow)
-        SELECT ${holder.machineId}::uuid, ${holder.pendingMachineId}::uuid, ${message.observedAt}::timestamptz, ${workflow}::jsonb
+        SELECT ${credit.machineId}::uuid, ${credit.pendingMachineId}::uuid, ${message.observedAt}::timestamptz, ${workflow}::jsonb
         WHERE NOT EXISTS (
-          SELECT 1 FROM (SELECT workflow FROM workflow_events WHERE ${heldBy(holder)} ORDER BY id DESC LIMIT 1) AS latest
+          SELECT 1 FROM (SELECT workflow FROM workflow_events WHERE ${heldBy(credit)} ORDER BY id DESC LIMIT 1) AS latest
           WHERE latest.workflow = ${workflow}::jsonb
         )`;
     });
@@ -63,12 +67,12 @@ export class MachineEventsService {
     const { state, substate } = message;
     await this.prisma.$transaction(async (tx) => {
       if (!(await firstDelivery(tx, reporter, message.id))) return;
-      const holder = await reporterHolder(tx, reporter);
+      const credit = await creditReporter(tx, reporter);
       await tx.$executeRaw`
         INSERT INTO machine_state_events (machine_id, pending_machine_id, observed_at, state, substate)
-        SELECT ${holder.machineId}::uuid, ${holder.pendingMachineId}::uuid, ${message.observedAt}::timestamptz, ${state}, ${substate}
+        SELECT ${credit.machineId}::uuid, ${credit.pendingMachineId}::uuid, ${message.observedAt}::timestamptz, ${state}, ${substate}
         WHERE NOT EXISTS (
-          SELECT 1 FROM (SELECT state, substate FROM machine_state_events WHERE ${heldBy(holder)} ORDER BY id DESC LIMIT 1) AS latest
+          SELECT 1 FROM (SELECT state, substate FROM machine_state_events WHERE ${heldBy(credit)} ORDER BY id DESC LIMIT 1) AS latest
           WHERE latest.state = ${state} AND latest.substate = ${substate}
         )`;
     });
@@ -110,7 +114,7 @@ export class MachineEventsService {
  * Records that the session's token delivered this id, and says whether it is
  * the first time. A delivery's ids are its token's Machine's own, since a
  * resend always comes through the same plugin and token. Recorded before the
- * holder is locked, as by every delivery, so a resend arriving meanwhile
+ * credit is locked, as by every delivery, so a resend arriving meanwhile
  * waits for this one to commit and then finds it.
  */
 async function firstDelivery(tx: Prisma.TransactionClient, reporter: Reporter, deliveryId: string): Promise<boolean> {
@@ -121,11 +125,11 @@ async function firstDelivery(tx: Prisma.TransactionClient, reporter: Reporter, d
   return recorded > 0;
 }
 
-/** The holder's events, as a condition on an event table. */
-function heldBy(holder: Holder): Prisma.Sql {
-  return holder.machineId !== null
-    ? Prisma.sql`machine_id = ${holder.machineId}::uuid`
-    : Prisma.sql`pending_machine_id = ${holder.pendingMachineId}::uuid`;
+/** The events credited as this one is, as a condition on an event table. */
+function heldBy(credit: Credit): Prisma.Sql {
+  return credit.machineId !== null
+    ? Prisma.sql`machine_id = ${credit.machineId}::uuid`
+    : Prisma.sql`pending_machine_id = ${credit.pendingMachineId}::uuid`;
 }
 
 function viewWorkflowEvent(event: WorkflowEvent): WorkflowEventView {

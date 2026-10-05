@@ -10,9 +10,9 @@ import {
   MachinesService,
   dismissedReason,
   hardwareTaken,
-  handOverHeld,
   lockHardware,
   refuseDuplicateName,
+  transferPendingRecords,
 } from "./machines.service.js";
 import { notifyAccessChanged } from "./access-changes.js";
 
@@ -81,7 +81,7 @@ export class PendingMachinesService {
           },
         });
         await startLocationHistory(tx, machine.id, fields.locationId);
-        await handOverHeld(tx, hardware, machine.id);
+        await transferPendingRecords(tx, hardware, machine.id);
         await tx.pendingMachine.delete({ where: { id } });
         return machine.id;
       })
