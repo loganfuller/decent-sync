@@ -58,19 +58,26 @@ real tablet record. See the fixtures' README for provenance.
 Decaid writes a Shot's `timestamp` and sample times in the tablet's local time
 without an offset, and `createdAt` in UTC as it saves the Shot, just after the
 last sample. `extractCurves` takes the tablet's offset from that gap, rounded
-to a quarter hour, so the pulled-at time needs the curves and is set with
-them; edits never change it.
+to a quarter hour, so the pulled-at time needs the curves and is set by the
+first full record, which also credits the Shot. Later records and edits change
+neither, so a Shot's credit and the time its Location is credited by are
+written once, with its Machine's row locked.
 
 ## REST API
 
 All endpoints require the existing account session. Staff Location scoping
-and Location history are later tickets (#15 and #11).
+is ticket #15.
 
 - `GET /api/shots?limit=20&offset=0&machineId=<uuid>` returns
   `{ shots, total, limit, offset }`. Limit is 1–100; offset is nonnegative.
   Results are newest pulled-at first, with id as the deterministic tie-breaker
   and undated records last. Rows include analytics and Machine or Pending
   Machine credit, plus `machineInferred`, without metadata or measurements.
+  They also carry the Location the Machine was at when the Shot was pulled
+  (`locationId`, and `location: { id, name, timeZone }`, null when unknown),
+  and `locationInferred`, true when that Location came through an inferred
+  Machine. Correcting the Machine's Location History changes these, never
+  the stored record.
 - `GET /api/shots/:id` returns `{ shot }`, including the stored Decaid metadata
   in `shot.record`, without measurements.
 - `GET /api/shots/:id/measurements` returns `{ measurements }`, as sent by

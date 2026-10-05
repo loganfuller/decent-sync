@@ -1,7 +1,17 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Put } from "@nestjs/common";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
-import { MACHINE_MODELS, readHardware, readMachineId, readNewMachine, readPendingMachineId } from "./input.js";
+import {
+  MACHINE_MODELS,
+  readCorrection,
+  readHardware,
+  readLocationHistoryEntryId,
+  readMachineId,
+  readMove,
+  readNewMachine,
+  readPendingMachineId,
+} from "./input.js";
+import { LocationHistoryService } from "./location-history.service.js";
 import { type MachineView, MachinesService } from "./machines.service.js";
 import { type PendingMachineView, PendingMachinesService } from "./pending-machines.service.js";
 
@@ -10,6 +20,7 @@ import { type PendingMachineView, PendingMachinesService } from "./pending-machi
 export class MachinesController {
   constructor(
     private readonly machines: MachinesService,
+    private readonly locationHistory: LocationHistoryService,
     @Inject(CONFIG) private readonly config: Config,
   ) {}
 
@@ -30,8 +41,9 @@ export class MachinesController {
   }
 
   /**
-   * Creates a machine entry. The response is the only time its token is
-   * shown, together with the server URL to enter beside it in the plugin.
+   * Creates a machine entry, optionally at a Location from now. The response
+   * is the only time its token is shown, together with the server URL to
+   * enter beside it in the plugin.
    */
   @Post()
   async create(@Body() body: unknown): Promise<{ machine: MachineView; token: string; serverUrl: string }> {
@@ -52,6 +64,38 @@ export class MachinesController {
   async identify(@Param("id") id: string, @Body() body: unknown): Promise<{ machine: MachineView }> {
     const machineId = readMachineId(id);
     return { machine: await this.machines.identify(machineId, readHardware(body)) };
+  }
+
+  /**
+   * Moves the Machine to another Location: adds an entry to its Location
+   * History, from now or from `effectiveFrom`, which must come after its
+   * latest entry and not be in the future.
+   */
+  @Post(":id/location-history")
+  async move(@Param("id") id: string, @Body() body: unknown): Promise<{ machine: MachineView }> {
+    const machineId = readMachineId(id);
+    return { machine: await this.locationHistory.move(machineId, readMove(body)) };
+  }
+
+  /**
+   * Corrects an entry's Location, when the Machine arrived there, or both,
+   * which credits its records again.
+   */
+  @Patch(":id/location-history/:entryId")
+  async correctEntry(@Param("id") id: string, @Param("entryId") entryId: string, @Body() body: unknown): Promise<{ machine: MachineView }> {
+    const machineId = readMachineId(id);
+    const entry = readLocationHistoryEntryId(entryId);
+    return { machine: await this.locationHistory.correct(machineId, entry, readCorrection(body)) };
+  }
+
+  /**
+   * Removes an entry recorded by mistake, and the next one too when it names
+   * the Location the Machine stayed at, which credits its records again.
+   */
+  @Delete(":id/location-history/:entryId")
+  async removeEntry(@Param("id") id: string, @Param("entryId") entryId: string): Promise<{ machine: MachineView }> {
+    const machineId = readMachineId(id);
+    return { machine: await this.locationHistory.remove(machineId, readLocationHistoryEntryId(entryId)) };
   }
 }
 

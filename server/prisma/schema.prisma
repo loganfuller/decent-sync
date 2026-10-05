@@ -79,6 +79,9 @@ model Location {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  assignments LocationAssignment[]
+  shots       Shot[]
+
   @@map("locations")
 }
 
@@ -134,10 +137,28 @@ model Machine {
   tokens            MachineToken[]
   aliases           MachineAlias[]
   dismissedHardware DismissedHardware[]
+  locationHistory   LocationAssignment[]
 
   /// One Machine per piece of hardware. Unbound Machines (nulls) never clash.
   @@unique([model, serial])
   @@map("machines")
+}
+
+/// One entry of a Machine's Location History: it was at the Location from
+/// `effectiveFrom` until its next entry's. Before its first entry, or with
+/// none, its Location is unknown. See server/src/machines/location-history.ts.
+model LocationAssignment {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  machineId     String   @map("machine_id") @db.Uuid
+  machine       Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  locationId    String   @map("location_id") @db.Uuid
+  location      Location @relation(fields: [locationId], references: [id])
+  /// By PostgreSQL's clock when it is now, or as an Admin entered it.
+  effectiveFrom DateTime @map("effective_from") @db.Timestamptz(3)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([machineId, effectiveFrom])
+  @@map("location_assignments")
 }
 
 /// The secret a Machine's plugin connects with. It is shown once, when it is
@@ -213,6 +234,10 @@ model Shot {
   pendingMachineId String?  @map("pending_machine_id") @db.Uuid
   pendingMachine   PendingMachine? @relation(fields: [pendingMachineId], references: [id])
   machineInferred  Boolean  @default(false) @map("machine_inferred")
+  /// Where its Machine was when it was pulled, by the Machine's Location
+  /// History; null when unknown. Re-derived whenever that history changes.
+  locationId       String?  @map("location_id") @db.Uuid
+  location         Location? @relation(fields: [locationId], references: [id])
   pulledAt         DateTime? @map("pulled_at") @db.Timestamptz(3)
   beanBatchId      String?  @map("bean_batch_id")
   coffeeName       String?  @map("coffee_name")

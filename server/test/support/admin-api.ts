@@ -21,6 +21,14 @@ export interface MachineView {
   online: boolean;
   lastSeenAt: string | null;
   lastShot: { id: string; pulledAt: string | null } | null;
+  location: LocationView | null;
+  locationHistory: { id: string; location: LocationView; effectiveFrom: string }[];
+}
+
+export interface LocationView {
+  id: string;
+  name: string;
+  timeZone: string;
 }
 
 export interface PendingMachineView {
@@ -94,10 +102,17 @@ export class AdminApi {
     }
   }
 
-  async createMachine(name: string): Promise<CreatedMachine> {
-    const response = await this.call("POST", "/machines", { name });
+  /** Creates a machine entry, at a Location from now if one is given. */
+  async createMachine(name: string, locationId?: string): Promise<CreatedMachine> {
+    const response = await this.call("POST", "/machines", { name, locationId });
     expect(response.status).toBe(201);
     return this.issued(response);
+  }
+
+  async createLocation(name: string, timeZone: string): Promise<LocationView> {
+    const response = await this.call("POST", "/locations", { name, timeZone });
+    expect(response.status).toBe(201);
+    return ((await response.json()) as { location: LocationView }).location;
   }
 
   async pendingMachines(): Promise<PendingMachineView[]> {

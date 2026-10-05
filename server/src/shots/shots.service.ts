@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { ShotDelivery, ShotIndex } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
-import { lockHardware } from "../machines/machines.service.js";
+import { creditShotLocation } from "../machines/location-history.js";
+import { lockHardware, lockMachine } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Identity } from "../sync/identity.js";
 import { extractCurves, extractShot, shotHardware, shotVersion } from "./extraction.js";
@@ -42,10 +43,13 @@ export class ShotsService {
       const metadata = extractShot(record);
       // The pull time needs the curves too, so it is set with them; edits never load or rewrite them.
       const curves = full ? extractCurves(record, measurements) : stored;
-      const credit = full && !stored?.hasFullRecord ? await this.credit(tx, incoming, reporter) : {};
+      // The first full record credits the Shot, with its Machine's row locked, and sets the pull time
+      // its Location is credited by. Later records change neither, so they cannot race a change to
+      // that Machine's Location History, or the adoption of a Pending Machine's Shot.
+      const credit = full && !stored?.hasFullRecord ? await this.credit(tx, incoming, reporter) : null;
       const data = {
         ...metadata,
-        pulledAt: curves?.pulledAt ?? null,
+        pulledAt: (stored?.hasFullRecord ? stored.pulledAt : curves?.pulledAt) ?? null,
         duration: curves?.duration ?? null,
         peakPressure: curves?.peakPressure ?? null,
         peakFlow: curves?.peakFlow ?? null,
@@ -60,6 +64,7 @@ export class ShotsService {
       if (!stored || stored.newer) {
         await tx.$executeRaw`UPDATE shots SET version_at = ${version}::timestamptz WHERE id = ${message.shotId}`;
       }
+      if (credit) await creditShotLocation(tx, message.shotId);
       if (full) {
         const value = measurements as Prisma.InputJsonValue;
         await tx.shotMeasurements.upsert({
@@ -88,13 +93,13 @@ export class ShotsService {
       this.prisma.shot.findMany({ where, orderBy, take: limit, skip: offset, omit: { record: true, versionAt: true, hasFullRecord: true }, include: creditView }),
       this.prisma.shot.count({ where }),
     ]);
-    return { shots, total, limit, offset };
+    return { shots: shots.map(withLocationInferred), total, limit, offset };
   }
 
   async get(id: string) {
     const shot = await this.prisma.shot.findFirst({ where: { id, ...visible }, omit: { versionAt: true, hasFullRecord: true }, include: creditView });
     if (!shot) throw shotNotFound();
-    return shot;
+    return withLocationInferred(shot);
   }
 
   async measurements(id: string) {
@@ -107,11 +112,14 @@ export class ShotsService {
     const recordedHardware = shotHardware(record);
     const hardware = recordedHardware ?? (reporter.identity.kind === "mismatch" ? reporter.identity.hardware : null);
     const machineInferred = recordedHardware === null;
-    if (!hardware) return { machineId: reporter.machineId, pendingMachineId: null, machineInferred };
+    if (!hardware) {
+      await lockMachine(tx, reporter.machineId);
+      return { machineId: reporter.machineId, pendingMachineId: null, machineInferred };
+    }
     await lockHardware(tx, hardware);
-    // Machine rows before the Pending Machine, matching hello and dismissal.
+    // Machine rows before the Pending Machine, matching hello and dismissal. Locked as lockMachine locks it.
     const [owner] = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM machines WHERE model = ${hardware.model} AND serial = ${hardware.serial} FOR UPDATE`;
+      SELECT id FROM machines WHERE model = ${hardware.model} AND serial = ${hardware.serial} FOR NO KEY UPDATE`;
     if (owner) return { machineId: owner.id, pendingMachineId: null, machineInferred };
     const pending = await tx.pendingMachine.upsert({ where: { model_serial: hardware }, create: hardware, update: {} });
     return { machineId: null, pendingMachineId: pending.id, machineInferred };
@@ -123,6 +131,15 @@ const visible: Prisma.ShotWhereInput = {
   OR: [{ machineId: { not: null } }, { pendingMachine: { dismissedAt: null } }],
 };
 const orderBy: Prisma.ShotOrderByWithRelationInput[] = [{ pulledAt: { sort: "desc", nulls: "last" } }, { id: "asc" }];
-const creditView = { machine: { select: { id: true, name: true } }, pendingMachine: { select: { id: true, model: true, serial: true } } } as const;
+const creditView = {
+  machine: { select: { id: true, name: true } },
+  pendingMachine: { select: { id: true, model: true, serial: true } },
+  location: { select: { id: true, name: true, timeZone: true } },
+} as const;
+
+/** A Location credited through an inferred Machine is inferred too. An unknown Location is not. */
+function withLocationInferred<T extends { machineInferred: boolean; locationId: string | null }>(shot: T): T & { locationInferred: boolean } {
+  return { ...shot, locationInferred: shot.machineInferred && shot.locationId !== null };
+}
 
 function shotNotFound() { return new NotFoundException("Shot not found"); }

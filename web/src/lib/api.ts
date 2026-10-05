@@ -77,6 +77,18 @@ export interface Machine {
   online: boolean;
   lastSeenAt: string | null;
   lastShot: { id: string; pulledAt: string | null } | null;
+  /** Where it is now: the Location of its Location History's latest entry, or null if it has none. */
+  location: Location | null;
+  /** Where it has been, oldest first. Each entry lasts until the next one's time. */
+  locationHistory: LocationHistoryEntry[];
+}
+
+/** One entry of a Machine's Location History. */
+export interface LocationHistoryEntry {
+  id: string;
+  location: Location;
+  /** When the Machine arrived there. */
+  effectiveFrom: string;
 }
 
 /** Hardware the server has seen that no Machine has, for an Admin to adopt or dismiss. */
