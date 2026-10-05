@@ -353,6 +353,31 @@ describe("Workflow changes and machine state transitions", () => {
     expect(page.events.map((event) => event.observedAt)).toEqual(["2026-10-05T12:01:00.000Z", "2026-10-05T12:00:00.000Z"]);
   }, 30_000);
 
+  it("records nothing for a delivery that changed nothing when it first arrived, when it arrives again after a change", async () => {
+    const machine = await api.createMachine("Unchanged replays");
+    const first = await connect(machine);
+    await deliver(first, stateDelivery("idle", "idle", "2026-10-05T14:00:00.000Z"));
+    await deliver(first, workflowDelivery(workflowFixture(), "2026-10-05T14:00:00.000Z"));
+    // The same values again, in new deliveries, change nothing.
+    const unchangedState = stateDelivery("idle", "idle", "2026-10-05T14:00:10.000Z");
+    const unchangedWorkflow = workflowDelivery(workflowFixture(), "2026-10-05T14:00:10.000Z");
+    await deliver(first, unchangedState);
+    await deliver(first, unchangedWorkflow);
+    // Then the Machine changes, through another instance.
+    const second = await connect(machine, other.url);
+    await deliver(second, stateDelivery("espresso", "pouring", "2026-10-05T14:01:00.000Z"));
+    const dialledIn = derivedWorkflow({ targetYield: 41 });
+    await deliver(second, workflowDelivery(dialledIn, "2026-10-05T14:01:00.000Z"));
+    await second.close();
+    // The unchanged deliveries arrive again, as after a lost acknowledgment or from a slow instance.
+    const third = await connect(machine);
+    await deliver(third, unchangedState);
+    await deliver(third, unchangedWorkflow);
+    expect(await transitions(machine)).toEqual([["idle", "idle"], ["espresso", "pouring"]]);
+    expect((await workflowEvents(machine)).events.map((event) => event.workflow)).toEqual([dialledIn, workflowFixture()]);
+    expect((await api.machineNamed("Unchanged replays"))!.machineState).toMatchObject({ state: "espresso", substate: "pouring" });
+  });
+
   it("decides deliveries for one Machine that arrive at once one at a time, on any instance", async () => {
     const owner = await api.createMachine("Busy owner");
     const own = await connect(owner, server.url, { model: "DE1Pro", serial: "20201" });

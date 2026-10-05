@@ -140,6 +140,7 @@ model Machine {
   locationHistory    LocationAssignment[]
   workflowEvents     WorkflowEvent[]
   machineStateEvents MachineStateEvent[]
+  eventDeliveries    MachineEventDelivery[]
 
   /// One Machine per piece of hardware. Unbound Machines (nulls) never clash.
   @@unique([model, serial])
@@ -285,8 +286,6 @@ model ShotMeasurements {
 model WorkflowEvent {
   /// Rises as events are stored; the highest is the latest.
   id               BigInt          @id @default(autoincrement())
-  /// The plugin's id for the delivery, which it keeps when sending it again.
-  deliveryId       String          @map("delivery_id")
   machineId        String?         @map("machine_id") @db.Uuid
   machine          Machine?        @relation(fields: [machineId], references: [id])
   pendingMachineId String?         @map("pending_machine_id") @db.Uuid
@@ -299,7 +298,6 @@ model WorkflowEvent {
   workflow         Json            @db.JsonB
 
   @@index([machineId, id])
-  @@index([machineId, deliveryId])
   @@index([pendingMachineId, id])
   @@map("workflow_events")
 }
@@ -310,7 +308,6 @@ model WorkflowEvent {
 model MachineStateEvent {
   /// Rises as events are stored; the highest is the latest.
   id               BigInt          @id @default(autoincrement())
-  deliveryId       String          @map("delivery_id")
   machineId        String?         @map("machine_id") @db.Uuid
   machine          Machine?        @relation(fields: [machineId], references: [id])
   pendingMachineId String?         @map("pending_machine_id") @db.Uuid
@@ -322,7 +319,22 @@ model MachineStateEvent {
   substate         String
 
   @@index([machineId, id])
-  @@index([machineId, deliveryId])
   @@index([pendingMachineId, id])
   @@map("machine_state_events")
+}
+
+/// A Workflow or machine state delivery the server has handled, recorded
+/// whether or not it changed anything. The plugin keeps a delivery's id when
+/// it sends it again, so a delivery recorded here changes nothing when it
+/// arrives again, through any connection or instance, however late.
+model MachineEventDelivery {
+  /// The Machine whose token delivered it: its plugin's delivery ids are its own.
+  machineId  String   @map("machine_id") @db.Uuid
+  machine    Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  deliveryId String   @map("delivery_id")
+  /// By PostgreSQL's clock.
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+
+  @@id([machineId, deliveryId])
+  @@map("machine_event_deliveries")
 }

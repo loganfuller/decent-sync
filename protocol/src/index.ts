@@ -173,7 +173,8 @@ export interface WorkflowDelivery {
   type: "workflow";
   /**
    * An id for this logical delivery, retained until acknowledged and kept
-   * when it is sent again: the server stores it, so a resend is not recorded twice.
+   * when it is sent again: the server records every one it has handled, so a
+   * resend changes nothing.
    */
   id: string;
   /**

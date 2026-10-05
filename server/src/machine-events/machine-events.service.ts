@@ -29,14 +29,16 @@ export interface MachineStateEventView extends MachineStateView {
  * to its reported hardware: the Machine that has it, or else its Pending
  * Machine, which hands them over with the hardware (ADR-0015).
  *
- * An event is stored only if it differs from the latest one stored for whoever
- * it belongs to, and only once: the plugin keeps a delivery's id when it
- * sends it again, so a resend is not stored again, even one overtaken by the
- * changes after it. Both are decided against the database while that
- * Machine's row, or a Pending Machine's hardware, is locked, so sessions on
- * any server instance decide one at a time, never by what an instance or
- * connection remembers. The latest event stored is the current one; one
- * delivered late keeps the time the plugin observed it.
+ * Each delivery is handled once: its id, which the plugin keeps when it
+ * sends the delivery again, is recorded whether or not it changes anything,
+ * so a resend changes nothing, however late it arrives and whatever changed
+ * since. A delivery handled for the first time is stored as an event only if
+ * it differs from the latest event stored for whoever it belongs to, decided
+ * against the database while that Machine's row, or a Pending Machine's
+ * hardware, is locked, so sessions on any server instance decide one at a
+ * time, never by what an instance or connection remembers. The latest event
+ * stored is the current one; one delivered late keeps the time the plugin
+ * observed it.
  */
 @Injectable()
 export class MachineEventsService {
@@ -45,30 +47,30 @@ export class MachineEventsService {
   async storeWorkflow(message: WorkflowDelivery, reporter: Reporter): Promise<void> {
     const workflow = JSON.stringify(message.workflow);
     await this.prisma.$transaction(async (tx) => {
+      if (!(await firstDelivery(tx, reporter, message.id))) return;
       const holder = await reporterHolder(tx, reporter);
-      const held = heldBy(holder);
       await tx.$executeRaw`
-        INSERT INTO workflow_events (delivery_id, machine_id, pending_machine_id, observed_at, workflow)
-        SELECT ${message.id}, ${holder.machineId}::uuid, ${holder.pendingMachineId}::uuid, ${message.observedAt}::timestamptz, ${workflow}::jsonb
+        INSERT INTO workflow_events (machine_id, pending_machine_id, observed_at, workflow)
+        SELECT ${holder.machineId}::uuid, ${holder.pendingMachineId}::uuid, ${message.observedAt}::timestamptz, ${workflow}::jsonb
         WHERE NOT EXISTS (
-          SELECT 1 FROM (SELECT workflow FROM workflow_events WHERE ${held} ORDER BY id DESC LIMIT 1) AS latest
+          SELECT 1 FROM (SELECT workflow FROM workflow_events WHERE ${heldBy(holder)} ORDER BY id DESC LIMIT 1) AS latest
           WHERE latest.workflow = ${workflow}::jsonb
-        ) AND NOT EXISTS (SELECT 1 FROM workflow_events WHERE ${held} AND delivery_id = ${message.id})`;
+        )`;
     });
   }
 
   async storeMachineState(message: MachineStateDelivery, reporter: Reporter): Promise<void> {
     const { state, substate } = message;
     await this.prisma.$transaction(async (tx) => {
+      if (!(await firstDelivery(tx, reporter, message.id))) return;
       const holder = await reporterHolder(tx, reporter);
-      const held = heldBy(holder);
       await tx.$executeRaw`
-        INSERT INTO machine_state_events (delivery_id, machine_id, pending_machine_id, observed_at, state, substate)
-        SELECT ${message.id}, ${holder.machineId}::uuid, ${holder.pendingMachineId}::uuid, ${message.observedAt}::timestamptz, ${state}, ${substate}
+        INSERT INTO machine_state_events (machine_id, pending_machine_id, observed_at, state, substate)
+        SELECT ${holder.machineId}::uuid, ${holder.pendingMachineId}::uuid, ${message.observedAt}::timestamptz, ${state}, ${substate}
         WHERE NOT EXISTS (
-          SELECT 1 FROM (SELECT state, substate FROM machine_state_events WHERE ${held} ORDER BY id DESC LIMIT 1) AS latest
+          SELECT 1 FROM (SELECT state, substate FROM machine_state_events WHERE ${heldBy(holder)} ORDER BY id DESC LIMIT 1) AS latest
           WHERE latest.state = ${state} AND latest.substate = ${substate}
-        ) AND NOT EXISTS (SELECT 1 FROM machine_state_events WHERE ${held} AND delivery_id = ${message.id})`;
+        )`;
     });
   }
 
@@ -102,6 +104,21 @@ export class MachineEventsService {
   private async requireMachine(id: string): Promise<void> {
     if ((await this.prisma.machine.count({ where: { id } })) === 0) throw machineNotFound();
   }
+}
+
+/**
+ * Records that the session's token delivered this id, and says whether it is
+ * the first time. A delivery's ids are its token's Machine's own, since a
+ * resend always comes through the same plugin and token. Recorded before the
+ * holder is locked, as by every delivery, so a resend arriving meanwhile
+ * waits for this one to commit and then finds it.
+ */
+async function firstDelivery(tx: Prisma.TransactionClient, reporter: Reporter, deliveryId: string): Promise<boolean> {
+  const recorded = await tx.$executeRaw`
+    INSERT INTO machine_event_deliveries (machine_id, delivery_id)
+    VALUES (${reporter.machineId}::uuid, ${deliveryId})
+    ON CONFLICT DO NOTHING`;
+  return recorded > 0;
 }
 
 /** The holder's events, as a condition on an event table. */
