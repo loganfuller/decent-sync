@@ -78,8 +78,9 @@ const CLOCK_CHANGE_MS = 60_000;
  * local times in the order Decaid recorded them, or null without any. The
  * gaps between consecutive samples are added up. Across a daylight-saving
  * change the local time jumps by whole quarter hours, usually an hour, which
- * are left out of that gap; a jump that leaves more than a minute is a clock
- * correction of unknown size, and its gap counts for nothing.
+ * are left out of that gap. A gap that still runs backwards, or that leaves
+ * more than a minute, is a correction of the tablet's clock by an unknown
+ * amount, and counts for nothing.
  */
 export function elapsedSeconds(times: readonly number[]): number | null {
   if (times.length === 0) return null;
@@ -87,7 +88,7 @@ export function elapsedSeconds(times: readonly number[]): number | null {
   for (let n = 1; n < times.length; n++) {
     const gap = times[n]! - times[n - 1]!;
     const real = Math.abs(gap) <= CLOCK_CHANGE_MS ? gap : gap - quarterHours(gap);
-    if (Math.abs(real) <= CLOCK_CHANGE_MS) elapsed += real;
+    if (real >= 0 && real <= CLOCK_CHANGE_MS) elapsed += real;
   }
   return elapsed / 1000;
 }

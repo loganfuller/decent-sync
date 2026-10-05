@@ -99,7 +99,8 @@ separate `jsonb` column with lz4 compression. `extractSteamRecord`
 projection: duration, peak and final milk temperature (null without a
 probe) and Barista. Duration adds up the gaps between consecutive samples'
 local times, leaving out the whole quarter hours a daylight-saving change adds
-or takes away (`elapsedSeconds`, which Shots share). The final temperature is
+or takes away; a gap where the tablet's clock was otherwise corrected counts
+for nothing (`elapsedSeconds`, which Shots share). The final temperature is
 the last reading. Decaid starts each Steam Record with the probe's latest
 reading, which, until the probe reports again, is the last one of the record
 before: `SteamSequencer` subscribes to the probe afresh for each record, and

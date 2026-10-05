@@ -40,8 +40,11 @@ describe("Shot extraction", () => {
     ]) {
       expect(extractCurves(shot, [at(first!, before!), at(second!, after!)]).duration).toBe(2);
     }
-    // A jump that is not whole quarter hours is a clock correction of unknown size.
+    // A jump that is not whole quarter hours, or a clock set back, is a correction of unknown size.
     expect(extractCurves(shot, [at(first!, "2026-10-04T14:14:10.000000"), at(second!, "2026-10-04T14:21:10.000000")]).duration).toBe(0);
+    expect(extractCurves(shot, [at(first!, "2026-10-04T14:14:10.000000"), at(second!, "2026-10-04T13:59:09.000000")]).duration).toBe(0);
+    const setBack = ["2026-10-04T14:14:10.000000", "2026-10-04T14:14:11.000000", "2026-10-04T14:14:01.000000", "2026-10-04T14:14:02.000000"];
+    expect(extractCurves(shot, setBack.map((timestamp) => at(first!, timestamp))).duration).toBe(2);
   });
 
   it("tolerates absent, unfamiliar and mistyped optional fields", () => {
