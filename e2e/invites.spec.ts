@@ -4,9 +4,9 @@ import { useFreshServer } from "./support/fresh-server.js";
 
 // Inviting people: an Admin creates a one-time link and sends it themselves;
 // the Staff member who opens it chooses a name and password, is signed in,
-// is listed only the Locations they work at, sees every Machine, and moves
-// only those at their Locations. A link already used, or expired, says it
-// can no longer be used.
+// sees every Location and Machine with the Locations they work at marked,
+// and moves only the Machines at those Locations. A link already used, or
+// expired, says it can no longer be used.
 const server = useFreshServer();
 // Machine pages poll the server every few seconds.
 const expect = baseExpect.configure({ timeout: 15_000 });
@@ -23,7 +23,7 @@ test.beforeEach(async ({ page }) => {
   else baseExpect(setup.status()).toBe(201);
 });
 
-test("an Admin invites a Staff member, who accepts, is signed in and sees only their Locations", async ({ page, browser }) => {
+test("an Admin invites a Staff member, who accepts, is signed in and sees which Locations they work at", async ({ page, browser }) => {
   const lab = await createLocation(page, "Lab", "America/Denver");
   const uptown = await createLocation(page, "Uptown", "America/Chicago");
   const belmont = await createLocation(page, "Belmont", "America/Chicago");
@@ -66,11 +66,11 @@ test("an Admin invites a Staff member, who accepts, is signed in and sees only t
 
   await nav.getByRole("link", { name: "Locations" }).click();
   const locations = samsPage.getByRole("list", { name: "Locations" }).getByRole("listitem");
-  await expect(locations).toHaveText([/^Belmont/, /^Uptown/]);
+  await expect(locations).toHaveText([/^BelmontYou work here/, /^Lab(?!You work here)/, /^UptownYou work here/]);
   await expect(samsPage.getByRole("heading", { name: "New Location" })).toHaveCount(0);
   await expect(samsPage.getByRole("button", { name: /^Edit/ })).toHaveCount(0);
 
-  // Machine information is not private: Sam sees every Machine, but creates none.
+  // Sam sees every Machine, but creates none.
   await nav.getByRole("link", { name: "Machines" }).click();
   const machines = samsPage.getByRole("table", { name: "Machines" }).getByRole("row");
   // A header row, then the three Machines.

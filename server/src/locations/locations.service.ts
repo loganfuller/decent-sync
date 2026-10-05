@@ -1,5 +1,4 @@
 import { ConflictException, Injectable } from "@nestjs/common";
-import type { Scope } from "../accounts/scope.js";
 import { PrismaService } from "../prisma.service.js";
 import { type Location, Prisma } from "../generated/prisma/client.js";
 import { type LocationFields, locationNotFound } from "./input.js";
@@ -20,12 +19,9 @@ export function viewLocation(location: Location): LocationView {
 export class LocationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** The Locations the scope includes, by name. */
-  list(scope: Scope): Promise<Location[]> {
-    return this.prisma.location.findMany({
-      where: scope.kind === "everything" ? {} : { id: { in: scope.locationIds } },
-      orderBy: { name: "asc" },
-    });
+  /** Every Location, by name. */
+  list(): Promise<Location[]> {
+    return this.prisma.location.findMany({ orderBy: { name: "asc" } });
   }
 
   create(fields: LocationFields): Promise<Location> {

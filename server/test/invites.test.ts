@@ -125,15 +125,19 @@ describe("invites", () => {
     const response = await accept(other, link, sam);
     expect(response.status).toBe(201);
     const { account } = (await response.json()) as { account: { id: string } };
-    expect(account).toEqual({ id: expect.any(String), email: "sam.staff@example.com", name: "Sam Staff", role: "staff" });
+    // Staff at the Locations the invite named.
+    expect(account).toEqual({
+      id: expect.any(String),
+      email: "sam.staff@example.com",
+      name: "Sam Staff",
+      role: "staff",
+      locations: [belmont, uptown],
+    });
 
     // The cookie it set signs them in, on any instance.
     const cookie = response.headers.getSetCookie()[0]!.split(";")[0]!;
     const current = await fetch(`${server.url}/api/session`, { headers: { Cookie: cookie } });
     expect(await current.json()).toEqual({ account });
-    // They work at the Locations the invite named.
-    const locations = await AdminApi.signedInAs(server.url, cookie).call("GET", "/locations");
-    expect(await locations.json()).toEqual({ locations: [belmont, uptown] });
     // And sign in again later with the email the invite named and the password they chose.
     expect((await signIn(server, { email: "sam.staff@example.com", password: sam.password })).status).toBe(200);
   });

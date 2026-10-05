@@ -1,6 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
-import { useIsAdmin } from "@/auth";
+import { useIsAdmin, useStaffLocationIds } from "@/auth";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,9 +10,10 @@ import { api, type Location } from "@/lib/api";
 
 const TIME_ZONE_LIST = "time-zones";
 
-/** Locations: creating them, and renaming them or changing their time zone. Staff see the ones they work at. */
+/** Locations: creating them, and renaming them or changing their time zone. Staff see which they work at. */
 export function LocationsPage() {
   const isAdmin = useIsAdmin();
+  const worksAt = useStaffLocationIds();
   const [locations, setLocations] = useState<Location[]>();
   const [timeZones, setTimeZones] = useState<string[]>([]);
   const [loadError, setLoadError] = useState<string>();
@@ -56,8 +58,7 @@ export function LocationsPage() {
       <div className="grid gap-1">
         <h1 className="text-2xl font-semibold">Locations</h1>
         <p className="text-muted-foreground">
-          {isAdmin ? "The sites where your machines are used." : "The sites you work at."} Each Location's time zone sets
-          the local times shown for it.
+          The sites where your machines are used. Each Location's time zone sets the local times shown for it.
         </p>
       </div>
 
@@ -108,7 +109,10 @@ export function LocationsPage() {
               ) : (
                 <div className="flex items-center gap-4">
                   <div className="grid flex-1 gap-0.5">
-                    <span className="font-medium">{location.name}</span>
+                    <span className="flex items-center gap-2 font-medium">
+                      {location.name}
+                      {worksAt.has(location.id) && <Badge variant="secondary">You work here</Badge>}
+                    </span>
                     <span className="text-sm text-muted-foreground">{location.timeZone}</span>
                   </div>
                   {isAdmin && (

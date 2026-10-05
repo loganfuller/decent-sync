@@ -93,11 +93,18 @@ export function useAuth(): Auth {
 }
 
 /**
- * Whether the signed-in account is an Admin. Staff see only the Locations
- * they work at, and the server refuses them everything else; pages leave out
- * what Staff cannot do.
+ * Whether the signed-in account is an Admin. Staff read everything but other
+ * accounts' personal information, and change only which of their Locations a
+ * Machine is at; pages leave out what Staff cannot do.
  */
 export function useIsAdmin(): boolean {
   const { state } = useAuth();
   return state.status === "signed-in" && state.account.role === "admin";
+}
+
+/** The ids of the Locations a signed-in Staff member works at; none for an Admin or while signed out. */
+export function useStaffLocationIds(): Set<string> {
+  const { state } = useAuth();
+  const locations = state.status === "signed-in" ? state.account.locations : [];
+  return useMemo(() => new Set(locations.map((location) => location.id)), [locations]);
 }

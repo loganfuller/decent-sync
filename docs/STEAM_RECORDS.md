@@ -113,9 +113,8 @@ with the reading carried over.
 
 ## REST API
 
-All endpoints require an Admin's session. Staff are refused them until #18
-scopes Steam Records to the Locations they work at and adds filters by
-Location and date.
+All endpoints require a signed-in account, Admin or Staff. Filters by
+Location and date are ticket #18.
 
 - `GET /api/steam-records?limit=20&offset=0&machineId=<uuid>` returns
   `{ steamRecords, total, limit, offset }`. Limit is 1–100; offset is

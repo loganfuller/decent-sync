@@ -6,13 +6,12 @@ import { derivedSteam } from "./support/steam-fixtures.js";
 import { RawConnection, helloWith } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
-// What Staff see and do through the REST API. Machine information is not
-// private: Staff read every Machine as an Admin does. They are listed the
-// Locations they work at, and change only one thing: moving a Machine from
-// one of those Locations to another. Shots and Steam Records stay Admin-only
-// until #17 and #18. Data is seeded with raw connections; the Shot and Steam
-// Record are derived from scrubbed real records, changing only their ids,
-// times and recorded hardware. Hardware ids are made up.
+// What Staff see and do through the REST API. Staff read everything an
+// Admin reads but other accounts' personal information, and change only one
+// thing: which of the Locations they work at a Machine is at. Data is
+// seeded with raw connections; the Shot and Steam Record are derived from
+// scrubbed real records, changing only their ids, times and recorded
+// hardware. Hardware ids are made up.
 
 interface Sent {
   type: string;
@@ -84,8 +83,9 @@ describe("Staff access", () => {
     await expect.poll(() => raw.messages.some((message) => (message as Sent).type === "ack" && (message as Sent).id === id)).toBe(true);
   }
 
-  it("lists Staff only the Locations they work at", async () => {
-    expect(await (await staff.call("GET", "/locations")).json()).toEqual({ locations: [belmont, uptown] });
+  it("tells Staff the Locations they work at", async () => {
+    const { account } = (await (await staff.call("GET", "/session")).json()) as { account: { role: string; locations: LocationView[] } };
+    expect(account).toMatchObject({ role: "staff", locations: [belmont, uptown] });
   });
 
   it("refuses Staff every Admin-only endpoint, even for their own Locations' Machines", async () => {
@@ -96,7 +96,6 @@ describe("Staff access", () => {
       ["POST", "/invites", { email: "friend@example.com", role: "staff", locationIds: [uptown.id] }],
       ["POST", "/locations", { name: "Elsewhere", timeZone: "America/Chicago" }],
       ["PATCH", `/locations/${uptown.id}`, { name: "Downtown" }],
-      ["GET", "/time-zones"],
       ["POST", "/machines", { name: "Uptown 2", locationId: uptown.id }],
       ["POST", `/machines/${id}/token`],
       ["PUT", `/machines/${id}/hardware`, { model: "DE1Pro", serial: "10099" }],
@@ -116,7 +115,7 @@ describe("Staff access", () => {
     expect((await connect(uptown1, { model: "DE1Pro", serial: "10001" })).messages[0]).toMatchObject({ type: "welcome" });
   });
 
-  it("refuses Staff Shots and Steam Records, even at their Locations", async () => {
+  it("shows Staff everything an Admin reads, about every Machine, Location, Shot and Steam Record", async () => {
     // Uptown 1's tablet sends a Shot recorded on its hardware and a Steam Record.
     const raw = await connect(uptown1, { model: "DE1Pro", serial: "10001" });
     const { machine: recorded, ...workflow } = shotFixture().workflow as Record<string, unknown>;
@@ -132,28 +131,6 @@ describe("Staff access", () => {
     raw.send({ type: "steam", id: steamDelivery, steamId: steam.id, steamedAt: "2026-03-15T12:05:00.000Z", steam });
     await acknowledged(raw, steamDelivery);
 
-    // Credited to Uptown, where Sam works.
-    const entry = uptown1.machine.locationHistory[0]!.id;
-    const corrected = await api.call("PATCH", `/machines/${uptown1.machine.id}/location-history/${entry}`, { effectiveFrom: "2026-01-01T00:00:00Z" });
-    expect(corrected.status).toBe(200);
-    const credited = await api.call("GET", "/shots/staff-shot");
-    expect(((await credited.json()) as { shot: { location: LocationView | null } }).shot.location).toEqual(uptown);
-
-    for (const path of [
-      "/shots",
-      `/shots?machineId=${uptown1.machine.id}`,
-      "/shots/staff-shot",
-      "/shots/staff-shot/measurements",
-      "/steam-records",
-      `/steam-records?machineId=${uptown1.machine.id}`,
-      "/steam-records/staff-steam",
-      "/steam-records/staff-steam/measurements",
-    ]) {
-      await refused(await staff.call("GET", path), 403, "Only an Admin can do this");
-    }
-  });
-
-  it("shows Staff every Machine and everything about it, as an Admin sees it", async () => {
     // Belmont 1 moves to the Lab, where Sam does not work, and Uptown 1's token reports hardware no Machine has.
     expect((await move(api, belmont1, { locationId: lab.id })).status).toBe(201);
     const unknown = { model: "Bengle", serial: "10004" };
@@ -164,6 +141,16 @@ describe("Staff access", () => {
 
     expect(names(await staff.machines())).toEqual(["Belmont 1", "Lab 1", "Spare", "Uptown 1"]);
     const paths = [
+      "/locations",
+      "/time-zones",
+      "/shots",
+      `/shots?machineId=${uptown1.machine.id}`,
+      "/shots/staff-shot",
+      "/shots/staff-shot/measurements",
+      "/steam-records",
+      `/steam-records?machineId=${uptown1.machine.id}`,
+      "/steam-records/staff-steam",
+      "/steam-records/staff-steam/measurements",
       "/machines",
       "/machines/models",
       "/pending-machines",

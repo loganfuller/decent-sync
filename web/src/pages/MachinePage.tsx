@@ -1,6 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
 import { Link, useParams } from "react-router";
-import { useIsAdmin } from "@/auth";
+import { useIsAdmin, useStaffLocationIds } from "@/auth";
 import {
   ConfirmButton,
   IdentificationBadge,
@@ -488,12 +488,13 @@ function MachineLocation({ machine, isAdmin, onChanged }: { machine: Machine; is
 
 /**
  * Moves the Machine to another Location from now, or gives an unassigned one
- * its first. Staff move it only from a Location they work at to another,
- * which are the only Locations the server lists for them.
+ * its first. Staff move it only from a Location they work at to another.
  */
 function MoveForm({ machine, isAdmin, onMoved }: { machine: Machine; isAdmin: boolean; onMoved(): Promise<void> }) {
   const id = useId();
-  const { locations, error: locationsError } = useLocations();
+  const { locations: all, error: locationsError } = useLocations();
+  const worksAt = useStaffLocationIds();
+  const locations = isAdmin ? all : all?.filter((location) => worksAt.has(location.id));
   const [locationId, setLocationId] = useState("");
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);

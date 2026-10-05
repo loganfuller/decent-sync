@@ -1,8 +1,9 @@
 import { BadRequestException, ConflictException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
-import { type Account, Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
+import { type AccountWithLocations, withStaffLocations } from "./accounts.service.js";
 import { type Acceptance, type NewInvite, UNKNOWN_LOCATIONS } from "./input.js";
 import { hashPassword } from "./passwords.js";
 
@@ -85,7 +86,7 @@ export class InvitesService {
    * Uses the invite: creates its account, with the name and password chosen
    * and what the Admin chose. Needs no session.
    */
-  async accept(secret: string, acceptance: Acceptance): Promise<Account> {
+  async accept(secret: string, acceptance: Acceptance): Promise<AccountWithLocations> {
     // Checked first, so a link that cannot be used costs no password hash.
     const { email } = await usable(this.prisma, secret);
     const passwordHash = await hashPassword(acceptance.password);
@@ -112,6 +113,7 @@ export class InvitesService {
             passwordHash,
             locations: { create: invite.locations.map(({ locationId }) => ({ locationId })) },
           },
+          include: withStaffLocations,
         });
       });
     } catch (error) {

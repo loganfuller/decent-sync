@@ -35,6 +35,8 @@ export interface Account {
   email: string;
   name: string;
   role: "admin" | "staff";
+  /** The Locations a Staff member works at, where they may move Machines; none for an Admin, who may change anything anywhere. */
+  locations: Location[];
 }
 
 /** An invite: a one-time link that creates an account, as an Admin or as Staff at chosen Locations. */
