@@ -4,7 +4,7 @@ import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
-import { type Account, AccountRole } from "../generated/prisma/client.js";
+import { type Account, AccountRole, type Prisma } from "../generated/prisma/client.js";
 import { EVERYTHING, type Scope } from "./scope.js";
 
 const COOKIE_NAME = "decent_sync_session";
@@ -31,6 +31,11 @@ export interface SignedIn {
  * instance's (ADR-0016): one instance may start a session that another
  * renews, judges or deletes, and their clocks drift apart. The cookie's
  * Max-Age is only a hint to the browser; the stored expiry decides.
+ *
+ * The account is read with the session on every request, never kept, so a
+ * change to its role or Locations applies to its next request on any
+ * instance, and a deactivated account's session is refused even if it was
+ * started while the account was being deactivated.
  */
 @Injectable()
 export class SessionsService {
@@ -45,12 +50,26 @@ export class SessionsService {
 
   /** Starts a session for the account and sets its cookie on the response. */
   async start(accountId: string, response: Response): Promise<void> {
+    this.setSessionCookie(response, await this.create(this.prisma, accountId));
+  }
+
+  /**
+   * Creates a session for the account, through the client or transaction
+   * given, and returns its token. In a transaction, set its cookie with
+   * `setSessionCookie` only once that has committed.
+   */
+  async create(db: Prisma.TransactionClient, accountId: string): Promise<string> {
     const token = newSecret();
-    const now = await this.databaseNow();
-    await this.prisma.session.deleteMany({ where: { expiresAt: { lte: new Date(now) } } });
-    await this.prisma.session.create({
+    const now = await databaseNow(db);
+    await db.session.deleteMany({ where: { expiresAt: { lte: new Date(now) } } });
+    await db.session.create({
       data: { tokenHash: hashSecret(token), accountId, expiresAt: new Date(now + LIFETIME_MS) },
     });
+    return token;
+  }
+
+  /** Sets the cookie of a session `create` started. */
+  setSessionCookie(response: Response, token: string): void {
     this.setCookie(response, token, LIFETIME_MS);
   }
 
@@ -62,13 +81,13 @@ export class SessionsService {
     const token = readCookie(request.headers.cookie, COOKIE_NAME);
     if (!token) return undefined;
 
-    const now = await this.databaseNow();
-    // The account's role and Locations are read with it every time, so a change reaches the next request.
+    const now = await databaseNow(this.prisma);
+    // The account is read with it every time, so a change to its role, Locations or standing reaches the next request.
     const session = await this.prisma.session.findUnique({
       where: { tokenHash: hashSecret(token) },
       include: { account: { include: { locations: { select: { locationId: true } } } } },
     });
-    if (!session || session.expiresAt.getTime() <= now) {
+    if (!session || session.expiresAt.getTime() <= now || session.account.deactivatedAt) {
       this.clearCookie(response);
       return undefined;
     }
@@ -99,11 +118,6 @@ export class SessionsService {
     this.clearCookie(response);
   }
 
-  private async databaseNow(): Promise<number> {
-    const [{ now }] = await this.prisma.$queryRaw<[{ now: Date }]>`SELECT now() AS now`;
-    return now.getTime();
-  }
-
   private setCookie(response: Response, token: string, maxAgeMs: number): void {
     const attributes = [
       `${COOKIE_NAME}=${token}`,
@@ -119,6 +133,12 @@ export class SessionsService {
   private clearCookie(response: Response): void {
     this.setCookie(response, "", 0);
   }
+}
+
+/** Now, by PostgreSQL's clock, in milliseconds. */
+async function databaseNow(db: Prisma.TransactionClient): Promise<number> {
+  const [{ now }] = await db.$queryRaw<[{ now: Date }]>`SELECT now() AS now`;
+  return now.getTime();
 }
 
 function readCookie(header: string | undefined, name: string): string | undefined {

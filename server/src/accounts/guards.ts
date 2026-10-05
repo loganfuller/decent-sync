@@ -22,7 +22,8 @@ const STAFF = Symbol("staff");
 
 /**
  * Lets a route answer without a signed-in account. Every other route requires
- * one. Public routes are few: health, first-run setup, sign-in and invite links.
+ * one. Public routes are few: health, first-run setup, sign-in, and invite and
+ * password reset links.
  */
 export const Public = () => SetMetadata(PUBLIC, true);
 

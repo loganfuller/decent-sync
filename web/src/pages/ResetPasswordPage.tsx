@@ -3,34 +3,36 @@ import { Link, Navigate, useParams } from "react-router";
 import { useAuth } from "@/auth";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { ApiError, api, type Invite } from "@/lib/api";
+import { ApiError, api, type PasswordReset } from "@/lib/api";
 import { AuthForm, AuthMessage } from "./AuthForm";
 
 type Offer =
   | { status: "loading" }
-  | { status: "open"; invite: Invite; passwordMinLength: number }
-  /** Used, expired, or naming no invite, with the server's reason. */
+  | { status: "open"; passwordReset: PasswordReset; passwordMinLength: number }
+  /** Used, expired, replaced, or naming no link, with the server's reason. */
   | { status: "closed"; reason: string }
   | { status: "failed" };
 
 const TIME = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
-const LIST = new Intl.ListFormat(undefined, { type: "conjunction" });
 
 /**
- * An invite link, opened by the person it was sent to: they choose a name
- * and password, and are signed in to the account the Admin chose. A link
- * that was used, has expired or names no invite says so.
+ * A password reset link, opened by the person an Admin sent it to: they
+ * choose a new password and are signed in, and their account's other
+ * sessions end. A link that was used, has expired or names nothing says so.
  */
-export function InvitePage() {
+export function ResetPasswordPage() {
   const { secret = "" } = useParams();
-  const { state, acceptInvite, signOut } = useAuth();
+  const { state, redeemPasswordReset, signOut } = useAuth();
   const [offer, setOffer] = useState<Offer>({ status: "loading" });
-  // Set while accepting, so the account it signs in goes on to the home page rather than the notice below.
-  const [accepting, setAccepting] = useState(false);
+  // Set while redeeming, so the account it signs in goes on to the home page rather than the notice below.
+  const [redeeming, setRedeeming] = useState(false);
 
   useEffect(() => {
     let current = true;
-    api<{ invite: Invite; passwordMinLength: number }>("GET", `/invite-links/${encodeURIComponent(secret)}`).then(
+    api<{ passwordReset: PasswordReset; passwordMinLength: number }>(
+      "GET",
+      `/password-reset-links/${encodeURIComponent(secret)}`,
+    ).then(
       (open) => current && setOffer({ status: "open", ...open }),
       (error: unknown) => {
         if (!current) return;
@@ -43,19 +45,19 @@ export function InvitePage() {
     };
   }, [secret]);
 
-  if (state.status === "signed-in" && accepting) return <Navigate to="/" replace />;
+  if (state.status === "signed-in" && redeeming) return <Navigate to="/" replace />;
   switch (offer.status) {
     case "loading":
       return null;
     case "failed":
       return (
-        <AuthMessage title="The invite could not be loaded">
+        <AuthMessage title="The link could not be loaded">
           <p role="alert">The Decent Sync server can't be reached. Reload the page to try again.</p>
         </AuthMessage>
       );
     case "closed":
       return (
-        <AuthMessage title="This invite can no longer be used">
+        <AuthMessage title="This link can no longer be used">
           <Alert variant="destructive">
             <AlertDescription>{offer.reason}</AlertDescription>
           </Alert>
@@ -66,11 +68,12 @@ export function InvitePage() {
       );
   }
 
+  const { passwordReset, passwordMinLength } = offer;
   if (state.status === "signed-in") {
     return (
       <AuthMessage
         title="You are already signed in"
-        description={`You are signed in as ${state.account.name}. Sign out to accept this invite for ${offer.invite.email}.`}
+        description={`You are signed in as ${state.account.name}. Sign out to set a new password for ${passwordReset.email}.`}
       >
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => void signOut()}>Sign out</Button>
@@ -82,39 +85,38 @@ export function InvitePage() {
     );
   }
 
-  const { invite, passwordMinLength } = offer;
   return (
     <AuthForm
-      title="Join Decent Sync"
-      description={`${describeInvite(invite)} Choose your name and a password. The invite works once, until ${TIME.format(new Date(invite.expiresAt))}.`}
-      submitLabel="Create account"
+      title="Choose a new password"
+      description={`An Admin sent you this link to set a new password for ${passwordReset.name}. It works once, until ${TIME.format(new Date(passwordReset.expiresAt))}, and signs you out everywhere else.`}
+      submitLabel="Set password"
       fields={[
-        { name: "name", label: "Name", type: "text", autoComplete: "name" },
-        { name: "email", label: "Email", type: "email", autoComplete: "username", fixedValue: invite.email, hint: "You sign in with this email." },
+        {
+          name: "email",
+          label: "Email",
+          type: "email",
+          autoComplete: "username",
+          fixedValue: passwordReset.email,
+          hint: "You sign in with this email.",
+        },
         {
           name: "password",
-          label: "Password",
+          label: "New password",
           type: "password",
           autoComplete: "new-password",
           minLength: passwordMinLength,
           hint: `At least ${passwordMinLength} characters.`,
         },
       ]}
-      onSubmit={async ({ name = "", password = "" }) => {
-        setAccepting(true);
+      onSubmit={async ({ password = "" }) => {
+        setRedeeming(true);
         try {
-          await acceptInvite(secret, { name, password });
+          await redeemPasswordReset(secret, { password });
         } catch (error) {
-          setAccepting(false);
+          setRedeeming(false);
           throw error;
         }
       }}
     />
   );
-}
-
-/** Who the invite makes its account. */
-function describeInvite(invite: Invite): string {
-  if (invite.role === "admin") return "You are invited as an Admin, who can change everything on this server.";
-  return `You are invited as Staff at ${LIST.format(invite.locations.map((location) => location.name))}.`;
 }

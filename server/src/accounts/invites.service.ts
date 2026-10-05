@@ -1,10 +1,10 @@
-import { BadRequestException, ConflictException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
-import { type AccountWithLocations, withStaffLocations } from "./accounts.service.js";
-import { type Acceptance, type NewInvite, UNKNOWN_LOCATIONS } from "./input.js";
+import { type AccountWithLocations, databaseNow, refuseUnknownLocations, withStaffLocations } from "./accounts.service.js";
+import { type Acceptance, type NewInvite, inviteNotFound } from "./input.js";
 import { hashPassword } from "./passwords.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -49,7 +49,8 @@ function viewInvite(invite: ListedInvite): InviteView {
  * cookies are. Its expiry is set and judged by PostgreSQL's clock, never an
  * instance's (ADR-0016). It is used once: accepting claims it with a
  * conditional update, so of concurrent acceptances, on any instances, only
- * the first succeeds.
+ * the first succeeds. An Admin may revoke it until then, by the same kind of
+ * conditional update, so an invite is either accepted or revoked.
  */
 @Injectable()
 export class InvitesService {
@@ -60,9 +61,7 @@ export class InvitesService {
     const secret = newSecret();
     const invite = await this.prisma.$transaction(async (tx) => {
       if (await hasAccount(tx, fields.email)) throw new ConflictException(`${fields.email} already has an account`);
-      if ((await tx.location.count({ where: { id: { in: fields.locationIds } } })) !== fields.locationIds.length) {
-        throw new BadRequestException([UNKNOWN_LOCATIONS]);
-      }
+      await refuseUnknownLocations(tx, fields.locationIds);
       return tx.invite.create({
         data: {
           secretHash: hashSecret(secret),
@@ -75,6 +74,44 @@ export class InvitesService {
       });
     });
     return { invite: viewInvite(invite), secret };
+  }
+
+  /**
+   * The invites that can still be used, newest first: not accepted, revoked
+   * or expired, for an email that has no account yet.
+   */
+  async list(): Promise<InviteView[]> {
+    const invites = await this.prisma.invite.findMany({
+      where: { acceptedAt: null, revokedAt: null, expiresAt: { gt: await databaseNow(this.prisma) } },
+      include: withLocations,
+      orderBy: { createdAt: "desc" },
+    });
+    const emails = invites.map((invite) => invite.email);
+    const taken = new Set(
+      (await this.prisma.account.findMany({ where: { email: { in: emails } }, select: { email: true } })).map(({ email }) => email),
+    );
+    return invites.filter((invite) => !taken.has(invite.email)).map(viewInvite);
+  }
+
+  /**
+   * Revokes an unused invite, so its link can no longer be used. Revoking one
+   * already revoked changes nothing; one already accepted is refused, since
+   * its account exists.
+   */
+  async revoke(id: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      // A concurrent acceptance, on any instance, waits for this update's row lock, then finds it revoked.
+      const { count } = await tx.invite.updateMany({
+        where: { id, acceptedAt: null, revokedAt: null },
+        data: { revokedAt: await databaseNow(tx) },
+      });
+      if (count > 0) return;
+      const invite = await tx.invite.findUnique({ where: { id } });
+      if (!invite) throw inviteNotFound();
+      if (invite.acceptedAt) {
+        throw new ConflictException(`This invite has already been used, so ${invite.email} has an account. Deactivate it instead`);
+      }
+    });
   }
 
   /** The invite a link holds, if it can still be used; otherwise why it cannot. */
@@ -97,7 +134,7 @@ export class InvitesService {
         // A concurrent acceptance, on any instance, waits for this update's row lock, then
         // finds the invite accepted; if this transaction rolls back instead, it claims it.
         const { count } = await tx.invite.updateMany({
-          where: { secretHash, acceptedAt: null, expiresAt: { gt: now } },
+          where: { secretHash, acceptedAt: null, revokedAt: null, expiresAt: { gt: now } },
           data: { acceptedAt: now },
         });
         if (count === 0) {
@@ -131,6 +168,7 @@ async function usable(db: Prisma.TransactionClient, secret: string): Promise<Lis
     throw new NotFoundException("This invite link is not valid. Check that it was copied whole, or ask an Admin for a new one");
   }
   if (invite.acceptedAt) throw used();
+  if (invite.revokedAt) throw new GoneException("This invite was revoked. Ask an Admin for a new one");
   if (invite.expiresAt.getTime() <= (await databaseNow(db)).getTime()) {
     throw new GoneException("This invite has expired. Ask an Admin for a new one");
   }
@@ -148,10 +186,4 @@ function accountExists(email: string): GoneException {
 
 async function hasAccount(db: Prisma.TransactionClient, email: string): Promise<boolean> {
   return (await db.account.count({ where: { email } })) > 0;
-}
-
-/** Now, by PostgreSQL's clock rather than this instance's. */
-async function databaseNow(db: Prisma.TransactionClient): Promise<Date> {
-  const [{ now }] = await db.$queryRaw<[{ now: Date }]>`SELECT now() AS now`;
-  return now;
 }
