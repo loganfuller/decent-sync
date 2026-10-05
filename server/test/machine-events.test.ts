@@ -1,0 +1,393 @@
+import { randomUUID } from "node:crypto";
+import { CLOSE_CODES } from "@decent-sync/protocol";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
+import {
+  RawConnection,
+  SimulatedTablet,
+  type SimulatedTabletOptions,
+  derivedDe1Pro,
+  derivedWorkflow,
+  helloWith,
+  settingsFor,
+  workflowFixture,
+} from "./support/simulated-tablet.js";
+import { startTestServer, type TestServer } from "./support/test-server.js";
+
+// Seam 1 for ticket #13: the built plugin in a simulated tablet, or raw
+// frames, against real servers sharing one PostgreSQL database, with every
+// assertion made through the REST API. Workflows and machine states are
+// derived from the test tablet's (see the fixtures' README); serials are
+// made up.
+
+interface WorkflowEvent { id: string; observedAt: string; receivedAt: string; workflow: Record<string, unknown> }
+interface StateEvent { id: string; state: string; substate: string; observedAt: string; receivedAt: string }
+interface EventPage<T> { events: T[]; total: number; limit: number; offset: number }
+interface Frame { type: string; id?: string }
+
+const frameType = (frame: unknown) => (frame as Frame).type;
+
+describe("Workflow changes and machine state transitions", () => {
+  let server: TestServer;
+  let other: TestServer;
+  let api: AdminApi;
+  const tablets: SimulatedTablet[] = [];
+  const raws: RawConnection[] = [];
+  const timers: NodeJS.Timeout[] = [];
+  const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
+
+  beforeAll(async () => {
+    server = await startTestServer({ env });
+    other = await startTestServer({ env, sharing: server });
+    api = await AdminApi.setUp(server.url);
+  }, 60_000);
+  afterEach(async () => {
+    timers.splice(0).forEach(clearInterval);
+    await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
+    await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
+  });
+  afterAll(async () => {
+    await other?.stop();
+    await server?.stop();
+  });
+
+  /** A simulated tablet with the Machine's token, its machine reporting hardware of its own unless given an API. */
+  function load(machine: CreatedMachine, options: Omit<SimulatedTabletOptions, "settings"> = {}) {
+    const tablet = SimulatedTablet.load({
+      settings: settingsFor(machine),
+      api: derivedDe1Pro({ serial: machine.machine.id.replaceAll("-", "") }),
+      timeScale: 50,
+      ...options,
+    });
+    tablets.push(tablet);
+    return tablet;
+  }
+  async function get<T>(path: string, at = api): Promise<T> {
+    const response = await at.call("GET", path);
+    expect(response.status).toBe(200);
+    return response.json() as Promise<T>;
+  }
+  const workflowEvents = (machine: CreatedMachine, at = api) =>
+    get<EventPage<WorkflowEvent>>(`/machines/${machine.machine.id}/workflow-events?limit=100`, at);
+  const stateEvents = (machine: CreatedMachine, at = api) =>
+    get<EventPage<StateEvent>>(`/machines/${machine.machine.id}/machine-state-events?limit=100`, at);
+  const currentWorkflow = async (machine: CreatedMachine) =>
+    (await get<{ workflow: WorkflowEvent | null }>(`/machines/${machine.machine.id}/workflow`)).workflow;
+  const transitions = async (machine: CreatedMachine) =>
+    (await stateEvents(machine)).events.map((event) => [event.state, event.substate]).reverse();
+
+  /** Resolves once the server has acknowledged every delivery of this type the plugin sent. */
+  async function acknowledged(tablet: SimulatedTablet, type: string) {
+    await expect
+      .poll(() =>
+        tablet.sent
+          .filter((frame) => frameType(frame) === type)
+          .every((frame) => tablet.received.some((reply) => frameType(reply) === "ack" && (reply as Frame).id === (frame as Frame).id)),
+      )
+      .toBe(true);
+  }
+
+  async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
+    const raw = await RawConnection.open(url);
+    raws.push(raw);
+    raw.send(helloWith(machine.token, hardware ? { machine: hardware } : {}));
+    expect(await raw.message(0)).toMatchObject({ type: "welcome" });
+    timers.push(setInterval(() => raw.send({ type: "heartbeat" }), 300));
+    return raw;
+  }
+  /** Sends a delivery and resolves once it is acknowledged, again if it was before. */
+  async function deliver(raw: RawConnection, message: { id: string }) {
+    const acks = () => raw.messages.filter((reply) => frameType(reply) === "ack" && (reply as Frame).id === message.id).length;
+    const before = acks();
+    raw.send(message);
+    await expect.poll(acks).toBe(before + 1);
+  }
+  const stateDelivery = (state: string, substate: string, observedAt: string) =>
+    ({ type: "machineState", id: randomUUID(), observedAt, state, substate });
+  const workflowDelivery = (workflow: Record<string, unknown>, observedAt: string) =>
+    ({ type: "workflow", id: randomUUID(), observedAt, workflow });
+
+  it("requires a session, a Machine and valid pagination for the history reads", async () => {
+    const machine = await api.createMachine("History reads");
+    const paths = ["/workflow", "/workflow-events", "/machine-state-events"];
+    for (const path of paths) {
+      expect((await api.call("GET", `/machines/${machine.machine.id}${path}`, undefined, {})).status).toBe(401);
+      for (const id of [randomUUID(), "not-a-machine"]) expect((await api.call("GET", `/machines/${id}${path}`)).status).toBe(404);
+    }
+    for (const query of ["limit=0", "limit=101", "offset=-1", "limit=1.5"]) {
+      expect((await api.call("GET", `/machines/${machine.machine.id}/workflow-events?${query}`)).status).toBe(400);
+      expect((await api.call("GET", `/machines/${machine.machine.id}/machine-state-events?${query}`)).status).toBe(400);
+    }
+    expect(await currentWorkflow(machine)).toBeNull();
+    expect(await workflowEvents(machine)).toEqual({ events: [], total: 0, limit: 100, offset: 0 });
+    expect(await stateEvents(machine)).toEqual({ events: [], total: 0, limit: 100, offset: 0 });
+    expect((await api.machineNamed("History reads"))!.machineState).toBeNull();
+  });
+
+  it("records the Workflow Decaid sends on load and on each change, the latest as the Machine's current Workflow, and only sends it again on reconnect", async () => {
+    const machine = await api.createMachine("Workflow changes");
+    const loaded = Date.now();
+    const tablet = load(machine);
+    // Decaid sends the plugin the current Workflow as soon as it has loaded.
+    await expect.poll(async () => (await currentWorkflow(machine))?.workflow).toEqual(workflowFixture());
+    const first = (await currentWorkflow(machine))!;
+    expect(Date.parse(first.observedAt)).toBeGreaterThanOrEqual(loaded);
+    expect(Date.parse(first.observedAt)).toBeLessThanOrEqual(Date.now());
+
+    const dialledIn = derivedWorkflow({ targetYield: 40, grinderSetting: "7.5" });
+    tablet.setWorkflow(dialledIn);
+    await expect.poll(async () => (await currentWorkflow(machine))?.workflow).toEqual(dialledIn);
+    expect((await workflowEvents(machine)).events.map((event) => event.workflow)).toEqual([dialledIn, workflowFixture()]);
+
+    // On reconnect, the plugin sends the latest Workflow again, which is unchanged.
+    const sentBefore = tablet.sent.length;
+    tablet.dropConnections();
+    await tablet.waitForLogs(/^Connected to /, 2);
+    await expect.poll(() => tablet.sent.slice(sentBefore).filter((frame) => frameType(frame) === "workflow").length).toBe(1);
+    await acknowledged(tablet, "workflow");
+    const history = await workflowEvents(machine);
+    expect(history.total).toBe(2);
+    expect(history.events[0]).toMatchObject({ id: expect.any(String), workflow: dialledIn });
+    expect((await currentWorkflow(machine))!.workflow).toEqual(dialledIn);
+  });
+
+  it("records only the transitions in a series of state updates, a change of substate alone included", async () => {
+    const machine = await api.createMachine("State transitions");
+    const tablet = load(machine);
+    await tablet.waitForLog(/^Connected to /);
+    const shot: [string, string][] = [
+      ["idle", "idle"],
+      ["idle", "idle"],
+      ["espresso", "preparingForShot"],
+      ["espresso", "preparingForShot"],
+      ["espresso", "preinfusion"],
+      ["espresso", "pouring"],
+      ["espresso", "pouring"],
+      ["espresso", "pouring"],
+      ["espresso", "pouringDone"],
+      ["idle", "idle"],
+      ["idle", "idle"],
+    ];
+    for (const [state, substate] of shot) tablet.reportState(state, substate);
+    const expected = [
+      ["idle", "idle"],
+      ["espresso", "preparingForShot"],
+      ["espresso", "preinfusion"],
+      ["espresso", "pouring"],
+      ["espresso", "pouringDone"],
+      ["idle", "idle"],
+    ];
+    await expect.poll(() => transitions(machine)).toEqual(expected);
+    // The plugin sends a change of state or substate, not every update.
+    expect(tablet.sent.filter((frame) => frameType(frame) === "machineState")).toHaveLength(expected.length);
+    const latest = (await stateEvents(machine)).events[0]!;
+    expect((await api.machineNamed("State transitions"))!.machineState).toEqual({ state: "idle", substate: "idle", observedAt: latest.observedAt });
+    const times = (await stateEvents(machine)).events.map((event) => Date.parse(event.observedAt));
+    expect(times).toEqual([...times].sort((a, b) => b - a));
+  });
+
+  it("keeps the time the plugin observed an event it delivered late, after a reconnect", async () => {
+    const machine = await api.createMachine("Late delivery");
+    let stalled = false;
+    const tablet = load(machine, { stallUpload: (frame) => stalled && frameType(frame) === "machineState" });
+    await tablet.waitForLog(/^Connected to /);
+    tablet.reportState("idle", "idle");
+    await expect.poll(async () => (await stateEvents(machine)).total).toBe(1);
+
+    stalled = true;
+    const observed = Date.now();
+    tablet.reportState("espresso", "preinfusion");
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect((await stateEvents(machine)).total).toBe(1);
+    tablet.dropConnections();
+    stalled = false;
+    await tablet.waitForLogs(/^Connected to /, 2);
+    await expect.poll(async () => (await stateEvents(machine)).total).toBe(2);
+    const late = (await stateEvents(machine)).events[0]!;
+    expect(late).toMatchObject({ state: "espresso", substate: "preinfusion" });
+    expect(Date.parse(late.observedAt)).toBeGreaterThanOrEqual(observed);
+    expect(Date.parse(late.observedAt)).toBeLessThan(observed + 500);
+    expect(Date.parse(late.receivedAt) - Date.parse(late.observedAt)).toBeGreaterThan(1_000);
+  });
+
+  it("keeps Workflow changes made while disconnected, with their times, and records nothing for the Workflow sent on reconnect", async () => {
+    const machine = await api.createMachine("Offline changes");
+    let stalled = false;
+    const tablet = load(machine, { stallUpload: (frame) => stalled && frameType(frame) === "workflow" });
+    await expect.poll(async () => (await workflowEvents(machine)).total).toBe(1);
+
+    stalled = true;
+    const changes = [derivedWorkflow({ targetYield: 38 }), derivedWorkflow({ targetYield: 42 })];
+    for (const change of changes) {
+      tablet.setWorkflow(change);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    tablet.dropConnections();
+    stalled = false;
+    await tablet.waitForLogs(/^Connected to /, 2);
+    await expect.poll(async () => (await workflowEvents(machine)).total).toBe(3);
+    await acknowledged(tablet, "workflow");
+    const [second, first] = (await workflowEvents(machine)).events;
+    expect([first!.workflow, second!.workflow]).toEqual(changes);
+    expect(Date.parse(second!.observedAt) - Date.parse(first!.observedAt)).toBeGreaterThanOrEqual(15);
+
+    // The next reconnect sends the latest Workflow again; it is unchanged.
+    const sentBefore = tablet.sent.length;
+    tablet.dropConnections();
+    await tablet.waitForLogs(/^Connected to /, 3);
+    await expect.poll(() => tablet.sent.slice(sentBefore).filter((frame) => frameType(frame) === "workflow").length).toBe(1);
+    await acknowledged(tablet, "workflow");
+    expect((await workflowEvents(machine)).total).toBe(3);
+  });
+
+  it("gives a mismatched connection's events to the Machine that has its hardware, judging changes against that Machine's, and leaves the token's Machine its own", async () => {
+    const owner = await api.createMachine("Owner of 20001");
+    const ownerRaw = await connect(owner, server.url, { model: "DE1Pro", serial: "20001" });
+    await deliver(ownerRaw, stateDelivery("idle", "idle", new Date().toISOString()));
+    await ownerRaw.close();
+
+    const traveller = await api.createMachine("Traveller");
+    const home = load(traveller, { api: derivedDe1Pro({ serial: "20002" }) });
+    home.reportState("sleeping", "idle");
+    await expect.poll(() => transitions(traveller)).toEqual([["sleeping", "idle"]]);
+    await home.unload();
+
+    // The tablet moves onto Owner's machine, still with Traveller's token.
+    const moved = load(traveller, { api: derivedDe1Pro({ serial: "20001" }) });
+    await api.waitForMachine("Traveller", (machine) => machine.online && machine.identification === "mismatch");
+    moved.reportState("idle", "idle");
+    moved.reportState("espresso", "preinfusion");
+    const dialledIn = derivedWorkflow({ targetYield: 44 });
+    moved.setWorkflow(dialledIn);
+    await expect.poll(async () => (await currentWorkflow(owner))?.workflow).toEqual(dialledIn);
+    await acknowledged(moved, "machineState");
+    // Owner was already idle, so only the change to espresso is new for it.
+    expect(await transitions(owner)).toEqual([["idle", "idle"], ["espresso", "preinfusion"]]);
+    expect((await workflowEvents(owner)).events.map((event) => event.workflow)).toEqual([dialledIn, workflowFixture()]);
+    expect((await api.machineNamed("Owner of 20001"))!.machineState).toMatchObject({ state: "espresso", substate: "preinfusion" });
+
+    expect(await transitions(traveller)).toEqual([["sleeping", "idle"]]);
+    expect((await workflowEvents(traveller)).events.map((event) => event.workflow)).toEqual([workflowFixture()]);
+    expect((await api.machineNamed("Traveller"))!.machineState).toMatchObject({ state: "sleeping", substate: "idle" });
+  });
+
+  it("holds a mismatched connection's events for hardware without a Machine, and hands them to the machine entry created for it", async () => {
+    const machine = await api.createMachine("Before the move");
+    const home = load(machine, { api: derivedDe1Pro({ serial: "20101" }) });
+    await expect.poll(async () => (await workflowEvents(machine)).total).toBe(1);
+    await home.unload();
+
+    const moved = load(machine, { api: derivedDe1Pro({ serial: "20102" }) });
+    await api.waitForMachine("Before the move", (candidate) => candidate.online && candidate.identification === "mismatch");
+    moved.reportState("espresso", "pouring");
+    const dialledIn = derivedWorkflow({ targetYield: 45 });
+    moved.setWorkflow(dialledIn);
+    await acknowledged(moved, "machineState");
+    await acknowledged(moved, "workflow");
+    expect(moved.sent.filter((frame) => frameType(frame) === "workflow")).toHaveLength(2);
+    expect(await stateEvents(machine)).toMatchObject({ total: 0 });
+    expect((await workflowEvents(machine)).total).toBe(1);
+
+    const pending = (await api.pendingMachines()).find((candidate) => candidate.serial === "20102")!;
+    const adopted = await api.issued(await api.call("POST", `/pending-machines/${pending.id}/machine`, { name: "After the move" }));
+    expect(await transitions(adopted)).toEqual([["espresso", "pouring"]]);
+    expect((await workflowEvents(adopted)).events.map((event) => event.workflow)).toEqual([dialledIn, workflowFixture()]);
+    expect((await currentWorkflow(adopted))!.workflow).toEqual(dialledIn);
+    expect((await api.machineNamed("After the move"))!.machineState).toMatchObject({ state: "espresso", substate: "pouring" });
+    expect((await workflowEvents(machine)).total).toBe(1);
+  });
+
+  it("stores each change once, whether its delivery is repeated, resent through another instance, overtaken by its resend, or arrives after a restart", async () => {
+    const machine = await api.createMachine("Raw events");
+    const first = await connect(machine);
+    const idle = stateDelivery("idle", "idle", "2026-10-05T12:00:00.000Z");
+    const workflow = { ...workflowFixture(), unfamiliar: { kept: [1, null, "as sent"] } };
+    const loaded = workflowDelivery(workflow, "2026-10-05T12:00:00.000Z");
+    await deliver(first, idle);
+    await deliver(first, loaded);
+    // Repeated on the same connection, a delivery is acknowledged again but not stored again.
+    await deliver(first, idle);
+    await deliver(first, loaded);
+
+    // Resent through another instance, as the outbox resends what was not acknowledged.
+    const second = await connect(machine, other.url);
+    await deliver(second, idle);
+    await deliver(second, loaded);
+    // Observed again, unchanged, in a new delivery, as on every welcome.
+    await deliver(second, workflowDelivery(workflow, "2026-10-05T12:00:30.000Z"));
+    await deliver(second, stateDelivery("espresso", "pouring", "2026-10-05T12:01:00.000Z"));
+    const dialledIn = derivedWorkflow({ targetYield: 39 });
+    await deliver(second, workflowDelivery(dialledIn, "2026-10-05T12:01:00.000Z"));
+    await second.close();
+    // Resends that arrive after the changes that followed them, on a connection that has not seen them.
+    const third = await connect(machine);
+    await deliver(third, idle);
+    await deliver(third, loaded);
+    expect(await transitions(machine)).toEqual([["idle", "idle"], ["espresso", "pouring"]]);
+    expect((await workflowEvents(machine)).events.map((event) => event.workflow)).toEqual([dialledIn, workflow]);
+    await third.close();
+
+    // A restarted instance judges changes by what is stored.
+    await other.stop();
+    other = await startTestServer({ env, sharing: server });
+    const restarted = await connect(machine, other.url);
+    await deliver(restarted, stateDelivery("espresso", "pouring", "2026-10-05T12:02:00.000Z"));
+    await deliver(restarted, workflowDelivery(dialledIn, "2026-10-05T12:02:00.000Z"));
+    // Back to a state it was in before is a change.
+    await deliver(restarted, stateDelivery("idle", "idle", "2026-10-05T12:03:00.000Z"));
+    const states = await stateEvents(machine, api.at(other.url));
+    expect(states.events.map((event) => [event.state, event.substate, event.observedAt]).reverse()).toEqual([
+      ["idle", "idle", "2026-10-05T12:00:00.000Z"],
+      ["espresso", "pouring", "2026-10-05T12:01:00.000Z"],
+      ["idle", "idle", "2026-10-05T12:03:00.000Z"],
+    ]);
+    const workflows = await workflowEvents(machine);
+    expect(workflows.events.map((event) => [event.workflow, event.observedAt])).toEqual([
+      [dialledIn, "2026-10-05T12:01:00.000Z"],
+      [workflow, "2026-10-05T12:00:00.000Z"],
+    ]);
+
+    // Pages, latest first.
+    const page = await get<EventPage<StateEvent>>(`/machines/${machine.machine.id}/machine-state-events?limit=2&offset=1`);
+    expect(page).toMatchObject({ total: 3, limit: 2, offset: 1 });
+    expect(page.events.map((event) => event.observedAt)).toEqual(["2026-10-05T12:01:00.000Z", "2026-10-05T12:00:00.000Z"]);
+  }, 30_000);
+
+  it("decides deliveries for one Machine that arrive at once one at a time, on any instance", async () => {
+    const owner = await api.createMachine("Busy owner");
+    const own = await connect(owner, server.url, { model: "DE1Pro", serial: "20201" });
+    await deliver(own, stateDelivery("idle", "idle", "2026-10-05T13:00:00.000Z"));
+    const visitor = await api.createMachine("Visitor");
+    await (await connect(visitor, other.url, { model: "DE1Pro", serial: "20202" })).close();
+    // The visitor's tablet, moved onto the owner's machine: its events are the owner's.
+    const moved = await connect(visitor, other.url, { model: "DE1Pro", serial: "20201" });
+    const fromOwner = stateDelivery("espresso", "pouring", "2026-10-05T13:01:00.000Z");
+    const fromVisitor = stateDelivery("espresso", "pouring", "2026-10-05T13:01:00.500Z");
+    const acked = (raw: RawConnection, id: string) => raw.messages.some((reply) => frameType(reply) === "ack" && (reply as Frame).id === id);
+    const database = await server.connectDatabase();
+    try {
+      // While the owner's Machine is locked, both wait, each to decide against what the other stored.
+      await database.query("BEGIN");
+      await database.query("SELECT 1 FROM machines WHERE id = $1 FOR NO KEY UPDATE", [owner.machine.id]);
+      own.send(fromOwner);
+      moved.send(fromVisitor);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(acked(own, fromOwner.id) || acked(moved, fromVisitor.id)).toBe(false);
+      await database.query("COMMIT");
+    } finally {
+      await database.end();
+    }
+    await expect.poll(() => acked(own, fromOwner.id) && acked(moved, fromVisitor.id)).toBe(true);
+    expect(await transitions(owner)).toEqual([["idle", "idle"], ["espresso", "pouring"]]);
+    expect((await stateEvents(visitor)).total).toBe(0);
+  });
+
+  it("refuses a state change timed by the tablet's local clock rather than in UTC, storing nothing", async () => {
+    const machine = await api.createMachine("Local times");
+    const raw = await connect(machine);
+    // A stateUpdate's own timestamp, which has no offset.
+    raw.send(stateDelivery("espresso", "pouring", "2026-10-05T10:05:43.648490"));
+    expect(await raw.closed).toMatchObject({ code: CLOSE_CODES.protocol_error });
+    expect((await stateEvents(machine)).total).toBe(0);
+  });
+});

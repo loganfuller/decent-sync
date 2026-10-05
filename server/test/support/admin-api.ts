@@ -21,6 +21,7 @@ export interface MachineView {
   online: boolean;
   lastSeenAt: string | null;
   lastShot: { id: string; pulledAt: string | null } | null;
+  machineState: { state: string; substate: string; observedAt: string } | null;
   location: LocationView | null;
   locationHistory: { id: string; location: LocationView; effectiveFrom: string }[];
 }

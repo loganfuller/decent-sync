@@ -9,11 +9,24 @@ Responses from Decaid's local API on the test tablet (a DE1Pro, Decaid
 | `machine-info.json` | `GET /api/v1/machine/info` |
 | `settings.json` | `GET /api/v1/settings` |
 | `shot-espresso.json` | `GET /api/v1/shots/45648d13-bb4c-4371-ba84-f34f2e89c583` |
+| `workflow.json` | `GET /api/v1/workflow`, read on 2026-10-05 |
+| `machine-state.json` | `GET /api/v1/machine/state`, read on 2026-10-05 |
 
 Edited: the machine's serial number, the Bluetooth addresses of the preferred
 machine and scale, and the tablet's LAN address are replaced with made-up
 values (serial `10001`, addresses from the `00:00:5E:00:53:xx` documentation
 range, IP from `192.0.2.0/24`). Everything else is as Decaid sent it.
+
+`workflow.json` is what Decaid's `workflowUpdated` event carries, and
+`machine-state.json` what its `stateUpdate` event carries: both events send
+the same `toJson()` as these endpoints (`PluginManager` in
+`decaid:lib/src/plugins/plugin_manager.dart`). The Workflow's Barista and
+drinker names are replaced with `Fixture Barista`. The machine state's
+`timestamp` is the tablet's local time (UTC-4) without an offset. Seam 1
+derives other states from it, changing only `state.state` and
+`state.substate` to names from Decaid's `MachineState` and `MachineSubstate`
+(`decaid:lib/src/models/device/machine.dart`), and other Workflows by
+changing named fields, in tests that say so.
 
 The Shot's `timestamp` and sample times are the tablet's local time (UTC-4)
 without an offset, as Decaid writes them; `createdAt` and `updatedAt` are UTC.
@@ -23,8 +36,8 @@ and drinker names are replaced with `Fixture Barista`; notes, plugin upload
 bookkeeping and the deprecated metadata mirror are scrubbed. Machine serials
 are replaced with `10001`.
 
-v0.8.7 is the oldest Decaid that Decent Sync supports. Seam 1 variants change
-ids, times, hardware, annotations or unknown fields explicitly in tests. Their
-measurement samples still come from this record. `longShot()` in
+v0.8.7 is the oldest Decaid that Decent Sync supports. Seam 1 Shot variants
+change ids, times, hardware, annotations or unknown fields explicitly in
+tests. Their measurement samples still come from this record. `longShot()` in
 `server/test/support/shot-fixtures.ts` derives Shots larger than one frame by
 repeating those samples.

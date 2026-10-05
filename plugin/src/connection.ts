@@ -11,6 +11,8 @@ import {
 } from "@decent-sync/protocol";
 import { readMachineHardware, readTabletIdentity } from "./decaid.js";
 import type { PluginHost, TransportEvent } from "./host.js";
+import { MachineEvents } from "./machine-events.js";
+import { Outbox } from "./outbox.js";
 import { Sender } from "./sender.js";
 import { ShotCapture } from "./shots.js";
 import type { SyncSettings } from "./settings.js";
@@ -85,7 +87,10 @@ export class SyncConnection {
   private sentHardware: MachineHardware | null = null;
   /** Hardware the server dismissed for this token; while set, the plugin does not connect. */
   private dismissedHardware: MachineHardware | null = null;
+  /** Everything the server acknowledges goes through it, across connections. */
+  private readonly outbox: Outbox;
   private readonly shots: ShotCapture;
+  private readonly machineEvents: MachineEvents;
   private checkingHardware = false;
   private hardwareCooldown = false;
 
@@ -93,7 +98,11 @@ export class SyncConnection {
     private readonly host: PluginHost,
     private readonly settings: SyncSettings,
     private readonly log: (message: string) => void,
-  ) { this.shots = new ShotCapture(log); }
+  ) {
+    this.outbox = new Outbox(log);
+    this.shots = new ShotCapture(log, this.outbox);
+    this.machineEvents = new MachineEvents(this.outbox);
+  }
 
   /** Connects from a timer, so the caller (onLoad) returns at once. */
   start(): void {
@@ -101,24 +110,39 @@ export class SyncConnection {
     this.scheduleHardwarePoll();
   }
 
-  /** A machine state update: the machine is connected, and may have just reported its hardware. */
-  machineActive(): void {
-    if (this.stopped || this.hardwareCooldown) return;
-    this.hardwareCooldown = true;
-    this.setTimer("hardwareCooldown", HARDWARE_CHECK_COOLDOWN_MS, () => {
-      this.hardwareCooldown = false;
-    });
-    void this.checkHardware();
+  /**
+   * A machine state update, sent only while a machine is connected: a change
+   * of state is recorded, and the machine may have just reported its hardware.
+   */
+  stateUpdate(payload: unknown): void {
+    if (this.stopped) return;
+    this.machineEvents.stateUpdate(payload);
+    this.checkHardwareSoon();
+  }
+
+  workflowUpdated(payload: unknown): void {
+    if (!this.stopped) this.machineEvents.workflowUpdated(payload);
   }
 
   shotEvent(type: "shot" | "shotUpdated", payload: unknown): void { this.shots.event(type, payload); }
 
   stop(): void {
     this.stopped = true;
+    this.outbox.stop();
     this.shots.stop();
     for (const id of this.timers.values()) clearTimeout(id);
     this.timers.clear();
     this.closeHandle();
+  }
+
+  /** Checks the machine's hardware, unless a check started within the cooldown. */
+  private checkHardwareSoon(): void {
+    if (this.hardwareCooldown) return;
+    this.hardwareCooldown = true;
+    this.setTimer("hardwareCooldown", HARDWARE_CHECK_COOLDOWN_MS, () => {
+      this.hardwareCooldown = false;
+    });
+    void this.checkHardware();
   }
 
   private async connect(): Promise<void> {
@@ -223,17 +247,21 @@ export class SyncConnection {
         this.log(`Connected to ${this.settings.syncUrl}`);
         this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
         this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
-        this.shots.welcome(async (delivery) => {
+        // What the last connection left unacknowledged goes first, then the
+        // latest Workflow, then the Shot index.
+        this.outbox.welcome(async (delivery) => {
           try { await this.send(handle, delivery); }
           catch (error) {
-            if (handle === this.handle) this.drop("could not send a Shot delivery");
+            if (handle === this.handle) this.drop("could not send a delivery");
             throw error;
           }
         });
+        this.machineEvents.welcome();
+        this.shots.welcome();
         break;
       case "ack":
         this.sender?.acknowledged(message.id);
-        this.shots.acknowledge(message.id);
+        this.outbox.acknowledge(message.id);
         break;
       case "chunkReceived":
         this.sender?.received(message.id, message.index);
@@ -347,6 +375,7 @@ export class SyncConnection {
     // A message cut off here is sent again whole, from its first chunk, on the next connection.
     this.sender?.close();
     this.sender = undefined;
+    this.outbox.disconnected();
     this.shots.disconnected();
     this.clearTimer("heartbeat");
     this.clearTimer("silence");

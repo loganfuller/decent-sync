@@ -51,10 +51,19 @@ export interface MachineView {
   /** When a plugin connected with its token was last heard from, or null if never. */
   lastSeenAt: string | null;
   lastShot: { id: string; pulledAt: string | null } | null;
+  /** What it is doing: the latest machine state stored for it, or null before any. */
+  machineState: MachineStateView | null;
   /** Where it is now: the Location of its Location History's latest entry, or null if it has none. */
   location: LocationView | null;
   /** Where it has been, oldest first. Each entry lasts until the next one's time. */
   locationHistory: LocationHistoryEntryView[];
+}
+
+/** A machine state as Decaid names it, and when the plugin observed it, by the tablet's clock. */
+export interface MachineStateView {
+  state: string;
+  substate: string;
+  observedAt: string;
 }
 
 /** What became of a `hello`, decided and recorded while its Machine was locked. */
@@ -172,7 +181,7 @@ export class MachinesService {
           await tx.machineAlias.createMany({ data: [{ machineId: id, connectionId: machine.connectionId }], skipDuplicates: true });
         }
         // The Machine takes over whatever was held for its hardware.
-        await transferPendingShots(tx, hardware, id);
+        await handOverHeld(tx, hardware, id);
         await tx.pendingMachine.deleteMany({ where: hardware });
       })
       .catch(async (error: unknown) => {
@@ -356,7 +365,7 @@ export class MachinesService {
     }
     if (identity.kind === "identified" && identity.bind) {
       // The Machine takes over whatever was held for its hardware.
-      await transferPendingShots(tx, hardware!, machine.id);
+      await handOverHeld(tx, hardware!, machine.id);
       await tx.pendingMachine.deleteMany({ where: hardware! });
     }
     if (identity.kind === "mismatch" && !identity.anotherMachineHasIt) {
@@ -387,8 +396,8 @@ export class MachinesService {
       const hardware = machine.identification === MachineIdentification.MISMATCH ? reportedHardware(machine) : null;
       return hardware ? [hardware] : [];
     });
-    // Each Machine's last Shot is one index probe, however long its history.
-    const [owners, pending, lastShots] = await Promise.all([
+    // Each Machine's last Shot and latest machine state are one index probe each, however long its history.
+    const [owners, pending, lastShots, states] = await Promise.all([
       mismatched.length === 0 ? [] : this.prisma.machine.findMany({ where: { OR: mismatched }, select: { id: true, name: true, model: true, serial: true } }),
       mismatched.length === 0 ? [] : this.prisma.pendingMachine.findMany({ where: { OR: mismatched }, select: { id: true, model: true, serial: true } }),
       machines.length === 0 ? [] : this.prisma.$queryRaw<{ id: string; machineId: string; pulledAt: Date | null }[]>(Prisma.sql`
@@ -399,8 +408,18 @@ export class MachinesService {
           SELECT id, pulled_at FROM shots WHERE machine_id = listed.id
           ORDER BY pulled_at DESC NULLS LAST, id ASC LIMIT 1
         ) AS last`),
+      machines.length === 0 ? [] : this.prisma.$queryRaw<{ machineId: string; state: string; substate: string; observedAt: Date }[]>(Prisma.sql`
+        SELECT listed.id AS "machineId", latest.state, latest.substate, latest.observed_at AS "observedAt"
+        FROM unnest(${machines.map((machine) => machine.id)}::uuid[]) AS listed(id)
+        CROSS JOIN LATERAL (
+          SELECT state, substate, observed_at FROM machine_state_events WHERE machine_id = listed.id
+          ORDER BY id DESC LIMIT 1
+        ) AS latest`),
     ]);
     const lastByMachine = new Map(lastShots.map((shot) => [shot.machineId, { id: shot.id, pulledAt: shot.pulledAt?.toISOString() ?? null }]));
+    const stateByMachine = new Map(
+      states.map(({ machineId, state, substate, observedAt }) => [machineId, { state, substate, observedAt: observedAt.toISOString() }]),
+    );
     return machines.map((machine) => {
       const hardware = machine.identification === MachineIdentification.MISMATCH ? reportedHardware(machine) : null;
       const owner = hardware && owners.find((candidate) => sameHardware(bindingOf(candidate)!, hardware));
@@ -432,6 +451,7 @@ export class MachinesService {
         online: machine.connectedSessionId !== null && machine.lastSeenAt !== null && machine.lastSeenAt.getTime() >= heardSince,
         lastSeenAt: machine.lastSeenAt?.toISOString() ?? null,
         lastShot: lastByMachine.get(machine.id) ?? null,
+        machineState: stateByMachine.get(machine.id) ?? null,
         ...viewLocationHistory(machine.locationHistory),
       };
     });
@@ -547,11 +567,52 @@ function identificationOf(identity: Exclude<Identity, { kind: "rejected" }>): Ma
 }
 
 /**
- * Gives the Machine the Shots held for its hardware, even by a dismissed
- * Pending Machine, crediting them by its Location History. The Machine's row
- * lock must be held, or the Machine created in this transaction.
+ * Gives the Machine whatever is held for its hardware, even by a dismissed
+ * Pending Machine: its Shots, credited by the Machine's Location History, and
+ * its Workflow and machine state events. The Machine's row lock must be held,
+ * or the Machine created in this transaction.
  */
-export async function transferPendingShots(tx: Prisma.TransactionClient, hardware: Hardware, machineId: string): Promise<void> {
-  await tx.shot.updateMany({ where: { pendingMachine: hardware }, data: { machineId, pendingMachineId: null } });
+export async function handOverHeld(tx: Prisma.TransactionClient, hardware: Hardware, machineId: string): Promise<void> {
+  const held = { where: { pendingMachine: hardware }, data: { machineId, pendingMachineId: null } };
+  await tx.shot.updateMany(held);
+  await tx.workflowEvent.updateMany(held);
+  await tx.machineStateEvent.updateMany(held);
   await creditLocations(tx, machineId);
+}
+
+/** The session a record or event came through: its token's Machine, and who its tablet is, decided at hello. */
+export interface Reporter {
+  machineId: string;
+  identity: Identity;
+}
+
+/** Whose a record or event is: a Machine's, or a Pending Machine's until a Machine has its hardware. */
+export type Holder = { machineId: string; pendingMachineId: null } | { machineId: null; pendingMachineId: string };
+
+/**
+ * Whose what was recorded on the hardware is: the Machine that has it, its
+ * row locked as lockMachine locks it, or else the Pending Machine for it,
+ * created if need be. The hardware is locked first, as everything that gives
+ * hardware to a Machine or holds it does, so neither can change before the
+ * transaction ends.
+ */
+export async function holderOf(tx: Prisma.TransactionClient, hardware: Hardware): Promise<Holder> {
+  await lockHardware(tx, hardware);
+  // Machine rows before the Pending Machine, matching hello and dismissal.
+  const [owner] = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id FROM machines WHERE model = ${hardware.model} AND serial = ${hardware.serial} FOR NO KEY UPDATE`;
+  if (owner) return { machineId: owner.id, pendingMachineId: null };
+  const pending = await tx.pendingMachine.upsert({ where: { model_serial: hardware }, create: hardware, update: {} });
+  return { machineId: null, pendingMachineId: pending.id };
+}
+
+/**
+ * Whose what a session reports is when nothing in it names hardware
+ * (ADR-0015): its token's Machine's, locked, or for a mismatched session,
+ * its reported hardware's.
+ */
+export async function reporterHolder(tx: Prisma.TransactionClient, reporter: Reporter): Promise<Holder> {
+  if (reporter.identity.kind === "mismatch") return holderOf(tx, reporter.identity.hardware);
+  await lockMachine(tx, reporter.machineId);
+  return { machineId: reporter.machineId, pendingMachineId: null };
 }

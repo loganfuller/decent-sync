@@ -16,7 +16,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { api, type Identification, type IssuedToken, type Location, type Machine, type PendingMachine } from "@/lib/api";
+import {
+  api,
+  type Identification,
+  type IssuedToken,
+  type Location,
+  type Machine,
+  type MachineState,
+  type PendingMachine,
+} from "@/lib/api";
 
 // Pieces the Machines list and Machine page share.
 
@@ -63,6 +71,28 @@ export function needsHardware(machine: Machine): boolean {
 export function machineModel(machine: Machine): string | null {
   if (machine.model !== null) return machine.model;
   return needsHardware(machine) ? (machine.reported?.model ?? null) : null;
+}
+
+/**
+ * A machine state in words, from Decaid's names: "Espresso: preinfusion", or
+ * just "Sleeping" when the substate is idle.
+ */
+export function describeMachineState({ state, substate }: Pick<MachineState, "state" | "substate">): string {
+  const named = words(state);
+  const sentence = named.charAt(0).toUpperCase() + named.slice(1);
+  return substate === "idle" ? sentence : `${sentence}: ${words(substate)}`;
+}
+
+/** Decaid's camelCase names as words, such as "hotWater" as "hot water"; abbreviations such as "OOM" and "NaN" stay. */
+function words(name: string): string {
+  const parts = name.match(/NaN|[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+/g) ?? [name];
+  return parts.map((part) => (/^[A-Z][a-z]+$/.test(part) ? part.toLowerCase() : part)).join(" ");
+}
+
+/** When the Machine's last Shot was pulled, or that it has none. */
+export function lastShotText(machine: Machine): string {
+  if (!machine.lastShot) return "None";
+  return machine.lastShot.pulledAt ? formatTime(machine.lastShot.pulledAt) : "Time not known";
 }
 
 export function StatusBadge({ machine }: { machine: Machine }) {

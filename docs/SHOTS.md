@@ -22,8 +22,11 @@ not one those Decaid versions send: the server acknowledges and ignores it.
 On load, the plugin pages `GET /shots?limit=100&offset=...&order=desc` once,
 sending each page's ids and edit times. A reconnect in that runtime sends
 cached ids only and resends unacknowledged deliveries. Backfill fetches one
-Shot at a time. Only one logical delivery awaits acknowledgment at a time,
-and the scan waits while its outbox has four deliveries. A Shot whose fetch
+Shot at a time, when the outbox has nothing else queued. Only one logical
+delivery awaits acknowledgment at a time, and the scan waits while the outbox
+has four deliveries. The outbox (`plugin/src/outbox.ts`) is the plugin's only
+one: Workflow and machine state events go through it too
+(`WORKFLOW-AND-STATE.md`). A Shot whose fetch
 fails is retried after the other requested Shots; a 404 means the tablet
 deleted the record. Shots Decaid imported from the legacy de1app (`de1app-*`
 ids) are never indexed or sent (ADR-0004). Deletion

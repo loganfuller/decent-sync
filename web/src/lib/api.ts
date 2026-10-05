@@ -77,10 +77,29 @@ export interface Machine {
   online: boolean;
   lastSeenAt: string | null;
   lastShot: { id: string; pulledAt: string | null } | null;
+  /** What it is doing: the latest machine state its tablet reported, or null before any. */
+  machineState: MachineState | null;
   /** Where it is now: the Location of its Location History's latest entry, or null if it has none. */
   location: Location | null;
   /** Where it has been, oldest first. Each entry lasts until the next one's time. */
   locationHistory: LocationHistoryEntry[];
+}
+
+/** A machine state as Decaid names it, such as espresso and preinfusion, and when the plugin observed it. */
+export interface MachineState {
+  state: string;
+  substate: string;
+  observedAt: string;
+}
+
+/** A Workflow a Machine's tablet reported: what it is set up to do next. */
+export interface WorkflowEvent {
+  id: string;
+  /** When the plugin observed it, by the tablet's clock. */
+  observedAt: string;
+  receivedAt: string;
+  /** Decaid's Workflow, as sent; any part may be missing. */
+  workflow: Record<string, unknown>;
 }
 
 /** One entry of a Machine's Location History. */

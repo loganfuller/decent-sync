@@ -2,25 +2,19 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import type { ShotDelivery, ShotIndex } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { creditShotLocation } from "../machines/location-history.js";
-import { lockHardware, lockMachine } from "../machines/machines.service.js";
+import { type Reporter, holderOf, reporterHolder } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
-import type { Identity } from "../sync/identity.js";
 import { extractCurves, extractShot, shotHardware, shotVersion } from "./extraction.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
 const SHOT_LOCK = 4_000_003;
-
-export interface ShotReporter {
-  machineId: string;
-  identity: Identity;
-}
 
 /** Metadata and curves are deliberately separate queries, including on detail reads. */
 @Injectable()
 export class ShotsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async store(message: ShotDelivery, reporter: ShotReporter): Promise<void> {
+  async store(message: ShotDelivery, reporter: Reporter): Promise<void> {
     const { measurements, ...incoming } = message.shot;
     const version = shotVersion(incoming);
     const full = message.type === "shot";
@@ -108,21 +102,11 @@ export class ShotsService {
     return (await this.prisma.shotMeasurements.findUnique({ where: { shotId: id } }))?.data ?? null;
   }
 
-  private async credit(tx: Prisma.TransactionClient, record: unknown, reporter: ShotReporter) {
+  /** By the hardware the Shot recorded, or else, inferred, by the session that reported it (ADR-0015). */
+  private async credit(tx: Prisma.TransactionClient, record: unknown, reporter: Reporter) {
     const recordedHardware = shotHardware(record);
-    const hardware = recordedHardware ?? (reporter.identity.kind === "mismatch" ? reporter.identity.hardware : null);
-    const machineInferred = recordedHardware === null;
-    if (!hardware) {
-      await lockMachine(tx, reporter.machineId);
-      return { machineId: reporter.machineId, pendingMachineId: null, machineInferred };
-    }
-    await lockHardware(tx, hardware);
-    // Machine rows before the Pending Machine, matching hello and dismissal. Locked as lockMachine locks it.
-    const [owner] = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM machines WHERE model = ${hardware.model} AND serial = ${hardware.serial} FOR NO KEY UPDATE`;
-    if (owner) return { machineId: owner.id, pendingMachineId: null, machineInferred };
-    const pending = await tx.pendingMachine.upsert({ where: { model_serial: hardware }, create: hardware, update: {} });
-    return { machineId: null, pendingMachineId: pending.id, machineInferred };
+    const holder = recordedHardware ? await holderOf(tx, recordedHardware) : await reporterHolder(tx, reporter);
+    return { ...holder, machineInferred: recordedHardware === null };
   }
 }
 

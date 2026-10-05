@@ -39,7 +39,7 @@ ADR-0009's original rationale and the original Further Notes in issue #1 stated 
 
 | Data | Host source to inspect | Milestone 1 approach |
 |---|---|---|
-| Workflow and machine state | `decaid:lib/src/plugins/plugin_manager.dart` (`dispatchEvent`, workflow subscription) | `workflowUpdated`; `stateUpdate` transitions only |
+| Workflow and machine state | `decaid:lib/src/plugins/plugin_manager.dart` (`dispatchEvent`, `attachWorkflowController`, `_replaceSnapshotSubscription`), `decaid:lib/src/models/device/machine.dart` (`MachineSnapshot`) | `workflowUpdated`, which Decaid also sends with the current Workflow just after loading a plugin; `stateUpdate` transitions only. Both payloads are the `toJson()` that `GET /workflow` and `GET /machine/state` answer with. A snapshot's `timestamp` is local time without an offset, so events are timed by the plugin's clock |
 | New and edited Shots | `decaid:lib/main.dart`, `decaid:lib/src/services/webserver/shots_handler.dart` | `shotStored` triggers a full fetch; `shotUpdated` carries an edit without measurements. On plugin load, page `GET /shots` (100 per page; ordering is by `timestamp` only) to build a `shotIndex` of id and `updatedAt` |
 | Steam Records | `decaid:lib/src/services/webserver/steams_handler.dart`, `decaid:lib/src/models/data/steam_record.dart`, `decaid:lib/src/controllers/steam_sequencer.dart` | Poll `GET /steams/ids` and fetch new records by id. No plugin event exists. Edits are out of scope in milestone 1 |
 | Library, settings and device information | `decaid:assets/api/rest_v1.yml` and corresponding handlers | Poll; use ETags where supported, otherwise content comparison |

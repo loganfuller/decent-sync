@@ -25,9 +25,10 @@ import {
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
+import { MachineEventsService } from "../machine-events/machine-events.service.js";
 import { AccessChanges } from "../machines/access-changes.js";
 import { type LiveConnection, LiveConnections } from "../machines/connections.js";
-import { MachinesService, type Refusal, describeHardware } from "../machines/machines.service.js";
+import { MachinesService, type Refusal, type Reporter, describeHardware } from "../machines/machines.service.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { hashSecret } from "../secrets.js";
 import type { Hardware, Identity } from "./identity.js";
@@ -111,6 +112,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly machines: MachinesService,
     private readonly live: LiveConnections,
     private readonly shots: ShotsService,
+    private readonly machineEvents: MachineEventsService,
     accessChanges: AccessChanges,
   ) {
     accessChanges.subscribe((machineId) => void this.check(this.live.of(machineId)));
@@ -256,10 +258,14 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return this.refuse(session, "protocol_error", "hello was already sent on this connection");
       case "shot":
       case "shotUpdated":
-        await this.shots.store(message, { machineId: session.machine.id, identity: session.identity! });
-        session.processed.set(message.id, null);
-        if (!session.closing) this.send(session, { type: "ack", id: message.id });
-        return;
+        await this.shots.store(message, reporter(session));
+        return this.acknowledge(session, message.id);
+      case "workflow":
+        await this.machineEvents.storeWorkflow(message, reporter(session));
+        return this.acknowledge(session, message.id);
+      case "machineState":
+        await this.machineEvents.storeMachineState(message, reporter(session));
+        return this.acknowledge(session, message.id);
       case "shotIndex": {
         const response: RequestShots = { type: "requestShots", shotIds: await this.shots.requested(message) };
         // Cache the response as well as the receipt: replaying an index after
@@ -283,6 +289,12 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         }
         return;
     }
+  }
+
+  /** Acknowledges a stored delivery; a repeat of it on this connection is acknowledged without storing it again. */
+  private acknowledge(session: Session, id: string): void {
+    session.processed.set(id, null);
+    if (!session.closing) this.send(session, { type: "ack", id });
   }
 
   private async hello(session: Session, hello: Hello): Promise<void> {
@@ -424,6 +436,11 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   private describe(session: Session): string {
     return session.machine ? `Machine ${session.machine.name} (${session.remote})` : session.remote;
   }
+}
+
+/** The session a delivery came through, once its hello is accepted. */
+function reporter(session: Session): Reporter {
+  return { machineId: session.machine!.id, identity: session.identity! };
 }
 
 function describeIdentity(identity: Identity, hardware: Hardware | null): string {

@@ -216,3 +216,52 @@ describe("Shot envelopes", () => {
     expect(decodeServerMessage(frame({ type: "requestShots", shotIds: [1] })).ok).toBe(false);
   });
 });
+
+describe("Workflow and machine state envelopes", () => {
+  const workflow = { type: "workflow", id: "delivery-1", observedAt: "2026-10-05T14:05:43.648Z", workflow: { profile: { title: "Londonium" }, future: [1] } };
+  const state = { type: "machineState", id: "delivery-2", observedAt: "2026-10-05T14:05:43.648Z", state: "espresso", substate: "preinfusion" };
+
+  it("validates the envelope without validating the Workflow, and keeps fields it does not know", () => {
+    for (const message of [workflow, state, { ...workflow, workflow: {} }, { ...state, futureField: { snapshot: true } }]) {
+      expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
+    }
+    expect(decodePluginMessage(frame({ ...workflow, workflow: [] }))).toMatchObject({ ok: false, problem: "workflow.workflow must be an object" });
+    expect(decodePluginMessage(frame({ ...workflow, workflow: null }))).toMatchObject({ ok: false, problem: "workflow.workflow must be an object" });
+    for (const message of [workflow, state]) {
+      expect(decodePluginMessage(frame({ ...message, id: "" }))).toMatchObject({ ok: false, problem: `${message.type}.id must not be empty` });
+    }
+  });
+
+  it("requires a state and substate, each a non-empty name", () => {
+    expect(decodePluginMessage(frame({ ...state, state: "" }))).toMatchObject({ ok: false, problem: "machineState.state must not be empty" });
+    expect(decodePluginMessage(frame({ ...state, substate: undefined }))).toMatchObject({ ok: false, problem: "machineState.substate must be a string" });
+    expect(decodePluginMessage(frame({ ...state, state: { state: "idle" } }))).toMatchObject({ ok: false, problem: "machineState.state must be a string" });
+  });
+
+  it("requires the time the plugin observed it, in UTC, naming a time that exists", () => {
+    for (const observedAt of ["2026-10-05T14:05:43Z", "2026-10-05T14:05:43.6Z", "2024-02-29T23:59:59.999Z"]) {
+      expect(decodePluginMessage(frame({ ...state, observedAt })).ok).toBe(true);
+    }
+    for (const observedAt of [
+      undefined,
+      1_790_000_000_000,
+      "",
+      // The tablet's local time without an offset, as a stateUpdate's own timestamp is.
+      "2026-10-05T10:05:43.648490",
+      "2026-10-05T10:05:43.648-04:00",
+      "2026-10-05T14:05:43.648490Z",
+      "2026-02-30T12:00:00.000Z",
+      "2026-10-05T24:00:00.000Z",
+      "2026-13-01T00:00:00.000Z",
+      "Mon, 05 Oct 2026 14:05:43 GMT",
+    ]) {
+      for (const message of [workflow, state]) {
+        expect(decodePluginMessage(frame({ ...message, observedAt }))).toEqual({
+          ok: false,
+          error: "protocol_error",
+          problem: `${message.type}.observedAt must be a UTC time, such as 2026-10-05T14:05:43.648Z`,
+        });
+      }
+    }
+  });
+});

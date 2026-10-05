@@ -7,7 +7,9 @@ import {
   PendingMachineActions,
   StatusBadge,
   describeHardware,
+  describeMachineState,
   formatTime,
+  lastShotText,
   machineModel,
 } from "@/components/machines";
 import { TokenNotice } from "@/components/TokenNotice";
@@ -119,7 +121,9 @@ function MachineTable({ machines }: { machines: Machine[] }) {
             <TableHead>Model</TableHead>
             <TableHead>Location</TableHead>
             <TableHead>Status</TableHead>
+            <TableHead>State</TableHead>
             <TableHead>Last seen</TableHead>
+            <TableHead>Last Shot</TableHead>
             <TableHead>Attention</TableHead>
           </TableRow>
         </TableHeader>
@@ -136,7 +140,15 @@ function MachineTable({ machines }: { machines: Machine[] }) {
               <TableCell>
                 <StatusBadge machine={machine} />
               </TableCell>
+              <TableCell>
+                {machine.machineState ? (
+                  describeMachineState(machine.machineState)
+                ) : (
+                  <span className="text-muted-foreground">Not reported</span>
+                )}
+              </TableCell>
               <TableCell>{machine.lastSeenAt ? formatTime(machine.lastSeenAt) : "Never"}</TableCell>
+              <TableCell>{lastShotText(machine)}</TableCell>
               <TableCell>
                 <div className="flex flex-wrap gap-1">
                   <IdentificationBadge identification={machine.identification} />

@@ -165,6 +165,38 @@ export interface RequestShots {
   shotIds: string[];
 }
 
+/**
+ * The tablet's Workflow, as Decaid's `workflowUpdated` event gave it, sent on
+ * every change and again on every `welcome`. The Workflow stays opaque.
+ */
+export interface WorkflowDelivery {
+  type: "workflow";
+  /**
+   * An id for this logical delivery, retained until acknowledged and kept
+   * when it is sent again: the server stores it, so a resend is not recorded twice.
+   */
+  id: string;
+  /**
+   * When the plugin observed it, by the tablet's clock, in UTC, such as
+   * 2026-10-05T14:05:43.648Z. Delivery may come much later.
+   */
+  observedAt: string;
+  workflow: Record<string, unknown>;
+}
+
+/** A change of the machine's state or substate, from Decaid's `stateUpdate` event. */
+export interface MachineStateDelivery {
+  type: "machineState";
+  /** As for a Workflow: kept when it is sent again. */
+  id: string;
+  /** When the plugin observed it, as for a Workflow. */
+  observedAt: string;
+  /** Decaid's name for the state, such as espresso. */
+  state: string;
+  /** Decaid's name for the substate, such as preinfusion. */
+  substate: string;
+}
+
 /** A logical delivery acknowledged only after its transaction commits. */
 export interface Ack {
   type: "ack";
@@ -185,7 +217,7 @@ export interface ChunkReceived {
 }
 
 /** Messages the plugin sends, each in a frame of its own or in chunks. */
-export type PluginMessage = Hello | Heartbeat | ShotDelivery | ShotIndex;
+export type PluginMessage = Hello | Heartbeat | ShotDelivery | ShotIndex | WorkflowDelivery | MachineStateDelivery;
 export type ServerMessage = Welcome | Heartbeat | ErrorMessage | RequestShots | Ack | ChunkReceived;
 
 export type Decoded<T> =
@@ -296,6 +328,19 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         fields.array("shots", (value) => isObject(value) && typeof value.id === "string" && value.id !== "" &&
           (value.updatedAt === undefined || typeof value.updatedAt === "string"), 100);
       });
+    case "workflow":
+      return check<WorkflowDelivery>(object, "workflow", (fields) => {
+        fields.string("id", { nonEmpty: true });
+        fields.utcTime("observedAt");
+        fields.objectField("workflow");
+      });
+    case "machineState":
+      return check<MachineStateDelivery>(object, "machineState", (fields) => {
+        fields.string("id", { nonEmpty: true });
+        fields.utcTime("observedAt");
+        fields.string("state", { nonEmpty: true });
+        fields.string("substate", { nonEmpty: true });
+      });
     case "heartbeat":
       return check<Heartbeat>(object, "heartbeat", () => {});
     default:
@@ -393,6 +438,12 @@ class FieldChecker {
     if (!isObject(this.object[key])) this.problem(key, "must be an object");
   }
 
+  /** A time in UTC, as `Date.prototype.toISOString` writes one: 2026-10-05T14:05:43.648Z. */
+  utcTime(key: string): void {
+    const value = this.object[key];
+    if (typeof value !== "string" || !isUtcTime(value)) this.problem(key, "must be a UTC time, such as 2026-10-05T14:05:43.648Z");
+  }
+
   array(key: string, valid: (value: unknown) => boolean, max: number): void {
     const value = this.object[key];
     if (!Array.isArray(value) || value.length > max || !value.every(valid)) {
@@ -437,6 +488,17 @@ function parseObject(frame: string): (Fields & { type: string }) | string {
 
 function isObject(value: unknown): value is Fields {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Whether the text names a real time in UTC, to the millisecond at most.
+ * `Date` rolls days and hours that do not exist over, February 30 into
+ * March, so the time it reads must read back the same.
+ */
+function isUtcTime(text: string): boolean {
+  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/.test(text)) return false;
+  const time = new Date(text);
+  return Number.isFinite(time.getTime()) && time.toISOString().slice(0, 19) === text.slice(0, 19);
 }
 
 function invalid(problem: string): { ok: false; error: "protocol_error"; problem: string } {

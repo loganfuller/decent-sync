@@ -41,11 +41,15 @@ async function getObject(path: string): Promise<Record<string, unknown> | null> 
   try {
     const response = await fetch(API + path);
     if (!response.ok) return null;
-    const body = await response.json();
-    return typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
+    return asObject(await response.json()) ?? null;
   } catch {
     return null;
   }
+}
+
+/** A JSON object Decaid sent, or undefined if it sent anything else. */
+export function asObject(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
 function stringField(object: Record<string, unknown> | null, key: string): string | null {
