@@ -469,16 +469,16 @@ function CorrectEntry({
   const [locationId, setLocationId] = useState(entry.location.id);
   const location = options.find((option) => option.id === locationId) ?? entry.location;
   const [value, setValue] = useState(() => toZonedInput(entry.effectiveFrom, entry.location.timeZone));
-  // Until someone edits the time, it is the recorded moment, which the field shows only to the minute.
-  const [timeEdited, setTimeEdited] = useState(false);
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
+  // While the field shows the recorded time, it stands for the recorded moment: the field has only
+  // minutes, and cannot tell the two occurrences of an hour the clocks repeat apart.
+  const untouched = value === toZonedInput(entry.effectiveFrom, location.timeZone);
 
   function chooseLocation(chosen: string) {
-    // The same moment, in the chosen Location's time zone. An untouched time is converted from the
-    // recorded moment, not the field, which cannot tell the two occurrences of a repeated hour apart.
+    // The same moment, in the chosen Location's time zone.
     const zone = options.find((option) => option.id === chosen)?.timeZone ?? location.timeZone;
-    const time = timeEdited ? fromZonedInput(value, location.timeZone) : entry.effectiveFrom;
+    const time = untouched ? entry.effectiveFrom : fromZonedInput(value, location.timeZone);
     if (time) setValue(toZonedInput(time, zone));
     setLocationId(chosen);
   }
@@ -486,7 +486,7 @@ function CorrectEntry({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     let effectiveFrom: string | undefined;
-    if (timeEdited && value !== toZonedInput(entry.effectiveFrom, location.timeZone)) {
+    if (!untouched) {
       effectiveFrom = fromZonedInput(value, location.timeZone);
       if (!effectiveFrom) {
         setError(`That time does not exist in ${location.timeZone}, whose clocks skip it. Choose another time`);
@@ -542,10 +542,7 @@ function CorrectEntry({
           type="datetime-local"
           className="w-64"
           value={value}
-          onChange={(event) => {
-            setValue(event.target.value);
-            setTimeEdited(true);
-          }}
+          onChange={(event) => setValue(event.target.value)}
           aria-describedby={`${id}-zone`}
           required
         />

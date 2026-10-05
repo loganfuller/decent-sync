@@ -56,8 +56,10 @@ real tablet record. See the fixtures' README for provenance.
 Decaid writes a Shot's `timestamp` and sample times in the tablet's local time
 without an offset, and `createdAt` in UTC as it saves the Shot, just after the
 last sample. `extractCurves` takes the tablet's offset from that gap, rounded
-to a quarter hour, so the pulled-at time needs the curves and is set with
-them; edits never change it.
+to a quarter hour, so the pulled-at time needs the curves and is set by the
+first full record, which also credits the Shot. Later records and edits change
+neither, so a Shot's credit and the time its Location is credited by are
+written once, with its Machine's row locked.
 
 ## REST API
 

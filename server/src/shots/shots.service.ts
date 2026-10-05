@@ -31,8 +31,8 @@ export class ShotsService {
       // until credit is resolved: hardware adoption can finish while we wait
       // for its hardware lock. Adoption never takes this advisory lock.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SHOT_LOCK}::int, hashtext(${message.shotId}::text))`;
-      const [stored] = await tx.$queryRaw<{ record: Prisma.JsonObject; hasFullRecord: boolean; machineId: string | null; duration: number | null; peakPressure: number | null; peakFlow: number | null; pulledAt: Date | null; newer: boolean }[]>`
-        SELECT record, has_full_record AS "hasFullRecord", machine_id AS "machineId", duration, peak_pressure AS "peakPressure", peak_flow AS "peakFlow",
+      const [stored] = await tx.$queryRaw<{ record: Prisma.JsonObject; hasFullRecord: boolean; duration: number | null; peakPressure: number | null; peakFlow: number | null; pulledAt: Date | null; newer: boolean }[]>`
+        SELECT record, has_full_record AS "hasFullRecord", duration, peak_pressure AS "peakPressure", peak_flow AS "peakFlow",
           pulled_at AS "pulledAt", ${version}::timestamptz > version_at AS newer
         FROM shots WHERE id = ${message.shotId}`;
       if (stored && !stored.newer && (!full || stored.hasFullRecord)) return;
@@ -43,13 +43,13 @@ export class ShotsService {
       const metadata = extractShot(record);
       // The pull time needs the curves too, so it is set with them; edits never load or rewrite them.
       const curves = full ? extractCurves(record, measurements) : stored;
-      const credit = full && !stored?.hasFullRecord ? await this.credit(tx, incoming, reporter) : {};
-      // A full record sets the pull time its Location is credited by, so the Machine's row is
-      // locked, as credit() locks a newly credited one: its Location History cannot change meanwhile.
-      if (full && stored?.hasFullRecord && stored.machineId) await lockMachine(tx, stored.machineId);
+      // The first full record credits the Shot, with its Machine's row locked, and sets the pull time
+      // its Location is credited by. Later records change neither, so they cannot race a change to
+      // that Machine's Location History, or the adoption of a Pending Machine's Shot.
+      const credit = full && !stored?.hasFullRecord ? await this.credit(tx, incoming, reporter) : null;
       const data = {
         ...metadata,
-        pulledAt: curves?.pulledAt ?? null,
+        pulledAt: (stored?.hasFullRecord ? stored.pulledAt : curves?.pulledAt) ?? null,
         duration: curves?.duration ?? null,
         peakPressure: curves?.peakPressure ?? null,
         peakFlow: curves?.peakFlow ?? null,
@@ -64,8 +64,8 @@ export class ShotsService {
       if (!stored || stored.newer) {
         await tx.$executeRaw`UPDATE shots SET version_at = ${version}::timestamptz WHERE id = ${message.shotId}`;
       }
+      if (credit) await creditShotLocation(tx, message.shotId);
       if (full) {
-        await creditShotLocation(tx, message.shotId);
         const value = measurements as Prisma.InputJsonValue;
         await tx.shotMeasurements.upsert({
           where: { shotId: message.shotId },

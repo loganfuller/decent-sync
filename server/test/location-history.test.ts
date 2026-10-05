@@ -335,16 +335,28 @@ describe("Location History", () => {
       const { measurements: omitted, ...summary } = record;
       edit = randomUUID();
       raw.send({ type: "shotUpdated", id: edit, shotId: record.id, shot: { ...summary, updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 64 } } });
-      // The edit writes the Shot, which the correction then waits for, while the correction holds the Machine.
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      // The edit writes the Shot twice, checking its Machine's key each time, while the correction
+      // holds the Machine: it is stored without waiting for the correction, which then waits for it.
+      await acknowledged(raw, edit);
       await database.query("ROLLBACK");
     } finally {
       await database.query("ROLLBACK").catch(() => undefined);
       await database.end();
     }
-    await acknowledged(raw, edit!);
     expect((await moved(await correcting!)).location).toEqual(uptown);
     expect(await detail(String(record.id))).toMatchObject({ enjoyment: 64, location: uptown });
+  });
+
+  it("keeps a Shot's pull time, and so its Location, when a newer full record arrives", async () => {
+    const created = await api.createMachine("Pulled once", lab.id);
+    await moved(await correct(created.machine.id, created.machine.locationHistory[0]!.id, "2026-01-01T00:00:00Z"));
+    await moved(await move(created.machine.id, uptown.id, "2026-03-01T00:00:00Z"));
+    const raw = await connect(created);
+    const record = shotAt("pulled-once", "2026-02-15T12:00:00Z");
+    await acknowledged(raw, sendShot(raw, record));
+    // Derived: the same Shot, edited, as a full record whose time reads differently.
+    await acknowledged(raw, sendShot(raw, { ...record, timestamp: "2026-04-15T12:00:00Z", updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 71 } }));
+    expect(await detail("pulled-once")).toMatchObject({ enjoyment: 71, pulledAt: "2026-02-15T12:00:00.000Z", location: lab });
   });
 
   it("removes a mistaken entry, and the move back too when the Machine never left, re-crediting its Shots", async () => {

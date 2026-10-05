@@ -39,14 +39,18 @@ export function fromZonedInput(value: string, timeZone: string): string | undefi
   if (!match) return undefined;
   const [year, month, day, hour, minute, second] = match.slice(1).map((part) => Number(part ?? 0));
   const wall = Date.UTC(year!, month! - 1, day!, hour!, minute!, second!);
-  // The zone's offset at a first guess, then at the time that gives, settles it.
-  let time = wall - offset(wall, timeZone);
-  time = wall - offset(time, timeZone);
-  if (!Number.isFinite(time)) return undefined;
-  const iso = new Date(time).toISOString();
-  // A skipped time comes back as another one.
-  return toZonedInput(iso, timeZone) === value.slice(0, 16) ? iso : undefined;
+  if (!Number.isFinite(wall)) return undefined;
+  // The zone's offsets a day either side cover any clock change near the time. Each gives a
+  // candidate; those that read back as the time entered name it, and the earliest comes first.
+  // A skipped time reads back as neither.
+  const candidates = [wall - offset(wall - DAY, timeZone), wall - offset(wall + DAY, timeZone)]
+    .map((time) => new Date(time).toISOString())
+    .filter((iso) => toZonedInput(iso, timeZone) === value.slice(0, 16))
+    .sort();
+  return candidates[0];
 }
+
+const DAY = 24 * 60 * 60 * 1000;
 
 /** How far the zone's clocks are ahead of UTC at the time, in milliseconds. */
 function offset(time: number, timeZone: string): number {

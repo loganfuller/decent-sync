@@ -244,6 +244,9 @@ test("a time the clocks repeat keeps its moment when only the Location is correc
   await expect(entries.nth(0)).toContainText("From Nov 2, 2025, 1:30 AM EST");
   await history(page).getByRole("button", { name: "Correct arrival at Harbor" }).click();
   const harborForm = history(page).getByRole("form", { name: "Correct arrival at Harbor" });
+  // A time changed and changed back is still the recorded moment.
+  await harborForm.getByLabel("Arrived").fill("2025-11-02T01:31");
+  await harborForm.getByLabel("Arrived").fill("2025-11-02T01:30");
   await harborForm.getByRole("combobox", { name: "Location" }).click();
   await page.getByRole("option", { name: "Lab" }).click();
   await harborForm.getByRole("button", { name: "Save" }).click();
