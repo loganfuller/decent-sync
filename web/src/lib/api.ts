@@ -128,3 +128,50 @@ export interface IssuedToken {
   token: string;
   serverUrl: string;
 }
+
+/** A collection a Machine's tablet reports (its library, settings or paired devices), as last reported, without its value. */
+export interface CollectionSummary {
+  name: string;
+  /** Whether the latest report had a value: false while, say, no scale is connected. */
+  available: boolean;
+  /** When the latest report, available or not, arrived. */
+  reportedAt: string;
+  /** When the value arrived; null if no report has had one. */
+  receivedAt: string | null;
+  /** How many entries the value lists, if it is a list. */
+  items: number | null;
+}
+
+/** A collection with the latest value reported, as Decaid sent it, which later unavailable reports keep. */
+export interface Collection extends CollectionSummary {
+  value: unknown;
+}
+
+/** A device paired with a Machine's tablet. */
+export interface PairedDevice {
+  /** Decaid's id for it, such as a Bluetooth address. */
+  id: string;
+  /** Decaid's kind of device: machine, scale or sensor. */
+  type: string | null;
+  /** As Decaid names it, which names its model. */
+  model: string | null;
+  vendor: string | null;
+  /** Decaid's connection state when last reported, such as connected. */
+  state: string | null;
+  firmware: string | null;
+  /** A percentage. */
+  batteryLevel: number | null;
+}
+
+/** A Machine's paired devices, as its tablet last reported them. */
+export interface PairedDevices {
+  /** When its tablet last reported them, whether or not it could read them then; null until it reports them. */
+  reportedAt: string | null;
+  /** Whether it could read them then; if not, those shown are from `receivedAt`. */
+  available: boolean | null;
+  receivedAt: string | null;
+  scale: PairedDevice | null;
+  auxiliaryScale: PairedDevice | null;
+  sensors: PairedDevice[];
+  others: PairedDevice[];
+}

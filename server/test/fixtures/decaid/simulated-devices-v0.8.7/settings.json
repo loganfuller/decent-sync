@@ -1,0 +1,29 @@
+{
+  "gatewayMode": "disabled",
+  "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+  "logLevel": "INFO",
+  "weightFlowMultiplier": 1.0,
+  "volumeFlowMultiplier": 0.3,
+  "hotWaterFlowMultiplier": 0.3,
+  "scalePowerMode": "disconnect",
+  "blockOnNoScale": false,
+  "blockTareDuringShot": false,
+  "stopHotWaterAtWeight": true,
+  "preferredMachineId": "MockDe1",
+  "preferredScaleId": "MockScale",
+  "defaultSkinId": "streamline.js",
+  "automaticUpdateCheck": true,
+  "chargingMode": "disabled",
+  "nightModeEnabled": false,
+  "nightModeSleepTime": 1320,
+  "nightModeMorningTime": 420,
+  "lowBatteryBrightnessLimit": true,
+  "keepAwake": true,
+  "simulatedDevices": [
+    "machine",
+    "bengle",
+    "scale",
+    "sensor"
+  ],
+  "themeMode": "system"
+}

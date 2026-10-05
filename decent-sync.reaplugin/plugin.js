@@ -188,8 +188,19 @@ var __decentSync = (() => {
       else if (options.positive && value <= 0) this.problem(key, "must be positive");
       else if (options.nonNegative && value < 0) this.problem(key, "must not be negative");
     }
+    boolean(key) {
+      if (typeof this.object[key] !== "boolean") this.problem(key, "must be true or false");
+    }
     objectField(key) {
       if (!isObject(this.object[key])) this.problem(key, "must be an object");
+    }
+    /** Any JSON value but null. */
+    present(key) {
+      const value = this.object[key];
+      if (value === void 0 || value === null) this.problem(key, "must be present and not null");
+    }
+    absent(key) {
+      if (this.object[key] !== void 0) this.problem(key, "must be absent");
     }
     /** A UTC instant as `Date.prototype.toISOString` writes it. Read back, it must be written the same, so times that do not exist, which Date rolls over, are refused. */
     instant(key) {
@@ -238,6 +249,48 @@ var __decentSync = (() => {
   }
   function invalid(problem) {
     return { ok: false, error: "protocol_error", problem };
+  }
+
+  // src/change-detection.ts
+  function ifNoneMatch(last) {
+    return last?.available ? last.etag : null;
+  }
+  function decide(last, reading, full) {
+    switch (reading.kind) {
+      case "notModified":
+        return { send: false, next: last };
+      case "unavailable":
+        return { send: full || last?.available !== false, next: { available: false } };
+      case "value": {
+        const next = reading.etag !== null ? { available: true, etag: reading.etag, hash: null } : { available: true, etag: null, hash: contentHash(JSON.stringify(reading.value)) };
+        return { send: full || !sameFingerprint(last, next), next };
+      }
+    }
+  }
+  function pairedDevices(inventory) {
+    if (!Array.isArray(inventory)) return null;
+    return inventory.filter((device) => !(typeof device === "object" && device !== null && device.state === "discovered"));
+  }
+  function contentHash(text) {
+    let h1 = 3735928559;
+    let h2 = 1103547991;
+    for (let i = 0; i < text.length; i++) {
+      const code = text.charCodeAt(i);
+      h1 = Math.imul(h1 ^ code, 2654435761);
+      h2 = Math.imul(h2 ^ code, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ h1 >>> 16, 2246822507);
+    h1 ^= Math.imul(h2 ^ h2 >>> 13, 3266489909);
+    h2 = Math.imul(h2 ^ h2 >>> 16, 2246822507);
+    h2 ^= Math.imul(h1 ^ h1 >>> 13, 3266489909);
+    return `${text.length}:${hex(h2)}${hex(h1)}`;
+  }
+  function sameFingerprint(a, b) {
+    if (!a?.available || !b.available) return a?.available === b.available;
+    return a.etag === b.etag && a.hash === b.hash;
+  }
+  function hex(half) {
+    return (half >>> 0).toString(16).padStart(8, "0");
   }
 
   // src/decaid.ts
@@ -301,6 +354,109 @@ var __decentSync = (() => {
     const body = await response.json();
     if (body === null || typeof body !== "object" || Array.isArray(body)) throw new Error("Record response unavailable");
     return body;
+  }
+  async function readCollection(path, etag) {
+    try {
+      const response = await fetch(API + path, etag === null ? void 0 : { headers: { "If-None-Match": etag } });
+      if (response.status === 304) return { kind: "notModified" };
+      if (!response.ok) return { kind: "unavailable" };
+      const value = await response.json();
+      return value === null ? { kind: "unavailable" } : { kind: "value", value, etag: response.headers.get("etag") };
+    } catch {
+      return { kind: "unavailable" };
+    }
+  }
+
+  // src/collections.ts
+  var SOURCES = [
+    { name: "beans", path: "/beans?includeArchived=true" },
+    { name: "beanBatches", path: "/bean-batches?includeArchived=true" },
+    { name: "grinders", path: "/grinders?includeArchived=true" },
+    { name: "profiles", path: "/profiles?includeHidden=true" },
+    { name: "dye2Recipes", path: "/store/dye2.reaplugin/recipes" },
+    { name: "dye2Equipment", path: "/store/dye2.reaplugin/equipment" },
+    { name: "dye2Baskets", path: "/store/dye2.reaplugin/baskets" },
+    { name: "appSettings", path: "/settings" },
+    { name: "machineSettings", path: "/machine/settings" },
+    { name: "advancedSettings", path: "/machine/settings/advanced" },
+    { name: "pairedDevices", path: "/devices", select: pairedDevices },
+    { name: "scaleInfo", path: "/scale/info" },
+    { name: "sensors", path: "/sensors" }
+  ];
+  var CollectionCapture = class {
+    constructor(outbox, pollMs) {
+      __publicField(this, "outbox", outbox);
+      __publicField(this, "pollMs", pollMs);
+      /** What was last queued for each collection. */
+      __publicField(this, "last", /* @__PURE__ */ new Map());
+      /** For each collection, the latest delivery queued, and the latest queued with a value. */
+      __publicField(this, "queued", /* @__PURE__ */ new Map());
+      __publicField(this, "wanted");
+      __publicField(this, "reading", false);
+      __publicField(this, "stopped", false);
+      __publicField(this, "pollTimer");
+    }
+    start() {
+      this.schedulePoll();
+    }
+    stop() {
+      this.stopped = true;
+      if (this.pollTimer !== void 0) clearTimeout(this.pollTimer);
+    }
+    /** Every collection, read again and sent in full. */
+    welcome() {
+      this.read("full");
+    }
+    schedulePoll() {
+      this.pollTimer = setTimeout(() => {
+        this.pollTimer = void 0;
+        if (this.outbox.connected) this.read("changes");
+        if (!this.stopped) this.schedulePoll();
+      }, this.pollMs);
+    }
+    read(kind) {
+      if (this.stopped) return;
+      if (kind === "full" || this.wanted === void 0) this.wanted = kind;
+      void this.run();
+    }
+    async run() {
+      if (this.reading) return;
+      this.reading = true;
+      try {
+        while (this.wanted !== void 0 && !this.stopped) {
+          const full = this.wanted === "full";
+          this.wanted = void 0;
+          for (const source of SOURCES) {
+            if (this.stopped) return;
+            await this.capture(source, full);
+          }
+        }
+      } finally {
+        this.reading = false;
+      }
+    }
+    async capture(source, full) {
+      const last = this.last.get(source.name);
+      const reading = selected(source, await readCollection(source.path, full ? null : ifNoneMatch(last)));
+      if (this.stopped) return;
+      const decision = decide(last, reading, full);
+      if (decision.next) this.last.set(source.name, decision.next);
+      if (!decision.send || reading.kind === "notModified") return;
+      const id = this.outbox.nextId();
+      const delivery = reading.kind === "value" ? { type: "collection", id, name: source.name, available: true, value: reading.value } : { type: "collection", id, name: source.name, available: false };
+      const earlier = this.queued.get(source.name);
+      if (earlier) {
+        if (delivery.available || earlier.latest !== earlier.value) this.outbox.supersede(earlier.latest);
+        if (delivery.available && earlier.value !== void 0 && earlier.value !== earlier.latest) this.outbox.supersede(earlier.value);
+      }
+      this.queued.set(source.name, { latest: id, value: delivery.available ? id : earlier?.value });
+      this.outbox.enqueue(delivery);
+    }
+  };
+  function selected(source, reading) {
+    if (reading.kind !== "value" || !source.select) return reading;
+    const value = source.select(reading.value);
+    return value === null ? { kind: "unavailable" } : { ...reading, value };
   }
 
   // src/machine-events.ts
@@ -380,6 +536,8 @@ var __decentSync = (() => {
       __publicField(this, "connections", 0);
       /** The delivery awaiting acknowledgment. */
       __publicField(this, "sent");
+      /** Deliveries handed to a connection at least once and not yet acknowledged. */
+      __publicField(this, "handed", /* @__PURE__ */ new Set());
       __publicField(this, "working", false);
       __publicField(this, "stopped", false);
       __publicField(this, "retryTimer");
@@ -387,6 +545,10 @@ var __decentSync = (() => {
     /** Changes with every welcome and disconnect: work started for one connection checks it before sending. */
     get generation() {
       return this.connections;
+    }
+    /** Whether a welcomed connection is sending. */
+    get connected() {
+      return this.sendMessage !== void 0;
     }
     welcome(send) {
       this.sendMessage = send;
@@ -410,12 +572,25 @@ var __decentSync = (() => {
     }
     acknowledge(id) {
       this.queued.delete(id);
+      this.handed.delete(id);
       if (this.sent === id) this.sent = void 0;
       this.pump();
     }
     /** Drops a queued delivery that a newer one makes unnecessary; one being sent now stays, to be acknowledged. */
     discard(id) {
-      if (this.sent !== id) this.queued.delete(id);
+      if (this.sent === id) return;
+      this.queued.delete(id);
+      this.handed.delete(id);
+    }
+    /**
+     * Drops a queued delivery that a newer one makes unnecessary, unless it
+     * was ever handed to a connection. One sent before a reconnect may still
+     * be being stored by the server instance that received it; sent again,
+     * ahead of the newer one, it is found already handled, or waited for, so
+     * it can never be stored after the newer one.
+     */
+    supersede(id) {
+      if (!this.handed.has(id)) this.queued.delete(id);
     }
     /**
      * Records to read and send: requested by the server, after those already
@@ -478,6 +653,7 @@ var __decentSync = (() => {
       if (!next) return;
       const [id, message] = next;
       this.sent = id;
+      this.handed.add(id);
       await this.sendMessage(message);
     }
     retry() {
@@ -807,6 +983,7 @@ var __decentSync = (() => {
       __publicField(this, "shots");
       __publicField(this, "steams");
       __publicField(this, "machineEvents");
+      __publicField(this, "collections");
       __publicField(this, "checkingHardware", false);
       __publicField(this, "hardwareCooldown", false);
       this.outbox = new Outbox(log, {
@@ -816,12 +993,14 @@ var __decentSync = (() => {
       this.shots = new ShotCapture(this.outbox, log);
       this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1e3, log);
       this.machineEvents = new MachineEvents(this.outbox);
+      this.collections = new CollectionCapture(this.outbox, settings.pollSeconds * 1e3);
     }
     /** Connects from a timer, so the caller (onLoad) returns at once. */
     start() {
       this.setTimer("reconnect", 0, () => void this.connect());
       this.scheduleHardwarePoll();
       this.steams.start();
+      this.collections.start();
     }
     /**
      * A machine state update, sent only while a machine is connected: a change
@@ -843,6 +1022,7 @@ var __decentSync = (() => {
       this.outbox.stop();
       this.shots.stop();
       this.steams.stop();
+      this.collections.stop();
       for (const id of this.timers.values()) clearTimeout(id);
       this.timers.clear();
       this.closeHandle();
@@ -960,6 +1140,7 @@ var __decentSync = (() => {
               throw error;
             }
           });
+          this.collections.welcome();
           this.shots.welcome();
           this.steams.welcome();
           break;

@@ -9,6 +9,7 @@ import {
   decodeServerMessage,
   sameHardware,
 } from "@decent-sync/protocol";
+import { CollectionCapture } from "./collections.js";
 import { readMachineHardware, readTabletIdentity } from "./decaid.js";
 import type { PluginHost, TransportEvent } from "./host.js";
 import { MachineEvents } from "./machine-events.js";
@@ -93,6 +94,7 @@ export class SyncConnection {
   private readonly shots: ShotCapture;
   private readonly steams: SteamCapture;
   private readonly machineEvents: MachineEvents;
+  private readonly collections: CollectionCapture;
   private checkingHardware = false;
   private hardwareCooldown = false;
 
@@ -108,6 +110,7 @@ export class SyncConnection {
     this.shots = new ShotCapture(this.outbox, log);
     this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1000, log);
     this.machineEvents = new MachineEvents(this.outbox);
+    this.collections = new CollectionCapture(this.outbox, settings.pollSeconds * 1000);
   }
 
   /** Connects from a timer, so the caller (onLoad) returns at once. */
@@ -115,6 +118,7 @@ export class SyncConnection {
     this.setTimer("reconnect", 0, () => void this.connect());
     this.scheduleHardwarePoll();
     this.steams.start();
+    this.collections.start();
   }
 
   /**
@@ -138,6 +142,7 @@ export class SyncConnection {
     this.outbox.stop();
     this.shots.stop();
     this.steams.stop();
+    this.collections.stop();
     for (const id of this.timers.values()) clearTimeout(id);
     this.timers.clear();
     this.closeHandle();
@@ -256,8 +261,8 @@ export class SyncConnection {
         this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
         this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
         // What the last connection left unacknowledged goes first, then the
-        // latest Workflow, queued before the outbox starts sending, then the
-        // Shot and Steam Record indices.
+        // latest Workflow, queued before the outbox starts sending, then
+        // every collection, read again, and the Shot and Steam Record indices.
         this.machineEvents.welcome();
         this.outbox.welcome(async (delivery) => {
           try { await this.send(handle, delivery); }
@@ -266,6 +271,7 @@ export class SyncConnection {
             throw error;
           }
         });
+        this.collections.welcome();
         this.shots.welcome();
         this.steams.welcome();
         break;

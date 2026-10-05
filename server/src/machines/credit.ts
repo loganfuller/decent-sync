@@ -34,3 +34,20 @@ export async function creditReporter(tx: Prisma.TransactionClient, reporter: Rep
   await lockMachine(tx, reporter.machineId);
   return { machineId: reporter.machineId, pendingMachineId: null };
 }
+
+/**
+ * Records that the session's token delivered this id, and says whether it is
+ * the first time, for deliveries handled once however often they arrive:
+ * Workflow and machine state events, and collections. A delivery's ids are
+ * its token's Machine's own, since a resend always comes through the same
+ * plugin and token. Recorded before the credit is locked, as by every
+ * delivery, so a resend arriving meanwhile waits for this one to commit and
+ * then finds it.
+ */
+export async function firstDelivery(tx: Prisma.TransactionClient, reporter: Reporter, deliveryId: string): Promise<boolean> {
+  const recorded = await tx.$executeRaw`
+    INSERT INTO machine_event_deliveries (machine_id, delivery_id)
+    VALUES (${reporter.machineId}::uuid, ${deliveryId})
+    ON CONFLICT DO NOTHING`;
+  return recorded > 0;
+}

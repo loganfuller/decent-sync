@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useCallback, useEffect, useId, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
 import { Link, useParams } from "react-router";
 import {
   ConfirmButton,
@@ -16,6 +16,8 @@ import {
   useLocations,
 } from "@/components/machines";
 import { TokenNotice } from "@/components/TokenNotice";
+import { Field, Fields } from "@/components/fields";
+import { LibraryCard, PairedDevicesCard, SETTINGS, SettingsCard } from "@/components/machine-collections";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,9 +27,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   ApiError,
   api,
+  type Collection,
+  type CollectionSummary,
   type IssuedToken,
   type LocationHistoryEntry,
   type Machine,
+  type PairedDevices,
   type PendingMachine,
   type WorkflowEvent,
 } from "@/lib/api";
@@ -40,9 +45,17 @@ interface MachineData {
   pending: PendingMachine | null;
   /** Its current Workflow, or null until its tablet reports one. */
   workflow: WorkflowEvent | null;
+  pairedDevices: PairedDevices;
+  /** The collections its tablet has reported, without their values. */
+  collections: CollectionSummary[];
+  settings: Record<keyof typeof SETTINGS, Collection | null>;
 }
 
-/** One Machine: its identity, versions and status, its Workflow, its Location, its token, and resolving its identity. */
+/**
+ * One Machine: its identity, versions and status, its Workflow, paired
+ * devices, settings and library, its Location, its token, and resolving its
+ * identity.
+ */
 export function MachinePage() {
   const { id = "" } = useParams();
   // Keyed, so a token or error shown for one Machine never carries over to the next one opened.
@@ -53,9 +66,14 @@ function MachineDetails({ id }: { id: string }) {
   const [notFound, setNotFound] = useState(false);
   const load = useCallback(async (): Promise<MachineData> => {
     try {
-      const [{ machine }, { workflow }] = await Promise.all([
-        api<{ machine: Machine }>("GET", `/machines/${encodeURIComponent(id)}`),
-        api<{ workflow: WorkflowEvent | null }>("GET", `/machines/${encodeURIComponent(id)}/workflow`),
+      const path = `/machines/${encodeURIComponent(id)}`;
+      const settingNames = Object.keys(SETTINGS) as (keyof typeof SETTINGS)[];
+      const [{ machine }, { workflow }, { pairedDevices }, { collections }, settings] = await Promise.all([
+        api<{ machine: Machine }>("GET", path),
+        api<{ workflow: WorkflowEvent | null }>("GET", `${path}/workflow`),
+        api<{ pairedDevices: PairedDevices }>("GET", `${path}/paired-devices`),
+        api<{ collections: CollectionSummary[] }>("GET", `${path}/collections`),
+        Promise.all(settingNames.map((name) => api<{ collection: Collection | null }>("GET", `${path}/collections/${name}`))),
       ]);
       const pendingId = machine.mismatch?.pendingMachineId;
       const pending = pendingId
@@ -64,7 +82,14 @@ function MachineDetails({ id }: { id: string }) {
           ) ?? null)
         : null;
       setNotFound(false);
-      return { machine, pending, workflow };
+      return {
+        machine,
+        pending,
+        workflow,
+        pairedDevices,
+        collections,
+        settings: Object.fromEntries(settingNames.map((name, index) => [name, settings[index]!.collection])) as MachineData["settings"],
+      };
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) setNotFound(true);
       throw error;
@@ -216,6 +241,9 @@ function MachineDetails({ id }: { id: string }) {
           </div>
 
           <MachineWorkflow current={data.workflow} />
+          <PairedDevicesCard devices={data.pairedDevices} />
+          <SettingsCard settings={data.settings} workflow={data.workflow} />
+          <LibraryCard collections={data.collections} />
           <MachineLocation machine={machine} onChanged={reload} />
         </>
       )}
@@ -228,23 +256,6 @@ function BackLink() {
     <Link to="/machines" className="text-sm text-muted-foreground hover:text-foreground">
       ← Machines
     </Link>
-  );
-}
-
-function Fields({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <dl aria-label={label} className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-      {children}
-    </dl>
-  );
-}
-
-function Field({ term, children }: { term: string; children: ReactNode }) {
-  return (
-    <>
-      <dt className="text-muted-foreground">{term}</dt>
-      <dd className="min-w-0 wrap-anywhere">{children}</dd>
-    </>
   );
 }
 

@@ -1,4 +1,5 @@
 import type {
+  CollectionDelivery,
   MachineStateDelivery,
   PluginMessage,
   ShotDelivery,
@@ -8,8 +9,11 @@ import type {
   WorkflowDelivery,
 } from "@decent-sync/protocol";
 
-/** A logical delivery, acknowledged once the server has stored it: a record, a page of an index, or a Workflow or machine state event. */
-export type Delivery = ShotDelivery | ShotIndex | SteamDelivery | SteamIndex | WorkflowDelivery | MachineStateDelivery;
+/**
+ * A logical delivery, acknowledged once the server has stored it: a record,
+ * a page of an index, a Workflow or machine state event, or a collection.
+ */
+export type Delivery = ShotDelivery | ShotIndex | SteamDelivery | SteamIndex | WorkflowDelivery | MachineStateDelivery | CollectionDelivery;
 
 /** The kinds of record the server can request by their ids. */
 export type RecordKind = "shot" | "steam";
@@ -26,7 +30,8 @@ const SHORT_OUTBOX = 4;
 
 /**
  * The plugin's one at-least-once outbox, for Shots, Steam Records and their
- * indices, and Workflow and machine state events, in memory for one runtime:
+ * indices, Workflow and machine state events, and collections, in memory for
+ * one runtime:
  * a reload loses what it holds, and the indices sent after the reload
  * recover the records. A delivery stays until the server acknowledges it.
  * One logical delivery awaits acknowledgment at a time; the connection's
@@ -44,6 +49,8 @@ export class Outbox {
   private connections = 0;
   /** The delivery awaiting acknowledgment. */
   private sent?: string;
+  /** Deliveries handed to a connection at least once and not yet acknowledged. */
+  private readonly handed = new Set<string>();
   private working = false;
   private stopped = false;
   private retryTimer?: number;
@@ -55,6 +62,9 @@ export class Outbox {
 
   /** Changes with every welcome and disconnect: work started for one connection checks it before sending. */
   get generation(): number { return this.connections; }
+
+  /** Whether a welcomed connection is sending. */
+  get connected(): boolean { return this.sendMessage !== undefined; }
 
   welcome(send: (message: PluginMessage) => Promise<void>): void {
     this.sendMessage = send;
@@ -82,13 +92,27 @@ export class Outbox {
 
   acknowledge(id: string): void {
     this.queued.delete(id);
+    this.handed.delete(id);
     if (this.sent === id) this.sent = undefined;
     this.pump();
   }
 
   /** Drops a queued delivery that a newer one makes unnecessary; one being sent now stays, to be acknowledged. */
   discard(id: string): void {
-    if (this.sent !== id) this.queued.delete(id);
+    if (this.sent === id) return;
+    this.queued.delete(id);
+    this.handed.delete(id);
+  }
+
+  /**
+   * Drops a queued delivery that a newer one makes unnecessary, unless it
+   * was ever handed to a connection. One sent before a reconnect may still
+   * be being stored by the server instance that received it; sent again,
+   * ahead of the newer one, it is found already handled, or waited for, so
+   * it can never be stored after the newer one.
+   */
+  supersede(id: string): void {
+    if (!this.handed.has(id)) this.queued.delete(id);
   }
 
   /**
@@ -157,6 +181,7 @@ export class Outbox {
     if (!next) return;
     const [id, message] = next;
     this.sent = id;
+    this.handed.add(id);
     await this.sendMessage(message);
   }
 
