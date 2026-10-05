@@ -103,10 +103,11 @@ describe("Workflow changes and machine state transitions", () => {
     raw.send(message);
     await expect.poll(acks).toBe(before + 1);
   }
-  /** Resolves once a server connection waits for a lock, such as one the test holds. */
-  async function someoneWaits(database: { query<T>(text: string): Promise<{ rows: T[] }> }) {
-    const waiting = "SELECT count(*)::int AS waiting FROM pg_locks WHERE NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())";
-    await expect.poll(async () => (await database.query<{ waiting: number }>(waiting)).rows[0]!.waiting).toBeGreaterThan(0);
+  /** Resolves once a server connection waits for a lock on the table, such as one the test holds. */
+  async function someoneWaitsFor(database: { query<T>(text: string, values: unknown[]): Promise<{ rows: T[] }> }, table: string) {
+    const waiting = `SELECT count(*)::int AS waiting FROM pg_locks
+      WHERE NOT granted AND relation = $1::regclass AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`;
+    await expect.poll(async () => (await database.query<{ waiting: number }>(waiting, [table])).rows[0]!.waiting, { timeout: 5_000 }).toBeGreaterThan(0);
   }
   const stateDelivery = (state: string, substate: string, observedAt: string) =>
     ({ type: "machineState", id: randomUUID(), observedAt, state, substate });
@@ -390,6 +391,10 @@ describe("Workflow changes and machine state transitions", () => {
     await (await connect(destination, server.url, { model: "DE1Pro", serial: "20302" })).close();
     const tablet = load(machine, { api: derivedDe1Pro({ serial: "20301" }) });
     await expect.poll(async () => (await workflowEvents(machine)).total).toBe(1);
+    // The Workflow Decaid sends on load and the one the first welcome sends again, both acknowledged,
+    // so the next Workflow is the only one in flight.
+    await expect.poll(() => tablet.sent.filter((frame) => frameType(frame) === "workflow").length).toBe(2);
+    await acknowledged(tablet, "workflow");
     const dialledIn = derivedWorkflow({ targetYield: 43 });
     const database = await server.connectDatabase();
     try {
@@ -397,7 +402,7 @@ describe("Workflow changes and machine state transitions", () => {
       await database.query("BEGIN");
       await database.query("LOCK TABLE workflow_events IN ACCESS EXCLUSIVE MODE");
       tablet.setWorkflow(dialledIn);
-      await someoneWaits(database);
+      await someoneWaitsFor(database, "workflow_events");
       // The tablet moves onto the destination's machine, losing its connection, and with it the acknowledgment.
       tablet.serve(derivedDe1Pro({ serial: "20302" }));
       tablet.dropConnections();
