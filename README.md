@@ -92,7 +92,10 @@ docker compose up -d
 
 The management interface is then at `PUBLIC_URL`. The first person to open it
 creates the first Admin account; after that, setup is closed and everyone
-signs in. Open it yourself before sharing the address. Use `PUBLIC_URL` or the
+signs in. Open it yourself before sharing the address. To bring others in, an
+Admin creates an invite under Accounts, as an Admin or as Staff at chosen
+Locations, and sends its one-time link themselves: the server sends no email.
+The link expires after 7 days. Use `PUBLIC_URL` or the
 server's IP address: to guard against cross-site attacks, the server refuses
 setup and sign-in from a page loaded under any other name. PostgreSQL's data lives
 in the `db-data` volume. These variables in `.env` configure the stack:

@@ -4,7 +4,8 @@ import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
-import type { Account } from "../generated/prisma/client.js";
+import { type Account, AccountRole } from "../generated/prisma/client.js";
+import { EVERYTHING, type Scope } from "./scope.js";
 
 const COOKIE_NAME = "decent_sync_session";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -16,6 +17,8 @@ const RENEW_AFTER_MS = DAY_MS;
 export interface SignedIn {
   account: Account;
   sessionId: string;
+  /** What the account sees, as its role and Locations stand at this request. */
+  scope: Scope;
 }
 
 /**
@@ -60,9 +63,10 @@ export class SessionsService {
     if (!token) return undefined;
 
     const now = await this.databaseNow();
+    // The account's role and Locations are read with it every time, so a change reaches the next request.
     const session = await this.prisma.session.findUnique({
       where: { tokenHash: hashSecret(token) },
-      include: { account: true },
+      include: { account: { include: { locations: { select: { locationId: true } } } } },
     });
     if (!session || session.expiresAt.getTime() <= now) {
       this.clearCookie(response);
@@ -81,7 +85,12 @@ export class SessionsService {
       }
       this.setCookie(response, token, LIFETIME_MS);
     }
-    return { account: session.account, sessionId: session.id };
+    const { locations, ...account } = session.account;
+    const scope: Scope =
+      account.role === AccountRole.ADMIN
+        ? EVERYTHING
+        : { kind: "locations", locationIds: locations.map((location) => location.locationId) };
+    return { account, sessionId: session.id, scope };
   }
 
   /** Ends the session on the server and removes its cookie. */

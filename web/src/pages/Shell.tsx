@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Link, NavLink, Outlet } from "react-router";
-import { useAuth } from "@/auth";
+import { useAuth, useIsAdmin } from "@/auth";
 import { Button } from "@/components/ui/button";
 
 /** The signed-in frame: a header with the account and sign-out, and a page. */
 export function Shell() {
   const { state, signOut } = useAuth();
+  const isAdmin = useIsAdmin();
   const [signingOut, setSigningOut] = useState(false);
   const account = state.status === "signed-in" ? state.account : undefined;
 
@@ -32,6 +33,11 @@ export function Shell() {
             <NavLink to="/locations" className={navLinkClass}>
               Locations
             </NavLink>
+            {isAdmin && (
+              <NavLink to="/accounts" className={navLinkClass}>
+                Accounts
+              </NavLink>
+            )}
           </nav>
           {account && (
             <span className="text-sm text-muted-foreground" data-testid="signed-in-account">

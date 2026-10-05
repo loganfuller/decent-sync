@@ -3,6 +3,7 @@ import { readMachineId } from "../machines/input.js";
 import { readPage } from "../pagination.js";
 import { SteamRecordsService } from "./steam-records.service.js";
 
+/** Admin-only until Staff see the Steam Records at their Locations (#18). */
 @Controller("api/steam-records")
 export class SteamRecordsController {
   constructor(private readonly steamRecords: SteamRecordsService) {}

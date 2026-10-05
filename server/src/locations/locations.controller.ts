@@ -1,4 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
+import { AllowStaff, CurrentScope } from "../accounts/guards.js";
+import type { Scope } from "../accounts/scope.js";
 import { readLocationEdit, readLocationId, readNewLocation } from "./input.js";
 import { LocationsService, type LocationView, viewLocation } from "./locations.service.js";
 import { TimeZones } from "./time-zones.js";
@@ -11,9 +13,11 @@ export class LocationsController {
     private readonly timeZones: TimeZones,
   ) {}
 
+  /** Every Location for an Admin; for Staff, the Locations they work at. */
+  @AllowStaff()
   @Get()
-  async list(): Promise<{ locations: LocationView[] }> {
-    return { locations: (await this.locations.list()).map(viewLocation) };
+  async list(@CurrentScope() scope: Scope): Promise<{ locations: LocationView[] }> {
+    return { locations: (await this.locations.list(scope)).map(viewLocation) };
   }
 
   /** The time zone defaults to the creating browser's; the server's (usually UTC) is never assumed. */

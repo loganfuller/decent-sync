@@ -1,5 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
 import { Link, useParams } from "react-router";
+import { useIsAdmin } from "@/auth";
 import {
   ConfirmButton,
   IdentificationBadge,
@@ -54,7 +55,8 @@ interface MachineData {
 /**
  * One Machine: its identity, versions and status, its Workflow, paired
  * devices, settings and library, its Location, its token, and resolving its
- * identity.
+ * identity. Staff see a Machine at a Location they work at, and can move it
+ * between those Locations; the rest is for Admins.
  */
 export function MachinePage() {
   const { id = "" } = useParams();
@@ -63,6 +65,7 @@ export function MachinePage() {
 }
 
 function MachineDetails({ id }: { id: string }) {
+  const isAdmin = useIsAdmin();
   const [notFound, setNotFound] = useState(false);
   const load = useCallback(async (): Promise<MachineData> => {
     try {
@@ -75,6 +78,7 @@ function MachineDetails({ id }: { id: string }) {
         api<{ collections: CollectionSummary[] }>("GET", `${path}/collections`),
         Promise.all(settingNames.map((name) => api<{ collection: Collection | null }>("GET", `${path}/collections/${name}`))),
       ]);
+      // Only Admins are told of a Pending Machine.
       const pendingId = machine.mismatch?.pendingMachineId;
       const pending = pendingId
         ? ((await api<{ pendingMachines: PendingMachine[] }>("GET", "/pending-machines")).pendingMachines.find(
@@ -118,7 +122,11 @@ function MachineDetails({ id }: { id: string }) {
     return (
       <section className="grid gap-4">
         <BackLink />
-        <p role="alert">There is no such Machine. It may have been removed.</p>
+        <p role="alert">
+          {isAdmin
+            ? "There is no such Machine. It may have been removed."
+            : "There is no such Machine at the Locations you work at. It may have moved elsewhere."}
+        </p>
       </section>
     );
   }
@@ -149,8 +157,11 @@ function MachineDetails({ id }: { id: string }) {
             </Alert>
           )}
 
-          {machine.mismatch && <Mismatch machine={machine} pending={data.pending} onCreated={created} onDismissed={reload} />}
-          {needsHardware(machine) &&
+          {machine.mismatch && (
+            <Mismatch machine={machine} pending={data.pending} isAdmin={isAdmin} onCreated={created} onDismissed={reload} />
+          )}
+          {isAdmin &&
+            needsHardware(machine) &&
             (machine.model === null ? (
               <EnterHardware machine={machine} onSaved={reload} />
             ) : (
@@ -211,40 +222,42 @@ function MachineDetails({ id }: { id: string }) {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <h2>Token</h2>
-                </CardTitle>
-                <CardDescription>
-                  Issue a new token if a tablet is lost or its token was shared. The current token stops working.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-3">
-                {actionError && (
-                  <Alert variant="destructive">
-                    <AlertDescription>{actionError}</AlertDescription>
-                  </Alert>
-                )}
-                <div>
-                  <ConfirmButton
-                    label="Issue new token"
-                    title={`Issue a new token for ${machine.name}?`}
-                    description="The current token stops working at once: a tablet using it is disconnected, and cannot connect again until the new token is entered in its plugin's settings."
-                    confirmLabel="Issue new token"
-                    variant="destructive"
-                    onConfirm={() => void reissue()}
-                  />
-                </div>
-              </CardContent>
-            </Card>
+            {isAdmin && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>
+                    <h2>Token</h2>
+                  </CardTitle>
+                  <CardDescription>
+                    Issue a new token if a tablet is lost or its token was shared. The current token stops working.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-3">
+                  {actionError && (
+                    <Alert variant="destructive">
+                      <AlertDescription>{actionError}</AlertDescription>
+                    </Alert>
+                  )}
+                  <div>
+                    <ConfirmButton
+                      label="Issue new token"
+                      title={`Issue a new token for ${machine.name}?`}
+                      description="The current token stops working at once: a tablet using it is disconnected, and cannot connect again until the new token is entered in its plugin's settings."
+                      confirmLabel="Issue new token"
+                      variant="destructive"
+                      onConfirm={() => void reissue()}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           <MachineWorkflow current={data.workflow} />
           <PairedDevicesCard devices={data.pairedDevices} />
           <SettingsCard settings={data.settings} workflow={data.workflow} />
           <LibraryCard collections={data.collections} />
-          <MachineLocation machine={machine} onChanged={reload} />
+          <MachineLocation machine={machine} isAdmin={isAdmin} onChanged={reload} />
         </>
       )}
     </section>
@@ -383,9 +396,10 @@ function list(...parts: (string | undefined)[]): string | undefined {
 
 /**
  * Where the Machine is, moving it, and its Location History, whose times
- * are shown and entered in each entry's Location's time zone.
+ * are shown and entered in each entry's Location's time zone. Staff see its
+ * history at their Locations, and only Admins correct it.
  */
-function MachineLocation({ machine, onChanged }: { machine: Machine; onChanged(): Promise<void> }) {
+function MachineLocation({ machine, isAdmin, onChanged }: { machine: Machine; isAdmin: boolean; onChanged(): Promise<void> }) {
   const [editing, setEditing] = useState<string>();
   const [removeError, setRemoveError] = useState<string>();
   // Newest first: where it is now leads.
@@ -409,8 +423,9 @@ function MachineLocation({ machine, onChanged }: { machine: Machine; onChanged()
           <h2>Location</h2>
         </CardTitle>
         <CardDescription>
-          Each Shot is credited to the Location the Machine was at when it was pulled. Shots from before it first arrived
-          at a Location have none; correct when it arrived to credit them.
+          {isAdmin
+            ? "Each Shot is credited to the Location the Machine was at when it was pulled. Shots from before it first arrived at a Location have none; correct when it arrived to credit them."
+            : "Each Shot is credited to the Location the Machine was at when it was pulled. Its history here shows its time at the Locations you work at."}
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-6">
@@ -419,7 +434,7 @@ function MachineLocation({ machine, onChanged }: { machine: Machine; onChanged()
           {current && <Field term="Since">{formatInZone(current.effectiveFrom, current.location.timeZone)}</Field>}
         </Fields>
 
-        <MoveForm machine={machine} onMoved={onChanged} />
+        <MoveForm machine={machine} isAdmin={isAdmin} onMoved={onChanged} />
 
         {history.length > 0 && (
           <section className="grid gap-2">
@@ -450,17 +465,21 @@ function MachineLocation({ machine, onChanged }: { machine: Machine; onChanged()
                           From {formatInZone(entry.effectiveFrom, entry.location.timeZone)}
                         </span>
                       </div>
-                      <Button variant="outline" aria-label={`Correct arrival at ${entry.location.name}`} onClick={() => setEditing(entry.id)}>
-                        Correct
-                      </Button>
-                      <ConfirmButton
-                        label="Remove"
-                        title={`Remove ${machine.name}'s arrival at ${entry.location.name}?`}
-                        description={`Remove it if it was recorded by mistake. ${removalEffect(machine, entry)}`}
-                        confirmLabel="Remove"
-                        variant="destructive"
-                        onConfirm={() => void remove(entry)}
-                      />
+                      {isAdmin && (
+                        <>
+                          <Button variant="outline" aria-label={`Correct arrival at ${entry.location.name}`} onClick={() => setEditing(entry.id)}>
+                            Correct
+                          </Button>
+                          <ConfirmButton
+                            label="Remove"
+                            title={`Remove ${machine.name}'s arrival at ${entry.location.name}?`}
+                            description={`Remove it if it was recorded by mistake. ${removalEffect(machine, entry)}`}
+                            confirmLabel="Remove"
+                            variant="destructive"
+                            onConfirm={() => void remove(entry)}
+                          />
+                        </>
+                      )}
                     </div>
                   )}
                 </li>
@@ -473,8 +492,12 @@ function MachineLocation({ machine, onChanged }: { machine: Machine; onChanged()
   );
 }
 
-/** Moves the Machine to another Location from now, or gives an unassigned one its first. */
-function MoveForm({ machine, onMoved }: { machine: Machine; onMoved(): Promise<void> }) {
+/**
+ * Moves the Machine to another Location from now, or gives an unassigned one
+ * its first. Staff choose among the Locations they work at, which are the
+ * only ones the server lists for them.
+ */
+function MoveForm({ machine, isAdmin, onMoved }: { machine: Machine; isAdmin: boolean; onMoved(): Promise<void> }) {
   const id = useId();
   const { locations, error: locationsError } = useLocations();
   const [locationId, setLocationId] = useState("");
@@ -501,6 +524,7 @@ function MoveForm({ machine, onMoved }: { machine: Machine; onMoved(): Promise<v
   if (locationsError) return <p className="text-sm text-destructive">{locationsError}</p>;
   if (!locations) return null;
   if (choices.length === 0) {
+    if (!isAdmin) return <p className="text-sm text-muted-foreground">There is no other Location you work at to move it to.</p>;
     return (
       <p className="text-sm text-muted-foreground">
         {locations.length === 0 ? "There are no Locations yet. " : "There is no other Location to move it to. "}
@@ -537,7 +561,9 @@ function MoveForm({ machine, onMoved }: { machine: Machine; onMoved(): Promise<v
           </Button>
         </div>
         <p className="text-sm text-muted-foreground">
-          It is at the new Location from now. If it got there earlier, correct the time in its Location History.
+          {isAdmin
+            ? "It is at the new Location from now. If it got there earlier, correct the time in its Location History."
+            : "It is at the new Location from now."}
         </p>
       </div>
     </form>
@@ -681,15 +707,17 @@ function CorrectEntry({
   );
 }
 
-/** The other hardware a Machine's token reports, and how to resolve it. */
+/** The other hardware a Machine's token reports, and how an Admin resolves it. */
 function Mismatch({
   machine,
   pending,
+  isAdmin,
   onCreated,
   onDismissed,
 }: {
   machine: Machine;
   pending: PendingMachine | null;
+  isAdmin: boolean;
   onCreated(issued: IssuedToken): void;
   onDismissed(): Promise<void>;
 }) {
@@ -711,7 +739,20 @@ function Mismatch({
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 text-sm">
-        {mismatch.machine ? (
+        {!isAdmin ? (
+          <p>
+            {mismatch.machine && (
+              <>
+                {hardware} is{" "}
+                <Link to={`/machines/${mismatch.machine.id}`} className="underline underline-offset-4">
+                  {mismatch.machine.name}
+                </Link>
+                .{" "}
+              </>
+            )}
+            An Admin can resolve this.
+          </p>
+        ) : mismatch.machine ? (
           <p>
             {hardware} is{" "}
             <Link to={`/machines/${mismatch.machine.id}`} className="underline underline-offset-4">

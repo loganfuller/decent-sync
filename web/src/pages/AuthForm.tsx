@@ -12,11 +12,13 @@ export interface Field {
   autoComplete: string;
   minLength?: number;
   hint?: string;
+  /** A value that cannot be changed, such as the email an invite is for. */
+  fixedValue?: string;
 }
 
 /**
- * A centred card with one form: first-run setup and sign-in. Shows the
- * server's message when submitting fails.
+ * A centred card with one form: first-run setup, sign-in and accepting an
+ * invite. Shows the server's message when submitting fails.
  */
 export function AuthForm({
   title,
@@ -81,6 +83,8 @@ export function AuthForm({
                   autoComplete={field.autoComplete}
                   minLength={field.minLength}
                   aria-describedby={field.hint ? `${field.name}-hint` : undefined}
+                  defaultValue={field.fixedValue}
+                  readOnly={field.fixedValue !== undefined}
                   required
                 />
                 {field.hint && (

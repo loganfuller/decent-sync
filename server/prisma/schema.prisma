@@ -34,9 +34,56 @@ model Account {
   createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  sessions Session[]
+  sessions  Session[]
+  /// The Locations a Staff member works at. An Admin sees every Location and has none.
+  locations StaffLocation[]
 
   @@map("accounts")
+}
+
+/// A Location a Staff member works at. Staff see only these Locations and the
+/// Machines at them, read on every request, so a change applies to the next.
+model StaffLocation {
+  accountId  String   @map("account_id") @db.Uuid
+  account    Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  locationId String   @map("location_id") @db.Uuid
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@id([accountId, locationId])
+  @@index([locationId])
+  @@map("staff_locations")
+}
+
+/// A one-time link an Admin creates and sends someone themselves, which
+/// creates their account. The link holds a random secret; only its SHA-256
+/// hash is stored, as for sessions. See server/src/accounts/invites.service.ts.
+model Invite {
+  id         String      @id @default(uuid(7)) @db.Uuid
+  secretHash Bytes       @unique @map("secret_hash")
+  /// The email the account will sign in with, stored trimmed and lower-cased.
+  email      String
+  role       AccountRole
+  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// Set and judged by PostgreSQL's clock, whichever instance creates or accepts it.
+  expiresAt  DateTime    @map("expires_at") @db.Timestamptz(3)
+  /// Set once, by a conditional update, so it is used once whichever instance accepts it.
+  acceptedAt DateTime?   @map("accepted_at") @db.Timestamptz(3)
+
+  locations InviteLocation[]
+
+  @@map("invites")
+}
+
+/// A Location a Staff invite's account will work at.
+model InviteLocation {
+  inviteId   String   @map("invite_id") @db.Uuid
+  invite     Invite   @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  locationId String   @map("location_id") @db.Uuid
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@id([inviteId, locationId])
+  @@index([locationId])
+  @@map("invite_locations")
 }
 
 /// A signed-in browser. The cookie holds a random token; only its SHA-256
@@ -82,6 +129,8 @@ model Location {
   assignments  LocationAssignment[]
   shots        Shot[]
   steamRecords SteamRecord[]
+  staff        StaffLocation[]
+  invites      InviteLocation[]
 
   @@map("locations")
 }

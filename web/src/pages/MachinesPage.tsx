@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { Link } from "react-router";
+import { useIsAdmin } from "@/auth";
 import {
   IdentificationBadge,
   type MachineEntry,
@@ -25,15 +26,20 @@ interface Machines {
   pendingMachines: PendingMachine[];
 }
 
-/** Machines and their status, creating machine entries, and resolving Pending Machines. */
+/**
+ * Machines and their status, creating machine entries, and resolving Pending
+ * Machines. Staff see the Machines at the Locations they work at.
+ */
 export function MachinesPage() {
+  const isAdmin = useIsAdmin();
   const load = useCallback(async (): Promise<Machines> => {
     const [{ machines }, { pendingMachines }] = await Promise.all([
       api<{ machines: Machine[] }>("GET", "/machines"),
-      api<{ pendingMachines: PendingMachine[] }>("GET", "/pending-machines"),
+      // Pending Machines are for Admins.
+      isAdmin ? api<{ pendingMachines: PendingMachine[] }>("GET", "/pending-machines") : { pendingMachines: [] },
     ]);
     return { machines, pendingMachines };
-  }, []);
+  }, [isAdmin]);
   const { data, error, reload } = usePolled(load);
   // Kept here, not with the form or Pending Machine that issued it, which a reload may remove.
   const [issued, setIssued] = useState<IssuedToken>();
@@ -56,8 +62,9 @@ export function MachinesPage() {
       <div className="grid gap-1">
         <h1 className="text-2xl font-semibold">Machines</h1>
         <p className="text-muted-foreground">
-          The machines that sync with this server. A machine joins when someone enters its token in the Decent Sync
-          plugin on its tablet.
+          {isAdmin
+            ? "The machines that sync with this server. A machine joins when someone enters its token in the Decent Sync plugin on its tablet."
+            : "The machines at the Locations you work at."}
         </p>
       </div>
 
@@ -80,20 +87,22 @@ export function MachinesPage() {
         />
       )}
 
-      <Card className="max-w-xl">
-        <CardHeader>
-          <CardTitle>
-            <h2>New Machine</h2>
-          </CardTitle>
-          <CardDescription>
-            Its hardware is recorded from the first connection with its token. It is at its Location from now; correct
-            when it arrived on its page to credit earlier Shots there.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <MachineEntryForm label="New Machine" submitLabel="Create Machine" onSubmit={create} />
-        </CardContent>
-      </Card>
+      {isAdmin && (
+        <Card className="max-w-xl">
+          <CardHeader>
+            <CardTitle>
+              <h2>New Machine</h2>
+            </CardTitle>
+            <CardDescription>
+              Its hardware is recorded from the first connection with its token. It is at its Location from now; correct
+              when it arrived on its page to credit earlier Shots there.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MachineEntryForm label="New Machine" submitLabel="Create Machine" onSubmit={create} />
+          </CardContent>
+        </Card>
+      )}
 
       {data?.machines.length === 0 && <p className="text-muted-foreground">No Machines yet.</p>}
       {data && data.machines.length > 0 && <MachineTable machines={data.machines} />}

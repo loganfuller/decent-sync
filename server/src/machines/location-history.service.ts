@@ -1,4 +1,5 @@
-import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
+import { EVERYTHING, type Scope, seesLocation } from "../accounts/scope.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma.service.js";
 import { type Correction, type Move, locationHistoryEntryNotFound, machineNotFound, unknownLocation } from "./input.js";
@@ -8,7 +9,8 @@ import { type MachineView, MachinesService, lockMachine } from "./machines.servi
 /**
  * Moving Machines between Locations, and correcting or removing entries of
  * their Location History. Each change credits the Machine's records again,
- * with its row locked.
+ * with its row locked. Staff move Machines only between Locations they work
+ * at; correcting and removing entries is for Admins.
  */
 @Injectable()
 export class LocationHistoryService {
@@ -17,17 +19,28 @@ export class LocationHistoryService {
     private readonly machines: MachinesService,
   ) {}
 
-  /** Moves the Machine to another Location, from now or from a time after its latest move. */
-  async move(machineId: string, move: Move): Promise<MachineView> {
+  /**
+   * Moves the Machine to another Location, from now or from a time after its
+   * latest move. For Staff, both where it is and where it goes must be
+   * Locations they work at, judged with its row locked.
+   */
+  async move(machineId: string, move: Move, scope: Scope): Promise<MachineView> {
+    // An earlier time corrects when it moved, which credits its records again: that is for Admins.
+    if (scope.kind !== "everything" && move.effectiveFrom) {
+      throw new ForbiddenException("Only an Admin can record a move at an earlier time");
+    }
     await this.prisma.$transaction(async (tx) => {
       if (!(await lockMachine(tx, machineId))) throw machineNotFound();
-      const location = await tx.location.findUnique({ where: { id: move.locationId }, select: { name: true } });
-      if (!location) throw unknownLocation();
       const latest = await tx.locationAssignment.findFirst({
         where: { machineId },
         orderBy: { effectiveFrom: "desc" },
         include: { location: { select: { name: true } } },
       });
+      // A Machine elsewhere is refused as if there were none, as Staff cannot see it.
+      if (!seesLocation(scope, latest?.locationId ?? null)) throw machineNotFound();
+      if (!seesLocation(scope, move.locationId)) throw new ForbiddenException("You can move a Machine only to a Location you work at");
+      const location = await tx.location.findUnique({ where: { id: move.locationId }, select: { name: true } });
+      if (!location) throw unknownLocation();
       if (latest?.locationId === move.locationId) throw new ConflictException(`It is already at ${location.name}`);
       if (move.effectiveFrom) await refuseFuture(tx, move.effectiveFrom);
       const effectiveFrom = move.effectiveFrom ?? (await databaseNow(tx));
@@ -37,7 +50,7 @@ export class LocationHistoryService {
       await tx.locationAssignment.create({ data: { machineId, locationId: move.locationId, effectiveFrom } });
       await creditLocations(tx, machineId);
     });
-    return this.machines.get(machineId);
+    return this.machines.get(machineId, scope);
   }
 
   /**
@@ -72,7 +85,7 @@ export class LocationHistoryService {
       await tx.locationAssignment.update({ where: { id: entryId }, data: correction });
       await creditLocations(tx, machineId);
     });
-    return this.machines.get(machineId);
+    return this.machines.get(machineId, EVERYTHING);
   }
 
   /**
@@ -88,7 +101,7 @@ export class LocationHistoryService {
       await tx.locationAssignment.deleteMany({ where: { id: { in: neverLeft ? [entryId, after.id] : [entryId] } } });
       await creditLocations(tx, machineId);
     });
-    return this.machines.get(machineId);
+    return this.machines.get(machineId, EVERYTHING);
   }
 }
 

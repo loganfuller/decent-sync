@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { COLLECTION_NAMES, type CollectionDelivery, type CollectionName, isCollectionName } from "@decent-sync/protocol";
+import type { Scope } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { creditReporter, firstDelivery } from "../machines/credit.js";
-import { machineNotFound } from "../machines/input.js";
+import { requireMachineInScope } from "../machines/scope.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
 import { type PairedDevicesView, pairedDevicesView } from "./paired-devices.js";
@@ -76,8 +77,8 @@ export class CollectionsService {
   }
 
   /** The Machine's reported collections, in COLLECTION_NAMES order, without their values. */
-  async list(machineId: string): Promise<CollectionSummary[]> {
-    await this.requireMachine(machineId);
+  async list(machineId: string, scope: Scope): Promise<CollectionSummary[]> {
+    await requireMachineInScope(this.prisma, machineId, scope);
     const rows = await this.prisma.reportedCollection.findMany({
       where: { machineId },
       select: { name: true, available: true, reportedAt: true, receivedAt: true, items: true },
@@ -89,16 +90,16 @@ export class CollectionsService {
   }
 
   /** One of the Machine's collections, with its value; null if its tablet has not reported it. */
-  async get(machineId: string, name: string): Promise<CollectionView | null> {
+  async get(machineId: string, name: string, scope: Scope): Promise<CollectionView | null> {
     if (!isCollectionName(name)) throw new NotFoundException("No such collection");
-    await this.requireMachine(machineId);
+    await requireMachineInScope(this.prisma, machineId, scope);
     const row = await this.prisma.reportedCollection.findUnique({ where: { machineId_name: { machineId, name } } });
     return row ? { ...summary(row, name), value: row.value } : null;
   }
 
   /** The Machine's paired scale, auxiliary scale, sensors and other paired devices, from the collections that report them. */
-  async pairedDevices(machineId: string): Promise<PairedDevicesView> {
-    await this.requireMachine(machineId);
+  async pairedDevices(machineId: string, scope: Scope): Promise<PairedDevicesView> {
+    await requireMachineInScope(this.prisma, machineId, scope);
     const rows = await this.prisma.reportedCollection.findMany({
       where: { machineId, name: { in: ["pairedDevices", "scaleInfo", "sensors", "appSettings"] } },
       select: { name: true, available: true, reportedAt: true, value: true, receivedAt: true },
@@ -110,10 +111,6 @@ export class CollectionsService {
       sensors: report("sensors"),
       appSettings: report("appSettings"),
     });
-  }
-
-  private async requireMachine(id: string): Promise<void> {
-    if ((await this.prisma.machine.count({ where: { id } })) === 0) throw machineNotFound();
   }
 }
 

@@ -42,6 +42,21 @@ export interface PendingMachineView {
   mismatchedMachines: { id: string; name: string }[];
 }
 
+export interface InviteView {
+  id: string;
+  email: string;
+  role: "admin" | "staff";
+  locations: LocationView[];
+  createdAt: string;
+  expiresAt: string;
+}
+
+/** An invite as created: its link is shown only now. */
+export interface CreatedInvite {
+  invite: InviteView;
+  link: string;
+}
+
 /** A machine entry as created: its token is shown only now. */
 export interface CreatedMachine {
   machine: MachineView;
@@ -74,6 +89,11 @@ export class AdminApi {
   /** The same signed-in Admin, using another server instance on the same database. */
   at(serverUrl: string): AdminApi {
     return new AdminApi(serverUrl, this.cookie);
+  }
+
+  /** Another signed-in account, such as a Staff member, making the same calls with its session cookie. */
+  static signedInAs(serverUrl: string, cookie: string): AdminApi {
+    return new AdminApi(serverUrl, cookie);
   }
 
   call(method: string, path: string, body?: unknown, headers: Record<string, string> = { Cookie: this.cookie }): Promise<Response> {
@@ -116,6 +136,13 @@ export class AdminApi {
     return ((await response.json()) as { location: LocationView }).location;
   }
 
+  /** Creates an invite, for Staff at the Locations given. */
+  async invite(email: string, role: "admin" | "staff", locationIds: string[] = []): Promise<CreatedInvite> {
+    const response = await this.call("POST", "/invites", { email, role, locationIds });
+    expect(response.status).toBe(201);
+    return (await response.json()) as CreatedInvite;
+  }
+
   async pendingMachines(): Promise<PendingMachineView[]> {
     return ((await (await this.call("GET", "/pending-machines")).json()) as { pendingMachines: PendingMachineView[] }).pendingMachines;
   }
@@ -144,4 +171,23 @@ export class AdminApi {
     this.tokens.push(created.token);
     return created;
   }
+}
+
+/** The secret an invite link holds. */
+export function secretOf(link: string): string {
+  return new URL(link).pathname.split("/").at(-1)!;
+}
+
+/**
+ * Accepts an invite as the person it was sent to, with no session, and
+ * returns the Cookie header their browser would then send.
+ */
+export async function acceptInvite(serverUrl: string, link: string, person: { name: string; password: string }): Promise<string> {
+  const response = await fetch(`${serverUrl}/api/invite-links/${secretOf(link)}/accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(person),
+  });
+  expect(response.status).toBe(201);
+  return response.headers.getSetCookie()[0]!.split(";")[0]!;
 }

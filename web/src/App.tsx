@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
-import { AuthProvider, useAuth } from "@/auth";
+import { AuthProvider, useAuth, useIsAdmin } from "@/auth";
+import { AccountsPage } from "@/pages/AccountsPage";
+import { InvitePage } from "@/pages/InvitePage";
 import { LocationsPage } from "@/pages/LocationsPage";
 import { MachinePage } from "@/pages/MachinePage";
 import { MachinesPage } from "@/pages/MachinesPage";
@@ -15,8 +17,17 @@ export function App() {
         <Routes>
           <Route path="/setup" element={<Gate page="setup" />} />
           <Route path="/sign-in" element={<Gate page="sign-in" />} />
+          <Route path="/invite/:secret" element={<Gate page="invite" />} />
           <Route element={<Gate page="signed-in" />}>
             <Route index element={<HomePage />} />
+            <Route
+              path="/accounts"
+              element={
+                <AdminOnly>
+                  <AccountsPage />
+                </AdminOnly>
+              }
+            />
             <Route path="/locations" element={<LocationsPage />} />
             <Route path="/machines" element={<MachinesPage />} />
             <Route path="/machines/:id" element={<MachinePage />} />
@@ -35,14 +46,16 @@ interface ReturnTo {
 /**
  * Shows a page only in the state it belongs to: setup while the server has no
  * accounts, sign-in while signed out, and everything else while signed in.
- * Any other page redirects.
+ * Any other page redirects. An invite link opens whether or not someone is
+ * signed in, and says what to do either way.
  */
-function Gate({ page }: { page: "setup" | "sign-in" | "signed-in" }): ReactNode {
+function Gate({ page }: { page: "setup" | "sign-in" | "invite" | "signed-in" }): ReactNode {
   const { state } = useAuth();
   const location = useLocation();
 
   if (state.status === "loading") return null;
   if (state.status === "unreachable") return <Unreachable />;
+  if (page === "invite") return <InvitePage />;
 
   if (state.status === "signed-in") {
     if (page === "signed-in") return <Shell />;
@@ -62,6 +75,11 @@ function Gate({ page }: { page: "setup" | "sign-in" | "signed-in" }): ReactNode 
     return <Navigate to="/sign-in" replace state={notice} />;
   }
   return <Navigate to="/sign-in" replace state={{ from: location.pathname } satisfies ReturnTo} />;
+}
+
+/** A page only Admins can use: the server refuses Staff what it shows, so they go home instead. */
+function AdminOnly({ children }: { children: ReactNode }): ReactNode {
+  return useIsAdmin() ? children : <Navigate to="/" replace />;
 }
 
 function Unreachable() {

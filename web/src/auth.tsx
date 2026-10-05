@@ -12,6 +12,8 @@ interface Auth {
   state: AuthState;
   setUp(input: { name: string; email: string; password: string }): Promise<void>;
   signIn(input: { email: string; password: string }): Promise<void>;
+  /** Creates the account an invite link offers, and signs it in. */
+  acceptInvite(secret: string, input: { name: string; password: string }): Promise<void>;
   signOut(): Promise<void>;
 }
 
@@ -64,6 +66,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { account } = await api<{ account: Account }>("POST", "/session", input);
         setState({ status: "signed-in", account });
       },
+      async acceptInvite(secret, input) {
+        const { account } = await api<{ account: Account }>("POST", `/invite-links/${encodeURIComponent(secret)}/accept`, input);
+        setState({ status: "signed-in", account });
+      },
       async signOut() {
         try {
           await api("DELETE", "/session");
@@ -84,4 +90,14 @@ export function useAuth(): Auth {
   const auth = useContext(AuthContext);
   if (!auth) throw new Error("useAuth needs an AuthProvider");
   return auth;
+}
+
+/**
+ * Whether the signed-in account is an Admin. Staff see only the Locations
+ * they work at, and the server refuses them everything else; pages leave out
+ * what Staff cannot do.
+ */
+export function useIsAdmin(): boolean {
+  const { state } = useAuth();
+  return state.status === "signed-in" && state.account.role === "admin";
 }
