@@ -3,12 +3,14 @@ import { type ErrorCode, type Hello, MISSED_HEARTBEATS } from "@decent-sync/prot
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { type Machine, MachineIdentification, Prisma } from "../generated/prisma/client.js";
+import type { LocationView } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
 import { type Hardware, type Identity, isRealSerial, realHardware, resolveIdentity, sameHardware } from "../sync/identity.js";
 import { notifyAccessChanged } from "./access-changes.js";
 import type { LiveConnection } from "./connections.js";
 import { type NewMachine, machineNotFound } from "./input.js";
+import { type LocationHistoryEntryView, creditLocations, startLocationHistory, viewLocationHistory, withLocationHistory } from "./location-history.js";
 
 /** How a Machine's identity stands, as the REST API names it. */
 export type IdentificationView = "identified" | "hardwareNotReported" | "unidentified" | "mismatch";
@@ -49,6 +51,10 @@ export interface MachineView {
   /** When a plugin connected with its token was last heard from, or null if never. */
   lastSeenAt: string | null;
   lastShot: { id: string; pulledAt: string | null } | null;
+  /** Where it is now: the Location of its Location History's latest entry, or null if it has none. */
+  location: LocationView | null;
+  /** Where it has been, oldest first. Each entry lasts until the next one's time. */
+  locationHistory: LocationHistoryEntryView[];
 }
 
 /** What became of a `hello`, decided and recorded while its Machine was locked. */
@@ -73,7 +79,9 @@ const REPLACED_TOKEN = "This Machine's token was replaced by a newer one; enter 
 const REPLACED_CONNECTION = "A newer connection with this Machine's token took over";
 const REVOKED_TOKEN = "A tablet connected with a token that was replaced by a newer one; enter the new token in its plugin's settings";
 
-type MachineWithAliases = Machine & { aliases: { connectionId: string }[] };
+const withAliases = { aliases: { orderBy: { createdAt: "asc" }, select: { connectionId: true } } } as const;
+const listed = { ...withAliases, ...withLocationHistory } as const satisfies Prisma.MachineInclude;
+type ListedMachine = Prisma.MachineGetPayload<{ include: typeof listed }>;
 
 const IDENTIFICATION: Record<MachineIdentification, IdentificationView> = {
   HARDWARE_NOT_REPORTED: "hardwareNotReported",
@@ -81,8 +89,6 @@ const IDENTIFICATION: Record<MachineIdentification, IdentificationView> = {
   UNIDENTIFIED: "unidentified",
   MISMATCH: "mismatch",
 };
-
-const withAliases = { aliases: { orderBy: { createdAt: "asc" }, select: { connectionId: true } } } as const;
 
 @Injectable()
 export class MachinesService {
@@ -93,20 +99,27 @@ export class MachinesService {
 
   /** Every Machine, by name. */
   async list(): Promise<MachineView[]> {
-    return this.views(await this.prisma.machine.findMany({ orderBy: { name: "asc" }, include: withAliases }));
+    return this.views(await this.prisma.machine.findMany({ orderBy: { name: "asc" }, include: listed }));
   }
 
   async get(id: string): Promise<MachineView> {
-    const machine = await this.prisma.machine.findUnique({ where: { id }, include: withAliases });
+    const machine = await this.prisma.machine.findUnique({ where: { id }, include: listed });
     if (!machine) throw machineNotFound();
     return (await this.views([machine]))[0]!;
   }
 
-  /** Creates a machine entry and its first token. The token is returned only here. */
+  /**
+   * Creates a machine entry and its first token, at its Location from now if
+   * it is given one. The token is returned only here.
+   */
   async create(fields: NewMachine): Promise<{ machine: MachineView; token: string }> {
     const token = newSecret();
-    const machine = await this.prisma.machine
-      .create({ data: { name: fields.name, tokens: { create: { tokenHash: hashSecret(token) } } } })
+    const machine = await this.prisma
+      .$transaction(async (tx) => {
+        const machine = await tx.machine.create({ data: { name: fields.name, tokens: { create: { tokenHash: hashSecret(token) } } } });
+        await startLocationHistory(tx, machine.id, fields.locationId);
+        return machine;
+      })
       .catch(refuseDuplicateName(fields.name));
     return { machine: await this.get(machine.id), token };
   }
@@ -364,7 +377,7 @@ export class MachinesService {
     await this.prisma.machine.updateMany({ where: { id: machineId }, data: { refusalReason: reason, refusedAt: at } });
   }
 
-  private async views(machines: MachineWithAliases[]): Promise<MachineView[]> {
+  private async views(machines: ListedMachine[]): Promise<MachineView[]> {
     // Last-seen times are written by the database's clock, so they are judged by it too, whatever the instances' clocks say.
     const [{ now }] = await this.prisma.$queryRaw<[{ now: Date }]>`SELECT now() AS now`;
     // A connection unheard for MISSED_HEARTBEATS intervals no longer keeps its Machine online, as when the instance holding it crashed.
@@ -419,6 +432,7 @@ export class MachinesService {
         online: machine.connectedSessionId !== null && machine.lastSeenAt !== null && machine.lastSeenAt.getTime() >= heardSince,
         lastSeenAt: machine.lastSeenAt?.toISOString() ?? null,
         lastShot: lastByMachine.get(machine.id) ?? null,
+        ...viewLocationHistory(machine.locationHistory),
       };
     });
   }
@@ -486,10 +500,17 @@ export async function lockHardware(tx: Prisma.TransactionClient, hardware: Hardw
 
 /**
  * Locks the Machine's row until the transaction ends, so whatever decides
- * its identity or tokens runs one at a time. Returns false if there is none.
+ * its identity or tokens, changes its Location History, or credits a record
+ * to it by that history, runs one at a time. Returns false if there is none.
+ *
+ * FOR NO KEY UPDATE, not FOR UPDATE: it excludes the others just the same,
+ * but lets foreign-key checks on rows referencing the Machine through. A
+ * Shot edit that writes its row twice checks that key again, and with FOR
+ * UPDATE it would wait for a Location History change that is itself waiting
+ * for the Shot's row.
  */
-async function lockMachine(tx: Prisma.TransactionClient, id: string): Promise<boolean> {
-  const rows = await tx.$queryRaw<unknown[]>`SELECT 1 FROM machines WHERE id = ${id}::uuid FOR UPDATE`;
+export async function lockMachine(tx: Prisma.TransactionClient, id: string): Promise<boolean> {
+  const rows = await tx.$queryRaw<unknown[]>`SELECT 1 FROM machines WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
   return rows.length > 0;
 }
 
@@ -525,7 +546,12 @@ function identificationOf(identity: Exclude<Identity, { kind: "rejected" }>): Ma
   }
 }
 
-/** Hardware adoption restores even Shots held by dismissed Pending Machines. */
-async function transferPendingShots(tx: Prisma.TransactionClient, hardware: Hardware, machineId: string): Promise<void> {
+/**
+ * Gives the Machine the Shots held for its hardware, even by a dismissed
+ * Pending Machine, crediting them by its Location History. The Machine's row
+ * lock must be held, or the Machine created in this transaction.
+ */
+export async function transferPendingShots(tx: Prisma.TransactionClient, hardware: Hardware, machineId: string): Promise<void> {
   await tx.shot.updateMany({ where: { pendingMachine: hardware }, data: { machineId, pendingMachineId: null } });
+  await creditLocations(tx, machineId);
 }

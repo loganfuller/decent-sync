@@ -69,6 +69,8 @@ describe("Machines and the sync connection", () => {
         online: false,
         lastSeenAt: null,
         lastShot: null,
+        location: null,
+        locationHistory: [],
       });
       expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
       expect(serverUrl).toBe(server.url);
