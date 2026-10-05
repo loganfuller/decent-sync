@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useId, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useId, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -15,16 +15,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api, type Identification, type IssuedToken, type Machine, type PendingMachine } from "@/lib/api";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { api, type Identification, type IssuedToken, type Location, type Machine, type PendingMachine } from "@/lib/api";
 
 // Pieces the Machines list and Machine page share.
 
 const TIME = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
 
-/**
- * A time in this browser's time zone. Machines are not yet tied to a
- * Location's time zone, so status times use the viewer's.
- */
+/** A time in this browser's time zone, as status times are shown. Location History times use their Location's. */
 export function formatTime(iso: string): string {
   return TIME.format(new Date(iso));
 }
@@ -87,8 +85,34 @@ export function IdentificationBadge({ identification }: { identification: Identi
   );
 }
 
-/** A one-field form for a machine entry's name. */
-export function MachineNameForm({
+/** The server's Locations, by name, for choosers; undefined until they arrive. */
+export function useLocations(): { locations: Location[] | undefined; error: string | undefined } {
+  const [locations, setLocations] = useState<Location[]>();
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    let current = true;
+    api<{ locations: Location[] }>("GET", "/locations").then(
+      ({ locations }) => current && setLocations(locations),
+      (caught: unknown) => current && setError(caught instanceof Error ? caught.message : "The Locations could not be loaded"),
+    );
+    return () => {
+      current = false;
+    };
+  }, []);
+  return { locations, error };
+}
+
+/** A new machine entry: its name, and the Location it is at from now, if any. */
+export interface MachineEntry {
+  name: string;
+  locationId: string | null;
+}
+
+// Every option of a Select needs a value, so "No Location" has one no Location id can be.
+const NO_LOCATION = "none";
+
+/** A form for a new machine entry's name and Location. */
+export function MachineEntryForm({
   label,
   submitLabel,
   onSubmit,
@@ -96,11 +120,13 @@ export function MachineNameForm({
 }: {
   label: string;
   submitLabel: string;
-  onSubmit(name: string): Promise<void>;
+  onSubmit(entry: MachineEntry): Promise<void>;
   onCancel?(): void;
 }) {
   const id = useId();
+  const { locations, error: locationsError } = useLocations();
   const [name, setName] = useState("");
+  const [location, setLocation] = useState(NO_LOCATION);
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
 
@@ -109,8 +135,9 @@ export function MachineNameForm({
     setSubmitting(true);
     setError(undefined);
     try {
-      await onSubmit(name);
+      await onSubmit({ name, locationId: location === NO_LOCATION ? null : location });
       setName("");
+      setLocation(NO_LOCATION);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Something went wrong");
     } finally {
@@ -128,6 +155,23 @@ export function MachineNameForm({
       <div className="grid gap-2">
         <Label htmlFor={`${id}-name`}>Name</Label>
         <Input id={`${id}-name`} value={name} onChange={(event) => setName(event.target.value)} required />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor={`${id}-location`}>Location</Label>
+        <Select value={location} onValueChange={setLocation}>
+          <SelectTrigger id={`${id}-location`} className="w-64">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NO_LOCATION}>No Location</SelectItem>
+            {locations?.map((option) => (
+              <SelectItem key={option.id} value={option.id}>
+                {option.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {locationsError && <p className="text-sm text-destructive">{locationsError}</p>}
       </div>
       <div className="flex gap-2">
         <Button type="submit" disabled={submitting}>
@@ -203,8 +247,8 @@ export function PendingMachineActions({
   const [error, setError] = useState<string>();
   const hardware = describeHardware(pending);
 
-  async function create(name: string) {
-    const issued = await api<IssuedToken>("POST", `/pending-machines/${pending.id}/machine`, { name });
+  async function create(entry: MachineEntry) {
+    const issued = await api<IssuedToken>("POST", `/pending-machines/${pending.id}/machine`, entry);
     setCreating(false);
     onCreated(issued);
   }
@@ -232,7 +276,7 @@ export function PendingMachineActions({
         </Alert>
       )}
       {creating ? (
-        <MachineNameForm
+        <MachineEntryForm
           label={`New machine entry for ${hardware}`}
           submitLabel="Create Machine"
           onSubmit={create}

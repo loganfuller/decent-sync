@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { ShotDelivery, ShotIndex } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
-import { lockHardware } from "../machines/machines.service.js";
+import { creditShotLocation } from "../machines/location-history.js";
+import { lockHardware, lockMachine } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Identity } from "../sync/identity.js";
 import { extractCurves, extractShot, shotHardware, shotVersion } from "./extraction.js";
@@ -30,8 +31,8 @@ export class ShotsService {
       // until credit is resolved: hardware adoption can finish while we wait
       // for its hardware lock. Adoption never takes this advisory lock.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SHOT_LOCK}::int, hashtext(${message.shotId}::text))`;
-      const [stored] = await tx.$queryRaw<{ record: Prisma.JsonObject; hasFullRecord: boolean; duration: number | null; peakPressure: number | null; peakFlow: number | null; pulledAt: Date | null; newer: boolean }[]>`
-        SELECT record, has_full_record AS "hasFullRecord", duration, peak_pressure AS "peakPressure", peak_flow AS "peakFlow",
+      const [stored] = await tx.$queryRaw<{ record: Prisma.JsonObject; hasFullRecord: boolean; machineId: string | null; duration: number | null; peakPressure: number | null; peakFlow: number | null; pulledAt: Date | null; newer: boolean }[]>`
+        SELECT record, has_full_record AS "hasFullRecord", machine_id AS "machineId", duration, peak_pressure AS "peakPressure", peak_flow AS "peakFlow",
           pulled_at AS "pulledAt", ${version}::timestamptz > version_at AS newer
         FROM shots WHERE id = ${message.shotId}`;
       if (stored && !stored.newer && (!full || stored.hasFullRecord)) return;
@@ -43,6 +44,9 @@ export class ShotsService {
       // The pull time needs the curves too, so it is set with them; edits never load or rewrite them.
       const curves = full ? extractCurves(record, measurements) : stored;
       const credit = full && !stored?.hasFullRecord ? await this.credit(tx, incoming, reporter) : {};
+      // A full record sets the pull time its Location is credited by, so the Machine's row is
+      // locked, as credit() locks a newly credited one: its Location History cannot change meanwhile.
+      if (full && stored?.hasFullRecord && stored.machineId) await lockMachine(tx, stored.machineId);
       const data = {
         ...metadata,
         pulledAt: curves?.pulledAt ?? null,
@@ -61,6 +65,7 @@ export class ShotsService {
         await tx.$executeRaw`UPDATE shots SET version_at = ${version}::timestamptz WHERE id = ${message.shotId}`;
       }
       if (full) {
+        await creditShotLocation(tx, message.shotId);
         const value = measurements as Prisma.InputJsonValue;
         await tx.shotMeasurements.upsert({
           where: { shotId: message.shotId },
@@ -88,13 +93,13 @@ export class ShotsService {
       this.prisma.shot.findMany({ where, orderBy, take: limit, skip: offset, omit: { record: true, versionAt: true, hasFullRecord: true }, include: creditView }),
       this.prisma.shot.count({ where }),
     ]);
-    return { shots, total, limit, offset };
+    return { shots: shots.map(withLocationInferred), total, limit, offset };
   }
 
   async get(id: string) {
     const shot = await this.prisma.shot.findFirst({ where: { id, ...visible }, omit: { versionAt: true, hasFullRecord: true }, include: creditView });
     if (!shot) throw shotNotFound();
-    return shot;
+    return withLocationInferred(shot);
   }
 
   async measurements(id: string) {
@@ -107,7 +112,10 @@ export class ShotsService {
     const recordedHardware = shotHardware(record);
     const hardware = recordedHardware ?? (reporter.identity.kind === "mismatch" ? reporter.identity.hardware : null);
     const machineInferred = recordedHardware === null;
-    if (!hardware) return { machineId: reporter.machineId, pendingMachineId: null, machineInferred };
+    if (!hardware) {
+      await lockMachine(tx, reporter.machineId);
+      return { machineId: reporter.machineId, pendingMachineId: null, machineInferred };
+    }
     await lockHardware(tx, hardware);
     // Machine rows before the Pending Machine, matching hello and dismissal.
     const [owner] = await tx.$queryRaw<{ id: string }[]>`
@@ -123,6 +131,15 @@ const visible: Prisma.ShotWhereInput = {
   OR: [{ machineId: { not: null } }, { pendingMachine: { dismissedAt: null } }],
 };
 const orderBy: Prisma.ShotOrderByWithRelationInput[] = [{ pulledAt: { sort: "desc", nulls: "last" } }, { id: "asc" }];
-const creditView = { machine: { select: { id: true, name: true } }, pendingMachine: { select: { id: true, model: true, serial: true } } } as const;
+const creditView = {
+  machine: { select: { id: true, name: true } },
+  pendingMachine: { select: { id: true, model: true, serial: true } },
+  location: { select: { id: true, name: true, timeZone: true } },
+} as const;
+
+/** A Location credited through an inferred Machine is inferred too. An unknown Location is not. */
+function withLocationInferred<T extends { machineInferred: boolean; locationId: string | null }>(shot: T): T & { locationInferred: boolean } {
+  return { ...shot, locationInferred: shot.machineInferred && shot.locationId !== null };
+}
 
 function shotNotFound() { return new NotFoundException("Shot not found"); }

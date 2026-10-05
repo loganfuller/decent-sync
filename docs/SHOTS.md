@@ -62,13 +62,18 @@ them; edits never change it.
 ## REST API
 
 All endpoints require the existing account session. Staff Location scoping
-and Location history are later tickets (#15 and #11).
+is ticket #15.
 
 - `GET /api/shots?limit=20&offset=0&machineId=<uuid>` returns
   `{ shots, total, limit, offset }`. Limit is 1–100; offset is nonnegative.
   Results are newest pulled-at first, with id as the deterministic tie-breaker
   and undated records last. Rows include analytics and Machine or Pending
   Machine credit, plus `machineInferred`, without metadata or measurements.
+  They also carry the Location the Machine was at when the Shot was pulled
+  (`locationId`, and `location: { id, name, timeZone }`, null when unknown),
+  and `locationInferred`, true when that Location came through an inferred
+  Machine. Correcting the Machine's Location History changes these, never
+  the stored record.
 - `GET /api/shots/:id` returns `{ shot }`, including the stored Decaid metadata
   in `shot.record`, without measurements.
 - `GET /api/shots/:id/measurements` returns `{ measurements }`, as sent by

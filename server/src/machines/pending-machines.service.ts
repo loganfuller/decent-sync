@@ -4,7 +4,16 @@ import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
 import type { Hardware } from "../sync/identity.js";
 import { type NewMachine, pendingMachineNotFound } from "./input.js";
-import { type MachineView, MachinesService, dismissedReason, hardwareTaken, lockHardware, refuseDuplicateName } from "./machines.service.js";
+import { startLocationHistory } from "./location-history.js";
+import {
+  type MachineView,
+  MachinesService,
+  dismissedReason,
+  hardwareTaken,
+  lockHardware,
+  refuseDuplicateName,
+  transferPendingShots,
+} from "./machines.service.js";
 import { notifyAccessChanged } from "./access-changes.js";
 
 /** A Pending Machine as the REST API returns it. */
@@ -50,7 +59,8 @@ export class PendingMachinesService {
 
   /**
    * Creates a machine entry bound to the Pending Machine's hardware, which
-   * takes over what was held for it. Its token is returned only here.
+   * takes over what was held for it, at its Location from now if it is given
+   * one. Its token is returned only here.
    */
   async createMachine(id: string, fields: NewMachine): Promise<{ machine: MachineView; token: string }> {
     const token = newSecret();
@@ -70,7 +80,8 @@ export class PendingMachinesService {
             tokens: { create: { tokenHash: hashSecret(token) } },
           },
         });
-        await tx.shot.updateMany({ where: { pendingMachineId: id }, data: { machineId: machine.id, pendingMachineId: null } });
+        await startLocationHistory(tx, machine.id, fields.locationId);
+        await transferPendingShots(tx, hardware, machine.id);
         await tx.pendingMachine.delete({ where: { id } });
         return machine.id;
       })

@@ -7,6 +7,7 @@ import { type Hardware, isRealSerial } from "../sync/identity.js";
 const MAX_NAME_LENGTH = 100;
 const MAX_SERIAL_LENGTH = 100;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ISO_INSTANT = /^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:\d\d)$/i;
 
 /**
  * The models an Admin may enter, spelled as Decaid reports them
@@ -17,14 +18,74 @@ export const MACHINE_MODELS = ["DE1", "DE1Plus", "DE1Pro", "DE1XL", "DE1Cafe", "
 
 export interface NewMachine {
   name: string;
+  /** The Location it starts at, or null to leave it unassigned. */
+  locationId: string | null;
 }
 
 export function readNewMachine(body: unknown): NewMachine {
   const fields = asObject(body);
+  const problems: string[] = [];
   const name = typeof fields.name === "string" ? fields.name.trim() : "";
-  if (!name) throw new BadRequestException(["Enter a name"]);
-  if (name.length > MAX_NAME_LENGTH) throw new BadRequestException([`Use a name of at most ${MAX_NAME_LENGTH} characters`]);
-  return { name };
+  if (!name) problems.push("Enter a name");
+  else if (name.length > MAX_NAME_LENGTH) problems.push(`Use a name of at most ${MAX_NAME_LENGTH} characters`);
+  // Absent or null leaves the Machine unassigned.
+  const locationId = fields.locationId === undefined || fields.locationId === null ? null : readLocationChoice(fields.locationId, problems);
+  if (problems.length > 0) throw new BadRequestException(problems);
+  return { name, locationId: locationId ?? null };
+}
+
+/** A move: the Location a Machine moved to, and when, if not now. */
+export interface Move {
+  locationId: string;
+  effectiveFrom: Date | null;
+}
+
+export function readMove(body: unknown): Move {
+  const fields = asObject(body);
+  const problems: string[] = [];
+  const locationId = readLocationChoice(fields.locationId, problems);
+  const effectiveFrom = fields.effectiveFrom === undefined || fields.effectiveFrom === null ? null : readTime(fields.effectiveFrom, problems);
+  if (problems.length > 0) throw new BadRequestException(problems);
+  return { locationId: locationId!, effectiveFrom: effectiveFrom ?? null };
+}
+
+/** A correction of one entry of a Machine's Location History: the Location it names, when it arrived there, or both. */
+export interface Correction {
+  locationId?: string;
+  effectiveFrom?: Date;
+}
+
+export function readCorrection(body: unknown): Correction {
+  const fields = asObject(body);
+  if (fields.locationId === undefined && fields.effectiveFrom === undefined) {
+    throw new BadRequestException("Send a new Location or time");
+  }
+  const problems: string[] = [];
+  const locationId = fields.locationId === undefined ? undefined : readLocationChoice(fields.locationId, problems);
+  const effectiveFrom = fields.effectiveFrom === undefined ? undefined : readTime(fields.effectiveFrom, problems);
+  if (problems.length > 0) throw new BadRequestException(problems);
+  return { locationId, effectiveFrom };
+}
+
+/** Refuses a Location that is not one of the server's. */
+export function unknownLocation(): BadRequestException {
+  return new BadRequestException(["Choose a Location from the list"]);
+}
+
+function readLocationChoice(value: unknown, problems: string[]): string | undefined {
+  if (typeof value === "string" && UUID.test(value)) return value;
+  problems.push("Choose a Location from the list");
+  return undefined;
+}
+
+/** A time with its offset, such as 2026-10-04T15:00:00Z, so it names one instant whatever the server's time zone. */
+function readTime(value: unknown, problems: string[]): Date | undefined {
+  if (typeof value === "string" && ISO_INSTANT.test(value)) {
+    const time = new Date(value);
+    if (Number.isFinite(time.getTime())) return time;
+  }
+  problems.push("Enter a date and time with its offset, such as 2026-10-04T15:00:00Z");
+  return undefined;
 }
 
 /** A model and serial an Admin entered for a Machine. A serial of "0" identifies nothing. */
@@ -56,6 +117,15 @@ export function readPendingMachineId(id: string): string {
 
 export function pendingMachineNotFound(): NotFoundException {
   return new NotFoundException("No such Pending Machine");
+}
+
+/** An entry id of a Machine's Location History, from a path. */
+export function readLocationHistoryEntryId(id: string): string {
+  return readId(id, locationHistoryEntryNotFound);
+}
+
+export function locationHistoryEntryNotFound(): NotFoundException {
+  return new NotFoundException("No such entry in this Machine's Location History");
 }
 
 function readId(id: string, notFound: () => NotFoundException): string {

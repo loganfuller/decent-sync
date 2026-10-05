@@ -2,7 +2,8 @@ import { useCallback, useState } from "react";
 import { Link } from "react-router";
 import {
   IdentificationBadge,
-  MachineNameForm,
+  type MachineEntry,
+  MachineEntryForm,
   PendingMachineActions,
   StatusBadge,
   describeHardware,
@@ -35,8 +36,8 @@ export function MachinesPage() {
   // Kept here, not with the form or Pending Machine that issued it, which a reload may remove.
   const [issued, setIssued] = useState<IssuedToken>();
 
-  async function create(name: string) {
-    setIssued(await api<IssuedToken>("POST", "/machines", { name }));
+  async function create(entry: MachineEntry) {
+    setIssued(await api<IssuedToken>("POST", "/machines", entry));
     await reload();
   }
 
@@ -83,11 +84,12 @@ export function MachinesPage() {
             <h2>New Machine</h2>
           </CardTitle>
           <CardDescription>
-            Its hardware is recorded from the first connection with its token.
+            Its hardware is recorded from the first connection with its token. It is at its Location from now; correct
+            when it arrived on its page to credit earlier Shots there.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <MachineNameForm label="New Machine" submitLabel="Create Machine" onSubmit={create} />
+          <MachineEntryForm label="New Machine" submitLabel="Create Machine" onSubmit={create} />
         </CardContent>
       </Card>
 
@@ -115,6 +117,7 @@ function MachineTable({ machines }: { machines: Machine[] }) {
           <TableRow>
             <TableHead>Name</TableHead>
             <TableHead>Model</TableHead>
+            <TableHead>Location</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Last seen</TableHead>
             <TableHead>Attention</TableHead>
@@ -129,6 +132,7 @@ function MachineTable({ machines }: { machines: Machine[] }) {
                 </Link>
               </TableCell>
               <TableCell>{machineModel(machine) ?? <span className="text-muted-foreground">Not reported</span>}</TableCell>
+              <TableCell>{machine.location?.name ?? <span className="text-muted-foreground">No Location</span>}</TableCell>
               <TableCell>
                 <StatusBadge machine={machine} />
               </TableCell>
