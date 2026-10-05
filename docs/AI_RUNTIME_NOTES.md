@@ -16,6 +16,10 @@ The manifest (v0.8.7, `PluginManifest.fromJson`) has no field for a minimum Deca
 
 Secure settings are supplied to the loaded plugin, while the settings REST response reports whether they are set rather than exposing their values (`PluginLoaderService.pluginSettings`). The token must be declared secure. Settings changes can reload the plugin, so startup and unload must tolerate a new runtime generation.
 
+## CPU time
+
+Plugin JavaScript runs on Decaid's main isolate: `PluginLoaderService` is created in `decaid:lib/main.dart`, nothing in `lib/src/plugins` starts another isolate, and on Android flutter_js runs QuickJS synchronously. A long stretch of plugin work therefore holds up Decaid itself, its interface included. QuickJS interprets JavaScript and regular expressions, so costs differ from Node's: on 5 MiB of a Shot's JSON, on an Apple M5 with QuickJS 2025-04-26 (2026-10-05), `JSON.parse` and `JSON.stringify` of the Shot took about 40 ms each, a regular expression matching one character at a time 63 ms, a `charCodeAt` loop 143 ms, and sticky regular expressions matching whole runs 15 ms. Chunking it (`frames()`) took 32 ms. A tablet's CPU is several times slower. To measure, bundle the code with esbuild as an ES2020 IIFE and run it with `qjs` from Alpine's `quickjs` package in Docker.
+
 ## Server transport
 
 Inspect `decaid:lib/src/plugins/plugin_transport_service.dart`, especially `_openWebSocket`, `send` and `_reserveOutbound`:
@@ -24,7 +28,7 @@ Inspect `decaid:lib/src/plugins/plugin_transport_service.dart`, especially `_ope
 - `send` acceptance is not a server acknowledgment. Keep delivery state until the server acknowledges the stored logical message.
 - A plugin generation may hold 8 transports, counting opens still in progress. `open()` has no timeout and cannot be cancelled: an upgrade the server never answers holds its slot until TCP gives up, possibly never. The plugin abandons an attempt after its connect deadline and counts its own transports so it never asks for a ninth (`plugin/src/connection.ts`); eight hung opens stop it reconnecting until it is reloaded.
 - Default pending outbound and queued inbound limits are each 1 MiB per transport. The outbound check covers both a single payload and the sum already pending; sends exceeding it fail with `transport_resource_limit`.
-- Chunking must leave room for the encoded envelope and regulate pending sends. Splitting into frames just below 1 MiB is insufficient if several are pending. The simulated host must enforce the pending-byte limit, not just maximum frame size.
+- `send` resolving says only that the frame was queued, and nothing tells the plugin when it has been written, so frames just below 1 MiB would not do: several pending at once still pass the limit. The plugin sends frames of at most 256 KiB, measured in UTF-8 with their envelope and escaping, and counts what it has sent until the server confirms it, keeping at most 512 KiB unconfirmed (`plugin/src/sender.ts`; see `AI_PROTOCOL_NOTES.md`). The simulated host enforces the pending-byte limit, writes frames in order and can slow the writing, so tests exercise this.
 - Unloading retires the plugin's transports. Milestone 1's in-memory outbox cannot preserve every transient event across an unload; record history is recovered by backfill. A durable outbox belongs to milestone 2.
 
 ## Local API and events

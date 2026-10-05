@@ -25,4 +25,6 @@ are replaced with `10001`.
 
 v0.8.7 is the oldest Decaid that Decent Sync supports. Seam 1 variants change
 ids, times, hardware, annotations or unknown fields explicitly in tests. Their
-measurement samples still come from this record.
+measurement samples still come from this record. `longShot()` in
+`server/test/support/shot-fixtures.ts` derives Shots larger than one frame by
+repeating those samples.

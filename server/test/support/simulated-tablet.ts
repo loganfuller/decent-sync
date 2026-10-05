@@ -21,6 +21,10 @@ import WebSocket from "ws";
 //   rejects a send that would take the pending outbound bytes past 1 MiB,
 //   closes a transport whose undelivered inbound bytes pass 1 MiB, and
 //   delivers events asynchronously and in order, ending with a close event.
+//   A send resolves once its frame is queued. Frames are written in order,
+//   one at a time, and stay pending until written; `uploadBytesPerSecond`
+//   slows the writing, so pending bytes build up as on a slow network.
+//   Closing a transport first waits for its queued frames to be written.
 // - Unloading calls onUnload, then cancels the generation's timers and closes
 //   its transports, dropping their later events.
 // - Timers are the host's, so a test can run them faster with `timeScale` to
@@ -131,6 +135,11 @@ export interface SimulatedTabletOptions {
   timeScale?: number;
   /** How long Decaid's API takes to answer each request; from 30 s on, the request times out. Defaults to 0. */
   apiDelayMs?: number;
+  /**
+   * How fast the tablet's network takes queued frames, in bytes per second
+   * of real time, whatever `timeScale` is. Unlimited by default.
+   */
+  uploadBytesPerSecond?: number;
 }
 
 type TransportEvent = Record<string, unknown> & { type: string };
@@ -141,7 +150,12 @@ interface TransportRecord {
   listener?: (event: TransportEvent) => void;
   inbound: { event: TransportEvent; size: number }[];
   inboundBytes: number;
+  /** Frames sent and not yet written, in order. */
+  outbound: { data: string; size: number }[];
+  /** Their size, as Decaid counts it against its limit. */
   pendingOutboundBytes: number;
+  /** Whether a frame is being written now. */
+  writing: boolean;
   /** Closed, by either end or a failure; no further sends. */
   terminal: boolean;
   /** Open, with nothing yet from the server, and not closing; the tablet's clock runs at real time meanwhile. */
@@ -175,10 +189,17 @@ export class SimulatedTablet {
   private api: DecaidApi;
   private readonly apiFailures = new Map<string, number>();
   readonly shotPageRequests: { limit: number; offset: number }[] = [];
-  /** Every message the plugin sent, parsed, in order. */
+  /** Every frame the plugin sent, parsed, in order. */
   readonly sent: unknown[] = [];
+  /** Every text frame the server sent the plugin, parsed, in order. */
+  readonly received: unknown[] = [];
+  /** The most bytes any transport has had pending at once. */
+  peakPendingOutboundBytes = 0;
+  /** Sends refused for going past the pending outbound limit. */
+  refusedSends = 0;
   private readonly timeScale: number;
   private readonly apiDelayMs: number;
+  private readonly uploadBytesPerSecond: number | undefined;
   /** Opens not yet connected; Decaid counts them against the transport limit. */
   private opening = 0;
   private readonly transports = new Map<string, TransportRecord>();
@@ -202,6 +223,7 @@ export class SimulatedTablet {
     this.machineConnected = options.machineConnected ?? true;
     this.timeScale = options.timeScale ?? 1;
     this.apiDelayMs = options.apiDelayMs ?? 0;
+    this.uploadBytesPerSecond = options.uploadBytesPerSecond;
     const { source, manifest } = readBuiltPlugin();
     this.plugin = loadPlugin(source, String(manifest.id), {
       host: {
@@ -395,7 +417,9 @@ export class SimulatedTablet {
       socket,
       inbound: [],
       inboundBytes: 0,
+      outbound: [],
       pendingOutboundBytes: 0,
+      writing: false,
       terminal: false,
       awaitingServer: false,
       closing: false,
@@ -407,6 +431,7 @@ export class SimulatedTablet {
     socket.on("message", (data, isBinary) => {
       this.setAwaitingServer(record, false);
       const buffer = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer);
+      if (!isBinary) this.received.push(parsed(buffer.toString("utf8")));
       const event = isBinary
         ? { type: "data", dataType: "binary", data: buffer.toString("base64") }
         : { type: "data", dataType: "text", data: this.atServerPace(buffer.toString("utf8")) };
@@ -446,13 +471,37 @@ export class SimulatedTablet {
     }
     const size = Buffer.byteLength(data);
     if (size > MAX_PENDING_OUTBOUND_BYTES || record.pendingOutboundBytes + size > MAX_PENDING_OUTBOUND_BYTES) {
+      this.refusedSends++;
       throw new TransportError("Outbound data limit exceeded; send rejected", "transport_resource_limit");
     }
     record.pendingOutboundBytes += size;
+    this.peakPendingOutboundBytes = Math.max(this.peakPendingOutboundBytes, record.pendingOutboundBytes);
     this.sent.push(JSON.parse(data));
-    record.socket.send(data, () => {
-      record.pendingOutboundBytes -= size;
-    });
+    record.outbound.push({ data, size });
+    void this.write(record);
+  }
+
+  /**
+   * Writes a transport's queued frames in order, one at a time, at the upload
+   * speed, as Decaid's outbound drain does. A frame stays pending until the
+   * socket has taken it.
+   */
+  private async write(record: TransportRecord): Promise<void> {
+    if (record.writing) return;
+    record.writing = true;
+    try {
+      while (!record.terminal && record.outbound.length > 0) {
+        const frame = record.outbound[0]!;
+        if (this.uploadBytesPerSecond !== undefined) await delay((frame.size / this.uploadBytesPerSecond) * 1000);
+        if (record.terminal) return;
+        // Settles once the socket has taken the frame, or failed to; a failure ends the transport anyway.
+        await new Promise<void>((resolve) => record.socket.send(frame.data, () => resolve())).catch(() => {});
+        record.outbound.shift();
+        record.pendingOutboundBytes -= frame.size;
+      }
+    } finally {
+      record.writing = false;
+    }
   }
 
   private async close(handle: string): Promise<void> {
@@ -462,10 +511,13 @@ export class SimulatedTablet {
     this.transports.delete(handle);
   }
 
-  private closeNative(record: TransportRecord): Promise<void> {
+  private async closeNative(record: TransportRecord): Promise<void> {
     record.closing = true;
     this.setAwaitingServer(record, false);
-    if (record.socket.readyState === WebSocket.CLOSED) return Promise.resolve();
+    // Decaid writes what is queued before it closes, for up to 5 s.
+    const deadline = Date.now() + 5_000;
+    while (record.outbound.length > 0 && !record.terminal && Date.now() < deadline) await delay(10);
+    if (record.socket.readyState === WebSocket.CLOSED) return;
     const closed = new Promise<void>((resolve) => record.socket.once("close", () => resolve()));
     record.socket.close(1000);
     const forced = setTimeout(() => record.socket.terminate(), 5_000);
@@ -574,12 +626,7 @@ export class RawConnection {
       });
     });
     socket.on("message", (data) => {
-      const text = (Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer)).toString("utf8");
-      try {
-        this.messages.push(JSON.parse(text));
-      } catch {
-        this.messages.push(text);
-      }
+      this.messages.push(parsed((Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer)).toString("utf8")));
       this.wake();
     });
   }
@@ -645,4 +692,13 @@ function response(status: number, body: string) {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** A frame's text parsed as JSON, or the text itself if it is not JSON. */
+function parsed(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }

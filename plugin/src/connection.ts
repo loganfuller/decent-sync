@@ -7,11 +7,11 @@ import {
   type PluginMessage,
   type ServerMessage,
   decodeServerMessage,
-  encode,
   sameHardware,
 } from "@decent-sync/protocol";
 import { readMachineHardware, readTabletIdentity } from "./decaid.js";
 import type { PluginHost, TransportEvent } from "./host.js";
+import { Sender } from "./sender.js";
 import { ShotCapture } from "./shots.js";
 import type { SyncSettings } from "./settings.js";
 
@@ -68,6 +68,8 @@ type TimerName = "reconnect" | "heartbeat" | "silence" | "connect" | "hardwarePo
 export class SyncConnection {
   /** The open handle, or undefined while disconnected. */
   private handle: string | undefined;
+  /** Sends every message on the open handle. */
+  private sender: Sender | undefined;
   /** Bumped by every attempt and drop, so late results of an older one are ignored. */
   private attempt = 0;
   private connecting = false;
@@ -147,6 +149,7 @@ export class SyncConnection {
         return;
       }
       this.handle = handle;
+      this.sender = new Sender((frame) => this.host.transport.send(handle, { type: "text", data: frame }));
       this.welcomed = false;
       this.sentHardware = identity.machine;
       this.host.transport.onEvent(handle, (event) => this.onTransportEvent(handle, event));
@@ -220,8 +223,8 @@ export class SyncConnection {
         this.log(`Connected to ${this.settings.syncUrl}`);
         this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
         this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
-        this.shots.welcome(async (frame) => {
-          try { await this.send(handle, frame); }
+        this.shots.welcome(async (delivery) => {
+          try { await this.send(handle, delivery); }
           catch (error) {
             if (handle === this.handle) this.drop("could not send a Shot delivery");
             throw error;
@@ -229,7 +232,11 @@ export class SyncConnection {
         });
         break;
       case "ack":
+        this.sender?.acknowledged(message.id);
         this.shots.acknowledge(message.id);
+        break;
+      case "chunkReceived":
+        this.sender?.received(message.id, message.index);
         break;
       case "requestShots":
         this.shots.request(message.shotIds);
@@ -263,8 +270,10 @@ export class SyncConnection {
     });
   }
 
+  /** Sends on the handle, in chunks if the message is too large for a frame, unless the handle was dropped. */
   private send(handle: string, message: PluginMessage): Promise<void> {
-    return this.host.transport.send(handle, { type: "text", data: encode(message) });
+    if (handle !== this.handle || !this.sender) return Promise.reject(new Error("The connection closed"));
+    return this.sender.send(message);
   }
 
   /**
@@ -335,6 +344,9 @@ export class SyncConnection {
     const handle = this.handle;
     this.handle = undefined;
     this.welcomed = false;
+    // A message cut off here is sent again whole, from its first chunk, on the next connection.
+    this.sender?.close();
+    this.sender = undefined;
     this.shots.disconnected();
     this.clearTimer("heartbeat");
     this.clearTimer("silence");
