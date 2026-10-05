@@ -217,6 +217,14 @@ describe("Machines and the sync connection", () => {
       expect(refused.logs.filter((log) => log.startsWith("Disconnected"))).toEqual([]);
     });
 
+    it("waits to connect until Decaid's API reports Decaid's version", async () => {
+      const unread = await createMachine("Version unread");
+      const tablet = loadTablet(settingsFor(unread));
+      tablet.failNextApiReads("/info", 1);
+      await tablet.waitForLog(/^Disconnected: could not read Decaid's version from its API\. Reconnecting in 1 s\.$/);
+      expect(await waitForMachine("Version unread", (machine) => machine.online)).toMatchObject({ decaidVersion: "0.8.7+2847" });
+    });
+
     it("connects while earlier attempts the server never answered still hold their transports", async () => {
       const lab = await createMachine("Behind a stalling proxy");
       const proxy = await startStallingProxy(server.url, 2);
@@ -269,10 +277,11 @@ describe("Machines and the sync connection", () => {
       await waitForMachine("Slow API", (machine) => machine.online);
       await tablet.unload();
 
-      // Reads that time out leave the hello without hardware, which is still accepted.
+      // Reads that time out leave no Decaid version, without which the server would refuse the hello: the plugin retries instead.
       const timedOut = await createMachine("API timing out");
       const second = loadTablet(settingsFor(timedOut), { timeScale: 100, apiDelayMs: 30_000 });
-      expect(await waitForMachine("API timing out", (machine) => machine.online)).toMatchObject({ model: null, serial: null });
+      await second.waitForLog(/^Disconnected: could not read Decaid's version from its API\./);
+      expect(await machineNamed("API timing out")).toMatchObject({ online: false, lastSeenAt: null, lastRefusal: null });
       await second.unload();
     }, 15_000);
 
@@ -354,6 +363,7 @@ describe("Machines and the sync connection", () => {
       const invalid: [unknown, string][] = [
         [helloWith(token, { token: undefined }), "hello.token must be a string"],
         [helloWith(token, { pluginVersion: 7, machine: { model: "DE1Pro" } }), "hello.pluginVersion must be a string; hello.machine.serial must be a string"],
+        [helloWith(token, { decaidVersion: undefined }), "hello.decaidVersion must be a string"],
         ["{not json", "The frame is not JSON"],
         [{ type: "heartbeat" }, "The first message must be hello"],
         [{ type: "shot" }, "shot.id must be a string; shot.shotId must be a string; shot.shot must be an object"],

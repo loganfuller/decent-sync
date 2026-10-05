@@ -16,7 +16,7 @@ const hello: Hello = {
   protocolVersion: 1,
   token,
   pluginVersion: "0.1.0",
-  decaidVersion: "0.8.6+2801",
+  decaidVersion: "0.8.7+2847",
   connectionId: "00:00:5E:00:53:01",
   machine: { model: "DE1Pro", serial: "10001", firmware: "1333" },
 };
@@ -41,10 +41,10 @@ describe("decodePluginMessage", () => {
     expect(decodePluginMessage(encode({ type: "heartbeat" }))).toEqual({ ok: true, message: { type: "heartbeat" } });
   });
 
-  it("accepts a hello without hardware, versions or connection id", () => {
-    const bare = { type: "hello", protocolVersion: 1, token, pluginVersion: "0.1.0" };
+  it("accepts a hello without hardware or connection id", () => {
+    const bare = { type: "hello", protocolVersion: 1, token, pluginVersion: "0.1.0", decaidVersion: "0.8.7+2847" };
     expect(decodePluginMessage(frame(bare))).toEqual({ ok: true, message: bare });
-    for (const missing of [{ machine: null }, { decaidVersion: null, connectionId: null }]) {
+    for (const missing of [{ machine: null }, { connectionId: null }]) {
       expect(decodePluginMessage(frame({ ...bare, ...missing })).ok).toBe(true);
     }
   });
@@ -67,9 +67,11 @@ describe("decodePluginMessage", () => {
       ok: false,
       error: "protocol_error",
       problem:
-        "hello.token must not be empty; hello.pluginVersion must be a string; hello.connectionId must be a string or null; hello.machine.serial must be a string",
+        "hello.token must not be empty; hello.pluginVersion must be a string; hello.decaidVersion must be a string; hello.connectionId must be a string or null; hello.machine.serial must be a string",
     });
     expect(decodePluginMessage(frame({ ...hello, token: undefined }))).toMatchObject({ problem: "hello.token must be a string" });
+    expect(decodePluginMessage(frame({ ...hello, decaidVersion: null }))).toMatchObject({ problem: "hello.decaidVersion must be a string" });
+    expect(decodePluginMessage(frame({ ...hello, decaidVersion: "" }))).toMatchObject({ problem: "hello.decaidVersion must not be empty" });
     expect(decodePluginMessage(frame({ ...hello, machine: "DE1Pro" }))).toMatchObject({
       problem: "hello.machine must be an object or null",
     });
@@ -105,6 +107,38 @@ describe("decodePluginMessage", () => {
     expect(old.ok || old.problem).not.toContain(token);
     for (const notAToken of [7, "", { token }]) {
       expect(decodePluginMessage(frame({ type: "hello", protocolVersion: 0, token: notAToken }))).not.toHaveProperty("token");
+    }
+  });
+
+  it("accepts Decaid 0.8.7 and later releases, and pre-releases of later ones", () => {
+    for (const decaidVersion of ["0.8.7+2847", "0.8.7", "0.8.8-beta.1+2849", "0.8.10+2900", "0.9.0+3000", "1.0.0-rc.1+4000"]) {
+      expect(decodePluginMessage(frame({ ...hello, decaidVersion }))).toEqual({ ok: true, message: { ...hello, decaidVersion } });
+    }
+  });
+
+  it("tells a tablet on an older Decaid to update it, keeping the token so its Machine can say why", () => {
+    const refusals: [string, string][] = [
+      ["0.8.6+2801", "This tablet runs Decaid 0.8.6"],
+      ["0.7.12+2000", "This tablet runs Decaid 0.7.12"],
+      ["0.8.7-beta.2+2840", "This tablet runs a pre-release of Decaid 0.8.7"],
+      // Decaid built without its tags.
+      ["0.0.0-dev+0", "This tablet runs a pre-release of Decaid 0.0.0"],
+      ["v0.8.7+2847", "This tablet's Decaid reports no release version"],
+      ["unknown", "This tablet's Decaid reports no release version"],
+    ];
+    for (const [decaidVersion, runs] of refusals) {
+      expect(decodePluginMessage(frame({ ...hello, decaidVersion }))).toEqual({
+        ok: false,
+        error: "decaid_too_old",
+        problem: `${runs}, but this server needs 0.8.7 or newer: update Decaid`,
+        token,
+      });
+    }
+    // Only the release numbers are repeated.
+    for (const decaidVersion of [token, `0.8.6-${token}`, `0.8.6+${token}`]) {
+      const result = decodePluginMessage(frame({ ...hello, decaidVersion }));
+      expect(result).toMatchObject({ ok: false, error: "decaid_too_old" });
+      expect(result.ok || result.problem).not.toContain(token);
     }
   });
 

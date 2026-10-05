@@ -94,7 +94,7 @@ test("creating a Machine shows its token once, and a tablet using it shows the M
   await expect(field(page, "Identification")).toHaveText("Identified by its model and serial");
   await expect(field(page, "Connection id")).toHaveText("00:00:5E:00:53:01");
   await expect(field(page, "Aliases")).toHaveText("00:00:5E:00:53:01");
-  await expect(field(page, "Decaid")).toHaveText("0.8.6+2801");
+  await expect(field(page, "Decaid")).toHaveText("0.8.7+2847");
   await expect(field(page, "Plugin")).toHaveText(/^\d+\.\d+\.\d+/);
   await expect(field(page, "Status")).toHaveText("Online");
 });

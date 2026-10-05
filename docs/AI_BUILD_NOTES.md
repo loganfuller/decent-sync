@@ -2,7 +2,7 @@
 
 ## Milestone 1 verification
 
-Use the root package scripts listed in the README's Development section: `npm run typecheck`, `npm run build`, `npm test` (Vitest, after a build), `npm run test:e2e` (Playwright) and `npm run check:plugin-build`. CI (`.github/workflows/ci.yml`) runs all of them against a PostgreSQL service on every push and pull request. Its `package` job writes the plugin ZIP (`npm run package:plugin`) and runs `docker compose up --build`, checking that the image migrates and serves the management interface, without publishing anything. `npm run prototype` runs `server.mjs`. [The spec's Testing Decisions](https://github.com/loganfuller/decent-sync/issues/1) are the testing contract:
+Use the root package scripts listed in the README's Development section: `npm run typecheck`, `npm run build`, `npm test` (Vitest, after a build), `npm run test:e2e` (Playwright) and `npm run check:plugin-build`. CI (`.github/workflows/ci.yml`) runs all of them against a PostgreSQL service on every push and pull request. Its `package` job writes the plugin ZIP (`npm run package:plugin`) and runs `docker compose up --build`, checking that the image migrates and serves the management interface, without publishing anything. [The spec's Testing Decisions](https://github.com/loganfuller/decent-sync/issues/1) are the testing contract:
 
 - Seam 1 runs the built `decent-sync.reaplugin/plugin.js` in a simulated Decaid host against a real server and a fresh PostgreSQL database per test file. Assertions use the REST API. Raw frames exercise protocol failures and delivery cases.
 - Seam 2 uses Playwright against the management interface, with data seeded through Seam 1.
@@ -26,20 +26,6 @@ Fixtures are records Decaid produced: real records from the test tablet where th
 
 ## Real tablet
 
-The last documented test endpoint is the DE1Pro tablet at `http://192.168.4.33:8080`. Confirm its identity and reachability before using it; a LAN address is not a permanent identity. Decaid's API definitions are in `decaid:assets/api/rest_v1.yml`.
+The last documented test endpoint is the DE1Pro tablet at `http://192.168.4.33:8080`, running Decaid 0.8.7+2847 on 2026-10-04. Confirm its identity and reachability before using it; a LAN address is not a permanent identity. Decaid's API definitions are in `decaid:assets/api/rest_v1.yml`.
 
 The tablet API is unauthenticated on the LAN. Read-only `GET` requests, for example to gather fixtures, are allowed once its identity is confirmed. Any write needs an explicit request. Installing or updating a plugin executes code there: do so only when explicitly asked, including uploads through `PUT /api/v1/plugins/:id/source` and release installation. Install only this project's code. Use the simulated tablet for routine verification. Check the relevant Decaid source before relying on host behavior.
-
-## Prototype inspection only
-
-There is no prototype build or automated test suite. To inspect it in isolation:
-
-```bash
-npm install
-node --check server.mjs
-PORT=8799 DATA_DIR=/tmp/decent-sync-prototype-audit node server.mjs
-```
-
-Choose an unused scratch directory and port. `--full` prints payloads; `--verbose` includes heartbeats and duplicate deliveries. Read `server.mjs` for its remaining options. A stale process can keep syncing into its own `DATA_DIR`; inspect listeners before diagnosing a port conflict.
-
-With the archived prototype plugin, a basic smoke check observes connection, collections, shot index and backfill. Reconnecting should resend snapshots and request only missing shot ids. This does not verify milestone 1's authentication, Steam Records, identity resolution or chunking. Ticket #19 removes these prototype instructions.

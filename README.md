@@ -13,18 +13,15 @@ business with a roastery lab and several cafes.
 
 ## Status
 
-**Milestone 1 is in progress.** The workspace, stack and CI are in place
-([the scaffold ticket](https://github.com/loganfuller/decent-sync/issues/2)), with no
-domain behavior yet. The receive-only prototype (`server.mjs`) remains until
-[ticket #19](https://github.com/loganfuller/decent-sync/issues/19) removes it.
-[Milestone 1](https://github.com/loganfuller/decent-sync/issues/1) and its child tickets
-define the build scope. The shared-library behavior below comes in later milestones;
-milestone 1 captures data without pushing changes to tablets.
+**Milestone 1 is in progress.** Admins sign in, manage Locations, and adopt
+Machines, which are identified by their hardware. Adopted tablets send their
+Shots, which the REST API serves. [Milestone 1](https://github.com/loganfuller/decent-sync/issues/1)
+and its child tickets define the rest of its scope. The shared-library behavior
+below comes in later milestones; milestone 1 captures data without pushing
+changes to tablets.
 
 Releases publish the server image and the plugin ZIP, starting with
-[v0.1.0](https://github.com/loganfuller/decent-sync/releases/tag/v0.1.0). Until
-milestone 1's capture work lands, the plugin only loads and the server only
-serves a placeholder page.
+[v0.1.0](https://github.com/loganfuller/decent-sync/releases/tag/v0.1.0).
 
 ## Design
 
@@ -190,11 +187,16 @@ custom domain, set `PUBLIC_URL` to it.
 
 ## Installing the plugin
 
-The plugin needs Decaid v0.8.7 or newer. Decaid installs it from this repo's
-GitHub releases by repo name. On the tablet, open Decaid's Settings, then
-Plugins; choose **Install Plugin**, then **GitHub Release**, and enter
-`loganfuller/decent-sync` as the repository. Or, from a computer on the same
-network:
+The plugin needs Decaid v0.8.7 or newer. The server refuses a tablet running
+an older Decaid, and the Machine's page says why. Before version 1.0, run the
+plugin and server from the same release. From 1.0, the server supports the
+current and previous plugin release, and the newest Decaid release and the two
+before it ([ADR-0017](docs/adr/0017-supported-versions.md)).
+
+Decaid installs the plugin from this repo's GitHub releases by repo name. On
+the tablet, open Decaid's Settings, then Plugins; choose **Install Plugin**,
+then **GitHub Release**, and enter `loganfuller/decent-sync` as the repository.
+Or, from a computer on the same network:
 
 ```bash
 curl -X POST http://<tablet>:8080/api/v1/plugins/install/github-release \
@@ -311,32 +313,6 @@ prerelease-style tags, so publish only versions meant for every Machine.
 5. **Analytics.** Broader views across Machines and Locations, inferred Recipes
    and Barista grouping. Machine status, Shot filtering and comparison with the
    previous Shot on the same Machine are already in milestone 1.
-
-## The prototype
-
-`server.mjs` receives what the prototype plugin
-([decent-sync-plugin](https://github.com/loganfuller/decent-sync-plugin),
-archived and read-only) sends, prints it, and stores it as JSON files under `DATA_DIR`.
-Its unreleased wire format is in [docs/PROTOCOL.md](docs/PROTOCOL.md); it is not
-the new protocol version 1. The prototype is not a foundation for milestone 1.
-[Ticket #19](https://github.com/loganfuller/decent-sync/issues/19) removes it after
-the replacement works. See [build notes](docs/AI_BUILD_NOTES.md) for scratch runs
-and the real-tablet installation rule.
-
-```bash
-npm install
-npm run prototype            # ws://0.0.0.0:8787/sync, data in ./data
-node server.mjs --full --verbose
-```
-
-| | |
-|---|---|
-| `--full` | also pretty-print every payload |
-| `--verbose` | also show heartbeats and duplicate deliveries |
-| `PORT` | listen port (default 8787) |
-| `HOST` | bind address (default `0.0.0.0`) |
-| `SYNC_TOKEN` | require this token in each machine's `hello` |
-| `DATA_DIR` | storage root (default `./data`) |
 
 ## License
 

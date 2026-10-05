@@ -329,7 +329,7 @@ export class MachinesService {
         ...(identity.kind === "identified" && identity.bind ? hardware! : {}),
         connectionId,
         pluginVersion: hello.pluginVersion,
-        decaidVersion: hello.decaidVersion ?? null,
+        decaidVersion: hello.decaidVersion,
         refusalReason: null,
         refusedAt: null,
         connectedSessionId: sessionId,

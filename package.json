@@ -22,14 +22,10 @@
     "db:up": "docker compose up -d --wait db",
     "start": "npm run build && npm run start -w server",
     "dev:server": "npm run build -w protocol && npm run dev -w server",
-    "dev:web": "npm run dev -w web",
-    "prototype": "node server.mjs"
+    "dev:web": "npm run dev -w web"
   },
   "engines": {
     "node": ">=22.12"
-  },
-  "dependencies": {
-    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.0",
