@@ -5,6 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -113,25 +114,27 @@ function InviteForm({ onCreated }: { onCreated(created: CreatedInvite): void }) 
         </Select>
       </div>
       {role === "staff" && (
-        <fieldset className="grid gap-2">
-          <legend className="mb-2 text-sm font-medium">Locations they work at</legend>
-          {locationsError && <p className="text-sm text-destructive">{locationsError}</p>}
+        <FieldSet>
+          <FieldLegend variant="label">Locations they work at</FieldLegend>
+          {locationsError && <FieldError>{locationsError}</FieldError>}
           {locations?.length === 0 && (
-            <p className="text-sm text-muted-foreground">There are no Locations yet. Add one before inviting Staff.</p>
+            <FieldDescription>There are no Locations yet. Add one before inviting Staff.</FieldDescription>
           )}
-          {locations?.map((location) => (
-            <div key={location.id} className="flex items-center gap-2">
-              <Checkbox
-                id={`${id}-location-${location.id}`}
-                checked={locationIds.includes(location.id)}
-                onCheckedChange={(checked) => choose(location.id, checked === true)}
-              />
-              <Label htmlFor={`${id}-location-${location.id}`} className="font-normal">
-                {location.name}
-              </Label>
-            </div>
-          ))}
-        </fieldset>
+          <FieldGroup data-slot="checkbox-group">
+            {locations?.map((location) => (
+              <Field key={location.id} orientation="horizontal">
+                <Checkbox
+                  id={`${id}-location-${location.id}`}
+                  checked={locationIds.includes(location.id)}
+                  onCheckedChange={(checked) => choose(location.id, checked === true)}
+                />
+                <FieldLabel htmlFor={`${id}-location-${location.id}`} className="font-normal">
+                  {location.name}
+                </FieldLabel>
+              </Field>
+            ))}
+          </FieldGroup>
+        </FieldSet>
       )}
       <div>
         <Button type="submit" disabled={submitting}>

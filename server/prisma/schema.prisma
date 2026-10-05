@@ -41,8 +41,9 @@ model Account {
   @@map("accounts")
 }
 
-/// A Location a Staff member works at. Staff see only these Locations and the
-/// Machines at them, read on every request, so a change applies to the next.
+/// A Location a Staff member works at. Staff are listed only these Locations
+/// and move Machines only between them; every Machine's information they read
+/// as Admins do. Read on every request, so a change applies to the next.
 model StaffLocation {
   accountId  String   @map("account_id") @db.Uuid
   account    Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
