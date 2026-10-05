@@ -55,8 +55,8 @@ interface MachineData {
 /**
  * One Machine: its identity, versions and status, its Workflow, paired
  * devices, settings and library, its Location, its token, and resolving its
- * identity. Staff see a Machine at a Location they work at, and can move it
- * between those Locations; the rest is for Admins.
+ * identity. Staff see all of it, and can move it between the Locations they
+ * work at; every other change is for Admins.
  */
 export function MachinePage() {
   const { id = "" } = useParams();
@@ -78,7 +78,6 @@ function MachineDetails({ id }: { id: string }) {
         api<{ collections: CollectionSummary[] }>("GET", `${path}/collections`),
         Promise.all(settingNames.map((name) => api<{ collection: Collection | null }>("GET", `${path}/collections/${name}`))),
       ]);
-      // Only Admins are told of a Pending Machine.
       const pendingId = machine.mismatch?.pendingMachineId;
       const pending = pendingId
         ? ((await api<{ pendingMachines: PendingMachine[] }>("GET", "/pending-machines")).pendingMachines.find(
@@ -122,11 +121,7 @@ function MachineDetails({ id }: { id: string }) {
     return (
       <section className="grid gap-4">
         <BackLink />
-        <p role="alert">
-          {isAdmin
-            ? "There is no such Machine. It may have been removed."
-            : "There is no such Machine at the Locations you work at. It may have moved elsewhere."}
-        </p>
+        <p role="alert">There is no such Machine. It may have been removed.</p>
       </section>
     );
   }
@@ -396,8 +391,8 @@ function list(...parts: (string | undefined)[]): string | undefined {
 
 /**
  * Where the Machine is, moving it, and its Location History, whose times
- * are shown and entered in each entry's Location's time zone. Staff see its
- * history at their Locations, and only Admins correct it.
+ * are shown and entered in each entry's Location's time zone. Only Admins
+ * correct the history.
  */
 function MachineLocation({ machine, isAdmin, onChanged }: { machine: Machine; isAdmin: boolean; onChanged(): Promise<void> }) {
   const [editing, setEditing] = useState<string>();
@@ -423,9 +418,8 @@ function MachineLocation({ machine, isAdmin, onChanged }: { machine: Machine; is
           <h2>Location</h2>
         </CardTitle>
         <CardDescription>
-          {isAdmin
-            ? "Each Shot is credited to the Location the Machine was at when it was pulled. Shots from before it first arrived at a Location have none; correct when it arrived to credit them."
-            : "Each Shot is credited to the Location the Machine was at when it was pulled. Its history here shows its time at the Locations you work at."}
+          Each Shot is credited to the Location the Machine was at when it was pulled. Shots from before it first arrived
+          at a Location have none{isAdmin ? "; correct when it arrived to credit them." : "."}
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-6">
@@ -494,8 +488,8 @@ function MachineLocation({ machine, isAdmin, onChanged }: { machine: Machine; is
 
 /**
  * Moves the Machine to another Location from now, or gives an unassigned one
- * its first. Staff choose among the Locations they work at, which are the
- * only ones the server lists for them.
+ * its first. Staff move it only from a Location they work at to another,
+ * which are the only Locations the server lists for them.
  */
 function MoveForm({ machine, isAdmin, onMoved }: { machine: Machine; isAdmin: boolean; onMoved(): Promise<void> }) {
   const id = useId();
@@ -523,6 +517,9 @@ function MoveForm({ machine, isAdmin, onMoved }: { machine: Machine; isAdmin: bo
 
   if (locationsError) return <p className="text-sm text-destructive">{locationsError}</p>;
   if (!locations) return null;
+  if (!isAdmin && !locations.some((location) => location.id === machine.location?.id)) {
+    return <p className="text-sm text-muted-foreground">You can move it only while it is at a Location you work at.</p>;
+  }
   if (choices.length === 0) {
     if (!isAdmin) return <p className="text-sm text-muted-foreground">There is no other Location you work at to move it to.</p>;
     return (
@@ -739,39 +736,28 @@ function Mismatch({
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 text-sm">
-        {!isAdmin ? (
-          <p>
-            {mismatch.machine && (
-              <>
-                {hardware} is{" "}
-                <Link to={`/machines/${mismatch.machine.id}`} className="underline underline-offset-4">
-                  {mismatch.machine.name}
-                </Link>
-                .{" "}
-              </>
-            )}
-            An Admin can resolve this.
-          </p>
-        ) : mismatch.machine ? (
+        {mismatch.machine ? (
           <p>
             {hardware} is{" "}
             <Link to={`/machines/${mismatch.machine.id}`} className="underline underline-offset-4">
               {mismatch.machine.name}
             </Link>
-            . Enter {mismatch.machine.name}'s token on that tablet, issuing a new one from its page if it is lost.
+            .
+            {isAdmin && ` Enter ${mismatch.machine.name}'s token on that tablet, issuing a new one from its page if it is lost.`}
           </p>
         ) : pending ? (
           <>
             <p>
               {pending.dismissed
-                ? `${hardware} was dismissed, so this token's connections from it are refused. Creating a machine entry for it brings back what was received for it.`
-                : `No machine entry covers ${hardware}, so what the tablet sends is held as a Pending Machine. Create a machine entry for it and enter the new token on that tablet, or dismiss it to refuse it with this Machine's token.`}
+                ? `${hardware} was dismissed, so this token's connections from it are refused.${isAdmin ? " Creating a machine entry for it brings back what was received for it." : ""}`
+                : `No machine entry covers ${hardware}, so what the tablet sends is held as a Pending Machine.${isAdmin ? " Create a machine entry for it and enter the new token on that tablet, or dismiss it to refuse it with this Machine's token." : ""}`}
             </p>
-            <PendingMachineActions pending={pending} onCreated={onCreated} onDismissed={onDismissed} />
+            {isAdmin && <PendingMachineActions pending={pending} onCreated={onCreated} onDismissed={onDismissed} />}
           </>
         ) : (
           <p>No machine entry covers {hardware}.</p>
         )}
+        {!isAdmin && <p>An Admin can resolve this.</p>}
       </CardContent>
     </Card>
   );

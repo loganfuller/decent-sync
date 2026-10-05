@@ -28,18 +28,17 @@ interface Machines {
 
 /**
  * Machines and their status, creating machine entries, and resolving Pending
- * Machines. Staff see the Machines at the Locations they work at.
+ * Machines. Staff see all of it, but only Admins create or resolve anything.
  */
 export function MachinesPage() {
   const isAdmin = useIsAdmin();
   const load = useCallback(async (): Promise<Machines> => {
     const [{ machines }, { pendingMachines }] = await Promise.all([
       api<{ machines: Machine[] }>("GET", "/machines"),
-      // Pending Machines are for Admins.
-      isAdmin ? api<{ pendingMachines: PendingMachine[] }>("GET", "/pending-machines") : { pendingMachines: [] },
+      api<{ pendingMachines: PendingMachine[] }>("GET", "/pending-machines"),
     ]);
     return { machines, pendingMachines };
-  }, [isAdmin]);
+  }, []);
   const { data, error, reload } = usePolled(load);
   // Kept here, not with the form or Pending Machine that issued it, which a reload may remove.
   const [issued, setIssued] = useState<IssuedToken>();
@@ -62,9 +61,8 @@ export function MachinesPage() {
       <div className="grid gap-1">
         <h1 className="text-2xl font-semibold">Machines</h1>
         <p className="text-muted-foreground">
-          {isAdmin
-            ? "The machines that sync with this server. A machine joins when someone enters its token in the Decent Sync plugin on its tablet."
-            : "The machines at the Locations you work at."}
+          The machines that sync with this server. A machine joins when someone enters its token in the Decent Sync
+          plugin on its tablet.
         </p>
       </div>
 
@@ -80,8 +78,9 @@ export function MachinesPage() {
       {pending.length > 0 && (
         <PendingMachines
           title="Pending Machines"
-          description="Hardware a tablet reported that no machine entry covers. Create a machine entry for it, or dismiss it."
+          description={`Hardware a tablet reported that no machine entry covers. ${isAdmin ? "Create" : "An Admin can create"} a machine entry for it, or dismiss it.`}
           pendingMachines={pending}
+          isAdmin={isAdmin}
           onCreated={created}
           onDismissed={reload}
         />
@@ -112,6 +111,7 @@ export function MachinesPage() {
           title="Dismissed Pending Machines"
           description="Hardware an Admin dismissed. Anything received for it is kept and comes back if it gets a machine entry."
           pendingMachines={dismissed}
+          isAdmin={isAdmin}
           onCreated={created}
           onDismissed={reload}
         />
@@ -176,12 +176,14 @@ function PendingMachines({
   title,
   description,
   pendingMachines,
+  isAdmin,
   onCreated,
   onDismissed,
 }: {
   title: string;
   description: string;
   pendingMachines: PendingMachine[];
+  isAdmin: boolean;
   onCreated(issued: IssuedToken): void;
   onDismissed(): Promise<void>;
 }) {
@@ -216,7 +218,7 @@ function PendingMachines({
                 {pending.lastSeenAt && `, last reported ${formatTime(pending.lastSeenAt)}`}
               </span>
             </div>
-            <PendingMachineActions pending={pending} onCreated={onCreated} onDismissed={onDismissed} />
+            {isAdmin && <PendingMachineActions pending={pending} onCreated={onCreated} onDismissed={onDismissed} />}
           </li>
         ))}
       </ul>

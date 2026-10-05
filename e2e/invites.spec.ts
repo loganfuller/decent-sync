@@ -4,8 +4,9 @@ import { useFreshServer } from "./support/fresh-server.js";
 
 // Inviting people: an Admin creates a one-time link and sends it themselves;
 // the Staff member who opens it chooses a name and password, is signed in,
-// and sees only the Locations they work at and the Machines there. A link
-// already used, or expired, says it can no longer be used.
+// is listed only the Locations they work at, sees every Machine, and moves
+// only those at their Locations. A link already used, or expired, says it
+// can no longer be used.
 const server = useFreshServer();
 // Machine pages poll the server every few seconds.
 const expect = baseExpect.configure({ timeout: 15_000 });
@@ -22,7 +23,7 @@ test.beforeEach(async ({ page }) => {
   else baseExpect(setup.status()).toBe(201);
 });
 
-test("an Admin invites a Staff member, who accepts, is signed in and sees only their Locations and Machines", async ({ page, browser }) => {
+test("an Admin invites a Staff member, who accepts, is signed in and sees only their Locations", async ({ page, browser }) => {
   const lab = await createLocation(page, "Lab", "America/Denver");
   const uptown = await createLocation(page, "Uptown", "America/Chicago");
   const belmont = await createLocation(page, "Belmont", "America/Chicago");
@@ -69,16 +70,22 @@ test("an Admin invites a Staff member, who accepts, is signed in and sees only t
   await expect(samsPage.getByRole("heading", { name: "New Location" })).toHaveCount(0);
   await expect(samsPage.getByRole("button", { name: /^Edit/ })).toHaveCount(0);
 
+  // Machine information is not private: Sam sees every Machine, but creates none.
   await nav.getByRole("link", { name: "Machines" }).click();
   const machines = samsPage.getByRole("table", { name: "Machines" }).getByRole("row");
-  // A header row, then Belmont 1 and Uptown 1.
-  await expect(machines).toHaveCount(3);
-  await expect(samsPage.getByRole("link", { name: "Belmont 1", exact: true })).toBeVisible();
-  await expect(samsPage.getByRole("link", { name: "Uptown 1", exact: true })).toBeVisible();
-  await expect(samsPage.getByRole("link", { name: "Lab 1", exact: true })).toHaveCount(0);
+  // A header row, then the three Machines.
+  await expect(machines).toHaveCount(4);
   await expect(samsPage.getByRole("heading", { name: "New Machine" })).toHaveCount(0);
 
+  // Sam cannot move a Machine at the Lab.
+  await samsPage.getByRole("link", { name: "Lab 1", exact: true }).click();
+  await expect(samsPage.getByRole("heading", { name: "Lab 1", level: 1 })).toBeVisible();
+  const location = samsPage.getByRole("region", { name: "Location" });
+  await expect(location.getByText("You can move it only while it is at a Location you work at.")).toBeVisible();
+  await expect(location.getByRole("form", { name: "Move" })).toHaveCount(0);
+
   // Sam moves Uptown 1 to Belmont, and could not move it to the Lab.
+  await samsPage.getByRole("link", { name: "← Machines" }).click();
   await samsPage.getByRole("link", { name: "Uptown 1", exact: true }).click();
   await expect(samsPage.getByRole("heading", { name: "Uptown 1", level: 1 })).toBeVisible();
   await expect(samsPage.getByRole("heading", { name: "Token" })).toHaveCount(0);

@@ -156,12 +156,11 @@ describe("invites", () => {
 
     expect(attempts.filter((response) => response.status === 201)).toHaveLength(1);
     expect(attempts.filter((response) => response.status === 410)).toHaveLength(attempts.length - 1);
-    // Only the winner's password signs in.
+    // The account has the winner's password, not another's. One at a time: five failures would lock the email.
     const winner = attempts.findIndex((response) => response.status === 201);
-    const passwords = await Promise.all(
-      attempts.map((_, i) => signIn(server, { email: "race@example.com", password: `racing password ${i}` })),
-    );
-    expect(passwords.map((response) => response.status)).toEqual(attempts.map((_, i) => (i === winner ? 200 : 401)));
+    const loser = (winner + 1) % attempts.length;
+    expect((await signIn(server, { email: "race@example.com", password: `racing password ${winner}` })).status).toBe(200);
+    expect((await signIn(server, { email: "race@example.com", password: `racing password ${loser}` })).status).toBe(401);
   });
 
   it("makes an Admin of an Admin invite's account", async () => {

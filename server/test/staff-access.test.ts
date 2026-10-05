@@ -6,12 +6,13 @@ import { derivedSteam } from "./support/steam-fixtures.js";
 import { RawConnection, helloWith } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
-// What Staff see and do through the REST API: only the Locations they work
-// at, the Machines at them now, and moves between those Locations. Records
-// stay Admin-only until they are scoped to Locations (#17, #18). Data is
-// seeded with raw connections; the Shot and Steam Record are derived from
-// scrubbed real records, changing only their ids, times and recorded
-// hardware. Hardware ids are made up.
+// What Staff see and do through the REST API. Machine information is not
+// private: Staff read every Machine as an Admin does. They are listed the
+// Locations they work at, and change only one thing: moving a Machine from
+// one of those Locations to another. Shots and Steam Records stay Admin-only
+// until #17 and #18. Data is seeded with raw connections; the Shot and Steam
+// Record are derived from scrubbed real records, changing only their ids,
+// times and recorded hardware. Hardware ids are made up.
 
 interface Sent {
   type: string;
@@ -54,6 +55,11 @@ describe("Staff access", () => {
   afterAll(() => server?.stop());
 
   const names = (machines: MachineView[]) => machines.map((machine) => machine.name);
+  /** A GET's status and body, without the times a connection's heartbeats keep changing. */
+  async function read(as: AdminApi, path: string): Promise<[number, unknown]> {
+    const response = await as.call("GET", path);
+    return [response.status, JSON.parse(await response.text(), (key, value) => (key === "lastSeenAt" || key === "online" ? undefined : value))];
+  }
   async function machine(as: AdminApi, created: CreatedMachine): Promise<MachineView> {
     const response = await as.call("GET", `/machines/${created.machine.id}`);
     expect(response.status).toBe(200);
@@ -78,27 +84,8 @@ describe("Staff access", () => {
     await expect.poll(() => raw.messages.some((message) => (message as Sent).type === "ack" && (message as Sent).id === id)).toBe(true);
   }
 
-  it("shows Staff only the Locations they work at", async () => {
+  it("lists Staff only the Locations they work at", async () => {
     expect(await (await staff.call("GET", "/locations")).json()).toEqual({ locations: [belmont, uptown] });
-  });
-
-  it("shows Staff only the Machines at their Locations", async () => {
-    expect(names(await staff.machines())).toEqual(["Belmont 1", "Uptown 1"]);
-    expect(names(await api.machines())).toEqual(["Belmont 1", "Lab 1", "Spare", "Uptown 1"]);
-  });
-
-  it("refuses Staff a Machine elsewhere, or at no Location, as if there were none", async () => {
-    const paths = (id: string) => [
-      `/machines/${id}`,
-      `/machines/${id}/workflow`,
-      `/machines/${id}/collections`,
-      `/machines/${id}/collections/appSettings`,
-      `/machines/${id}/paired-devices`,
-    ];
-    for (const id of [lab1.machine.id, spare.machine.id, randomUUID()]) {
-      for (const path of paths(id)) await refused(await staff.call("GET", path), 404, "No such Machine");
-    }
-    for (const path of paths(uptown1.machine.id)) expect((await staff.call("GET", path)).status).toBe(200);
   });
 
   it("refuses Staff every Admin-only endpoint, even for their own Locations' Machines", async () => {
@@ -111,14 +98,10 @@ describe("Staff access", () => {
       ["PATCH", `/locations/${uptown.id}`, { name: "Downtown" }],
       ["GET", "/time-zones"],
       ["POST", "/machines", { name: "Uptown 2", locationId: uptown.id }],
-      ["GET", "/machines/models"],
       ["POST", `/machines/${id}/token`],
       ["PUT", `/machines/${id}/hardware`, { model: "DE1Pro", serial: "10099" }],
       ["PATCH", `/machines/${id}/location-history/${entry}`, { effectiveFrom: "2026-01-01T00:00:00Z" }],
       ["DELETE", `/machines/${id}/location-history/${entry}`],
-      ["GET", `/machines/${id}/workflow-events`],
-      ["GET", `/machines/${id}/machine-state-events`],
-      ["GET", "/pending-machines"],
       ["POST", `/pending-machines/${pendingId}/machine`, { name: "Adopted" }],
       ["POST", `/pending-machines/${pendingId}/dismiss`],
     ];
@@ -133,8 +116,8 @@ describe("Staff access", () => {
     expect((await connect(uptown1, { model: "DE1Pro", serial: "10001" })).messages[0]).toMatchObject({ type: "welcome" });
   });
 
-  it("refuses Staff Shots and Steam Records, even at their Locations, and shows a Machine's Last Shot only from them", async () => {
-    // Uptown 1's tablet sends a Shot recorded on its hardware and a Steam Record, from before it came to Uptown.
+  it("refuses Staff Shots and Steam Records, even at their Locations", async () => {
+    // Uptown 1's tablet sends a Shot recorded on its hardware and a Steam Record.
     const raw = await connect(uptown1, { model: "DE1Pro", serial: "10001" });
     const { machine: recorded, ...workflow } = shotFixture().workflow as Record<string, unknown>;
     const shot = derivedShot("staff-shot", {
@@ -149,17 +132,12 @@ describe("Staff access", () => {
     raw.send({ type: "steam", id: steamDelivery, steamId: steam.id, steamedAt: "2026-03-15T12:05:00.000Z", steam });
     await acknowledged(raw, steamDelivery);
 
-    expect((await machine(api, uptown1)).lastShot).toMatchObject({ id: "staff-shot" });
-    // It was pulled before Uptown 1 came to Uptown, so at no Location Sam works at.
-    expect((await machine(staff, uptown1)).lastShot).toBeNull();
-
-    // Uptown 1 was at Uptown from January after all.
+    // Credited to Uptown, where Sam works.
     const entry = uptown1.machine.locationHistory[0]!.id;
     const corrected = await api.call("PATCH", `/machines/${uptown1.machine.id}/location-history/${entry}`, { effectiveFrom: "2026-01-01T00:00:00Z" });
     expect(corrected.status).toBe(200);
     const credited = await api.call("GET", "/shots/staff-shot");
     expect(((await credited.json()) as { shot: { location: LocationView | null } }).shot.location).toEqual(uptown);
-    expect((await machine(staff, uptown1)).lastShot).toMatchObject({ id: "staff-shot" });
 
     for (const path of [
       "/shots",
@@ -175,17 +153,49 @@ describe("Staff access", () => {
     }
   });
 
-  it("lets Staff move a Machine between Locations they work at, and nowhere else", async () => {
+  it("shows Staff every Machine and everything about it, as an Admin sees it", async () => {
+    // Belmont 1 moves to the Lab, where Sam does not work, and Uptown 1's token reports hardware no Machine has.
+    expect((await move(api, belmont1, { locationId: lab.id })).status).toBe(201);
+    const unknown = { model: "Bengle", serial: "10004" };
+    await connect(uptown1, unknown);
+    const mismatched = await api.waitForMachine("Uptown 1", (seen) => seen.mismatch?.serial === unknown.serial);
+    expect(mismatched.mismatch?.pendingMachineId).toEqual(expect.any(String));
+    expect(mismatched.lastShot).toMatchObject({ id: "staff-shot" });
+
+    expect(names(await staff.machines())).toEqual(["Belmont 1", "Lab 1", "Spare", "Uptown 1"]);
+    const paths = [
+      "/machines",
+      "/machines/models",
+      "/pending-machines",
+      ...[lab1, uptown1, belmont1, spare].flatMap(({ machine: { id } }) => [
+        `/machines/${id}`,
+        `/machines/${id}/workflow`,
+        `/machines/${id}/workflow-events`,
+        `/machines/${id}/machine-state-events`,
+        `/machines/${id}/collections`,
+        `/machines/${id}/collections/appSettings`,
+        `/machines/${id}/paired-devices`,
+      ]),
+    ];
+    for (const path of paths) {
+      const [status, body] = await read(staff, path);
+      expect(status, path).toBe(200);
+      expect(body, path).toEqual((await read(api, path))[1]);
+    }
+    expect((await machine(staff, belmont1)).locationHistory.map((entry) => entry.location.name)).toEqual(["Belmont", "Lab"]);
+  });
+
+  it("lets Staff move a Machine from a Location they work at to another, and nothing else", async () => {
     const moved = await move(staff, uptown1, { locationId: belmont.id });
     expect(moved.status).toBe(201);
     expect(((await moved.json()) as { machine: MachineView }).machine.location).toEqual(belmont);
-    expect((await machine(api, uptown1)).locationHistory.map((entry) => entry.location.name)).toEqual(["Uptown", "Belmont"]);
 
     // Not away from their Locations,
     await refused(await move(staff, uptown1, { locationId: lab.id }), 403, "You can move a Machine only to a Location you work at");
     // nor from elsewhere, or from no Location, to theirs,
-    await refused(await move(staff, lab1, { locationId: uptown.id }), 404, "No such Machine");
-    await refused(await move(staff, spare, { locationId: uptown.id }), 404, "No such Machine");
+    for (const elsewhere of [lab1, belmont1, spare]) {
+      await refused(await move(staff, elsewhere, { locationId: uptown.id }), 403, "You can move a Machine only from a Location you work at");
+    }
     // nor from an earlier time, which corrects when it moved.
     const effectiveFrom = new Date(Date.now() - 60_000).toISOString();
     await refused(
@@ -196,44 +206,7 @@ describe("Staff access", () => {
 
     expect((await machine(api, uptown1)).locationHistory.map((entry) => entry.location.name)).toEqual(["Uptown", "Belmont"]);
     expect((await machine(api, lab1)).locationHistory.map((entry) => entry.location.name)).toEqual(["Lab"]);
+    expect((await machine(api, belmont1)).locationHistory.map((entry) => entry.location.name)).toEqual(["Belmont", "Lab"]);
     expect((await machine(api, spare)).locationHistory).toEqual([]);
-  });
-
-  it("shows Staff a Machine as it arrives at their Locations, with only its time there, and not once it leaves", async () => {
-    expect((await move(api, lab1, { locationId: uptown.id })).status).toBe(201);
-    expect((await move(api, belmont1, { locationId: lab.id })).status).toBe(201);
-
-    expect(names(await staff.machines())).toEqual(["Lab 1", "Uptown 1"]);
-    expect((await machine(api, lab1)).locationHistory.map((entry) => entry.location.name)).toEqual(["Lab", "Uptown"]);
-    const seen = await machine(staff, lab1);
-    expect(seen.location).toEqual(uptown);
-    expect(seen.locationHistory.map((entry) => entry.location.name)).toEqual(["Uptown"]);
-    await refused(await staff.call("GET", `/machines/${belmont1.machine.id}`), 404, "No such Machine");
-  });
-
-  it("names in a mismatch no Pending Machine for Staff, and only a Machine they can see", async () => {
-    // Lab 1, now at Uptown, and Belmont 1, now at the Lab, are bound to their hardware.
-    const lab1Hardware = { model: "DE1Pro", serial: "10002" };
-    const belmont1Hardware = { model: "DE1XL", serial: "10003" };
-    await connect(lab1, lab1Hardware);
-    await connect(belmont1, belmont1Hardware);
-    await api.waitForMachine("Belmont 1", (seen) => seen.serial === belmont1Hardware.serial);
-
-    // Uptown 1's token reports each in turn, then hardware no Machine has.
-    const reports: [{ model: string; serial: string }, string | null][] = [
-      [belmont1Hardware, null],
-      [lab1Hardware, "Lab 1"],
-    ];
-    for (const [hardware, seenByStaff] of reports) {
-      await connect(uptown1, hardware);
-      const mismatched = await api.waitForMachine("Uptown 1", (seen) => seen.mismatch?.serial === hardware.serial);
-      expect(mismatched.mismatch?.machine).not.toBeNull();
-      expect((await machine(staff, uptown1)).mismatch).toEqual({ ...hardware, pendingMachineId: null, machine: seenByStaff && { id: lab1.machine.id, name: seenByStaff } });
-    }
-    const unknown = { model: "Bengle", serial: "10004" };
-    await connect(uptown1, unknown);
-    const pending = await api.waitForMachine("Uptown 1", (seen) => seen.mismatch?.serial === unknown.serial);
-    expect(pending.mismatch?.pendingMachineId).toEqual(expect.any(String));
-    expect((await machine(staff, uptown1)).mismatch).toEqual({ ...unknown, pendingMachineId: null, machine: null });
   });
 });

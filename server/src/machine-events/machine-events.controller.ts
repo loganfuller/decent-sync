@@ -1,25 +1,19 @@
 import { Controller, Get, Param, Query } from "@nestjs/common";
-import { AllowStaff, CurrentScope } from "../accounts/guards.js";
-import type { Scope } from "../accounts/scope.js";
+import { AllowStaff } from "../accounts/guards.js";
 import { readMachineId } from "../machines/input.js";
 import { readPage } from "../pagination.js";
 import { MachineEventsService, type WorkflowEventView } from "./machine-events.service.js";
 
-/**
- * What a Machine is set up to do next and what it has been doing, as its
- * tablet reported them. Staff see the current Workflow of the Machines at
- * their Locations; the histories span wherever a Machine has been, so they
- * are for Admins.
- */
+/** What a Machine is set up to do next and what it has been doing, as its tablet reported them. Staff read them too. */
+@AllowStaff()
 @Controller("api/machines")
 export class MachineEventsController {
   constructor(private readonly events: MachineEventsService) {}
 
   /** The Machine's current Workflow, or null until its tablet reports one. */
-  @AllowStaff()
   @Get(":id/workflow")
-  async workflow(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ workflow: WorkflowEventView | null }> {
-    return { workflow: await this.events.currentWorkflow(readMachineId(id), scope) };
+  async workflow(@Param("id") id: string): Promise<{ workflow: WorkflowEventView | null }> {
+    return { workflow: await this.events.currentWorkflow(readMachineId(id)) };
   }
 
   /** Every Workflow recorded for the Machine, latest first. */

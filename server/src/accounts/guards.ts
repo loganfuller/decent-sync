@@ -27,9 +27,10 @@ const STAFF = Symbol("staff");
 export const Public = () => SetMetadata(PUBLIC, true);
 
 /**
- * Lets Staff use a route, which must then show and change only what their
- * Scope includes. Every other route that requires a signed-in account
- * requires an Admin, so a new route stays Admin-only until it is scoped.
+ * Lets Staff use a route. One that changes something must limit Staff to
+ * what their Scope includes. Every other route that requires a signed-in
+ * account requires an Admin, so a new route stays Admin-only until Staff are
+ * meant to use it.
  */
 export const AllowStaff = () => SetMetadata(STAFF, true);
 

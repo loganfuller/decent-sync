@@ -19,8 +19,9 @@ import { type PendingMachineView, PendingMachinesService } from "./pending-machi
 
 /**
  * Machine entries: the Machines an Admin has adopted, their identity, tokens
- * and status. Staff see the Machines at their Locations and move them
- * between those Locations; everything else here is for Admins.
+ * and status. Machine information is not private, so Staff read all of it;
+ * what they may change is limited to moving Machines between the Locations
+ * they work at. Every other change is for Admins.
  */
 @Controller("api/machines")
 export class MachinesController {
@@ -32,11 +33,12 @@ export class MachinesController {
 
   @AllowStaff()
   @Get()
-  async list(@CurrentScope() scope: Scope): Promise<{ machines: MachineView[] }> {
-    return { machines: await this.machines.list(scope) };
+  async list(): Promise<{ machines: MachineView[] }> {
+    return { machines: await this.machines.list() };
   }
 
   /** The models an Admin may enter for an Unidentified Machine, as Decaid names them. */
+  @AllowStaff()
   @Get("models")
   models(): { models: readonly string[] } {
     return { models: MACHINE_MODELS };
@@ -44,8 +46,8 @@ export class MachinesController {
 
   @AllowStaff()
   @Get(":id")
-  async get(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ machine: MachineView }> {
-    return { machine: await this.machines.get(readMachineId(id), scope) };
+  async get(@Param("id") id: string): Promise<{ machine: MachineView }> {
+    return { machine: await this.machines.get(readMachineId(id)) };
   }
 
   /**
@@ -109,7 +111,7 @@ export class MachinesController {
   }
 }
 
-/** Hardware the server has seen that no Machine has, for an Admin to adopt or dismiss. */
+/** Hardware the server has seen that no Machine has, for an Admin to adopt or dismiss. Staff see it too. */
 @Controller("api/pending-machines")
 export class PendingMachinesController {
   constructor(
@@ -117,6 +119,7 @@ export class PendingMachinesController {
     @Inject(CONFIG) private readonly config: Config,
   ) {}
 
+  @AllowStaff()
   @Get()
   async list(): Promise<{ pendingMachines: PendingMachineView[] }> {
     return { pendingMachines: await this.pending.list() };

@@ -107,8 +107,7 @@ their keys, and compressed with lz4.
 
 All endpoints require the account session, and answer 404 for an unknown
 Machine. Pending Machines' collections are not exposed; they appear on the
-Machine that takes their hardware over. Staff see only those of Machines at
-the Locations they work at; any other Machine answers 404 for them.
+Machine that takes their hardware over. Staff read them as Admins do.
 
 - `GET /api/machines/:id/collections` returns `{ collections }`, each reported
   collection's `{ name, available, reportedAt, receivedAt, items }`, without

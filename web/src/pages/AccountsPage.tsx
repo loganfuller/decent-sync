@@ -4,6 +4,7 @@ import { formatTime, useLocations } from "@/components/machines";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -120,12 +121,10 @@ function InviteForm({ onCreated }: { onCreated(created: CreatedInvite): void }) 
           )}
           {locations?.map((location) => (
             <div key={location.id} className="flex items-center gap-2">
-              <input
+              <Checkbox
                 id={`${id}-location-${location.id}`}
-                type="checkbox"
-                className="size-4 accent-primary"
                 checked={locationIds.includes(location.id)}
-                onChange={(event) => choose(location.id, event.target.checked)}
+                onCheckedChange={(checked) => choose(location.id, checked === true)}
               />
               <Label htmlFor={`${id}-location-${location.id}`} className="font-normal">
                 {location.name}

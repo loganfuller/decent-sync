@@ -1,5 +1,4 @@
 import { Injectable } from "@nestjs/common";
-import { EVERYTHING } from "../accounts/scope.js";
 import { MachineIdentification, type PendingMachine, Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
@@ -94,7 +93,7 @@ export class PendingMachinesService {
         }
         return refuseDuplicateName(fields.name)(error);
       });
-    return { machine: await this.machines.get(machineId, EVERYTHING), token };
+    return { machine: await this.machines.get(machineId), token };
   }
 
   /**

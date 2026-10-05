@@ -1,6 +1,5 @@
 import { ConflictException, Inject, Injectable } from "@nestjs/common";
 import { type ErrorCode, type Hello, MISSED_HEARTBEATS } from "@decent-sync/protocol";
-import { EVERYTHING, type Scope, seesLocation } from "../accounts/scope.js";
 import { transferPendingCollections } from "../collections/transfer.js";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
@@ -13,17 +12,11 @@ import { notifyAccessChanged } from "./access-changes.js";
 import type { LiveConnection } from "./connections.js";
 import { type NewMachine, machineNotFound } from "./input.js";
 import { type LocationHistoryEntryView, creditLocations, startLocationHistory, viewLocationHistory, withLocationHistory } from "./location-history.js";
-import { machinesInScope, requireMachineInScope } from "./scope.js";
 
 /** How a Machine's identity stands, as the REST API names it. */
 export type IdentificationView = "identified" | "hardwareNotReported" | "unidentified" | "mismatch";
 
-/**
- * A Machine as the REST API returns it. Staff see it only while it is at one
- * of their Locations, and nothing of it from elsewhere: its Last Shot and
- * Location History are only those at their Locations, and a mismatch names
- * no Pending Machine and only a Machine they see.
- */
+/** A Machine as the REST API returns it. */
 export interface MachineView {
   id: string;
   name: string;
@@ -114,17 +107,15 @@ export class MachinesService {
     @Inject(CONFIG) private readonly config: Config,
   ) {}
 
-  /** The Machines the scope includes, by name. */
-  async list(scope: Scope): Promise<MachineView[]> {
-    const where = await machinesInScope(this.prisma, scope);
-    return this.views(await this.prisma.machine.findMany({ where, orderBy: { name: "asc" }, include: listed }), scope);
+  /** Every Machine, by name. */
+  async list(): Promise<MachineView[]> {
+    return this.views(await this.prisma.machine.findMany({ orderBy: { name: "asc" }, include: listed }));
   }
 
-  async get(id: string, scope: Scope): Promise<MachineView> {
-    await requireMachineInScope(this.prisma, id, scope);
+  async get(id: string): Promise<MachineView> {
     const machine = await this.prisma.machine.findUnique({ where: { id }, include: listed });
     if (!machine) throw machineNotFound();
-    return (await this.views([machine], scope))[0]!;
+    return (await this.views([machine]))[0]!;
   }
 
   /**
@@ -140,7 +131,7 @@ export class MachinesService {
         return machine;
       })
       .catch(refuseDuplicateName(fields.name));
-    return { machine: await this.get(machine.id, EVERYTHING), token };
+    return { machine: await this.get(machine.id), token };
   }
 
   /** Issues the Machine a new token and revokes the old one, closing any connection that uses it. */
@@ -154,7 +145,7 @@ export class MachinesService {
       // Delivered on commit: every instance closes the connections using the old token.
       await notifyAccessChanged(tx, id);
     });
-    return { machine: await this.get(id, EVERYTHING), token };
+    return { machine: await this.get(id), token };
   }
 
   /**
@@ -202,7 +193,7 @@ export class MachinesService {
         }
         throw error;
       });
-    return this.get(id, EVERYTHING);
+    return this.get(id);
   }
 
   /** The Machine a token belongs to, unless the token is unknown or revoked. */
@@ -396,7 +387,7 @@ export class MachinesService {
     await this.prisma.machine.updateMany({ where: { id: machineId }, data: { refusalReason: reason, refusedAt: at } });
   }
 
-  private async views(machines: ListedMachine[], scope: Scope): Promise<MachineView[]> {
+  private async views(machines: ListedMachine[]): Promise<MachineView[]> {
     // Last-seen times are written by the database's clock, so they are judged by it too, whatever the instances' clocks say.
     const [{ now }] = await this.prisma.$queryRaw<[{ now: Date }]>`SELECT now() AS now`;
     // A connection unheard for MISSED_HEARTBEATS intervals no longer keeps its Machine online, as when the instance holding it crashed.
@@ -407,24 +398,15 @@ export class MachinesService {
       return hardware ? [hardware] : [];
     });
     // Each Machine's last Shot and latest machine state are one index probe each, however long its history.
-    // Staff see only the Shots at their Locations.
-    const shotsInScope = scope.kind === "everything" ? Prisma.empty : Prisma.sql`AND location_id = ANY(${scope.locationIds}::uuid[])`;
     const [owners, pending, lastShots, states] = await Promise.all([
-      mismatched.length === 0
-        ? []
-        : this.prisma.machine.findMany({
-            where: { AND: [{ OR: mismatched }, await machinesInScope(this.prisma, scope)] },
-            select: { id: true, name: true, model: true, serial: true },
-          }),
-      mismatched.length === 0 || scope.kind !== "everything"
-        ? []
-        : this.prisma.pendingMachine.findMany({ where: { OR: mismatched }, select: { id: true, model: true, serial: true } }),
+      mismatched.length === 0 ? [] : this.prisma.machine.findMany({ where: { OR: mismatched }, select: { id: true, name: true, model: true, serial: true } }),
+      mismatched.length === 0 ? [] : this.prisma.pendingMachine.findMany({ where: { OR: mismatched }, select: { id: true, model: true, serial: true } }),
       machines.length === 0 ? [] : this.prisma.$queryRaw<{ id: string; machineId: string; pulledAt: Date | null }[]>(Prisma.sql`
         SELECT last.id, listed.id AS "machineId", last.pulled_at AS "pulledAt"
         FROM unnest(${machines.map((machine) => machine.id)}::uuid[]) AS listed(id)
         CROSS JOIN LATERAL (
           -- Only full records are credited, so this needs no has_full_record check.
-          SELECT id, pulled_at FROM shots WHERE machine_id = listed.id ${shotsInScope}
+          SELECT id, pulled_at FROM shots WHERE machine_id = listed.id
           ORDER BY pulled_at DESC NULLS LAST, id ASC LIMIT 1
         ) AS last`),
       machines.length === 0 ? [] : this.prisma.$queryRaw<{ machineId: string; state: string; substate: string; observedAt: Date }[]>(Prisma.sql`
@@ -471,20 +453,10 @@ export class MachinesService {
         lastSeenAt: machine.lastSeenAt?.toISOString() ?? null,
         lastShot: lastByMachine.get(machine.id) ?? null,
         machineState: stateByMachine.get(machine.id) ?? null,
-        ...viewLocationHistory(historyInScope(machine.locationHistory, scope)),
+        ...viewLocationHistory(machine.locationHistory),
       };
     });
   }
-}
-
-/**
- * For Staff, a Machine's Location History since it last arrived at one of
- * their Locations, where it is now: nothing of its time elsewhere.
- */
-function historyInScope<Entry extends { locationId: string }>(history: Entry[], scope: Scope): Entry[] {
-  let start = history.length;
-  while (start > 0 && seesLocation(scope, history[start - 1]!.locationId)) start--;
-  return history.slice(start);
 }
 
 /** What decides whether a welcomed connection may stay. */

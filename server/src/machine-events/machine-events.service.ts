@@ -1,9 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import type { MachineStateDelivery, WorkflowDelivery } from "@decent-sync/protocol";
-import { EVERYTHING, type Scope } from "../accounts/scope.js";
 import { type MachineStateEvent, Prisma, type WorkflowEvent } from "../generated/prisma/client.js";
 import { type Credit, creditReporter, firstDelivery } from "../machines/credit.js";
-import { requireMachineInScope } from "../machines/scope.js";
+import { machineNotFound } from "../machines/input.js";
 import type { MachineStateView } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
@@ -80,15 +79,15 @@ export class MachineEventsService {
   }
 
   /** The Machine's current Workflow: the latest stored for it, or null before any. */
-  async currentWorkflow(machineId: string, scope: Scope): Promise<WorkflowEventView | null> {
-    await requireMachineInScope(this.prisma, machineId, scope);
+  async currentWorkflow(machineId: string): Promise<WorkflowEventView | null> {
+    await this.requireMachine(machineId);
     const latest = await this.prisma.workflowEvent.findFirst({ where: { machineId }, orderBy: { id: "desc" } });
     return latest ? viewWorkflowEvent(latest) : null;
   }
 
   /** The Workflows recorded for the Machine, latest first. */
   async workflowEvents(machineId: string, page: Page) {
-    await requireMachineInScope(this.prisma, machineId, EVERYTHING);
+    await this.requireMachine(machineId);
     const [events, total] = await this.prisma.$transaction([
       this.prisma.workflowEvent.findMany({ where: { machineId }, orderBy: { id: "desc" }, take: page.limit, skip: page.offset }),
       this.prisma.workflowEvent.count({ where: { machineId } }),
@@ -98,12 +97,16 @@ export class MachineEventsService {
 
   /** The machine state transitions recorded for the Machine, latest first. */
   async machineStateEvents(machineId: string, page: Page) {
-    await requireMachineInScope(this.prisma, machineId, EVERYTHING);
+    await this.requireMachine(machineId);
     const [events, total] = await this.prisma.$transaction([
       this.prisma.machineStateEvent.findMany({ where: { machineId }, orderBy: { id: "desc" }, take: page.limit, skip: page.offset }),
       this.prisma.machineStateEvent.count({ where: { machineId } }),
     ]);
     return { events: events.map(viewMachineStateEvent), total, ...page };
+  }
+
+  private async requireMachine(id: string): Promise<void> {
+    if ((await this.prisma.machine.count({ where: { id } })) === 0) throw machineNotFound();
   }
 }
 

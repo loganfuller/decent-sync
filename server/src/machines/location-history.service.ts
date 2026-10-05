@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
-import { EVERYTHING, type Scope, seesLocation } from "../accounts/scope.js";
+import { type Scope, includesLocation } from "../accounts/scope.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma.service.js";
 import { type Correction, type Move, locationHistoryEntryNotFound, machineNotFound, unknownLocation } from "./input.js";
@@ -36,9 +36,10 @@ export class LocationHistoryService {
         orderBy: { effectiveFrom: "desc" },
         include: { location: { select: { name: true } } },
       });
-      // A Machine elsewhere is refused as if there were none, as Staff cannot see it.
-      if (!seesLocation(scope, latest?.locationId ?? null)) throw machineNotFound();
-      if (!seesLocation(scope, move.locationId)) throw new ForbiddenException("You can move a Machine only to a Location you work at");
+      if (!includesLocation(scope, latest?.locationId ?? null)) {
+        throw new ForbiddenException("You can move a Machine only from a Location you work at");
+      }
+      if (!includesLocation(scope, move.locationId)) throw new ForbiddenException("You can move a Machine only to a Location you work at");
       const location = await tx.location.findUnique({ where: { id: move.locationId }, select: { name: true } });
       if (!location) throw unknownLocation();
       if (latest?.locationId === move.locationId) throw new ConflictException(`It is already at ${location.name}`);
@@ -50,7 +51,7 @@ export class LocationHistoryService {
       await tx.locationAssignment.create({ data: { machineId, locationId: move.locationId, effectiveFrom } });
       await creditLocations(tx, machineId);
     });
-    return this.machines.get(machineId, scope);
+    return this.machines.get(machineId);
   }
 
   /**
@@ -85,7 +86,7 @@ export class LocationHistoryService {
       await tx.locationAssignment.update({ where: { id: entryId }, data: correction });
       await creditLocations(tx, machineId);
     });
-    return this.machines.get(machineId, EVERYTHING);
+    return this.machines.get(machineId);
   }
 
   /**
@@ -101,7 +102,7 @@ export class LocationHistoryService {
       await tx.locationAssignment.deleteMany({ where: { id: { in: neverLeft ? [entryId, after.id] : [entryId] } } });
       await creditLocations(tx, machineId);
     });
-    return this.machines.get(machineId, EVERYTHING);
+    return this.machines.get(machineId);
   }
 }
 
