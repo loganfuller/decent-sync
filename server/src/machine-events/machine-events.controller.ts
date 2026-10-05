@@ -1,9 +1,11 @@
 import { Controller, Get, Param, Query } from "@nestjs/common";
+import { AllowStaff } from "../accounts/guards.js";
 import { readMachineId } from "../machines/input.js";
 import { readPage } from "../pagination.js";
 import { MachineEventsService, type WorkflowEventView } from "./machine-events.service.js";
 
-/** What a Machine is set up to do next and what it has been doing, as its tablet reported them. */
+/** What a Machine is set up to do next and what it has been doing, as its tablet reported them. Staff read them too. */
+@AllowStaff()
 @Controller("api/machines")
 export class MachineEventsController {
   constructor(private readonly events: MachineEventsService) {}

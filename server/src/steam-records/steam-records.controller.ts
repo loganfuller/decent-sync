@@ -1,8 +1,11 @@
 import { Controller, Get, Param, Query } from "@nestjs/common";
+import { AllowStaff } from "../accounts/guards.js";
 import { readMachineId } from "../machines/input.js";
 import { readPage } from "../pagination.js";
 import { SteamRecordsService } from "./steam-records.service.js";
 
+/** Every Steam Record captured, which Staff read too. */
+@AllowStaff()
 @Controller("api/steam-records")
 export class SteamRecordsController {
   constructor(private readonly steamRecords: SteamRecordsService) {}

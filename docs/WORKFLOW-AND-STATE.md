@@ -89,7 +89,7 @@ then reports (ADR-0015). Events lost by an unload stay lost until milestone 2.
 
 All endpoints require the account session, and answer 404 for an unknown
 Machine. Pending Machines' events are not exposed; they appear on the Machine
-that takes their hardware over.
+that takes their hardware over. Staff read them as Admins do.
 
 - `GET /api/machines` and `GET /api/machines/:id` include `machineState:
   { state, substate, observedAt } | null`, the latest stored.

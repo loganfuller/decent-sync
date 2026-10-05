@@ -35,6 +35,26 @@ export interface Account {
   email: string;
   name: string;
   role: "admin" | "staff";
+  /** The Locations a Staff member works at, where they may move Machines; none for an Admin, who may change anything anywhere. */
+  locations: Location[];
+}
+
+/** An invite: a one-time link that creates an account, as an Admin or as Staff at chosen Locations. */
+export interface Invite {
+  id: string;
+  /** The email its account will sign in with. */
+  email: string;
+  role: "admin" | "staff";
+  /** The Locations a Staff member will work at; none for an Admin, who sees every Location. */
+  locations: Location[];
+  createdAt: string;
+  expiresAt: string;
+}
+
+/** A newly created invite and its link, which the server returns only once. */
+export interface CreatedInvite {
+  invite: Invite;
+  link: string;
 }
 
 export interface Location {

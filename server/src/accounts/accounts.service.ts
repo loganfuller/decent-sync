@@ -1,6 +1,7 @@
 import { ConflictException, HttpException, HttpStatus, Injectable, UnauthorizedException } from "@nestjs/common";
 import { PrismaService } from "../prisma.service.js";
-import type { Account } from "../generated/prisma/client.js";
+import type { Prisma } from "../generated/prisma/client.js";
+import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { hashPassword, verifyAgainstDummy, verifyPassword } from "./passwords.js";
 import { SignInLimiter } from "./sign-in-limiter.js";
 
@@ -10,14 +11,23 @@ export interface AccountView {
   email: string;
   name: string;
   role: "admin" | "staff";
+  /** The Locations a Staff member works at, by name; none for an Admin, who may change anything anywhere. */
+  locations: LocationView[];
 }
 
-export function viewAccount(account: Account): AccountView {
+/** What an account is read with, so it can be viewed and its Scope known. */
+export const withStaffLocations = {
+  locations: { include: { location: true }, orderBy: { location: { name: "asc" } } },
+} as const satisfies Prisma.AccountInclude;
+export type AccountWithLocations = Prisma.AccountGetPayload<{ include: typeof withStaffLocations }>;
+
+export function viewAccount(account: AccountWithLocations): AccountView {
   return {
     id: account.id,
     email: account.email,
     name: account.name,
     role: account.role === "ADMIN" ? "admin" : "staff",
+    locations: account.locations.map(({ location }) => viewLocation(location)),
   };
 }
 
@@ -32,6 +42,12 @@ export class AccountsService {
     private readonly limiter: SignInLimiter,
   ) {}
 
+  /** The account as the REST API returns it, or undefined if there is none. */
+  async view(id: string): Promise<AccountView | undefined> {
+    const account = await this.prisma.account.findUnique({ where: { id }, include: withStaffLocations });
+    return account ? viewAccount(account) : undefined;
+  }
+
   /** Whether the server still needs its first Admin. */
   async setupRequired(): Promise<boolean> {
     return (await this.prisma.account.count()) === 0;
@@ -42,13 +58,14 @@ export class AccountsService {
    * another setup request is completing at the same time: the transaction
    * holds an advisory lock while it checks for accounts and creates one.
    */
-  async setUp(input: { email: string; name: string; password: string }): Promise<Account> {
+  async setUp(input: { email: string; name: string; password: string }): Promise<AccountWithLocations> {
     const passwordHash = await hashPassword(input.password);
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SETUP_LOCK}::bigint)`;
       if ((await tx.account.count()) > 0) throw setupClosed();
       return tx.account.create({
         data: { email: input.email, name: input.name, role: "ADMIN", passwordHash },
+        include: withStaffLocations,
       });
     });
   }
@@ -57,11 +74,11 @@ export class AccountsService {
    * The account with this email and password. A wrong email and a wrong
    * password are refused alike, in about the same time.
    */
-  async authenticate(email: string, password: string): Promise<Account> {
+  async authenticate(email: string, password: string): Promise<AccountWithLocations> {
     const retryAfter = await this.limiter.begin(email);
     if (retryAfter !== undefined) throw new TooManySignInAttempts(retryAfter);
 
-    const account = await this.prisma.account.findUnique({ where: { email } });
+    const account = await this.prisma.account.findUnique({ where: { email }, include: withStaffLocations });
     const valid = account
       ? await verifyPassword(password, account.passwordHash)
       : await verifyAgainstDummy(password);

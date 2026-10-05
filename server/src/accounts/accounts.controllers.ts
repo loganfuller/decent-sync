@@ -1,10 +1,13 @@
-import { Body, Controller, Delete, Get, HttpCode, Post, Res } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Post, Res, UnauthorizedException } from "@nestjs/common";
 import type { Response } from "express";
+import { CONFIG } from "../config.module.js";
+import type { Config } from "../config.js";
 import type { SignedIn } from "./sessions.service.js";
 import { SessionsService } from "./sessions.service.js";
 import { AccountsService, type AccountView, TooManySignInAttempts, setupClosed, viewAccount } from "./accounts.service.js";
-import { CurrentSession, Public } from "./guards.js";
-import { readCredentials, readNewAccount } from "./input.js";
+import { AllowStaff, CurrentSession, Public } from "./guards.js";
+import { readAcceptance, readCredentials, readNewAccount, readNewInvite } from "./input.js";
+import { type InviteView, InvitesService } from "./invites.service.js";
 import { MIN_PASSWORD_LENGTH } from "./passwords.js";
 
 /** First-run setup: creating the first Admin on a server with no accounts. */
@@ -57,15 +60,71 @@ export class SessionController {
     }
   }
 
+  @AllowStaff()
   @Get()
-  current(@CurrentSession() { account }: SignedIn): { account: AccountView } {
-    return { account: viewAccount(account) };
+  async current(@CurrentSession() { account }: SignedIn): Promise<{ account: AccountView }> {
+    // Its Locations' names are read only here: every request needs only their ids.
+    const view = await this.accounts.view(account.id);
+    if (!view) throw new UnauthorizedException("Sign in to continue");
+    return { account: view };
   }
 
   /** Signs out: ends the session on the server, not only in the browser. */
+  @AllowStaff()
   @Delete()
   @HttpCode(204)
   async signOut(@CurrentSession() { sessionId }: SignedIn, @Res({ passthrough: true }) response: Response): Promise<void> {
     await this.sessions.end(sessionId, response);
+  }
+}
+
+/** Invites: one-time links an Admin creates and sends someone themselves, which create their account. */
+@Controller("api/invites")
+export class InvitesController {
+  constructor(
+    private readonly invites: InvitesService,
+    @Inject(CONFIG) private readonly config: Config,
+  ) {}
+
+  /**
+   * Creates an invite for an email, as an Admin or as Staff at chosen
+   * Locations. The response is the only time its link is shown.
+   */
+  @Post()
+  async create(@Body() body: unknown): Promise<{ invite: InviteView; link: string }> {
+    const { invite, secret } = await this.invites.create(readNewInvite(body));
+    return { invite, link: new URL(`/invite/${secret}`, this.config.publicUrl).href };
+  }
+}
+
+/**
+ * An invite link, as the person it was sent to opens it, with no session.
+ * One that was used or has expired is refused as gone, saying why.
+ */
+@Controller("api/invite-links")
+export class InviteLinksController {
+  constructor(
+    private readonly invites: InvitesService,
+    private readonly sessions: SessionsService,
+  ) {}
+
+  /** What the invite offers: the email, role and Locations of the account it creates, and the password rule. */
+  @Public()
+  @Get(":secret")
+  async open(@Param("secret") secret: string): Promise<{ invite: InviteView; passwordMinLength: number }> {
+    return { invite: await this.invites.open(secret), passwordMinLength: MIN_PASSWORD_LENGTH };
+  }
+
+  /** Creates the invite's account with the name and password chosen, and signs it in. */
+  @Public()
+  @Post(":secret/accept")
+  async accept(
+    @Param("secret") secret: string,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<{ account: AccountView }> {
+    const account = await this.invites.accept(secret, readAcceptance(body));
+    await this.sessions.start(account.id, response);
+    return { account: viewAccount(account) };
   }
 }

@@ -13,24 +13,41 @@ import { Reflector } from "@nestjs/core";
 import type { Request, Response } from "express";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
+import { AccountRole } from "../generated/prisma/client.js";
+import type { Scope } from "./scope.js";
 import { type SignedIn, SessionsService } from "./sessions.service.js";
 
 const PUBLIC = Symbol("public");
+const STAFF = Symbol("staff");
 
 /**
  * Lets a route answer without a signed-in account. Every other route requires
- * one. Public routes are few: health, first-run setup and sign-in.
+ * one. Public routes are few: health, first-run setup, sign-in and invite links.
  */
 export const Public = () => SetMetadata(PUBLIC, true);
+
+/**
+ * Lets Staff use a route. Staff read everything but other accounts' personal
+ * information; a route that changes something must limit Staff to what
+ * their Scope includes. Every other route that requires a signed-in account
+ * requires an Admin, so a new route stays Admin-only until Staff are meant
+ * to use it.
+ */
+export const AllowStaff = () => SetMetadata(STAFF, true);
 
 type SignedInRequest = Request & { signedIn?: SignedIn };
 
 /** The signed-in account and session of a route that requires one. */
-export const CurrentSession = createParamDecorator((_: unknown, context: ExecutionContext): SignedIn => {
+export const CurrentSession = createParamDecorator((_: unknown, context: ExecutionContext): SignedIn => signedInOf(context));
+
+/** What the signed-in account of a route that requires one sees. */
+export const CurrentScope = createParamDecorator((_: unknown, context: ExecutionContext): Scope => signedInOf(context).scope);
+
+function signedInOf(context: ExecutionContext): SignedIn {
   const { signedIn } = context.switchToHttp().getRequest<SignedInRequest>();
-  if (!signedIn) throw new Error("CurrentSession used on a public route");
+  if (!signedIn) throw new Error("CurrentSession or CurrentScope used on a public route");
   return signedIn;
-});
+}
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -70,7 +87,10 @@ export class SameOriginGuard implements CanActivate {
   }
 }
 
-/** Requires a signed-in account on every route not marked `@Public()`. */
+/**
+ * Requires a signed-in account on every route not marked `@Public()`, and an
+ * Admin on every one not marked `@AllowStaff()` either.
+ */
 @Injectable()
 export class SessionGuard implements CanActivate {
   constructor(
@@ -79,13 +99,16 @@ export class SessionGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const isPublic = this.reflector.getAllAndOverride<boolean>(PUBLIC, [context.getHandler(), context.getClass()]);
-    if (isPublic) return true;
+    const targets = [context.getHandler(), context.getClass()];
+    if (this.reflector.getAllAndOverride<boolean>(PUBLIC, targets)) return true;
 
     const http = context.switchToHttp();
     const request = http.getRequest<SignedInRequest>();
     const signedIn = await this.sessions.resume(request, http.getResponse<Response>());
     if (!signedIn) throw new UnauthorizedException("Sign in to continue");
+    if (signedIn.account.role !== AccountRole.ADMIN && !this.reflector.getAllAndOverride<boolean>(STAFF, targets)) {
+      throw new ForbiddenException("Only an Admin can do this");
+    }
     request.signedIn = signedIn;
     return true;
   }

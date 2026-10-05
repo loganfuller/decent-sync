@@ -1,9 +1,11 @@
 import { Controller, Get, Param } from "@nestjs/common";
+import { AllowStaff } from "../accounts/guards.js";
 import { readMachineId } from "../machines/input.js";
 import { type CollectionSummary, type CollectionView, CollectionsService } from "./collections.service.js";
 import type { PairedDevicesView } from "./paired-devices.js";
 
-/** Each Machine's library, settings and paired devices, as its tablet last reported them. */
+/** Each Machine's library, settings and paired devices, as its tablet last reported them. Staff read them too. */
+@AllowStaff()
 @Controller("api/machines")
 export class CollectionsController {
   constructor(private readonly collections: CollectionsService) {}

@@ -113,8 +113,8 @@ with the reading carried over.
 
 ## REST API
 
-All endpoints require the existing account session. Staff Location scoping
-and filters by Location and date are ticket #18.
+All endpoints require a signed-in account, Admin or Staff. Filters by
+Location and date are ticket #18.
 
 - `GET /api/steam-records?limit=20&offset=0&machineId=<uuid>` returns
   `{ steamRecords, total, limit, offset }`. Limit is 1–100; offset is

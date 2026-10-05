@@ -1,8 +1,11 @@
 import { Controller, Get, Param, Query } from "@nestjs/common";
+import { AllowStaff } from "../accounts/guards.js";
 import { readMachineId } from "../machines/input.js";
 import { readPage } from "../pagination.js";
 import { ShotsService } from "./shots.service.js";
 
+/** Every Shot captured, which Staff read too. */
+@AllowStaff()
 @Controller("api/shots")
 export class ShotsController {
   constructor(private readonly shots: ShotsService) {}

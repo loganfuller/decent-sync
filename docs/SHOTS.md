@@ -71,8 +71,7 @@ corrected counts for nothing (`elapsedSeconds`).
 
 ## REST API
 
-All endpoints require the existing account session. Staff Location scoping
-is ticket #15.
+All endpoints require a signed-in account, Admin or Staff.
 
 - `GET /api/shots?limit=20&offset=0&machineId=<uuid>` returns
   `{ shots, total, limit, offset }`. Limit is 1–100; offset is nonnegative.

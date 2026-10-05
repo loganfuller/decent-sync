@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
+import { AllowStaff } from "../accounts/guards.js";
 import { readLocationEdit, readLocationId, readNewLocation } from "./input.js";
 import { LocationsService, type LocationView, viewLocation } from "./locations.service.js";
 import { TimeZones } from "./time-zones.js";
@@ -11,6 +12,7 @@ export class LocationsController {
     private readonly timeZones: TimeZones,
   ) {}
 
+  @AllowStaff()
   @Get()
   async list(): Promise<{ locations: LocationView[] }> {
     return { locations: (await this.locations.list()).map(viewLocation) };
@@ -37,6 +39,7 @@ export class LocationsController {
 export class TimeZonesController {
   constructor(private readonly timeZones: TimeZones) {}
 
+  @AllowStaff()
   @Get()
   async list(): Promise<{ timeZones: string[] }> {
     return { timeZones: await this.timeZones.list() };

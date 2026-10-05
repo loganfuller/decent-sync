@@ -1,5 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
+import { useIsAdmin, useStaffLocationIds } from "@/auth";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -8,8 +10,10 @@ import { api, type Location } from "@/lib/api";
 
 const TIME_ZONE_LIST = "time-zones";
 
-/** Locations: creating them, and renaming them or changing their time zone. */
+/** Locations: creating them, and renaming them or changing their time zone. Staff see which they work at. */
 export function LocationsPage() {
+  const isAdmin = useIsAdmin();
+  const worksAt = useStaffLocationIds();
   const [locations, setLocations] = useState<Location[]>();
   const [timeZones, setTimeZones] = useState<string[]>([]);
   const [loadError, setLoadError] = useState<string>();
@@ -28,12 +32,14 @@ export function LocationsPage() {
 
   useEffect(() => {
     void reload();
+    // Only for the forms, which only Admins have.
+    if (!isAdmin) return;
     api<{ timeZones: string[] }>("GET", "/time-zones").then(
       ({ timeZones }) => setTimeZones(timeZones),
       // Only suggestions are lost; the server still checks what is entered.
       () => setTimeZones([]),
     );
-  }, [reload]);
+  }, [reload, isAdmin]);
 
   async function create(values: LocationValues) {
     await api("POST", "/locations", values);
@@ -62,23 +68,25 @@ export function LocationsPage() {
         ))}
       </datalist>
 
-      <Card className="max-w-xl">
-        <CardHeader>
-          <CardTitle>
-            <h2>New Location</h2>
-          </CardTitle>
-          <CardDescription>The time zone starts as this browser's.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <LocationForm
-            key={created}
-            label="New Location"
-            initial={{ name: "", timeZone: browserTimeZone() }}
-            submitLabel="Create Location"
-            onSubmit={create}
-          />
-        </CardContent>
-      </Card>
+      {isAdmin && (
+        <Card className="max-w-xl">
+          <CardHeader>
+            <CardTitle>
+              <h2>New Location</h2>
+            </CardTitle>
+            <CardDescription>The time zone starts as this browser's.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <LocationForm
+              key={created}
+              label="New Location"
+              initial={{ name: "", timeZone: browserTimeZone() }}
+              submitLabel="Create Location"
+              onSubmit={create}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {loadError && (
         <Alert variant="destructive">
@@ -101,17 +109,22 @@ export function LocationsPage() {
               ) : (
                 <div className="flex items-center gap-4">
                   <div className="grid flex-1 gap-0.5">
-                    <span className="font-medium">{location.name}</span>
+                    <span className="flex items-center gap-2 font-medium">
+                      {location.name}
+                      {worksAt.has(location.id) && <Badge variant="secondary">You work here</Badge>}
+                    </span>
                     <span className="text-sm text-muted-foreground">{location.timeZone}</span>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    aria-label={`Edit ${location.name}`}
-                    onClick={() => setEditing(location.id)}
-                  >
-                    Edit
-                  </Button>
+                  {isAdmin && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label={`Edit ${location.name}`}
+                      onClick={() => setEditing(location.id)}
+                    >
+                      Edit
+                    </Button>
+                  )}
                 </div>
               )}
             </li>

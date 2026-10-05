@@ -1,4 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Put } from "@nestjs/common";
+import { AllowStaff, CurrentScope } from "../accounts/guards.js";
+import type { Scope } from "../accounts/scope.js";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import {
@@ -15,7 +17,12 @@ import { LocationHistoryService } from "./location-history.service.js";
 import { type MachineView, MachinesService } from "./machines.service.js";
 import { type PendingMachineView, PendingMachinesService } from "./pending-machines.service.js";
 
-/** Machine entries: the Machines an Admin has adopted, their identity, tokens and status. */
+/**
+ * Machine entries: the Machines an Admin has adopted, their identity, tokens
+ * and status. Machine information is not private, so Staff read all of it;
+ * what they may change is limited to moving Machines between the Locations
+ * they work at. Every other change is for Admins.
+ */
 @Controller("api/machines")
 export class MachinesController {
   constructor(
@@ -24,17 +31,20 @@ export class MachinesController {
     @Inject(CONFIG) private readonly config: Config,
   ) {}
 
+  @AllowStaff()
   @Get()
   async list(): Promise<{ machines: MachineView[] }> {
     return { machines: await this.machines.list() };
   }
 
   /** The models an Admin may enter for an Unidentified Machine, as Decaid names them. */
+  @AllowStaff()
   @Get("models")
   models(): { models: readonly string[] } {
     return { models: MACHINE_MODELS };
   }
 
+  @AllowStaff()
   @Get(":id")
   async get(@Param("id") id: string): Promise<{ machine: MachineView }> {
     return { machine: await this.machines.get(readMachineId(id)) };
@@ -69,12 +79,14 @@ export class MachinesController {
   /**
    * Moves the Machine to another Location: adds an entry to its Location
    * History, from now or from `effectiveFrom`, which must come after its
-   * latest entry and not be in the future.
+   * latest entry and not be in the future. Staff move Machines from now,
+   * only between Locations they work at.
    */
+  @AllowStaff()
   @Post(":id/location-history")
-  async move(@Param("id") id: string, @Body() body: unknown): Promise<{ machine: MachineView }> {
+  async move(@Param("id") id: string, @Body() body: unknown, @CurrentScope() scope: Scope): Promise<{ machine: MachineView }> {
     const machineId = readMachineId(id);
-    return { machine: await this.locationHistory.move(machineId, readMove(body)) };
+    return { machine: await this.locationHistory.move(machineId, readMove(body), scope) };
   }
 
   /**
@@ -99,7 +111,7 @@ export class MachinesController {
   }
 }
 
-/** Hardware the server has seen that no Machine has, for an Admin to adopt or dismiss. */
+/** Hardware the server has seen that no Machine has, for an Admin to adopt or dismiss. Staff see it too. */
 @Controller("api/pending-machines")
 export class PendingMachinesController {
   constructor(
@@ -107,6 +119,7 @@ export class PendingMachinesController {
     @Inject(CONFIG) private readonly config: Config,
   ) {}
 
+  @AllowStaff()
   @Get()
   async list(): Promise<{ pendingMachines: PendingMachineView[] }> {
     return { pendingMachines: await this.pending.list() };

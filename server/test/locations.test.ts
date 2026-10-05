@@ -140,9 +140,16 @@ describe("Locations", () => {
     expect(timeZones).toEqual([...timeZones].sort());
     expect(timeZones).toEqual(expect.arrayContaining(["UTC", "America/Chicago", "Asia/Kolkata", "Europe/Kyiv"]));
     expect(timeZones).not.toContain("Asia/Calcutta");
-    for (const timeZone of timeZones) {
-      const response = await call("POST", "/locations", { name: `Zone ${timeZone}`, timeZone });
-      expect(((await response.json()) as { location: LocationView }).location.timeZone).toBe(timeZone);
+    // A Location in each of several hundred zones, a batch at a time: one at a time takes seconds.
+    for (let start = 0; start < timeZones.length; start += 50) {
+      const batch = timeZones.slice(start, start + 50);
+      const stored = await Promise.all(
+        batch.map(async (timeZone) => {
+          const response = await call("POST", "/locations", { name: `Zone ${timeZone}`, timeZone });
+          return ((await response.json()) as { location: LocationView }).location.timeZone;
+        }),
+      );
+      expect(stored).toEqual(batch);
     }
   });
 });

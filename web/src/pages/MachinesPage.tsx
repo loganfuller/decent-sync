@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { Link } from "react-router";
+import { useIsAdmin } from "@/auth";
 import {
   IdentificationBadge,
   type MachineEntry,
@@ -25,8 +26,12 @@ interface Machines {
   pendingMachines: PendingMachine[];
 }
 
-/** Machines and their status, creating machine entries, and resolving Pending Machines. */
+/**
+ * Machines and their status, creating machine entries, and resolving Pending
+ * Machines. Staff see all of it, but only Admins create or resolve anything.
+ */
 export function MachinesPage() {
+  const isAdmin = useIsAdmin();
   const load = useCallback(async (): Promise<Machines> => {
     const [{ machines }, { pendingMachines }] = await Promise.all([
       api<{ machines: Machine[] }>("GET", "/machines"),
@@ -73,27 +78,30 @@ export function MachinesPage() {
       {pending.length > 0 && (
         <PendingMachines
           title="Pending Machines"
-          description="Hardware a tablet reported that no machine entry covers. Create a machine entry for it, or dismiss it."
+          description={`Hardware a tablet reported that no machine entry covers. ${isAdmin ? "Create" : "An Admin can create"} a machine entry for it, or dismiss it.`}
           pendingMachines={pending}
+          isAdmin={isAdmin}
           onCreated={created}
           onDismissed={reload}
         />
       )}
 
-      <Card className="max-w-xl">
-        <CardHeader>
-          <CardTitle>
-            <h2>New Machine</h2>
-          </CardTitle>
-          <CardDescription>
-            Its hardware is recorded from the first connection with its token. It is at its Location from now; correct
-            when it arrived on its page to credit earlier Shots there.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <MachineEntryForm label="New Machine" submitLabel="Create Machine" onSubmit={create} />
-        </CardContent>
-      </Card>
+      {isAdmin && (
+        <Card className="max-w-xl">
+          <CardHeader>
+            <CardTitle>
+              <h2>New Machine</h2>
+            </CardTitle>
+            <CardDescription>
+              Its hardware is recorded from the first connection with its token. It is at its Location from now; correct
+              when it arrived on its page to credit earlier Shots there.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MachineEntryForm label="New Machine" submitLabel="Create Machine" onSubmit={create} />
+          </CardContent>
+        </Card>
+      )}
 
       {data?.machines.length === 0 && <p className="text-muted-foreground">No Machines yet.</p>}
       {data && data.machines.length > 0 && <MachineTable machines={data.machines} />}
@@ -103,6 +111,7 @@ export function MachinesPage() {
           title="Dismissed Pending Machines"
           description="Hardware an Admin dismissed. Anything received for it is kept and comes back if it gets a machine entry."
           pendingMachines={dismissed}
+          isAdmin={isAdmin}
           onCreated={created}
           onDismissed={reload}
         />
@@ -167,12 +176,14 @@ function PendingMachines({
   title,
   description,
   pendingMachines,
+  isAdmin,
   onCreated,
   onDismissed,
 }: {
   title: string;
   description: string;
   pendingMachines: PendingMachine[];
+  isAdmin: boolean;
   onCreated(issued: IssuedToken): void;
   onDismissed(): Promise<void>;
 }) {
@@ -207,7 +218,7 @@ function PendingMachines({
                 {pending.lastSeenAt && `, last reported ${formatTime(pending.lastSeenAt)}`}
               </span>
             </div>
-            <PendingMachineActions pending={pending} onCreated={onCreated} onDismissed={onDismissed} />
+            {isAdmin && <PendingMachineActions pending={pending} onCreated={onCreated} onDismissed={onDismissed} />}
           </li>
         ))}
       </ul>
