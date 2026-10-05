@@ -117,9 +117,9 @@ export class ShotsService {
       return { machineId: reporter.machineId, pendingMachineId: null, machineInferred };
     }
     await lockHardware(tx, hardware);
-    // Machine rows before the Pending Machine, matching hello and dismissal.
+    // Machine rows before the Pending Machine, matching hello and dismissal. Locked as lockMachine locks it.
     const [owner] = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM machines WHERE model = ${hardware.model} AND serial = ${hardware.serial} FOR UPDATE`;
+      SELECT id FROM machines WHERE model = ${hardware.model} AND serial = ${hardware.serial} FOR NO KEY UPDATE`;
     if (owner) return { machineId: owner.id, pendingMachineId: null, machineInferred };
     const pending = await tx.pendingMachine.upsert({ where: { model_serial: hardware }, create: hardware, update: {} });
     return { machineId: null, pendingMachineId: pending.id, machineInferred };

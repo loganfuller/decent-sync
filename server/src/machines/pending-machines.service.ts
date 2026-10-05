@@ -109,11 +109,12 @@ export class PendingMachinesService {
       // dismissal or is waited for, so every Machine that is one when this commits is found here.
       const found = await lockedPendingMachine(tx, id);
       // Machines first, then the Pending Machine: the order a hello takes them in, so neither waits on the other in a cycle.
+      // Locked as lockMachine locks them.
       const refused = await tx.$queryRaw<{ id: string; name: string }[]>`
         SELECT id, name FROM machines
         WHERE identification = 'MISMATCH' AND reported_model = ${found.model} AND reported_serial = ${found.serial}
         ORDER BY id
-        FOR UPDATE`;
+        FOR NO KEY UPDATE`;
       const pending = found.dismissedAt ? found : await tx.pendingMachine.update({ where: { id }, data: { dismissedAt: at } });
       await tx.dismissedHardware.createMany({
         data: refused.map((machine) => ({ machineId: machine.id, model: pending.model, serial: pending.serial })),

@@ -90,10 +90,7 @@ test("moving a Machine between Locations, and correcting when it moved, shows in
 
   // The times were entered in each Location's zone, not the browser's.
   const id = new URL(page.url()).pathname.split("/").at(-1)!;
-  const { machine } = (await (await page.request.get(`/api/machines/${id}`)).json()) as {
-    machine: { locationHistory: { location: { name: string }; effectiveFrom: string }[] };
-  };
-  expect(machine.locationHistory.map((entry) => [entry.location.name, entry.effectiveFrom])).toEqual([
+  expect(await storedHistory(page, id)).toEqual([
     ["Lab", "2026-01-15T15:30:00.000Z"],
     ["Uptown", "2026-02-01T15:00:00.000Z"],
   ]);
@@ -146,10 +143,7 @@ test("a mistaken move is removed, and an entry's Location corrected without chan
   await expect(entries.nth(1)).toContainText("From Jan 15, 2026, 9:30 AM CST");
 
   const id = new URL(page.url()).pathname.split("/").at(-1)!;
-  const { machine } = (await (await page.request.get(`/api/machines/${id}`)).json()) as {
-    machine: { locationHistory: { location: { name: string }; effectiveFrom: string }[] };
-  };
-  expect(machine.locationHistory.map((entry) => [entry.location.name, entry.effectiveFrom])).toEqual([
+  expect(await storedHistory(page, id)).toEqual([
     ["Uptown", "2026-01-15T15:30:00.000Z"],
     ["Belmont", "2026-02-01T15:00:00.000Z"],
   ]);
@@ -199,9 +193,18 @@ test("a machine entry created for a Pending Machine starts at the Location chose
   await expect(locationCell(page, "Lab 2")).toHaveText("Lab");
 });
 
-async function createLocation(page: Page, name: string, timeZone: string) {
+async function createLocation(page: Page, name: string, timeZone: string): Promise<{ id: string }> {
   const response = await page.request.post("/api/locations", { data: { name, timeZone } });
   baseExpect(response.status()).toBe(201);
+  return ((await response.json()) as { location: { id: string } }).location;
+}
+
+/** A Machine's Location History as the REST API stores it: Location names and times. */
+async function storedHistory(page: Page, id: string) {
+  const { machine } = (await (await page.request.get(`/api/machines/${id}`)).json()) as {
+    machine: { locationHistory: { location: { name: string }; effectiveFrom: string }[] };
+  };
+  return machine.locationHistory.map((entry) => [entry.location.name, entry.effectiveFrom]);
 }
 
 function machineRow(page: Page, name: string) {
@@ -224,3 +227,39 @@ function history(page: Page) {
 function field(page: Page, term: string) {
   return page.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
 }
+
+test("a time the clocks repeat keeps its moment when only the Location is corrected, and one they skip is refused", async ({ page }) => {
+  const harbor = await createLocation(page, "Harbor", "America/New_York");
+  const response = await page.request.post("/api/machines", { data: { name: "Fall back", locationId: harbor.id } });
+  baseExpect(response.status()).toBe(201);
+  const { machine } = (await response.json()) as { machine: { id: string; locationHistory: { id: string }[] } };
+  // The second 1:30 AM of New York's fall-back night, with seconds the form does not show.
+  const arrived = await page.request.patch(`/api/machines/${machine.id}/location-history/${machine.locationHistory[0]!.id}`, {
+    data: { effectiveFrom: "2025-11-02T06:30:42.123Z" },
+  });
+  baseExpect(arrived.status()).toBe(200);
+
+  await page.goto(`/machines/${machine.id}`);
+  const entries = history(page).getByRole("listitem");
+  await expect(entries.nth(0)).toContainText("From Nov 2, 2025, 1:30 AM EST");
+  await history(page).getByRole("button", { name: "Correct arrival at Harbor" }).click();
+  const harborForm = history(page).getByRole("form", { name: "Correct arrival at Harbor" });
+  await harborForm.getByRole("combobox", { name: "Location" }).click();
+  await page.getByRole("option", { name: "Lab" }).click();
+  await harborForm.getByRole("button", { name: "Save" }).click();
+  await expect(harborForm).toHaveCount(0);
+  await expect(entries.nth(0)).toContainText("Lab");
+  expect(await storedHistory(page, machine.id)).toEqual([["Lab", "2025-11-02T06:30:42.123Z"]]);
+
+  // 2:30 AM never happened in Denver on the night its clocks went forward.
+  await history(page).getByRole("button", { name: "Correct arrival at Lab" }).click();
+  const labForm = history(page).getByRole("form", { name: "Correct arrival at Lab" });
+  await labForm.getByLabel("Arrived").fill("2026-03-08T02:30");
+  await labForm.getByRole("button", { name: "Save" }).click();
+  await expect(labForm.getByRole("alert")).toContainText("That time does not exist in America/Denver");
+  expect(await storedHistory(page, machine.id)).toEqual([["Lab", "2025-11-02T06:30:42.123Z"]]);
+  await labForm.getByLabel("Arrived").fill("2026-03-08T03:30");
+  await labForm.getByRole("button", { name: "Save" }).click();
+  await expect(labForm).toHaveCount(0);
+  expect(await storedHistory(page, machine.id)).toEqual([["Lab", "2026-03-08T09:30:00.000Z"]]);
+});

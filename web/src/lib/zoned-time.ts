@@ -31,8 +31,8 @@ export function toZonedInput(iso: string, timeZone: string): string {
 
 /**
  * The time a `datetime-local` input's value names in the zone, as an ISO
- * string, or undefined if it names none. A time a clock change skips or
- * repeats resolves to one beside it.
+ * string, or undefined if it names none, as when the zone's clocks skip it.
+ * A time the clocks repeat is taken at its first occurrence.
  */
 export function fromZonedInput(value: string, timeZone: string): string | undefined {
   const match = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)(?::(\d\d))?$/.exec(value);
@@ -42,7 +42,10 @@ export function fromZonedInput(value: string, timeZone: string): string | undefi
   // The zone's offset at a first guess, then at the time that gives, settles it.
   let time = wall - offset(wall, timeZone);
   time = wall - offset(time, timeZone);
-  return Number.isFinite(time) ? new Date(time).toISOString() : undefined;
+  if (!Number.isFinite(time)) return undefined;
+  const iso = new Date(time).toISOString();
+  // A skipped time comes back as another one.
+  return toZonedInput(iso, timeZone) === value.slice(0, 16) ? iso : undefined;
 }
 
 /** How far the zone's clocks are ahead of UTC at the time, in milliseconds. */

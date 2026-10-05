@@ -502,9 +502,15 @@ export async function lockHardware(tx: Prisma.TransactionClient, hardware: Hardw
  * Locks the Machine's row until the transaction ends, so whatever decides
  * its identity or tokens, changes its Location History, or credits a record
  * to it by that history, runs one at a time. Returns false if there is none.
+ *
+ * FOR NO KEY UPDATE, not FOR UPDATE: it excludes the others just the same,
+ * but lets foreign-key checks on rows referencing the Machine through. A
+ * Shot edit that writes its row twice checks that key again, and with FOR
+ * UPDATE it would wait for a Location History change that is itself waiting
+ * for the Shot's row.
  */
 export async function lockMachine(tx: Prisma.TransactionClient, id: string): Promise<boolean> {
-  const rows = await tx.$queryRaw<unknown[]>`SELECT 1 FROM machines WHERE id = ${id}::uuid FOR UPDATE`;
+  const rows = await tx.$queryRaw<unknown[]>`SELECT 1 FROM machines WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
   return rows.length > 0;
 }
 

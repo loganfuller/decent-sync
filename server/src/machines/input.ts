@@ -7,7 +7,7 @@ import { type Hardware, isRealSerial } from "../sync/identity.js";
 const MAX_NAME_LENGTH = 100;
 const MAX_SERIAL_LENGTH = 100;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ISO_INSTANT = /^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:\d\d)$/i;
+const ISO_INSTANT = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)(?::(\d\d)(?:\.\d+)?)?(?:Z|[+-](\d\d):(\d\d))$/i;
 
 /**
  * The models an Admin may enter, spelled as Decaid reports them
@@ -80,12 +80,20 @@ function readLocationChoice(value: unknown, problems: string[]): string | undefi
 
 /** A time with its offset, such as 2026-10-04T15:00:00Z, so it names one instant whatever the server's time zone. */
 function readTime(value: unknown, problems: string[]): Date | undefined {
-  if (typeof value === "string" && ISO_INSTANT.test(value)) {
-    const time = new Date(value);
+  const match = typeof value === "string" ? ISO_INSTANT.exec(value) : null;
+  if (match && namesRealTime(match)) {
+    const time = new Date(value as string);
     if (Number.isFinite(time.getTime())) return time;
   }
   problems.push("Enter a date and time with its offset, such as 2026-10-04T15:00:00Z");
   return undefined;
+}
+
+/** Whether the date and clock time exist, since Date rolls ones that do not over, February 30 into March. */
+function namesRealTime(match: RegExpExecArray): boolean {
+  const [year, month, day, hour, minute, second, offsetHours, offsetMinutes] = match.slice(1).map((part) => Number(part ?? 0));
+  const daysInMonth = new Date(Date.UTC(year!, month!, 0)).getUTCDate();
+  return month! >= 1 && month! <= 12 && day! >= 1 && day! <= daysInMonth && hour! <= 23 && minute! <= 59 && second! <= 59 && offsetHours! <= 23 && offsetMinutes! <= 59;
 }
 
 /** A model and serial an Admin entered for a Machine. A serial of "0" identifies nothing. */

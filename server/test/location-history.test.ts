@@ -125,6 +125,11 @@ describe("Location History", () => {
     expect(response.status, JSON.stringify(body.message)).toBeLessThan(300);
     return body.machine;
   }
+  /** Waits until a query on the test database waits for a lock, such as one the test holds. */
+  async function someoneWaits(database: { query<T>(text: string): Promise<{ rows: T[] }> }) {
+    const waiting = "SELECT count(*)::int AS waiting FROM pg_locks WHERE NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())";
+    await expect.poll(async () => (await database.query<{ waiting: number }>(waiting)).rows[0]!.waiting).toBeGreaterThan(0);
+  }
   async function problem(response: Response) {
     return { status: response.status, message: ((await response.json()) as { message: unknown }).message };
   }
@@ -295,8 +300,7 @@ describe("Location History", () => {
       // Holds the Shot's storage, once it has been credited, until the move is under way.
       await database.query("LOCK TABLE shot_measurements IN ACCESS EXCLUSIVE MODE");
       const delivery = sendShot(raw, shotAt("stored-during-a-move", "2026-03-15T12:00:00Z"));
-      const waiting = "SELECT count(*)::int AS waiting FROM pg_locks WHERE NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())";
-      await expect.poll(async () => (await database.query<{ waiting: number }>(waiting)).rows[0]!.waiting).toBeGreaterThan(0);
+      await someoneWaits(database);
       moving = move(created.machine.id, uptown.id, "2026-03-01T00:00:00Z");
       // The move waits for the Shot's storage, which holds the Machine.
       const settled = await Promise.race([moving.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500))]);
@@ -309,6 +313,38 @@ describe("Location History", () => {
     }
     expect((await moved(await moving!)).location).toEqual(uptown);
     expect(await detail("stored-during-a-move")).toMatchObject({ location: uptown });
+  });
+
+  it("stores an edit to a Shot while its Machine's Location History changes, on another instance, without either waiting on the other in a cycle", async () => {
+    const created = await api.createMachine("Edited during a correction", lab.id);
+    const first = created.machine.locationHistory[0]!.id;
+    await moved(await correct(created.machine.id, first, "2026-01-01T00:00:00Z"));
+    const raw = await connect(created, other.url);
+    const record = shotAt("edited-during-a-correction", "2026-02-15T12:00:00Z");
+    await acknowledged(raw, sendShot(raw, record));
+    expect(await detail(String(record.id))).toMatchObject({ location: lab });
+    const database = await server.connectDatabase();
+    let correcting: Promise<Response> | undefined;
+    let edit: string | undefined;
+    try {
+      await database.query("BEGIN");
+      // Holds the correction after it has locked the Machine, before it credits the Shot again.
+      await database.query("LOCK TABLE location_assignments IN ACCESS EXCLUSIVE MODE");
+      correcting = api.call("PATCH", `/machines/${created.machine.id}/location-history/${first}`, { locationId: uptown.id });
+      await someoneWaits(database);
+      const { measurements: omitted, ...summary } = record;
+      edit = randomUUID();
+      raw.send({ type: "shotUpdated", id: edit, shotId: record.id, shot: { ...summary, updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 64 } } });
+      // The edit writes the Shot, which the correction then waits for, while the correction holds the Machine.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await database.query("ROLLBACK");
+    } finally {
+      await database.query("ROLLBACK").catch(() => undefined);
+      await database.end();
+    }
+    await acknowledged(raw, edit!);
+    expect((await moved(await correcting!)).location).toEqual(uptown);
+    expect(await detail(String(record.id))).toMatchObject({ enjoyment: 64, location: uptown });
   });
 
   it("removes a mistaken entry, and the move back too when the Machine never left, re-crediting its Shots", async () => {
@@ -385,10 +421,13 @@ describe("Location History", () => {
       status: 400,
       message: ["Enter a date and time with its offset, such as 2026-10-04T15:00:00Z"],
     });
-    expect(await problem(await move(id, lab.id, "2026-01-01T00:00:00"))).toEqual({
-      status: 400,
-      message: ["Enter a date and time with its offset, such as 2026-10-04T15:00:00Z"],
-    });
+    // Times without an offset, and dates and times that do not exist, which Date would roll over.
+    for (const time of ["2026-01-01T00:00:00", "2026-02-30T15:00:00Z", "2026-02-29T15:00:00Z", "2026-01-01T24:00:00Z", "2026-01-01T12:00:00+24:00"]) {
+      expect(await problem(await move(id, lab.id, time)), time).toEqual({
+        status: 400,
+        message: ["Enter a date and time with its offset, such as 2026-10-04T15:00:00Z"],
+      });
+    }
     expect(await problem(await move(id, lab.id, new Date(Date.now() + 3_600_000).toISOString()))).toEqual({
       status: 400,
       message: ["Choose a time that is not in the future"],
