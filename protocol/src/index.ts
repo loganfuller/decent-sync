@@ -165,6 +165,36 @@ export interface RequestShots {
   shotIds: string[];
 }
 
+/**
+ * A Steam Record, as Decaid serves it, beside its time in UTC. Decaid writes
+ * a Steam Record's `timestamp` in the tablet's local time without an offset,
+ * so the plugin, which runs in the tablet's time zone, places it.
+ */
+export interface SteamDelivery {
+  type: "steam";
+  /** An id for this logical delivery, retained until acknowledged. */
+  id: string;
+  steamId: string;
+  /** The record's `timestamp`, read as the tablet's local time, as a UTC instant such as 2026-10-05T14:07:03.341Z. */
+  steamedAt: string;
+  steam: Record<string, unknown>;
+}
+
+/**
+ * One bounded page of the tablet's Steam Record ids. Steam Records have no
+ * edit time, so an entry is only an id.
+ */
+export interface SteamIndex {
+  type: "steamIndex";
+  id: string;
+  steams: { id: string }[];
+}
+
+export interface RequestSteams {
+  type: "requestSteams";
+  steamIds: string[];
+}
+
 /** A logical delivery acknowledged only after its transaction commits. */
 export interface Ack {
   type: "ack";
@@ -185,8 +215,8 @@ export interface ChunkReceived {
 }
 
 /** Messages the plugin sends, each in a frame of its own or in chunks. */
-export type PluginMessage = Hello | Heartbeat | ShotDelivery | ShotIndex;
-export type ServerMessage = Welcome | Heartbeat | ErrorMessage | RequestShots | Ack | ChunkReceived;
+export type PluginMessage = Hello | Heartbeat | ShotDelivery | ShotIndex | SteamDelivery | SteamIndex;
+export type ServerMessage = Welcome | Heartbeat | ErrorMessage | RequestShots | RequestSteams | Ack | ChunkReceived;
 
 export type Decoded<T> =
   | { ok: true; message: T }
@@ -296,6 +326,18 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         fields.array("shots", (value) => isObject(value) && typeof value.id === "string" && value.id !== "" &&
           (value.updatedAt === undefined || typeof value.updatedAt === "string"), 100);
       });
+    case "steam":
+      return check<SteamDelivery>(object, "steam", (fields) => {
+        fields.string("id", { nonEmpty: true });
+        fields.string("steamId", { nonEmpty: true });
+        fields.instant("steamedAt");
+        fields.objectField("steam");
+      });
+    case "steamIndex":
+      return check<SteamIndex>(object, "steamIndex", (fields) => {
+        fields.string("id", { nonEmpty: true });
+        fields.array("steams", (value) => isObject(value) && typeof value.id === "string" && value.id !== "", 100);
+      });
     case "heartbeat":
       return check<Heartbeat>(object, "heartbeat", () => {});
     default:
@@ -324,6 +366,10 @@ export function decodeServerMessage(frame: string): Decoded<ServerMessage> {
     case "requestShots":
       return check<RequestShots>(object, "requestShots", (fields) => {
         fields.array("shotIds", (value) => typeof value === "string" && value !== "", 100);
+      });
+    case "requestSteams":
+      return check<RequestSteams>(object, "requestSteams", (fields) => {
+        fields.array("steamIds", (value) => typeof value === "string" && value !== "", 100);
       });
     case "heartbeat":
       return check<Heartbeat>(object, "heartbeat", () => {});
@@ -391,6 +437,13 @@ class FieldChecker {
 
   objectField(key: string): void {
     if (!isObject(this.object[key])) this.problem(key, "must be an object");
+  }
+
+  /** A UTC instant as `Date.prototype.toISOString` writes it. Read back, it must be written the same, so times that do not exist, which Date rolls over, are refused. */
+  instant(key: string): void {
+    const value = this.object[key];
+    const ms = typeof value === "string" ? Date.parse(value) : NaN;
+    if (!Number.isFinite(ms) || new Date(ms).toISOString() !== value) this.problem(key, "must be a UTC time such as 2026-10-05T14:07:03.341Z");
   }
 
   array(key: string, valid: (value: unknown) => boolean, max: number): void {

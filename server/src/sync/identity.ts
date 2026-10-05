@@ -46,6 +46,12 @@ export type Identity =
   /** Hardware an Admin dismissed for the token's Machine. */
   | { kind: "rejected"; hardware: Hardware };
 
+/** Who reported a record: the Machine whose token its connection used, and the identity that connection was given at hello. */
+export interface Reporter {
+  machineId: string;
+  identity: Identity;
+}
+
 export interface Reported {
   /** The hardware the `hello` reports; absent or null while no machine is connected. */
   machine?: MachineHardware | null;

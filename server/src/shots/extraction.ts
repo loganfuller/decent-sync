@@ -45,16 +45,16 @@ export function object(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-function string(value: unknown): string | null {
+export function string(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function number(value: unknown): number | null {
+export function number(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 /** Times without an offset are the tablet's local wall-clock times; reading them as UTC keeps their differences exact. */
-function date(value: unknown): Date | null {
+export function date(value: unknown): Date | null {
   if (typeof value !== "string") return null;
   const normalized = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?$/.test(value) ? `${value}Z` : value;
   const ms = Date.parse(normalized);

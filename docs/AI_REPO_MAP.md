@@ -2,7 +2,7 @@
 
 ## Start here
 
-The repository holds the milestone 1 workspace, scaffolded by [ticket #2](https://github.com/loganfuller/decent-sync/issues/2), with accounts, Locations, Machine identity and Shot capture.
+The repository holds the milestone 1 workspace, scaffolded by [ticket #2](https://github.com/loganfuller/decent-sync/issues/2), with accounts, Locations, Machine identity, and Shot and Steam Record capture.
 
 Target requirements come from `GLOSSARY.md`, accepted `docs/adr/` decisions and [milestone 1](https://github.com/loganfuller/decent-sync/issues/1), then the assigned ticket. ADR-0010 is superseded by ADR-0012, ADR-0015 extends ADR-0004, and ADR-0017 sets the supported Decaid and plugin versions.
 
@@ -10,9 +10,9 @@ Target requirements come from `GLOSSARY.md`, accepted `docs/adr/` decisions and 
 
 | Path | Responsibility | Entry points |
 |---|---|---|
-| `plugin/` | TypeScript source for the Decaid plugin | `src/index.ts`, `src/connection.ts` (hello, heartbeats, reconnects), `src/sender.ts` (one connection's frames: chunking and Decaid's pending outbound limit), `src/shots.ts` (outbox and paged reconciliation), `src/settings.ts`, `src/decaid.ts` (Decaid's local API); `build.mjs` writes `decent-sync.reaplugin/`; `manifest.json` is the manifest template (the version comes from the root `package.json`) |
+| `plugin/` | TypeScript source for the Decaid plugin | `src/index.ts`, `src/connection.ts` (hello, heartbeats, reconnects), `src/sender.ts` (one connection's frames: chunking and Decaid's pending outbound limit), `src/outbox.ts` (the one in-memory outbox Shots and Steam Records share), `src/shots.ts` (Shot events and paged reconciliation), `src/steams.ts` (Steam Record polling, indices and their UTC time), `src/settings.ts`, `src/decaid.ts` (Decaid's local API); `build.mjs` writes `decent-sync.reaplugin/`; `manifest.json` is the manifest template (the version comes from the root `package.json`) |
 | `decent-sync.reaplugin/` | Committed ES2020 bundle and manifest installed by Decaid | Generated; never edit by hand |
-| `server/` | NestJS, Prisma, PostgreSQL, WebSocket gateway, REST API, serving the built web app | `src/main.ts` (config, migrations, bootstrap), `src/config.ts`, `src/accounts/` (accounts, sessions and the guards every route passes), `src/locations/` (Locations and the time zones they may use), `src/machines/` (machine entries, tokens, identification, aliases, Pending Machines, online status, and Location History in `location-history.ts`), `src/sync/` (the plugin's WebSocket gateway at `/sync`, and `identity.ts`, the pure identity resolution module), `src/shots/` (capture, optional-field extraction and REST reads), `prisma/schema.prisma`, `prisma/migrations/` |
+| `server/` | NestJS, Prisma, PostgreSQL, WebSocket gateway, REST API, serving the built web app | `src/main.ts` (config, migrations, bootstrap), `src/config.ts`, `src/accounts/` (accounts, sessions and the guards every route passes), `src/locations/` (Locations and the time zones they may use), `src/machines/` (machine entries, tokens, identification, aliases, Pending Machines, online status, and Location History in `location-history.ts`), `src/sync/` (the plugin's WebSocket gateway at `/sync`, and `identity.ts`, the pure identity resolution module), `src/shots/` and `src/steam-records/` (capture, optional-field extraction and REST reads), `src/machines/credit.ts` (crediting records to a Machine or Pending Machine), `prisma/schema.prisma`, `prisma/migrations/` |
 | `web/` | React, Vite, shadcn/ui management interface; uses the REST API | `src/App.tsx` (routes), `src/auth.tsx`, `src/pages/Shell.tsx` (the signed-in frame later pages join), `src/pages/MachinesPage.tsx` and `src/pages/MachinePage.tsx` (Machines, Pending Machines, tokens, identity resolution, and moving Machines and correcting their Location History), `src/lib/zoned-time.ts` (times shown and entered in a Location's time zone rather than the browser's), `src/components/TokenNotice.tsx` (a token shown once, with copy buttons that also work on a plain-`http://` LAN address); add components with `npx shadcn add` |
 | `protocol/` | Internal shared wire types and runtime validators; never published | `src/index.ts`, `src/chunking.ts` (splitting a message too large for one frame, and reassembly) |
 | `e2e/` | Playwright tests (Seam 2) | `playwright.config.ts` at the root |
@@ -32,7 +32,7 @@ Identity is decided once per connection at `hello` (`resolveIdentity` in `server
 
 Anything that decides a Machine's identity or tokens (`acceptHello`, token reissue, entering hardware by hand) runs in a transaction holding the Machine's row lock (`lockMachine` in `machines.service.ts`), so they are decided one at a time. Machine rows are locked `FOR NO KEY UPDATE`, which excludes other such locks but not the foreign-key checks of rows referencing the Machine: a Shot edit that writes its row twice checks that key again, and with `FOR UPDATE` it would deadlock with a Location History change waiting for that Shot. Take Machine rows before a Pending Machine's, as a hello does: dismissing locks the mismatched Machines (in id order) before it writes the Pending Machine, since the reverse order deadlocks with a reconnecting tablet. Any new way of revoking access must notify the same way, inside its transaction.
 
-A Machine's Location History is a list of entries (`location_assignments`), each naming a Location and the time the Machine arrived there; an entry lasts until the next one, and before the first the Machine's Location is unknown. A machine entry created with a Location starts its history then, by PostgreSQL's clock, so a tablet's backfilled history keeps an unknown Location until an Admin moves that first entry earlier. A move must come after the latest entry, and neither a move nor a corrected time may be in the future. A correction may change an entry's Location, its time or both: its time stays between the entries before and after it, and its Location differs from theirs. Removing an entry recorded by mistake leaves the Machine where the entry before it says; when the entry after it names that same Location, the Machine never left, so that entry is removed too. Each Shot's Location is stored (`shots.location_id`) and derived from its Machine's history at its pulled-at time (`creditLocations` and `creditShotLocation` in `location-history.ts`); a Pending Machine's Shots have none until a Machine takes them over. Storing a Shot's credit and changing a Machine's history both hold the Machine's row lock (`lockMachine`); a Shot's pulled-at time is set once, by the first full record, which also credits it, and only adoption changes that credit afterwards, under the hardware's and the Machine's locks. Every change credits all the Machine's records again, so a record stored during a change on any instance is credited by the changed history. A Location credited through an inferred Machine is reported as inferred (`locationInferred`); it is not stored. Steam Records follow the same path in ticket #12.
+A Machine's Location History is a list of entries (`location_assignments`), each naming a Location and the time the Machine arrived there; an entry lasts until the next one, and before the first the Machine's Location is unknown. A machine entry created with a Location starts its history then, by PostgreSQL's clock, so a tablet's backfilled history keeps an unknown Location until an Admin moves that first entry earlier. A move must come after the latest entry, and neither a move nor a corrected time may be in the future. A correction may change an entry's Location, its time or both: its time stays between the entries before and after it, and its Location differs from theirs. Removing an entry recorded by mistake leaves the Machine where the entry before it says; when the entry after it names that same Location, the Machine never left, so that entry is removed too. Each Shot's and Steam Record's Location is stored (`location_id`) and derived from its Machine's history at its pulled-at or steamed-at time (`creditLocations`, `creditShotLocation` and `creditSteamRecordLocation` in `location-history.ts`); a Pending Machine's records have none until a Machine takes them over. Storing a record's credit and changing a Machine's history both hold the Machine's row lock (`lockMachine`); a Shot's pulled-at time is set once, by the first full record, which also credits it, and only adoption changes that credit afterwards, under the hardware's and the Machine's locks. Every change credits all the Machine's records again, so a record stored during a change on any instance is credited by the changed history. A Location credited through an inferred Machine is reported as inferred (`locationInferred`); it is not stored. Steam Records are stored once and credited once, when first stored, so only history changes and adoption change their Location; they carry no inferred marker (ADR-0015).
 
 A Location's time zone is an IANA name spelled as PostgreSQL's `pg_timezone_names` lists it, so date filters can use it in `AT TIME ZONE`. PostgreSQL built without tzdata's backward links lacks aliases such as `US/Eastern` and the older CLDR names browsers report (such as `Asia/Calcutta`); `server/src/locations/time-zones.ts` resolves those through `Intl` to a zone PostgreSQL knows.
 
@@ -52,13 +52,17 @@ For upstream paths and checkout conventions, see `AGENTS.md` External sources. V
 
 ## Data
 
-Shot storage and reconciliation are described in `docs/SHOTS.md`. `ShotCapture`
-runs beside `SyncConnection`: the built plugin captures shot events, scans
-bounded summary pages once per load, and replays its in-memory outbox on
+Shot storage and reconciliation are described in `docs/SHOTS.md`, and Steam
+Records in `docs/STEAM_RECORDS.md`. The built plugin keeps one in-memory
+`Outbox` beside `SyncConnection`: `ShotCapture` captures shot events and scans
+bounded summary pages once per load, `SteamCapture` polls Steam Record ids and
+indexes them on every welcome, and the outbox replays what is unacknowledged on
 reconnect. `ShotsService` stores early edits durably, compares versions under
-a PostgreSQL advisory lock, and separates metadata from compressed curves.
-All hardware adoption paths transfer Pending Shot credit before deleting the
-Pending Machine, and credit those Shots' Locations by the adopting Machine's
-Location History. `server/test/shots.test.ts` covers this through Seam 1 and
-two instances on one database, and `server/test/location-history.test.ts`
-covers Locations the same way.
+a PostgreSQL advisory lock, and separates metadata from compressed curves;
+`SteamRecordsService` stores each Steam Record once, the same way separated.
+All hardware adoption paths transfer Pending Shot and Steam Record credit
+before deleting the Pending Machine (`transferPendingRecords`), and credit
+those records' Locations by the adopting Machine's Location History.
+`server/test/shots.test.ts` and `server/test/steam-records.test.ts` cover this
+through Seam 1 and two instances on one database, and
+`server/test/location-history.test.ts` covers Locations the same way.
