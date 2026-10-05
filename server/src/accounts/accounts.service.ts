@@ -107,7 +107,7 @@ export class AccountsService {
       ? await verifyPassword(password, account.passwordHash)
       : await verifyAgainstDummy(password);
     if (!account || !valid) throw new UnauthorizedException("The email or password is incorrect");
-    if (account.deactivatedAt) throw new ForbiddenException("This account has been deactivated. Ask an Admin to reactivate it");
+    if (account.deactivatedAt) throw accountDeactivated();
 
     await this.limiter.succeeded(email);
     return account;
@@ -216,10 +216,19 @@ async function read(tx: Prisma.TransactionClient, id: string): Promise<AccountWi
   return tx.account.findUniqueOrThrow({ where: { id }, include: withStaffLocations });
 }
 
-/** Now, by PostgreSQL's clock rather than this instance's. */
+/**
+ * Now, by PostgreSQL's clock rather than this instance's: the moment it is
+ * read, not when its transaction began (as `now()` would be), so a time read
+ * after waiting for a lock counts the wait.
+ */
 export async function databaseNow(db: Prisma.TransactionClient): Promise<Date> {
-  const [{ now }] = await db.$queryRaw<[{ now: Date }]>`SELECT now() AS now`;
+  const [{ now }] = await db.$queryRaw<[{ now: Date }]>`SELECT clock_timestamp() AS now`;
   return now;
+}
+
+/** Refuses a deactivated account's sign-in, once its password has been checked. */
+export function accountDeactivated(): ForbiddenException {
+  return new ForbiddenException("This account has been deactivated. Ask an Admin to reactivate it");
 }
 
 export function setupClosed(): ConflictException {

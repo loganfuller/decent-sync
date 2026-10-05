@@ -288,6 +288,54 @@ describe("account management", () => {
     }
   });
 
+  describe("sign-ins racing a password reset or a deactivation", () => {
+    /**
+     * Signs in with the account's current password while another transaction,
+     * as a password reset or deactivation on another instance would, has
+     * changed its row and not committed. The sign-in checks the password
+     * against what is committed, then waits for the row; `finish` then
+     * completes the change before it commits.
+     */
+    async function signInDuring(person: Person, change: string, finish: (tx: pg.Client) => Promise<void>): Promise<Response> {
+      const changing = await server.connectDatabase();
+      try {
+        await changing.query("BEGIN");
+        await changing.query(change, [person.id]);
+        const signingInMeanwhile = signingIn(other, person);
+        await waitForLockWaits(database, 1, "any");
+        await finish(changing);
+        await changing.query("COMMIT");
+        return await signingInMeanwhile;
+      } finally {
+        await changing.end();
+      }
+    }
+    const sessionsOf = async (person: Person) =>
+      (await database.query("SELECT 1 FROM sessions WHERE account_id = $1", [person.id])).rows;
+
+    it("refuses a sign-in whose password a reset changed while it was checked", async () => {
+      const joe = await invitePerson(api, "Joe Staff", "staff", [lab.id]);
+      const response = await signInDuring(joe, "UPDATE accounts SET password_hash = 'scrypt$replaced' WHERE id = $1", (tx) =>
+        tx.query("DELETE FROM sessions WHERE account_id = $1", [joe.id]).then(() => undefined),
+      );
+
+      expect(await refusal(response, 401)).toBe("The email or password is incorrect");
+      expect(await sessionsOf(joe)).toEqual([]);
+    });
+
+    it("refuses a sign-in to an account deactivated while it was checked, leaving no session to come back", async () => {
+      const kai = await invitePerson(api, "Kai Staff", "staff", [lab.id]);
+      const response = await signInDuring(kai, "UPDATE accounts SET deactivated_at = now() WHERE id = $1", (tx) =>
+        tx.query("DELETE FROM sessions WHERE account_id = $1", [kai.id]).then(() => undefined),
+      );
+
+      expect(await refusal(response, 403)).toBe("This account has been deactivated. Ask an Admin to reactivate it");
+      expect(await sessionsOf(kai)).toEqual([]);
+      expect((await api.call("POST", `/accounts/${kai.id}/reactivate`)).status).toBe(200);
+      expect((await session(server, kai.cookie)).status).toBe(401);
+    });
+  });
+
   describe("password reset links", () => {
     it("issues a link that works once: it sets the new password, ends the account's other sessions and signs them in", async () => {
       const mo = await invitePerson(api, "Mo Staff", "staff", [uptown.id]);
@@ -385,6 +433,55 @@ describe("account management", () => {
       expect(rows).toEqual([]);
       await database.query("UPDATE accounts SET deactivated_at = NULL WHERE id = $1", [ola.id]);
       expect((await signingIn(server, { email: ola.email, password: "Ola's new password" })).status).toBe(401);
+    });
+
+    it("refuses a link that expires while its redemption waits for the account", async () => {
+      const eli = await invitePerson(api, "Eli Staff", "staff", [lab.id]);
+      const { link } = (await (await api.call("POST", `/accounts/${eli.id}/password-reset`)).json()) as { link: string };
+      await database.query("UPDATE password_resets SET expires_at = clock_timestamp() + interval '2 seconds' WHERE account_id = $1", [eli.id]);
+
+      // Another transaction holds the account's row, as a deactivation in progress would.
+      const holding = await server.connectDatabase();
+      try {
+        await holding.query("BEGIN");
+        await holding.query("SELECT 1 FROM accounts WHERE id = $1 FOR UPDATE", [eli.id]);
+        const redemption = redeem(other, link, { password: "Eli's new password" });
+        // It found the link usable, and waits for the account.
+        await waitForLockWaits(database, 1, "any");
+        await expect
+          .poll(
+            async () =>
+              (await database.query<{ expired: boolean }>("SELECT expires_at <= clock_timestamp() AS expired FROM password_resets WHERE account_id = $1", [eli.id]))
+                .rows[0]!.expired,
+            { timeout: 10_000 },
+          )
+          .toBe(true);
+        await holding.query("ROLLBACK");
+
+        expect(await refusal(await redemption, 410)).toBe("This password reset link has expired. Ask an Admin for a new one");
+      } finally {
+        await holding.end();
+      }
+      expect((await signingIn(server, { email: eli.email, password: "Eli's new password" })).status).toBe(401);
+    });
+
+    it("redeems a link, and signs in, without waiting for another account's sessions", async () => {
+      const ana = await invitePerson(api, "Ana Staff", "staff", [lab.id]);
+      const ben = await invitePerson(api, "Ben Staff", "staff", [lab.id]);
+      const { link } = (await (await api.call("POST", `/accounts/${ana.id}/password-reset`)).json()) as { link: string };
+      // Ben's session has expired, and another transaction holds it, as resetting Ben's password would while ending it.
+      await database.query("UPDATE sessions SET expires_at = now() - interval '1 minute' WHERE account_id = $1", [ben.id]);
+      const holding = await server.connectDatabase();
+      try {
+        await holding.query("BEGIN");
+        await holding.query("SELECT 1 FROM sessions WHERE account_id = $1 FOR UPDATE", [ben.id]);
+
+        expect((await redeem(other, link, { password: "Ana's new password" })).status).toBe(200);
+        expect((await signingIn(server, { email: ana.email, password: "Ana's new password" })).status).toBe(200);
+      } finally {
+        await holding.query("ROLLBACK");
+        await holding.end();
+      }
     });
 
     it("redeems a link once from concurrent requests on two instances", async () => {

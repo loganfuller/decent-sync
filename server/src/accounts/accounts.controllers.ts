@@ -49,7 +49,7 @@ export class SetupController {
     // Checked before validating, so a set-up server refuses every request alike.
     if (!(await this.accounts.setupRequired())) throw setupClosed();
     const account = await this.accounts.setUp(readNewAccount(body));
-    await this.sessions.start(account.id, response);
+    await this.sessions.start(account, response);
     return { account: viewAccount(account) };
   }
 }
@@ -69,7 +69,7 @@ export class SessionController {
     const { email, password } = readCredentials(body);
     try {
       const account = await this.accounts.authenticate(email, password);
-      await this.sessions.start(account.id, response);
+      await this.sessions.start(account, response);
       return { account: viewAccount(account) };
     } catch (error) {
       if (error instanceof TooManySignInAttempts) response.setHeader("Retry-After", String(error.retryAfterSeconds));
@@ -213,7 +213,7 @@ export class InviteLinksController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<{ account: AccountView }> {
     const account = await this.invites.accept(secret, readAcceptance(body));
-    await this.sessions.start(account.id, response);
+    await this.sessions.start(account, response);
     return { account: viewAccount(account) };
   }
 }

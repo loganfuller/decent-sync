@@ -24,4 +24,3 @@ CREATE UNIQUE INDEX "password_resets_account_id_key" ON "password_resets"("accou
 
 -- AddForeignKey
 ALTER TABLE "password_resets" ADD CONSTRAINT "password_resets_account_id_fkey" FOREIGN KEY ("account_id") REFERENCES "accounts"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-

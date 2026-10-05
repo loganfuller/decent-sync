@@ -88,10 +88,12 @@ export class PasswordResetsService {
     const passwordHash = await hashPassword(password);
     const redeemed = await this.prisma.$transaction(async (tx) => {
       // The account's row first, as deactivating takes it before withdrawing
-      // the link: whichever runs second sees what the first did.
+      // the link and sign-ins take it to start a session: whichever runs
+      // second sees what the first did.
       const [account] = await tx.$queryRaw<{ deactivated: boolean }[]>`
         SELECT deactivated_at IS NOT NULL AS deactivated FROM accounts WHERE id = ${accountId}::uuid FOR NO KEY UPDATE`;
       if (!account || account.deactivated) throw deactivated();
+      // Read after the lock, so a link that expired while this waited is refused.
       const now = await databaseNow(tx);
       // A concurrent redemption, on any instance, waits for this update's row lock, then finds it used.
       const { count } = await tx.passwordReset.updateMany({
