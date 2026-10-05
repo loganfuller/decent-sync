@@ -248,7 +248,9 @@ export class SyncConnection {
         this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
         this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
         // What the last connection left unacknowledged goes first, then the
-        // latest Workflow, then the Shot index.
+        // latest Workflow, queued before the outbox starts sending, then the
+        // Shot index.
+        this.machineEvents.welcome();
         this.outbox.welcome(async (delivery) => {
           try { await this.send(handle, delivery); }
           catch (error) {
@@ -256,7 +258,6 @@ export class SyncConnection {
             throw error;
           }
         });
-        this.machineEvents.welcome();
         this.shots.welcome();
         break;
       case "ack":

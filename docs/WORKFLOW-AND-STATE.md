@@ -22,11 +22,14 @@ the plugin's one outbox (`plugin/src/outbox.ts`), which Shots share:
   `GET /workflow`. Every one is sent.
 - `stateUpdate` arrives several times a second while a machine is connected.
   Only a change of state or substate from the last one queued is sent.
-- On every `welcome`, the latest Workflow is sent again, observed then,
-  unless its delivery is still queued. The next state update is sent whatever
-  it is. A reconnect may stand for other hardware, after a tablet moved to
-  another machine, and the server records nothing for either if it is
-  unchanged.
+- On every `welcome`, the latest Workflow is sent again in a new delivery,
+  observed then, replacing one an earlier `welcome` queued if that is still
+  queued, and the next state update is sent whatever it is. A reconnect may
+  stand for other hardware, after a tablet moved to another machine. A
+  delivery still queued from the last connection may already have been
+  stored for the last hardware, and its resend then changes nothing, so the
+  new hardware gets the Workflow only from this new delivery. The server
+  records nothing for either if it is unchanged.
 
 `observedAt` is when the plugin observed the event, from its own clock in UTC
 (`new Date().toISOString()`), because the outbox may deliver it minutes later.
@@ -52,7 +55,10 @@ the plugin keeps a delivery's id when it sends it again, and always through
 the same token, so a resend changes nothing however late it arrives, through
 any connection or instance, even after other changes, and even when the first
 delivery changed nothing either. A resend arriving while the first is still
-being stored waits for it on the record's key.
+being stored waits for it on the record's key. Records are kept for good, one
+per delivery: a resend may come however late, from a tablet that lost an
+acknowledgment and then stayed offline, so pruning them would first need a
+limit on how late a resend may arrive.
 
 An event belongs to the session's token's Machine, or for a mismatched
 session, to its reported hardware: the Machine that has it, or else its

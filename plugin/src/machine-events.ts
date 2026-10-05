@@ -11,8 +11,10 @@ import type { Outbox } from "./outbox.js";
  * stored last, so sending one again is harmless.
  */
 export class MachineEvents {
-  /** The latest Workflow Decaid reported, as last queued. */
-  private workflow: WorkflowDelivery | undefined;
+  /** The latest Workflow Decaid reported. */
+  private workflow: Record<string, unknown> | undefined;
+  /** The delivery that sent it again on the latest welcome, which the next welcome's replaces. */
+  private resent: string | undefined;
   /** The state and substate last queued, so repeated state updates send nothing. */
   private state: { state: string; substate: string } | undefined;
 
@@ -22,6 +24,7 @@ export class MachineEvents {
   workflowUpdated(payload: unknown): void {
     const workflow = asObject(payload);
     if (!workflow) return;
+    this.workflow = workflow;
     this.queueWorkflow(workflow);
   }
 
@@ -40,20 +43,28 @@ export class MachineEvents {
   }
 
   /**
-   * On every welcome, the latest Workflow, unless its delivery is still
-   * queued and so is sent anyway. The connection may stand for other
-   * hardware than the last one did, after the tablet moved to another
-   * machine, so the Workflow is observed again now, and the next state
-   * update is sent whatever it is.
+   * On every welcome, before the outbox sends, the latest Workflow again,
+   * observed now, behind whatever the last connection left unacknowledged.
+   * The connection may stand for other hardware than the last one did,
+   * after the tablet moved to another machine, and the server changes nothing
+   * for a delivery it has handled, even one handled for the last hardware but
+   * not acknowledged, so it is always a new delivery; the server records
+   * nothing if it is unchanged. It replaces the one the last welcome queued,
+   * if that is still queued. The next state update is sent whatever it is,
+   * for the same reason.
    */
   welcome(): void {
     this.state = undefined;
-    if (this.workflow && !this.outbox.has(this.workflow.id)) this.queueWorkflow(this.workflow.workflow);
+    if (!this.workflow) return;
+    if (this.resent !== undefined) this.outbox.discard(this.resent);
+    this.resent = this.queueWorkflow(this.workflow);
   }
 
-  private queueWorkflow(workflow: Record<string, unknown>): void {
-    this.workflow = { type: "workflow", id: this.outbox.nextId(), observedAt: now(), workflow };
-    this.outbox.enqueue(this.workflow);
+  /** Queues the Workflow as observed now, returning its delivery's id. */
+  private queueWorkflow(workflow: Record<string, unknown>): string {
+    const delivery: WorkflowDelivery = { type: "workflow", id: this.outbox.nextId(), observedAt: now(), workflow };
+    this.outbox.enqueue(delivery);
+    return delivery.id;
   }
 }
 

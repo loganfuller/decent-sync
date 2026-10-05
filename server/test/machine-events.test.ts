@@ -26,6 +26,7 @@ interface EventPage<T> { events: T[]; total: number; limit: number; offset: numb
 interface Frame { type: string; id?: string }
 
 const frameType = (frame: unknown) => (frame as Frame).type;
+const isEqual = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 describe("Workflow changes and machine state transitions", () => {
   let server: TestServer;
@@ -101,6 +102,11 @@ describe("Workflow changes and machine state transitions", () => {
     const before = acks();
     raw.send(message);
     await expect.poll(acks).toBe(before + 1);
+  }
+  /** Resolves once a server connection waits for a lock, such as one the test holds. */
+  async function someoneWaits(database: { query<T>(text: string): Promise<{ rows: T[] }> }) {
+    const waiting = "SELECT count(*)::int AS waiting FROM pg_locks WHERE NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())";
+    await expect.poll(async () => (await database.query<{ waiting: number }>(waiting)).rows[0]!.waiting).toBeGreaterThan(0);
   }
   const stateDelivery = (state: string, substate: string, observedAt: string) =>
     ({ type: "machineState", id: randomUUID(), observedAt, state, substate });
@@ -282,9 +288,9 @@ describe("Workflow changes and machine state transitions", () => {
     moved.reportState("espresso", "pouring");
     const dialledIn = derivedWorkflow({ targetYield: 45 });
     moved.setWorkflow(dialledIn);
-    await acknowledged(moved, "machineState");
+    // Acknowledged in order, so once the dialled-in Workflow is, the state is too.
+    await expect.poll(() => moved.sent.some((frame) => frameType(frame) === "workflow" && isEqual((frame as { workflow: unknown }).workflow, dialledIn))).toBe(true);
     await acknowledged(moved, "workflow");
-    expect(moved.sent.filter((frame) => frameType(frame) === "workflow")).toHaveLength(2);
     expect(await stateEvents(machine)).toMatchObject({ total: 0 });
     expect((await workflowEvents(machine)).total).toBe(1);
 
@@ -377,6 +383,32 @@ describe("Workflow changes and machine state transitions", () => {
     expect((await workflowEvents(machine)).events.map((event) => event.workflow)).toEqual([dialledIn, workflowFixture()]);
     expect((await api.machineNamed("Unchanged replays"))!.machineState).toMatchObject({ state: "espresso", substate: "pouring" });
   });
+
+  it("gives a tablet moved onto other hardware its Workflow on reconnect, though its last Workflow delivery was stored and never acknowledged", async () => {
+    const machine = await api.createMachine("Moved mid-delivery");
+    const destination = await api.createMachine("Destination");
+    await (await connect(destination, server.url, { model: "DE1Pro", serial: "20302" })).close();
+    const tablet = load(machine, { api: derivedDe1Pro({ serial: "20301" }) });
+    await expect.poll(async () => (await workflowEvents(machine)).total).toBe(1);
+    const dialledIn = derivedWorkflow({ targetYield: 43 });
+    const database = await server.connectDatabase();
+    try {
+      // Holds the Workflow's storage once it has begun, until its connection is gone.
+      await database.query("BEGIN");
+      await database.query("LOCK TABLE workflow_events IN ACCESS EXCLUSIVE MODE");
+      tablet.setWorkflow(dialledIn);
+      await someoneWaits(database);
+      // The tablet moves onto the destination's machine, losing its connection, and with it the acknowledgment.
+      tablet.serve(derivedDe1Pro({ serial: "20302" }));
+      tablet.dropConnections();
+      await database.query("COMMIT");
+    } finally {
+      await database.end();
+    }
+    await api.waitForMachine("Moved mid-delivery", (candidate) => candidate.online && candidate.identification === "mismatch");
+    await expect.poll(async () => (await currentWorkflow(destination))?.workflow, { timeout: 10_000 }).toEqual(dialledIn);
+    expect((await workflowEvents(machine)).events.map((event) => event.workflow)).toEqual([dialledIn, workflowFixture()]);
+  }, 20_000);
 
   it("decides deliveries for one Machine that arrive at once one at a time, on any instance", async () => {
     const owner = await api.createMachine("Busy owner");

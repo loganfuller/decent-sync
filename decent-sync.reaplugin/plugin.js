@@ -293,8 +293,10 @@ var __decentSync = (() => {
   var MachineEvents = class {
     constructor(outbox) {
       __publicField(this, "outbox", outbox);
-      /** The latest Workflow Decaid reported, as last queued. */
+      /** The latest Workflow Decaid reported. */
       __publicField(this, "workflow");
+      /** The delivery that sent it again on the latest welcome, which the next welcome's replaces. */
+      __publicField(this, "resent");
       /** The state and substate last queued, so repeated state updates send nothing. */
       __publicField(this, "state");
     }
@@ -302,6 +304,7 @@ var __decentSync = (() => {
     workflowUpdated(payload) {
       const workflow = asObject(payload);
       if (!workflow) return;
+      this.workflow = workflow;
       this.queueWorkflow(workflow);
     }
     /**
@@ -318,19 +321,27 @@ var __decentSync = (() => {
       this.outbox.enqueue({ type: "machineState", id: this.outbox.nextId(), observedAt: now(), state, substate });
     }
     /**
-     * On every welcome, the latest Workflow, unless its delivery is still
-     * queued and so is sent anyway. The connection may stand for other
-     * hardware than the last one did, after the tablet moved to another
-     * machine, so the Workflow is observed again now, and the next state
-     * update is sent whatever it is.
+     * On every welcome, before the outbox sends, the latest Workflow again,
+     * observed now, behind whatever the last connection left unacknowledged.
+     * The connection may stand for other hardware than the last one did,
+     * after the tablet moved to another machine, and the server changes nothing
+     * for a delivery it has handled, even one handled for the last hardware but
+     * not acknowledged, so it is always a new delivery; the server records
+     * nothing if it is unchanged. It replaces the one the last welcome queued,
+     * if that is still queued. The next state update is sent whatever it is,
+     * for the same reason.
      */
     welcome() {
       this.state = void 0;
-      if (this.workflow && !this.outbox.has(this.workflow.id)) this.queueWorkflow(this.workflow.workflow);
+      if (!this.workflow) return;
+      if (this.resent !== void 0) this.outbox.discard(this.resent);
+      this.resent = this.queueWorkflow(this.workflow);
     }
+    /** Queues the Workflow as observed now, returning its delivery's id. */
     queueWorkflow(workflow) {
-      this.workflow = { type: "workflow", id: this.outbox.nextId(), observedAt: now(), workflow };
-      this.outbox.enqueue(this.workflow);
+      const delivery = { type: "workflow", id: this.outbox.nextId(), observedAt: now(), workflow };
+      this.outbox.enqueue(delivery);
+      return delivery.id;
     }
   };
   function now() {
@@ -361,10 +372,6 @@ var __decentSync = (() => {
     get size() {
       return this.queued.size;
     }
-    /** Whether the delivery awaits acknowledgment. */
-    has(id) {
-      return this.queued.has(id);
-    }
     /** Draws on the backlog whenever nothing is queued. */
     drawOn(backlog) {
       this.backlog = backlog;
@@ -372,6 +379,10 @@ var __decentSync = (() => {
     enqueue(message) {
       this.queued.set(message.id, message);
       this.pump();
+    }
+    /** Drops a queued delivery that a newer one makes unnecessary; one being sent now stays, to be acknowledged. */
+    discard(id) {
+      if (this.sent !== id) this.queued.delete(id);
     }
     /** A connection was welcomed: sends through it, starting with what the last one left unacknowledged. */
     welcome(send) {
@@ -812,6 +823,7 @@ var __decentSync = (() => {
           this.log(`Connected to ${this.settings.syncUrl}`);
           this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
           this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
+          this.machineEvents.welcome();
           this.outbox.welcome(async (delivery) => {
             try {
               await this.send(handle, delivery);
@@ -820,7 +832,6 @@ var __decentSync = (() => {
               throw error;
             }
           });
-          this.machineEvents.welcome();
           this.shots.welcome();
           break;
         case "ack":

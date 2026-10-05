@@ -45,15 +45,17 @@ export class Outbox {
   /** How many deliveries await acknowledgment. */
   get size(): number { return this.queued.size; }
 
-  /** Whether the delivery awaits acknowledgment. */
-  has(id: string): boolean { return this.queued.has(id); }
-
   /** Draws on the backlog whenever nothing is queued. */
   drawOn(backlog: Backlog): void { this.backlog = backlog; }
 
   enqueue(message: Delivery): void {
     this.queued.set(message.id, message);
     this.pump();
+  }
+
+  /** Drops a queued delivery that a newer one makes unnecessary; one being sent now stays, to be acknowledged. */
+  discard(id: string): void {
+    if (this.sent !== id) this.queued.delete(id);
   }
 
   /** A connection was welcomed: sends through it, starting with what the last one left unacknowledged. */
