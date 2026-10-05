@@ -134,17 +134,22 @@ describe("Locations", () => {
     expect((await call("PATCH", "/locations/not-an-id", { name: "Gone" })).status).toBe(404);
   });
 
-  // Creates a Location in each of PostgreSQL's several hundred time zones, one request at a time: about 2 s
-  // alone, and more while other test files load the machine.
-  it("lists the time zones a Location may use, under the names it stores", { timeout: 20_000 }, async () => {
+  it("lists the time zones a Location may use, under the names it stores", async () => {
     const { timeZones } = (await (await call("GET", "/time-zones")).json()) as { timeZones: string[] };
 
     expect(timeZones).toEqual([...timeZones].sort());
     expect(timeZones).toEqual(expect.arrayContaining(["UTC", "America/Chicago", "Asia/Kolkata", "Europe/Kyiv"]));
     expect(timeZones).not.toContain("Asia/Calcutta");
-    for (const timeZone of timeZones) {
-      const response = await call("POST", "/locations", { name: `Zone ${timeZone}`, timeZone });
-      expect(((await response.json()) as { location: LocationView }).location.timeZone).toBe(timeZone);
+    // A Location in each of several hundred zones, a batch at a time: one at a time takes seconds.
+    for (let start = 0; start < timeZones.length; start += 50) {
+      const batch = timeZones.slice(start, start + 50);
+      const stored = await Promise.all(
+        batch.map(async (timeZone) => {
+          const response = await call("POST", "/locations", { name: `Zone ${timeZone}`, timeZone });
+          return ((await response.json()) as { location: LocationView }).location.timeZone;
+        }),
+      );
+      expect(stored).toEqual(batch);
     }
   });
 });
