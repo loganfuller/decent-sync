@@ -271,7 +271,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     session.welcomed = true;
     this.resetIdleTimer(session);
     this.logger.log(
-      `Machine ${machine.name} connected from ${session.remote}: plugin ${hello.pluginVersion}, Decaid ${hello.decaidVersion ?? "unknown"}, ${describeIdentity(identity, hardware)}`,
+      `Machine ${machine.name} connected from ${session.remote}: plugin ${hello.pluginVersion}, Decaid ${hello.decaidVersion}, ${describeIdentity(identity, hardware)}`,
     );
   }
 
@@ -298,9 +298,9 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
-   * Shows why a plugin of an unsupported protocol version was refused on its
-   * token's Machine, if the token is valid. Failing to only logs: the plugin
-   * must still be told it is too old, or it would retry instead of stopping.
+   * Shows why a hello of an unsupported protocol or Decaid version was refused
+   * on its token's Machine, if the token is valid. Failing to only logs: the
+   * plugin must still be told why, or it would retry instead of stopping.
    */
   private async recordVersionRefusal(token: string, reason: string): Promise<void> {
     try {

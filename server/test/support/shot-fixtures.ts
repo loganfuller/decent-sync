@@ -3,7 +3,7 @@ import type { DecaidApi } from "./simulated-tablet.js";
 
 /** Scrubbed real Decaid records; changes in tests are explicitly derived. */
 export function shotFixture(): Record<string, unknown> {
-  return JSON.parse(fs.readFileSync(new URL("../fixtures/decaid/de1pro-v0.8.6/shot-espresso.json", import.meta.url), "utf8"));
+  return JSON.parse(fs.readFileSync(new URL("../fixtures/decaid/de1pro-v0.8.7/shot-espresso.json", import.meta.url), "utf8"));
 }
 
 export function withShots(api: DecaidApi, shots: Record<string, unknown>[]): DecaidApi {

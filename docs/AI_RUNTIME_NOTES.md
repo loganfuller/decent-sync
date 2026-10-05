@@ -6,13 +6,13 @@ References use the checkout convention in `AGENTS.md`. Audited against local Dec
 
 ## Loading and settings
 
-Milestone 1 targets Decaid v0.8.7 or newer and declares `log`, `api`, `events.machine`, `events.shots`, `events.workflow` and `network.websocket`, as specified in issue #1. Unknown permissions can prevent loading; check `decaid:lib/src/plugins/plugin_manifest.dart` before adding one.
+The plugin supports the Decaid versions ADR-0017 names (before v1, v0.8.7 or newer) and declares `log`, `api`, `events.machine`, `events.shots`, `events.workflow` and `network.websocket`, as specified in issue #1. Unknown permissions can prevent loading; check `decaid:lib/src/plugins/plugin_manifest.dart` before adding one.
 
 Decaid calls the global `createPlugin(host)` entry point and calls `plugin.onLoad(settings)` synchronously without awaiting a returned promise (`decaid:lib/src/plugins/plugin_manager.dart`). Keep `onLoad` short and schedule connection work through a timer. The loader has a load watchdog; inspect `decaid:lib/src/plugins/plugin_loader_service.dart` when changing startup behavior.
 
 The target build is one ES2020 `plugin.js` with no module syntax. Decaid pastes it into a function body and then checks `typeof createPlugin`, so `createPlugin` must be declared at the top level of the script: `plugin/build.mjs` bundles an esbuild IIFE and assigns `var createPlugin` after it. The plugin's `id` must equal the manifest's. Use the host APIs and timer callbacks; do not assume a browser or Node environment. Run the built file in the simulated host, not just the TypeScript source.
 
-The manifest (v0.8.7, `PluginManifest.fromJson`) has no field for a minimum Decaid version, and unknown keys are ignored. The minimum is stated in the manifest description and the README; enforcing it would need a runtime check in the plugin.
+The manifest (v0.8.7, `PluginManifest.fromJson`) has no field for a minimum Decaid version, and unknown keys are ignored. The server enforces the minimum instead: the plugin sends Decaid's `fullVersion` from `GET /info` (the tag it was built from plus a build number, from `flutter_with_commit.sh`) in every `hello`, and does not connect until it can read it. The server refuses an older or unreadable version with `decaid_too_old` (ADR-0017).
 
 Secure settings are supplied to the loaded plugin, while the settings REST response reports whether they are set rather than exposing their values (`PluginLoaderService.pluginSettings`). The token must be declared secure. Settings changes can reload the plugin, so startup and unload must tolerate a new runtime generation.
 
@@ -41,7 +41,7 @@ ADR-0009's original rationale and the original Further Notes in issue #1 stated 
 | Library, settings and device information | `decaid:assets/api/rest_v1.yml` and corresponding handlers | Poll; use ETags where supported, otherwise content comparison |
 | DYE2 recipes, equipment and baskets | `dye2:docs/KV_CONTRACT.md` and the code that reads/writes each key | Read only in milestone 1; ADR-0005's writes are later work |
 
-Steam Records have no `updatedAt`, nothing in Decaid, Streamline or DYE2 edits them, and `GET /steams` returns every record (each with its full Workflow and profile) in one unpaginated response that outgrows the fetch limit at cafe volume. Milestone 1 therefore captures new Steam Records and backfill only, not edits. Shot `updatedAt` is optional and changes only when content changes; order Shot versions by `updatedAt ?? createdAt ?? timestamp`. Check optional fields in real records from supported versions; absence of an endpoint means unavailable data, not an empty collection.
+Steam Records have no `updatedAt`, nothing in Decaid, Streamline or DYE2 edits them, and `GET /steams` returns every record (each with its full Workflow and profile) in one unpaginated response that outgrows the fetch limit at cafe volume. Milestone 1 therefore captures new Steam Records and backfill only, not edits. Every supported Decaid serves Shots with `updatedAt`, in UTC, which changes only when their content does; order Shot versions by `updatedAt` alone, and ignore a Shot without it (ADR-0017). Check optional fields in real records from supported versions; absence of an endpoint means unavailable data, not an empty collection.
 
 ## Identity and attribution
 

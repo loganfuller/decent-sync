@@ -5,16 +5,26 @@
 // Every message is one JSON object in a WebSocket text frame, told apart by
 // its `type`. Validators accept fields they do not know, so either end can add
 // one without breaking the other, and never echo field values in the problems
-// they report: a `hello` carries the Machine's token.
+// they report, apart from a Decaid version's release numbers: a `hello`
+// carries the Machine's token.
 
 /** The protocol version this build of the plugin and server speaks. */
 export const PROTOCOL_VERSION = 1;
 
 /**
- * The oldest protocol version the server accepts. From the next protocol
- * release on, the server supports the current and the previous version.
+ * The oldest protocol version the server accepts. Before v1 it is always
+ * PROTOCOL_VERSION: a wire change older plugins can't follow raises both.
+ * From v1 it is the version the previous release's plugin speaks (ADR-0017).
  */
 export const OLDEST_SUPPORTED_PROTOCOL_VERSION = 1;
+
+/**
+ * The oldest Decaid release the server accepts, always a release rather than
+ * a pre-release. Before v1 it is 0.8.7. From v1, each release sets it to the
+ * second Decaid release tag before the newest, so tablets may run the newest
+ * or either of the two before it (ADR-0017).
+ */
+export const OLDEST_SUPPORTED_DECAID = "0.8.7";
 
 /** The path of the server's sync endpoint, under its public URL's host. */
 export const SYNC_PATH = "/sync";
@@ -26,7 +36,7 @@ export const SYNC_PATH = "/sync";
 export const MISSED_HEARTBEATS = 3;
 
 /** Why the server refused or ended a connection, sent in an `error` before it closes. */
-export type ErrorCode = "protocol_error" | "bad_token" | "plugin_too_old" | "replaced" | "hardware_dismissed";
+export type ErrorCode = "protocol_error" | "bad_token" | "plugin_too_old" | "replaced" | "hardware_dismissed" | "decaid_too_old";
 
 /** The WebSocket close code that goes with each error. */
 export const CLOSE_CODES: Readonly<Record<ErrorCode, number>> = {
@@ -43,6 +53,8 @@ export const CLOSE_CODES: Readonly<Record<ErrorCode, number>> = {
    * machine is not the one the token was issued for.
    */
   hardware_dismissed: 4004,
+  /** The tablet runs a Decaid older than the server supports. */
+  decaid_too_old: 4005,
 };
 
 /** The hardware a machine reports while it is connected to its tablet. */
@@ -91,8 +103,8 @@ export interface Hello {
   protocolVersion: number;
   token: string;
   pluginVersion: string;
-  /** Decaid's full version, such as 0.8.7+2850, when its API reports one. */
-  decaidVersion?: string | null;
+  /** Decaid's full version, such as 0.8.7+2847. */
+  decaidVersion: string;
   /** The connection id of Decaid's preferred machine: a Bluetooth address or USB id. */
   connectionId?: string | null;
   /** Absent or null while no machine is connected to the tablet. */
@@ -161,11 +173,11 @@ export type Decoded<T> =
   | { ok: true; message: T }
   | {
       ok: false;
-      error: Extract<ErrorCode, "protocol_error" | "plugin_too_old">;
+      error: Extract<ErrorCode, "protocol_error" | "plugin_too_old" | "decaid_too_old">;
       problem: string;
       /**
-       * The token of a `hello` refused for its protocol version, so the server
-       * can show the reason on that token's Machine. Never log it.
+       * The token of a `hello` refused for its protocol or Decaid version, so
+       * the server can show the reason on that token's Machine. Never log it.
        */
       token?: string;
     };
@@ -177,7 +189,8 @@ export function encode(message: PluginMessage | ServerMessage): string {
 /**
  * Reads a frame the plugin sent. A `hello` is checked for its protocol version
  * before anything else, so a plugin too old to send today's `hello` is told it
- * is too old rather than that its message is invalid.
+ * is too old rather than that its message is invalid. A valid `hello` is then
+ * checked for its Decaid version.
  */
 export function decodePluginMessage(frame: string): Decoded<PluginMessage> {
   const object = parseObject(frame);
@@ -205,10 +218,10 @@ export function decodePluginMessage(frame: string): Decoded<PluginMessage> {
           ...token,
         };
       }
-      return check<Hello>(object, "hello", (fields) => {
+      const hello = check<Hello>(object, "hello", (fields) => {
         fields.string("token", { nonEmpty: true });
         fields.string("pluginVersion");
-        fields.optionalString("decaidVersion");
+        fields.string("decaidVersion", { nonEmpty: true });
         fields.optionalString("connectionId");
         fields.optionalObject("machine", (machine) => {
           machine.string("model");
@@ -216,6 +229,19 @@ export function decodePluginMessage(frame: string): Decoded<PluginMessage> {
           machine.optionalString("firmware");
         });
       });
+      if (!hello.ok) return hello;
+      const decaid = decaidRelease(hello.message.decaidVersion);
+      if (decaid && supportedDecaid(decaid)) return hello;
+      // Only the release numbers are repeated: they cannot hold a token.
+      const runs = decaid
+        ? `This tablet runs ${decaid.preRelease ? "a pre-release of " : ""}Decaid ${decaid.numbers.join(".")}`
+        : "This tablet's Decaid reports no release version";
+      return {
+        ok: false,
+        error: "decaid_too_old",
+        problem: `${runs}, but this server needs ${OLDEST_SUPPORTED_DECAID} or newer: update Decaid`,
+        token: hello.message.token,
+      };
     }
     case "shot":
     case "shotUpdated":
@@ -264,6 +290,30 @@ export function decodeServerMessage(frame: string): Decoded<ServerMessage> {
     default:
       return invalid("Unknown message type");
   }
+}
+
+interface DecaidRelease {
+  numbers: [number, number, number];
+  preRelease: boolean;
+}
+
+/**
+ * The release a Decaid `fullVersion` names: the tag it was built from, then
+ * `+` and a build number, such as 0.8.7+2847 or 0.8.8-beta.2+2860.
+ */
+function decaidRelease(version: string): DecaidRelease | null {
+  const match = /^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.exec(version);
+  if (!match) return null;
+  return { numbers: [Number(match[1]), Number(match[2]), Number(match[3])], preRelease: match[4] !== undefined };
+}
+
+/** Whether a release is OLDEST_SUPPORTED_DECAID or newer. A pre-release comes before its release. */
+function supportedDecaid(release: DecaidRelease): boolean {
+  const oldest = decaidRelease(OLDEST_SUPPORTED_DECAID)!.numbers;
+  for (const [index, number] of release.numbers.entries()) {
+    if (number !== oldest[index]) return number > oldest[index]!;
+  }
+  return !release.preRelease;
 }
 
 type Fields = Record<string, unknown>;

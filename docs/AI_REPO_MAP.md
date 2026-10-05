@@ -2,9 +2,9 @@
 
 ## Start here
 
-The repository holds the milestone 1 workspace, scaffolded by [ticket #2](https://github.com/loganfuller/decent-sync/issues/2), with accounts, Locations, Machine identity and Shot capture, plus the receive-only prototype (`server.mjs`) that [ticket #19](https://github.com/loganfuller/decent-sync/issues/19) removes once milestone 1 replaces it.
+The repository holds the milestone 1 workspace, scaffolded by [ticket #2](https://github.com/loganfuller/decent-sync/issues/2), with accounts, Locations, Machine identity and Shot capture.
 
-Target requirements come from `GLOSSARY.md`, accepted `docs/adr/` decisions and [milestone 1](https://github.com/loganfuller/decent-sync/issues/1), then the assigned ticket. ADR-0010 is superseded by ADR-0012, and ADR-0015 extends ADR-0004. The prototype's code and protocol do not override these requirements.
+Target requirements come from `GLOSSARY.md`, accepted `docs/adr/` decisions and [milestone 1](https://github.com/loganfuller/decent-sync/issues/1), then the assigned ticket. ADR-0010 is superseded by ADR-0012, ADR-0015 extends ADR-0004, and ADR-0017 sets the supported Decaid and plugin versions.
 
 ## Layout
 
@@ -45,13 +45,10 @@ A Location's time zone is an IANA name spelled as PostgreSQL's `pg_timezone_name
 | Capture, extraction, database | `AI_STORAGE_NOTES.md`; ADR-0007; spec's Capture, Record extraction and Schema outline sections |
 | Accounts, Locations, management interface | Spec's Server modules and Management interface sections; ADR-0011 |
 | Later sharing behavior | ADR-0003, ADR-0005, ADR-0006, ADR-0008, ADR-0014; spec's Out of Scope section |
-| Inspecting the prototype | `server.mjs`, `PROTOCOL.md`, prototype sections of `AI_STORAGE_NOTES.md` and `AI_BUILD_NOTES.md` |
 
 For upstream paths and checkout conventions, see `AGENTS.md` External sources. Verify Decaid payload fields in its source at the relevant version; the local runtime note identifies useful entry points.
 
 ## Data
-
-`data/` is git-ignored and may hold real history. Use a scratch `DATA_DIR` for prototype experiments. Do not bulk-read history to learn a schema. Milestone 1 requires no prototype-data migration; the tablet backfills its records when adopted.
 
 Shot storage and reconciliation are described in `docs/SHOTS.md`. `ShotCapture`
 runs beside `SyncConnection`: the built plugin captures shot events, scans

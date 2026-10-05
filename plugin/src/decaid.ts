@@ -1,14 +1,14 @@
 import type { MachineHardware } from "@decent-sync/protocol";
 
 // Reads from Decaid's local API (assets/api/rest_v1.yml) through the
-// plugin-scoped fetch. Every field is optional: tablets run different Decaid
-// versions, and an endpoint can fail, as /machine/info does while no machine
-// is connected.
+// plugin-scoped fetch. Any request can fail, as /machine/info does while no
+// machine is connected, so each value read may be missing.
 
 const API = "http://localhost:8080/api/v1";
 
 /** What `hello` reports about this tablet and its machine. */
 export interface TabletIdentity {
+  /** Null only if /info could not be read: every supported Decaid reports it. */
   decaidVersion: string | null;
   connectionId: string | null;
   machine: MachineHardware | null;

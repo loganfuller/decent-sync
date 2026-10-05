@@ -42,6 +42,7 @@ const HARDWARE_CHECK_COOLDOWN_MS = 5_000;
 const FINAL_CLOSES = new Map<number, string>([
   [CLOSE_CODES.bad_token, "The server refused the token. Enter the token shown when the machine entry was created, or a newly issued one."],
   [CLOSE_CODES.plugin_too_old, "The server needs a newer version of this plugin. Update the plugin."],
+  [CLOSE_CODES.decaid_too_old, "The server needs a newer version of Decaid. Update Decaid on this tablet."],
   [CLOSE_CODES.replaced, "Another tablet connected with this Machine's token, so this one stopped. Reload the plugin to take over again."],
 ]);
 
@@ -125,6 +126,11 @@ export class SyncConnection {
     try {
       const identity = await readTabletIdentity();
       if (this.stopped || attempt !== this.attempt) return;
+      // The server refuses a hello without it.
+      if (identity.decaidVersion === null) {
+        this.drop("could not read Decaid's version from its API");
+        return;
+      }
       if (this.transportsInUse >= MAX_TRANSPORTS) {
         this.drop(
           `${this.transportsInUse} earlier connection attempts are still waiting for the server to answer, and Decaid allows no more until one ends. Reloading the plugin releases them`,

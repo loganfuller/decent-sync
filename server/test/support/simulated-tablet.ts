@@ -68,23 +68,28 @@ export function readBuiltPlugin(): { source: string; manifest: Record<string, un
 /** Decaid API responses, by path under /api/v1 (such as "/machine/info"). */
 export type DecaidApi = Record<string, unknown>;
 
-/** The test tablet's DE1Pro on Decaid 0.8.6, with its hardware ids replaced (see the fixtures' README). */
-export function de1ProOnDecaid086(): DecaidApi {
-  const read = (file: string) => JSON.parse(fs.readFileSync(path.join(fixturesDir, "de1pro-v0.8.6", file), "utf8"));
+/** The test tablet's DE1Pro on Decaid 0.8.7, with its hardware ids replaced (see the fixtures' README). */
+export function de1ProOnDecaid087(): DecaidApi {
+  const read = (file: string) => JSON.parse(fs.readFileSync(path.join(fixturesDir, "de1pro-v0.8.7", file), "utf8"));
   return { "/info": read("info.json"), "/machine/info": read("machine-info.json"), "/settings": read("settings.json") };
 }
 
 /**
- * Derived from de1ProOnDecaid086(): the same responses, with the machine's
- * reported model and serial, or the preferred machine's connection id,
- * changed. Every other field is as Decaid sent it.
+ * Derived from de1ProOnDecaid087(): the same responses, with the machine's
+ * reported model and serial, the preferred machine's connection id, or
+ * Decaid's version (such as 0.8.6+2801, split into its version and build
+ * number as Decaid reports them too) changed. Every other field is as Decaid
+ * sent it.
  */
-export function derivedDe1Pro(changes: { model?: string; serial?: string; connectionId?: string }): DecaidApi {
-  const api = de1ProOnDecaid086();
+export function derivedDe1Pro(changes: { model?: string; serial?: string; connectionId?: string; decaidVersion?: string }): DecaidApi {
+  const api = de1ProOnDecaid087();
+  const info = api["/info"] as Record<string, unknown>;
   const machineInfo = api["/machine/info"] as Record<string, unknown>;
   const settings = api["/settings"] as Record<string, unknown>;
+  const [version, buildNumber] = changes.decaidVersion?.split("+") ?? [];
   return {
     ...api,
+    "/info": changes.decaidVersion === undefined ? info : { ...info, version, buildNumber, fullVersion: changes.decaidVersion },
     "/machine/info": {
       ...machineInfo,
       ...(changes.model === undefined ? {} : { model: changes.model }),
@@ -106,7 +111,7 @@ export function helloWith(token: string, extra: Record<string, unknown> = {}): R
     protocolVersion: PROTOCOL_VERSION,
     token,
     pluginVersion: "0.1.0",
-    decaidVersion: "0.8.7+2850",
+    decaidVersion: "0.8.7+2847",
     connectionId: "00:00:5E:00:53:01",
     ...extra,
   };
@@ -115,7 +120,7 @@ export function helloWith(token: string, extra: Record<string, unknown> = {}): R
 export interface SimulatedTabletOptions {
   /** Plugin settings as Decaid passes them: only the ones that are set. */
   settings: Record<string, unknown>;
-  /** Decaid's API responses; defaults to de1ProOnDecaid086(). */
+  /** Decaid's API responses; defaults to de1ProOnDecaid087(). */
   api?: DecaidApi;
   /** Whether a machine is connected to the tablet; while not, /machine/info fails. Defaults to true. */
   machineConnected?: boolean;
@@ -193,7 +198,7 @@ export class SimulatedTablet {
   }
 
   private constructor(options: SimulatedTabletOptions) {
-    this.api = options.api ?? de1ProOnDecaid086();
+    this.api = options.api ?? de1ProOnDecaid087();
     this.machineConnected = options.machineConnected ?? true;
     this.timeScale = options.timeScale ?? 1;
     this.apiDelayMs = options.apiDelayMs ?? 0;

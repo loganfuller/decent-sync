@@ -12,9 +12,6 @@ ADD COLUMN     "refused_at" TIMESTAMPTZ(3),
 ADD COLUMN     "reported_model" TEXT,
 ADD COLUMN     "reported_serial" TEXT;
 
--- Machines bound before identification was recorded reported their own hardware.
-UPDATE "machines" SET "identification" = 'IDENTIFIED' WHERE "model" IS NOT NULL;
-
 -- CreateTable
 CREATE TABLE "machine_aliases" (
     "machine_id" UUID NOT NULL,

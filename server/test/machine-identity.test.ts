@@ -79,7 +79,7 @@ describe("Machine identity", { timeout: 20_000 }, () => {
         reported: { model: "DE1Pro", serial: "10001", firmware: "1333" },
         connectionId: "00:00:5E:00:53:10",
         pluginVersion: "0.1.0",
-        decaidVersion: "0.8.7+2850",
+        decaidVersion: "0.8.7+2847",
         aliases: ["00:00:5E:00:53:10"],
         mismatch: null,
         lastRefusal: null,
@@ -404,7 +404,7 @@ describe("Machine identity", { timeout: 20_000 }, () => {
     });
   });
 
-  describe("protocol versions", () => {
+  describe("protocol and Decaid versions", () => {
     it("refuses a too-old plugin and shows the reason on its token's Machine", async () => {
       const created = await api.createMachine("Old plugin");
       const raw = await RawConnection.open(server.url);
@@ -427,6 +427,23 @@ describe("Machine identity", { timeout: 20_000 }, () => {
       raw.send(helloWith(created.token, { protocolVersion: 99 }));
       await expectRefusal(raw, "protocol_error");
       expect((await api.machineNamed("New plugin"))!.lastRefusal?.reason).toMatch(/update the server/);
+    });
+
+    it("refuses a tablet on a Decaid older than 0.8.7, whose plugin stops, and shows why on its Machine", async () => {
+      const created = await api.createMachine("Old Decaid");
+      // The fixture's responses, as Decaid 0.8.6 would report its version.
+      const tablet = loadTablet(settingsFor(created), { api: derivedDe1Pro({ decaidVersion: "0.8.6+2801" }) });
+      const reason = "This tablet runs Decaid 0.8.6, but this server needs 0.8.7 or newer: update Decaid";
+      await tablet.waitForLog(/^The server needs a newer version of Decaid\. Update Decaid on this tablet\.$/);
+      expect(tablet.logs).toContain(`The server reported decaid too old: ${reason}`);
+      expect(await api.machineNamed("Old Decaid")).toMatchObject({
+        online: false,
+        identification: "hardwareNotReported",
+        decaidVersion: null,
+        lastRefusal: { reason, at: expect.any(String) },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      expect(tablet.logs.filter((log) => log.startsWith("Disconnected"))).toEqual([]);
     });
 
     it("never lets an invalid token change any Machine's status", async () => {

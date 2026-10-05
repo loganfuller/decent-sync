@@ -44,7 +44,9 @@ var __decentSync = (() => {
      * An Admin dismissed the hardware this tablet reports for this token: its
      * machine is not the one the token was issued for.
      */
-    hardware_dismissed: 4004
+    hardware_dismissed: 4004,
+    /** The tablet runs a Decaid older than the server supports. */
+    decaid_too_old: 4005
   };
   function sameHardware(a, b) {
     if (a === null || b === null) return a === b;
@@ -380,6 +382,7 @@ var __decentSync = (() => {
   var FINAL_CLOSES = /* @__PURE__ */ new Map([
     [CLOSE_CODES.bad_token, "The server refused the token. Enter the token shown when the machine entry was created, or a newly issued one."],
     [CLOSE_CODES.plugin_too_old, "The server needs a newer version of this plugin. Update the plugin."],
+    [CLOSE_CODES.decaid_too_old, "The server needs a newer version of Decaid. Update Decaid on this tablet."],
     [CLOSE_CODES.replaced, "Another tablet connected with this Machine's token, so this one stopped. Reload the plugin to take over again."]
   ]);
   var SyncConnection = class {
@@ -440,6 +443,10 @@ var __decentSync = (() => {
       try {
         const identity = await readTabletIdentity();
         if (this.stopped || attempt !== this.attempt) return;
+        if (identity.decaidVersion === null) {
+          this.drop("could not read Decaid's version from its API");
+          return;
+        }
         if (this.transportsInUse >= MAX_TRANSPORTS) {
           this.drop(
             `${this.transportsInUse} earlier connection attempts are still waiting for the server to answer, and Decaid allows no more until one ends. Reloading the plugin releases them`
