@@ -11,6 +11,7 @@ import {
   MISSED_HEARTBEATS,
   PROTOCOL_VERSION,
   type PluginMessage,
+  type RequestShots,
   SYNC_PATH,
   type ServerMessage,
   decodePluginMessage,
@@ -22,6 +23,7 @@ import type { Config } from "../config.js";
 import { AccessChanges } from "../machines/access-changes.js";
 import { type LiveConnection, LiveConnections } from "../machines/connections.js";
 import { MachinesService, type Refusal, describeHardware } from "../machines/machines.service.js";
+import { ShotsService } from "../shots/shots.service.js";
 import { hashSecret } from "../secrets.js";
 import type { Hardware, Identity } from "./identity.js";
 
@@ -51,6 +53,7 @@ interface Session {
   live?: LiveConnection;
   /** Frames are handled one at a time, in the order they arrived. */
   queue: Promise<void>;
+  processed: Map<string, RequestShots | null>;
   /** Set once `welcome` is sent. */
   welcomed: boolean;
   closing: boolean;
@@ -87,6 +90,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     @Inject(CONFIG) private readonly config: Config,
     private readonly machines: MachinesService,
     private readonly live: LiveConnections,
+    private readonly shots: ShotsService,
     accessChanges: AccessChanges,
   ) {
     accessChanges.subscribe((machineId) => void this.check(this.live.of(machineId)));
@@ -141,6 +145,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       socket,
       remote: request.socket.remoteAddress ?? "an unknown address",
       queue: Promise.resolve(),
+      processed: new Map(),
       welcomed: false,
       closing: false,
     };
@@ -196,9 +201,32 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       if (message.type !== "hello") return this.refuse(session, "protocol_error", "The first message must be hello");
       return this.hello(session, message);
     }
+    if (message.type !== "hello" && message.type !== "heartbeat" && session.processed.has(message.id)) {
+      const response = session.processed.get(message.id);
+      if (response) this.send(session, response);
+      this.send(session, { type: "ack", id: message.id });
+      return;
+    }
     switch (message.type) {
       case "hello":
         return this.refuse(session, "protocol_error", "hello was already sent on this connection");
+      case "shot":
+      case "shotUpdated":
+        await this.shots.store(message, { machineId: session.machine.id, identity: session.identity! });
+        session.processed.set(message.id, null);
+        if (!session.closing) this.send(session, { type: "ack", id: message.id });
+        return;
+      case "shotIndex": {
+        const response: RequestShots = { type: "requestShots", shotIds: await this.shots.requested(message) };
+        // Cache the response as well as the receipt: replaying an index after
+        // losing its request must still let the tablet continue backfill.
+        session.processed.set(message.id, response);
+        if (!session.closing) {
+          this.send(session, response);
+          this.send(session, { type: "ack", id: message.id });
+        }
+        return;
+      }
       case "heartbeat":
         // One sent before its connection was welcomed is answered now.
         if (!answered) {

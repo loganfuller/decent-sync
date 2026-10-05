@@ -156,3 +156,29 @@ describe("decodeServerMessage", () => {
     expect(decodeServerMessage(encode(hello))).toMatchObject({ ok: false, problem: "Unknown message type" });
   });
 });
+
+describe("Shot envelopes", () => {
+  it("validates delivery without validating Decaid's record contents", () => {
+    for (const type of ["shot", "shotUpdated"]) {
+      const message = { type, id: "delivery-1", shotId: "shot-1", shot: { unfamiliar: true }, futureField: {} };
+      expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
+      expect(decodePluginMessage(frame({ ...message, id: "" })).ok).toBe(false);
+      expect(decodePluginMessage(frame({ ...message, shot: [] })).ok).toBe(false);
+    }
+  });
+
+  it("accepts bounded indices with edit times or ids only, and validates control messages", () => {
+    for (const shots of [[{ id: "1", updatedAt: "2026-10-04T12:00:00Z" }], [{ id: "1" }], []]) {
+      const message = { type: "shotIndex", id: "index-1", shots };
+      expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
+    }
+    expect(decodePluginMessage(frame({ type: "shotIndex", id: "index", shots: Array.from({ length: 101 }, () => ({ id: "1" })) })).ok).toBe(false);
+    expect(decodePluginMessage(frame({ type: "shotIndex", id: "index", shots: [{ updatedAt: 42 }] })).ok).toBe(false);
+    expect(decodePluginMessage(frame({ type: "shotIndex", id: "index", shots: [{ id: "1", updatedAt: null }] })).ok).toBe(false);
+    for (const message of [{ type: "ack", id: "1" }, { type: "requestShots", shotIds: ["1", "2"] }]) {
+      expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
+    }
+    expect(decodeServerMessage(frame({ type: "ack" })).ok).toBe(false);
+    expect(decodeServerMessage(frame({ type: "requestShots", shotIds: [1] })).ok).toBe(false);
+  });
+});

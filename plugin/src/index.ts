@@ -28,6 +28,8 @@ export function createPlugin(host: PluginHost): Plugin {
     },
     onEvent(event) {
       // Sent only while a machine is connected, so it may now report its hardware.
+      if (event?.name === "shotStored") connection?.shotEvent("shot", event.payload);
+      if (event?.name === "shotUpdated") connection?.shotEvent("shotUpdated", event.payload);
       if (event?.name === "stateUpdate") connection?.machineActive();
     },
   };

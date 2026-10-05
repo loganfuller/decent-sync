@@ -12,6 +12,7 @@ import {
 } from "@decent-sync/protocol";
 import { readMachineHardware, readTabletIdentity } from "./decaid.js";
 import type { PluginHost, TransportEvent } from "./host.js";
+import { ShotCapture } from "./shots.js";
 import type { SyncSettings } from "./settings.js";
 
 const MIN_RECONNECT_MS = 1_000;
@@ -81,6 +82,7 @@ export class SyncConnection {
   private sentHardware: MachineHardware | null = null;
   /** Hardware the server dismissed for this token; while set, the plugin does not connect. */
   private dismissedHardware: MachineHardware | null = null;
+  private readonly shots: ShotCapture;
   private checkingHardware = false;
   private hardwareCooldown = false;
 
@@ -88,7 +90,7 @@ export class SyncConnection {
     private readonly host: PluginHost,
     private readonly settings: SyncSettings,
     private readonly log: (message: string) => void,
-  ) {}
+  ) { this.shots = new ShotCapture(log); }
 
   /** Connects from a timer, so the caller (onLoad) returns at once. */
   start(): void {
@@ -106,8 +108,11 @@ export class SyncConnection {
     void this.checkHardware();
   }
 
+  shotEvent(type: "shot" | "shotUpdated", payload: unknown): void { this.shots.event(type, payload); }
+
   stop(): void {
     this.stopped = true;
+    this.shots.stop();
     for (const id of this.timers.values()) clearTimeout(id);
     this.timers.clear();
     this.closeHandle();
@@ -209,6 +214,19 @@ export class SyncConnection {
         this.log(`Connected to ${this.settings.syncUrl}`);
         this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
         this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
+        this.shots.welcome(async (frame) => {
+          try { await this.send(handle, frame); }
+          catch (error) {
+            if (handle === this.handle) this.drop("could not send a Shot delivery");
+            throw error;
+          }
+        });
+        break;
+      case "ack":
+        this.shots.acknowledge(message.id);
+        break;
+      case "requestShots":
+        this.shots.request(message.shotIds);
         break;
       case "heartbeat":
         // Its arrival is what counts.
@@ -311,6 +329,7 @@ export class SyncConnection {
     const handle = this.handle;
     this.handle = undefined;
     this.welcomed = false;
+    this.shots.disconnected();
     this.clearTimer("heartbeat");
     this.clearTimer("silence");
     this.clearTimer("connect");

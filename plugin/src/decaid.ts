@@ -52,3 +52,18 @@ function stringField(object: Record<string, unknown> | null, key: string): strin
   const value = object?.[key];
   return typeof value === "string" && value !== "" ? value : null;
 }
+
+/** A bounded page of metadata; /shots/ids would make history one unbounded response. */
+export async function readShotPage(limit: number, offset: number): Promise<{ items: unknown[] } | null> {
+  const page = await getObject(`/shots?limit=${limit}&offset=${offset}&order=desc`);
+  return Array.isArray(page?.items) ? { items: page.items } : null;
+}
+
+export async function readShot(id: string): Promise<Record<string, unknown> | null> {
+  const response = await fetch(`${API}/shots/${encodeURIComponent(id)}`);
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error("Shot unavailable");
+  const body: unknown = await response.json();
+  if (body === null || typeof body !== "object" || Array.isArray(body)) throw new Error("Shot response unavailable");
+  return body as Record<string, unknown>;
+}

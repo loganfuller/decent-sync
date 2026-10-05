@@ -168,6 +168,10 @@ export class SimulatedTablet {
   readonly plugin: BuiltPlugin;
   machineConnected: boolean;
   private api: DecaidApi;
+  private readonly apiFailures = new Map<string, number>();
+  readonly shotPageRequests: { limit: number; offset: number }[] = [];
+  /** Every message the plugin sent, parsed, in order. */
+  readonly sent: unknown[] = [];
   private readonly timeScale: number;
   private readonly apiDelayMs: number;
   /** Opens not yet connected; Decaid counts them against the transport limit. */
@@ -226,6 +230,9 @@ export class SimulatedTablet {
     this.fire("stateUpdate");
   }
 
+  /** Fails this many upcoming reads of a local API route, as a transient Decaid failure does. */
+  failNextApiReads(path: string, count: number): void { this.apiFailures.set(path, count); }
+
   /** Delivers a Decaid event to the plugin. */
   fire(name: string, payload?: unknown): void {
     if (!this.unloaded) this.plugin.onEvent({ name, payload });
@@ -277,9 +284,24 @@ export class SimulatedTablet {
     if (!url.startsWith(`${API_ORIGIN}/api/v1/`)) throw new Error(`The simulated tablet has no network for ${url}`);
     const route = url.slice(`${API_ORIGIN}/api/v1`.length).split("?")[0]!;
     this.requests.push(route);
+    const failures = this.apiFailures.get(route) ?? 0;
+    if (failures > 0) {
+      this.apiFailures.set(route, failures - 1);
+      return response(503, JSON.stringify({ error: "Local API temporarily unavailable" }));
+    }
     if (route === "/machine/info" && !this.machineConnected) {
       // de1handler.dart answers a DeviceNotConnectedException with a 500.
       return response(500, JSON.stringify({ error: "DeviceNotConnectedException: no machine connected" }));
+    }
+    if (route === "/shots") {
+      const params = new URL(url).searchParams;
+      const limit = Number(params.get("limit") ?? 20);
+      const offset = Number(params.get("offset") ?? 0);
+      this.shotPageRequests.push({ limit, offset });
+      const records = Object.entries(this.api).filter(([path]) => path.startsWith("/shots/")).map(([, shot]) => shot as Record<string, unknown>);
+      records.sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)) || String(a.id).localeCompare(String(b.id)));
+      const items = records.slice(offset, offset + Math.min(100, Math.max(1, limit))).map(({ measurements, ...summary }) => summary);
+      return response(200, JSON.stringify({ items, total: records.length, limit, offset }));
     }
     if (!(route in this.api)) return response(404, "");
     return response(200, JSON.stringify(this.api[route]));
@@ -422,6 +444,7 @@ export class SimulatedTablet {
       throw new TransportError("Outbound data limit exceeded; send rejected", "transport_resource_limit");
     }
     record.pendingOutboundBytes += size;
+    this.sent.push(JSON.parse(data));
     record.socket.send(data, () => {
       record.pendingOutboundBytes -= size;
     });
