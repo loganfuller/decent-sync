@@ -466,36 +466,43 @@ function CorrectEntry({
   const id = useId();
   const { locations } = useLocations();
   const options = locations ?? [entry.location];
-  const [locationId, setLocationId] = useState(entry.location.id);
-  const location = options.find((option) => option.id === locationId) ?? entry.location;
-  const [value, setValue] = useState(() => toZonedInput(entry.effectiveFrom, entry.location.timeZone));
+  // Each field is null until someone changes it, and until then follows the entry, which the page's
+  // polling may update as another Admin corrects it; an unchanged field is not sent.
+  const [chosenId, setChosenId] = useState<string | null>(null);
+  // An entered time keeps the moment it named where it was entered, whatever Location is chosen
+  // after: the field shows only minutes, and cannot tell apart the two occurrences of a repeated hour.
+  const [entered, setEntered] = useState<{ text: string; time: string | undefined } | null>(null);
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
-  // While the field shows the recorded time, it stands for the recorded moment: the field has only
-  // minutes, and cannot tell the two occurrences of an hour the clocks repeat apart.
-  const untouched = value === toZonedInput(entry.effectiveFrom, location.timeZone);
+  const location = (chosenId !== null && options.find((option) => option.id === chosenId)) || entry.location;
+  const value = entered
+    ? entered.time
+      ? toZonedInput(entered.time, location.timeZone)
+      : entered.text
+    : toZonedInput(entry.effectiveFrom, location.timeZone);
 
   function chooseLocation(chosen: string) {
-    // The same moment, in the chosen Location's time zone.
+    setChosenId(chosen === entry.location.id ? null : chosen);
+    // A time that names no moment where it was entered is read again in the chosen Location's zone.
     const zone = options.find((option) => option.id === chosen)?.timeZone ?? location.timeZone;
-    const time = untouched ? entry.effectiveFrom : fromZonedInput(value, location.timeZone);
-    if (time) setValue(toZonedInput(time, zone));
-    setLocationId(chosen);
+    if (entered && !entered.time) setEntered({ text: entered.text, time: fromZonedInput(entered.text, zone) });
+  }
+
+  function enterTime(text: string) {
+    // Entering the recorded time again restores the recorded moment, seconds included.
+    const restored = text === toZonedInput(entry.effectiveFrom, location.timeZone);
+    setEntered(restored ? null : { text, time: fromZonedInput(text, location.timeZone) });
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    let effectiveFrom: string | undefined;
-    if (!untouched) {
-      effectiveFrom = fromZonedInput(value, location.timeZone);
-      if (!effectiveFrom) {
-        setError(`That time does not exist in ${location.timeZone}, whose clocks skip it. Choose another time`);
-        return;
-      }
+    if (entered && !entered.time) {
+      setError(`That time does not exist in ${location.timeZone}, whose clocks skip it. Choose another time`);
+      return;
     }
     const correction = {
-      ...(locationId !== entry.location.id ? { locationId } : {}),
-      ...(effectiveFrom ? { effectiveFrom } : {}),
+      ...(chosenId !== null && chosenId !== entry.location.id ? { locationId: chosenId } : {}),
+      ...(entered ? { effectiveFrom: entered.time } : {}),
     };
     if (Object.keys(correction).length === 0) {
       onCancel();
@@ -522,7 +529,7 @@ function CorrectEntry({
       )}
       <div className="grid gap-2">
         <Label htmlFor={`${id}-location`}>Location</Label>
-        <Select value={locationId} onValueChange={chooseLocation}>
+        <Select value={location.id} onValueChange={chooseLocation}>
           <SelectTrigger id={`${id}-location`} className="w-64">
             <SelectValue />
           </SelectTrigger>
@@ -542,7 +549,7 @@ function CorrectEntry({
           type="datetime-local"
           className="w-64"
           value={value}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => enterTime(event.target.value)}
           aria-describedby={`${id}-zone`}
           required
         />

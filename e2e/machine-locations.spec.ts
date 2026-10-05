@@ -254,15 +254,51 @@ test("a time the clocks repeat keeps its moment when only the Location is correc
   await expect(entries.nth(0)).toContainText("Lab");
   expect(await storedHistory(page, machine.id)).toEqual([["Lab", "2025-11-02T06:30:42.123Z"]]);
 
-  // 2:30 AM never happened in Denver on the night its clocks went forward.
+  // A time entered at the Lab keeps its moment back in New York, where it reads the same as the
+  // recorded time: the first 1:30 AM, an hour before the recorded second one.
   await history(page).getByRole("button", { name: "Correct arrival at Lab" }).click();
   const labForm = history(page).getByRole("form", { name: "Correct arrival at Lab" });
-  await labForm.getByLabel("Arrived").fill("2026-03-08T02:30");
-  await labForm.getByRole("button", { name: "Save" }).click();
-  await expect(labForm.getByRole("alert")).toContainText("That time does not exist in America/Denver");
-  expect(await storedHistory(page, machine.id)).toEqual([["Lab", "2025-11-02T06:30:42.123Z"]]);
-  await labForm.getByLabel("Arrived").fill("2026-03-08T03:30");
+  await expect(labForm.getByLabel("Arrived")).toHaveValue("2025-11-02T00:30");
+  await labForm.getByLabel("Arrived").fill("2025-11-01T23:30");
+  await labForm.getByRole("combobox", { name: "Location" }).click();
+  await page.getByRole("option", { name: "Harbor" }).click();
+  await expect(labForm.getByLabel("Arrived")).toHaveValue("2025-11-02T01:30");
   await labForm.getByRole("button", { name: "Save" }).click();
   await expect(labForm).toHaveCount(0);
-  expect(await storedHistory(page, machine.id)).toEqual([["Lab", "2026-03-08T09:30:00.000Z"]]);
+  expect(await storedHistory(page, machine.id)).toEqual([["Harbor", "2025-11-02T05:30:00.000Z"]]);
+
+  // 2:30 AM never happened in New York on the night its clocks went forward.
+  await history(page).getByRole("button", { name: "Correct arrival at Harbor" }).click();
+  const springForm = history(page).getByRole("form", { name: "Correct arrival at Harbor" });
+  await springForm.getByLabel("Arrived").fill("2026-03-08T02:30");
+  await springForm.getByRole("button", { name: "Save" }).click();
+  await expect(springForm.getByRole("alert")).toContainText("That time does not exist in America/New_York");
+  expect(await storedHistory(page, machine.id)).toEqual([["Harbor", "2025-11-02T05:30:00.000Z"]]);
+  await springForm.getByLabel("Arrived").fill("2026-03-08T03:30");
+  await springForm.getByRole("button", { name: "Save" }).click();
+  await expect(springForm).toHaveCount(0);
+  expect(await storedHistory(page, machine.id)).toEqual([["Harbor", "2026-03-08T07:30:00.000Z"]]);
+});
+
+test("an open correction follows another Admin's change to its entry, and saving sends only what was changed", async ({ page }) => {
+  const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };
+  const [uptown, belmont] = ["Uptown", "Belmont"].map((name) => locations.find((location) => location.name === name)!);
+  const response = await page.request.post("/api/machines", { data: { name: "Shared", locationId: uptown!.id } });
+  baseExpect(response.status()).toBe(201);
+  const { machine } = (await response.json()) as { machine: { id: string; locationHistory: { id: string }[] } };
+  const entry = `/api/machines/${machine.id}/location-history/${machine.locationHistory[0]!.id}`;
+  baseExpect((await page.request.patch(entry, { data: { effectiveFrom: "2026-01-10T15:00:00Z" } })).status()).toBe(200);
+
+  await page.goto(`/machines/${machine.id}`);
+  await history(page).getByRole("button", { name: "Correct arrival at Uptown" }).click();
+  const form = history(page).getByRole("form");
+  await expect(form.getByLabel("Arrived")).toHaveValue("2026-01-10T09:00");
+
+  // Another Admin corrects the entry while the form is open; the page's polling brings it in.
+  baseExpect((await page.request.patch(entry, { data: { locationId: belmont!.id, effectiveFrom: "2026-01-12T15:00:00Z" } })).status()).toBe(200);
+  await expect(form.getByLabel("Arrived")).toHaveValue("2026-01-12T09:00");
+  await expect(form.getByRole("combobox", { name: "Location" })).toHaveText("Belmont");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(form).toHaveCount(0);
+  expect(await storedHistory(page, machine.id)).toEqual([["Belmont", "2026-01-12T15:00:00.000Z"]]);
 });
