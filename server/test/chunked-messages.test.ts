@@ -121,10 +121,13 @@ describe("Chunked messages", () => {
   it("sends a chunked Shot again from its first chunk after a reconnect, and stores it once", async () => {
     const machine = await api.createMachine("Interrupted long Shot");
     const record = long("interrupted-long-shot");
-    // Slow enough that the connection drops partway through.
-    const tablet = load(machine, [record], { uploadBytesPerSecond: 1 << 20 });
-    await expect.poll(() => receipts(tablet.received).length, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+    // The network stalls once two chunks are through, so the connection drops partway through.
+    let stalled = true;
+    const stallUpload = (frame: unknown) => stalled && (frame as Received).type === "chunk" && (frame as Received).index === 2;
+    const tablet = load(machine, [record], { stallUpload });
+    await expect.poll(() => receipts(tablet.received).length, { timeout: 10_000 }).toBe(2);
     await absent("interrupted-long-shot");
+    stalled = false;
     tablet.dropConnections();
     await tablet.waitForLogs(/^Connected to /, 2);
     expect((await stored("interrupted-long-shot")).record).toEqual({ ...record, measurements: undefined });
@@ -252,7 +255,7 @@ describe("Chunked messages", () => {
     expect(await measurements("partial-chunked-shot")).toEqual(record.measurements);
   });
 
-  it("accepts a hello in chunks, but no more chunked data before a hello than one frame could carry", async () => {
+  it("accepts a hello in chunks, but holds no more before a hello than one frame could carry, ids included", async () => {
     const machine = await api.createMachine("Chunked hello");
     const raw = await RawConnection.open(server.url);
     raws.push(raw);
@@ -271,5 +274,15 @@ describe("Chunked messages", () => {
     for (const chunk of chunked(padded, "padded")) flood.send(chunk);
     expect((await flood.closed).code).toBe(CLOSE_CODES.protocol_error);
     expect((flood.messages as Received[]).some((message) => message.type === "welcome")).toBe(false);
+    const overLimit = expect.objectContaining({ type: "error", code: "protocol_error", message: expect.stringContaining("ids included") });
+    expect(flood.messages).toContainEqual(overLimit);
+
+    // Chunks without data hold their messages' ids, which count too.
+    const ids = await RawConnection.open(server.url);
+    raws.push(ids);
+    for (let n = 0; n < 6; n++) ids.send({ type: "chunk", id: `${n}`.padEnd(200_000, "x"), index: 0, count: 2, data: "" });
+    expect((await ids.closed).code).toBe(CLOSE_CODES.protocol_error);
+    expect(receipts(ids.messages)).toEqual([0, 0, 0, 0, 0]);
+    expect(ids.messages).toContainEqual(overLimit);
   });
 });

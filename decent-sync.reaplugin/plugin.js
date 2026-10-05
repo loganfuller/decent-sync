@@ -30,73 +30,38 @@ var __decentSync = (() => {
   // ../protocol/src/chunking.ts
   var MAX_FRAME_BYTES = 256 * 1024;
   var MAX_CHUNKED_LENGTH = 16 * 1024 * 1024;
-  var ESCAPES_LONE_SURROGATES = JSON.stringify("\uD800").length > 3;
-  var RUNS = [
-    [/[\x00-\x7f]*/y, 1],
-    [/[\u0080-\u07ff]*/y, 2],
-    [/[\u0800-\ud7ff\ue000-\uffff]*/y, 3],
-    [/(?:[\ud800-\udbff][\udc00-\udfff])*/y, 2]
-  ];
-  var Widths = class {
-    constructor(text) {
-      /** The text's UTF-8 bytes beyond one a code unit; a lone surrogate is sent as U+FFFD, three bytes. */
-      __publicField(this, "extra");
-      /** Stretches of code units that take more than one byte each, in order. */
-      __publicField(this, "starts", []);
-      __publicField(this, "ends", []);
-      /** The bytes beyond one each code unit of a stretch takes once escaped as JSON. */
-      __publicField(this, "escapedExtra", []);
-      /** Those bytes, summed over the stretches before each. */
-      __publicField(this, "escapedBefore", []);
-      let extra = 0;
-      let escaped = 0;
-      const stretch = (start, end, perUnit, escapedPerUnit) => {
-        this.starts.push(start);
-        this.ends.push(end);
-        this.escapedExtra.push(escapedPerUnit);
-        this.escapedBefore.push(escaped);
-        extra += (end - start) * perUnit;
-        escaped += (end - start) * escapedPerUnit;
-      };
-      for (let at = 0; at < text.length; ) {
-        const from = at;
-        for (const [run, bytes] of RUNS) {
-          run.lastIndex = at;
-          run.exec(text);
-          if (run.lastIndex > at && bytes > 1) stretch(at, run.lastIndex, bytes - 1, bytes - 1);
-          at = run.lastIndex;
-        }
-        if (at === from) {
-          stretch(at, at + 1, 2, ESCAPES_LONE_SURROGATES ? 0 : 2);
-          at++;
-        }
-      }
-      this.extra = extra;
-    }
-    /** The bytes beyond one a code unit that the code units from `start` to `end` take once escaped as JSON. */
-    escapedBetween(start, end) {
-      return this.escapedUpTo(end) - this.escapedUpTo(start);
-    }
-    escapedUpTo(position) {
-      let low = 0;
-      let high = this.starts.length;
-      while (low < high) {
-        const middle = low + high >>> 1;
-        if (this.starts[middle] < position) low = middle + 1;
-        else high = middle;
-      }
-      if (low === 0) return 0;
-      const last = low - 1;
-      return this.escapedBefore[last] + (Math.min(position, this.ends[last]) - this.starts[last]) * this.escapedExtra[last];
-    }
-  };
+  var ASCII_RUN = /[\x00-\x7f]*/y;
+  var ASCII_STEPS = 32;
   function utf8Length(text) {
-    return text.length + new Widths(text).extra;
+    const length = text.length;
+    let bytes = length;
+    for (let at = 0; at < length; ) {
+      ASCII_RUN.lastIndex = at;
+      ASCII_RUN.test(text);
+      at = ASCII_RUN.lastIndex;
+      for (let ascii = 0; at < length && ascii < ASCII_STEPS; at++) {
+        const unit = text.charCodeAt(at);
+        if (unit < 128) ascii++;
+        else {
+          ascii = 0;
+          if (unit < 2048) bytes += 1;
+          else {
+            bytes += 2;
+            if (unit >= 55296 && unit <= 56319) {
+              const next = text.charCodeAt(at + 1);
+              if (next >= 56320 && next <= 57343) at++;
+            }
+          }
+        }
+      }
+    }
+    return bytes;
   }
   function frames(text, id, maxFrameBytes = MAX_FRAME_BYTES) {
-    const widths = new Widths(text);
-    const bytes = text.length + widths.extra;
-    if (bytes <= maxFrameBytes) return [{ text, bytes }];
+    if (text.length <= maxFrameBytes) {
+      const bytes = utf8Length(text);
+      if (bytes <= maxFrameBytes) return [{ text, bytes }];
+    }
     const room = maxFrameBytes - utf8Length(chunkFrame(id, text.length, text.length, ""));
     if (room < 8) throw new Error("The frame size leaves no room for a chunk's data");
     const pieces = [];
@@ -107,14 +72,14 @@ var __decentSync = (() => {
       for (; ; ) {
         length = withoutSplitPair(text, start, length);
         const piece = JSON.stringify(text.slice(start, start + length));
-        const bytes2 = piece.length + widths.escapedBetween(start, start + length);
-        if (bytes2 <= room) {
-          pieces.push({ text: piece, bytes: bytes2 });
-          ratio = bytes2 / length;
+        const bytes = utf8Length(piece);
+        if (bytes <= room) {
+          pieces.push({ text: piece, bytes });
+          ratio = bytes / length;
           start += length;
           break;
         }
-        length = Math.max(1, length - (bytes2 - room), Math.floor(length * aim / bytes2));
+        length = Math.max(1, length - (bytes - room), Math.floor(length * aim / bytes));
       }
     }
     return pieces.map((piece, index) => {

@@ -100,6 +100,16 @@ describe("utf8Length", () => {
       expect(utf8Length(text)).toBe(bytes(text));
     }
   });
+
+  it("counts text that switches between ASCII and other characters after ASCII runs of any length", () => {
+    // Long runs of ASCII are matched and short ones stepped through; this covers both, and the switch between them.
+    for (const other of ["é", "日", "\u{1f600}", "\ud83d", "\ude00"]) {
+      for (let run = 0; run <= 80; run++) {
+        const text = `${other}${"x".repeat(run)}`.repeat(4) + other;
+        expect(utf8Length(text)).toBe(bytes(text));
+      }
+    }
+  });
 });
 
 describe("frames", () => {
@@ -233,8 +243,8 @@ describe("Reassembly", () => {
 
   it("holds nothing of a completed message: a repeat after completion starts over", () => {
     const reassembly = new Reassembly();
-    // Room for one message at a time, so the first must have been let go.
-    const limits = { maxLength: text.length, maxChunks: chunks.length };
+    // Room for one message at a time, id included, so the first must have been let go.
+    const limits = { maxLength: text.length + "message-a".length, maxChunks: chunks.length };
     for (let round = 0; round < 3; round++) {
       const results = chunks.map((chunk) => reassembly.add(chunk, limits));
       expect(results.at(-1)).toEqual({ status: "complete", text });
@@ -268,16 +278,32 @@ describe("Reassembly", () => {
     refused(new Reassembly().add({ ...chunks[0]!, count: MAX_CHUNKS + 1 }, CHUNK_LIMITS));
 
     // Limits count what is held across messages: either message fits alone, but not both at once.
-    const oneMessage = { maxLength: text.length, maxChunks: MAX_CHUNKS };
+    const oneMessage = { maxLength: text.length + "message-a".length, maxChunks: MAX_CHUNKS };
     const reassembly = new Reassembly();
     expect(reassembly.add(otherChunks[0]!, oneMessage).status).toBe("incomplete");
     const statuses = chunks.map((chunk) => reassembly.add(chunk, oneMessage).status);
     expect(statuses).toContain("invalid");
     expect(statuses).not.toContain("complete");
-    const twoChunks = { maxLength: Infinity, maxChunks: 2 };
+    // A message's first chunk holds a place for every chunk it says it has.
+    const fourChunks = { maxLength: Infinity, maxChunks: 4 };
     const counted = new Reassembly();
-    for (const id of ["p", "q"]) expect(counted.add({ type: "chunk", id, index: 0, count: 2, data: id }, twoChunks).status).toBe("incomplete");
-    refused(counted.add({ type: "chunk", id: "r", index: 0, count: 2, data: "r" }, twoChunks));
+    for (const id of ["p", "q"]) expect(counted.add({ type: "chunk", id, index: 0, count: 2, data: id }, fourChunks).status).toBe("incomplete");
+    refused(counted.add({ type: "chunk", id: "r", index: 0, count: 2, data: "r" }, fourChunks));
+    refused(new Reassembly().add({ type: "chunk", id: "s", index: 0, count: 5, data: "s" }, fourChunks));
+  });
+
+  it("counts the ids of messages still incomplete against its limits, so empty chunks cannot hold more", () => {
+    const limits = { maxLength: 1_000, maxChunks: MAX_CHUNKS };
+    const reassembly = new Reassembly();
+    // Chunks that carry no data, each starting a message with a long id.
+    const empty = (n: number): Chunk => ({ type: "chunk", id: `${n}`.padEnd(300, "x"), index: 0, count: 2, data: "" });
+    for (const n of [1, 2, 3]) expect(reassembly.add(empty(n), limits)).toEqual({ status: "incomplete" });
+    expect(reassembly.add(empty(4), limits)).toMatchObject({ status: "invalid", problem: expect.stringContaining("ids included") });
+    // A repeat of a chunk already held adds nothing, and so is still within the limits.
+    const repeated = new Reassembly();
+    expect(repeated.add(empty(1), limits)).toEqual({ status: "incomplete" });
+    for (let n = 0; n < 5; n++) expect(repeated.add(empty(1), limits)).toEqual({ status: "incomplete" });
+    expect(new Reassembly().add({ ...empty(5), id: "y".repeat(1_001) }, limits).status).toBe("invalid");
   });
 
   it("puts back together only what decodes as a whole message, never a chunk inside a chunk", () => {

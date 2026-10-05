@@ -15,14 +15,16 @@
 export const MAX_FRAME_BYTES = 256 * 1024;
 
 /**
- * The longest message, in UTF-16 code units of its encoding, put back
- * together from chunks. Decaid's fetch returns at most 10 MiB, so no message
- * the plugin builds from what it reads comes near it.
+ * The most UTF-16 code units held for chunked messages still incomplete,
+ * their ids included, and so about the longest message put back together
+ * from chunks. Decaid's fetch returns at most 10 MiB, so no message the
+ * plugin builds from what it reads comes near it.
  */
 export const MAX_CHUNKED_LENGTH = 16 * 1024 * 1024;
 
 /**
- * The most chunks held at once, and so in one message. A message of
+ * The most chunks the messages still incomplete may have between them,
+ * counting those yet to arrive, and so the most in one message. A message of
  * MAX_CHUNKED_LENGTH in frames of MAX_FRAME_BYTES needs fewer than 400, even
  * if every code unit had to be escaped.
  */
@@ -48,97 +50,51 @@ export interface Frame {
   bytes: number;
 }
 
-/**
- * Whether JSON.stringify escapes a lone surrogate as six ASCII characters, as
- * ES2019 requires, rather than leaving it to be sent as U+FFFD.
- */
-const ESCAPES_LONE_SURROGATES = JSON.stringify("\ud800").length > 3;
+/** A run of ASCII, matched from where the count has got to. */
+const ASCII_RUN = /[\x00-\x7f]*/y;
 
 /**
- * Runs of code units of one UTF-8 width, with the bytes each code unit in a
- * run takes: ASCII, below U+0800, the rest of the Basic Multilingual Plane,
- * and surrogate pairs (four bytes a pair). Sticky, so each matches from where
- * the scan has got to. A lone surrogate is in none of them.
+ * How many ASCII code units in a row the count steps through, one at a time,
+ * before matching the rest of their run in one go.
  */
-const RUNS: readonly (readonly [RegExp, number])[] = [
-  [/[\x00-\x7f]*/y, 1],
-  [/[\u0080-\u07ff]*/y, 2],
-  [/[\u0800-\ud7ff\ue000-\uffff]*/y, 3],
-  [/(?:[\ud800-\udbff][\udc00-\udfff])*/y, 2],
-];
-
-/**
- * Where a text's code units take more than one byte of UTF-8, found in one
- * scan, so the size of any slice of it is known without reading it again.
- * Decaid gives plugins no TextEncoder. In QuickJS, the engine it runs them
- * in on Android, matching whole runs is several times faster than matching
- * characters one at a time or looping over them.
- */
-class Widths {
-  /** The text's UTF-8 bytes beyond one a code unit; a lone surrogate is sent as U+FFFD, three bytes. */
-  readonly extra: number;
-  /** Stretches of code units that take more than one byte each, in order. */
-  private readonly starts: number[] = [];
-  private readonly ends: number[] = [];
-  /** The bytes beyond one each code unit of a stretch takes once escaped as JSON. */
-  private readonly escapedExtra: number[] = [];
-  /** Those bytes, summed over the stretches before each. */
-  private readonly escapedBefore: number[] = [];
-
-  constructor(text: string) {
-    let extra = 0;
-    let escaped = 0;
-    const stretch = (start: number, end: number, perUnit: number, escapedPerUnit: number) => {
-      this.starts.push(start);
-      this.ends.push(end);
-      this.escapedExtra.push(escapedPerUnit);
-      this.escapedBefore.push(escaped);
-      extra += (end - start) * perUnit;
-      escaped += (end - start) * escapedPerUnit;
-    };
-    for (let at = 0; at < text.length; ) {
-      const from = at;
-      for (const [run, bytes] of RUNS) {
-        run.lastIndex = at;
-        run.exec(text);
-        if (run.lastIndex > at && bytes > 1) stretch(at, run.lastIndex, bytes - 1, bytes - 1);
-        at = run.lastIndex;
-      }
-      if (at === from) {
-        // A lone surrogate: three bytes as sent, but six ASCII characters once escaped.
-        stretch(at, at + 1, 2, ESCAPES_LONE_SURROGATES ? 0 : 2);
-        at++;
-      }
-    }
-    this.extra = extra;
-  }
-
-  /** The bytes beyond one a code unit that the code units from `start` to `end` take once escaped as JSON. */
-  escapedBetween(start: number, end: number): number {
-    return this.escapedUpTo(end) - this.escapedUpTo(start);
-  }
-
-  private escapedUpTo(position: number): number {
-    // The last stretch that starts before the position.
-    let low = 0;
-    let high = this.starts.length;
-    while (low < high) {
-      const middle = (low + high) >>> 1;
-      if (this.starts[middle]! < position) low = middle + 1;
-      else high = middle;
-    }
-    if (low === 0) return 0;
-    const last = low - 1;
-    return this.escapedBefore[last]! + (Math.min(position, this.ends[last]!) - this.starts[last]!) * this.escapedExtra[last]!;
-  }
-}
+const ASCII_STEPS = 32;
 
 /**
  * A string's size in UTF-8, as Decaid measures a frame. A surrogate pair is
- * four bytes, and a lone surrogate, which is sent as U+FFFD, three.
+ * four bytes, and a lone surrogate, which is sent as U+FFFD, three. Decaid
+ * gives plugins no TextEncoder. In QuickJS, the engine it runs them in on
+ * Android, a regular expression passes over a long run far faster than a
+ * loop, but each match costs as much as dozens of steps of one. So only long
+ * runs of ASCII, the bulk of most messages, are matched; everything else is
+ * stepped through, and text that keeps switching between ASCII and other
+ * characters costs little more than the loop alone.
  */
 export function utf8Length(text: string): number {
-  return text.length + new Widths(text).extra;
+  const length = text.length;
+  let bytes = length;
+  for (let at = 0; at < length; ) {
+    ASCII_RUN.lastIndex = at;
+    ASCII_RUN.test(text);
+    at = ASCII_RUN.lastIndex;
+    for (let ascii = 0; at < length && ascii < ASCII_STEPS; at++) {
+      // Compared inline, since QuickJS calls functions slowly.
+      const unit = text.charCodeAt(at);
+      if (unit < 0x80) ascii++;
+      else {
+        ascii = 0;
+        if (unit < 0x800) bytes += 1;
+        else {
+          // Three bytes, or four with the low half of a surrogate pair.
+          bytes += 2;
+          if (unit >= 0xd800 && unit <= 0xdbff) {
+            const next = text.charCodeAt(at + 1);
+            if (next >= 0xdc00 && next <= 0xdfff) at++;
+          }
+        }
+      }
+    }
+  }
+  return bytes;
 }
 
 /**
@@ -146,13 +102,14 @@ export function utf8Length(text: string): number {
  * if it fits in `maxFrameBytes`, otherwise chunks of it, each a frame that
  * does. `id` names the chunks' message on its connection. A chunk never ends
  * between the halves of a surrogate pair, so its data is well-formed text.
- * The encoding is scanned once; each chunk's size then comes from its
- * escaped length and that scan.
+ * Each chunk's size is counted from its data as escaped for the frame.
  */
 export function frames(text: string, id: string, maxFrameBytes = MAX_FRAME_BYTES): Frame[] {
-  const widths = new Widths(text);
-  const bytes = text.length + widths.extra;
-  if (bytes <= maxFrameBytes) return [{ text, bytes }];
+  // Every code unit takes at least a byte, so a longer encoding cannot fit, and is not counted whole.
+  if (text.length <= maxFrameBytes) {
+    const bytes = utf8Length(text);
+    if (bytes <= maxFrameBytes) return [{ text, bytes }];
+  }
 
   // The room left for a chunk's data, encoded as a JSON string, beside an
   // envelope whose index and count have as many digits as they can have.
@@ -170,8 +127,7 @@ export function frames(text: string, id: string, maxFrameBytes = MAX_FRAME_BYTES
     for (;;) {
       length = withoutSplitPair(text, start, length);
       const piece = JSON.stringify(text.slice(start, start + length));
-      // Escaping keeps every character outside ASCII as it is, but for a lone surrogate.
-      const bytes = piece.length + widths.escapedBetween(start, start + length);
+      const bytes = utf8Length(piece);
       if (bytes <= room) {
         pieces.push({ text: piece, bytes });
         ratio = bytes / length;
@@ -215,9 +171,9 @@ function isLowSurrogate(unit: number): boolean {
 
 /** How much a Reassembly may hold for messages still incomplete. */
 export interface ReassemblyLimits {
-  /** The most code units of chunk data held at once. */
+  /** The most code units held at once: the messages' ids and their chunks' data. */
   maxLength: number;
-  /** The most chunks held at once, and so in one message. */
+  /** The most chunks the messages may have between them, counting those yet to arrive, and so the most in one message. */
   maxChunks: number;
 }
 
@@ -237,7 +193,7 @@ interface Incomplete {
   count: number;
   parts: (string | undefined)[];
   received: number;
-  /** Code units of data held. */
+  /** Code units held for it: its id and its chunks' data. */
   length: number;
 }
 
@@ -248,11 +204,15 @@ interface Incomplete {
  * A chunk that contradicts an earlier one of its message (other data at the
  * same index, or another count), or that would hold more than the limits
  * allow, shows the connection's chunks cannot be trusted: everything held is
- * dropped, and no message completes from then on.
+ * dropped, and no message completes from then on. Everything a message holds
+ * counts against the limits from its first chunk: its id, its chunks' data,
+ * and a place for each chunk it says it has.
  */
 export class Reassembly {
   private readonly messages = new Map<string, Incomplete>();
+  /** Code units held: the messages' ids and their chunks' data. */
   private heldLength = 0;
+  /** Chunks the messages have between them, counting those yet to arrive. */
   private heldChunks = 0;
   private problem: string | undefined;
 
@@ -269,14 +229,15 @@ export class Reassembly {
     // A repeat of a chunk still held changes nothing.
     if (message?.parts[chunk.index] !== undefined) return { status: "incomplete" };
     if (!message) {
-      message = { count: chunk.count, parts: new Array<string | undefined>(chunk.count), received: 0, length: 0 };
+      message = { count: chunk.count, parts: new Array<string | undefined>(chunk.count), received: 0, length: chunk.id.length };
       this.messages.set(chunk.id, message);
+      this.heldLength += chunk.id.length;
+      this.heldChunks += chunk.count;
     }
     message.parts[chunk.index] = chunk.data;
     message.received++;
     message.length += chunk.data.length;
     this.heldLength += chunk.data.length;
-    this.heldChunks++;
     if (message.received < message.count) return { status: "incomplete" };
 
     this.messages.delete(chunk.id);
@@ -296,8 +257,11 @@ export class Reassembly {
     if (message && message.count !== count) return "chunk.count differs from an earlier chunk of the same message";
     const held = message?.parts[index];
     if (held !== undefined) return held === data ? undefined : "chunk.data differs from an earlier copy of the same chunk";
-    if (this.heldLength + data.length > limits.maxLength || this.heldChunks + 1 > limits.maxChunks) {
-      return `Chunked messages may hold at most ${limits.maxLength} characters in ${limits.maxChunks} chunks at once`;
+    // A message's first chunk brings its id and the places for all its chunks.
+    const length = data.length + (message ? 0 : chunk.id.length);
+    const chunks = message ? 0 : count;
+    if (this.heldLength + length > limits.maxLength || this.heldChunks + chunks > limits.maxChunks) {
+      return `Chunked messages still incomplete may hold at most ${limits.maxLength} characters, ids included, and ${limits.maxChunks} chunks between them`;
     }
     return undefined;
   }

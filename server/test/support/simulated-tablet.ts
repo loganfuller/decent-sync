@@ -23,8 +23,9 @@ import WebSocket from "ws";
 //   delivers events asynchronously and in order, ending with a close event.
 //   A send resolves once its frame is queued. Frames are written in order,
 //   one at a time, and stay pending until written; `uploadBytesPerSecond`
-//   slows the writing, so pending bytes build up as on a slow network.
-//   Closing a transport first waits for its queued frames to be written.
+//   slows the writing, so pending bytes build up as on a slow network, and
+//   `stallUpload` stops it at a chosen frame. Closing a transport first
+//   waits for its queued frames to be written.
 // - Unloading calls onUnload, then cancels the generation's timers and closes
 //   its transports, dropping their later events.
 // - Timers are the host's, so a test can run them faster with `timeScale` to
@@ -140,6 +141,12 @@ export interface SimulatedTabletOptions {
    * of real time, whatever `timeScale` is. Unlimited by default.
    */
   uploadBytesPerSecond?: number;
+  /**
+   * Stalls the network at the first queued frame, parsed, that this matches:
+   * that frame and the ones behind it stay pending, unwritten, for as long as
+   * it matches. Nothing stalls by default.
+   */
+  stallUpload?: (frame: unknown) => boolean;
 }
 
 type TransportEvent = Record<string, unknown> & { type: string };
@@ -150,8 +157,8 @@ interface TransportRecord {
   listener?: (event: TransportEvent) => void;
   inbound: { event: TransportEvent; size: number }[];
   inboundBytes: number;
-  /** Frames sent and not yet written, in order. */
-  outbound: { data: string; size: number }[];
+  /** Frames sent and not yet written, in order, with each one parsed. */
+  outbound: { data: string; size: number; message: unknown }[];
   /** Their size, as Decaid counts it against its limit. */
   pendingOutboundBytes: number;
   /** Whether a frame is being written now. */
@@ -200,6 +207,7 @@ export class SimulatedTablet {
   private readonly timeScale: number;
   private readonly apiDelayMs: number;
   private readonly uploadBytesPerSecond: number | undefined;
+  private readonly stallUpload: ((frame: unknown) => boolean) | undefined;
   /** Opens not yet connected; Decaid counts them against the transport limit. */
   private opening = 0;
   private readonly transports = new Map<string, TransportRecord>();
@@ -224,6 +232,7 @@ export class SimulatedTablet {
     this.timeScale = options.timeScale ?? 1;
     this.apiDelayMs = options.apiDelayMs ?? 0;
     this.uploadBytesPerSecond = options.uploadBytesPerSecond;
+    this.stallUpload = options.stallUpload;
     const { source, manifest } = readBuiltPlugin();
     this.plugin = loadPlugin(source, String(manifest.id), {
       host: {
@@ -476,8 +485,9 @@ export class SimulatedTablet {
     }
     record.pendingOutboundBytes += size;
     this.peakPendingOutboundBytes = Math.max(this.peakPendingOutboundBytes, record.pendingOutboundBytes);
-    this.sent.push(JSON.parse(data));
-    record.outbound.push({ data, size });
+    const message: unknown = JSON.parse(data);
+    this.sent.push(message);
+    record.outbound.push({ data, size, message });
     void this.write(record);
   }
 
@@ -492,6 +502,8 @@ export class SimulatedTablet {
     try {
       while (!record.terminal && record.outbound.length > 0) {
         const frame = record.outbound[0]!;
+        // A stalled network takes nothing; the next send tries again.
+        if (this.stallUpload?.(frame.message)) return;
         if (this.uploadBytesPerSecond !== undefined) await delay((frame.size / this.uploadBytesPerSecond) * 1000);
         if (record.terminal) return;
         // Settles once the socket has taken the frame, or failed to; a failure ends the transport anyway.

@@ -35,9 +35,10 @@ import type { Hardware, Identity } from "./identity.js";
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
 const MAX_PAYLOAD_BYTES = 1 << 20;
 /**
- * Before its hello is accepted, a connection may hold no more chunked data
- * than one frame could carry. A hello goes through the same chunking as any
- * other message, but is far smaller.
+ * Before its hello is accepted, a connection may hold no more for chunked
+ * messages, ids included, than one frame could carry: 1 Mi characters. A
+ * hello goes through the same chunking as any other message, but is far
+ * smaller.
  */
 const HELLO_CHUNK_LIMITS: ReassemblyLimits = { ...CHUNK_LIMITS, maxLength: MAX_PAYLOAD_BYTES };
 /** Received when the connection ended without a close frame. */
