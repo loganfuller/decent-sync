@@ -93,11 +93,13 @@ export class PasswordResetsService {
       const [account] = await tx.$queryRaw<{ deactivated: boolean }[]>`
         SELECT deactivated_at IS NOT NULL AS deactivated FROM accounts WHERE id = ${accountId}::uuid FOR NO KEY UPDATE`;
       if (!account || account.deactivated) throw deactivated();
-      // Read after the lock, so a link that expired while this waited is refused.
+      // Then the link's row, which a concurrent redemption or issue holds until it commits or rolls
+      // back, and only then the time, so a link that expired while this waited for either is refused.
+      const secretHash = hashSecret(secret);
+      await tx.$executeRaw`SELECT 1 FROM password_resets WHERE secret_hash = ${secretHash} FOR NO KEY UPDATE`;
       const now = await databaseNow(tx);
-      // A concurrent redemption, on any instance, waits for this update's row lock, then finds it used.
       const { count } = await tx.passwordReset.updateMany({
-        where: { secretHash: hashSecret(secret), accountId, usedAt: null, expiresAt: { gt: now } },
+        where: { secretHash, accountId, usedAt: null, expiresAt: { gt: now } },
         data: { usedAt: now },
       });
       if (count === 0) {

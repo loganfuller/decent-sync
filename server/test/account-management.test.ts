@@ -81,6 +81,18 @@ async function waitForLockWaits(database: pg.Client, count: number, kind: "advis
   }
 }
 
+/** Waits until the row's `expires_at` has passed by the database's clock. */
+async function waitUntilExpired(database: pg.Client, table: "invites" | "password_resets", where: string, id: string) {
+  await expect
+    .poll(
+      async () =>
+        (await database.query<{ expired: boolean }>(`SELECT expires_at <= clock_timestamp() AS expired FROM ${table} WHERE ${where} = $1`, [id]))
+          .rows[0]!.expired,
+      { timeout: 10_000 },
+    )
+    .toBe(true);
+}
+
 describe("account management", () => {
   let server: TestServer;
   let other: TestServer;
@@ -270,6 +282,28 @@ describe("account management", () => {
     }
   });
 
+  it("refuses an invite that expires while its acceptance waits for a revocation that then rolls back", async () => {
+    const { invite, link } = await api.invite("gus@example.com", "staff", [lab.id]);
+    await database.query("UPDATE invites SET expires_at = clock_timestamp() + interval '2 seconds' WHERE id = $1", [invite.id]);
+
+    // A revocation, as on another instance, holds the invite's row and has not committed.
+    const revoking = await server.connectDatabase();
+    try {
+      await revoking.query("BEGIN");
+      await revoking.query("UPDATE invites SET revoked_at = now() WHERE id = $1", [invite.id]);
+      const acceptance = acceptingInvite(other, link, { name: "Gus", password: "gus password 1" });
+      // It found the invite usable and waits for it.
+      await waitForLockWaits(database, 1, "any");
+      await waitUntilExpired(database, "invites", "id", invite.id);
+      await revoking.query("ROLLBACK");
+
+      expect(await refusal(await acceptance, 410)).toBe("This invite has expired. Ask an Admin for a new one");
+    } finally {
+      await revoking.end();
+    }
+    expect((await signingIn(server, { email: "gus@example.com", password: "gus password 1" })).status).toBe(401);
+  });
+
   it("revokes or accepts an invite, never both, from concurrent requests on two instances", async () => {
     for (let round = 0; round < 6; round++) {
       const { invite, link } = await api.invite(`race${round}@example.com`, "staff", [lab.id]);
@@ -448,14 +482,7 @@ describe("account management", () => {
         const redemption = redeem(other, link, { password: "Eli's new password" });
         // It found the link usable, and waits for the account.
         await waitForLockWaits(database, 1, "any");
-        await expect
-          .poll(
-            async () =>
-              (await database.query<{ expired: boolean }>("SELECT expires_at <= clock_timestamp() AS expired FROM password_resets WHERE account_id = $1", [eli.id]))
-                .rows[0]!.expired,
-            { timeout: 10_000 },
-          )
-          .toBe(true);
+        await waitUntilExpired(database, "password_resets", "account_id", eli.id);
         await holding.query("ROLLBACK");
 
         expect(await refusal(await redemption, 410)).toBe("This password reset link has expired. Ask an Admin for a new one");
@@ -463,6 +490,29 @@ describe("account management", () => {
         await holding.end();
       }
       expect((await signingIn(server, { email: eli.email, password: "Eli's new password" })).status).toBe(401);
+    });
+
+    it("refuses a link that expires while its redemption waits for an issue that then rolls back", async () => {
+      const fay = await invitePerson(api, "Fay Staff", "staff", [lab.id]);
+      const { link } = (await (await api.call("POST", `/accounts/${fay.id}/password-reset`)).json()) as { link: string };
+      await database.query("UPDATE password_resets SET expires_at = clock_timestamp() + interval '2 seconds' WHERE account_id = $1", [fay.id]);
+
+      // Issuing another link, as on another instance, holds the link's row and has not committed.
+      const issuing = await server.connectDatabase();
+      try {
+        await issuing.query("BEGIN");
+        await issuing.query("UPDATE password_resets SET created_at = now() WHERE account_id = $1", [fay.id]);
+        const redemption = redeem(other, link, { password: "Fay's new password" });
+        // It found the link usable and has the account; it waits for the link.
+        await waitForLockWaits(database, 1, "any");
+        await waitUntilExpired(database, "password_resets", "account_id", fay.id);
+        await issuing.query("ROLLBACK");
+
+        expect(await refusal(await redemption, 410)).toBe("This password reset link has expired. Ask an Admin for a new one");
+      } finally {
+        await issuing.end();
+      }
+      expect((await signingIn(server, { email: fay.email, password: "Fay's new password" })).status).toBe(401);
     });
 
     it("redeems a link, and signs in, without waiting for another account's sessions", async () => {

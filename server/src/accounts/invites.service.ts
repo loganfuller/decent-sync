@@ -130,9 +130,11 @@ export class InvitesService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const secretHash = hashSecret(secret);
+        // The invite's row first, which a concurrent acceptance or revocation, on any instance,
+        // holds until it commits or rolls back; then the time, so an invite that expired while
+        // this waited is refused.
+        await tx.$executeRaw`SELECT 1 FROM invites WHERE secret_hash = ${secretHash} FOR NO KEY UPDATE`;
         const now = await databaseNow(tx);
-        // A concurrent acceptance, on any instance, waits for this update's row lock, then
-        // finds the invite accepted; if this transaction rolls back instead, it claims it.
         const { count } = await tx.invite.updateMany({
           where: { secretHash, acceptedAt: null, revokedAt: null, expiresAt: { gt: now } },
           data: { acceptedAt: now },
