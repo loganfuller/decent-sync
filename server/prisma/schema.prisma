@@ -206,8 +206,6 @@ model DismissedHardware {
 model Shot {
   id               String   @id
   hasFullRecord    Boolean  @default(false) @map("has_full_record")
-  /// Distinguishes a complete early edit snapshot from a partial metadata patch.
-  metadataComplete Boolean  @default(false) @map("metadata_complete")
   record           Json     @db.JsonB
   versionAt        DateTime @map("version_at") @db.Timestamptz(6)
   machineId        String?  @map("machine_id") @db.Uuid
@@ -232,8 +230,9 @@ model Shot {
   peakFlow         Float?   @map("peak_flow")
   measurements     ShotMeasurements?
 
+  /// The migration orders both pulled_at columns NULLS LAST, as the queries do; Prisma cannot express that.
   @@index([pulledAt(sort: Desc), id])
-  @@index([machineId, pulledAt(sort: Desc)])
+  @@index([machineId, pulledAt(sort: Desc), id])
   @@index([pendingMachineId])
   @@map("shots")
 }

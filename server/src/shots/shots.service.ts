@@ -4,7 +4,10 @@ import { Prisma } from "../generated/prisma/client.js";
 import { lockHardware } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Identity } from "../sync/identity.js";
-import { extractShot, object, shotHardware, shotVersion } from "./extraction.js";
+import { extractCurves, extractShot, shotHardware, shotVersion } from "./extraction.js";
+
+/** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
+const SHOT_LOCK = 4_000_003;
 
 export interface ShotReporter {
   machineId: string;
@@ -19,41 +22,34 @@ export class ShotsService {
   async store(message: ShotDelivery, reporter: ShotReporter): Promise<void> {
     const { measurements, ...incoming } = message.shot;
     const version = shotVersion(incoming);
+    const full = message.type === "shot";
+    // Not a record Decaid v0.8.7 or later sends: acknowledged, but ignored.
+    if (version === null || (full && !Array.isArray(measurements))) return;
     await this.prisma.$transaction(async (tx) => {
       // Serializes even the first insertion across instances. No row is held
       // until credit is resolved: hardware adoption can finish while we wait
       // for its hardware lock. Adoption never takes this advisory lock.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(4000003::int, hashtext(${message.shotId}::text))`;
-      const [comparison] = await tx.$queryRaw<{ newer: boolean }[]>`
-        SELECT ${version}::timestamptz > version_at AS newer FROM shots WHERE id = ${message.shotId}`;
-      const stored = await tx.shot.findUnique({ where: { id: message.shotId } });
-      const full = message.type === "shot";
-      if (stored && !comparison!.newer && (!full || stored.hasFullRecord)) return;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SHOT_LOCK}::int, hashtext(${message.shotId}::text))`;
+      const [stored] = await tx.$queryRaw<{ record: Prisma.JsonObject; hasFullRecord: boolean; duration: number | null; peakPressure: number | null; peakFlow: number | null; pulledAt: Date | null; newer: boolean }[]>`
+        SELECT record, has_full_record AS "hasFullRecord", duration, peak_pressure AS "peakPressure", peak_flow AS "peakFlow",
+          pulled_at AS "pulledAt", ${version}::timestamptz > version_at AS newer
+        FROM shots WHERE id = ${message.shotId}`;
+      if (stored && !stored.newer && (!full || stored.hasFullRecord)) return;
 
-      let record = incoming;
-      if (stored) {
-        const previous = object(stored.record);
-        if (full && !stored.hasFullRecord && !comparison!.newer) {
-          record = stored.metadataComplete ? previous : merge(incoming, previous);
-        } else if (!full && !message.snapshot) {
-          record = merge(previous, incoming);
-        }
-      }
-      // Edits carry no curves. The first full record fills them, even when a
-      // newer edit was stored first; later edits never load or rewrite them.
-      const fillCurves = full && (!stored?.hasFullRecord || comparison?.newer);
-      // Only curve fields come from the measurements projection.
+      // Every delivery carries complete metadata, so the newer one is kept
+      // whole. A full record older than an early edit only adds its curves.
+      const record = stored && !stored.newer ? stored.record : incoming;
       const metadata = extractShot(record);
-      const curves = fillCurves && measurements !== undefined ? extractShot({ measurements }) : stored;
-      const hasFullRecord = full || stored?.hasFullRecord === true;
+      // The pull time needs the curves too, so it is set with them; edits never load or rewrite them.
+      const curves = full ? extractCurves(record, measurements) : stored;
       const credit = full && !stored?.hasFullRecord ? await this.credit(tx, incoming, reporter) : {};
       const data = {
         ...metadata,
+        pulledAt: curves?.pulledAt ?? null,
         duration: curves?.duration ?? null,
         peakPressure: curves?.peakPressure ?? null,
         peakFlow: curves?.peakFlow ?? null,
-        hasFullRecord,
-        metadataComplete: full || message.snapshot === true || stored?.metadataComplete === true,
+        hasFullRecord: full || stored?.hasFullRecord === true,
         record: record as Prisma.InputJsonObject,
         ...credit,
       };
@@ -61,11 +57,11 @@ export class ShotsService {
       else await tx.shot.create({ data: { id: message.shotId, versionAt: new Date(0), ...data } });
       // Prisma's Date loses Decaid's microseconds. Let PostgreSQL parse and
       // retain them, so two edits within one millisecond compare correctly.
-      if (!stored || comparison!.newer) {
+      if (!stored || stored.newer) {
         await tx.$executeRaw`UPDATE shots SET version_at = ${version}::timestamptz WHERE id = ${message.shotId}`;
       }
-      if (fillCurves && measurements !== undefined) {
-        const value = measurements === null ? Prisma.JsonNull : measurements as Prisma.InputJsonValue;
+      if (full) {
+        const value = measurements as Prisma.InputJsonValue;
         await tx.shotMeasurements.upsert({
           where: { shotId: message.shotId },
           create: { shotId: message.shotId, data: value },
@@ -78,7 +74,7 @@ export class ShotsService {
   /** Missing full records are requested even if their edits have already arrived. */
   async requested(index: ShotIndex): Promise<string[]> {
     if (index.shots.length === 0) return [];
-    const entries = index.shots.map((shot) => Prisma.sql`(${shot.id}::text, ${shot.updatedAt ? shotVersion({ updatedAt: shot.updatedAt }) : null}::timestamptz)`);
+    const entries = index.shots.map((shot) => Prisma.sql`(${shot.id}::text, ${shotVersion(shot)}::timestamptz)`);
     const missing = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
       SELECT offered.id FROM (VALUES ${Prisma.join(entries)}) AS offered(id, version_at)
       LEFT JOIN shots ON shots.id = offered.id
@@ -89,14 +85,14 @@ export class ShotsService {
   async list(limit: number, offset: number, machineId?: string) {
     const where: Prisma.ShotWhereInput = { ...visible, ...(machineId ? { machineId } : {}) };
     const [shots, total] = await this.prisma.$transaction([
-      this.prisma.shot.findMany({ where, orderBy, take: limit, skip: offset, omit: { record: true, versionAt: true, hasFullRecord: true, metadataComplete: true }, include: creditView }),
+      this.prisma.shot.findMany({ where, orderBy, take: limit, skip: offset, omit: { record: true, versionAt: true, hasFullRecord: true }, include: creditView }),
       this.prisma.shot.count({ where }),
     ]);
     return { shots, total, limit, offset };
   }
 
   async get(id: string) {
-    const shot = await this.prisma.shot.findFirst({ where: { id, ...visible }, omit: { versionAt: true, hasFullRecord: true, metadataComplete: true }, include: creditView });
+    const shot = await this.prisma.shot.findFirst({ where: { id, ...visible }, omit: { versionAt: true, hasFullRecord: true }, include: creditView });
     if (!shot) throw shotNotFound();
     return shot;
   }
@@ -130,17 +126,3 @@ const orderBy: Prisma.ShotOrderByWithRelationInput[] = [{ pulledAt: { sort: "des
 const creditView = { machine: { select: { id: true, name: true } }, pendingMachine: { select: { id: true, model: true, serial: true } } } as const;
 
 function shotNotFound() { return new NotFoundException("Shot not found"); }
-
-/** Merge metadata recursively while keeping explicit nulls and unknown fields. */
-function merge(base: Record<string, unknown>, update: Record<string, unknown>): Record<string, unknown> {
-  const result = { ...base };
-  for (const [key, value] of Object.entries(update)) {
-    const previous = result[key];
-    Object.defineProperty(result, key, { value: isObject(previous) && isObject(value) ? merge(previous, value) : value, enumerable: true, writable: true, configurable: true });
-  }
-  return result;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}

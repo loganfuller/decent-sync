@@ -2,7 +2,6 @@
 CREATE TABLE "shots" (
     "id" TEXT NOT NULL,
     "has_full_record" BOOLEAN NOT NULL DEFAULT false,
-    "metadata_complete" BOOLEAN NOT NULL DEFAULT false,
     "record" JSONB NOT NULL,
     "version_at" TIMESTAMPTZ(6) NOT NULL,
     "machine_id" UUID,
@@ -36,10 +35,10 @@ CREATE TABLE "shot_measurements" (
 );
 
 -- CreateIndex
-CREATE INDEX "shots_pulled_at_id_idx" ON "shots"("pulled_at" DESC, "id");
+CREATE INDEX "shots_pulled_at_id_idx" ON "shots"("pulled_at" DESC NULLS LAST, "id");
 
 -- CreateIndex
-CREATE INDEX "shots_machine_id_pulled_at_idx" ON "shots"("machine_id", "pulled_at" DESC);
+CREATE INDEX "shots_machine_id_pulled_at_id_idx" ON "shots"("machine_id", "pulled_at" DESC NULLS LAST, "id");
 
 -- CreateIndex
 CREATE INDEX "shots_pending_machine_id_idx" ON "shots"("pending_machine_id");

@@ -62,28 +62,34 @@ export class ShotCapture {
 
   event(type: "shot" | "shotUpdated", payload: unknown): void {
     const event = object(payload);
-    if (typeof event?.id !== "string" || event.id === "") return;
+    if (typeof event?.id !== "string" || event.id === "" || isLegacyImport(event.id)) return;
     const id = event.id;
     // Keep tablet event order even if its API takes different times to answer.
     this.events = this.events.then(async () => {
-      const supplied = type === "shotUpdated" ? object(event.shot) : undefined;
+      if (type === "shotUpdated") {
+        // Decaid's edit event carries the Shot's complete metadata, without curves.
+        const shot = object(event.shot);
+        if (shot && !this.stopped) this.capture(type, id, shot);
+        return;
+      }
       let shot: Record<string, unknown> | null;
-      try { shot = supplied ?? await readShot(id); }
+      try { shot = await readShot(id); }
       catch {
         this.requested.add(id);
         this.retry();
         return;
       }
       if (this.stopped) return;
-      if (!shot) {
-        this.requested.add(id);
-        this.log("Could not read a Shot from Decaid; it will be retried.");
-      } else {
-        this.ids.add(id);
-        this.enqueue({ type, id: this.nextId(), shotId: id, shot, ...(type === "shotUpdated" ? { snapshot: true } : {}) });
-      }
+      if (shot) return this.capture(type, id, shot);
+      this.requested.add(id);
+      this.log("Could not read a Shot from Decaid; it will be retried.");
       this.pump();
     }).catch(() => this.log("Could not capture a Shot event; reconciliation will recover it."));
+  }
+
+  private capture(type: "shot" | "shotUpdated", id: string, shot: Record<string, unknown>): void {
+    this.ids.add(id);
+    this.enqueue({ type, id: this.nextId(), shotId: id, shot });
   }
 
   /** Read bounded summaries once per load; never use the unbounded ids endpoint. */
@@ -97,10 +103,10 @@ export class ShotCapture {
         if (!page) throw new Error("Shot summaries unavailable");
         const shots = page.items.flatMap((item) => {
           const summary = object(item);
-          if (typeof summary?.id !== "string" || summary.id === "") return [];
+          // Decaid v0.8.7 and later give every Shot an edit time; a record without one is ignored.
+          if (typeof summary?.id !== "string" || summary.id === "" || isLegacyImport(summary.id) || typeof summary.updatedAt !== "string") return [];
           this.ids.add(summary.id);
-          const version = summary.updatedAt ?? summary.createdAt ?? summary.timestamp;
-          return [{ id: summary.id, ...(typeof version === "string" ? { updatedAt: version } : {}) }];
+          return [{ id: summary.id, updatedAt: summary.updatedAt }];
         });
         this.enqueue({ type: "shotIndex", id: this.nextId(), shots });
         if (page.items.length < PAGE_SIZE) break;
@@ -151,7 +157,14 @@ export class ShotCapture {
     const generation = this.generation;
     if (this.outbox.size === 0 && this.requested.size > 0) {
       const id = this.requested.values().next().value!;
-      const shot = await readShot(id);
+      let shot: Record<string, unknown> | null;
+      try { shot = await readShot(id); }
+      catch (error) {
+        // Retry it after the others, so one unreadable Shot cannot hold up the rest.
+        this.requested.delete(id);
+        this.requested.add(id);
+        throw error;
+      }
       if (this.stopped) return;
       this.requested.delete(id);
       if (shot) { const envelopeId = this.nextId(); this.outbox.set(envelopeId, { type: "shot", id: envelopeId, shotId: id, shot }); }
@@ -171,6 +184,11 @@ export class ShotCapture {
   }
 
   private nextId(): string { return `${this.runtimeId}-${++this.sequence}`; }
+}
+
+/** Decaid's imports from the legacy de1app; Decent Sync does not capture them. */
+function isLegacyImport(id: string): boolean {
+  return id.startsWith("de1app-");
 }
 
 function object(value: unknown): Record<string, unknown> | undefined {

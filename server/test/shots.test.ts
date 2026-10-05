@@ -7,6 +7,8 @@ import { startTestServer, type TestServer } from "./support/test-server.js";
 
 // Seam 1: built plugin, real PostgreSQL, and public REST assertions. Every
 // history/annotation/hardware variant is derived from a scrubbed real record.
+/** ShotsService's advisory lock class for one Shot id. */
+const SHOT_LOCK = 4_000_003;
 interface ShotView {
   id: string; machineId: string | null; pendingMachineId: string | null; machineInferred: boolean;
   pulledAt: string | null; actualDose: number | null; actualYield: number | null; enjoyment: number | null;
@@ -148,7 +150,7 @@ describe("Shot capture and reconciliation", () => {
     const database = await server.connectDatabase();
     try {
       await database.query("BEGIN");
-      await database.query("SELECT pg_advisory_xact_lock(4000003::int, hashtext($1::text))", [record.id]);
+      await database.query(`SELECT pg_advisory_xact_lock(${SHOT_LOCK}::int, hashtext($1::text))`, [record.id]);
       const { measurements: omitted, ...summary } = record;
       tablet.fire("shotUpdated", { id: record.id, shot: { ...summary, updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 72 } } });
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -174,6 +176,36 @@ describe("Shot capture and reconciliation", () => {
     await waitShot(String(live.id));
     expect(tablet.requests.filter((path) => path === `/shots/${live.id}`)).toHaveLength(2);
     expect(tablet.shotPageRequests).toHaveLength(1);
+  });
+
+  it("keeps retrying an unreadable Shot behind the other requested Shots", async () => {
+    const machine = await api.createMachine("Unreadable");
+    // The newest Shot is indexed, and so requested, first.
+    const unreadable = shot("unreadable-shot", { timestamp: "2026-03-01T12:00:00Z" });
+    const others = [shot("readable-a", { timestamp: "2026-02-01T12:00:00Z" }), shot("readable-b", { timestamp: "2026-01-01T12:00:00Z" })];
+    const tablet = load(machine, [unreadable, ...others]);
+    tablet.failNextApiReads(`/shots/${unreadable.id}`, 1_000);
+    for (const other of others) await waitShot(String(other.id));
+    tablet.failNextApiReads(`/shots/${unreadable.id}`, 0);
+    await waitShot(String(unreadable.id));
+  });
+
+  it("ignores Decaid's imports from the legacy de1app in history and live events", async () => {
+    const machine = await api.createMachine("Legacy imports");
+    const legacy = shot("de1app-1790428090", { timestamp: "2026-09-26T13:08:10.000Z" });
+    const native = shot("native-beside-legacy");
+    const tablet = load(machine, [legacy, native]);
+    await waitShot(String(native.id));
+    const later = shot("native-after-legacy");
+    tablet.serve(withShots(tabletApi(machine), [legacy, native, later]));
+    tablet.fire("shotStored", { id: legacy.id });
+    tablet.fire("shotUpdated", { id: legacy.id });
+    // Events are handled in order, so the legacy ones are done once this arrives.
+    tablet.fire("shotStored", { id: later.id });
+    await waitShot(String(later.id));
+    expect(tablet.requests).not.toContain(`/shots/${legacy.id}`);
+    expect(JSON.stringify(tablet.sent)).not.toContain(String(legacy.id));
+    expect((await api.call("GET", `/shots/${legacy.id}`)).status).toBe(404);
   });
 
   it("lists Shots while the measurements table is unavailable, without reading curves", async () => {
@@ -222,31 +254,18 @@ describe("Shot capture and reconciliation", () => {
     expect((await list(machine.machine.id)).total).toBe(3);
   });
 
-  it("persists an edit before its full record across instances, then merges the older record and full curves", async () => {
+  it("persists an edit before its full record across instances, then keeps the edit, including cleared fields, with the older record's curves", async () => {
     const machine = await api.createMachine("Early edit");
     const record = shot("early-edit");
+    const { measurements: omitted, ...summary } = record;
     const raw = await connect(machine);
-    await deliver(raw, { id: record.id, updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 92, actualYield: 40, espressoNotes: "Fixture edit" } }, "shotUpdated");
+    await deliver(raw, { ...summary, updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 92, actualYield: 40 } }, "shotUpdated");
     expect((await api.call("GET", `/shots/${record.id}`)).status).toBe(404);
     const replacement = await connect(machine, other.url);
     await deliver(replacement, record);
-    expect(await detail(String(record.id))).toMatchObject({ enjoyment: 92, actualDose: 18, actualYield: 40, profileTitle: "Londonium" });
+    expect(await detail(String(record.id))).toMatchObject({ enjoyment: 92, actualDose: null, actualYield: 40, profileTitle: "Londonium", duration: 27.935 });
     expect(await measurements(String(record.id))).toEqual(record.measurements);
     expect((await list(machine.machine.id)).total).toBe(1);
-  });
-
-  it("retains a complete early edit snapshot, including cleared annotations, when its older full record arrives", async () => {
-    const machine = await api.createMachine("Early snapshot");
-    const record = shot("early-snapshot");
-    const raw = await connect(machine);
-    const { measurements: omitted, ...summary } = record;
-    const id = "early-snapshot-envelope";
-    raw.send({ type: "shotUpdated", id, shotId: record.id, snapshot: true, shot: { ...summary, updatedAt: "2026-11-01T12:00:00Z", annotations: {} } });
-    await expect.poll(() => raw.messages.some((m) => (m as { id?: string }).id === id)).toBe(true);
-    const replacement = await connect(machine, other.url);
-    await deliver(replacement, record);
-    expect(await detail(String(record.id))).toMatchObject({ actualDose: null, actualYield: null, enjoyment: null });
-    expect(await measurements(String(record.id))).toEqual(record.measurements);
   });
 
   it("acknowledges only after storage completes", async () => {
@@ -256,7 +275,7 @@ describe("Shot capture and reconciliation", () => {
     const id = "delayed-envelope";
     try {
       await database.query("BEGIN");
-      await database.query("SELECT pg_advisory_xact_lock(4000003::int, hashtext('delayed-shot'))");
+      await database.query(`SELECT pg_advisory_xact_lock(${SHOT_LOCK}::int, hashtext('delayed-shot'))`);
       raw.send({ type: "shot", id, shotId: "delayed-shot", shot: shot("delayed-shot") });
       await new Promise((resolve) => setTimeout(resolve, 150));
       expect(raw.messages.some((m) => (m as { id?: string }).id === id)).toBe(false);
@@ -290,11 +309,11 @@ describe("Shot capture and reconciliation", () => {
     await ownerRaw.close();
   });
 
-  it("uses inferred reporting credit for legacy imports, missing machine, serial zero and unavailable provenance", async () => {
+  it("uses inferred reporting credit for missing machine, serial zero and unavailable provenance", async () => {
     const machine = await api.createMachine("Inferred");
     const workflow = shotFixture().workflow as Record<string, unknown>;
     const records = [
-      { ...shotFixture("de1app"), id: "inferred-legacy" }, shot("inferred-no-hardware"),
+      shot("inferred-no-hardware"),
       derivedShot("inferred-zero", { workflow: { ...workflow, machine: { model: "DE1Pro", serialNumber: "0" } } }),
       derivedShot("inferred-unavailable", { workflow: { ...workflow, machine: { model: "DE1Pro", serialNumber: "10001", provenanceStatus: "unavailable" } } }),
     ];
@@ -319,22 +338,37 @@ describe("Shot capture and reconciliation", () => {
   });
 
   it("retains missing and unfamiliar Decaid fields as sent", async () => {
-    const machine = await api.createMachine("Mixed versions");
+    const machine = await api.createMachine("Unfamiliar fields");
     const raw = await connect(machine);
-    const record = { id: "opaque-shot", future: { custom: [1, null, "new"] }, workflow: { context: { futureDose: 18 } }, measurements: { futureCurves: true } };
+    const record = { id: "opaque-shot", updatedAt: "2026-01-01T12:00:00Z", future: { custom: [1, null, "new"] }, workflow: { context: { futureDose: 18 } }, measurements: [{ futureSample: true }] };
     await deliver(raw, record);
     const { measurements: expectedCurves, ...metadata } = record;
     expect((await detail(record.id)).record).toEqual(metadata);
     expect(await measurements(record.id)).toEqual(expectedCurves);
   });
 
-  it("makes newer-wins choices across instances and restart, including timestamps without updatedAt", async () => {
+  it("acknowledges and ignores records Decaid v0.8.7 and later would not send", async () => {
+    const machine = await api.createMachine("Incompatible records");
+    const raw = await connect(machine);
+    const { updatedAt: omitted, ...unversioned } = shot("unversioned-shot");
+    await deliver(raw, unversioned);
+    await deliver(raw, shot("local-version-shot", { updatedAt: "2026-01-01T12:00:00" }));
+    await deliver(raw, shot("curveless-shot", { measurements: undefined }));
+    await deliver(raw, { id: "unversioned-edit", annotations: { enjoyment: 50 } }, "shotUpdated");
+    for (const id of ["unversioned-shot", "local-version-shot", "curveless-shot", "unversioned-edit"]) {
+      expect((await api.call("GET", `/shots/${id}`)).status).toBe(404);
+    }
+    raw.send({ type: "shotIndex", id: "incompatible-index", shots: [{ id: "unversioned-edit" }] });
+    await expect.poll(() => raw.messages.find((m) => (m as { type: string }).type === "requestShots")).toEqual({ type: "requestShots", shotIds: ["unversioned-edit"] });
+  });
+
+  it("makes newer-wins choices across instances and restart", async () => {
     const machine = await api.createMachine("Versions");
     const raw = await connect(machine);
-    const record = shot("version-shot", { updatedAt: null, createdAt: null, timestamp: "2026-01-01T12:00:00Z" });
+    const record = shot("version-shot", { updatedAt: "2026-01-01T12:00:00Z" });
     await deliver(raw, record);
     const second = await connect(machine, other.url);
-    await deliver(second, { ...record, timestamp: "2026-01-02T12:00:00Z", annotations: { enjoyment: 70 } });
+    await deliver(second, { ...record, updatedAt: "2026-01-02T12:00:00Z", annotations: { enjoyment: 70 } });
     await second.close();
     await other.stop();
     other = await startTestServer({ env, sharing: server });
@@ -371,7 +405,7 @@ describe("Shot capture and reconciliation", () => {
     const database = await server.connectDatabase();
     try {
       await database.query("BEGIN");
-      await database.query("SELECT pg_advisory_xact_lock(4000003::int, hashtext($1::text))", [old.id]);
+      await database.query(`SELECT pg_advisory_xact_lock(${SHOT_LOCK}::int, hashtext($1::text))`, [old.id]);
       first.send({ type: "shot", id: "concurrent-old", shotId: old.id, shot: old });
       await new Promise((resolve) => setTimeout(resolve, 50));
       const second = await connect(machine, other.url);

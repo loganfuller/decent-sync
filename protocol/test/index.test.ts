@@ -160,12 +160,10 @@ describe("decodeServerMessage", () => {
 describe("Shot envelopes", () => {
   it("validates delivery without validating Decaid's record contents", () => {
     for (const type of ["shot", "shotUpdated"]) {
-      const message = { type, id: "delivery-1", shotId: "de1app-1", shot: { unfamiliar: true }, futureField: {} };
+      const message = { type, id: "delivery-1", shotId: "shot-1", shot: { unfamiliar: true }, futureField: {} };
       expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
       expect(decodePluginMessage(frame({ ...message, id: "" })).ok).toBe(false);
       expect(decodePluginMessage(frame({ ...message, shot: [] })).ok).toBe(false);
-      expect(decodePluginMessage(frame({ ...message, snapshot: true })).ok).toBe(true);
-      expect(decodePluginMessage(frame({ ...message, snapshot: "yes" })).ok).toBe(false);
     }
   });
 

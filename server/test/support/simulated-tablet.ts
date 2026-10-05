@@ -170,6 +170,8 @@ export class SimulatedTablet {
   private api: DecaidApi;
   private readonly apiFailures = new Map<string, number>();
   readonly shotPageRequests: { limit: number; offset: number }[] = [];
+  /** Every message the plugin sent, parsed, in order. */
+  readonly sent: unknown[] = [];
   private readonly timeScale: number;
   private readonly apiDelayMs: number;
   /** Opens not yet connected; Decaid counts them against the transport limit. */
@@ -442,6 +444,7 @@ export class SimulatedTablet {
       throw new TransportError("Outbound data limit exceeded; send rejected", "transport_resource_limit");
     }
     record.pendingOutboundBytes += size;
+    this.sent.push(JSON.parse(data));
     record.socket.send(data, () => {
       record.pendingOutboundBytes -= size;
     });

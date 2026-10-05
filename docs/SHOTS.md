@@ -6,34 +6,36 @@ version 1 with these messages, defined and validated in `protocol/`:
 | Direction | Message | Fields |
 |---|---|---|
 | Plugin to server | `shot` | `id` (delivery id), `shotId` (Decaid id), `shot` (opaque record) |
-| Plugin to server | `shotUpdated` | The same fields, and optional `snapshot` |
+| Plugin to server | `shotUpdated` | The same fields, with the Shot's metadata only |
 | Plugin to server | `shotIndex` | `id`, `shots: [{ id, updatedAt? }]`, at most 100 entries |
 | Server to plugin | `requestShots` | `shotIds`, at most 100 ids |
 | Server to plugin | `ack` | `id` (the logical delivery id) |
 
-The plugin uses the complete metadata snapshot from Decaid's `shotUpdated`
-event (`ShotsHandler._updateShot` in Decaid v0.8.7), marking it `snapshot: true`.
-That preserves cleared fields, which Decaid omits from its serialization.
-A delivery without that marker merges a partial edit recursively, including
-explicit nulls. Both paths preserve stored measurements. A full `shot` is a
-complete record; unknown and missing inner fields are accepted and retained.
+Decent Sync supports Decaid v0.8.7 and later. A `shotUpdated` carries the
+complete metadata from Decaid's `shotUpdated` event (`ShotsHandler._updateShot`),
+which has no measurements, so a newer edit replaces the stored metadata whole,
+cleared fields included, and preserves stored measurements. A full `shot` is
+a complete record; unknown inner fields are accepted and retained. A record
+without a UTC `updatedAt`, or a full record without a measurements array, is
+not one those Decaid versions send: the server acknowledges and ignores it.
 
 On load, the plugin pages `GET /shots?limit=100&offset=...&order=desc` once,
-sending each page's ids and edit times. Older records use `createdAt`, then
-`timestamp`, when `updatedAt` is absent. A reconnect in that runtime sends
+sending each page's ids and edit times. A reconnect in that runtime sends
 cached ids only and resends unacknowledged deliveries. Backfill fetches one
 Shot at a time. Only one logical delivery awaits acknowledgment at a time,
-and the scan waits while its outbox has four deliveries. Transient individual
-Shot fetch failures retry; a 404 means the tablet deleted the record. Deletion
+and the scan waits while its outbox has four deliveries. A Shot whose fetch
+fails is retried after the other requested Shots; a 404 means the tablet
+deleted the record. Shots Decaid imported from the legacy de1app (`de1app-*`
+ids) are never indexed or sent (ADR-0004). Deletion
 never removes a server record. The outbox is in memory; reload reconciliation
 recovers lost Shots and edits. Oversized logical messages are ticket #10.
 
 `ShotsService` serializes a Shot's deliveries with a PostgreSQL advisory lock,
-then compares `updatedAt ?? createdAt ?? timestamp` in PostgreSQL. Edit-time
+then compares `updatedAt` in PostgreSQL. Edit-time
 precision is six fractional digits, matching Decaid, rather than JavaScript's
 milliseconds. A tie keeps the stored metadata. An early edit is stored as an
 incomplete Shot and acknowledged only after commit. Its full record is still
-requested and fills measurements without rolling back the edit. Incomplete
+requested and adds its measurements without rolling back the edit. Incomplete
 Shots are hidden from REST reads and Machine status.
 
 First full records resolve credit from their own hardware (ADR-0015), or the
@@ -47,9 +49,15 @@ removing the Pending Machine. Dismissal hides its Shots without deleting them.
 
 The metadata and analytics live in `shots`; curves live in
 `shot_measurements.data`, a separate jsonb column with lz4 compression. List
-and status queries never read the measurements table. `extractShot` is a pure,
-optional-field projection tested against scrubbed real tablet records and
-labelled older-layout derivations. See the fixtures' README for provenance.
+and status queries never read the measurements table. `extractShot` and
+`extractCurves` are pure, optional-field projections tested against a scrubbed
+real tablet record. See the fixtures' README for provenance.
+
+Decaid writes a Shot's `timestamp` and sample times in the tablet's local time
+without an offset, and `createdAt` in UTC as it saves the Shot, just after the
+last sample. `extractCurves` takes the tablet's offset from that gap, rounded
+to a quarter hour, so the pulled-at time needs the curves and is set with
+them; edits never change it.
 
 ## REST API
 
@@ -75,7 +83,8 @@ access. No capture endpoint writes to the tablet.
 `server/test/shots.test.ts` verifies the built plugin through Seam 1, REST
 reads, and two server instances sharing PostgreSQL. It includes 205-record
 history paging, mid-backfill reconnect, live capture and edits, reload recovery,
-unacknowledged edits, deletion, late full records, complete and partial edits,
+unacknowledged edits, deletion, late full records, edits that clear fields,
 replays, precise version ordering, restart, hardware attribution, dismissal
-and adoption, identity mismatch, transient API failures, and lists while the
-measurements table is locked.
+and adoption, identity mismatch, transient and persistent API failures, ignored
+legacy imports and incompatible records, and lists while the measurements
+table is locked.

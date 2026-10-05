@@ -100,9 +100,6 @@ var __decentSync = (() => {
       if (typeof value !== "number" || !Number.isInteger(value)) this.problem(key, "must be a whole number");
       else if (options.positive && value <= 0) this.problem(key, "must be positive");
     }
-    optionalBoolean(key) {
-      if (this.object[key] !== void 0 && typeof this.object[key] !== "boolean") this.problem(key, "must be a boolean");
-    }
     objectField(key) {
       if (!isObject(this.object[key])) this.problem(key, "must be an object");
     }
@@ -250,28 +247,32 @@ var __decentSync = (() => {
     }
     event(type, payload) {
       const event = object(payload);
-      if (typeof event?.id !== "string" || event.id === "") return;
+      if (typeof event?.id !== "string" || event.id === "" || isLegacyImport(event.id)) return;
       const id = event.id;
       this.events = this.events.then(async () => {
-        const supplied = type === "shotUpdated" ? object(event.shot) : void 0;
+        if (type === "shotUpdated") {
+          const shot2 = object(event.shot);
+          if (shot2 && !this.stopped) this.capture(type, id, shot2);
+          return;
+        }
         let shot;
         try {
-          shot = supplied ?? await readShot(id);
+          shot = await readShot(id);
         } catch {
           this.requested.add(id);
           this.retry();
           return;
         }
         if (this.stopped) return;
-        if (!shot) {
-          this.requested.add(id);
-          this.log("Could not read a Shot from Decaid; it will be retried.");
-        } else {
-          this.ids.add(id);
-          this.enqueue({ type, id: this.nextId(), shotId: id, shot, ...type === "shotUpdated" ? { snapshot: true } : {} });
-        }
+        if (shot) return this.capture(type, id, shot);
+        this.requested.add(id);
+        this.log("Could not read a Shot from Decaid; it will be retried.");
         this.pump();
       }).catch(() => this.log("Could not capture a Shot event; reconciliation will recover it."));
+    }
+    capture(type, id, shot) {
+      this.ids.add(id);
+      this.enqueue({ type, id: this.nextId(), shotId: id, shot });
     }
     /** Read bounded summaries once per load; never use the unbounded ids endpoint. */
     async scan() {
@@ -284,10 +285,9 @@ var __decentSync = (() => {
           if (!page) throw new Error("Shot summaries unavailable");
           const shots = page.items.flatMap((item) => {
             const summary = object(item);
-            if (typeof summary?.id !== "string" || summary.id === "") return [];
+            if (typeof summary?.id !== "string" || summary.id === "" || isLegacyImport(summary.id) || typeof summary.updatedAt !== "string") return [];
             this.ids.add(summary.id);
-            const version = summary.updatedAt ?? summary.createdAt ?? summary.timestamp;
-            return [{ id: summary.id, ...typeof version === "string" ? { updatedAt: version } : {} }];
+            return [{ id: summary.id, updatedAt: summary.updatedAt }];
           });
           this.enqueue({ type: "shotIndex", id: this.nextId(), shots });
           if (page.items.length < PAGE_SIZE) break;
@@ -335,7 +335,14 @@ var __decentSync = (() => {
       const generation = this.generation;
       if (this.outbox.size === 0 && this.requested.size > 0) {
         const id2 = this.requested.values().next().value;
-        const shot = await readShot(id2);
+        let shot;
+        try {
+          shot = await readShot(id2);
+        } catch (error) {
+          this.requested.delete(id2);
+          this.requested.add(id2);
+          throw error;
+        }
         if (this.stopped) return;
         this.requested.delete(id2);
         if (shot) {
@@ -361,6 +368,9 @@ var __decentSync = (() => {
       return `${this.runtimeId}-${++this.sequence}`;
     }
   };
+  function isLegacyImport(id) {
+    return id.startsWith("de1app-");
+  }
   function object(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
   }

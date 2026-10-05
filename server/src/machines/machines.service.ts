@@ -374,18 +374,18 @@ export class MachinesService {
       const hardware = machine.identification === MachineIdentification.MISMATCH ? reportedHardware(machine) : null;
       return hardware ? [hardware] : [];
     });
-    const [owners, pending] =
-      mismatched.length === 0
-        ? [[], []]
-        : await Promise.all([
-            this.prisma.machine.findMany({ where: { OR: mismatched }, select: { id: true, name: true, model: true, serial: true } }),
-            this.prisma.pendingMachine.findMany({ where: { OR: mismatched }, select: { id: true, model: true, serial: true } }),
-          ]);
-
-    const lastShots = machines.length === 0 ? [] : await this.prisma.$queryRaw<{ id: string; machineId: string; pulledAt: Date | null }[]>(Prisma.sql`
-      SELECT DISTINCT ON (machine_id) id, machine_id AS "machineId", pulled_at AS "pulledAt"
-      FROM shots WHERE has_full_record AND machine_id IN (${Prisma.join(machines.map((machine) => Prisma.sql`${machine.id}::uuid`))})
-      ORDER BY machine_id, pulled_at DESC NULLS LAST, id ASC`);
+    // Each Machine's last Shot is one index probe, however long its history.
+    const [owners, pending, lastShots] = await Promise.all([
+      mismatched.length === 0 ? [] : this.prisma.machine.findMany({ where: { OR: mismatched }, select: { id: true, name: true, model: true, serial: true } }),
+      mismatched.length === 0 ? [] : this.prisma.pendingMachine.findMany({ where: { OR: mismatched }, select: { id: true, model: true, serial: true } }),
+      machines.length === 0 ? [] : this.prisma.$queryRaw<{ id: string; machineId: string; pulledAt: Date | null }[]>(Prisma.sql`
+        SELECT last.id, listed.id AS "machineId", last.pulled_at AS "pulledAt"
+        FROM unnest(ARRAY[${Prisma.join(machines.map((machine) => Prisma.sql`${machine.id}::uuid`))}]) AS listed(id)
+        CROSS JOIN LATERAL (
+          SELECT id, pulled_at FROM shots WHERE machine_id = listed.id AND has_full_record
+          ORDER BY pulled_at DESC NULLS LAST, id ASC LIMIT 1
+        ) AS last`),
+    ]);
     const lastByMachine = new Map(lastShots.map((shot) => [shot.machineId, { id: shot.id, pulledAt: shot.pulledAt?.toISOString() ?? null }]));
     return machines.map((machine) => {
       const hardware = machine.identification === MachineIdentification.MISMATCH ? reportedHardware(machine) : null;

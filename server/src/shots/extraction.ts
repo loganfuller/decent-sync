@@ -5,41 +5,33 @@ export function extractShot(record: unknown) {
   const shot = object(record);
   const workflow = object(shot.workflow);
   const context = object(workflow.context);
-  const dose = object(workflow.doseData);
-  const coffee = object(workflow.coffeeData);
   const profile = object(workflow.profile);
   const annotations = object(shot.annotations);
-  const metrics = curveMetrics(shot.measurements);
   return {
-    pulledAt: date(shot.timestamp),
     beanBatchId: string(context.beanBatchId),
-    coffeeName: string(context.coffeeName) ?? string(coffee.name),
-    coffeeRoaster: string(context.coffeeRoaster) ?? string(coffee.roaster),
+    coffeeName: string(context.coffeeName),
+    coffeeRoaster: string(context.coffeeRoaster),
     profileTitle: string(profile.title),
-    profileId: string(profile.id) ?? string(object(object(context.extras).workflowSkin).selectedProfileId),
-    targetDose: number(context.targetDoseWeight) ?? number(dose.doseIn),
-    targetYield: number(context.targetYield) ?? number(dose.doseOut) ?? number(profile.target_weight),
+    profileId: string(object(object(context.extras).workflowSkin).selectedProfileId),
+    targetDose: number(context.targetDoseWeight),
+    targetYield: number(context.targetYield) ?? number(profile.target_weight),
     actualDose: number(annotations.actualDoseWeight),
     actualYield: number(annotations.actualYield),
     enjoyment: number(annotations.enjoyment),
     barista: string(context.baristaName),
-    ...metrics,
   };
 }
 
-/** Keep sub-millisecond precision when PostgreSQL compares Decaid's edit times. */
-export function shotVersion(record: unknown): string {
-  const shot = object(record);
-  for (const value of [shot.updatedAt, shot.createdAt, shot.timestamp]) {
-    const parsed = date(value);
-    if (!parsed) continue;
-    if (typeof value === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)?$/.test(value)) {
-      return /(?:Z|[+-]\d\d:\d\d)$/.test(value) ? value : `${value}Z`;
-    }
-    return parsed.toISOString();
-  }
-  // Undated records still have a stable version, so repeated deliveries keep the first one.
-  return "1970-01-01T00:00:00.000Z";
+/**
+ * A Shot's edit time, as sent, so PostgreSQL compares Decaid's microseconds.
+ * Decaid v0.8.7 and later write it in UTC on every Shot; null marks a record
+ * without one, which is ignored.
+ */
+export function shotVersion(record: unknown): string | null {
+  const updatedAt = object(record).updatedAt;
+  return typeof updatedAt === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(updatedAt) && date(updatedAt)
+    ? updatedAt
+    : null;
 }
 
 export function shotHardware(record: unknown): Hardware | null {
@@ -61,15 +53,18 @@ function number(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+/** Times without an offset are the tablet's local wall-clock times; reading them as UTC keeps their differences exact. */
 function date(value: unknown): Date | null {
   if (typeof value !== "string") return null;
-  // Decaid's older local timestamps have no offset. Treat them consistently as UTC, independent of the instance's time zone.
   const normalized = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?$/.test(value) ? `${value}Z` : value;
   const ms = Date.parse(normalized);
   return Number.isFinite(ms) ? new Date(ms) : null;
 }
 
-function curveMetrics(measurements: unknown) {
+const QUARTER_HOUR = 15 * 60_000;
+
+/** Values that need the Shot's curves: when it was pulled, its duration and its peaks. */
+export function extractCurves(record: unknown, measurements: unknown) {
   const samples = Array.isArray(measurements) ? measurements : [];
   let first: number | null = null;
   let last: number | null = null;
@@ -87,5 +82,24 @@ function curveMetrics(measurements: unknown) {
     if (pressure !== null) peakPressure = peakPressure === null ? pressure : Math.max(peakPressure, pressure);
     if (flow !== null) peakFlow = peakFlow === null ? flow : Math.max(peakFlow, flow);
   }
-  return { duration: first !== null && last !== null ? (last - first) / 1000 : null, peakPressure, peakFlow };
+  return {
+    pulledAt: pulledAt(object(record), last),
+    duration: first !== null && last !== null ? (last - first) / 1000 : null,
+    peakPressure,
+    peakFlow,
+  };
+}
+
+/**
+ * Decaid writes a Shot's `timestamp` and sample times in the tablet's local
+ * time without an offset, and `createdAt` in UTC as it saves the Shot, just
+ * after the last sample. That gap, rounded to a quarter hour, is the offset.
+ */
+function pulledAt(shot: Record<string, unknown>, lastSample: number | null): Date | null {
+  const start = date(shot.timestamp);
+  if (!start || typeof shot.timestamp !== "string") return null;
+  if (/(?:Z|[+-]\d\d:\d\d)$/.test(shot.timestamp)) return start;
+  const created = date(shot.createdAt);
+  if (!created || lastSample === null) return null;
+  return new Date(start.getTime() + Math.round((created.getTime() - lastSample) / QUARTER_HOUR) * QUARTER_HOUR);
 }

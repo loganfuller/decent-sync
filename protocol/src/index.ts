@@ -123,15 +123,17 @@ export interface ErrorMessage {
   message: string;
 }
 
-/** Decaid data stays opaque; only the delivery envelope is validated. */
+/**
+ * Decaid data stays opaque; only the delivery envelope is validated. A `shot`
+ * is the full record; a `shotUpdated` is the edited Shot's complete metadata,
+ * as Decaid's event supplies it, without curves.
+ */
 export interface ShotDelivery {
   type: "shot" | "shotUpdated";
   /** An id for this logical delivery, retained until acknowledged. */
   id: string;
   shotId: string;
   shot: Record<string, unknown>;
-  /** A complete metadata snapshot, as Decaid supplies on shotUpdated. Omitted for a partial edit. */
-  snapshot?: boolean;
 }
 
 /** One bounded page of the tablet's history. Reloads include edit times; reconnects omit them. */
@@ -221,7 +223,6 @@ export function decodePluginMessage(frame: string): Decoded<PluginMessage> {
         fields.string("id", { nonEmpty: true });
         fields.string("shotId", { nonEmpty: true });
         fields.objectField("shot");
-        fields.optionalBoolean("snapshot");
       });
     case "shotIndex":
       return check<ShotIndex>(object, "shotIndex", (fields) => {
@@ -290,10 +291,6 @@ class FieldChecker {
     const value = this.object[key];
     if (typeof value !== "number" || !Number.isInteger(value)) this.problem(key, "must be a whole number");
     else if (options.positive && value <= 0) this.problem(key, "must be positive");
-  }
-
-  optionalBoolean(key: string): void {
-    if (this.object[key] !== undefined && typeof this.object[key] !== "boolean") this.problem(key, "must be a boolean");
   }
 
   objectField(key: string): void {
