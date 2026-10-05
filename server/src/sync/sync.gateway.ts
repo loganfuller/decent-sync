@@ -4,16 +4,21 @@ import type { Duplex } from "node:stream";
 import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
 import { HttpAdapterHost } from "@nestjs/core";
 import {
+  CHUNK_LIMITS,
   CLOSE_CODES,
+  type Chunk,
   type Decoded,
   type ErrorCode,
   type Hello,
   MISSED_HEARTBEATS,
   PROTOCOL_VERSION,
   type PluginMessage,
+  Reassembly,
+  type ReassemblyLimits,
   type RequestShots,
   SYNC_PATH,
   type ServerMessage,
+  decodePluginFrame,
   decodePluginMessage,
   encode,
 } from "@decent-sync/protocol";
@@ -28,7 +33,14 @@ import { hashSecret } from "../secrets.js";
 import type { Hardware, Identity } from "./identity.js";
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
-const MAX_FRAME_BYTES = 1 << 20;
+const MAX_PAYLOAD_BYTES = 1 << 20;
+/**
+ * Before its hello is accepted, a connection may hold no more for chunked
+ * messages, ids included, than one frame could carry: 1 Mi characters. A
+ * hello goes through the same chunking as any other message, but is far
+ * smaller.
+ */
+const HELLO_CHUNK_LIMITS: ReassemblyLimits = { ...CHUNK_LIMITS, maxLength: MAX_PAYLOAD_BYTES };
 /** Received when the connection ended without a close frame. */
 const ABNORMAL_CLOSURE = 1006;
 const INTERNAL_ERROR = 1011;
@@ -53,6 +65,11 @@ interface Session {
   live?: LiveConnection;
   /** Frames are handled one at a time, in the order they arrived. */
   queue: Promise<void>;
+  /**
+   * Chunked messages still arriving. They belong to this connection alone: a
+   * plugin that reconnects sends a message again from its first chunk.
+   */
+  chunks: Reassembly;
   processed: Map<string, RequestShots | null>;
   /** Set once `welcome` is sent. */
   welcomed: boolean;
@@ -67,7 +84,10 @@ interface Session {
  * reported hardware and connection id the session's identity (ADR-0004,
  * ADR-0015), once. A newer connection with the same token replaces an older
  * one. Every refusal sends an `error`, then closes with that error's close
- * code. Messages never reach the log: a `hello` carries the token.
+ * code. Messages never reach the log: a `hello` carries the token. A message
+ * too large for one frame arrives in chunks, which are put back together for
+ * that connection alone and confirmed one by one; the whole message is then
+ * handled, and acknowledged, like any other.
  *
  * Any number of server instances may run. Which connection holds a Machine is
  * stored on its row; a change that may end a connection (another accepted
@@ -78,7 +98,7 @@ interface Session {
 @Injectable()
 export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger("Sync");
-  private readonly server = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
+  private readonly server = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES });
   /** Every open connection, welcomed or not. */
   private readonly connections = new Set<Session>();
   /** Message handling and releases still running, which shutdown waits for before the database disconnects. */
@@ -145,6 +165,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       socket,
       remote: request.socket.remoteAddress ?? "an unknown address",
       queue: Promise.resolve(),
+      chunks: new Reassembly(),
       processed: new Map(),
       welcomed: false,
       closing: false,
@@ -156,7 +177,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     );
 
     socket.on("message", (data, isBinary) => {
-      const decoded = isBinary ? undefined : decodePluginMessage(rawToString(data));
+      const decoded = isBinary ? undefined : decodePluginFrame(rawToString(data));
       const answered = decoded?.ok === true && decoded.message.type === "heartbeat" && this.answerHeartbeat(session);
       session.queue = this.track(
         session.queue
@@ -185,11 +206,34 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     return true;
   }
 
-  /** Handles a frame in turn: `decoded` is undefined for a binary frame, and `answered` says a heartbeat was answered on arrival. */
-  private async receive(session: Session, decoded: Decoded<PluginMessage> | undefined, answered: boolean): Promise<void> {
+  /** Handles a frame in turn: `frame` is undefined for a binary frame, and `answered` says a heartbeat was answered on arrival. */
+  private async receive(session: Session, frame: Decoded<PluginMessage | Chunk> | undefined, answered: boolean): Promise<void> {
     if (session.closing) return;
-    if (!decoded) return this.refuse(session, "protocol_error", "Messages must be sent as text frames");
+    if (!frame) return this.refuse(session, "protocol_error", "Messages must be sent as text frames");
+    if (!frame.ok) return this.handle(session, frame, answered);
+    const message = frame.message;
+    if (message.type !== "chunk") return this.handle(session, { ok: true, message }, answered);
+    const whole = this.reassemble(session, message);
+    if (whole) return this.handle(session, whole, false);
+  }
 
+  /**
+   * Adds a chunk to its message and confirms its receipt, so the plugin can
+   * send more. Returns the whole message once its last chunk is in, and
+   * null until then or if the chunks cannot be trusted.
+   */
+  private reassemble(session: Session, chunk: Chunk): Decoded<PluginMessage> | null {
+    const added = session.chunks.add(chunk, session.machine ? CHUNK_LIMITS : HELLO_CHUNK_LIMITS);
+    if (added.status === "invalid") {
+      this.refuse(session, "protocol_error", added.problem);
+      return null;
+    }
+    this.send(session, { type: "chunkReceived", id: chunk.id, index: chunk.index });
+    return added.status === "complete" ? decodePluginMessage(added.text) : null;
+  }
+
+  /** Handles a whole message, from one frame or put back together from chunks. */
+  private async handle(session: Session, decoded: Decoded<PluginMessage>, answered: boolean): Promise<void> {
     if (!decoded.ok) {
       // A hello of an unsupported version: its Machine, if the token is valid, shows why.
       if (!session.machine && decoded.token !== undefined) await this.recordVersionRefusal(decoded.token, decoded.problem);

@@ -27,6 +27,82 @@ var __decentSync = (() => {
     createPlugin: () => createPlugin
   });
 
+  // ../protocol/src/chunking.ts
+  var MAX_FRAME_BYTES = 256 * 1024;
+  var MAX_CHUNKED_LENGTH = 16 * 1024 * 1024;
+  var ASCII_RUN = /[\x00-\x7f]*/y;
+  var ASCII_STEPS = 32;
+  function utf8Length(text) {
+    const length = text.length;
+    let bytes = length;
+    for (let at = 0; at < length; ) {
+      ASCII_RUN.lastIndex = at;
+      ASCII_RUN.test(text);
+      at = ASCII_RUN.lastIndex;
+      for (let ascii = 0; at < length && ascii < ASCII_STEPS; at++) {
+        const unit = text.charCodeAt(at);
+        if (unit < 128) ascii++;
+        else {
+          ascii = 0;
+          if (unit < 2048) bytes += 1;
+          else {
+            bytes += 2;
+            if (unit >= 55296 && unit <= 56319) {
+              const next = text.charCodeAt(at + 1);
+              if (next >= 56320 && next <= 57343) at++;
+            }
+          }
+        }
+      }
+    }
+    return bytes;
+  }
+  function frames(text, id, maxFrameBytes = MAX_FRAME_BYTES) {
+    if (text.length <= maxFrameBytes) {
+      const bytes = utf8Length(text);
+      if (bytes <= maxFrameBytes) return [{ text, bytes }];
+    }
+    const room = maxFrameBytes - utf8Length(chunkFrame(id, text.length, text.length, ""));
+    if (room < 8) throw new Error("The frame size leaves no room for a chunk's data");
+    const pieces = [];
+    const aim = room * 0.99;
+    let ratio = 1;
+    for (let start = 0; start < text.length; ) {
+      let length = Math.min(text.length - start, Math.max(1, Math.floor(aim / ratio)));
+      for (; ; ) {
+        length = withoutSplitPair(text, start, length);
+        const piece = JSON.stringify(text.slice(start, start + length));
+        const bytes = utf8Length(piece);
+        if (bytes <= room) {
+          pieces.push({ text: piece, bytes });
+          ratio = bytes / length;
+          start += length;
+          break;
+        }
+        length = Math.max(1, length - (bytes - room), Math.floor(length * aim / bytes));
+      }
+    }
+    return pieces.map((piece, index) => {
+      const envelope = chunkFrame(id, index, pieces.length, "");
+      return { text: chunkFrame(id, index, pieces.length, piece.text), bytes: utf8Length(envelope) + piece.bytes };
+    });
+  }
+  function chunkFrame(id, index, count, encodedData) {
+    return `{"type":"chunk","id":${JSON.stringify(id)},"index":${index},"count":${count},"data":${encodedData}}`;
+  }
+  function withoutSplitPair(text, start, length) {
+    const end = start + length;
+    const splitsPair = end < text.length && isHighSurrogate(text.charCodeAt(end - 1)) && isLowSurrogate(text.charCodeAt(end));
+    if (!splitsPair) return length;
+    return length > 1 ? length - 1 : 2;
+  }
+  function isHighSurrogate(unit) {
+    return unit >= 55296 && unit <= 56319;
+  }
+  function isLowSurrogate(unit) {
+    return unit >= 56320 && unit <= 57343;
+  }
+
   // ../protocol/src/index.ts
   var PROTOCOL_VERSION = 1;
   var SYNC_PATH = "/sync";
@@ -66,6 +142,11 @@ var __decentSync = (() => {
         });
       case "ack":
         return check(object2, "ack", (fields) => fields.string("id", { nonEmpty: true }));
+      case "chunkReceived":
+        return check(object2, "chunkReceived", (fields) => {
+          fields.string("id", { nonEmpty: true });
+          fields.integer("index", { nonNegative: true });
+        });
       case "requestShots":
         return check(object2, "requestShots", (fields) => {
           fields.array("shotIds", (value) => typeof value === "string" && value !== "", 100);
@@ -101,6 +182,7 @@ var __decentSync = (() => {
       const value = this.object[key];
       if (typeof value !== "number" || !Number.isInteger(value)) this.problem(key, "must be a whole number");
       else if (options.positive && value <= 0) this.problem(key, "must be positive");
+      else if (options.nonNegative && value < 0) this.problem(key, "must not be negative");
     }
     objectField(key) {
       if (!isObject(this.object[key])) this.problem(key, "must be an object");
@@ -195,6 +277,80 @@ var __decentSync = (() => {
     return body;
   }
 
+  // src/sender.ts
+  var MAX_UNCONFIRMED_BYTES = 512 * 1024;
+  var Sender = class {
+    constructor(sendFrame) {
+      __publicField(this, "sendFrame", sendFrame);
+      __publicField(this, "queue", []);
+      __publicField(this, "unconfirmed", []);
+      __publicField(this, "unconfirmedBytes", 0);
+      __publicField(this, "sending", false);
+      /** Set once the transport closed or refused a frame; nothing more is sent. */
+      __publicField(this, "failure");
+      /** Names chunked messages that have no id of their own. */
+      __publicField(this, "unnamed", 0);
+    }
+    /** Resolves once every frame of the message has been handed to Decaid; rejects if the transport fails first. */
+    async send(message) {
+      if (this.failure) throw this.failure;
+      const id = "id" in message ? message.id : void 0;
+      const name = id ?? `message-${++this.unnamed}`;
+      const encoded = frames(encode(message), name);
+      if (encoded.length === 1 && id === void 0) return this.sendFrame(encoded[0].text);
+      return new Promise((resolve, reject) => {
+        this.queue.push({ id: name, frames: encoded, sent: 0, resolve, reject });
+        void this.pump();
+      });
+    }
+    /** The server received a chunk. */
+    received(id, index) {
+      this.confirm(id, index);
+    }
+    /** The server stored a delivery. */
+    acknowledged(id) {
+      this.confirm(id, void 0);
+    }
+    /** Fails every message not yet handed to Decaid in full, as the transport has closed. */
+    close(error = new Error("The connection closed")) {
+      if (this.failure) return;
+      this.failure = error;
+      for (const queued of this.queue.splice(0)) queued.reject(error);
+      this.unconfirmed.length = 0;
+      this.unconfirmedBytes = 0;
+    }
+    confirm(id, index) {
+      const at = this.unconfirmed.findIndex((frame) => frame.id === id && frame.index === index);
+      if (at < 0) return;
+      for (const frame of this.unconfirmed.splice(0, at + 1)) this.unconfirmedBytes -= frame.bytes;
+      void this.pump();
+    }
+    async pump() {
+      if (this.sending) return;
+      this.sending = true;
+      try {
+        while (!this.failure && this.queue.length > 0) {
+          const next = this.queue[0];
+          const frame = next.frames[next.sent];
+          if (this.unconfirmedBytes + frame.bytes > MAX_UNCONFIRMED_BYTES) return;
+          this.unconfirmed.push({ id: next.id, index: next.frames.length > 1 ? next.sent : void 0, bytes: frame.bytes });
+          this.unconfirmedBytes += frame.bytes;
+          next.sent++;
+          await this.sendFrame(frame.text);
+          if (this.failure) return;
+          if (next.sent === next.frames.length) {
+            this.queue.shift();
+            next.resolve();
+          }
+        }
+      } catch (error) {
+        this.close(error instanceof Error ? error : new Error(String(error)));
+      } finally {
+        this.sending = false;
+      }
+    }
+  };
+
   // src/shots.ts
   var PAGE_SIZE = 100;
   var SHORT_OUTBOX = 4;
@@ -206,7 +362,7 @@ var __decentSync = (() => {
       __publicField(this, "ids", /* @__PURE__ */ new Set());
       __publicField(this, "runtimeId", `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
       __publicField(this, "sequence", 0);
-      __publicField(this, "sendFrame");
+      __publicField(this, "sendMessage");
       __publicField(this, "generation", 0);
       __publicField(this, "sent");
       __publicField(this, "working", false);
@@ -219,7 +375,7 @@ var __decentSync = (() => {
       __publicField(this, "events", Promise.resolve());
     }
     welcome(send) {
-      this.sendFrame = send;
+      this.sendMessage = send;
       this.generation++;
       this.sent = void 0;
       if (this.welcomed) void this.indexKnownIds();
@@ -228,7 +384,7 @@ var __decentSync = (() => {
       this.pump();
     }
     disconnected() {
-      this.sendFrame = void 0;
+      this.sendMessage = void 0;
       this.generation++;
       this.sent = void 0;
     }
@@ -317,16 +473,16 @@ var __decentSync = (() => {
       this.outbox.set(message.id, message);
       this.pump();
     }
-    /** One logical message awaits ack at a time, leaving Decaid's pending transport room for heartbeats. */
+    /** One logical message awaits ack at a time; the connection's Sender keeps it, chunked or not, within Decaid's pending limit. */
     pump() {
-      if (this.retryTimer !== void 0 || this.working || this.stopped || !this.sendFrame || this.sent !== void 0 || this.outbox.size === 0 && this.requested.size === 0) return;
+      if (this.retryTimer !== void 0 || this.working || this.stopped || !this.sendMessage || this.sent !== void 0 || this.outbox.size === 0 && this.requested.size === 0) return;
       this.working = true;
       void this.work().catch(() => {
         this.log("Shot delivery interrupted; unacknowledged data remains queued.");
         this.retry();
       }).finally(() => {
         this.working = false;
-        if (!this.stopped && this.sendFrame && this.sent === void 0) this.pump();
+        if (!this.stopped && this.sendMessage && this.sent === void 0) this.pump();
       });
     }
     async work() {
@@ -348,12 +504,12 @@ var __decentSync = (() => {
           this.outbox.set(envelopeId, { type: "shot", id: envelopeId, shotId: id2, shot });
         }
       }
-      if (generation !== this.generation || !this.sendFrame) return;
+      if (generation !== this.generation || !this.sendMessage) return;
       const next = this.outbox.entries().next().value;
       if (!next) return;
       const [id, message] = next;
       this.sent = id;
-      await this.sendFrame(message);
+      await this.sendMessage(message);
     }
     retry() {
       if (this.stopped || this.retryTimer !== void 0) return;
@@ -392,6 +548,8 @@ var __decentSync = (() => {
       __publicField(this, "log", log);
       /** The open handle, or undefined while disconnected. */
       __publicField(this, "handle");
+      /** Sends every message on the open handle. */
+      __publicField(this, "sender");
       /** Bumped by every attempt and drop, so late results of an older one are ignored. */
       __publicField(this, "attempt", 0);
       __publicField(this, "connecting", false);
@@ -464,6 +622,7 @@ var __decentSync = (() => {
           return;
         }
         this.handle = handle;
+        this.sender = new Sender((frame) => this.host.transport.send(handle, { type: "text", data: frame }));
         this.welcomed = false;
         this.sentHardware = identity.machine;
         this.host.transport.onEvent(handle, (event) => this.onTransportEvent(handle, event));
@@ -530,9 +689,9 @@ var __decentSync = (() => {
           this.log(`Connected to ${this.settings.syncUrl}`);
           this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
           this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
-          this.shots.welcome(async (frame) => {
+          this.shots.welcome(async (delivery) => {
             try {
-              await this.send(handle, frame);
+              await this.send(handle, delivery);
             } catch (error) {
               if (handle === this.handle) this.drop("could not send a Shot delivery");
               throw error;
@@ -540,7 +699,11 @@ var __decentSync = (() => {
           });
           break;
         case "ack":
+          this.sender?.acknowledged(message.id);
           this.shots.acknowledge(message.id);
+          break;
+        case "chunkReceived":
+          this.sender?.received(message.id, message.index);
           break;
         case "requestShots":
           this.shots.request(message.shotIds);
@@ -569,8 +732,10 @@ var __decentSync = (() => {
         if (handle === this.handle) this.drop(`heard nothing from the server for ${this.silenceMs / 1e3} s`);
       });
     }
+    /** Sends on the handle, in chunks if the message is too large for a frame, unless the handle was dropped. */
     send(handle, message) {
-      return this.host.transport.send(handle, { type: "text", data: encode(message) });
+      if (handle !== this.handle || !this.sender) return Promise.reject(new Error("The connection closed"));
+      return this.sender.send(message);
     }
     /**
      * Reads the machine's hardware and reconnects if the current connection
@@ -632,6 +797,8 @@ var __decentSync = (() => {
       const handle = this.handle;
       this.handle = void 0;
       this.welcomed = false;
+      this.sender?.close();
+      this.sender = void 0;
       this.shots.disconnected();
       this.clearTimer("heartbeat");
       this.clearTimer("silence");

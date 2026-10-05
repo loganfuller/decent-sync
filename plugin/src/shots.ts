@@ -12,7 +12,7 @@ export class ShotCapture {
   private readonly ids = new Set<string>();
   private readonly runtimeId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   private sequence = 0;
-  private sendFrame?: (message: PluginMessage) => Promise<void>;
+  private sendMessage?: (message: PluginMessage) => Promise<void>;
   private generation = 0;
   private sent?: string;
   private working = false;
@@ -27,7 +27,7 @@ export class ShotCapture {
   constructor(private readonly log: (message: string) => void) {}
 
   welcome(send: (message: PluginMessage) => Promise<void>): void {
-    this.sendFrame = send;
+    this.sendMessage = send;
     this.generation++;
     this.sent = undefined;
     if (this.welcomed) void this.indexKnownIds();
@@ -37,7 +37,7 @@ export class ShotCapture {
   }
 
   disconnected(): void {
-    this.sendFrame = undefined;
+    this.sendMessage = undefined;
     this.generation++;
     this.sent = undefined;
   }
@@ -136,9 +136,9 @@ export class ShotCapture {
     this.pump();
   }
 
-  /** One logical message awaits ack at a time, leaving Decaid's pending transport room for heartbeats. */
+  /** One logical message awaits ack at a time; the connection's Sender keeps it, chunked or not, within Decaid's pending limit. */
   private pump(): void {
-    if (this.retryTimer !== undefined || this.working || this.stopped || !this.sendFrame || this.sent !== undefined || (this.outbox.size === 0 && this.requested.size === 0)) return;
+    if (this.retryTimer !== undefined || this.working || this.stopped || !this.sendMessage || this.sent !== undefined || (this.outbox.size === 0 && this.requested.size === 0)) return;
     this.working = true;
     void this.work().catch(() => {
       // SyncConnection drops a transport whose send failed; the outbox stays for its replacement.
@@ -146,7 +146,7 @@ export class ShotCapture {
       this.retry();
     }).finally(() => {
       this.working = false;
-      if (!this.stopped && this.sendFrame && this.sent === undefined) this.pump();
+      if (!this.stopped && this.sendMessage && this.sent === undefined) this.pump();
     });
   }
 
@@ -167,12 +167,12 @@ export class ShotCapture {
       if (shot) { const envelopeId = this.nextId(); this.outbox.set(envelopeId, { type: "shot", id: envelopeId, shotId: id, shot }); }
       // A record deleted on the tablet is absent; nothing deletes its server copy.
     }
-    if (generation !== this.generation || !this.sendFrame) return;
+    if (generation !== this.generation || !this.sendMessage) return;
     const next = this.outbox.entries().next().value;
     if (!next) return;
     const [id, message] = next;
     this.sent = id;
-    await this.sendFrame(message);
+    await this.sendMessage(message);
   }
 
   private retry(): void {

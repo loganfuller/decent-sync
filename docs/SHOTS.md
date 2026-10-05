@@ -28,7 +28,9 @@ fails is retried after the other requested Shots; a 404 means the tablet
 deleted the record. Shots Decaid imported from the legacy de1app (`de1app-*`
 ids) are never indexed or sent (ADR-0004). Deletion
 never removes a server record. The outbox is in memory; reload reconciliation
-recovers lost Shots and edits. Oversized logical messages are ticket #10.
+recovers lost Shots and edits. A delivery too large for one frame, such as a
+long filter or tea shot, is sent in chunks and acknowledged once
+(`AI_PROTOCOL_NOTES.md`).
 
 `ShotsService` serializes a Shot's deliveries with a PostgreSQL advisory lock,
 then compares `updatedAt` in PostgreSQL. Edit-time

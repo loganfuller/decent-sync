@@ -2,11 +2,16 @@
 // here so they cannot drift apart. The plugin bundles it into an ES2020 script,
 // so this package must not depend on Node or browser APIs.
 //
-// Every message is one JSON object in a WebSocket text frame, told apart by
-// its `type`. Validators accept fields they do not know, so either end can add
-// one without breaking the other, and never echo field values in the problems
+// Every message is one JSON object, told apart by its `type`, in a WebSocket
+// text frame of its own or, if too large for one, in chunks (chunking.ts).
+// Validators accept fields they do not know, so either end can add one
+// without breaking the other, and never echo field values in the problems
 // they report, apart from a Decaid version's release numbers: a `hello`
 // carries the Machine's token.
+
+import type { Chunk } from "./chunking.js";
+
+export * from "./chunking.js";
 
 /** The protocol version this build of the plugin and server speaks. */
 export const PROTOCOL_VERSION = 1;
@@ -166,8 +171,22 @@ export interface Ack {
   id: string;
 }
 
+/**
+ * Sent by the server for every chunk it receives, so the plugin knows the
+ * chunk has left the tablet and can send more. It says nothing about
+ * storage: a chunked delivery is acknowledged once, by its `ack`.
+ */
+export interface ChunkReceived {
+  type: "chunkReceived";
+  /** The chunk's `id`. */
+  id: string;
+  /** The chunk's `index`. */
+  index: number;
+}
+
+/** Messages the plugin sends, each in a frame of its own or in chunks. */
 export type PluginMessage = Hello | Heartbeat | ShotDelivery | ShotIndex;
-export type ServerMessage = Welcome | Heartbeat | ErrorMessage | RequestShots | Ack;
+export type ServerMessage = Welcome | Heartbeat | ErrorMessage | RequestShots | Ack | ChunkReceived;
 
 export type Decoded<T> =
   | { ok: true; message: T }
@@ -186,16 +205,37 @@ export function encode(message: PluginMessage | ServerMessage): string {
   return JSON.stringify(message);
 }
 
-/**
- * Reads a frame the plugin sent. A `hello` is checked for its protocol version
- * before anything else, so a plugin too old to send today's `hello` is told it
- * is too old rather than that its message is invalid. A valid `hello` is then
- * checked for its Decaid version.
- */
-export function decodePluginMessage(frame: string): Decoded<PluginMessage> {
+/** Reads a frame the plugin sent: a whole message, or a chunk of one too large for a frame. */
+export function decodePluginFrame(frame: string): Decoded<PluginMessage | Chunk> {
   const object = parseObject(frame);
   if (typeof object === "string") return invalid(object);
+  if (object.type !== "chunk") return decodeMessage(object);
+  return check<Chunk>(object, "chunk", (fields) => {
+    fields.string("id", { nonEmpty: true });
+    fields.integer("index", { nonNegative: true });
+    fields.integer("count", { positive: true });
+    fields.string("data");
+  });
+}
 
+/**
+ * Reads a whole message from the plugin: a frame that is not a chunk, or the
+ * encoding a message's chunks were put back together into.
+ */
+export function decodePluginMessage(text: string): Decoded<PluginMessage> {
+  const object = parseObject(text);
+  if (typeof object === "string") return invalid(object);
+  if (object.type === "chunk") return invalid("A chunked message must not be a chunk itself");
+  return decodeMessage(object);
+}
+
+/**
+ * A `hello` is checked for its protocol version before anything else, so a
+ * plugin too old to send today's `hello` is told it is too old rather than
+ * that its message is invalid. A valid `hello` is then checked for its Decaid
+ * version.
+ */
+function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage> {
   switch (object.type) {
     case "hello": {
       const version = object.protocolVersion;
@@ -276,6 +316,11 @@ export function decodeServerMessage(frame: string): Decoded<ServerMessage> {
       });
     case "ack":
       return check<Ack>(object, "ack", (fields) => fields.string("id", { nonEmpty: true }));
+    case "chunkReceived":
+      return check<ChunkReceived>(object, "chunkReceived", (fields) => {
+        fields.string("id", { nonEmpty: true });
+        fields.integer("index", { nonNegative: true });
+      });
     case "requestShots":
       return check<RequestShots>(object, "requestShots", (fields) => {
         fields.array("shotIds", (value) => typeof value === "string" && value !== "", 100);
@@ -337,10 +382,11 @@ class FieldChecker {
     if (value !== undefined && value !== null && typeof value !== "string") this.problem(key, "must be a string or null");
   }
 
-  integer(key: string, options: { positive?: boolean } = {}): void {
+  integer(key: string, options: { positive?: boolean; nonNegative?: boolean } = {}): void {
     const value = this.object[key];
     if (typeof value !== "number" || !Number.isInteger(value)) this.problem(key, "must be a whole number");
     else if (options.positive && value <= 0) this.problem(key, "must be positive");
+    else if (options.nonNegative && value < 0) this.problem(key, "must not be negative");
   }
 
   objectField(key: string): void {
