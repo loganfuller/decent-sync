@@ -29,7 +29,15 @@ import { startTestServer, type TestServer } from "./support/test-server.js";
 interface Summary { name: string; available: boolean; reportedAt: string; receivedAt: string | null; items: number | null }
 interface Collection extends Summary { value: unknown }
 interface Device { id: string; type: string | null; model: string | null; vendor: string | null; state: string | null; firmware: string | null; batteryLevel: number | null }
-interface PairedDevices { reportedAt: string | null; scale: Device | null; auxiliaryScale: Device | null; sensors: Device[]; others: Device[] }
+interface PairedDevices {
+  reportedAt: string | null;
+  available: boolean | null;
+  receivedAt: string | null;
+  scale: Device | null;
+  auxiliaryScale: Device | null;
+  sensors: Device[];
+  others: Device[];
+}
 interface Frame { type: string; id?: string; name?: string; available?: boolean; value?: unknown }
 
 const frameType = (frame: unknown) => (frame as Frame).type;
@@ -142,7 +150,7 @@ describe("Library, settings and paired devices", () => {
     expect((await api.call("GET", `/machines/${machine.machine.id}/collections/recipes`)).status).toBe(404);
     expect(await summaries(machine)).toEqual([]);
     for (const name of COLLECTION_NAMES) expect(await collection(machine, name)).toBeNull();
-    expect(await pairedDevices(machine)).toEqual({ reportedAt: null, scale: null, auxiliaryScale: null, sensors: [], others: [] });
+    expect(await pairedDevices(machine)).toEqual({ reportedAt: null, available: null, receivedAt: null, scale: null, auxiliaryScale: null, sensors: [], others: [] });
   });
 
   it("stores every collection on connect as Decaid sent it, archived records, hidden profiles and unavailable ones included", async () => {
@@ -271,6 +279,8 @@ describe("Library, settings and paired devices", () => {
     const view = await pairedDevices(machine);
     expect(view).toEqual({
       reportedAt: reported!.reportedAt,
+      available: true,
+      receivedAt: reported!.receivedAt,
       scale: device("scale", "MockScale", "Mock Scale", "connected"),
       auxiliaryScale: null,
       sensors: [device("sensor", "mockDebugPort", "DebugPort", "connected", "DecentEspresso"), device("sensor", "mockSensorBasket", "SensorBasket", "connected", "DecentEspresso")],
@@ -477,6 +487,63 @@ describe("Library, settings and paired devices", () => {
     expect(sent.slice(1).every((frame) => JSON.stringify(frame.value) === JSON.stringify(newer))).toBe(true);
     expect((await collection(machine, "machineSettings"))!.value).toEqual(newer);
   }, 40_000);
+
+  it("keeps a value read while the outbox was busy ahead of a later read that found the collection unavailable", async () => {
+    const machine = await api.createMachine("Busy outbox");
+    let stalled = false;
+    const served = derivedDe1Pro({ serial: "30601" });
+    const tablet = load(machine, {
+      api: served,
+      stallUpload: (frame) => stalled && frameType(frame) === "collection" && (frame as Frame).name === "dye2Baskets",
+    });
+    await expect.poll(() => allReported(machine), { timeout: 10_000 }).toBe(true);
+    await allAcknowledged(tablet);
+
+    // Derived: DYE2's basket renamed, whose delivery then waits on the network, holding up the outbox.
+    stalled = true;
+    const baskets = (served["/store/dye2.reaplugin/baskets"] as Record<string, unknown>[]).map((basket) => ({ ...basket, name: "Decent 18g Ridged" }));
+    tablet.serve({ ...served, "/store/dye2.reaplugin/baskets": baskets });
+    await expect.poll(() => deliveries(tablet, "dye2Baskets").length, { timeout: 10_000 }).toBe(2);
+    // Derived: the machine recalibrated, read and queued behind it; then the machine is switched off.
+    const recalibrated = { ...(served["/machine/settings"] as object), steamFlow: 1.5 };
+    tablet.serve({ ...served, "/store/dye2.reaplugin/baskets": baskets, "/machine/settings": recalibrated });
+    await polls(tablet, 1);
+    tablet.machineConnected = false;
+    await polls(tablet, 1);
+    stalled = false;
+
+    await expect.poll(async () => (await collection(machine, "machineSettings"))?.available, { timeout: 10_000 }).toBe(false);
+    await allAcknowledged(tablet);
+    expect(await collections(machine)).toMatchObject({
+      machineSettings: { available: false, value: recalibrated },
+      dye2Baskets: { available: true, value: baskets },
+    });
+  }, 30_000);
+
+  it("shows a connected scale's firmware and battery level only while its tablet's inventory is current, and when the devices shown were read", async () => {
+    const machine = await api.createMachine("Scale information");
+    const raw = await connect(machine, server.url, { model: "DE1Pro", serial: "30701" });
+    const simulated = simulatedDevices();
+    // Derived: the mock scale's report with the two fields scale_handler.dart writes for a scale that reports
+    // them, as a Skale2 does.
+    const scaleInfo = { ...(simulated["/scale/info"] as object), firmwareVersion: "1.2.0", batteryLevel: 80 };
+    await deliver(raw, report("appSettings", simulated["/settings"]));
+    await deliver(raw, report("pairedDevices", paired(simulated["/devices"])));
+    await deliver(raw, report("scaleInfo", scaleInfo));
+    const read = await pairedDevices(machine);
+    expect(read).toMatchObject({ available: true, receivedAt: read.reportedAt });
+    expect(read.scale).toEqual({ ...device("scale", "MockScale", "Mock Scale", "connected"), firmware: "1.2.0", batteryLevel: 80 });
+
+    // The inventory cannot be read: the devices shown are the last read, and the scale's report may be another scale's.
+    await deliver(raw, report("pairedDevices"));
+    const stale = await pairedDevices(machine);
+    expect(stale).toMatchObject({ available: false, receivedAt: read.receivedAt });
+    expect(Date.parse(stale.reportedAt!)).toBeGreaterThan(Date.parse(stale.receivedAt!));
+    expect(stale.scale).toEqual(device("scale", "MockScale", "Mock Scale", "connected"));
+
+    await deliver(raw, report("pairedDevices", paired(simulated["/devices"])));
+    expect((await pairedDevices(machine)).scale).toMatchObject({ firmware: "1.2.0", batteryLevel: 80 });
+  });
 
   it("acknowledges and ignores a collection it does not know", async () => {
     const machine = await api.createMachine("Newer plugin");

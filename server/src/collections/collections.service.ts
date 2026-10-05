@@ -101,7 +101,7 @@ export class CollectionsService {
     await this.requireMachine(machineId);
     const rows = await this.prisma.reportedCollection.findMany({
       where: { machineId, name: { in: ["pairedDevices", "scaleInfo", "sensors", "appSettings"] } },
-      select: { name: true, available: true, reportedAt: true, value: true },
+      select: { name: true, available: true, reportedAt: true, value: true, receivedAt: true },
     });
     const report = (name: CollectionName) => rows.find((row) => row.name === name) ?? null;
     return pairedDevicesView({

@@ -389,7 +389,7 @@ var __decentSync = (() => {
       __publicField(this, "pollMs", pollMs);
       /** What was last queued for each collection. */
       __publicField(this, "last", /* @__PURE__ */ new Map());
-      /** The latest delivery queued for each collection. */
+      /** For each collection, the latest delivery queued, and the latest queued with a value. */
       __publicField(this, "queued", /* @__PURE__ */ new Map());
       __publicField(this, "wanted");
       __publicField(this, "reading", false);
@@ -444,9 +444,12 @@ var __decentSync = (() => {
       if (!decision.send || reading.kind === "notModified") return;
       const id = this.outbox.nextId();
       const delivery = reading.kind === "value" ? { type: "collection", id, name: source.name, available: true, value: reading.value } : { type: "collection", id, name: source.name, available: false };
-      const previous = this.queued.get(source.name);
-      if (previous !== void 0) this.outbox.supersede(previous);
-      this.queued.set(source.name, id);
+      const earlier = this.queued.get(source.name);
+      if (earlier) {
+        if (delivery.available || earlier.latest !== earlier.value) this.outbox.supersede(earlier.latest);
+        if (delivery.available && earlier.value !== void 0 && earlier.value !== earlier.latest) this.outbox.supersede(earlier.value);
+      }
+      this.queued.set(source.name, { latest: id, value: delivery.available ? id : earlier?.value });
       this.outbox.enqueue(delivery);
     }
   };

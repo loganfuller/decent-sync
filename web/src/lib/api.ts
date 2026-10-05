@@ -165,8 +165,11 @@ export interface PairedDevice {
 
 /** A Machine's paired devices, as its tablet last reported them. */
 export interface PairedDevices {
-  /** Null until its tablet reports them. */
+  /** When its tablet last reported them, whether or not it could read them then; null until it reports them. */
   reportedAt: string | null;
+  /** Whether it could read them then; if not, those shown are from `receivedAt`. */
+  available: boolean | null;
+  receivedAt: string | null;
   scale: PairedDevice | null;
   auxiliaryScale: PairedDevice | null;
   sensors: PairedDevice[];

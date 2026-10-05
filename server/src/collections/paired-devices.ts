@@ -24,8 +24,12 @@ export interface PairedDeviceView {
 }
 
 export interface PairedDevicesView {
-  /** When the tablet last reported its paired devices; null if it never has. */
+  /** When the tablet last reported its paired devices, whether or not it could read them then; null if it never has. */
   reportedAt: string | null;
+  /** Whether it could read them then. If not, the devices shown are those it read before, with their state then. */
+  available: boolean | null;
+  /** When the devices shown were reported; null if it has never read them. */
+  receivedAt: string | null;
   /** The scale that weighs shots: the one Decaid has connected as its primary scale, or else the scale it prefers. */
   scale: PairedDeviceView | null;
   /** A second scale Decaid has connected for something else, such as weighing ground coffee. */
@@ -40,6 +44,7 @@ export interface Report {
   available: boolean;
   reportedAt: Date;
   value: unknown;
+  receivedAt: Date | null;
 }
 
 interface Entry {
@@ -64,8 +69,9 @@ export function pairedDevicesView(reports: {
     scales.find((entry) => entry.role === "primary") ?? scales.find((entry) => entry.role === null && entry.view.id === preferredScale) ?? null;
   const auxiliaryScale = scales.find((entry) => entry.role === "auxiliary") ?? null;
 
-  // The scale's own report describes whichever scale is connected as primary.
-  const scaleInfo = reports.scaleInfo?.available ? object(reports.scaleInfo.value) : null;
+  // The scale's own report names no scale: it describes whichever one is connected as primary now. It is
+  // joined only while the inventory read last is current too, or it could describe a scale that replaced this one.
+  const scaleInfo = reports.scaleInfo?.available && reports.pairedDevices?.available ? object(reports.scaleInfo.value) : null;
   if (scale?.role === "primary" && scale.view.state === "connected" && scaleInfo) {
     scale.view.firmware = text(scaleInfo.firmwareVersion);
     scale.view.batteryLevel = typeof scaleInfo.batteryLevel === "number" && Number.isFinite(scaleInfo.batteryLevel) ? scaleInfo.batteryLevel : null;
@@ -90,6 +96,8 @@ export function pairedDevicesView(reports: {
   const shown = new Set<Entry | null>([scale, auxiliaryScale, ...sensorEntries]);
   return {
     reportedAt: reports.pairedDevices?.reportedAt.toISOString() ?? null,
+    available: reports.pairedDevices?.available ?? null,
+    receivedAt: reports.pairedDevices?.receivedAt?.toISOString() ?? null,
     scale: scale?.view ?? null,
     auxiliaryScale: auxiliaryScale?.view ?? null,
     sensors,

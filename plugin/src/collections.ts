@@ -45,8 +45,8 @@ const SOURCES: readonly Source[] = [
 export class CollectionCapture {
   /** What was last queued for each collection. */
   private readonly last = new Map<CollectionName, Fingerprint>();
-  /** The latest delivery queued for each collection. */
-  private readonly queued = new Map<CollectionName, string>();
+  /** For each collection, the latest delivery queued, and the latest queued with a value. */
+  private readonly queued = new Map<CollectionName, { latest: string; value: string | undefined }>();
   private wanted: "changes" | "full" | undefined;
   private reading = false;
   private stopped = false;
@@ -116,10 +116,15 @@ export class CollectionCapture {
       reading.kind === "value"
         ? { type: "collection", id, name: source.name, available: true, value: reading.value }
         : { type: "collection", id, name: source.name, available: false };
-    // The newer delivery makes an older one still queued unnecessary, unless that was sent before a reconnect.
-    const previous = this.queued.get(source.name);
-    if (previous !== undefined) this.outbox.supersede(previous);
-    this.queued.set(source.name, id);
+    // The newer delivery makes older ones still queued unnecessary, unless they were sent before a
+    // reconnect, except that a value stays ahead of a report that the collection became unavailable:
+    // the server keeps the value it gets, and otherwise would never get this one.
+    const earlier = this.queued.get(source.name);
+    if (earlier) {
+      if (delivery.available || earlier.latest !== earlier.value) this.outbox.supersede(earlier.latest);
+      if (delivery.available && earlier.value !== undefined && earlier.value !== earlier.latest) this.outbox.supersede(earlier.value);
+    }
+    this.queued.set(source.name, { latest: id, value: delivery.available ? id : earlier?.value });
     this.outbox.enqueue(delivery);
   }
 }

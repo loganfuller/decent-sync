@@ -36,13 +36,9 @@ export function PairedDevicesCard({ devices }: { devices: PairedDevices }) {
         <CardTitle>
           <h2>Paired devices</h2>
         </CardTitle>
-        <CardDescription>
-          {devices.reportedAt
-            ? `As its tablet reported them at ${formatTime(devices.reportedAt)}. Devices only discovered nearby are left out. A scale reports its firmware and battery level only while connected, and only if it reports them to Decaid.`
-            : "Its tablet has not reported its paired devices yet."}
-        </CardDescription>
+        <CardDescription>{pairedDevicesText(devices)}</CardDescription>
       </CardHeader>
-      {devices.reportedAt && (
+      {devices.receivedAt && (
         <CardContent>
           <Table aria-label="Paired devices">
             <TableHeader>
@@ -176,6 +172,16 @@ function SettingsList({ label, title, entries }: { label: string; title?: string
       </Fields>
     </div>
   );
+}
+
+/** When the paired devices shown were reported, and whether they are still current. */
+function pairedDevicesText(devices: PairedDevices): string {
+  if (!devices.reportedAt) return "Its tablet has not reported its paired devices yet.";
+  const note =
+    "Devices only discovered nearby are left out. A scale reports its firmware and battery level only while connected, and only if it reports them to Decaid.";
+  if (devices.available && devices.receivedAt) return `As its tablet reported them at ${formatTime(devices.receivedAt)}. ${note}`;
+  const unavailable = `Not available when last read, at ${formatTime(devices.reportedAt)}`;
+  return devices.receivedAt ? `${unavailable}; shown as reported at ${formatTime(devices.receivedAt)}, with their state then. ${note}` : `${unavailable}.`;
 }
 
 /** When a collection was reported, and whether its tablet could read it then. */

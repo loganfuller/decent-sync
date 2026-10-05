@@ -66,7 +66,9 @@ tests (`plugin/test/change-detection.test.ts`):
   the older one was ever handed to a connection. Such a delivery may still be
   being stored by the instance that received it, so it is sent again, under
   its id, ahead of the newer one; the server then finds it handled, or waits
-  for it, and the newer value always lands last.
+  for it, and the newer value always lands last. A report that a collection
+  became unavailable never drops a value queued before it: that value goes
+  first, and the server keeps it.
 
 Decaid's plugin `fetch` passes request headers and gives response headers
 through `headers.get` (`PluginManager` in
@@ -114,13 +116,18 @@ Machine that takes their hardware over.
   with its `value`, or null until the Machine's tablet reports it. An unknown
   name answers 404.
 - `GET /api/machines/:id/paired-devices` returns `{ pairedDevices: { reportedAt,
-  scale, auxiliaryScale, sensors, others } }`, each device
-  `{ id, type, model, vendor, state, firmware, batteryLevel }`
-  (`server/src/collections/paired-devices.ts`). The scale is the one Decaid has
-  connected as its primary scale, or else the one `appSettings` names as
-  preferred; the auxiliary scale is one connected as `auxiliary`. Firmware and
-  battery level come from `scaleInfo` and belong to a connected primary scale;
-  in Decaid v0.8.7 only Skale2 scales report them, so other scales answer `{}`.
+  available, receivedAt, scale, auxiliaryScale, sensors, others } }`, each
+  device `{ id, type, model, vendor, state, firmware, batteryLevel }`
+  (`server/src/collections/paired-devices.ts`). `reportedAt` and `available`
+  are the latest report's; the devices are the latest read, from `receivedAt`,
+  with their state then. The scale is the one Decaid has connected as its
+  primary scale, or else the one `appSettings` names as preferred; the
+  auxiliary scale is one connected as `auxiliary`. Firmware and battery level
+  come from `scaleInfo` and belong to a connected primary scale, joined only
+  while the latest inventory read succeeded: `scaleInfo` names no scale, so
+  against an older inventory it could describe a scale that replaced the one
+  listed. In Decaid v0.8.7 only Skale2 scales report them, so other scales
+  answer `{}`.
   Sensors are those in the inventory and those `/sensors` lists, which can
   include some the inventory leaves out, with their manifest's name and vendor.
   Everything else paired, such as the machine itself, is in `others`.
