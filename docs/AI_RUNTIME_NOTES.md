@@ -41,7 +41,7 @@ ADR-0009's original rationale and the original Further Notes in issue #1 stated 
 | Library, settings and device information | `decaid:assets/api/rest_v1.yml` and corresponding handlers | Poll; use ETags where supported, otherwise content comparison |
 | DYE2 recipes, equipment and baskets | `dye2:docs/KV_CONTRACT.md` and the code that reads/writes each key | Read only in milestone 1; ADR-0005's writes are later work |
 
-Steam Records have no `updatedAt`, nothing in Decaid, Streamline or DYE2 edits them, and `GET /steams` returns every record (each with its full Workflow and profile) in one unpaginated response that outgrows the fetch limit at cafe volume. Milestone 1 therefore captures new Steam Records and backfill only, not edits. Shot `updatedAt` is optional and changes only when content changes; order Shot versions by `updatedAt ?? createdAt ?? timestamp`. Check optional fields in real records from supported versions; absence of an endpoint means unavailable data, not an empty collection.
+Steam Records have no `updatedAt`, nothing in Decaid, Streamline or DYE2 edits them, and `GET /steams` returns every record (each with its full Workflow and profile) in one unpaginated response that outgrows the fetch limit at cafe volume. Milestone 1 therefore captures new Steam Records and backfill only, not edits. Every supported Decaid serves Shots with `updatedAt`, in UTC, which changes only when their content does; order Shot versions by `updatedAt` alone, and ignore a Shot without it (ADR-0017). Check optional fields in real records from supported versions; absence of an endpoint means unavailable data, not an empty collection.
 
 ## Identity and attribution
 
