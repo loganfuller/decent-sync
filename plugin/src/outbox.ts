@@ -77,9 +77,21 @@ export class Outbox {
     this.pump();
   }
 
-  /** Records the server requested. A record requested again keeps its place. */
-  request(kind: RecordKind, ids: string[]): void {
-    for (const id of ids) this.requested.set(`${kind}:${id}`, { kind, id });
+  /**
+   * Records to read and send: requested by the server, after those already
+   * requested, where a record requested again keeps its place, or, with
+   * `first`, ahead of them all, as for records new on the tablet.
+   */
+  request(kind: RecordKind, ids: string[], options: { first?: boolean } = {}): void {
+    const records = ids.map((id) => [`${kind}:${id}`, { kind, id }] as const);
+    if (options.first) {
+      const keys = new Set<string>(records.map(([key]) => key));
+      const others = [...this.requested].filter(([key]) => !keys.has(key));
+      this.requested.clear();
+      for (const [key, record] of [...records, ...others]) this.requested.set(key, record);
+    } else {
+      for (const [key, record] of records) this.requested.set(key, record);
+    }
     this.pump();
   }
 

@@ -61,7 +61,9 @@ last sample. `extractCurves` takes the tablet's offset from that gap, rounded
 to a quarter hour, so the pulled-at time needs the curves and is set by the
 first full record, which also credits the Shot. Later records and edits change
 neither, so a Shot's credit and the time its Location is credited by are
-written once, with its Machine's row locked.
+written once, with its Machine's row locked. Duration adds up the gaps between
+consecutive samples, leaving out the whole quarter hours a daylight-saving
+change adds or takes away (`elapsedSeconds`).
 
 ## REST API
 

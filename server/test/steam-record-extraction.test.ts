@@ -40,6 +40,19 @@ describe("Steam Record extraction", () => {
     expect(extractSteamRecord(cutShort)).toMatchObject({ peakMilkTemperature: 61.945, finalMilkTemperature: 61.945 });
   });
 
+  it("measures duration across a daylight-saving change in the tablet's local times", () => {
+    // Derived: the record's first two samples, at times either side of Chicago's changes, two seconds apart.
+    const fixture = milkProbeSteamFixture();
+    const [first, second] = fixture.measurements as { machine: Record<string, unknown> }[];
+    const at = (sample: { machine: Record<string, unknown> }, timestamp: string) => ({ ...sample, machine: { ...sample.machine, timestamp } });
+    for (const [before, after] of [
+      ["2026-03-08T01:59:59.000000", "2026-03-08T03:00:01.000000"],
+      ["2026-11-01T01:59:59.000000", "2026-11-01T01:00:01.000000"],
+    ]) {
+      expect(extractSteamRecord({ ...fixture, measurements: [at(first!, before!), at(second!, after!)] }).duration).toBe(2);
+    }
+  });
+
   it("tolerates absent, unfamiliar and mistyped optional fields", () => {
     const none = { duration: null, peakMilkTemperature: null, finalMilkTemperature: null, barista: null };
     for (const record of [

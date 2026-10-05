@@ -279,7 +279,9 @@ model ShotMeasurements {
 /// Machine whose tablet reported it, or, from a mismatched connection, to the
 /// hardware that connection reported: the Machine that has it, otherwise its
 /// Pending Machine (ADR-0015). Decaid offers no way to detect edits to Steam
-/// Records, so a stored one never changes, apart from its Location credit.
+/// Records, so a stored one never changes; only its credit moves, when a
+/// machine entry takes over its Pending Machine's hardware or its Machine's
+/// Location History changes.
 model SteamRecord {
   id                   String             @id
   /// The record as Decaid sent it, without its measurements.

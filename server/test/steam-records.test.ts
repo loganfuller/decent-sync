@@ -199,24 +199,19 @@ describe("Steam Record capture", () => {
 
   it("sends a new Steam Record by the next poll, with its measurements and milk temperature, credited to the reporting Machine", async () => {
     const machine = await api.createMachine("Live steam");
-    // Polls every minute of the tablet's time: 1.2 s of real time.
-    const tablet = load(machine, [], { settings: { ...settingsFor(machine), PollSeconds: 60 } });
+    // Polls every two minutes of the tablet's time: 2.4 s of real time.
+    const tablet = load(machine, [], { settings: { ...settingsFor(machine), PollSeconds: 120 } });
     await tablet.waitForLog(/^Connected to /);
     await expect.poll(() => idReads(tablet)).toBeGreaterThan(0);
 
     const record = milkProbeSteamFixture();
     tablet.serve(tabletApi(machine, [record]));
     const readsBefore = idReads(tablet);
-    // Sent from the first read of the ids after it appeared.
-    let readsWhenSent: number | undefined;
-    const deadline = Date.now() + 10_000;
-    while (readsWhenSent === undefined && Date.now() < deadline) {
-      if (sent(tablet, "steam").some((message) => message.steamId === record.id)) readsWhenSent = idReads(tablet);
-      else await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    expect(readsWhenSent).toBe(readsBefore + 1);
+    // Stored once the first read of the ids after it appeared found it, before the next read.
+    await expect.poll(async () => (await api.call("GET", `/steam-records/${record.id}`)).status, { timeout: 10_000, interval: 20 }).toBe(200);
+    expect(idReads(tablet)).toBe(readsBefore + 1);
 
-    expect(await waitSteam(String(record.id))).toEqual({
+    expect(await detail(String(record.id))).toEqual({
       id: record.id,
       machineId: machine.machine.id,
       machine: { id: machine.machine.id, name: "Live steam" },
@@ -238,6 +233,20 @@ describe("Steam Record capture", () => {
     expect(tablet.logs.filter((line) => line.startsWith("Connected to "))).toHaveLength(1);
   });
 
+  it("sends a Steam Record new on the tablet ahead of the history still being backfilled", async () => {
+    const machine = await api.createMachine("Steam during backfill");
+    const history = Array.from({ length: 150 }, (_, n) =>
+      derivedSteam(`backfill-${String(n).padStart(3, "0")}`, { timestamp: new Date(Date.UTC(2026, 1, 1, 8, n)).toISOString().replace("Z", "001") }),
+    );
+    // Each read of Decaid's API takes 20 ms of real time, so the backfill takes seconds.
+    const tablet = load(machine, history, { apiDelayMs: 1_000 });
+    await expect.poll(async () => (await list(machine.machine.id)).total, { timeout: 10_000 }).toBeGreaterThan(0);
+    tablet.serve(tabletApi(machine, [...history, derivedSteam("new-during-backfill")]));
+    await waitSteam("new-during-backfill");
+    expect((await list(machine.machine.id)).total).toBeLessThan(history.length + 1);
+    await expect.poll(async () => (await list(machine.machine.id)).total, { timeout: 20_000 }).toBe(history.length + 1);
+  }, 40_000);
+
   it("places each Steam Record's local time in UTC by the tablet's time zone, on both sides of a daylight-saving change", async () => {
     const machine = await api.createMachine("Chicago tablet");
     const times: [string, string][] = [
@@ -249,23 +258,31 @@ describe("Steam Record capture", () => {
       ["2026-11-01T03:00:00.000001", "2026-11-01T09:00:00.000Z"],
       // 01:30 happens twice that night, and is read as the first, still in daylight time.
       ["2026-11-01T01:30:00.000000", "2026-11-01T06:30:00.000Z"],
+      // Derived: times with an offset, which Decaid does not write today, are placed by it.
+      ["2026-12-01T09:00:00.000001+01:00", "2026-12-01T08:00:00.000Z"],
+      ["2026-12-02T09:00:00.000001Z", "2026-12-02T09:00:00.000Z"],
     ];
     const records = times.map(([timestamp], n) => derivedSteam(`zoned-${n}`, { timestamp }));
-    // Derived: a time no Decaid writes.
-    const unreadable = derivedSteam("unreadable-time", { timestamp: "Sunday morning" });
-    const tablet = load(machine, [...records, unreadable]);
+    // Derived: times no Decaid writes, which JavaScript would otherwise roll over into others.
+    const unreadable = {
+      "unreadable-time": "Sunday morning",
+      "no-such-day": "2026-02-30T08:30:00.250001",
+      "skipped-time": "2026-03-08T02:30:00.000001",
+      "no-such-offset": "2026-10-05T09:07:03.341484+99:99",
+    };
+    const tablet = load(machine, [...records, ...Object.entries(unreadable).map(([id, timestamp]) => derivedSteam(id, { timestamp }))]);
     for (const [n, [timestamp, utc]] of times.entries()) {
       const stored = await waitSteam(`zoned-${n}`);
       expect(stored.steamedAt).toBe(utc);
-      // The record keeps the local time Decaid wrote.
+      // The record keeps the time Decaid wrote.
       expect(stored.record).toMatchObject({ timestamp });
     }
-    expect(await tablet.waitForLog(/^Not sending Steam Record unreadable-time/)).toBe(
-      "Not sending Steam Record unreadable-time: its time is not one Decaid writes.",
-    );
-    await absent("unreadable-time");
+    for (const id of Object.keys(unreadable)) {
+      await tablet.waitForLog(new RegExp(`^Not sending Steam Record ${id}: its time is not one Decaid writes\\.$`));
+      await absent(id);
+    }
     const listed = await list(machine.machine.id);
-    expect(listed.steamRecords.map((steam) => steam.id)).toEqual(["zoned-3", "zoned-4", "zoned-2", "zoned-0", "zoned-1"]);
+    expect(listed.steamRecords.map((steam) => steam.id)).toEqual(["zoned-6", "zoned-5", "zoned-3", "zoned-4", "zoned-2", "zoned-0", "zoned-1"]);
   });
 
   it("credits Steam Records to the Location their Machine was at when they were recorded, and re-credits them when its history is corrected", async () => {
@@ -374,8 +391,8 @@ describe("Steam Record capture", () => {
     let deliveries: [string, string] | undefined;
     try {
       await database.query("BEGIN");
-      // Holds both deliveries before either looks for the record.
-      await database.query("LOCK TABLE steam_records IN ACCESS EXCLUSIVE MODE");
+      // Lets both deliveries find the record missing and credit it, then holds both before either inserts it.
+      await database.query("LOCK TABLE steam_records IN SHARE MODE");
       deliveries = [sendSteam(rawA, record, "2026-10-05T14:07:03.341Z"), sendSteam(rawB, record, "2026-10-05T14:07:03.341Z")];
       await expect.poll(async () => (await database.query<{ waiting: number }>(
         "SELECT count(*)::int AS waiting FROM pg_locks WHERE NOT granted AND relation = 'steam_records'::regclass",

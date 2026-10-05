@@ -351,9 +351,21 @@ var __decentSync = (() => {
       if (this.sent === id) this.sent = void 0;
       this.pump();
     }
-    /** Records the server requested. A record requested again keeps its place. */
-    request(kind, ids) {
-      for (const id of ids) this.requested.set(`${kind}:${id}`, { kind, id });
+    /**
+     * Records to read and send: requested by the server, after those already
+     * requested, where a record requested again keeps its place, or, with
+     * `first`, ahead of them all, as for records new on the tablet.
+     */
+    request(kind, ids, options = {}) {
+      const records = ids.map((id) => [`${kind}:${id}`, { kind, id }]);
+      if (options.first) {
+        const keys = new Set(records.map(([key]) => key));
+        const others = [...this.requested].filter(([key]) => !keys.has(key));
+        this.requested.clear();
+        for (const [key, record] of [...records, ...others]) this.requested.set(key, record);
+      } else {
+        for (const [key, record] of records) this.requested.set(key, record);
+      }
       this.pump();
     }
     /** A record that could not be read now, to be read again, as if requested, after a pause. */
@@ -647,21 +659,10 @@ var __decentSync = (() => {
         });
       }, this.pollMs);
     }
-    /** Sends the Steam Records recorded since the last read, one at a time, ahead of those the server requested. */
+    /** Requests the Steam Records recorded since the last read, ahead of those the server requested. */
     async poll() {
       const ids = await this.readIds();
-      for (const id of ids?.fresh ?? []) {
-        await this.outbox.waitForRoom();
-        if (this.stopped) return;
-        let delivery;
-        try {
-          delivery = await this.read(id, this.outbox.nextId());
-        } catch {
-          this.outbox.retryLater("steam", id);
-          continue;
-        }
-        if (delivery && !this.stopped) this.outbox.enqueue(delivery);
-      }
+      if (ids && ids.fresh.length > 0 && !this.stopped) this.outbox.request("steam", ids.fresh, { first: true });
     }
     /** Every Steam Record id, and those new since the last read; null if they cannot be read now. */
     async readIds() {
@@ -676,16 +677,27 @@ var __decentSync = (() => {
   function utcTime(timestamp) {
     const match = typeof timestamp === "string" ? ISO_TIME.exec(timestamp) : null;
     if (!match) return null;
-    const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number);
+    const parts = match.slice(1, 7).map(Number);
+    const [year, month, day, hour, minute, second] = parts;
     const ms = Number((match[7] ?? "").padEnd(3, "0").slice(0, 3));
     const offset = match[8];
-    const time = offset === void 0 ? new Date(year, month - 1, day, hour, minute, second, ms).getTime() : Date.UTC(year, month - 1, day, hour, minute, second, ms) - offsetMinutes(offset) * 6e4;
-    return Number.isFinite(time) ? new Date(time).toISOString() : null;
+    if (offset === void 0) {
+      const local = new Date(year, month - 1, day, hour, minute, second, ms);
+      const readBack2 = [local.getFullYear(), local.getMonth() + 1, local.getDate(), local.getHours(), local.getMinutes(), local.getSeconds()];
+      return readBack2.every((part, index) => part === parts[index]) ? local.toISOString() : null;
+    }
+    const minutes = offsetMinutes(offset);
+    const utc = new Date(Date.UTC(year, month - 1, day, hour, minute, second, ms));
+    const readBack = [utc.getUTCFullYear(), utc.getUTCMonth() + 1, utc.getUTCDate(), utc.getUTCHours(), utc.getUTCMinutes(), utc.getUTCSeconds()];
+    if (minutes === null || !readBack.every((part, index) => part === parts[index])) return null;
+    return new Date(utc.getTime() - minutes * 6e4).toISOString();
   }
   function offsetMinutes(offset) {
     if (offset === "Z") return 0;
-    const minutes = Number(offset.slice(1, 3)) * 60 + Number(offset.slice(4, 6));
-    return offset.startsWith("-") ? -minutes : minutes;
+    const hours = Number(offset.slice(1, 3));
+    const minutes = Number(offset.slice(4, 6));
+    if (hours > 23 || minutes > 59) return null;
+    return (offset.startsWith("-") ? -1 : 1) * (hours * 60 + minutes);
   }
 
   // src/connection.ts

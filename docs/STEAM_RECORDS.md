@@ -23,9 +23,12 @@ tablet's time zone, so it places the record: it builds the time from its parts
 with `new Date(year, month - 1, day, ...)`, which JavaScript reads as local
 time with daylight saving, and sends the UTC instant as `steamedAt`, leaving
 the record as Decaid sent it. A local time that occurs twice, as the clocks go
-back, is read as the first. The validator accepts `steamedAt` only as
-`Date.prototype.toISOString` writes it. A record whose `timestamp` the plugin
-cannot read is not sent; it logs why.
+back, is read as the first. A time with an offset, which Decaid does not write
+today, is placed by its offset. A time that does not exist, such as the 30th
+of February, a local time the clocks skip or an offset past 23:59, is refused
+rather than rolled over into another. The validator accepts `steamedAt` only
+as `Date.prototype.toISOString` writes it. A record whose `timestamp` the
+plugin cannot read is not sent; it logs why.
 
 Decaid runs plugins in QuickJS (`flutter_js`). Seam 1 runs the built plugin in
 Node with `TZ` set to `America/Chicago`. On 2026-10-05 the built plugin also
@@ -40,19 +43,21 @@ Records, in the owner's planning notes, would remove the dependence.
 ## Plugin
 
 Decaid has no plugin event for Steam Records. Every poll interval the plugin
-reads `GET /steams/ids`, which lists every id in one response, and reads each
-id it had not seen before with `GET /steams/{id}`, one at a time, queuing it
-ahead of backfill. Its first read only notes the ids. It never requests
-`GET /steams`, which returns every record, workflow and profile included, in
-one response that outgrows Decaid's 10 MiB fetch limit at cafe volume.
+reads `GET /steams/ids`, which lists every id in one response, and requests
+the ids it had not seen before from its outbox, ahead of backfill. Its first
+read only notes the ids. It never requests `GET /steams`, which returns every
+record, workflow and profile included, in one response that outgrows Decaid's
+10 MiB fetch limit at cafe volume.
 
 On every `welcome` it reads the ids again and sends them as `steamIndex` pages
 of at most 100. The server answers each page with the ids it does not store,
 and the plugin backfills them one at a time. Steam Records and Shots share the
 plugin's one outbox (`plugin/src/outbox.ts`): one logical delivery awaits
-acknowledgment at a time, index pages wait while four deliveries are queued,
-requested records are read only while nothing else is queued, and a record that
-cannot be read is retried after the others. A 404 means the tablet deleted the
+acknowledgment at a time, and index pages wait while four deliveries are
+queued. The outbox reads every Steam Record with `GET /steams/{id}`, one at a
+time and only while nothing else is queued; a record that cannot be read is
+retried after the others. Shot events read their Shots on their own, as
+before. A 404 means the tablet deleted the
 record; nothing deletes the server's copy. A record too large for one frame is
 sent in chunks (`AI_PROTOCOL_NOTES.md`).
 
@@ -91,16 +96,19 @@ The record without measurements, the credit and the analytics live in
 `steam_records`; the measurements live in `steam_measurements.data`, a
 separate `jsonb` column with lz4 compression. `extractSteamRecord`
 (`server/src/steam-records/extraction.ts`) is the pure, optional-field
-projection: duration (first to last sample), peak and final milk temperature
-(null without a probe) and Barista. The final temperature is the last reading.
-Decaid starts each Steam Record with the probe's latest reading, which, until
-the probe reports again, is the last one of the record before:
-`SteamSequencer` subscribes to the probe afresh for each record, and
-`BengleMilkProbe` replays its latest reading to a new subscriber. Milk only
-warms as it is steamed, so the peak leaves out the reading a record starts
-with once a different one follows. The extraction is tested against a real
-DE1Pro record and two from Decaid's simulated Bengle, one of which starts with
-the reading carried over.
+projection: duration, peak and final milk temperature (null without a
+probe) and Barista. Duration adds up the gaps between consecutive samples'
+local times, leaving out the whole quarter hours a daylight-saving change adds
+or takes away (`elapsedSeconds`, which Shots share). The final temperature is
+the last reading. Decaid starts each Steam Record with the probe's latest
+reading, which, until the probe reports again, is the last one of the record
+before: `SteamSequencer` subscribes to the probe afresh for each record, and
+`BengleMilkProbe` replays its latest reading to a new subscriber. Steamed milk
+warms, so when the probe's next reading is lower, the first is taken to be
+carried over and left out of the peak; whether or not it was, that changes the
+peak only if no later reading is as high. The extraction is tested against a
+real DE1Pro record and two from Decaid's simulated Bengle, one of which starts
+with the reading carried over.
 
 ## REST API
 
