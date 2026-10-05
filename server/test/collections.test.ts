@@ -520,29 +520,40 @@ describe("Library, settings and paired devices", () => {
     });
   }, 30_000);
 
-  it("shows a connected scale's firmware and battery level only while its tablet's inventory is current, and when the devices shown were read", async () => {
+  it("shows a connected scale's firmware and battery level, and sensors only Decaid's sensor list names, only while its tablet's inventory is current, and when the devices shown were read", async () => {
     const machine = await api.createMachine("Scale information");
     const raw = await connect(machine, server.url, { model: "DE1Pro", serial: "30701" });
     const simulated = simulatedDevices();
     // Derived: the mock scale's report with the two fields scale_handler.dart writes for a scale that reports
     // them, as a Skale2 does.
     const scaleInfo = { ...(simulated["/scale/info"] as object), firmwareVersion: "1.2.0", batteryLevel: 80 };
+    // Derived: the inventory without its sensors, as Decaid's leaves out sensors such as a Bengle's milk probe,
+    // which only its sensor list names.
+    const inventory = (paired(simulated["/devices"]) as { type?: string }[]).filter((entry) => entry.type !== "sensor");
+    const listedSensors = [
+      device("sensor", "mockSensorBasket", "SensorBasket", "connected", "DecentEspresso"),
+      device("sensor", "mockDebugPort", "DebugPort", "connected", "DecentEspresso"),
+    ];
     await deliver(raw, report("appSettings", simulated["/settings"]));
-    await deliver(raw, report("pairedDevices", paired(simulated["/devices"])));
+    await deliver(raw, report("sensors", simulated["/sensors"]));
+    // Before the inventory is read, nothing is shown, sensors included.
+    expect(await pairedDevices(machine)).toEqual({ reportedAt: null, available: null, receivedAt: null, scale: null, auxiliaryScale: null, sensors: [], others: [] });
+    await deliver(raw, report("pairedDevices", inventory));
     await deliver(raw, report("scaleInfo", scaleInfo));
     const read = await pairedDevices(machine);
-    expect(read).toMatchObject({ available: true, receivedAt: read.reportedAt });
+    expect(read).toMatchObject({ available: true, receivedAt: read.reportedAt, sensors: listedSensors });
     expect(read.scale).toEqual({ ...device("scale", "MockScale", "Mock Scale", "connected"), firmware: "1.2.0", batteryLevel: 80 });
 
-    // The inventory cannot be read: the devices shown are the last read, and the scale's report may be another scale's.
+    // The inventory cannot be read: the devices shown are the last read, the scale's report may be another
+    // scale's, and the sensor list may name sensors connected since.
     await deliver(raw, report("pairedDevices"));
     const stale = await pairedDevices(machine);
-    expect(stale).toMatchObject({ available: false, receivedAt: read.receivedAt });
+    expect(stale).toMatchObject({ available: false, receivedAt: read.receivedAt, sensors: [] });
     expect(Date.parse(stale.reportedAt!)).toBeGreaterThan(Date.parse(stale.receivedAt!));
     expect(stale.scale).toEqual(device("scale", "MockScale", "Mock Scale", "connected"));
 
-    await deliver(raw, report("pairedDevices", paired(simulated["/devices"])));
-    expect((await pairedDevices(machine)).scale).toMatchObject({ firmware: "1.2.0", batteryLevel: 80 });
+    await deliver(raw, report("pairedDevices", inventory));
+    expect(await pairedDevices(machine)).toMatchObject({ sensors: listedSensors, scale: { firmware: "1.2.0", batteryLevel: 80 } });
   });
 
   it("acknowledges and ignores a collection it does not know", async () => {

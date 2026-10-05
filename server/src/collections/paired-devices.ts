@@ -77,14 +77,16 @@ export function pairedDevicesView(reports: {
     scale.view.batteryLevel = typeof scaleInfo.batteryLevel === "number" && Number.isFinite(scaleInfo.batteryLevel) ? scaleInfo.batteryLevel : null;
   }
 
-  // Decaid lists connected sensors with their manifests, including some, such as a Bengle's milk probe, its inventory leaves out.
+  // Decaid lists connected sensors with their manifests, including some, such as a Bengle's milk probe, its
+  // inventory leaves out. Those are added only while the inventory is current, so every device shown is as of
+  // its read; a manifest, keyed by the sensor's id, names and describes an inventory's sensor whenever it was read.
   const manifests = list(reports.sensors?.value).flatMap((sensor) => {
     const id = text(sensor.id);
     return id === null ? [] : [{ id, info: object(sensor.info) }];
   });
   const sensorEntries = entries.filter((entry) => entry.view.type === "sensor");
   const sensors = sensorEntries.map((entry) => entry.view);
-  if (reports.sensors?.available) {
+  if (reports.sensors?.available && reports.pairedDevices?.available) {
     for (const { id } of manifests) if (!sensors.some((sensor) => sensor.id === id)) sensors.push(deviceView(id, "sensor", null, "connected"));
   }
   for (const sensor of sensors) {

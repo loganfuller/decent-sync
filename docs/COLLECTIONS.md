@@ -128,8 +128,10 @@ Machine that takes their hardware over.
   against an older inventory it could describe a scale that replaced the one
   listed. In Decaid v0.8.7 only Skale2 scales report them, so other scales
   answer `{}`.
-  Sensors are those in the inventory and those `/sensors` lists, which can
-  include some the inventory leaves out, with their manifest's name and vendor.
+  Sensors are those in the inventory, and, while the latest inventory read
+  succeeded, those `/sensors` lists that it leaves out, such as a Bengle's milk
+  probe, each with its manifest's name and vendor. So every device shown is as
+  of `receivedAt`.
   Everything else paired, such as the machine itself, is in `others`.
 
 The Machine page shows the paired devices, the app, machine and advanced
