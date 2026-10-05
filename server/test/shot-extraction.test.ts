@@ -43,7 +43,7 @@ describe("Shot extraction", () => {
 
   it("versions by updatedAt alone, retaining Decaid's microseconds, and finds none in other records", () => {
     expect(shotVersion({ updatedAt: "2026-10-04T12:00:00.000002Z", createdAt: "2026-10-03T12:00:00Z" })).toBe("2026-10-04T12:00:00.000002Z");
-    for (const updatedAt of [undefined, null, "2026-10-03T12:00:00", "2026-13-03T12:00:00Z", "unfamiliar"]) {
+    for (const updatedAt of [undefined, null, "2026-10-03T12:00:00", "2026-10-03T12:00:00+02:00", "2026-13-03T12:00:00Z", "unfamiliar"]) {
       expect(shotVersion({ updatedAt, createdAt: "2026-10-03T12:00:00Z", timestamp: "2026-10-03T12:00:00" })).toBeNull();
     }
   });

@@ -228,7 +228,7 @@ export function decodePluginMessage(frame: string): Decoded<PluginMessage> {
       return check<ShotIndex>(object, "shotIndex", (fields) => {
         fields.string("id", { nonEmpty: true });
         fields.array("shots", (value) => isObject(value) && typeof value.id === "string" && value.id !== "" &&
-          (value.updatedAt === undefined || value.updatedAt === null || typeof value.updatedAt === "string"), 100);
+          (value.updatedAt === undefined || typeof value.updatedAt === "string"), 100);
       });
     case "heartbeat":
       return check<Heartbeat>(object, "heartbeat", () => {});

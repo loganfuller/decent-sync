@@ -174,6 +174,7 @@ describe("Shot envelopes", () => {
     }
     expect(decodePluginMessage(frame({ type: "shotIndex", id: "index", shots: Array.from({ length: 101 }, () => ({ id: "1" })) })).ok).toBe(false);
     expect(decodePluginMessage(frame({ type: "shotIndex", id: "index", shots: [{ updatedAt: 42 }] })).ok).toBe(false);
+    expect(decodePluginMessage(frame({ type: "shotIndex", id: "index", shots: [{ id: "1", updatedAt: null }] })).ok).toBe(false);
     for (const message of [{ type: "ack", id: "1" }, { type: "requestShots", shotIds: ["1", "2"] }]) {
       expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
     }

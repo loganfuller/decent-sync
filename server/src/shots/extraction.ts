@@ -24,12 +24,12 @@ export function extractShot(record: unknown) {
 
 /**
  * A Shot's edit time, as sent, so PostgreSQL compares Decaid's microseconds.
- * Decaid v0.8.7 and later write it in UTC on every Shot; null marks a record
- * without one, which is ignored.
+ * Decaid v0.8.7 and later write it on every Shot, in UTC with a Z; null marks
+ * a record without one, which is ignored.
  */
 export function shotVersion(record: unknown): string | null {
   const updatedAt = object(record).updatedAt;
-  return typeof updatedAt === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(updatedAt) && date(updatedAt)
+  return typeof updatedAt === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(updatedAt) && date(updatedAt)
     ? updatedAt
     : null;
 }

@@ -16,7 +16,7 @@ complete metadata from Decaid's `shotUpdated` event (`ShotsHandler._updateShot`)
 which has no measurements, so a newer edit replaces the stored metadata whole,
 cleared fields included, and preserves stored measurements. A full `shot` is
 a complete record; unknown inner fields are accepted and retained. A record
-without a UTC `updatedAt`, or a full record without a measurements array, is
+without a UTC `updatedAt` ending in `Z`, or a full record without a measurements array, is
 not one those Decaid versions send: the server acknowledges and ignores it.
 
 On load, the plugin pages `GET /shots?limit=100&offset=...&order=desc` once,
