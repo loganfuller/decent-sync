@@ -215,3 +215,55 @@ export interface PairedDevices {
   sensors: PairedDevice[];
   others: PairedDevice[];
 }
+
+/** A Shot as the Shots list shows it: what it recorded and how it was credited, without its record or curves. */
+export interface ShotSummary {
+  id: string;
+  /** When it was pulled; null when its record does not say. */
+  pulledAt: string | null;
+  /** The Machine it is credited to, or else the Pending Machine holding it. */
+  machine: { id: string; name: string } | null;
+  pendingMachine: { id: string; model: string; serial: string } | null;
+  /** Credited to the Machine whose tablet reported it, since it recorded no hardware. */
+  machineInferred: boolean;
+  /** Where its Machine was when it was pulled; null when unknown, and its times are then in UTC. */
+  location: Location | null;
+  /** Its Location came through an inferred Machine. */
+  locationInferred: boolean;
+  profileTitle: string | null;
+  /** The Bean as the Shot recorded it. */
+  coffeeRoaster: string | null;
+  coffeeName: string | null;
+  targetDose: number | null;
+  actualDose: number | null;
+  targetYield: number | null;
+  actualYield: number | null;
+  /** In seconds. */
+  duration: number | null;
+  enjoyment: number | null;
+  barista: string | null;
+  peakPressure: number | null;
+  peakFlow: number | null;
+}
+
+/** One page of a Shots list, and how many Shots the whole list has. */
+export interface ShotPage {
+  shots: ShotSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** A Shot with its Decaid record, without measurements, as stored. */
+export interface Shot extends ShotSummary {
+  record: Record<string, unknown>;
+  /** The Shot pulled just before it on the same Machine, or held by the same Pending Machine. */
+  previousShot: { id: string; pulledAt: string } | null;
+}
+
+/** What the listed Shots recorded, for choosing filters. Null stands for Shots that recorded none. */
+export interface ShotFilterOptions {
+  beans: { coffeeRoaster: string | null; coffeeName: string | null }[];
+  baristas: (string | null)[];
+  profiles: (string | null)[];
+}

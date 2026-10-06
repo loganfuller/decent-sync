@@ -217,6 +217,11 @@ function PendingMachines({
                 First seen {formatTime(pending.firstSeenAt)}
                 {pending.lastSeenAt && `, last reported ${formatTime(pending.lastSeenAt)}`}
               </span>
+              {!pending.dismissed && (
+                <Link to={`/shots?pendingMachineId=${pending.id}`} className="text-sm underline underline-offset-4">
+                  Review the Shots it holds
+                </Link>
+              )}
             </div>
             {isAdmin && <PendingMachineActions pending={pending} onCreated={onCreated} onDismissed={onDismissed} />}
           </li>

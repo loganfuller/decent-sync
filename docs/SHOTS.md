@@ -73,26 +73,65 @@ corrected counts for nothing (`elapsedSeconds`).
 
 All endpoints require a signed-in account, Admin or Staff.
 
-- `GET /api/shots?limit=20&offset=0&machineId=<uuid>` returns
-  `{ shots, total, limit, offset }`. Limit is 1–100; offset is nonnegative.
-  Results are newest pulled-at first, with id as the deterministic tie-breaker
-  and undated records last. Rows include analytics and Machine or Pending
-  Machine credit, plus `machineInferred`, without metadata or measurements.
-  They also carry the Location the Machine was at when the Shot was pulled
-  (`locationId`, and `location: { id, name, timeZone }`, null when unknown),
-  and `locationInferred`, true when that Location came through an inferred
-  Machine. Correcting the Machine's Location History changes these, never
-  the stored record.
+- `GET /api/shots?limit=20&offset=0` returns `{ shots, total, limit, offset }`.
+  Limit is 1–100; offset is nonnegative. Results are newest pulled-at first,
+  with id as the deterministic tie-breaker and undated records last, and
+  `total` counts the whole filtered list. Rows include analytics and Machine
+  or Pending Machine credit, plus `machineInferred`, without metadata or
+  measurements. They also carry the Location the Machine was at when the Shot
+  was pulled (`locationId`, and `location: { id, name, timeZone }`, null when
+  unknown), and `locationInferred`, true when that Location came through an
+  inferred Machine. Correcting the Machine's Location History changes these,
+  never the stored record.
+- Filters, each given at most once and combined with AND
+  (`server/src/shots/filters.ts`):
+  - `machineId`, `pendingMachineId`, and `locationId`, which is `none` for
+    Shots with no Location. A malformed id is a 404, as in a path.
+  - `coffeeRoaster` and `coffeeName` (together, a Bean as each Shot recorded
+    it, so the same Bean is found across Machines), `barista` and
+    `profileTitle`: exact matches on what the Shot recorded. An empty value
+    matches Shots that recorded none. There is no Bean Batch filter: each
+    tablet has its own id for the same roast until milestone 2's global ids
+    (ADR-0006).
+  - `from` and `to`: a local date (`2026-10-05`) or date and time
+    (`2026-10-05T06:00`) without an offset, read on each Shot's own
+    Location's wall clock, or UTC for a Shot with no Location. `from` is the
+    first moment listed; `to` the first moment after them, except that a
+    date alone includes the whole of that day. So a day is 23 or 25 hours
+    across a daylight-saving change, and an hour the clocks repeat is listed
+    twice. Shots whose time is unknown match no time filter.
+- `GET /api/shots/filters` returns `{ beans, baristas, profiles }`: the
+  distinct Beans (`{ coffeeRoaster, coffeeName }`), Baristas and profile
+  titles listed Shots recorded, sorted ignoring case, with null for Shots
+  that recorded none.
 - `GET /api/shots/:id` returns `{ shot }`, including the stored Decaid metadata
-  in `shot.record`, without measurements.
+  in `shot.record`, without measurements, and `shot.previousShot`
+  (`{ id, pulledAt }` or null): the listed Shot just before it on the same
+  Machine, or held by the same Pending Machine, in list order.
 - `GET /api/shots/:id/measurements` returns `{ measurements }`, as sent by
   Decaid (null when none were sent).
 - Machine list and detail responses include
   `lastShot: { id, pulledAt } | null`, by credited hardware rather than the
   tablet that delivered it.
 
-Dismissed Pending Shots are hidden from all three reads; adoption restores
-access. No capture endpoint writes to the tablet.
+Dismissed Pending Shots are hidden from every read, including filter choices
+and previous Shots; adoption restores access. No capture endpoint writes to
+the tablet.
+
+`server/test/shot-lists.test.ts` covers the filters, alone and combined,
+across Locations in different time zones and both of New York's 2025-2026
+daylight-saving changes, and previous Shots.
+
+## Management interface
+
+`/shots` lists Shots with the REST filters in its address, so a filtered
+list can be shared or reloaded; `/shots/:id` shows a Shot's curves (pressure,
+flow, weight and basket temperature, with the targets its profile set),
+everything its record holds, its credit, and a comparison with its previous
+Shot. Times are shown in each Shot's Location's time zone, or UTC, labelled,
+for a Shot with no Location. `web/src/lib/shot-curves.ts` turns Decaid's
+measurements into curves, counting time as `elapsedSeconds` does.
+`e2e/shots.spec.ts` covers them with Shots seeded through simulated tablets.
 
 `server/test/shots.test.ts` verifies the built plugin through Seam 1, REST
 reads, and two server instances sharing PostgreSQL. It includes 205-record
