@@ -39,6 +39,26 @@ export interface Account {
   locations: Location[];
 }
 
+/** An account as an Admin managing accounts sees it. */
+export interface ManagedAccount extends Account {
+  /** When an Admin deactivated it; null while it is active. */
+  deactivatedAt: string | null;
+}
+
+/** A newly issued password reset link, which the server returns only once. */
+export interface IssuedPasswordReset {
+  account: ManagedAccount;
+  link: string;
+  expiresAt: string;
+}
+
+/** A password reset link, as whoever opens it sees it: whose password it sets, and until when. */
+export interface PasswordReset {
+  name: string;
+  email: string;
+  expiresAt: string;
+}
+
 /** An invite: a one-time link that creates an account, as an Admin or as Staff at chosen Locations. */
 export interface Invite {
   id: string;

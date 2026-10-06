@@ -6,6 +6,7 @@ import { InvitePage } from "@/pages/InvitePage";
 import { LocationsPage } from "@/pages/LocationsPage";
 import { MachinePage } from "@/pages/MachinePage";
 import { MachinesPage } from "@/pages/MachinesPage";
+import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { SetupPage } from "@/pages/SetupPage";
 import { HomePage, Shell } from "@/pages/Shell";
 import { SignInPage, type SignInState } from "@/pages/SignInPage";
@@ -18,6 +19,7 @@ export function App() {
           <Route path="/setup" element={<Gate page="setup" />} />
           <Route path="/sign-in" element={<Gate page="sign-in" />} />
           <Route path="/invite/:secret" element={<Gate page="invite" />} />
+          <Route path="/reset-password/:secret" element={<Gate page="reset-password" />} />
           <Route element={<Gate page="signed-in" />}>
             <Route index element={<HomePage />} />
             <Route
@@ -46,16 +48,17 @@ interface ReturnTo {
 /**
  * Shows a page only in the state it belongs to: setup while the server has no
  * accounts, sign-in while signed out, and everything else while signed in.
- * Any other page redirects. An invite link opens whether or not someone is
- * signed in, and says what to do either way.
+ * Any other page redirects. An invite or password reset link opens whether
+ * or not someone is signed in, and says what to do either way.
  */
-function Gate({ page }: { page: "setup" | "sign-in" | "invite" | "signed-in" }): ReactNode {
+function Gate({ page }: { page: "setup" | "sign-in" | "invite" | "reset-password" | "signed-in" }): ReactNode {
   const { state } = useAuth();
   const location = useLocation();
 
   if (state.status === "loading") return null;
   if (state.status === "unreachable") return <Unreachable />;
   if (page === "invite") return <InvitePage />;
+  if (page === "reset-password") return <ResetPasswordPage />;
 
   if (state.status === "signed-in") {
     if (page === "signed-in") return <Shell />;

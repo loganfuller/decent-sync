@@ -24,19 +24,24 @@ enum AccountRole {
 /// A person who signs in to the management interface. Baristas named on
 /// tablets need no account.
 model Account {
-  id           String      @id @default(uuid(7)) @db.Uuid
+  id            String      @id @default(uuid(7)) @db.Uuid
   /// Stored trimmed and lower-cased, so sign-in ignores case.
-  email        String      @unique
-  name         String
-  role         AccountRole
+  email         String      @unique
+  name          String
+  role          AccountRole
   /// scrypt, in the self-describing format of server/src/accounts/passwords.ts.
-  passwordHash String      @map("password_hash")
-  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  passwordHash  String      @map("password_hash")
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  /// Set by PostgreSQL's clock when an Admin deactivates the account, which
+  /// ends its sessions and refuses its sign-ins; null while it is active.
+  deactivatedAt DateTime?   @map("deactivated_at") @db.Timestamptz(3)
 
-  sessions  Session[]
+  sessions      Session[]
   /// The Locations a Staff member works at. An Admin sees every Location and has none.
-  locations StaffLocation[]
+  locations     StaffLocation[]
+  /// The password reset link issued for it, if any.
+  passwordReset PasswordReset?
 
   @@map("accounts")
 }
@@ -69,6 +74,9 @@ model Invite {
   expiresAt  DateTime    @map("expires_at") @db.Timestamptz(3)
   /// Set once, by a conditional update, so it is used once whichever instance accepts it.
   acceptedAt DateTime?   @map("accepted_at") @db.Timestamptz(3)
+  /// Set when an Admin revokes it unused, by the same kind of conditional
+  /// update, so an invite is either accepted or revoked, never both.
+  revokedAt  DateTime?   @map("revoked_at") @db.Timestamptz(3)
 
   locations InviteLocation[]
 
@@ -85,6 +93,24 @@ model InviteLocation {
   @@id([inviteId, locationId])
   @@index([locationId])
   @@map("invite_locations")
+}
+
+/// A one-time link an Admin issues and sends someone themselves, with which
+/// they choose a new password. An account has at most one: issuing another
+/// replaces it. The link holds a random secret; only its SHA-256 hash is
+/// stored. See server/src/accounts/password-resets.service.ts.
+model PasswordReset {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  secretHash Bytes     @unique @map("secret_hash")
+  accountId  String    @unique @map("account_id") @db.Uuid
+  account    Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @map("created_at") @db.Timestamptz(3)
+  /// Set and judged by PostgreSQL's clock, whichever instance issues or redeems it.
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  /// Set once, by a conditional update, so it is used once whichever instance redeems it.
+  usedAt     DateTime? @map("used_at") @db.Timestamptz(3)
+
+  @@map("password_resets")
 }
 
 /// A signed-in browser. The cookie holds a random token; only its SHA-256

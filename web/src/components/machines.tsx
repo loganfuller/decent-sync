@@ -220,6 +220,7 @@ export function MachineEntryForm({
 /** A button that asks for confirmation before an action that cannot simply be undone. */
 export function ConfirmButton({
   label,
+  ariaLabel,
   title,
   description,
   confirmLabel,
@@ -228,6 +229,8 @@ export function ConfirmButton({
   onConfirm,
 }: {
   label: string;
+  /** A fuller name for the button, such as one naming the row it acts on. */
+  ariaLabel?: string;
   title: string;
   description: ReactNode;
   confirmLabel: string;
@@ -238,7 +241,7 @@ export function ConfirmButton({
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant={variant} disabled={disabled}>
+        <Button variant={variant} disabled={disabled} aria-label={ariaLabel}>
           {label}
         </Button>
       </AlertDialogTrigger>

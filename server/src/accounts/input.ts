@@ -1,4 +1,4 @@
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { AccountRole } from "../generated/prisma/client.js";
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./passwords.js";
 
@@ -39,18 +39,36 @@ export function readNewAccount(body: unknown): NewAccount {
   return { name, email, password };
 }
 
-/** An invite: who it is for, and as what. */
-export interface NewInvite {
-  email: string;
+/** What an account may do: its role and, for Staff, the Locations they work at. */
+export interface Access {
   role: AccountRole;
-  /** The Locations a Staff member will work at; none for an Admin, who sees every Location. */
+  /** The Locations a Staff member works at; none for an Admin, who may change anything anywhere. */
   locationIds: string[];
+}
+
+/** An invite: who it is for, and as what. */
+export interface NewInvite extends Access {
+  email: string;
 }
 
 export function readNewInvite(body: unknown): NewInvite {
   const fields = asObject(body);
   const problems: string[] = [];
   const email = readEmail(fields.email, problems);
+  const access = readRole(fields, problems);
+  if (problems.length > 0) throw new BadRequestException(problems);
+  return { email, ...access };
+}
+
+/** An account's new role and, for Staff, the Locations they work at. */
+export function readAccess(body: unknown): Access {
+  const problems: string[] = [];
+  const access = readRole(asObject(body), problems);
+  if (problems.length > 0) throw new BadRequestException(problems);
+  return access;
+}
+
+function readRole(fields: Record<string, unknown>, problems: string[]): Access {
   const role = fields.role === "admin" ? AccountRole.ADMIN : fields.role === "staff" ? AccountRole.STAFF : undefined;
   if (!role) problems.push("Choose Admin or Staff");
   let locationIds: string[] = [];
@@ -60,8 +78,7 @@ export function readNewInvite(body: unknown): NewInvite {
     else if (!chosen.every((id) => typeof id === "string" && UUID.test(id))) problems.push(UNKNOWN_LOCATIONS);
     else locationIds = [...new Set(chosen.map((id) => (id as string).toLowerCase()))];
   }
-  if (problems.length > 0) throw new BadRequestException(problems);
-  return { email, role: role!, locationIds };
+  return { role: role!, locationIds };
 }
 
 /** Refuses Locations that are not all the server's. */
@@ -80,6 +97,34 @@ export function readAcceptance(body: unknown): Acceptance {
   const password = readPassword(fields.password, problems);
   if (problems.length > 0) throw new BadRequestException(problems);
   return { name, password };
+}
+
+/** The new password a password reset link's holder chooses. */
+export function readNewPassword(body: unknown): string {
+  const problems: string[] = [];
+  const password = readPassword(asObject(body).password, problems);
+  if (problems.length > 0) throw new BadRequestException(problems);
+  return password;
+}
+
+/** An account id from a path; anything that is not a UUID names no account. */
+export function readAccountId(id: string): string {
+  if (!UUID.test(id)) throw accountNotFound();
+  return id;
+}
+
+export function accountNotFound(): NotFoundException {
+  return new NotFoundException("No such account");
+}
+
+/** An invite id from a path. */
+export function readInviteId(id: string): string {
+  if (!UUID.test(id)) throw inviteNotFound();
+  return id;
+}
+
+export function inviteNotFound(): NotFoundException {
+  return new NotFoundException("No such invite");
 }
 
 function readName(value: unknown, problems: string[]): string {

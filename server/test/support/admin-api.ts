@@ -51,6 +51,16 @@ export interface InviteView {
   expiresAt: string;
 }
 
+/** An account as an Admin managing accounts sees it. */
+export interface ManagedAccountView {
+  id: string;
+  email: string;
+  name: string;
+  role: "admin" | "staff";
+  locations: LocationView[];
+  deactivatedAt: string | null;
+}
+
 /** An invite as created: its link is shown only now. */
 export interface CreatedInvite {
   invite: InviteView;
@@ -143,6 +153,18 @@ export class AdminApi {
     return (await response.json()) as CreatedInvite;
   }
 
+  async accounts(): Promise<ManagedAccountView[]> {
+    const response = await this.call("GET", "/accounts");
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { accounts: ManagedAccountView[] }).accounts;
+  }
+
+  async invites(): Promise<InviteView[]> {
+    const response = await this.call("GET", "/invites");
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { invites: InviteView[] }).invites;
+  }
+
   async pendingMachines(): Promise<PendingMachineView[]> {
     return ((await (await this.call("GET", "/pending-machines")).json()) as { pendingMachines: PendingMachineView[] }).pendingMachines;
   }
@@ -173,7 +195,7 @@ export class AdminApi {
   }
 }
 
-/** The secret an invite link holds. */
+/** The secret an invite or password reset link holds. */
 export function secretOf(link: string): string {
   return new URL(link).pathname.split("/").at(-1)!;
 }
@@ -189,5 +211,16 @@ export async function acceptInvite(serverUrl: string, link: string, person: { na
     body: JSON.stringify(person),
   });
   expect(response.status).toBe(201);
+  return response.headers.getSetCookie()[0]!.split(";")[0]!;
+}
+
+/** Signs in with the email and password, and returns the Cookie header the browser would then send. */
+export async function signIn(serverUrl: string, credentials: { email: string; password: string }): Promise<string> {
+  const response = await fetch(`${serverUrl}/api/session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(credentials),
+  });
+  expect(response.status).toBe(200);
   return response.headers.getSetCookie()[0]!.split(";")[0]!;
 }

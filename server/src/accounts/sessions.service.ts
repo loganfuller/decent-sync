@@ -1,10 +1,11 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
-import { type Account, AccountRole } from "../generated/prisma/client.js";
+import { type Account, AccountRole, type Prisma } from "../generated/prisma/client.js";
+import { accountDeactivated } from "./accounts.service.js";
 import { EVERYTHING, type Scope } from "./scope.js";
 
 const COOKIE_NAME = "decent_sync_session";
@@ -31,6 +32,13 @@ export interface SignedIn {
  * instance's (ADR-0016): one instance may start a session that another
  * renews, judges or deletes, and their clocks drift apart. The cookie's
  * Max-Age is only a hint to the browser; the stored expiry decides.
+ *
+ * The account is read with the session on every request, never kept, so a
+ * change to its role or Locations applies to its next request on any
+ * instance. A session starts under the account's row lock, which a password
+ * reset or a deactivation holds while it ends the account's sessions: one
+ * started first is ended by it, and one started after finds the password
+ * changed or the account deactivated and is refused.
  */
 @Injectable()
 export class SessionsService {
@@ -43,14 +51,44 @@ export class SessionsService {
     this.secureCookie = config.publicUrl.protocol === "https:";
   }
 
-  /** Starts a session for the account and sets its cookie on the response. */
-  async start(accountId: string, response: Response): Promise<void> {
+  /**
+   * Starts a session for the account, as it was just read with the password
+   * checked against it, and sets its cookie on the response. Refused if,
+   * under the account's row lock, its password has changed since or it has
+   * been deactivated.
+   */
+  async start(account: Pick<Account, "id" | "passwordHash">, response: Response): Promise<void> {
+    await this.deleteExpired();
+    const token = await this.prisma.$transaction(async (tx) => {
+      // FOR SHARE: sign-ins wait only for a reset or deactivation in progress, not for each other.
+      const [current] = await tx.$queryRaw<{ passwordHash: string; deactivated: boolean }[]>`
+        SELECT password_hash AS "passwordHash", deactivated_at IS NOT NULL AS deactivated
+        FROM accounts WHERE id = ${account.id}::uuid FOR SHARE`;
+      if (!current || current.passwordHash !== account.passwordHash) {
+        throw new UnauthorizedException("The email or password is incorrect");
+      }
+      if (current.deactivated) throw accountDeactivated();
+      return this.create(tx, account.id);
+    });
+    this.setSessionCookie(response, token);
+  }
+
+  /**
+   * Creates a session for the account in the caller's transaction, which
+   * must hold the account's row lock, and returns its token. Set its cookie
+   * with `setSessionCookie` only once that transaction has committed.
+   */
+  async create(tx: Prisma.TransactionClient, accountId: string): Promise<string> {
     const token = newSecret();
-    const now = await this.databaseNow();
-    await this.prisma.session.deleteMany({ where: { expiresAt: { lte: new Date(now) } } });
-    await this.prisma.session.create({
+    const now = await databaseNow(tx);
+    await tx.session.create({
       data: { tokenHash: hashSecret(token), accountId, expiresAt: new Date(now + LIFETIME_MS) },
     });
+    return token;
+  }
+
+  /** Sets the cookie of a session `create` started. */
+  setSessionCookie(response: Response, token: string): void {
     this.setCookie(response, token, LIFETIME_MS);
   }
 
@@ -62,13 +100,13 @@ export class SessionsService {
     const token = readCookie(request.headers.cookie, COOKIE_NAME);
     if (!token) return undefined;
 
-    const now = await this.databaseNow();
-    // The account's role and Locations are read with it every time, so a change reaches the next request.
+    const now = await databaseNow(this.prisma);
+    // The account is read with it every time, so a change to its role, Locations or standing reaches the next request.
     const session = await this.prisma.session.findUnique({
       where: { tokenHash: hashSecret(token) },
       include: { account: { include: { locations: { select: { locationId: true } } } } },
     });
-    if (!session || session.expiresAt.getTime() <= now) {
+    if (!session || session.expiresAt.getTime() <= now || session.account.deactivatedAt) {
       this.clearCookie(response);
       return undefined;
     }
@@ -99,9 +137,14 @@ export class SessionsService {
     this.clearCookie(response);
   }
 
-  private async databaseNow(): Promise<number> {
-    const [{ now }] = await this.prisma.$queryRaw<[{ now: Date }]>`SELECT now() AS now`;
-    return now.getTime();
+  /**
+   * Deletes expired sessions, in a statement of its own. It skips sessions
+   * another transaction has locked, such as a password reset ending its
+   * account's sessions, so it waits for no one and no one waits for it.
+   */
+  private async deleteExpired(): Promise<void> {
+    await this.prisma.$executeRaw`
+      DELETE FROM sessions WHERE id IN (SELECT id FROM sessions WHERE expires_at <= now() FOR UPDATE SKIP LOCKED)`;
   }
 
   private setCookie(response: Response, token: string, maxAgeMs: number): void {
@@ -119,6 +162,12 @@ export class SessionsService {
   private clearCookie(response: Response): void {
     this.setCookie(response, "", 0);
   }
+}
+
+/** Now, by PostgreSQL's clock, in milliseconds. */
+async function databaseNow(db: Prisma.TransactionClient): Promise<number> {
+  const [{ now }] = await db.$queryRaw<[{ now: Date }]>`SELECT now() AS now`;
+  return now.getTime();
 }
 
 function readCookie(header: string | undefined, name: string): string | undefined {

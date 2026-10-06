@@ -14,7 +14,11 @@ interface Auth {
   signIn(input: { email: string; password: string }): Promise<void>;
   /** Creates the account an invite link offers, and signs it in. */
   acceptInvite(secret: string, input: { name: string; password: string }): Promise<void>;
+  /** Sets the new password a password reset link offers, and signs its account in. */
+  redeemPasswordReset(secret: string, input: { password: string }): Promise<void>;
   signOut(): Promise<void>;
+  /** Reads who is signed in again, such as after an Admin changes their own account. */
+  refresh(): Promise<void>;
 }
 
 const AuthContext = createContext<Auth | undefined>(undefined);
@@ -70,6 +74,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { account } = await api<{ account: Account }>("POST", `/invite-links/${encodeURIComponent(secret)}/accept`, input);
         setState({ status: "signed-in", account });
       },
+      async redeemPasswordReset(secret, input) {
+        const { account } = await api<{ account: Account }>(
+          "POST",
+          `/password-reset-links/${encodeURIComponent(secret)}/redeem`,
+          input,
+        );
+        setState({ status: "signed-in", account });
+      },
       async signOut() {
         try {
           await api("DELETE", "/session");
@@ -79,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         setState({ status: "signed-out", setupRequired: false });
       },
+      refresh,
     }),
     [state, refresh],
   );
