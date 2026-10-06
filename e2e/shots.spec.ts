@@ -277,6 +277,27 @@ test("a curve breaks where its samples have no value, as a pressure target where
   expect((await target.getAttribute("d"))?.match(/M/g)).toHaveLength(2);
 });
 
+test("a Shot's record as sent scrolls a long line in its box, leaving the page and its charts their width", async ({ page }) => {
+  // Derived: the real Shot with its profile's notes one long line, as a profile's description often is.
+  const hardware = { model: "DE1Pro", serial: "10026" };
+  const shot = shotAt("long-notes-shot", "2026-03-04T12:00:00Z", { hardware });
+  const workflow = shot.workflow as { profile: Record<string, unknown> };
+  workflow.profile = { ...workflow.profile, notes: "Pre-infuse gently, then let the lever decline. ".repeat(12) };
+  await adopt(page, "Notes", hardware, null, [shot]);
+
+  await page.goto("/shots/long-notes-shot");
+  const pressure = page.getByRole("region", { name: "Curves" }).getByRole("figure", { name: "Pressure" });
+  await expect(pressure.locator(".recharts-line")).not.toHaveCount(0);
+  const width = (await pressure.boundingBox())!.width;
+
+  await page.getByRole("button", { name: "Record as sent" }).click();
+  const sent = page.locator("pre").filter({ hasText: "let the lever decline" });
+  await expect(sent).toBeVisible();
+  expect(await sent.evaluate((pre) => pre.scrollWidth > pre.clientWidth)).toBe(true);
+  expect((await pressure.boundingBox())!.width).toBe(width);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
 test("going back to a later page keeps it, though the filters left meanwhile matched nothing", async ({ page }) => {
   const shots = Array.from({ length: 30 }, (_, n) =>
     shotAt(`page-shot-${n}`, new Date(Date.UTC(2026, 3, 1, 8, n)).toISOString(), { hardware: { model: "DE1Pro", serial: "10025" } }),
