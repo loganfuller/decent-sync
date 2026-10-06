@@ -170,8 +170,10 @@ export function RecordAsSent({ record }: { record: Record<string, unknown> }) {
 }
 
 function RecordCollapsible({ label, description, children }: { label: string; description: string; children: ReactNode }) {
+  // One column that may shrink below its content, so a long line of the record
+  // scrolls in its box rather than widening the page and the charts with it.
   return (
-    <Collapsible className="grid gap-2">
+    <Collapsible className="grid grid-cols-1 gap-2">
       <div className="flex items-center gap-3">
         <CollapsibleTrigger asChild>
           <Button variant="outline" size="sm" className="group">
