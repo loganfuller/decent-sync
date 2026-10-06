@@ -96,7 +96,8 @@ All endpoints require a signed-in account, Admin or Staff.
   inferred Machine. Correcting the Machine's Location History changes these,
   never the stored record.
 - Filters, each given at most once and combined with AND
-  (`server/src/shots/filters.ts`):
+  (`server/src/shots/filters.ts`; the Machine, Location and date filters are
+  `server/src/record-filters.ts`, which Steam Records lists share):
   - `machineId`, `pendingMachineId`, and `locationId`, which is `none` for
     Shots with no Location. A malformed id is a 404, as in a path.
   - `coffeeRoaster` and `coffeeName` (together, a Bean as each Shot recorded
@@ -141,7 +142,7 @@ list can be shared or reloaded; `/shots/:id` shows a Shot's curves (pressure,
 flow, weight and basket temperature, with the targets its profile set),
 everything its record holds, its credit, and a comparison with its previous
 Shot. Times are shown in each Shot's Location's time zone, or UTC, labelled,
-for a Shot with no Location. `web/src/lib/shot-curves.ts` turns Decaid's
+for a Shot with no Location. `web/src/lib/curves.ts` turns Decaid's
 measurements into curves, counting time as `elapsedSeconds` does.
 `e2e/shots.spec.ts` covers them with Shots seeded through simulated tablets.
 

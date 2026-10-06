@@ -1,33 +1,31 @@
-import { ChevronDownIcon } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
+import { Curves } from "@/components/curves";
 import { Field, Fields } from "@/components/fields";
-import { ShotCurves } from "@/components/shot-curves";
+import type { ListState } from "@/components/record-lists";
 import {
   LocationCredit,
   MachineCredit,
+  MeasurementsTable,
   OrNone,
-  beanText,
-  gramsText,
+  RecordAsSent,
+  RecordCard,
   numberText,
   secondsText,
-  shotTime,
-} from "@/components/shots";
+} from "@/components/records";
+import { beanText, gramsText, shotTime } from "@/components/shots";
 import { amount, present, record, text, workflowFields } from "@/components/workflow";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Field as FormField, FieldLabel } from "@/components/ui/field";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError, api, type Shot } from "@/lib/api";
-import { CURVES, type Curve, type Sample, shotSamples } from "@/lib/shot-curves";
-import type { ShotListState } from "@/pages/ShotsPage";
+import { SHOT_CURVES, type Sample, type ShotCurve, shotSamples } from "@/lib/curves";
 
 interface ShotData {
   shot: Shot;
-  samples: Sample[];
+  samples: Sample<ShotCurve>[];
 }
 
 /**
@@ -51,7 +49,7 @@ async function loadShot(id: string): Promise<ShotData> {
 }
 
 function ShotDetails({ id }: { id: string }) {
-  const state = useLocation().state as ShotListState | null;
+  const state = useLocation().state as ListState | null;
   const [data, setData] = useState<ShotData>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
@@ -153,10 +151,10 @@ function ShotDetails({ id }: { id: string }) {
             <Fields label="Shot">
               <Field term="Pulled">{shotTime(shot)}</Field>
               <Field term="Machine">
-                <MachineCredit shot={shot} />
+                <MachineCredit record={shot} />
               </Field>
               <Field term="Location">
-                <LocationCredit shot={shot} />
+                <LocationCredit record={shot} />
               </Field>
               <Field term="Profile">
                 <OrNone>{shot.profileTitle ?? undefined}</OrNone>
@@ -232,43 +230,18 @@ function ShotDetails({ id }: { id: string }) {
               <AlertDescription>{previousError}</AlertDescription>
             </Alert>
           )}
-          {samples.length > 0 ? <ShotCurves current={samples} previous={shown?.samples} /> : <p className="text-sm text-muted-foreground">No measurements were recorded.</p>}
+          {samples.length > 0 ? (
+            <Curves curves={SHOT_CURVES} label="This Shot" current={samples} previous={shown && { label: "Previous Shot", samples: shown.samples }} />
+          ) : (
+            <p className="text-sm text-muted-foreground">No measurements were recorded.</p>
+          )}
           {shown && <Comparison shot={shot} previous={shown.shot} />}
-          {samples.length > 0 && <MeasurementsTable samples={samples} />}
+          {samples.length > 0 && <MeasurementsTable curves={SHOT_CURVES} samples={samples} />}
         </CardContent>
       </Card>
 
-      <RecordCollapsible label="Record as sent" description="Everything its tablet sent about it, but its measurements.">
-        <pre className="max-h-[32rem] overflow-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(shot.record, null, 2)}</pre>
-      </RecordCollapsible>
+      <RecordAsSent record={shot.record} />
     </section>
-  );
-}
-
-/** Fields read from a Shot's record, as a card; ones it did not record are left out. */
-function RecordCard({ title, description, fields, empty }: { title: string; description: string; fields: [string, string][]; empty?: string }) {
-  return (
-    <Card role="region" aria-label={title}>
-      <CardHeader>
-        <CardTitle>
-          <h2>{title}</h2>
-        </CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {fields.length > 0 ? (
-          <Fields label={title}>
-            {fields.map(([term, value]) => (
-              <Field key={term} term={term}>
-                {value}
-              </Field>
-            ))}
-          </Fields>
-        ) : (
-          <p className="text-sm text-muted-foreground">{empty ?? "Nothing recorded."}</p>
-        )}
-      </CardContent>
-    </Card>
   );
 }
 
@@ -357,57 +330,5 @@ function Comparison({ shot, previous }: { shot: Shot; previous: Shot }) {
         </TableBody>
       </Table>
     </div>
-  );
-}
-
-/** The curves' samples as a table, for reading exact values. */
-function MeasurementsTable({ samples }: { samples: Sample[] }) {
-  const curves = Object.keys(CURVES) as Curve[];
-  return (
-    <RecordCollapsible label="Measurements as a table" description={`${samples.length} samples, as recorded.`}>
-      <div className="max-h-[32rem] overflow-auto rounded-lg border">
-        <Table aria-label="Measurements">
-          <TableHeader>
-            <TableRow>
-              <TableHead>Time</TableHead>
-              {curves.map((curve) => (
-                <TableHead key={curve}>
-                  {CURVES[curve].label} ({CURVES[curve].unit})
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody className="tabular-nums">
-            {samples.map((sample, index) => (
-              <TableRow key={index}>
-                <TableCell>{sample.seconds.toFixed(2)} s</TableCell>
-                {curves.map((curve) => (
-                  <TableCell key={curve}>
-                    <OrNone>{numberText(sample.values[curve])}</OrNone>
-                  </TableCell>
-                ))}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </RecordCollapsible>
-  );
-}
-
-function RecordCollapsible({ label, description, children }: { label: string; description: string; children: ReactNode }) {
-  return (
-    <Collapsible className="grid gap-2">
-      <div className="flex items-center gap-3">
-        <CollapsibleTrigger asChild>
-          <Button variant="outline" size="sm" className="group">
-            {label}
-            <ChevronDownIcon data-icon="inline-end" className="transition-transform group-data-[state=open]:rotate-180" />
-          </Button>
-        </CollapsibleTrigger>
-        <span className="text-sm text-muted-foreground">{description}</span>
-      </div>
-      <CollapsibleContent>{children}</CollapsibleContent>
-    </Collapsible>
   );
 }

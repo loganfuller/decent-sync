@@ -1,7 +1,7 @@
-import { Controller, Get, Param, Query } from "@nestjs/common";
+import { BadRequestException, Controller, Get, Param, Query } from "@nestjs/common";
 import { AllowStaff } from "../accounts/guards.js";
-import { readMachineId } from "../machines/input.js";
-import { readPage } from "../pagination.js";
+import { readQueryPage } from "../pagination.js";
+import { readRecordFilters } from "../record-filters.js";
 import { SteamRecordsService } from "./steam-records.service.js";
 
 /** Every Steam Record captured, which Staff read too. */
@@ -10,10 +10,14 @@ import { SteamRecordsService } from "./steam-records.service.js";
 export class SteamRecordsController {
   constructor(private readonly steamRecords: SteamRecordsService) {}
 
+  /** Filtered by Machine or Pending Machine, Location and local time, the filters every record list has. */
   @Get()
-  list(@Query("limit") limit?: string, @Query("offset") offset?: string, @Query("machineId") machineId?: string) {
-    const page = readPage(limit, offset);
-    return this.steamRecords.list(page.limit, page.offset, machineId === undefined ? undefined : readMachineId(machineId));
+  list(@Query() query: Record<string, unknown>) {
+    const page = readQueryPage(query);
+    const problems: string[] = [];
+    const filters = readRecordFilters(query, problems);
+    if (problems.length > 0) throw new BadRequestException(problems);
+    return this.steamRecords.list(page.limit, page.offset, filters);
   }
 
   @Get(":id")
