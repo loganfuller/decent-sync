@@ -16,6 +16,8 @@ export default defineConfig({
     // PostgreSQL allows 100 by default. Vitest's default of one worker per
     // CPU but one ran out of them on a 10-CPU machine; five peaked near 60.
     maxWorkers: Math.min(5, Math.max(1, availableParallelism() - 1)),
+    // Checks that no server's or simulated tablet's log holds a secret a test was given.
+    setupFiles: ["server/test/support/setup.ts"],
     projects: [
       { extends: true, test: { name: "protocol", include: ["protocol/test/**/*.test.ts"] } },
       { extends: true, test: { name: "plugin", include: ["plugin/test/**/*.test.ts"] } },

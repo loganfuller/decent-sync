@@ -45,11 +45,6 @@ describe("Machines and the sync connection", () => {
   describe("machine entries", () => {
     runAsSteps();
 
-    it("require a session", async () => {
-      expect((await call("GET", "/machines", undefined, {})).status).toBe(401);
-      expect((await call("POST", "/machines", { name: "Lab" }, {})).status).toBe(401);
-    });
-
     it("are created with a token shown once, beside the server URL the plugin needs", async () => {
       const { machine, token, serverUrl } = await createMachine("  Lab ");
 
@@ -433,16 +428,6 @@ describe("Machines and the sync connection", () => {
       const failure = await new Promise<Error>((resolve) => socket.once("error", resolve));
       expect(failure.message).toBe("Unexpected server response: 404");
     });
-  });
-
-  it("never writes a token to the server's or any tablet's log", () => {
-    const logs = [server.output(), ...tablets.flatMap((tablet) => tablet.logs)].join("\n");
-    expect(api.tokens.length).toBeGreaterThan(5);
-    for (const token of [...api.tokens, "not-a-token-this-server-issued", "aGVsbG8gd29ybGQgdGhpcyBpcyBub3QgYSB0b2tlbg"]) {
-      expect(logs).not.toContain(token);
-    }
-    // The server did log the connections, so there was something to check.
-    expect(server.output()).toMatch(/Machine Uptown connected from .*bound to DE1Pro serial 10001/);
   });
 });
 

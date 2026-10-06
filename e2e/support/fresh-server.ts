@@ -1,6 +1,7 @@
 import { test } from "@playwright/test";
 import type pg from "pg";
 import { assertBuilt } from "../../server/test/support/builds.js";
+import { assertNoSecretLogged } from "../../server/test/support/secrets.js";
 import { type TestServer, type TestServerOptions, startTestServer } from "../../server/test/support/test-server.js";
 
 /**
@@ -23,6 +24,8 @@ export function useFreshServer(options: TestServerOptions = {}): {
   test.use({ baseURL: async ({}, use) => use((await (server ??= startTestServer(options))).url) });
   test.afterAll(async () => {
     await (await server)?.stop();
+    // No token or link secret the spec gave a tablet may reach the server's or a tablet's log.
+    assertNoSecretLogged();
   });
 
   let url: string | undefined;

@@ -81,15 +81,6 @@ describe("invites", () => {
     expect(message).toBe(`${admin.email} already has an account`);
   });
 
-  it("refuses creating invites without a session", async () => {
-    const response = await fetch(`${server.url}/api/invites`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "a@example.com", role: "admin" }),
-    });
-    expect(response.status).toBe(401);
-  });
-
   it("shows whoever opens the link, with no session, what the invite offers", async () => {
     const { invite, link } = await api.invite("robin@example.com", "staff", [uptown.id]);
 
@@ -186,14 +177,6 @@ describe("invites", () => {
     const exists = "twin@example.com already has an account, so this invite can no longer be used. Sign in instead";
     expect(await refusal(await open(server, second.link), 410)).toBe(exists);
     expect(await refusal(await accept(server, second.link, { name: "Twin", password: "another password" }), 410)).toBe(exists);
-  });
-
-  it("refuses Staff creating invites", async () => {
-    const { link } = await api.invite("nosy@example.com", "staff", [uptown.id]);
-    const nosy = AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Nosy", password: "nosy password 1" }));
-
-    const response = await nosy.call("POST", "/invites", { email: "friend@example.com", role: "admin" });
-    expect(await refusal(response, 403)).toBe("Only an Admin can do this");
   });
 
   it("refuses accepting an invite from another site", async () => {

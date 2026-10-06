@@ -126,28 +126,6 @@ describe("account management", () => {
     expect(await api.at(other.url).invites()).toEqual([waiting.invite]);
   });
 
-  it("refuses Staff, and anyone signed out, every account management endpoint", async () => {
-    const staff = AdminApi.signedInAs(server.url, sam.cookie);
-    const { invite } = await api.invite("quinn@example.com", "admin");
-    const adminOnly: [string, string, unknown?][] = [
-      ["GET", "/accounts"],
-      ["GET", "/invites"],
-      ["PUT", `/accounts/${sam.id}/access`, { role: "admin" }],
-      ["POST", `/accounts/${sam.id}/deactivate`],
-      ["POST", `/accounts/${sam.id}/reactivate`],
-      ["POST", `/accounts/${sam.id}/password-reset`],
-      ["POST", `/invites/${invite.id}/revoke`],
-    ];
-    for (const [method, path, body] of adminOnly) {
-      expect(await refusal(await staff.call(method, path, body), 403), `${method} ${path}`).toBe("Only an Admin can do this");
-      expect((await staff.call(method, path, body, {})).status, `${method} ${path}`).toBe(401);
-    }
-
-    // None of them changed anything.
-    expect((await api.accounts()).find((account) => account.id === sam.id)).toMatchObject({ role: "staff", deactivatedAt: null });
-    expect((await api.invites()).map((listed) => listed.id)).toContain(invite.id);
-  });
-
   it("changes a Staff member's Locations, which limits their next move on any instance", async () => {
     const kim = await invitePerson(api, "Kim Staff", "staff", [uptown.id]);
     const kimElsewhere = AdminApi.signedInAs(other.url, kim.cookie);

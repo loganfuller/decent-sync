@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import pg from "pg";
 import { assertBuilt } from "./builds.js";
+import { watchLog } from "./secrets.js";
 
 // Runs the built server (`npm run build` first) as a self-hoster does, on its
 // own fresh PostgreSQL database, so each test file starts from an empty
@@ -108,6 +109,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchLog(`the log of the server at ${url}`, () => output.join(""));
   child.stdout?.on("data", (chunk: Buffer) => output.push(chunk.toString()));
   child.stderr?.on("data", (chunk: Buffer) => output.push(chunk.toString()));
 

@@ -117,14 +117,13 @@ describe("several server instances", { timeout: 30_000 }, () => {
       const { token } = await api.createMachine("On a stopping instance");
       // Heartbeats keep it online, so going offline comes from the shutdown, not from silence.
       const raw = await connect(leaving, helloWith(token, { machine: de1Pro("12501") }));
-      const beat = setInterval(() => raw.send({ type: "heartbeat" }), HEARTBEAT_SECONDS * 500);
+      raw.keepAlive(HEARTBEAT_SECONDS * 500);
       await new Promise((resolve) => setTimeout(resolve, HEARTBEAT_SECONDS * 4000));
       expect(await api.machineNamed("On a stopping instance")).toMatchObject({ online: true });
 
       const stopping = leaving.stop();
       // Going away, so the plugin reconnects, never replaced, after which it would stop.
       expect((await raw.closed).code).toBe(1001);
-      clearInterval(beat);
       await stopping;
       expect(await api.machineNamed("On a stopping instance")).toMatchObject({ online: false });
     } finally {
@@ -211,11 +210,5 @@ describe("several server instances", { timeout: 30_000 }, () => {
       await database.end();
       await quiet.stop();
     }
-  });
-
-  it("never writes a token to any instance's log", () => {
-    const logs = [first.output(), second.output(), ...tablets.flatMap((tablet) => tablet.logs)].join("\n");
-    expect(api.tokens.length).toBeGreaterThan(3);
-    for (const token of api.tokens) expect(logs).not.toContain(token);
   });
 });

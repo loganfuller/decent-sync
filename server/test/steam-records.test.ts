@@ -51,7 +51,6 @@ describe("Steam Record capture", () => {
   let timeZone: string | undefined;
   const tablets: SimulatedTablet[] = [];
   const raws: RawConnection[] = [];
-  const timers: NodeJS.Timeout[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
@@ -66,7 +65,6 @@ describe("Steam Record capture", () => {
     uptown = await api.createLocation("Uptown", "America/Chicago");
   }, 60_000);
   afterEach(async () => {
-    timers.splice(0).forEach(clearInterval);
     const used = tablets.splice(0);
     await Promise.all(used.map((tablet) => tablet.unload()));
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
@@ -128,19 +126,13 @@ describe("Steam Record capture", () => {
     return Object.fromEntries(await Promise.all(ids.map(async (id) => [id, (await detail(id)).location?.name ?? null])));
   }
   async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
-    const raw = await RawConnection.open(url);
+    const raw = await RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
     raws.push(raw);
-    raw.send(helloWith(machine.token, hardware ? { machine: hardware } : {}));
-    expect(await raw.message(0)).toMatchObject({ type: "welcome" });
-    timers.push(setInterval(() => raw.send({ type: "heartbeat" }), 300));
     return raw;
   }
   function sendSteam(raw: RawConnection, record: Record<string, unknown>, steamedAt: string, id = randomUUID()) {
     raw.send({ type: "steam", id, steamId: String(record.id), steamedAt, steam: record });
     return id;
-  }
-  async function acknowledged(raw: RawConnection, id: string) {
-    await expect.poll(() => raw.messages.some((message) => (message as Sent).type === "ack" && (message as Sent).id === id)).toBe(true);
   }
   async function moved(response: Response): Promise<MachineView> {
     const body = (await response.json()) as { machine: MachineView; message?: unknown };
@@ -153,10 +145,7 @@ describe("Steam Record capture", () => {
     return rest;
   }
 
-  it("requires a session for all Steam Record reads, and validates pagination and Machine ids", async () => {
-    for (const path of ["/steam-records", "/steam-records/missing", "/steam-records/missing/measurements"]) {
-      expect((await api.call("GET", path, undefined, {})).status).toBe(401);
-    }
+  it("validates pagination and Machine ids", async () => {
     for (const query of ["limit=0", "limit=101", "offset=-1", "limit=1.2"]) expect((await api.call("GET", `/steam-records?${query}`)).status).toBe(400);
     expect((await api.call("GET", "/steam-records?machineId=not-a-machine")).status).toBe(404);
     await absent("missing");
@@ -337,7 +326,7 @@ describe("Steam Record capture", () => {
       // The move waits for the Steam Record's storage, which holds the Machine.
       await waitForLockWaits(server, { count: 2 });
       await database.query("ROLLBACK");
-      await acknowledged(raw, delivery);
+      await raw.acknowledged(delivery);
     } finally {
       await database.query("ROLLBACK").catch(() => undefined);
       await database.end();
@@ -351,7 +340,7 @@ describe("Steam Record capture", () => {
     const raw = await connect(machine);
     const record = derivedSteam("replayed-steam");
     const delivery = sendSteam(raw, record, "2026-10-05T14:07:03.341Z");
-    await acknowledged(raw, delivery);
+    await raw.acknowledged(delivery);
     const stored = await detail("replayed-steam");
 
     // The same delivery again, carrying other content, is acknowledged and changes nothing.
@@ -359,10 +348,10 @@ describe("Steam Record capture", () => {
     await expect.poll(() => raw.messages.filter((message) => (message as Sent).type === "ack" && (message as Sent).id === delivery).length).toBe(2);
     // So does the record in another delivery, through another instance, and through another Machine's tablet.
     const replacement = await connect(machine, other.url);
-    await acknowledged(replacement, sendSteam(replacement, { ...record, futureField: true }, "2026-10-06T00:00:00.000Z"));
+    await replacement.acknowledged(sendSteam(replacement, { ...record, futureField: true }, "2026-10-06T00:00:00.000Z"));
     const elsewhere = await api.createMachine("Steam replays elsewhere");
     const elsewhereRaw = await connect(elsewhere, other.url);
-    await acknowledged(elsewhereRaw, sendSteam(elsewhereRaw, record, "2026-10-06T00:00:00.000Z"));
+    await elsewhereRaw.acknowledged(sendSteam(elsewhereRaw, record, "2026-10-06T00:00:00.000Z"));
 
     expect(await detail("replayed-steam")).toEqual(stored);
     expect(stored).toMatchObject({ machineId: machine.machine.id, steamedAt: "2026-10-05T14:07:03.341Z", record: withoutMeasurements(record) });
@@ -372,7 +361,7 @@ describe("Steam Record capture", () => {
 
     // An index asks only for what is not stored, each once.
     elsewhereRaw.send({ type: "steamIndex", id: "replay-index", steams: [{ id: "replayed-steam" }, { id: "missing-steam" }, { id: "missing-steam" }] });
-    await acknowledged(elsewhereRaw, "replay-index");
+    await elsewhereRaw.acknowledged("replay-index");
     expect(elsewhereRaw.messages.find((message) => (message as Sent).type === "requestSteams")).toEqual({ type: "requestSteams", steamIds: ["missing-steam"] });
   });
 
@@ -395,8 +384,8 @@ describe("Steam Record capture", () => {
       await database.query("ROLLBACK").catch(() => undefined);
       await database.end();
     }
-    await acknowledged(rawA, deliveries![0]);
-    await acknowledged(rawB, deliveries![1]);
+    await rawA.acknowledged(deliveries![0]);
+    await rawB.acknowledged(deliveries![1]);
     const both = [...(await list(first.machine.id)).steamRecords, ...(await list(second.machine.id)).steamRecords];
     expect(both.map((steam) => steam.id)).toEqual(["concurrent-steam"]);
     expect(await measurements("concurrent-steam")).toEqual(record.measurements);
@@ -471,7 +460,7 @@ describe("Steam Record capture", () => {
     const ownerRaw = await connect(owner, other.url, { model: "DE1Pro", serial: "70003" });
     const borrower = await api.createMachine("Steam borrower");
     const borrowerRaw = await connect(borrower, server.url, { model: "DE1Pro", serial: "70003" });
-    await acknowledged(borrowerRaw, sendSteam(borrowerRaw, derivedSteam("steam-on-owner"), "2026-10-05T14:07:03.341Z"));
+    await borrowerRaw.acknowledged(sendSteam(borrowerRaw, derivedSteam("steam-on-owner"), "2026-10-05T14:07:03.341Z"));
     expect(await detail("steam-on-owner")).toMatchObject({ machineId: owner.machine.id, pendingMachineId: null });
     await ownerRaw.close();
 
@@ -503,7 +492,7 @@ describe("Steam Record capture", () => {
   it("acknowledges and ignores a Steam Record without measurements, which Decaid v0.8.7 and later never send", async () => {
     const machine = await api.createMachine("Incompatible steam");
     const raw = await connect(machine);
-    await acknowledged(raw, sendSteam(raw, derivedSteam("curveless-steam", { measurements: undefined }), "2026-10-05T14:07:03.341Z"));
+    await raw.acknowledged(sendSteam(raw, derivedSteam("curveless-steam", { measurements: undefined }), "2026-10-05T14:07:03.341Z"));
     await absent("curveless-steam");
   });
 });

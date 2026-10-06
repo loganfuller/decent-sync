@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { expect } from "vitest";
+import { rememberSecret } from "./secrets.js";
 
 // The REST API as a signed-in Admin uses it, for Seam 1 tests. Requests carry
 // no Origin, as a non-browser client's do.
@@ -150,7 +151,9 @@ export class AdminApi {
   async invite(email: string, role: "admin" | "staff", locationIds: string[] = []): Promise<CreatedInvite> {
     const response = await this.call("POST", "/invites", { email, role, locationIds });
     expect(response.status).toBe(201);
-    return (await response.json()) as CreatedInvite;
+    const created = (await response.json()) as CreatedInvite;
+    rememberSecret(secretOf(created.link));
+    return created;
   }
 
   async accounts(): Promise<ManagedAccountView[]> {
@@ -191,6 +194,7 @@ export class AdminApi {
   async issued(response: Response): Promise<CreatedMachine> {
     const created = (await response.json()) as CreatedMachine;
     this.tokens.push(created.token);
+    rememberSecret(created.token);
     return created;
   }
 }

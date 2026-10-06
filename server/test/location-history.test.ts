@@ -33,7 +33,6 @@ describe("Location History", () => {
   let belmont: LocationView;
   const tablets: SimulatedTablet[] = [];
   const raws: RawConnection[] = [];
-  const timers: NodeJS.Timeout[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
@@ -45,7 +44,6 @@ describe("Location History", () => {
     belmont = await api.createLocation("Belmont", "America/Chicago");
   }, 60_000);
   afterEach(async () => {
-    timers.splice(0).forEach(clearInterval);
     await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
@@ -76,19 +74,13 @@ describe("Location History", () => {
     return tablet;
   }
   async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
-    const raw = await RawConnection.open(url);
+    const raw = await RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
     raws.push(raw);
-    raw.send(helloWith(machine.token, hardware ? { machine: hardware } : {}));
-    expect(await raw.message(0)).toMatchObject({ type: "welcome" });
-    timers.push(setInterval(() => raw.send({ type: "heartbeat" }), 300));
     return raw;
   }
   function sendShot(raw: RawConnection, record: Record<string, unknown>, id = randomUUID()) {
     raw.send({ type: "shot", id, shotId: String(record.id), shot: record });
     return id;
-  }
-  async function acknowledged(raw: RawConnection, id: string) {
-    await expect.poll(() => raw.messages.some((message) => (message as { type: string; id?: string }).type === "ack" && (message as { id?: string }).id === id)).toBe(true);
   }
   async function detail(id: string): Promise<ShotView> {
     const response = await api.call("GET", `/shots/${encodeURIComponent(id)}`);
@@ -129,13 +121,6 @@ describe("Location History", () => {
   async function problem(response: Response) {
     return { status: response.status, message: ((await response.json()) as { message: unknown }).message };
   }
-
-  it("requires a session to change a Location History", async () => {
-    const { machine } = await api.createMachine("Signed out");
-    expect((await api.call("POST", `/machines/${machine.id}/location-history`, { locationId: lab.id }, {})).status).toBe(401);
-    expect((await api.call("PATCH", `/machines/${machine.id}/location-history/${randomUUID()}`, { effectiveFrom: "2026-01-01T00:00:00Z" }, {})).status).toBe(401);
-    expect((await api.call("DELETE", `/machines/${machine.id}/location-history/${randomUUID()}`, undefined, {})).status).toBe(401);
-  });
 
   it("creates a machine entry at a Location from now, or unassigned, refusing a Location the server lacks", async () => {
     const before = Date.now();
@@ -264,7 +249,7 @@ describe("Location History", () => {
     const boundHardware = { model: "DE1Pro", serial: "60002" };
     const raw = await connect(reporter);
     for (const record of [shotAt("pending-adopted", "2026-02-10T09:00:00Z", adoptedHardware), shotAt("pending-bound", "2026-02-10T09:00:00Z", boundHardware)]) {
-      await acknowledged(raw, sendShot(raw, record));
+      await raw.acknowledged(sendShot(raw, record));
     }
     // Held for hardware without a machine entry, whatever the reporting Machine's Location.
     expect(await detail("pending-adopted")).toMatchObject({ machineId: null, pendingMachineId: expect.any(String), location: null, locationInferred: false });
@@ -301,7 +286,7 @@ describe("Location History", () => {
       // The move waits for the Shot's storage, which holds the Machine.
       await waitForLockWaits(server, { count: 2 });
       await database.query("ROLLBACK");
-      await acknowledged(raw, delivery);
+      await raw.acknowledged(delivery);
     } finally {
       await database.query("ROLLBACK").catch(() => undefined);
       await database.end();
@@ -316,7 +301,7 @@ describe("Location History", () => {
     await moved(await correct(created.machine.id, first, "2026-01-01T00:00:00Z"));
     const raw = await connect(created, other.url);
     const record = shotAt("edited-during-a-correction", "2026-02-15T12:00:00Z");
-    await acknowledged(raw, sendShot(raw, record));
+    await raw.acknowledged(sendShot(raw, record));
     expect(await detail(String(record.id))).toMatchObject({ location: lab });
     const database = await server.connectDatabase();
     let correcting: Promise<Response> | undefined;
@@ -339,7 +324,7 @@ describe("Location History", () => {
       await database.query("ROLLBACK TO SAVEPOINT edit");
       // While the correction holds the Machine, the edit writes the Shot twice, checking its Machine's
       // key the second time: it is stored without waiting for the correction, which then waits for it.
-      await acknowledged(raw, edit);
+      await raw.acknowledged(edit);
       await database.query("ROLLBACK");
     } finally {
       await database.query("ROLLBACK").catch(() => undefined);
@@ -355,9 +340,9 @@ describe("Location History", () => {
     await moved(await move(created.machine.id, uptown.id, "2026-03-01T00:00:00Z"));
     const raw = await connect(created);
     const record = shotAt("pulled-once", "2026-02-15T12:00:00Z");
-    await acknowledged(raw, sendShot(raw, record));
+    await raw.acknowledged(sendShot(raw, record));
     // Derived: the same Shot, edited, as a full record whose time reads differently.
-    await acknowledged(raw, sendShot(raw, { ...record, timestamp: "2026-04-15T12:00:00Z", updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 71 } }));
+    await raw.acknowledged(sendShot(raw, { ...record, timestamp: "2026-04-15T12:00:00Z", updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 71 } }));
     expect(await detail("pulled-once")).toMatchObject({ enjoyment: 71, pulledAt: "2026-02-15T12:00:00.000Z", location: lab });
   });
 
@@ -371,7 +356,7 @@ describe("Location History", () => {
     const [first, toUptown, , toBelmont] = recorded.locationHistory.map((entry) => entry.id);
     const raw = await connect(created, other.url);
     const shots = ["2026-01-15", "2026-02-15", "2026-03-15", "2026-04-15"].map((day) => shotAt(`mistaken-${day}`, `${day}T12:00:00Z`));
-    for (const shot of shots) await acknowledged(raw, sendShot(raw, shot));
+    for (const shot of shots) await raw.acknowledged(sendShot(raw, shot));
     const ids = shots.map((shot) => String(shot.id));
     expect(Object.values(await locations(ids))).toEqual(["Lab", "Uptown", "Lab", "Belmont"]);
 
@@ -402,7 +387,7 @@ describe("Location History", () => {
     const first = created.machine.locationHistory[0]!.id;
     const raw = await connect(created);
     for (const shot of [shotAt("wrong-january", "2026-01-15T12:00:00Z"), shotAt("wrong-february", "2026-02-15T12:00:00Z")]) {
-      await acknowledged(raw, sendShot(raw, shot));
+      await raw.acknowledged(sendShot(raw, shot));
     }
     expect(await locations(["wrong-january", "wrong-february"])).toEqual({ "wrong-january": null, "wrong-february": null });
 

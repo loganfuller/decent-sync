@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { PROTOCOL_VERSION, SYNC_PATH } from "@decent-sync/protocol";
 import WebSocket from "ws";
 import { assertBuilt } from "./builds.js";
+import { rememberSecret, watchLog } from "./secrets.js";
 
 // Seam 1's simulated tablet: runs the built decent-sync.reaplugin/plugin.js
 // (`npm run build` first) in a stand-in for Decaid's plugin host, the way
@@ -254,6 +255,7 @@ export function settingsFor({ token, serverUrl }: { token: string; serverUrl: st
 
 /** A valid `hello` of this protocol version, for raw frames. */
 export function helloWith(token: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  rememberSecret(token);
   return {
     type: "hello",
     protocolVersion: PROTOCOL_VERSION,
@@ -395,6 +397,8 @@ export class SimulatedTablet {
     this.uploadBytesPerSecond = options.uploadBytesPerSecond;
     this.stallUpload = options.stallUpload;
     this.upgradeAtTabletPace = options.upgradeAtTabletPace ?? false;
+    rememberSecret(options.settings.Token);
+    watchLog("a simulated tablet's log", () => this.logs.join("\n"));
     const { source, manifest } = readBuiltPlugin();
     this.plugin = loadPlugin(source, String(manifest.id), {
       host: {
@@ -872,6 +876,28 @@ export class RawConnection {
     return new RawConnection(socket);
   }
 
+  /**
+   * Connects, sends the `hello` and resolves once the server welcomes it,
+   * then keeps the connection alive with heartbeats every `heartbeatMs`.
+   */
+  static async welcomed(serverUrl: string, hello: Record<string, unknown>, heartbeatMs = 300): Promise<RawConnection> {
+    const raw = await RawConnection.open(serverUrl);
+    raw.send(hello);
+    const answer = await raw.message(0);
+    if ((answer as { type?: unknown }).type !== "welcome") {
+      await raw.terminate();
+      throw new Error(`The server did not welcome the hello: ${JSON.stringify(answer)}`);
+    }
+    raw.keepAlive(heartbeatMs);
+    return raw;
+  }
+
+  /** Sends a heartbeat every `intervalMs` until the connection ends, as the plugin does once welcomed. */
+  keepAlive(intervalMs = 300): void {
+    const heartbeats = setInterval(() => this.send({ type: "heartbeat" }), intervalMs);
+    void this.closed.then(() => clearInterval(heartbeats));
+  }
+
   /** Sends a string as is, or anything else as JSON, in a text frame. */
   send(frame: unknown): void {
     this.socket.send(typeof frame === "string" ? frame : JSON.stringify(frame));
@@ -883,16 +909,28 @@ export class RawConnection {
 
   /** Resolves with the message at `index` once it has arrived. */
   async message(index: number, timeoutMs = 10_000): Promise<unknown> {
-    const deadline = Date.now() + timeoutMs;
-    while (this.messages.length <= index) {
-      if (this.socket.readyState === WebSocket.CLOSED) throw new Error(`The connection closed after ${this.messages.length} messages`);
-      if (Date.now() > deadline) throw new Error(`No message ${index} within ${timeoutMs} ms`);
-      await new Promise<void>((resolve) => {
-        this.waiters.push(resolve);
-        setTimeout(resolve, 50);
-      });
-    }
+    await this.until(() => this.messages.length > index, timeoutMs, `message ${index}`);
     return this.messages[index];
+  }
+
+  /** How many times the server has acknowledged the delivery with this id. */
+  acks(id: string): number {
+    return this.messages.filter((message) => {
+      const { type, id: acked } = (message ?? {}) as { type?: unknown; id?: unknown };
+      return type === "ack" && acked === id;
+    }).length;
+  }
+
+  /** Resolves once the server has acknowledged the delivery with this id. */
+  async acknowledged(id: string, timeoutMs = 10_000): Promise<void> {
+    await this.until(() => this.acks(id) > 0, timeoutMs, `acknowledgment of ${id}`);
+  }
+
+  /** Sends a delivery and resolves once the server acknowledges it, again if it had before. */
+  async deliver(message: { id: string; [field: string]: unknown }, timeoutMs = 10_000): Promise<void> {
+    const before = this.acks(message.id);
+    this.send(message);
+    await this.until(() => this.acks(message.id) > before, timeoutMs, `acknowledgment of ${message.id}`);
   }
 
   close(): Promise<{ code: number; reason: string }> {
@@ -904,6 +942,19 @@ export class RawConnection {
   terminate(): Promise<{ code: number; reason: string }> {
     this.socket.terminate();
     return this.closed;
+  }
+
+  /** Resolves once `done` holds, checked as each message arrives; fails if the connection closes first. */
+  private async until(done: () => boolean, timeoutMs: number, what: string): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (!done()) {
+      if (this.socket.readyState === WebSocket.CLOSED) throw new Error(`The connection closed after ${this.messages.length} messages, before ${what}`);
+      if (Date.now() > deadline) throw new Error(`No ${what} within ${timeoutMs} ms`);
+      await new Promise<void>((resolve) => {
+        this.waiters.push(resolve);
+        setTimeout(resolve, 50);
+      });
+    }
   }
 
   private wake(): void {
