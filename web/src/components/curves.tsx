@@ -1,37 +1,68 @@
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 import { type ChartConfig, ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { CURVES, type Curve, type Sample, chartPoints, lastSecond } from "@/lib/shot-curves";
+import { numberText } from "@/components/records";
+import { type CurveInfo, type Sample, chartPoints, lastSecond } from "@/lib/curves";
 
 // Colors from the data visualization palette's first two categorical slots,
 // checked for color vision deficiencies against light and dark surfaces: this
-// Shot and its target are blue, the Shot compared with it orange. The target
-// is also dashed, so it never relies on color alone.
-const THIS_SHOT = { light: "#2a78d6", dark: "#3987e5" };
-const PREVIOUS_SHOT = { light: "#eb6834", dark: "#d95926" };
+// record and its target are blue, the record compared with it orange. The
+// target is also dashed, so it never relies on color alone.
+const THIS_RECORD = { light: "#2a78d6", dark: "#3987e5" };
+const PREVIOUS_RECORD = { light: "#eb6834", dark: "#d95926" };
 
 /** Legends and tooltips name the series in this order, whichever are drawn. */
 const ORDER: Record<string, number> = { current: 0, target: 1, previous: 2 };
 const byOrder = (item: { dataKey?: unknown }) => ORDER[String(item.dataKey)] ?? 3;
 
+/** The record a chart compares with the one shown, and what its legend and tooltips call it, such as "Previous Shot". */
+export interface Compared<C extends string> {
+  label: string;
+  samples: Sample<C>[];
+}
+
 /**
- * A Shot's pressure, flow, weight and temperature, each its own chart on a
- * shared time axis, with the targets it followed and, when given, the same
- * curves of the Shot it is compared with.
+ * A record's curves, each its own chart on a shared time axis, with the
+ * targets it followed and, when given, the same curves of the record it is
+ * compared with. `label` names the record shown, such as "This Shot".
  */
-export function ShotCurves({ current, previous }: { current: Sample[]; previous?: Sample[] }) {
-  const until = Math.max(lastSecond(current), previous ? lastSecond(previous) : 0);
+export function Curves<C extends string>({
+  curves,
+  label,
+  current,
+  previous,
+}: {
+  curves: Record<C, CurveInfo>;
+  label: string;
+  current: Sample<C>[];
+  previous?: Compared<C>;
+}) {
+  const until = Math.max(lastSecond(current), previous ? lastSecond(previous.samples) : 0);
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      {(Object.keys(CURVES) as Curve[]).map((curve) => (
-        <CurveChart key={curve} curve={curve} current={current} previous={previous} until={until} />
+      {(Object.keys(curves) as C[]).map((curve) => (
+        <CurveChart key={curve} curve={curve} info={curves[curve]} currentLabel={label} current={current} previous={previous} until={until} />
       ))}
     </div>
   );
 }
 
-function CurveChart({ curve, current, previous, until }: { curve: Curve; current: Sample[]; previous?: Sample[]; until: number }) {
-  const { label, unit } = CURVES[curve];
-  const points = chartPoints(curve, current, previous, until);
+function CurveChart<C extends string>({
+  curve,
+  info,
+  currentLabel,
+  current,
+  previous,
+  until,
+}: {
+  curve: C;
+  info: CurveInfo;
+  currentLabel: string;
+  current: Sample<C>[];
+  previous?: Compared<C>;
+  until: number;
+}) {
+  const { label, unit } = info;
+  const points = chartPoints(curve, current, previous?.samples, until);
   const hasTarget = points.some((point) => point.target !== null);
   const hasValue = points.some((point) => point.current !== null || point.previous !== null);
   // A reading with no value either side draws no line, so it is marked: 8 pixels across, in its series' color.
@@ -42,9 +73,9 @@ function CurveChart({ curve, current, previous, until }: { curve: Curve; current
       return <circle key={`${key}-${index}`} data-lone-reading={key} cx={cx} cy={cy} r={4} fill={`var(--color-${key})`} />;
     };
   const config = {
-    current: { label: "This Shot", theme: THIS_SHOT },
-    target: { label: "Target", theme: THIS_SHOT },
-    previous: { label: "Previous Shot", theme: PREVIOUS_SHOT },
+    current: { label: currentLabel, theme: THIS_RECORD },
+    target: { label: "Target", theme: THIS_RECORD },
+    previous: { label: previous?.label, theme: PREVIOUS_RECORD },
   } satisfies ChartConfig;
 
   return (
@@ -64,12 +95,11 @@ function CurveChart({ curve, current, previous, until }: { curve: Curve; current
               axisLine={false}
               tickFormatter={(seconds: number) => `${seconds} s`}
             />
-            {/* Temperatures stay far from zero, so their axis fits them; the others start at zero. */}
             <YAxis
               width={40}
               tickLine={false}
               axisLine={false}
-              domain={curve === "temperature" ? [(min: number) => Math.floor(min - 2), (max: number) => Math.ceil(max + 2)] : [0, "auto"]}
+              domain={info.fit ? [(min: number) => Math.floor(min - 2), (max: number) => Math.ceil(max + 2)] : [0, "auto"]}
               allowDecimals={false}
             />
             <ChartTooltip
@@ -84,9 +114,8 @@ function CurveChart({ curve, current, previous, until }: { curve: Curve; current
                   formatter={(value, name) => (
                     <div className="flex w-full justify-between gap-4">
                       <span className="text-muted-foreground">{config[name as keyof typeof config]?.label ?? name}</span>
-                      <span className="font-mono tabular-nums">
-                        {Number(value)} {unit}
-                      </span>
+                      {/* To hundredths, as the measurements table shows them: a probe may report 48.97000000000001. */}
+                      <span className="font-mono tabular-nums">{numberText(Number(value), unit)}</span>
                     </div>
                   )}
                 />
@@ -107,7 +136,7 @@ function CurveChart({ curve, current, previous, until }: { curve: Curve; current
                 isAnimationActive={false}
               />
             )}
-            {/* Above the default line layer, so it stays in front of the Shot compared with, which mounts after it. */}
+            {/* Above the default line layer, so it stays in front of the record compared with, which mounts after it. */}
             <Line
               dataKey="current"
               type="linear"

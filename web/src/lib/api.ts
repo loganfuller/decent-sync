@@ -267,3 +267,35 @@ export interface ShotFilterOptions {
   baristas: (string | null)[];
   profiles: (string | null)[];
 }
+
+/** A Steam Record as the Steam Records list shows it: what it measured and how it was credited, without its record or curves. */
+export interface SteamRecordSummary {
+  id: string;
+  /** When it was recorded: its tablet's local time, which the plugin placed in UTC. */
+  steamedAt: string;
+  /** The Machine whose tablet reported it, or else the Pending Machine holding it. Steam Records record no hardware. */
+  machine: { id: string; name: string } | null;
+  pendingMachine: { id: string; model: string; serial: string } | null;
+  /** Where its Machine was when it was recorded; null when unknown, and its times are then in UTC. */
+  location: Location | null;
+  /** In seconds. */
+  duration: number | null;
+  /** In °C, from the milk probe, leaving out a reading carried over from the Steam Record before; null without a probe. */
+  peakMilkTemperature: number | null;
+  /** The probe's last reading, in °C. */
+  finalMilkTemperature: number | null;
+  barista: string | null;
+}
+
+/** One page of a Steam Records list, and how many Steam Records the whole list has. */
+export interface SteamRecordPage {
+  steamRecords: SteamRecordSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** A Steam Record with its Decaid record, without measurements, as stored. */
+export interface SteamRecord extends SteamRecordSummary {
+  record: Record<string, unknown>;
+}

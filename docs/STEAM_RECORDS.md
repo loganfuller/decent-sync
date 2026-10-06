@@ -113,21 +113,34 @@ with the reading carried over.
 
 ## REST API
 
-All endpoints require a signed-in account, Admin or Staff. Filters by
-Location and date are ticket #18.
+All endpoints require a signed-in account, Admin or Staff; Staff read every
+Steam Record an Admin does.
 
-- `GET /api/steam-records?limit=20&offset=0&machineId=<uuid>` returns
+- `GET /api/steam-records?limit=20&offset=0` returns
   `{ steamRecords, total, limit, offset }`. Limit is 1–100; offset is
-  nonnegative. Results are newest `steamedAt` first, with id as the tie-breaker.
-  Rows carry the analytics, the Machine or Pending Machine credit and the
-  Location (`locationId` and `location: { id, name, timeZone }`, null when
-  unknown), without the record or its measurements.
+  nonnegative. Results are newest `steamedAt` first, with id as the
+  tie-breaker, and `total` counts the whole filtered list, read in one
+  snapshot with the page. Rows carry the analytics, the Machine or Pending
+  Machine credit and the Location (`locationId` and
+  `location: { id, name, timeZone }`, null when unknown), without the record
+  or its measurements, and no inferred marker.
+- Filters, each given at most once and combined with AND, are the ones Shots
+  lists have by Machine, Location and date (`server/src/record-filters.ts`;
+  `SHOTS.md` describes them): `machineId`, `pendingMachineId`, `locationId`
+  (`none` for Steam Records with no Location), and `from` and `to`, a local
+  date or date and time read on each Steam Record's own Location's wall
+  clock, or UTC for one with no Location. A malformed id is a 404, and an
+  unreadable date or a repeated parameter a 400.
 - `GET /api/steam-records/:id` returns `{ steamRecord }`, including the
   Decaid record without measurements in `steamRecord.record`.
 - `GET /api/steam-records/:id/measurements` returns `{ measurements }` as
   Decaid sent them.
 
-A dismissed Pending Machine's Steam Records are hidden from all three.
+A dismissed Pending Machine's Steam Records are hidden from all three, and
+listed again, under the machine entry, once one is created for its hardware.
+`server/test/steam-record-lists.test.ts` covers the filters, alone and
+combined, across Locations in different time zones and both of New York's
+2025-2026 daylight-saving changes.
 
 `server/test/steam-records.test.ts` verifies the built plugin through Seam 1 on
 two server instances sharing PostgreSQL: history backfill in pages through a
@@ -136,3 +149,19 @@ daylight-saving change, Location credit and its corrections (including one
 stored during a change on another instance), repeated and concurrent
 deliveries, deletion on the tablet, chunked records, mismatched connections,
 Pending Machines and their dismissal and adoption, and ignored records.
+
+## Management interface
+
+`/steam-records` lists Steam Records with the REST filters in its address, as
+`/shots` lists Shots (`web/src/components/record-lists.tsx`), with times in
+each Steam Record's Location's time zone, or UTC, labelled, for one with no
+Location. `/steam-records/:id` shows a Steam Record's peak and final milk
+temperature, its credit, the steam settings its Workflow recorded, and its
+curves, drawn as a Shot's are (`web/src/lib/curves.ts`): the milk
+temperature, with the temperature its Workflow stops steaming at
+(`stopAtTemperature`, when above 0) dashed; the steam heater's temperature;
+and the steam's pressure and flow, with the targets the machine reported.
+The curves show every reading as recorded, including one carried over from
+the Steam Record before; when that reading is above the peak, the page says
+the peak leaves it out. `e2e/steam-records.spec.ts` covers them with Steam
+Records backfilled by simulated tablets.

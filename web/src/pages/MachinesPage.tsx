@@ -218,9 +218,14 @@ function PendingMachines({
                 {pending.lastSeenAt && `, last reported ${formatTime(pending.lastSeenAt)}`}
               </span>
               {!pending.dismissed && (
-                <Link to={`/shots?pendingMachineId=${pending.id}`} className="text-sm underline underline-offset-4">
-                  Review the Shots it holds
-                </Link>
+                <span className="flex flex-wrap gap-x-4 text-sm">
+                  <Link to={`/shots?pendingMachineId=${pending.id}`} className="underline underline-offset-4">
+                    Review the Shots it holds
+                  </Link>
+                  <Link to={`/steam-records?pendingMachineId=${pending.id}`} className="underline underline-offset-4">
+                    Review the Steam Records it holds
+                  </Link>
+                </span>
               )}
             </div>
             {isAdmin && <PendingMachineActions pending={pending} onCreated={onCreated} onDismissed={onDismissed} />}

@@ -1,9 +1,10 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { SteamDelivery, SteamIndex } from "@decent-sync/protocol";
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { creditReporter } from "../machines/credit.js";
 import { creditSteamRecordLocation } from "../machines/location-history.js";
 import { PrismaService } from "../prisma.service.js";
+import { type RecordFilters, recordFilterSql } from "../record-filters.js";
 import type { Reporter } from "../sync/identity.js";
 import { extractSteamRecord } from "./extraction.js";
 
@@ -55,14 +56,27 @@ export class SteamRecordsService {
     return [...new Set(missing.map((steam) => steam.id))];
   }
 
-  /** Newest first. */
-  async list(limit: number, offset: number, machineId?: string) {
-    const where: Prisma.SteamRecordWhereInput = { ...visible, ...(machineId ? { machineId } : {}) };
-    const [steamRecords, total] = await this.prisma.$transaction([
-      this.prisma.steamRecord.findMany({ where, orderBy, take: limit, skip: offset, omit: { record: true }, include: creditView }),
-      this.prisma.steamRecord.count({ where }),
-    ]);
-    return { steamRecords, total, limit, offset };
+  /** Newest first, with times read in each Steam Record's Location's time zone, or UTC without one. */
+  async list(limit: number, offset: number, filters: RecordFilters = {}) {
+    const where = Prisma.sql`${listed} AND ${recordFilterSql(filters, "r", "steamed_at")}`;
+    // One snapshot, so the page's rows and the total agree.
+    const { page, total } = await this.prisma.$transaction(
+      async (tx) => {
+        const [ids, [count]] = await Promise.all([
+          tx.$queryRaw<{ id: string }[]>`
+            SELECT r.id FROM steam_records r ${listedJoins} WHERE ${where}
+            ORDER BY r.steamed_at DESC, r.id ASC LIMIT ${limit} OFFSET ${offset}`,
+          tx.$queryRaw<{ total: number }[]>`SELECT count(*)::int AS total FROM steam_records r ${listedJoins} WHERE ${where}`,
+        ]);
+        const rows = ids.length === 0
+          ? []
+          : await tx.steamRecord.findMany({ where: { id: { in: ids.map((row) => row.id) } }, omit: { record: true }, include: creditView });
+        const byId = new Map(rows.map((row) => [row.id, row]));
+        return { page: ids.flatMap((row) => byId.get(row.id) ?? []), total: count!.total };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+    return { steamRecords: page, total, limit, offset };
   }
 
   async get(id: string) {
@@ -80,7 +94,9 @@ export class SteamRecordsService {
 
 /** A dismissed Pending Machine's Steam Records are kept, but left out, until a machine entry takes its hardware over. */
 const visible: Prisma.SteamRecordWhereInput = { OR: [{ machineId: { not: null } }, { pendingMachine: { dismissedAt: null } }] };
-const orderBy: Prisma.SteamRecordOrderByWithRelationInput[] = [{ steamedAt: "desc" }, { id: "asc" }];
+/** `visible` in SQL, for `steam_records` aliased `r` with `listedJoins`, which also joins its Location as `l` for filters. */
+const listed = Prisma.sql`(r.machine_id IS NOT NULL OR (p.id IS NOT NULL AND p.dismissed_at IS NULL))`;
+const listedJoins = Prisma.sql`LEFT JOIN pending_machines p ON p.id = r.pending_machine_id LEFT JOIN locations l ON l.id = r.location_id`;
 const creditView = {
   machine: { select: { id: true, name: true } },
   pendingMachine: { select: { id: true, model: true, serial: true } },
