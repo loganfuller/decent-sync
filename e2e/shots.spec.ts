@@ -234,7 +234,15 @@ test("a curve breaks where its samples have no value, as a pressure target where
       scale: { ...sample.scale, timestamp: at },
     };
   });
-  await adopt(page, "Switcher", hardware, null, [shot, long]);
+  // Derived: the real Shot's samples with the tablet's clock set back five seconds after the second, as
+  // Decaid would record across a correction, so two samples fall at one elapsed time, the second without a target.
+  const setBack = shotAt("clock-set-back-shot", "2026-03-03T12:00:00Z", { hardware });
+  setBack.measurements = [0, 1000, -4000, -3950, -2900].map((ms, n) => {
+    const at = new Date(Date.UTC(2026, 2, 3, 12) + ms).toISOString().replace("Z", "");
+    const sample = samples[n % samples.length]!;
+    return { ...sample, machine: { ...sample.machine, timestamp: at, targetPressure: [3, 3, 0, 9, 9][n] }, scale: { ...sample.scale, timestamp: at } };
+  });
+  await adopt(page, "Switcher", hardware, null, [shot, long, setBack]);
 
   await page.goto("/shots/switching-shot");
   const pressure = page.getByRole("region", { name: "Curves" }).getByRole("figure", { name: "Pressure" });
@@ -253,10 +261,18 @@ test("a curve breaks where its samples have no value, as a pressure target where
   // The last sample's target is kept, though it falls between the chart's tenths of a second.
   await plot.hover({ position: at(27.99) });
   await expect(tooltip).toContainText("Target9 bar");
+  // That target has no value either side, so a line would not show it: it is marked.
+  await expect(pressure.locator('circle[data-lone-reading="target"]')).toHaveCount(1);
+  await expect(pressure.locator('circle[data-lone-reading="target"]')).toBeVisible();
 
   // On the long Shot the chart reads more than a second apart, yet the fifth of a second without a target still breaks its line.
   await page.goto("/shots/long-switching-shot");
   const target = pressure.locator("path.recharts-line-curve[stroke-dasharray]");
+  await expect(target).toHaveCount(1);
+  expect((await target.getAttribute("d"))?.match(/M/g)).toHaveLength(2);
+
+  // Nor does a gap where the tablet's clock went back, at a time another sample shares.
+  await page.goto("/shots/clock-set-back-shot");
   await expect(target).toHaveCount(1);
   expect((await target.getAttribute("d"))?.match(/M/g)).toHaveLength(2);
 });

@@ -34,6 +34,13 @@ function CurveChart({ curve, current, previous, until }: { curve: Curve; current
   const points = chartPoints(curve, current, previous, until);
   const hasTarget = points.some((point) => point.target !== null);
   const hasValue = points.some((point) => point.current !== null || point.previous !== null);
+  // A reading with no value either side draws no line, so it is marked: 8 pixels across, in its series' color.
+  const lone = (key: "current" | "target" | "previous") =>
+    function LoneReading({ index, cx, cy }: { index: number; cx?: number; cy?: number }) {
+      const isolated = points[index]?.[key] != null && points[index - 1]?.[key] == null && points[index + 1]?.[key] == null;
+      if (!isolated || cx === undefined || cy === undefined) return null;
+      return <circle key={`${key}-${index}`} data-lone-reading={key} cx={cx} cy={cy} r={4} fill={`var(--color-${key})`} />;
+    };
   const config = {
     current: { label: "This Shot", theme: THIS_SHOT },
     target: { label: "Target", theme: THIS_SHOT },
@@ -87,7 +94,7 @@ function CurveChart({ curve, current, previous, until }: { curve: Curve; current
             />
             <ChartLegend content={<ChartLegendContent />} itemSorter={byOrder} />
             {previous && (
-              <Line dataKey="previous" type="linear" stroke="var(--color-previous)" strokeWidth={2} dot={false} isAnimationActive={false} />
+              <Line dataKey="previous" type="linear" stroke="var(--color-previous)" strokeWidth={2} dot={lone("previous")} isAnimationActive={false} />
             )}
             {hasTarget && (
               <Line
@@ -96,12 +103,20 @@ function CurveChart({ curve, current, previous, until }: { curve: Curve; current
                 stroke="var(--color-target)"
                 strokeWidth={1.5}
                 strokeDasharray="4 4"
-                dot={false}
+                dot={lone("target")}
                 isAnimationActive={false}
               />
             )}
             {/* Above the default line layer, so it stays in front of the Shot compared with, which mounts after it. */}
-            <Line dataKey="current" type="linear" stroke="var(--color-current)" strokeWidth={2} dot={false} isAnimationActive={false} zIndex={410} />
+            <Line
+              dataKey="current"
+              type="linear"
+              stroke="var(--color-current)"
+              strokeWidth={2}
+              dot={lone("current")}
+              isAnimationActive={false}
+              zIndex={410}
+            />
           </LineChart>
         </ChartContainer>
       ) : (

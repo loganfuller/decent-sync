@@ -28,7 +28,9 @@ const QUARTER_HOUR_MS = 15 * 60_000;
  * Times are counted as the server counts a Shot's duration: the gaps between
  * consecutive samples added up, leaving out the whole quarter hours a
  * daylight-saving change adds or takes away, and counting for nothing a gap
- * left by any other change of the tablet's clock.
+ * left by any other change of the tablet's clock. Each sample is still a
+ * millisecond after the one before, so samples a clock change would put at
+ * one time stay apart, and a gap among them is kept.
  */
 export function shotSamples(measurements: unknown): Sample[] {
   if (!Array.isArray(measurements)) return [];
@@ -43,7 +45,7 @@ export function shotSamples(measurements: unknown): Sample[] {
     if (previous !== undefined) {
       const gap = at - previous;
       const real = Math.abs(gap) <= CLOCK_CHANGE_MS ? gap : gap - Math.round(gap / QUARTER_HOUR_MS) * QUARTER_HOUR_MS;
-      if (real >= 0 && real <= CLOCK_CHANGE_MS) elapsed += real;
+      elapsed += real >= 0 && real <= CLOCK_CHANGE_MS ? Math.max(real, 1) : 1;
     }
     previous = at;
     samples.push({
@@ -74,7 +76,11 @@ export interface ChartPoint {
   previous: number | null;
 }
 
-/** About this many points per chart, so a long tea shot's thousands of samples draw quickly. */
+/**
+ * The grid's points per chart, and the most samples read at their own times,
+ * so a long tea shot's thousands of samples draw quickly. Samples around a
+ * gap are always read, so a Shot with many gaps has more points.
+ */
 const MAX_POINTS = 600;
 
 interface Series {
