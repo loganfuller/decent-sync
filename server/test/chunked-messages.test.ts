@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { CLOSE_CODES, type Chunk, MAX_FRAME_BYTES, frames } from "@decent-sync/protocol";
+import { CLOSE_CODES, type Chunk, MAX_FRAME_BYTES, MAX_ID_LENGTH, frames } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { derivedShot, longShot, shotFixture, withShots } from "./support/shot-fixtures.js";
@@ -277,12 +277,13 @@ describe("Chunked messages", () => {
     const overLimit = expect.objectContaining({ type: "error", code: "protocol_error", message: expect.stringContaining("ids included") });
     expect(flood.messages).toContainEqual(overLimit);
 
-    // Chunks without data hold their messages' ids, which count too.
+    // Messages' ids count too: these two chunks' data fits, but not with their ids.
     const ids = await RawConnection.open(server.url);
     raws.push(ids);
-    for (let n = 0; n < 6; n++) ids.send({ type: "chunk", id: `${n}`.padEnd(200_000, "x"), index: 0, count: 2, data: "" });
+    const data = "x".repeat(DECAID_PENDING_LIMIT / 2 - MAX_ID_LENGTH / 2);
+    for (const id of ["a", "b"]) ids.send({ type: "chunk", id: id.repeat(MAX_ID_LENGTH), index: 0, count: 2, data });
     expect((await ids.closed).code).toBe(CLOSE_CODES.protocol_error);
-    expect(receipts(ids.messages)).toEqual([0, 0, 0, 0, 0]);
+    expect(receipts(ids.messages)).toEqual([0]);
     expect(ids.messages).toContainEqual(overLimit);
   });
 });

@@ -40,6 +40,14 @@ export const SYNC_PATH = "/sync";
  */
 export const MISSED_HEARTBEATS = 3;
 
+/**
+ * The longest id a delivery or chunk may have, in UTF-16 code units. The
+ * plugin's are about 30 (`Outbox.nextId`). The server keeps the ids of
+ * recent deliveries for each connection, and of Workflow, machine state and
+ * collection deliveries for good, so a longer one is refused.
+ */
+export const MAX_ID_LENGTH = 128;
+
 /** Why the server refused or ended a connection, sent in an `error` before it closes. */
 export type ErrorCode = "protocol_error" | "bad_token" | "plugin_too_old" | "replaced" | "hardware_dismissed" | "decaid_too_old";
 
@@ -335,7 +343,7 @@ export function decodePluginFrame(frame: string): Decoded<PluginMessage | Chunk>
   if (typeof object === "string") return invalid(object);
   if (object.type !== "chunk") return decodeMessage(object);
   return check<Chunk>(object, "chunk", (fields) => {
-    fields.string("id", { nonEmpty: true });
+    fields.id();
     fields.integer("index", { nonNegative: true });
     fields.integer("count", { positive: true });
     fields.string("data");
@@ -410,44 +418,44 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
     case "shot":
     case "shotUpdated":
       return check<ShotDelivery>(object, object.type, (fields) => {
-        fields.string("id", { nonEmpty: true });
+        fields.id();
         fields.string("shotId", { nonEmpty: true });
         fields.objectField("shot");
       });
     case "shotIndex":
       return check<ShotIndex>(object, "shotIndex", (fields) => {
-        fields.string("id", { nonEmpty: true });
+        fields.id();
         fields.array("shots", (value) => isObject(value) && typeof value.id === "string" && value.id !== "" &&
           (value.updatedAt === undefined || typeof value.updatedAt === "string"), 100);
       });
     case "steam":
       return check<SteamDelivery>(object, "steam", (fields) => {
-        fields.string("id", { nonEmpty: true });
+        fields.id();
         fields.string("steamId", { nonEmpty: true });
         fields.instant("steamedAt");
         fields.objectField("steam");
       });
     case "steamIndex":
       return check<SteamIndex>(object, "steamIndex", (fields) => {
-        fields.string("id", { nonEmpty: true });
+        fields.id();
         fields.array("steams", (value) => isObject(value) && typeof value.id === "string" && value.id !== "", 100);
       });
     case "workflow":
       return check<WorkflowDelivery>(object, "workflow", (fields) => {
-        fields.string("id", { nonEmpty: true });
+        fields.id();
         fields.instant("observedAt");
         fields.objectField("workflow");
       });
     case "machineState":
       return check<MachineStateDelivery>(object, "machineState", (fields) => {
-        fields.string("id", { nonEmpty: true });
+        fields.id();
         fields.instant("observedAt");
         fields.string("state", { nonEmpty: true });
         fields.string("substate", { nonEmpty: true });
       });
     case "collection":
       return check<CollectionDelivery>(object, "collection", (fields) => {
-        fields.string("id", { nonEmpty: true });
+        fields.id();
         fields.string("name", { nonEmpty: true });
         fields.boolean("available");
         if (object.available === true) fields.present("value");
@@ -532,10 +540,18 @@ class FieldChecker {
     readonly problems: string[],
   ) {}
 
-  string(key: string, options: { nonEmpty?: boolean } = {}): void {
+  string(key: string, options: { nonEmpty?: boolean; maxLength?: number } = {}): void {
     const value = this.object[key];
     if (typeof value !== "string") this.problem(key, "must be a string");
     else if (options.nonEmpty && value === "") this.problem(key, "must not be empty");
+    else if (options.maxLength !== undefined && value.length > options.maxLength) {
+      this.problem(key, `must be at most ${options.maxLength} characters`);
+    }
+  }
+
+  /** The id of a delivery or a chunk. */
+  id(): void {
+    this.string("id", { nonEmpty: true, maxLength: MAX_ID_LENGTH });
   }
 
   optionalString(key: string): void {

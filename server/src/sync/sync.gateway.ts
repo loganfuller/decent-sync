@@ -15,8 +15,6 @@ import {
   type PluginMessage,
   Reassembly,
   type ReassemblyLimits,
-  type RequestShots,
-  type RequestSteams,
   SYNC_PATH,
   type ServerMessage,
   decodePluginFrame,
@@ -34,6 +32,7 @@ import { MachinesService, type Refusal, describeHardware } from "../machines/mac
 import { ShotsService } from "../shots/shots.service.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { hashSecret } from "../secrets.js";
+import { HandledDeliveries, type IndexRequest } from "./handled-deliveries.js";
 import type { Hardware, Identity, Reporter } from "./identity.js";
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
@@ -74,8 +73,8 @@ interface Session {
    * plugin that reconnects sends a message again from its first chunk.
    */
   chunks: Reassembly;
-  /** Deliveries handled on this connection, with the request an index was answered with. */
-  processed: Map<string, RequestShots | RequestSteams | null>;
+  /** The deliveries handled most recently on this connection, with the request each index was answered with. */
+  handled: HandledDeliveries;
   /** Set once `welcome` is sent. */
   welcomed: boolean;
   closing: boolean;
@@ -174,7 +173,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       remote: request.socket.remoteAddress ?? "an unknown address",
       queue: Promise.resolve(),
       chunks: new Reassembly(),
-      processed: new Map(),
+      handled: new HandledDeliveries(),
       welcomed: false,
       closing: false,
     };
@@ -253,9 +252,9 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       if (message.type !== "hello") return this.refuse(session, "protocol_error", "The first message must be hello");
       return this.hello(session, message);
     }
-    if (message.type !== "hello" && message.type !== "heartbeat" && session.processed.has(message.id)) {
-      const response = session.processed.get(message.id);
-      if (response) this.send(session, response);
+    if (message.type !== "hello" && message.type !== "heartbeat" && session.handled.has(message.id)) {
+      const request = session.handled.get(message.id);
+      if (request) this.send(session, request);
       this.send(session, { type: "ack", id: message.id });
       return;
     }
@@ -299,13 +298,14 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
 
   /**
    * Acknowledges a delivery once stored, after the request answering it if it
-   * is an index. Both are kept: replaying an index after losing its request
-   * must still let the tablet continue backfill.
+   * is an index. Both are remembered with the connection's recent deliveries:
+   * replaying an index after losing its request must still let the tablet
+   * continue backfill.
    */
-  private acknowledge(session: Session, id: string, response: RequestShots | RequestSteams | null): void {
-    session.processed.set(id, response);
+  private acknowledge(session: Session, id: string, request: IndexRequest | null): void {
+    session.handled.add(id, request);
     if (session.closing) return;
-    if (response) this.send(session, response);
+    if (request) this.send(session, request);
     this.send(session, { type: "ack", id });
   }
 
