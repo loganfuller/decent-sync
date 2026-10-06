@@ -54,6 +54,8 @@ export interface TestServerOptions {
 }
 
 export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
+  // The role's grant would outlive it on a shared database, which stays, so the role could not be dropped.
+  if (options.notOwner && options.sharing) throw new Error("notOwner needs a fresh database; it cannot be combined with sharing");
   const baseUrl = adminDatabaseUrl();
   const database = options.sharing?.database ?? `decent_sync_test_${randomBytes(6).toString("hex")}`;
   const role = options.notOwner ? `decent_sync_test_${randomBytes(6).toString("hex")}` : undefined;
