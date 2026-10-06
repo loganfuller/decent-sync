@@ -343,8 +343,8 @@ describe("Location History", () => {
       correcting = api.call("PATCH", `/machines/${created.machine.id}/location-history/${first}`, { locationId: uptown.id });
       await someoneWaits(database, "location_assignments");
       await database.query("ROLLBACK TO SAVEPOINT edit");
-      // The edit writes the Shot twice, checking its Machine's key each time, while the correction
-      // holds the Machine: it is stored without waiting for the correction, which then waits for it.
+      // While the correction holds the Machine, the edit writes the Shot twice, checking its Machine's
+      // key the second time: it is stored without waiting for the correction, which then waits for it.
       await acknowledged(raw, edit);
       await database.query("ROLLBACK");
     } finally {
