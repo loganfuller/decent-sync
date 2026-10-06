@@ -141,11 +141,12 @@ export class ShotsService {
     const credit = shot.machineId !== null
       ? Prisma.sql`s.machine_id = ${shot.machineId}::uuid`
       : Prisma.sql`s.pending_machine_id = ${shot.pendingMachineId}::uuid`;
+    // Ordered as the indexes on pulled_at are, NULLS LAST, and bounded above, so an index scan starts at this Shot.
     const [previous] = await this.prisma.$queryRaw<{ id: string; pulledAt: Date }[]>`
       SELECT s.id, s.pulled_at AS "pulledAt" FROM shots s ${listedJoins}
-      WHERE ${listed} AND ${credit}
-        AND (s.pulled_at < ${shot.pulledAt}::timestamptz OR (s.pulled_at = ${shot.pulledAt}::timestamptz AND s.id > ${shot.id}))
-      ORDER BY s.pulled_at DESC, s.id ASC LIMIT 1`;
+      WHERE ${listed} AND ${credit} AND s.pulled_at <= ${shot.pulledAt}::timestamptz
+        AND (s.pulled_at < ${shot.pulledAt}::timestamptz OR s.id > ${shot.id})
+      ORDER BY s.pulled_at DESC NULLS LAST, s.id ASC LIMIT 1`;
     return previous ?? null;
   }
 

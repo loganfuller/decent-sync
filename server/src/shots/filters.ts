@@ -106,14 +106,16 @@ export function shotFilterSql(filters: ShotFilters): Prisma.Sql {
     conditions.push(text === "" ? Prisma.sql`nullif(${field}, '') IS NULL` : Prisma.sql`${field} = ${text}`);
   }
 
-  // No zone is a day ahead of UTC or behind it, so these bounds let the pulled-at index narrow the rows first.
+  // No zone is 24 hours ahead of UTC or behind it, so these bounds let the pulled-at index narrow the rows
+  // first. They are hours, not a day: a timestamptz's day follows the session's time zone, whose calendar
+  // may skip one, as Samoa's did in 2011.
   const local = Prisma.sql`(s.pulled_at AT TIME ZONE coalesce(l.time_zone, 'UTC'))`;
   if (filters.from !== undefined) {
-    conditions.push(Prisma.sql`s.pulled_at >= (${filters.from}::timestamp AT TIME ZONE 'UTC') - interval '1 day'`);
+    conditions.push(Prisma.sql`s.pulled_at >= (${filters.from}::timestamp AT TIME ZONE 'UTC') - interval '24 hours'`);
     conditions.push(Prisma.sql`${local} >= ${filters.from}::timestamp`);
   }
   if (filters.until !== undefined) {
-    conditions.push(Prisma.sql`s.pulled_at < (${filters.until}::timestamp AT TIME ZONE 'UTC') + interval '1 day'`);
+    conditions.push(Prisma.sql`s.pulled_at < (${filters.until}::timestamp AT TIME ZONE 'UTC') + interval '24 hours'`);
     conditions.push(Prisma.sql`${local} < ${filters.until}::timestamp`);
   }
   return conditions.length === 0 ? Prisma.sql`TRUE` : Prisma.join(conditions, " AND ");

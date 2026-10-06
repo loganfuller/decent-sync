@@ -81,7 +81,9 @@ const MAX_POINTS = 600;
  * A curve of a Shot, its target, and the same curve of another Shot, read at
  * the same times so a tooltip can name all three: every tenth of a second, or
  * less often for a long Shot, from the start to `until` seconds. Each is
- * interpolated between its samples and has no value past its last.
+ * interpolated between consecutive samples that both have a value, so a
+ * line breaks where its samples have none, such as a target a step does
+ * not set, and has no value past its last.
  */
 export function chartPoints(curve: Curve, current: Sample[], previous: Sample[] | undefined, until: number): ChartPoint[] {
   const step = Math.max(0.1, Math.ceil((until / MAX_POINTS) * 10) / 10);
@@ -99,24 +101,23 @@ export function lastSecond(samples: Sample[]): number {
 }
 
 /**
- * The values at rising times, each interpolated between the samples around
- * it that have one, rounded to hundredths; null before the first or after the last.
+ * The values at rising times, rounded to hundredths: a sample's own at its
+ * time, otherwise interpolated between the samples either side when both have
+ * one. Null where either has none, and before the first or after the last.
  */
 function resample(samples: Sample[], value: (sample: Sample) => number | null, times: number[]): (number | null)[] {
-  const readings = samples.flatMap((sample) => {
-    const reading = value(sample);
-    return reading === null ? [] : [{ seconds: sample.seconds, reading }];
-  });
   let next = 0;
   return times.map((seconds) => {
-    while (next < readings.length && readings[next]!.seconds < seconds - 1e-9) next++;
-    const after = readings[next];
+    while (next < samples.length && samples[next]!.seconds < seconds - 1e-9) next++;
+    const after = samples[next];
     if (!after) return null;
-    if (after.seconds - seconds < 1e-9) return after.reading;
-    const before = readings[next - 1];
-    if (!before) return null;
-    const share = (seconds - before.seconds) / (after.seconds - before.seconds);
-    return Math.round((before.reading + (after.reading - before.reading) * share) * 100) / 100;
+    const reading = value(after);
+    if (after.seconds - seconds < 1e-9) return reading;
+    const before = samples[next - 1];
+    const from = before ? value(before) : null;
+    if (from === null || reading === null) return null;
+    const share = (seconds - before!.seconds) / (after.seconds - before!.seconds);
+    return Math.round((from + (reading - from) * share) * 100) / 100;
   });
 }
 

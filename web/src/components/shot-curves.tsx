@@ -71,7 +71,8 @@ function CurveChart({ curve, current, previous, until }: { curve: Curve; current
                 <ChartTooltipContent
                   active={active}
                   label={label}
-                  payload={[...(payload ?? [])].sort((a, b) => byOrder(a) - byOrder(b))}
+                  // A series with no value at this time, as a target where a step sets none, is left out.
+                  payload={(payload ?? []).filter((item) => item.value != null).sort((a, b) => byOrder(a) - byOrder(b))}
                   labelFormatter={(_, payload) => `${payload[0]?.payload.seconds ?? 0} s`}
                   formatter={(value, name) => (
                     <div className="flex w-full justify-between gap-4">

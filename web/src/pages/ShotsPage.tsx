@@ -63,6 +63,17 @@ export function ShotsPage() {
   const { data, error } = usePolled(load);
   const filtered = FILTERS.some((name) => params.has(name));
 
+  // A page past the end, opened from an old link or emptied as Shots leave the list, moves to the last page.
+  const lastPage = data && data.total > 0 ? Math.floor((data.total - 1) / PAGE_SIZE) * PAGE_SIZE : 0;
+  const pastTheEnd = data !== undefined && data.shots.length === 0 && offset > lastPage;
+  useEffect(() => {
+    if (!pastTheEnd) return;
+    const next = new URLSearchParams(params);
+    if (lastPage > 0) next.set("offset", String(lastPage));
+    else next.delete("offset");
+    setParams(next, { replace: true });
+  }, [pastTheEnd, lastPage, params, setParams]);
+
   /** Changes filters, and goes back to the first page. */
   function filter(changes: Partial<Record<(typeof FILTERS)[number], string | null>>) {
     const next = new URLSearchParams(params);

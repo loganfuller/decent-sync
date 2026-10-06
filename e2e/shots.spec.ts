@@ -106,6 +106,11 @@ test("filters narrow the list alone and together, with dates read in each Shot's
   await page.getByRole("button", { name: "Clear filters" }).click();
   await expect(rows(page)).toHaveCount(6);
 
+  // A page past the end, as an old link may name, moves to the last page.
+  await page.goto("/shots?offset=25");
+  await expect(rows(page)).toHaveCount(6);
+  await expect(page).toHaveURL(/\/shots$/);
+
   // A Pending Machine's Shots can be reviewed before an Admin adopts or dismisses it.
   await choose(page, "Machine", "Bengle serial 10029");
   await expect(rows(page)).toHaveCount(1);
@@ -203,6 +208,33 @@ test("Staff see every Shot an Admin sees", async ({ page, browser }) => {
   } finally {
     await samsBrowser.close();
   }
+});
+
+test("a curve breaks where its samples have no value, as a pressure target where a step sets none", async ({ page }) => {
+  // Derived: the real Shot's samples with their pressure targets changed to 3, 3, none (0) and 9 bar,
+  // at 0, 4.4, 25.8 and 27.9 seconds, as a profile switching from pressure to flow control and back would record.
+  const shot = shotAt("switching-shot", "2026-03-01T12:00:00Z", { hardware: { model: "DE1Pro", serial: "10024" } });
+  const targets = [3, 3, 0, 9];
+  shot.measurements = (shot.measurements as { machine: Record<string, unknown> }[]).map((sample, n) => ({
+    ...sample,
+    machine: { ...sample.machine, targetPressure: targets[n] },
+  }));
+  await adopt(page, "Switcher", { model: "DE1Pro", serial: "10024" }, null, [shot]);
+
+  await page.goto("/shots/switching-shot");
+  const pressure = page.getByRole("region", { name: "Curves" }).getByRole("figure", { name: "Pressure" });
+  const plot = pressure.locator('[data-slot="chart"]');
+  const tooltip = pressure.locator(".recharts-tooltip-wrapper");
+  const box = (await plot.boundingBox())!;
+  // The plot starts after the 40-pixel y-axis and runs to 28 seconds.
+  const at = (seconds: number) => ({ x: 40 + ((box.width - 48) * seconds) / 28, y: box.height / 3 });
+
+  await plot.hover({ position: at(2) });
+  await expect(tooltip).toContainText("Target3 bar");
+  // Between 4.4 and 25.8 seconds no step set a pressure target, so none is drawn or named.
+  await plot.hover({ position: at(14) });
+  await expect(tooltip).toContainText("This Shot");
+  await expect(tooltip).not.toContainText("Target");
 });
 
 /** A Shot pulled at a UTC time, recording only what is given beside the real record; with no hardware, it records none. */
