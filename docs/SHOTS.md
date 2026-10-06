@@ -23,11 +23,15 @@ On load, the plugin pages `GET /shots?limit=100&offset=...&order=desc` once,
 sending each page's ids and edit times. Offsets shift when Shots are deleted
 or added during the scan, so each page after the first repeats the previous
 page's last 10 positions and resumes after the last Shot already read whose
-edit time is unchanged; Shots that exist for the whole scan are all indexed,
-and one edited meanwhile, perhaps to another time, is captured by its
-`shotUpdated` event. If no Shot already read
-reappears (more than the overlap were deleted between two pages), or the list
-grows past what the first page's `total` allows, the scan starts again. After
+edit time is unchanged, so Shots that exist for the whole scan are all
+indexed. An edit to a Shot's time can move it from the part not yet read into
+the part already read: Decaid's edit API reports that Shot in `shotUpdated`,
+but an import that overwrites it reports nothing, so a scan that reaches the
+end checks it has read or been told of as many Shots as `total` says the
+tablet holds. (A Shot deleted while another moved that way goes unnoticed.)
+If that count falls short, no Shot already read reappears (more than the
+overlap were deleted between two pages), or the list grows past what the
+first page's `total` allows, the scan starts again. After
 three passes it logs and leaves the rest to the next load. A reconnect in that
 runtime sends cached ids only and resends unacknowledged deliveries. Backfill fetches one
 Shot at a time, when the outbox has nothing else queued. Only one logical

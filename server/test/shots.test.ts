@@ -148,7 +148,11 @@ describe("Shot capture and reconciliation", () => {
     const machine = await api.createMachine("Changing mid-scan");
     const history = timeline("changing-mid-scan", 250);
     const deleted = ["changing-mid-scan-240", "changing-mid-scan-200", "changing-mid-scan-120"];
-    const added = (id: string) => shot(id, { timestamp: "2026-02-01T00:00:00.000Z" });
+    // Pulled during the scan: Decaid reports each in a shotStored event.
+    const added = (id: string) => {
+      tablet.fire("shotStored", { id });
+      return shot(id, { timestamp: "2026-02-01T00:00:00.000Z" });
+    };
     const tablet = load(machine, history);
     changeShotsBeforePages(tablet, machine, history, [
       [1, (shots) => [added("changing-mid-scan-added-1"), ...shots.filter((shot) => shot.id !== deleted[0] && shot.id !== deleted[1])]],
@@ -168,6 +172,17 @@ describe("Shot capture and reconciliation", () => {
     changeShotsBeforePages(tablet, machine, history, [[1, (shots) => shots.map((shot) => (shot.id === "retimed-mid-scan-149" ? { ...shot, ...retimed } : shot))]]);
     await expect.poll(() => storedIds(machine.machine.id), { timeout: 20_000 }).toEqual(expect.arrayContaining(history.map((shot) => String(shot.id))));
     expect(tablet.shotPageRequests).toEqual(pages(0, 90));
+  }, 30_000);
+
+  it("rescans when an import moves a Shot not yet read among those already read, reporting nothing", async () => {
+    const machine = await api.createMachine("Imported mid-scan");
+    const history = timeline("imported-mid-scan", 150);
+    const tablet = load(machine, history);
+    // The oldest Shot, overwritten by an import with a time newer than every other: Decaid gives it a new edit time and fires no event.
+    const imported = { timestamp: "2026-02-01T00:00:00.000Z", updatedAt: "2026-11-01T12:00:00.000000Z" };
+    changeShotsBeforePages(tablet, machine, history, [[1, (shots) => shots.map((shot) => (shot.id === "imported-mid-scan-0" ? { ...shot, ...imported } : shot))]]);
+    await expect.poll(() => storedIds(machine.machine.id), { timeout: 20_000 }).toEqual(expect.arrayContaining(history.map((shot) => String(shot.id))));
+    expect(tablet.shotPageRequests).toEqual(pages(0, 90, 0, 90));
   }, 30_000);
 
   it("rescans when more Shots than the pages overlap are deleted between two pages", async () => {

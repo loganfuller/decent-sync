@@ -754,6 +754,8 @@ var __decentSync = (() => {
       __publicField(this, "stopped", false);
       __publicField(this, "timer");
       __publicField(this, "events", Promise.resolve());
+      /** The Shots Decaid reported stored or edited while a summary pass runs. */
+      __publicField(this, "reported");
     }
     welcome() {
       if (this.welcomed) void this.indexKnownIds();
@@ -768,6 +770,7 @@ var __decentSync = (() => {
       const event = object2(payload);
       if (typeof event?.id !== "string" || event.id === "" || isLegacyImport(event.id)) return;
       const id = event.id;
+      this.reported?.add(id);
       this.events = this.events.then(async () => {
         if (type === "shotUpdated") {
           const shot2 = object2(event.shot);
@@ -812,6 +815,7 @@ var __decentSync = (() => {
         }, 5e3);
       } finally {
         this.scanning = false;
+        this.reported = void 0;
       }
     }
     /**
@@ -821,17 +825,23 @@ var __decentSync = (() => {
      * therefore starts OVERLAP Shots before the previous page ended and
      * resumes after the last Shot this pass has read and that has the edit
      * time it was read with: every unedited Shot older than that one sorts
-     * after it, so none that existed throughout the pass is missed. A Shot
-     * edited since, its time perhaps among them, can sort anywhere; Decaid
-     * gives an edited Shot a new edit time, and its `shotUpdated` event
-     * captures it. Returns true once the pass reaches the end or the capture
-     * stops, and false if no such Shot reappears, as when more than the
+     * after it, so none that existed throughout the pass is missed. Every
+     * Decaid edit gives a Shot a new edit time, and an edit to its time can
+     * move it anywhere. One moved from the part of the list not yet read into
+     * the part already read is missed; Decaid's edit API reports it in
+     * `shotUpdated`, but an import that overwrites it reports nothing. So a
+     * pass that reaches the end checks it has read or been told of as many
+     * Shots as the tablet holds; one deleted while another was moved that way
+     * goes unnoticed. Returns true once the pass reaches the end with that
+     * count, or the capture stops, and false if the count falls short, if no
+     * Shot read with its current edit time reappears, as when more than the
      * overlap were deleted between two pages, or if the list grows past what
      * the first page's total allows: the pass may have missed Shots, so it is
      * repeated.
      */
     async scanPass() {
       const read = /* @__PURE__ */ new Map();
+      const reported = this.reported = /* @__PURE__ */ new Set();
       let remaining = 1;
       for (let offset = 0; remaining > 0; remaining--) {
         await this.outbox.waitForRoom();
@@ -856,7 +866,10 @@ var __decentSync = (() => {
           return [{ id: summary.id, updatedAt: summary.updatedAt }];
         });
         if (shots.length > 0) this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots });
-        if (page.items.length < PAGE_SIZE) return true;
+        if (page.items.length < PAGE_SIZE) {
+          for (const id of read.keys()) reported.add(id);
+          return reported.size >= page.total;
+        }
         offset += page.items.length - OVERLAP;
       }
       return false;
