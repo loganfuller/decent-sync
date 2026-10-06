@@ -1,3 +1,4 @@
+import { availableParallelism } from "node:os";
 import path from "node:path";
 import { defineConfig } from "vitest/config";
 
@@ -10,6 +11,11 @@ export default defineConfig({
     },
   },
   test: {
+    // Each server test file runs up to three server instances on one
+    // PostgreSQL, whose connection pools each hold up to 10 connections, and
+    // PostgreSQL allows 100 by default. Vitest's default of one worker per
+    // CPU but one ran out of them on a 10-CPU machine; five peaked near 60.
+    maxWorkers: Math.min(5, Math.max(1, availableParallelism() - 1)),
     projects: [
       { extends: true, test: { name: "protocol", include: ["protocol/test/**/*.test.ts"] } },
       { extends: true, test: { name: "plugin", include: ["plugin/test/**/*.test.ts"] } },

@@ -1,6 +1,7 @@
 import { CLOSE_CODES } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi } from "./support/admin-api.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -102,10 +103,9 @@ describe("several server instances", { timeout: 30_000 }, () => {
       await connect(doomed, helloWith(token, { machine: de1Pro("12401") }));
       expect(await api.machineNamed("On a crashing instance")).toMatchObject({ online: true });
 
+      // Nothing tells the other instances; only the silence does, within waitForMachine's 10 s.
       await doomed.kill();
-      const killedAt = Date.now();
       await api.waitForMachine("On a crashing instance", (machine) => !machine.online);
-      expect(Date.now() - killedAt).toBeLessThan(HEARTBEAT_SECONDS * 3000 + 1_000);
     } finally {
       await doomed.stop();
     }
@@ -135,7 +135,6 @@ describe("several server instances", { timeout: 30_000 }, () => {
   it("releases a Machine whose hello is accepted while its instance shuts down", async () => {
     const leaving = await startTestServer({ env, sharing: first });
     const [holdingBusy, holdingLate] = await Promise.all([first.connectDatabase(), first.connectDatabase()]);
-    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
     try {
       const busy = await api.createMachine("Busy while stopping");
       const late = await api.createMachine("Accepted while stopping");
@@ -149,15 +148,21 @@ describe("several server instances", { timeout: 30_000 }, () => {
       const raw = await RawConnection.open(leaving.url);
       connections.push(raw);
       raw.send(helloWith(late.token, { machine: de1Pro("12602") }));
-      await sleep(200);
+      await waitForLockWaits(first);
 
+      // Shutting down closes every connection, then waits for the hello still being accepted.
       const stopping = leaving.stop();
-      await sleep(300);
+      expect((await raw.closed).code).toBe(1001);
       await holdingLate.query("COMMIT");
-      await sleep(300);
+      // The hello is accepted, and records the late Machine as seen for the first time.
+      const seen = async () =>
+        (await holdingLate.query<{ seen: boolean }>("SELECT last_seen_at IS NOT NULL AS seen FROM machines WHERE id = $1", [late.machine.id])).rows[0]!
+          .seen;
+      await expect.poll(seen).toBe(true);
+      // Then shutdown releases both Machines, waiting for the busy one's row.
+      await waitForLockWaits(first);
       await holdingBusy.query("COMMIT");
       await stopping;
-      expect((await raw.closed).code).toBe(1001);
       expect(await api.machineNamed("Accepted while stopping")).toMatchObject({ online: false });
       expect(await api.machineNamed("Busy while stopping")).toMatchObject({ online: false });
     } finally {

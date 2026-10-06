@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, admin } from "./support/admin-api.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Session expiry with several server instances on one database, through the
@@ -57,19 +58,6 @@ describe("session expiry across server instances", { timeout: 30_000 }, () => {
   const expectNotRenewed = (response: Response) => {
     expect(response.status).toBe(200);
     expect(response.headers.getSetCookie()).toEqual([]);
-  };
-
-  /** Waits until a query on the test database is waiting for a row lock. */
-  const waitForLockWait = async () => {
-    const deadline = Date.now() + 10_000;
-    for (;;) {
-      const { rows } = await database.query<{ waiting: boolean }>(
-        "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock') AS waiting",
-      );
-      if (rows[0]!.waiting) return;
-      if (Date.now() > deadline) throw new Error("No query waited for a lock within 10 seconds");
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
   };
 
   beforeAll(async () => {
@@ -153,7 +141,7 @@ describe("session expiry across server instances", { timeout: 30_000 }, () => {
       await signOut.query("DELETE FROM sessions WHERE token_hash = $1", [hashOf(cookie)]);
       // The request has read the session and waits to renew it.
       const request = current(ahead, cookie);
-      await waitForLockWait();
+      await waitForLockWaits(first);
       await signOut.query("COMMIT");
 
       const response = await request;

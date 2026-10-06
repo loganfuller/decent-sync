@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { COLLECTION_NAMES } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
 import {
   type DecaidApi,
   RawConnection,
@@ -419,22 +420,19 @@ describe("Library, settings and paired devices", () => {
     const older = report("machineSettings", { ...settings, fan: 40 });
     const newer = report("machineSettings", { ...settings, fan: 45 });
     const database = await server.connectDatabase();
-    const waiting = async () =>
-      (await database.query<{ waiting: number }>(`SELECT count(*)::int AS waiting FROM pg_locks
-        WHERE NOT granted AND relation = 'machine_event_deliveries'::regclass
-          AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`)).rows[0]!.waiting;
+    const waiting = (count: number) => waitForLockWaits(server, { relation: "machine_event_deliveries", count });
     try {
       // Every delivery is held as it starts to be handled, before it locks anything else.
       await database.query("BEGIN");
       await database.query("LOCK TABLE machine_event_deliveries IN SHARE MODE");
       first.send(older);
-      await expect.poll(waiting).toBe(1);
+      await waiting(1);
       // Its connection drops, and the plugin sends it again through another instance, ahead of the newer one, as its outbox does.
       await first.terminate();
       const second = await connect(machine, other.url, hardware);
       second.send(older);
       second.send(newer);
-      await expect.poll(waiting).toBe(2);
+      await waiting(2);
       await database.query("COMMIT");
       await expect.poll(() => second.messages.filter((reply) => frameType(reply) === "ack").length).toBe(2);
     } finally {

@@ -1,5 +1,6 @@
 import http from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { runAsSteps } from "./support/steps.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // First-run setup, sign-in, sessions and their protections, through the REST
@@ -9,6 +10,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 const firstAdmin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 
 describe("accounts and sessions", () => {
+  runAsSteps();
   let server: TestServer;
   // Whoever wins concurrent setup below; their email may differ.
   const admin = { ...firstAdmin };
