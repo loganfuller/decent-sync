@@ -125,10 +125,11 @@ describe("Location History", () => {
     expect(response.status, JSON.stringify(body.message)).toBeLessThan(300);
     return body.machine;
   }
-  /** Waits until a query on the test database waits for a lock, such as one the test holds. */
-  async function someoneWaits(database: { query<T>(text: string): Promise<{ rows: T[] }> }) {
-    const waiting = "SELECT count(*)::int AS waiting FROM pg_locks WHERE NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())";
-    await expect.poll(async () => (await database.query<{ waiting: number }>(waiting)).rows[0]!.waiting).toBeGreaterThan(0);
+  /** Waits until a query on the test database waits for a lock on the table, such as one the test holds. */
+  async function someoneWaits(database: { query<T>(text: string, values: unknown[]): Promise<{ rows: T[] }> }, table: string) {
+    const waiting = `SELECT count(*)::int AS waiting FROM pg_locks
+      WHERE NOT granted AND relation = $1::regclass AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`;
+    await expect.poll(async () => (await database.query<{ waiting: number }>(waiting, [table])).rows[0]!.waiting).toBeGreaterThan(0);
   }
   async function problem(response: Response) {
     return { status: response.status, message: ((await response.json()) as { message: unknown }).message };
@@ -300,7 +301,7 @@ describe("Location History", () => {
       // Holds the Shot's storage, once it has been credited, until the move is under way.
       await database.query("LOCK TABLE shot_measurements IN ACCESS EXCLUSIVE MODE");
       const delivery = sendShot(raw, shotAt("stored-during-a-move", "2026-03-15T12:00:00Z"));
-      await someoneWaits(database);
+      await someoneWaits(database, "shot_measurements");
       moving = move(created.machine.id, uptown.id, "2026-03-01T00:00:00Z");
       // The move waits for the Shot's storage, which holds the Machine.
       const settled = await Promise.race([moving.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500))]);
@@ -330,11 +331,18 @@ describe("Location History", () => {
       await database.query("BEGIN");
       // Holds the correction after it has locked the Machine, before it credits the Shot again.
       await database.query("LOCK TABLE location_assignments IN ACCESS EXCLUSIVE MODE");
-      correcting = api.call("PATCH", `/machines/${created.machine.id}/location-history/${first}`, { locationId: uptown.id });
-      await someoneWaits(database);
+      // Holds the edit before it reads the Shot until the correction holds the Machine, so the edit is
+      // under way first: a connection's frames are handled in turn, and a heartbeat handled while the
+      // correction holds the Machine waits for it. Rolling back to the savepoint releases this lock alone.
+      await database.query("SAVEPOINT edit");
+      await database.query("LOCK TABLE shots IN ACCESS EXCLUSIVE MODE");
       const { measurements: omitted, ...summary } = record;
       edit = randomUUID();
       raw.send({ type: "shotUpdated", id: edit, shotId: record.id, shot: { ...summary, updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 64 } } });
+      await someoneWaits(database, "shots");
+      correcting = api.call("PATCH", `/machines/${created.machine.id}/location-history/${first}`, { locationId: uptown.id });
+      await someoneWaits(database, "location_assignments");
+      await database.query("ROLLBACK TO SAVEPOINT edit");
       // The edit writes the Shot twice, checking its Machine's key each time, while the correction
       // holds the Machine: it is stored without waiting for the correction, which then waits for it.
       await acknowledged(raw, edit);
