@@ -91,7 +91,7 @@ export class MachinesController {
 
   /**
    * Corrects an entry's Location, when the Machine arrived there, or both,
-   * which credits its records again.
+   * which credits again the records whose time the change spans.
    */
   @Patch(":id/location-history/:entryId")
   async correctEntry(@Param("id") id: string, @Param("entryId") entryId: string, @Body() body: unknown): Promise<{ machine: MachineView }> {
@@ -102,7 +102,8 @@ export class MachinesController {
 
   /**
    * Removes an entry recorded by mistake, and the next one too when it names
-   * the Location the Machine stayed at, which credits its records again.
+   * the Location the Machine stayed at, which credits again the records
+   * whose time the change spans.
    */
   @Delete(":id/location-history/:entryId")
   async removeEntry(@Param("id") id: string, @Param("entryId") entryId: string): Promise<{ machine: MachineView }> {

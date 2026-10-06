@@ -11,7 +11,14 @@ import { type Hardware, type Identity, isRealSerial, realHardware, resolveIdenti
 import { notifyAccessChanged } from "./access-changes.js";
 import type { LiveConnection } from "./connections.js";
 import { type NewMachine, machineNotFound } from "./input.js";
-import { type LocationHistoryEntryView, creditLocations, startLocationHistory, viewLocationHistory, withLocationHistory } from "./location-history.js";
+import {
+  CREDITING_TRANSACTION,
+  type LocationHistoryEntryView,
+  handOverRecords,
+  startLocationHistory,
+  viewLocationHistory,
+  withLocationHistory,
+} from "./location-history.js";
 
 /** How a Machine's identity stands, as the REST API names it. */
 export type IdentificationView = "identified" | "hardwareNotReported" | "unidentified" | "mismatch";
@@ -184,7 +191,7 @@ export class MachinesService {
         // The Machine takes over whatever was held for its hardware.
         await transferPendingRecords(tx, hardware, id);
         await tx.pendingMachine.deleteMany({ where: hardware });
-      })
+      }, CREDITING_TRANSACTION)
       .catch(async (error: unknown) => {
         // A hello bound the hardware to another Machine meanwhile.
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -213,14 +220,19 @@ export class MachinesService {
    * An accepted hello makes `sessionId` the connection holding the Machine
    * and notifies every instance, which closes the one it replaces. A refused
    * hello changes neither, so it never replaces a connection.
+   *
+   * A hello binding hardware hands over what its Pending Machine holds, which
+   * may outlast the plugin's wait for `welcome`. It still commits, and the
+   * plugin's next hello finds the hardware bound, with nothing left to hand
+   * over.
    */
   async acceptHello(hello: Hello, sessionId: string, at: Date): Promise<HelloOutcome> {
     try {
-      return await this.prisma.$transaction((tx) => this.decideHello(tx, hello, sessionId, at));
+      return await this.prisma.$transaction((tx) => this.decideHello(tx, hello, sessionId, at), CREDITING_TRANSACTION);
     } catch (error) {
       // Another Machine bound the same hardware meanwhile; decided again, this is a mismatch.
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        return this.prisma.$transaction((tx) => this.decideHello(tx, hello, sessionId, at));
+        return this.prisma.$transaction((tx) => this.decideHello(tx, hello, sessionId, at), CREDITING_TRANSACTION);
       }
       throw error;
     }
@@ -571,14 +583,14 @@ function identificationOf(identity: Exclude<Identity, { kind: "rejected" }>): Ma
  * Gives the Machine whatever is held for its hardware, even by a dismissed
  * Pending Machine: its Shots and Steam Records, credited by its Location
  * History, its Workflow and machine state events, and its collections. The
- * Machine's row lock must be held, or the Machine created in this transaction.
+ * Machine's own records are left as they are. Its row lock must be held, or
+ * the Machine created in this transaction, and the transaction given
+ * `CREDITING_TRANSACTION`'s limits.
  */
 export async function transferPendingRecords(tx: Prisma.TransactionClient, hardware: Hardware, machineId: string): Promise<void> {
+  await handOverRecords(tx, hardware, machineId);
   const handover = { machineId, pendingMachineId: null };
-  await tx.shot.updateMany({ where: { pendingMachine: hardware }, data: handover });
-  await tx.steamRecord.updateMany({ where: { pendingMachine: hardware }, data: handover });
   await tx.workflowEvent.updateMany({ where: { pendingMachine: hardware }, data: handover });
   await tx.machineStateEvent.updateMany({ where: { pendingMachine: hardware }, data: handover });
   await transferPendingCollections(tx, hardware, machineId);
-  await creditLocations(tx, machineId);
 }

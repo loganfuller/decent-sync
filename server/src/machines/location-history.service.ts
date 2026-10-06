@@ -3,14 +3,15 @@ import { type Scope, includesLocation } from "../accounts/scope.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma.service.js";
 import { type Correction, type Move, locationHistoryEntryNotFound, machineNotFound, unknownLocation } from "./input.js";
-import { creditLocations, databaseNow } from "./location-history.js";
+import { CREDITING_TRANSACTION, creditLocations, databaseNow } from "./location-history.js";
 import { type MachineView, MachinesService, lockMachine } from "./machines.service.js";
 
 /**
  * Moving Machines between Locations, and correcting or removing entries of
- * their Location History. Each change credits the Machine's records again,
- * with its row locked. Staff move Machines only between Locations they work
- * at; correcting and removing entries is for Admins.
+ * their Location History. Each change credits again the Machine's records
+ * recorded in the span it affects, with its row locked. Staff move Machines
+ * only between Locations they work at; correcting and removing entries is
+ * for Admins.
  */
 @Injectable()
 export class LocationHistoryService {
@@ -49,8 +50,8 @@ export class LocationHistoryService {
         throw new ConflictException(`Choose a time after it arrived at ${latest.location.name}`);
       }
       await tx.locationAssignment.create({ data: { machineId, locationId: move.locationId, effectiveFrom } });
-      await creditLocations(tx, machineId);
-    });
+      await creditLocations(tx, machineId, { from: effectiveFrom, until: null });
+    }, CREDITING_TRANSACTION);
     return this.machines.get(machineId);
   }
 
@@ -62,7 +63,7 @@ export class LocationHistoryService {
    */
   async correct(machineId: string, entryId: string, correction: Correction): Promise<MachineView> {
     await this.prisma.$transaction(async (tx) => {
-      const { before, after } = await lockedEntry(tx, machineId, entryId);
+      const { entry, before, after } = await lockedEntry(tx, machineId, entryId);
       if (correction.locationId !== undefined) {
         const location = await tx.location.findUnique({ where: { id: correction.locationId }, select: { name: true } });
         if (!location) throw unknownLocation();
@@ -84,8 +85,16 @@ export class LocationHistoryService {
         }
       }
       await tx.locationAssignment.update({ where: { id: entryId }, data: correction });
-      await creditLocations(tx, machineId);
-    });
+      // Records between its old and new times move between the Location before it and its own. A
+      // new Location moves every record from the earlier of those times up to the next entry.
+      const was = entry.effectiveFrom.getTime();
+      const is = (effectiveFrom ?? entry.effectiveFrom).getTime();
+      const relocated = correction.locationId !== undefined && correction.locationId !== entry.locationId;
+      await creditLocations(tx, machineId, {
+        from: new Date(Math.min(was, is)),
+        until: relocated ? (after?.effectiveFrom ?? null) : new Date(Math.max(was, is)),
+      });
+    }, CREDITING_TRANSACTION);
     return this.machines.get(machineId);
   }
 
@@ -97,16 +106,18 @@ export class LocationHistoryService {
    */
   async remove(machineId: string, entryId: string): Promise<MachineView> {
     await this.prisma.$transaction(async (tx) => {
-      const { before, after } = await lockedEntry(tx, machineId, entryId);
+      const { entry, before, after, afterThat } = await lockedEntry(tx, machineId, entryId);
       const neverLeft = before && after && before.locationId === after.locationId;
       await tx.locationAssignment.deleteMany({ where: { id: { in: neverLeft ? [entryId, after.id] : [entryId] } } });
-      await creditLocations(tx, machineId);
-    });
+      // Records from its time to the next entry that remains change Location.
+      const next = neverLeft ? afterThat : after;
+      await creditLocations(tx, machineId, { from: entry.effectiveFrom, until: next?.effectiveFrom ?? null });
+    }, CREDITING_TRANSACTION);
     return this.machines.get(machineId);
   }
 }
 
-/** The entries before and after one of the Machine's, with the Machine's row locked. */
+/** One of the Machine's entries and the entries around it, with the Machine's row locked. */
 async function lockedEntry(tx: Prisma.TransactionClient, machineId: string, entryId: string) {
   if (!(await lockMachine(tx, machineId))) throw machineNotFound();
   const history = await tx.locationAssignment.findMany({
@@ -116,7 +127,7 @@ async function lockedEntry(tx: Prisma.TransactionClient, machineId: string, entr
   });
   const index = history.findIndex((entry) => entry.id === entryId);
   if (index < 0) throw locationHistoryEntryNotFound();
-  return { before: history[index - 1], after: history[index + 1] };
+  return { before: history[index - 1], entry: history[index]!, after: history[index + 1], afterThat: history[index + 2] };
 }
 
 /** A Location History records where a Machine has been, judged by PostgreSQL's clock. */

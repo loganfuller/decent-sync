@@ -4,7 +4,7 @@ import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
 import type { Hardware } from "../sync/identity.js";
 import { type NewMachine, pendingMachineNotFound } from "./input.js";
-import { startLocationHistory } from "./location-history.js";
+import { CREDITING_TRANSACTION, startLocationHistory } from "./location-history.js";
 import {
   type MachineView,
   MachinesService,
@@ -84,7 +84,7 @@ export class PendingMachinesService {
         await transferPendingRecords(tx, hardware, machine.id);
         await tx.pendingMachine.delete({ where: { id } });
         return machine.id;
-      })
+      }, CREDITING_TRANSACTION)
       .catch(async (error: unknown) => {
         // The name, or the hardware, which a hello may have bound to another Machine meanwhile.
         if (hardware && error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
