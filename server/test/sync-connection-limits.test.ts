@@ -1,4 +1,5 @@
-import { PROTOCOL_VERSION } from "@decent-sync/protocol";
+import net from "node:net";
+import { PROTOCOL_VERSION, SYNC_PATH } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi } from "./support/admin-api.js";
 import { RawConnection, SimulatedTablet, helloWith, settingsFor } from "./support/simulated-tablet.js";
@@ -37,6 +38,17 @@ describe("connections awaiting hello on one server instance", { timeout: 30_000 
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
     }
+  };
+  /** Starts a WebSocket upgrade over plain TCP, as a client that ignores what the server sends can. */
+  const upgradeOverTcp = async (path: string) => {
+    const socket = net.connect({ host: "127.0.0.1", port: Number(new URL(server.url).port), allowHalfOpen: true });
+    socket.on("error", () => {});
+    await new Promise((resolve) => socket.once("connect", resolve));
+    socket.write(
+      `GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+    );
+    return socket;
   };
   const heartbeating: NodeJS.Timeout[] = [];
   /** Sends a heartbeat every interval from now on, as the plugin does once welcomed. */
@@ -113,6 +125,37 @@ describe("connections awaiting hello on one server instance", { timeout: 30_000 
     // The Machines connected earlier kept working throughout.
     await expectHeartbeatsAnswered(connected);
     await expectHeartbeatsAnswered(waiting);
+  });
+
+  it("closes a refused upgrade's connection, on any path, though the client keeps its end open or resets it", async () => {
+    for (const [path, status] of [
+      [SYNC_PATH, "503 Service Unavailable"],
+      ["/elsewhere", "404 Not Found"],
+    ] as const) {
+      const socket = await upgradeOverTcp(path);
+      const received: Buffer[] = [];
+      socket.on("data", (data: Buffer) => received.push(data));
+      const closed = new Promise((resolve) => socket.once("close", resolve));
+      await new Promise((resolve) => socket.once("end", resolve));
+      expect(Buffer.concat(received).toString()).toMatch(new RegExp(`^HTTP/1\\.1 ${status}\r\n`));
+      // The server closed the whole connection, not only its side: what the client goes on sending is refused.
+      const writing = setInterval(() => socket.write("more"), 50);
+      const outcome = await Promise.race([closed.then(() => "closed"), new Promise((resolve) => setTimeout(resolve, 5_000, "still open"))]);
+      clearInterval(writing);
+      socket.destroy();
+      expect(outcome).toBe("closed");
+    }
+
+    // Clients that reset the connection as soon as they ask, before or after the server answers.
+    for (let i = 0; i < 20; i++) {
+      const socket = await upgradeOverTcp(i % 2 === 0 ? SYNC_PATH : "/elsewhere");
+      if (i % 4 < 2) socket.resetAndDestroy();
+      else setImmediate(() => socket.resetAndDestroy());
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect((await fetch(`${server.url}/api/health`)).status).toBe(200);
+    await expectRefused();
+    await expectHeartbeatsAnswered(connected);
   });
 
   it("logs the refusals at most once a minute", () => {

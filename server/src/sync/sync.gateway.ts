@@ -500,8 +500,16 @@ function describeIdentity(identity: Identity, hardware: Hardware | null): string
   }
 }
 
-/** Answers an upgrade with an HTTP error instead of a WebSocket. */
+/**
+ * Answers an upgrade with an HTTP error instead of a WebSocket, then destroys
+ * the socket once that is sent, as ws does: a client that keeps its end open
+ * would otherwise hold it. The HTTP server stops handling a socket's errors
+ * once it is upgraded, so a client resetting the connection would otherwise
+ * crash the process.
+ */
 function rejectUpgrade(socket: Duplex, status: string): void {
+  socket.on("error", () => socket.destroy());
+  socket.once("finish", () => socket.destroy());
   socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
 }
 
