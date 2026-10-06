@@ -213,13 +213,28 @@ test("Staff see every Shot an Admin sees", async ({ page, browser }) => {
 test("a curve breaks where its samples have no value, as a pressure target where a step sets none", async ({ page }) => {
   // Derived: the real Shot's samples with their pressure targets changed to 3, 3, none (0) and 9 bar,
   // at 0, 4.4, 25.8 and 27.9 seconds, as a profile switching from pressure to flow control and back would record.
-  const shot = shotAt("switching-shot", "2026-03-01T12:00:00Z", { hardware: { model: "DE1Pro", serial: "10024" } });
+  const hardware = { model: "DE1Pro", serial: "10024" };
+  const shot = shotAt("switching-shot", "2026-03-01T12:00:00Z", { hardware });
   const targets = [3, 3, 0, 9];
   shot.measurements = (shot.measurements as { machine: Record<string, unknown> }[]).map((sample, n) => ({
     ...sample,
     machine: { ...sample.machine, targetPressure: targets[n] },
   }));
-  await adopt(page, "Switcher", { model: "DE1Pro", serial: "10024" }, null, [shot]);
+  // Derived: a long Shot of the real Shot's samples repeated a second apart for over eleven minutes, with
+  // a target of 3 bar, then none for a fifth of a second at 300.2 s, then 9 bar.
+  const long = shotAt("long-switching-shot", "2026-03-02T12:00:00Z", { hardware });
+  const samples = shot.measurements as { machine: Record<string, unknown>; scale: Record<string, unknown> }[];
+  const seconds = [...Array.from({ length: 301 }, (_, n) => n), 300.2, 300.4, ...Array.from({ length: 400 }, (_, n) => 301 + n)];
+  long.measurements = seconds.map((second, n) => {
+    const at = new Date(Date.UTC(2026, 2, 2, 12) + second * 1000).toISOString().replace("Z", "");
+    const sample = samples[n % samples.length]!;
+    return {
+      ...sample,
+      machine: { ...sample.machine, timestamp: at, targetPressure: second < 300.1 ? 3 : second < 300.3 ? 0 : 9 },
+      scale: { ...sample.scale, timestamp: at },
+    };
+  });
+  await adopt(page, "Switcher", hardware, null, [shot, long]);
 
   await page.goto("/shots/switching-shot");
   const pressure = page.getByRole("region", { name: "Curves" }).getByRole("figure", { name: "Pressure" });
@@ -235,6 +250,35 @@ test("a curve breaks where its samples have no value, as a pressure target where
   await plot.hover({ position: at(14) });
   await expect(tooltip).toContainText("This Shot");
   await expect(tooltip).not.toContainText("Target");
+  // The last sample's target is kept, though it falls between the chart's tenths of a second.
+  await plot.hover({ position: at(27.99) });
+  await expect(tooltip).toContainText("Target9 bar");
+
+  // On the long Shot the chart reads more than a second apart, yet the fifth of a second without a target still breaks its line.
+  await page.goto("/shots/long-switching-shot");
+  const target = pressure.locator("path.recharts-line-curve[stroke-dasharray]");
+  await expect(target).toHaveCount(1);
+  expect((await target.getAttribute("d"))?.match(/M/g)).toHaveLength(2);
+});
+
+test("going back to a later page keeps it, though the filters left meanwhile matched nothing", async ({ page }) => {
+  const shots = Array.from({ length: 30 }, (_, n) =>
+    shotAt(`page-shot-${n}`, new Date(Date.UTC(2026, 3, 1, 8, n)).toISOString(), { hardware: { model: "DE1Pro", serial: "10025" } }),
+  );
+  await adopt(page, "Pager", { model: "DE1Pro", serial: "10025" }, null, shots);
+
+  await page.goto(`/shots?machineId=${await machineId(page, "Pager")}`);
+  await expect(rows(page)).toHaveCount(25);
+  await page.getByRole("link", { name: "Go to next page" }).click();
+  await expect(rows(page)).toHaveCount(5);
+  await expect(page.getByText("Shots 26–30 of 30")).toBeVisible();
+  const later = page.url();
+
+  await choose(page, "Barista", "Cat");
+  await expect(page.getByText("No Shots match these filters.")).toBeVisible();
+  await page.goBack();
+  await expect(page.getByText("Shots 26–30 of 30")).toBeVisible();
+  expect(page.url()).toBe(later);
 });
 
 /** A Shot pulled at a UTC time, recording only what is given beside the real record; with no hardware, it records none. */

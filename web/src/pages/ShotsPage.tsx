@@ -59,13 +59,16 @@ export function ShotsPage() {
   const { search } = useLocation();
   const offset = Math.max(0, Number(params.get("offset")) || 0);
   const query = new URLSearchParams([...FILTERS.flatMap((name) => params.getAll(name).slice(0, 1).map((value) => [name, value])), ["limit", String(PAGE_SIZE)], ["offset", String(offset)]]).toString();
-  const load = useCallback(() => api<ShotPage>("GET", `/shots?${query}`), [query]);
-  const { data, error } = usePolled(load);
+  // Each page loaded remembers what it answers: the last one is still shown while another loads.
+  const load = useCallback(async () => ({ query, page: await api<ShotPage>("GET", `/shots?${query}`) }), [query]);
+  const { data: loaded, error } = usePolled(load);
+  const data = loaded?.page;
   const filtered = FILTERS.some((name) => params.has(name));
 
-  // A page past the end, opened from an old link or emptied as Shots leave the list, moves to the last page.
+  // A page past the end, opened from an old link or emptied as Shots leave the list, moves to the last page,
+  // judged only by an answer for this page, never one for the page or filters shown before.
   const lastPage = data && data.total > 0 ? Math.floor((data.total - 1) / PAGE_SIZE) * PAGE_SIZE : 0;
-  const pastTheEnd = data !== undefined && data.shots.length === 0 && offset > lastPage;
+  const pastTheEnd = loaded?.query === query && data!.shots.length === 0 && offset > lastPage;
   useEffect(() => {
     if (!pastTheEnd) return;
     const next = new URLSearchParams(params);

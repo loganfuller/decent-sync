@@ -74,25 +74,65 @@ export interface ChartPoint {
   previous: number | null;
 }
 
-/** At most this many points per chart, so a long tea shot's thousands of samples draw quickly. */
+/** About this many points per chart, so a long tea shot's thousands of samples draw quickly. */
 const MAX_POINTS = 600;
+
+interface Series {
+  samples: Sample[];
+  value(sample: Sample): number | null;
+}
 
 /**
  * A curve of a Shot, its target, and the same curve of another Shot, read at
- * the same times so a tooltip can name all three: every tenth of a second, or
- * less often for a long Shot, from the start to `until` seconds. Each is
+ * the same times (`chartTimes`) so a tooltip can name all three. Each is
  * interpolated between consecutive samples that both have a value, so a
  * line breaks where its samples have none, such as a target a step does
  * not set, and has no value past its last.
  */
 export function chartPoints(curve: Curve, current: Sample[], previous: Sample[] | undefined, until: number): ChartPoint[] {
+  const series: Series[] = [
+    { samples: current, value: (sample) => sample.values[curve] },
+    { samples: current, value: (sample) => sample.targets[curve] },
+    ...(previous ? [{ samples: previous, value: (sample: Sample) => sample.values[curve] }] : []),
+  ];
+  const times = chartTimes(previous ? [current, previous] : [current], series, until);
+  const [currents, targets, previouses] = series.map(({ samples, value }) => resample(samples, value, times));
+  return times.map((seconds, n) => ({ seconds, current: currents![n]!, target: targets![n]!, previous: previouses?.[n] ?? null }));
+}
+
+/**
+ * The times a chart reads its series at, rising. Every sample's when the
+ * Shots have few enough; otherwise each Shot's first and last, and those on
+ * both sides of wherever a series gains or loses a value, so no gap or lone
+ * reading is lost. Between them, a grid every tenth of a second, or less
+ * often for a long Shot, so sparse samples can be read between too; a grid
+ * time closer than half a step to a sample's is left out.
+ */
+function chartTimes(shots: Sample[][], series: Series[], until: number): number[] {
   const step = Math.max(0.1, Math.ceil((until / MAX_POINTS) * 10) / 10);
+  const kept: number[] = [];
+  if (shots.reduce((count, samples) => count + samples.length, 0) <= MAX_POINTS) {
+    for (const samples of shots) for (const sample of samples) kept.push(sample.seconds);
+  } else {
+    for (const { samples, value } of series) {
+      const has = samples.map((sample) => value(sample) !== null);
+      samples.forEach((sample, n) => {
+        if (n === 0 || n === samples.length - 1 || has[n] !== has[n - 1] || has[n] !== has[n + 1]) kept.push(sample.seconds);
+      });
+    }
+  }
+  kept.sort((a, b) => a - b);
   const times: number[] = [];
-  for (let n = 0; n * step <= until + 1e-9; n++) times.push(Math.round(n * step * 10) / 10);
-  const currents = resample(current, (sample) => sample.values[curve], times);
-  const targets = resample(current, (sample) => sample.targets[curve], times);
-  const previouses = previous ? resample(previous, (sample) => sample.values[curve], times) : [];
-  return times.map((seconds, n) => ({ seconds, current: currents[n]!, target: targets[n]!, previous: previouses[n] ?? null }));
+  let next = 0;
+  for (let n = 0; n * step <= until + 1e-9; n++) {
+    const grid = Math.round(n * step * 10) / 10;
+    // Kept times before this grid time come first; the grid time only if none is within half a step.
+    while (next < kept.length && kept[next]! < grid) times.push(kept[next++]!);
+    const nearest = Math.min(Math.abs(grid - (times.at(-1) ?? -Infinity)), Math.abs((kept[next] ?? Infinity) - grid));
+    if (nearest >= step / 2) times.push(grid);
+  }
+  while (next < kept.length) times.push(kept[next++]!);
+  return times.filter((time, n) => n === 0 || time - times[n - 1]! > 1e-9);
 }
 
 /** How long the samples run, in seconds. */

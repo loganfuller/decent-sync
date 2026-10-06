@@ -73,7 +73,7 @@ function CurveChart({ curve, current, previous, until }: { curve: Curve; current
                   label={label}
                   // A series with no value at this time, as a target where a step sets none, is left out.
                   payload={(payload ?? []).filter((item) => item.value != null).sort((a, b) => byOrder(a) - byOrder(b))}
-                  labelFormatter={(_, payload) => `${payload[0]?.payload.seconds ?? 0} s`}
+                  labelFormatter={(_, payload) => `${Number((payload[0]?.payload.seconds ?? 0).toFixed(2))} s`}
                   formatter={(value, name) => (
                     <div className="flex w-full justify-between gap-4">
                       <span className="text-muted-foreground">{config[name as keyof typeof config]?.label ?? name}</span>
