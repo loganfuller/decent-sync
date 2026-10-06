@@ -329,7 +329,7 @@ var __decentSync = (() => {
   }
   async function readShotPage(limit, offset) {
     const page = await getObject(`/shots?limit=${limit}&offset=${offset}&order=desc`);
-    return Array.isArray(page?.items) ? { items: page.items } : null;
+    return Array.isArray(page?.items) && typeof page.total === "number" ? { items: page.items, total: page.total } : null;
   }
   function readShot(id) {
     return readRecord("shots", id);
@@ -741,6 +741,8 @@ var __decentSync = (() => {
 
   // src/shots.ts
   var PAGE_SIZE = 100;
+  var OVERLAP = 10;
+  var MAX_PASSES = 3;
   var ShotCapture = class {
     constructor(outbox, log) {
       __publicField(this, "outbox", outbox);
@@ -795,19 +797,11 @@ var __decentSync = (() => {
     async scan() {
       this.scanning = true;
       try {
-        for (let offset = 0; !this.stopped; offset += PAGE_SIZE) {
-          await this.outbox.waitForRoom();
-          if (this.stopped) return;
-          const page = await readShotPage(PAGE_SIZE, offset);
-          if (!page) throw new Error("Shot summaries unavailable");
-          const shots = page.items.flatMap((item) => {
-            const summary = object2(item);
-            if (typeof summary?.id !== "string" || summary.id === "" || isLegacyImport(summary.id) || typeof summary.updatedAt !== "string") return [];
-            this.ids.add(summary.id);
-            return [{ id: summary.id, updatedAt: summary.updatedAt }];
-          });
-          this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots });
-          if (page.items.length < PAGE_SIZE) break;
+        for (let pass = 1; !await this.scanPass(); pass++) {
+          if (pass === MAX_PASSES) {
+            this.log("Shot history kept changing during reconciliation; the next load will reconcile the rest.");
+            break;
+          }
         }
         this.scanned = !this.stopped;
       } catch {
@@ -819,6 +813,49 @@ var __decentSync = (() => {
       } finally {
         this.scanning = false;
       }
+    }
+    /**
+     * Pages through every summary once, newest first. Offsets count positions
+     * in the list as it is when each page is read, so a deletion moves later
+     * Shots up and an addition moves them down. Each page after the first
+     * therefore starts OVERLAP Shots before the previous page ended and
+     * resumes after the last Shot this pass has read: every older Shot sorts
+     * after it, so none that existed throughout the pass is missed. Returns
+     * true once the pass reaches the end or the capture stops, and false if no
+     * Shot it has read reappears, as when more than the overlap were deleted
+     * between two pages, or if the list grows past what the first page's total
+     * allows: the pass may have missed Shots, so it is repeated.
+     */
+    async scanPass() {
+      const read = /* @__PURE__ */ new Set();
+      let remaining = 1;
+      for (let offset = 0; remaining > 0; remaining--) {
+        await this.outbox.waitForRoom();
+        if (this.stopped) return true;
+        const page = await readShotPage(PAGE_SIZE, offset);
+        if (!page) throw new Error("Shot summaries unavailable");
+        const items = page.items.map(object2);
+        let resume = 0;
+        if (offset === 0) remaining = Math.ceil(page.total / (PAGE_SIZE - OVERLAP)) + 2;
+        else {
+          for (let index = items.length - 1; index >= 0 && resume === 0; index--) {
+            const id = items[index]?.id;
+            if (typeof id === "string" && read.has(id)) resume = index + 1;
+          }
+          if (resume === 0) return false;
+        }
+        const shots = items.slice(resume).flatMap((summary) => {
+          if (typeof summary?.id !== "string" || summary.id === "") return [];
+          read.add(summary.id);
+          if (isLegacyImport(summary.id) || typeof summary.updatedAt !== "string") return [];
+          this.ids.add(summary.id);
+          return [{ id: summary.id, updatedAt: summary.updatedAt }];
+        });
+        if (shots.length > 0) this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots });
+        if (page.items.length < PAGE_SIZE) return true;
+        offset += page.items.length - OVERLAP;
+      }
+      return false;
     }
     async indexKnownIds() {
       const generation = this.outbox.generation;
