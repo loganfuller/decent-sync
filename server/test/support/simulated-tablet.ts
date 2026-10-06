@@ -340,6 +340,11 @@ export class SimulatedTablet {
   private api: DecaidApi;
   private readonly apiFailures = new Map<string, number>();
   readonly shotPageRequests: { limit: number; offset: number }[] = [];
+  /**
+   * Called as each `GET /shots` page is requested, before it is answered:
+   * a change to the Shots, through `serve`, shows in that page.
+   */
+  beforeShotPage?: (request: { limit: number; offset: number }) => void;
   /** Every frame the plugin sent, parsed, in order. */
   readonly sent: unknown[] = [];
   /** Every text frame the server sent the plugin, parsed, in order. */
@@ -518,6 +523,7 @@ export class SimulatedTablet {
       const limit = Number(params.get("limit") ?? 20);
       const offset = Number(params.get("offset") ?? 0);
       this.shotPageRequests.push({ limit, offset });
+      this.beforeShotPage?.({ limit, offset });
       const records = Object.entries(this.api).filter(([path]) => path.startsWith("/shots/")).map(([, shot]) => shot as Record<string, unknown>);
       records.sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)) || String(a.id).localeCompare(String(b.id)));
       const items = records.slice(offset, offset + Math.min(100, Math.max(1, limit))).map(({ measurements, ...summary }) => summary);

@@ -3,6 +3,10 @@ import { readShot, readShotPage } from "./decaid.js";
 import type { Outbox } from "./outbox.js";
 
 const PAGE_SIZE = 100;
+/** How many of the previous page's Shots each page of the summary scan repeats. */
+const OVERLAP = 10;
+/** Passes through the summaries a load makes before leaving Shots that keep changing to the next load. */
+const MAX_PASSES = 3;
 
 /**
  * Shots, through the outbox: captured from Decaid's events as they are
@@ -19,6 +23,8 @@ export class ShotCapture {
   private stopped = false;
   private timer?: number;
   private events: Promise<void> = Promise.resolve();
+  /** The Shots Decaid reported stored or edited while a summary pass runs. */
+  private reported?: Set<string>;
 
   constructor(
     private readonly outbox: Outbox,
@@ -40,6 +46,7 @@ export class ShotCapture {
     const event = object(payload);
     if (typeof event?.id !== "string" || event.id === "" || isLegacyImport(event.id)) return;
     const id = event.id;
+    this.reported?.add(id);
     // Keep tablet event order even if its API takes different times to answer.
     this.events = this.events.then(async () => {
       if (type === "shotUpdated") {
@@ -74,20 +81,11 @@ export class ShotCapture {
   private async scan(): Promise<void> {
     this.scanning = true;
     try {
-      for (let offset = 0; !this.stopped; offset += PAGE_SIZE) {
-        await this.outbox.waitForRoom();
-        if (this.stopped) return;
-        const page = await readShotPage(PAGE_SIZE, offset);
-        if (!page) throw new Error("Shot summaries unavailable");
-        const shots = page.items.flatMap((item) => {
-          const summary = object(item);
-          // Decaid v0.8.7 and later give every Shot an edit time; a record without one is ignored.
-          if (typeof summary?.id !== "string" || summary.id === "" || isLegacyImport(summary.id) || typeof summary.updatedAt !== "string") return [];
-          this.ids.add(summary.id);
-          return [{ id: summary.id, updatedAt: summary.updatedAt }];
-        });
-        this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots });
-        if (page.items.length < PAGE_SIZE) break;
+      for (let pass = 1; !(await this.scanPass()); pass++) {
+        if (pass === MAX_PASSES) {
+          this.log("Shot history kept changing during reconciliation; the next load will reconcile the rest.");
+          break;
+        }
       }
       this.scanned = !this.stopped;
     } catch {
@@ -95,7 +93,68 @@ export class ShotCapture {
       if (!this.stopped) this.timer = setTimeout(() => { this.timer = undefined; void this.scan(); }, 5_000);
     } finally {
       this.scanning = false;
+      this.reported = undefined;
     }
+  }
+
+  /**
+   * Pages through every summary once, newest first. Offsets count positions
+   * in the list as it is when each page is read, so a deletion moves later
+   * Shots up and an addition moves them down. Each page after the first
+   * therefore starts OVERLAP Shots before the previous page ended and
+   * resumes after the last Shot this pass has read and that has the edit
+   * time it was read with: every unedited Shot older than that one sorts
+   * after it, so none that existed throughout the pass is missed. Every
+   * Decaid edit gives a Shot a new edit time, and an edit to its time can
+   * move it anywhere. One moved from the part of the list not yet read into
+   * the part already read is missed; Decaid's edit API reports it in
+   * `shotUpdated`, but an import that overwrites it reports nothing. So a
+   * pass that reaches the end checks it has read or been told of as many
+   * Shots as the tablet holds; one deleted while another was moved that way
+   * goes unnoticed. Returns true once the pass reaches the end with that
+   * count, or the capture stops, and false if the count falls short, if no
+   * Shot read with its current edit time reappears, as when more than the
+   * overlap were deleted between two pages, or if the list grows past what
+   * the first page's total allows: the pass may have missed Shots, so it is
+   * repeated.
+   */
+  private async scanPass(): Promise<boolean> {
+    /** Each Shot this pass has read, with the edit time it was read with. */
+    const read = new Map<string, unknown>();
+    const reported = this.reported = new Set<string>();
+    // The first page sets how many requests the pass may make.
+    let remaining = 1;
+    for (let offset = 0; remaining > 0; remaining--) {
+      await this.outbox.waitForRoom();
+      if (this.stopped) return true;
+      const page = await readShotPage(PAGE_SIZE, offset);
+      if (!page) throw new Error("Shot summaries unavailable");
+      const items = page.items.map(object);
+      let resume = 0;
+      if (offset === 0) remaining = Math.ceil(page.total / (PAGE_SIZE - OVERLAP)) + 2;
+      else {
+        for (let index = items.length - 1; index >= 0 && resume === 0; index--) {
+          const summary = items[index];
+          if (typeof summary?.id === "string" && read.has(summary.id) && read.get(summary.id) === summary.updatedAt) resume = index + 1;
+        }
+        if (resume === 0) return false;
+      }
+      const shots = items.slice(resume).flatMap((summary) => {
+        if (typeof summary?.id !== "string" || summary.id === "") return [];
+        read.set(summary.id, summary.updatedAt);
+        // Decaid v0.8.7 and later give every Shot an edit time; a record without one is ignored.
+        if (isLegacyImport(summary.id) || typeof summary.updatedAt !== "string") return [];
+        this.ids.add(summary.id);
+        return [{ id: summary.id, updatedAt: summary.updatedAt }];
+      });
+      if (shots.length > 0) this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots });
+      if (page.items.length < PAGE_SIZE) {
+        for (const id of read.keys()) reported.add(id);
+        return reported.size >= page.total;
+      }
+      offset += page.items.length - OVERLAP;
+    }
+    return false;
   }
 
   private async indexKnownIds(): Promise<void> {

@@ -54,10 +54,13 @@ function stringField(object: Record<string, unknown> | null, key: string): strin
   return typeof value === "string" && value !== "" ? value : null;
 }
 
-/** A bounded page of metadata; /shots/ids would make history one unbounded response. */
-export async function readShotPage(limit: number, offset: number): Promise<{ items: unknown[] } | null> {
+/**
+ * A bounded page of metadata, newest first, with how many Shots the tablet
+ * holds as it answered; /shots/ids would make history one unbounded response.
+ */
+export async function readShotPage(limit: number, offset: number): Promise<{ items: unknown[]; total: number } | null> {
   const page = await getObject(`/shots?limit=${limit}&offset=${offset}&order=desc`);
-  return Array.isArray(page?.items) ? { items: page.items } : null;
+  return Array.isArray(page?.items) && typeof page.total === "number" ? { items: page.items, total: page.total } : null;
 }
 
 export function readShot(id: string): Promise<Record<string, unknown> | null> {
