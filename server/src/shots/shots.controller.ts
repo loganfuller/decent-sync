@@ -1,6 +1,6 @@
 import { Controller, Get, Param, Query } from "@nestjs/common";
 import { AllowStaff } from "../accounts/guards.js";
-import { readPage } from "../pagination.js";
+import { readQueryPage } from "../pagination.js";
 import { readShotFilters } from "./filters.js";
 import { ShotsService } from "./shots.service.js";
 
@@ -12,9 +12,8 @@ export class ShotsController {
 
   @Get()
   list(@Query() query: Record<string, unknown>) {
-    const { limit, offset, ...filters } = query;
-    const page = readPage(single(limit), single(offset));
-    return this.shots.list(page.limit, page.offset, readShotFilters(filters));
+    const page = readQueryPage(query);
+    return this.shots.list(page.limit, page.offset, readShotFilters(query));
   }
 
   /** Declared before `:id`, which a Decaid Shot id, a UUID, never spells. */
@@ -26,10 +25,4 @@ export class ShotsController {
 
   @Get(":id/measurements")
   async measurements(@Param("id") id: string) { return { measurements: await this.shots.measurements(id) }; }
-}
-
-/** A repeated query parameter is no whole number, which `readPage` refuses. */
-function single(value: unknown): string | undefined {
-  if (value === undefined || typeof value === "string") return value;
-  return String(value);
 }

@@ -30,6 +30,9 @@ export function Shell() {
             <NavLink to="/shots" className={navLinkClass}>
               Shots
             </NavLink>
+            <NavLink to="/steam-records" className={navLinkClass}>
+              Steam Records
+            </NavLink>
             <NavLink to="/machines" className={navLinkClass}>
               Machines
             </NavLink>

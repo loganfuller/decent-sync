@@ -211,6 +211,11 @@ function MachineDetails({ id }: { id: string }) {
                       All its Shots
                     </Link>
                   </Field>
+                  <Field term="Steam Records">
+                    <Link to={`/steam-records?machineId=${machine.id}`} className="underline underline-offset-4">
+                      All its Steam Records
+                    </Link>
+                  </Field>
                 </Fields>
               </CardContent>
             </Card>

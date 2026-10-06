@@ -11,9 +11,11 @@ import { SetupPage } from "@/pages/SetupPage";
 import { HomePage, Shell } from "@/pages/Shell";
 import { SignInPage, type SignInState } from "@/pages/SignInPage";
 
-// The Shot pages load their charts and calendar only when opened, which keeps them out of every other page.
+// The Shot and Steam Record pages load their charts and calendar only when opened, which keeps them out of every other page.
 const ShotsPage = lazy(() => import("@/pages/ShotsPage").then((page) => ({ default: page.ShotsPage })));
 const ShotPage = lazy(() => import("@/pages/ShotPage").then((page) => ({ default: page.ShotPage })));
+const SteamRecordsPage = lazy(() => import("@/pages/SteamRecordsPage").then((page) => ({ default: page.SteamRecordsPage })));
+const SteamRecordPage = lazy(() => import("@/pages/SteamRecordPage").then((page) => ({ default: page.SteamRecordPage })));
 
 export function App() {
   return (
@@ -50,6 +52,22 @@ export function App() {
               element={
                 <Suspense>
                   <ShotPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/steam-records"
+              element={
+                <Suspense>
+                  <SteamRecordsPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/steam-records/:id"
+              element={
+                <Suspense>
+                  <SteamRecordPage />
                 </Suspense>
               }
             />

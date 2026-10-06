@@ -21,7 +21,8 @@ was recorded, their Workflow changes and machine state transitions, and their
 library, settings and paired devices, so the management interface shows what
 each Machine is set up to pull next, what it is doing, and its scale, sensors
 and calibration. Admins and Staff list Shots across every Location, filter
-them, and open each one's curves beside the previous Shot on its Machine.
+them, and open each one's curves beside the previous Shot on its Machine, and
+review Steam Records the same way, with each one's milk temperature and curves.
 [Milestone 1](https://github.com/loganfuller/decent-sync/issues/1)
 and its child tickets define the rest of its scope. The shared-library behavior
 below comes in later milestones; milestone 1 captures data without pushing
