@@ -107,6 +107,7 @@ var __decentSync = (() => {
   var PROTOCOL_VERSION = 1;
   var SYNC_PATH = "/sync";
   var MISSED_HEARTBEATS = 3;
+  var MAX_ID_LENGTH = 128;
   var CLOSE_CODES = {
     /** A frame that is not a valid message here, including no `hello` in time. */
     protocol_error: 4e3,
@@ -177,6 +178,13 @@ var __decentSync = (() => {
       const value = this.object[key];
       if (typeof value !== "string") this.problem(key, "must be a string");
       else if (options.nonEmpty && value === "") this.problem(key, "must not be empty");
+      else if (options.maxLength !== void 0 && value.length > options.maxLength) {
+        this.problem(key, `must be at most ${options.maxLength} characters`);
+      }
+    }
+    /** The id of a delivery or a chunk. */
+    id() {
+      this.string("id", { nonEmpty: true, maxLength: MAX_ID_LENGTH });
     }
     optionalString(key) {
       const value = this.object[key];
@@ -329,7 +337,7 @@ var __decentSync = (() => {
   }
   async function readShotPage(limit, offset) {
     const page = await getObject(`/shots?limit=${limit}&offset=${offset}&order=desc`);
-    return Array.isArray(page?.items) ? { items: page.items } : null;
+    return Array.isArray(page?.items) && typeof page.total === "number" ? { items: page.items, total: page.total } : null;
   }
   function readShot(id) {
     return readRecord("shots", id);
@@ -741,6 +749,8 @@ var __decentSync = (() => {
 
   // src/shots.ts
   var PAGE_SIZE = 100;
+  var OVERLAP = 10;
+  var MAX_PASSES = 3;
   var ShotCapture = class {
     constructor(outbox, log) {
       __publicField(this, "outbox", outbox);
@@ -752,6 +762,8 @@ var __decentSync = (() => {
       __publicField(this, "stopped", false);
       __publicField(this, "timer");
       __publicField(this, "events", Promise.resolve());
+      /** The Shots Decaid reported stored or edited while a summary pass runs. */
+      __publicField(this, "reported");
     }
     welcome() {
       if (this.welcomed) void this.indexKnownIds();
@@ -766,6 +778,7 @@ var __decentSync = (() => {
       const event = object2(payload);
       if (typeof event?.id !== "string" || event.id === "" || isLegacyImport(event.id)) return;
       const id = event.id;
+      this.reported?.add(id);
       this.events = this.events.then(async () => {
         if (type === "shotUpdated") {
           const shot2 = object2(event.shot);
@@ -795,19 +808,11 @@ var __decentSync = (() => {
     async scan() {
       this.scanning = true;
       try {
-        for (let offset = 0; !this.stopped; offset += PAGE_SIZE) {
-          await this.outbox.waitForRoom();
-          if (this.stopped) return;
-          const page = await readShotPage(PAGE_SIZE, offset);
-          if (!page) throw new Error("Shot summaries unavailable");
-          const shots = page.items.flatMap((item) => {
-            const summary = object2(item);
-            if (typeof summary?.id !== "string" || summary.id === "" || isLegacyImport(summary.id) || typeof summary.updatedAt !== "string") return [];
-            this.ids.add(summary.id);
-            return [{ id: summary.id, updatedAt: summary.updatedAt }];
-          });
-          this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots });
-          if (page.items.length < PAGE_SIZE) break;
+        for (let pass = 1; !await this.scanPass(); pass++) {
+          if (pass === MAX_PASSES) {
+            this.log("Shot history kept changing during reconciliation; the next load will reconcile the rest.");
+            break;
+          }
         }
         this.scanned = !this.stopped;
       } catch {
@@ -818,7 +823,64 @@ var __decentSync = (() => {
         }, 5e3);
       } finally {
         this.scanning = false;
+        this.reported = void 0;
       }
+    }
+    /**
+     * Pages through every summary once, newest first. Offsets count positions
+     * in the list as it is when each page is read, so a deletion moves later
+     * Shots up and an addition moves them down. Each page after the first
+     * therefore starts OVERLAP Shots before the previous page ended and
+     * resumes after the last Shot this pass has read and that has the edit
+     * time it was read with: every unedited Shot older than that one sorts
+     * after it, so none that existed throughout the pass is missed. Every
+     * Decaid edit gives a Shot a new edit time, and an edit to its time can
+     * move it anywhere. One moved from the part of the list not yet read into
+     * the part already read is missed; Decaid's edit API reports it in
+     * `shotUpdated`, but an import that overwrites it reports nothing. So a
+     * pass that reaches the end checks it has read or been told of as many
+     * Shots as the tablet holds; one deleted while another was moved that way
+     * goes unnoticed. Returns true once the pass reaches the end with that
+     * count, or the capture stops, and false if the count falls short, if no
+     * Shot read with its current edit time reappears, as when more than the
+     * overlap were deleted between two pages, or if the list grows past what
+     * the first page's total allows: the pass may have missed Shots, so it is
+     * repeated.
+     */
+    async scanPass() {
+      const read = /* @__PURE__ */ new Map();
+      const reported = this.reported = /* @__PURE__ */ new Set();
+      let remaining = 1;
+      for (let offset = 0; remaining > 0; remaining--) {
+        await this.outbox.waitForRoom();
+        if (this.stopped) return true;
+        const page = await readShotPage(PAGE_SIZE, offset);
+        if (!page) throw new Error("Shot summaries unavailable");
+        const items = page.items.map(object2);
+        let resume = 0;
+        if (offset === 0) remaining = Math.ceil(page.total / (PAGE_SIZE - OVERLAP)) + 2;
+        else {
+          for (let index = items.length - 1; index >= 0 && resume === 0; index--) {
+            const summary = items[index];
+            if (typeof summary?.id === "string" && read.has(summary.id) && read.get(summary.id) === summary.updatedAt) resume = index + 1;
+          }
+          if (resume === 0) return false;
+        }
+        const shots = items.slice(resume).flatMap((summary) => {
+          if (typeof summary?.id !== "string" || summary.id === "") return [];
+          read.set(summary.id, summary.updatedAt);
+          if (isLegacyImport(summary.id) || typeof summary.updatedAt !== "string") return [];
+          this.ids.add(summary.id);
+          return [{ id: summary.id, updatedAt: summary.updatedAt }];
+        });
+        if (shots.length > 0) this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots });
+        if (page.items.length < PAGE_SIZE) {
+          for (const id of read.keys()) reported.add(id);
+          return reported.size >= page.total;
+        }
+        offset += page.items.length - OVERLAP;
+      }
+      return false;
     }
     async indexKnownIds() {
       const generation = this.outbox.generation;

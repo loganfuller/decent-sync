@@ -48,6 +48,36 @@ describe("Shot capture and reconciliation", () => {
     tablets.push(tablet);
     return tablet;
   }
+  /** Shots one second apart, oldest first, ids suffixed with their position. */
+  function timeline(prefix: string, count: number) {
+    return Array.from({ length: count }, (_, n) => shot(`${prefix}-${n}`, { timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, n)).toISOString() }));
+  }
+  function pages(...offsets: number[]) { return offsets.map((offset) => ({ limit: 100, offset })); }
+  /**
+   * Changes the tablet's Shots as the plugin requests the numbered summary
+   * pages (the first is 0), before each is answered: each change is given
+   * the Shots served, newest first, and returns those served from then on.
+   */
+  function changeShotsBeforePages(
+    tablet: SimulatedTablet, machine: CreatedMachine, initial: Record<string, unknown>[],
+    changes: [page: number, change: (shots: Record<string, unknown>[]) => Record<string, unknown>[]][],
+  ) {
+    let shots = [...initial].reverse();
+    tablet.beforeShotPage = () => {
+      const change = changes.find(([page]) => page === tablet.shotPageRequests.length - 1)?.[1];
+      if (!change) return;
+      shots = change(shots);
+      tablet.serve(withShots(tabletApi(machine), shots));
+    };
+  }
+  async function storedIds(machineId: string): Promise<string[]> {
+    const ids: string[] = [];
+    for (let offset = 0; ; offset += 100) {
+      const page = (await (await api.call("GET", `/shots?limit=100&offset=${offset}&machineId=${machineId}`)).json()) as { shots: ShotView[] };
+      ids.push(...page.shots.map((shot) => shot.id));
+      if (page.shots.length < 100) return ids;
+    }
+  }
   async function list(machineId?: string, at = api): Promise<{ shots: ShotView[]; total: number }> {
     const response = await at.call("GET", `/shots?limit=100${machineId ? `&machineId=${machineId}` : ""}`);
     expect(response.status).toBe(200);
@@ -96,13 +126,97 @@ describe("Shot capture and reconciliation", () => {
     tablet.dropConnections();
     await tablet.waitForLogs(/^Connected to /, 2);
     await expect.poll(async () => (await list(machine.machine.id)).total, { timeout: 20_000 }).toBe(205);
-    expect(tablet.shotPageRequests).toEqual([{ limit: 100, offset: 0 }, { limit: 100, offset: 100 }, { limit: 100, offset: 200 }]);
+    expect(tablet.shotPageRequests).toEqual(pages(0, 90, 180));
     expect(tablet.requests).not.toContain("/shots/ids");
     const first = await list(machine.machine.id);
     expect(first.shots[0]!.id).toBe("history-204");
     const lastPage = await (await api.call("GET", `/shots?limit=100&offset=200&machineId=${machine.machine.id}`)).json() as { shots: ShotView[] };
     expect(lastPage.shots).toHaveLength(5);
     expect(new Set([...first.shots, ...lastPage.shots].map((shot) => shot.id)).size).toBe(105);
+  }, 30_000);
+
+  it("indexes the oldest Shot when a Shot already read is deleted before the next page", async () => {
+    const machine = await api.createMachine("Deleted mid-scan");
+    const history = timeline("deleted-mid-scan", 101);
+    const tablet = load(machine, history);
+    changeShotsBeforePages(tablet, machine, history, [[1, (shots) => shots.filter((shot) => shot.id !== "deleted-mid-scan-50")]]);
+    await waitShot("deleted-mid-scan-0");
+    expect(tablet.shotPageRequests).toEqual(pages(0, 90));
+  });
+
+  it("indexes every Shot that outlasts a scan through deletions on several pages and Shots added meanwhile", async () => {
+    const machine = await api.createMachine("Changing mid-scan");
+    const history = timeline("changing-mid-scan", 250);
+    const deleted = ["changing-mid-scan-240", "changing-mid-scan-200", "changing-mid-scan-120"];
+    // Pulled during the scan: Decaid reports each in a shotStored event.
+    const added = (id: string) => {
+      tablet.fire("shotStored", { id });
+      return shot(id, { timestamp: "2026-02-01T00:00:00.000Z" });
+    };
+    const tablet = load(machine, history);
+    changeShotsBeforePages(tablet, machine, history, [
+      [1, (shots) => [added("changing-mid-scan-added-1"), ...shots.filter((shot) => shot.id !== deleted[0] && shot.id !== deleted[1])]],
+      [2, (shots) => [added("changing-mid-scan-added-2"), ...shots.filter((shot) => shot.id !== deleted[2])]],
+    ]);
+    const outlasting = history.map((shot) => String(shot.id)).filter((id) => !deleted.includes(id));
+    await expect.poll(() => storedIds(machine.machine.id), { timeout: 20_000 }).toEqual(expect.arrayContaining(outlasting));
+    expect(tablet.shotPageRequests).toEqual(pages(0, 90, 180));
+  }, 30_000);
+
+  it("resumes after a Shot read unchanged, not one whose time was edited to sort among unread Shots", async () => {
+    const machine = await api.createMachine("Retimed mid-scan");
+    const history = timeline("retimed-mid-scan", 150);
+    const tablet = load(machine, history);
+    // The newest Shot, read on the first page, edited to sort between the fifth and fourth oldest; Decaid gives it a new edit time.
+    const retimed = { timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, 4, 500)).toISOString(), updatedAt: "2026-11-01T12:00:00.000000Z" };
+    changeShotsBeforePages(tablet, machine, history, [[1, (shots) => shots.map((shot) => (shot.id === "retimed-mid-scan-149" ? { ...shot, ...retimed } : shot))]]);
+    await expect.poll(() => storedIds(machine.machine.id), { timeout: 20_000 }).toEqual(expect.arrayContaining(history.map((shot) => String(shot.id))));
+    expect(tablet.shotPageRequests).toEqual(pages(0, 90));
+  }, 30_000);
+
+  it("rescans when an import moves a Shot not yet read among those already read, reporting nothing", async () => {
+    const machine = await api.createMachine("Imported mid-scan");
+    const history = timeline("imported-mid-scan", 150);
+    const tablet = load(machine, history);
+    // The oldest Shot, overwritten by an import with a time newer than every other: Decaid gives it a new edit time and fires no event.
+    const imported = { timestamp: "2026-02-01T00:00:00.000Z", updatedAt: "2026-11-01T12:00:00.000000Z" };
+    changeShotsBeforePages(tablet, machine, history, [[1, (shots) => shots.map((shot) => (shot.id === "imported-mid-scan-0" ? { ...shot, ...imported } : shot))]]);
+    await expect.poll(() => storedIds(machine.machine.id), { timeout: 20_000 }).toEqual(expect.arrayContaining(history.map((shot) => String(shot.id))));
+    expect(tablet.shotPageRequests).toEqual(pages(0, 90, 0, 90));
+  }, 30_000);
+
+  it("rescans when more Shots than the pages overlap are deleted between two pages", async () => {
+    const machine = await api.createMachine("Many deleted mid-scan");
+    const history = timeline("many-deleted-mid-scan", 150);
+    const tablet = load(machine, history);
+    changeShotsBeforePages(tablet, machine, history, [[1, (shots) => shots.slice(20)]]);
+    await expect.poll(() => storedIds(machine.machine.id), { timeout: 20_000 }).toEqual(expect.arrayContaining(history.slice(0, -20).map((shot) => String(shot.id))));
+    expect(tablet.shotPageRequests).toEqual(pages(0, 90, 0, 90));
+    expect(tablet.logs.join("\n")).not.toMatch(/kept changing/);
+  }, 30_000);
+
+  it("bounds the scan's requests while Shots keep changing, leaving the rest to the next load", async () => {
+    const deleting = await api.createMachine("Deleting throughout");
+    const history = timeline("deleting-throughout", 150);
+    const tablet = load(deleting, history);
+    changeShotsBeforePages(tablet, deleting, history, [1, 3, 5].map((page) => [page, (shots) => shots.slice(20)]));
+    await tablet.waitForLog(/kept changing/);
+    expect(tablet.shotPageRequests).toEqual(pages(0, 90, 0, 90, 0, 90));
+
+    // Shots added faster than the pages advance exhaust the requests the first page's total allows.
+    const adding = await api.createMachine("Adding throughout");
+    const older = timeline("adding-throughout", 150);
+    const growing = load(adding, older);
+    const newer = (page: number) => Array.from({ length: 100 }, (_, n) => shot(`adding-throughout-${page}-${n}`, { timestamp: new Date(Date.UTC(2026, 1, page, 0, 0, n)).toISOString() }));
+    changeShotsBeforePages(growing, adding, older, [1, 2, 3].map((page) => [page, (shots) => [...newer(page), ...shots]]));
+    const indexed = () => growing.sent.flatMap((frame) => {
+      const message = frame as { type?: string; shots?: { id: string }[] };
+      return message.type === "shotIndex" ? message.shots!.map((shot) => shot.id) : [];
+    });
+    await expect.poll(indexed, { timeout: 10_000 }).toEqual(expect.arrayContaining(older.map((shot) => String(shot.id))));
+    await expect.poll(() => growing.shotPageRequests.length).toBe(9);
+    expect(growing.shotPageRequests).toEqual(pages(0, 90, 180, 270, 0, 90, 180, 270, 360));
+    expect(growing.logs.join("\n")).not.toMatch(/kept changing/);
   }, 30_000);
 
   it("captures shotStored and shotUpdated, keeps curves intact, and adds the last Shot to Machine status", async () => {

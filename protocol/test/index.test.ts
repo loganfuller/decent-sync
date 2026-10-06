@@ -4,6 +4,7 @@ import {
   COLLECTION_NAMES,
   type ErrorMessage,
   type Hello,
+  MAX_ID_LENGTH,
   PROTOCOL_VERSION,
   decodePluginMessage,
   decodeServerMessage,
@@ -358,5 +359,38 @@ describe("Collection envelopes", () => {
       expect(decodePluginMessage(frame({ ...beans, available }))).toMatchObject({ ok: false, problem: "collection.available must be true or false" });
     }
     expect(decodePluginMessage(frame({ ...beans, id: "" }))).toMatchObject({ ok: false, problem: "collection.id must not be empty" });
+  });
+});
+
+describe("Delivery ids", () => {
+  const observedAt = "2026-10-05T14:07:03.341Z";
+  const deliveries = [
+    { type: "shot", shotId: "shot-1", shot: {} },
+    { type: "shotUpdated", shotId: "shot-1", shot: {} },
+    { type: "shotIndex", shots: [] },
+    { type: "steam", steamId: "steam-1", steamedAt: observedAt, steam: {} },
+    { type: "steamIndex", steams: [] },
+    { type: "workflow", observedAt, workflow: {} },
+    { type: "machineState", observedAt, state: "idle", substate: "idle" },
+    { type: "collection", name: "scaleInfo", available: false },
+  ];
+
+  it("are at most MAX_ID_LENGTH characters on every delivery, and a longer one is refused without being repeated", () => {
+    const longest = "a".repeat(MAX_ID_LENGTH);
+    const longer = "b".repeat(MAX_ID_LENGTH + 1);
+    for (const delivery of deliveries) {
+      expect(decodePluginMessage(frame({ ...delivery, id: longest }))).toEqual({ ok: true, message: { ...delivery, id: longest } });
+      expect(decodePluginMessage(frame({ ...delivery, id: longer }))).toEqual({
+        ok: false,
+        error: "protocol_error",
+        problem: `${delivery.type}.id must be at most ${MAX_ID_LENGTH} characters`,
+      });
+    }
+  });
+
+  it("are counted in UTF-16 code units, as JavaScript counts a string's length", () => {
+    const pairs = "\u{1D11E}".repeat(MAX_ID_LENGTH / 2);
+    expect(decodePluginMessage(frame({ ...deliveries[0], id: pairs })).ok).toBe(true);
+    expect(decodePluginMessage(frame({ ...deliveries[0], id: `${pairs}a` })).ok).toBe(false);
   });
 });
