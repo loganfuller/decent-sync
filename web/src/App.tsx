@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, Suspense, lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import { AuthProvider, useAuth, useIsAdmin } from "@/auth";
 import { AccountsPage } from "@/pages/AccountsPage";
@@ -10,6 +10,10 @@ import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { SetupPage } from "@/pages/SetupPage";
 import { HomePage, Shell } from "@/pages/Shell";
 import { SignInPage, type SignInState } from "@/pages/SignInPage";
+
+// The Shot pages load their charts and calendar only when opened, which keeps them out of every other page.
+const ShotsPage = lazy(() => import("@/pages/ShotsPage").then((page) => ({ default: page.ShotsPage })));
+const ShotPage = lazy(() => import("@/pages/ShotPage").then((page) => ({ default: page.ShotPage })));
 
 export function App() {
   return (
@@ -33,6 +37,22 @@ export function App() {
             <Route path="/locations" element={<LocationsPage />} />
             <Route path="/machines" element={<MachinesPage />} />
             <Route path="/machines/:id" element={<MachinePage />} />
+            <Route
+              path="/shots"
+              element={
+                <Suspense>
+                  <ShotsPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/shots/:id"
+              element={
+                <Suspense>
+                  <ShotPage />
+                </Suspense>
+              }
+            />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

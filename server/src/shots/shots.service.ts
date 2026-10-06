@@ -6,6 +6,7 @@ import { creditShotLocation } from "../machines/location-history.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
 import { extractCurves, extractShot, shotHardware, shotVersion } from "./extraction.js";
+import { type ShotFilters, shotFilterSql } from "./filters.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
 const SHOT_LOCK = 4_000_003;
@@ -82,19 +83,77 @@ export class ShotsService {
     return [...new Set(missing.map((shot) => shot.id))];
   }
 
-  async list(limit: number, offset: number, machineId?: string) {
-    const where: Prisma.ShotWhereInput = { ...visible, ...(machineId ? { machineId } : {}) };
-    const [shots, total] = await this.prisma.$transaction([
-      this.prisma.shot.findMany({ where, orderBy, take: limit, skip: offset, omit: { record: true, versionAt: true, hasFullRecord: true }, include: creditView }),
-      this.prisma.shot.count({ where }),
-    ]);
-    return { shots: shots.map(withLocationInferred), total, limit, offset };
+  async list(limit: number, offset: number, filters: ShotFilters = {}) {
+    const where = Prisma.sql`${listed} AND ${shotFilterSql(filters)}`;
+    // One snapshot, so the page's rows and the total agree.
+    const { page, total } = await this.prisma.$transaction(
+      async (tx) => {
+        const [ids, [count]] = await Promise.all([
+          tx.$queryRaw<{ id: string }[]>`
+            SELECT s.id FROM shots s ${listedJoins} WHERE ${where}
+            ORDER BY s.pulled_at DESC NULLS LAST, s.id ASC LIMIT ${limit} OFFSET ${offset}`,
+          tx.$queryRaw<{ total: number }[]>`SELECT count(*)::int AS total FROM shots s ${listedJoins} WHERE ${where}`,
+        ]);
+        const rows = ids.length === 0
+          ? []
+          : await tx.shot.findMany({ where: { id: { in: ids.map((row) => row.id) } }, omit: { record: true, versionAt: true, hasFullRecord: true }, include: creditView });
+        const byId = new Map(rows.map((row) => [row.id, row]));
+        return { page: ids.flatMap((row) => byId.get(row.id) ?? []), total: count!.total };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+    return { shots: page.map(withLocationInferred), total, limit, offset };
+  }
+
+  /**
+   * The Beans, Baristas and profiles listed Shots recorded, for choosing
+   * filters, each as recorded and sorted ignoring case. Null stands for the
+   * Shots that recorded none: a Bean names neither roaster nor name.
+   */
+  async filterOptions() {
+    const [beans, baristas, profiles] = await this.prisma.$transaction(
+      [
+        this.prisma.$queryRaw<{ coffeeRoaster: string | null; coffeeName: string | null }[]>`
+          SELECT nullif(s.coffee_roaster, '') AS "coffeeRoaster", nullif(s.coffee_name, '') AS "coffeeName"
+          FROM shots s ${listedJoins} WHERE ${listed} GROUP BY 1, 2
+          ORDER BY lower(nullif(s.coffee_roaster, '')) NULLS LAST, lower(nullif(s.coffee_name, '')) NULLS LAST, 1, 2`,
+        this.distinct(Prisma.raw("s.barista")),
+        this.distinct(Prisma.raw("s.profile_title")),
+      ],
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+    return { beans, baristas: baristas.map((row) => row.value), profiles: profiles.map((row) => row.value) };
+  }
+
+  private distinct(column: Prisma.Sql) {
+    return this.prisma.$queryRaw<{ value: string | null }[]>`
+      SELECT nullif(${column}, '') AS value FROM shots s ${listedJoins} WHERE ${listed}
+      GROUP BY 1 ORDER BY lower(nullif(${column}, '')) NULLS LAST, 1`;
+  }
+
+  /**
+   * The Shot pulled on the same Machine, or held by the same Pending
+   * Machine, just before this one, as the list orders them; none when its
+   * time is unknown.
+   */
+  private async previous(shot: { id: string; pulledAt: Date | null; machineId: string | null; pendingMachineId: string | null }) {
+    if (shot.pulledAt === null) return null;
+    const credit = shot.machineId !== null
+      ? Prisma.sql`s.machine_id = ${shot.machineId}::uuid`
+      : Prisma.sql`s.pending_machine_id = ${shot.pendingMachineId}::uuid`;
+    // Ordered as the indexes on pulled_at are, NULLS LAST, and bounded above, so an index scan starts at this Shot.
+    const [previous] = await this.prisma.$queryRaw<{ id: string; pulledAt: Date }[]>`
+      SELECT s.id, s.pulled_at AS "pulledAt" FROM shots s ${listedJoins}
+      WHERE ${listed} AND ${credit} AND s.pulled_at <= ${shot.pulledAt}::timestamptz
+        AND (s.pulled_at < ${shot.pulledAt}::timestamptz OR s.id > ${shot.id})
+      ORDER BY s.pulled_at DESC NULLS LAST, s.id ASC LIMIT 1`;
+    return previous ?? null;
   }
 
   async get(id: string) {
     const shot = await this.prisma.shot.findFirst({ where: { id, ...visible }, omit: { versionAt: true, hasFullRecord: true }, include: creditView });
     if (!shot) throw shotNotFound();
-    return withLocationInferred(shot);
+    return { ...withLocationInferred(shot), previousShot: await this.previous(shot) };
   }
 
   async measurements(id: string) {
@@ -115,7 +174,9 @@ const visible: Prisma.ShotWhereInput = {
   hasFullRecord: true,
   OR: [{ machineId: { not: null } }, { pendingMachine: { dismissedAt: null } }],
 };
-const orderBy: Prisma.ShotOrderByWithRelationInput[] = [{ pulledAt: { sort: "desc", nulls: "last" } }, { id: "asc" }];
+/** `visible` in SQL, for `shots` aliased `s` with `listedJoins`, which also joins its Location as `l` for filters. */
+const listed = Prisma.sql`s.has_full_record AND (s.machine_id IS NOT NULL OR (p.id IS NOT NULL AND p.dismissed_at IS NULL))`;
+const listedJoins = Prisma.sql`LEFT JOIN pending_machines p ON p.id = s.pending_machine_id LEFT JOIN locations l ON l.id = s.location_id`;
 const creditView = {
   machine: { select: { id: true, name: true } },
   pendingMachine: { select: { id: true, model: true, serial: true } },

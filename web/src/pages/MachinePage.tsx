@@ -19,6 +19,7 @@ import {
 import { TokenNotice } from "@/components/TokenNotice";
 import { Field, Fields } from "@/components/fields";
 import { LibraryCard, PairedDevicesCard, SETTINGS, SettingsCard } from "@/components/machine-collections";
+import { workflowFields } from "@/components/workflow";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -196,7 +197,20 @@ function MachineDetails({ id }: { id: string }) {
                       ? `${describeMachineState(machine.machineState)}, since ${formatTime(machine.machineState.observedAt)}`
                       : "Not reported yet"}
                   </Field>
-                  <Field term="Last Shot">{lastShotText(machine)}</Field>
+                  <Field term="Last Shot">
+                    {machine.lastShot ? (
+                      <Link to={`/shots/${encodeURIComponent(machine.lastShot.id)}`} className="underline underline-offset-4">
+                        {lastShotText(machine)}
+                      </Link>
+                    ) : (
+                      lastShotText(machine)
+                    )}
+                  </Field>
+                  <Field term="Shots">
+                    <Link to={`/shots?machineId=${machine.id}`} className="underline underline-offset-4">
+                      All its Shots
+                    </Link>
+                  </Field>
                 </Fields>
               </CardContent>
             </Card>
@@ -342,51 +356,6 @@ function MachineWorkflow({ current }: { current: WorkflowEvent | null }) {
       )}
     </Card>
   );
-}
-
-/**
- * The parts of a Workflow shown, as Decaid names them in its Workflow, each
- * only if present: another Decaid version may send others or fewer.
- */
-function workflowFields(workflow: Record<string, unknown>): [string, string][] {
-  const profile = record(workflow.profile);
-  const context = record(workflow.context);
-  const steam = record(workflow.steamSettings);
-  const hotWater = record(workflow.hotWaterData);
-  const rinse = record(workflow.rinseData);
-  const fields: [string, string | undefined][] = [
-    ["Profile", text(profile?.title)],
-    ["Dose", amount(context?.targetDoseWeight, "g")],
-    ["Yield", amount(context?.targetYield, "g")],
-    ["Bean", text(context?.coffeeName)],
-    ["Roaster", text(context?.coffeeRoaster)],
-    ["Grinder", text(context?.grinderModel)],
-    ["Grind setting", text(context?.grinderSetting)],
-    ["Barista", text(context?.baristaName)],
-    ["Steam", list(amount(steam?.targetTemperature, "°C"), amount(steam?.duration, "s"), amount(steam?.flow, "ml/s"))],
-    ["Hot water", list(amount(hotWater?.targetTemperature, "°C"), amount(hotWater?.volume, "ml"))],
-    ["Rinse", list(amount(rinse?.targetTemperature, "°C"), amount(rinse?.duration, "s"))],
-  ];
-  return fields.filter((field): field is [string, string] => field[1] !== undefined);
-}
-
-function record(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
-}
-
-function text(value: unknown): string | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  return typeof value === "string" && value.trim() !== "" ? value : undefined;
-}
-
-/** A number with its unit, to two decimal places at most: Decaid sends 2.500000000000001 for 2.5. */
-function amount(value: unknown, unit: string): string | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? `${Number(value.toFixed(2))} ${unit}` : undefined;
-}
-
-function list(...parts: (string | undefined)[]): string | undefined {
-  const present = parts.filter((part) => part !== undefined);
-  return present.length > 0 ? present.join(", ") : undefined;
 }
 
 /**
