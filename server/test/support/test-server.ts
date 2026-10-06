@@ -9,7 +9,8 @@ import pg from "pg";
 // Runs the built server (`npm run build` first) as a self-hoster does, on its
 // own fresh PostgreSQL database, so each test file starts from an empty
 // server. DATABASE_URL, from the environment or the repo's .env, names the
-// PostgreSQL server to create test databases on; its user needs CREATEDB.
+// PostgreSQL server to create test databases on; its user needs CREATEDB, and
+// CREATEROLE for `notOwner`.
 
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const main = path.join(repoDir, "server/dist/main.js");
@@ -42,15 +43,47 @@ export interface TestServerOptions {
   sharing?: TestServer;
   /** Runs the server with its clock this far ahead of real time (behind if negative), as on a drifting host. */
   clockOffsetMs?: number;
+  /** Connects the server to PostgreSQL through this host and port, such as a pooler's. */
+  databaseHost?: string;
+  /**
+   * Runs the server, on a fresh database, as a role of its own that does not
+   * own that database, as a host may give it. The role may create in the
+   * public schema, as migrating needs, and is dropped with the database.
+   */
+  notOwner?: boolean;
 }
 
 export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
+  // The role's grant would outlive it on a shared database, which stays, so the role could not be dropped.
+  if (options.notOwner && options.sharing) throw new Error("notOwner needs a fresh database; it cannot be combined with sharing");
   const baseUrl = adminDatabaseUrl();
   const database = options.sharing?.database ?? `decent_sync_test_${randomBytes(6).toString("hex")}`;
-  if (!options.sharing) await withClient(baseUrl, (client) => client.query(`CREATE DATABASE "${database}"`));
+  const role = options.notOwner ? `decent_sync_test_${randomBytes(6).toString("hex")}` : undefined;
+  /** Drops the server's database, unless it shares another's, and its role. */
+  const drop = async () => {
+    if (!options.sharing) await withClient(baseUrl, (client) => client.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`));
+    if (role) await withClient(baseUrl, (client) => client.query(`DROP ROLE IF EXISTS "${role}"`));
+  };
 
   const databaseUrl = new URL(baseUrl);
   databaseUrl.pathname = `/${database}`;
+  const serverDatabaseUrl = new URL(databaseUrl);
+  if (options.databaseHost) serverDatabaseUrl.host = options.databaseHost;
+  try {
+    if (!options.sharing) await withClient(baseUrl, (client) => client.query(`CREATE DATABASE "${database}"`));
+    if (role) {
+      const password = randomBytes(16).toString("hex");
+      await withClient(baseUrl, (client) => client.query(`CREATE ROLE "${role}" LOGIN PASSWORD '${password}'`));
+      // From PostgreSQL 15, only the database's owner may create there by default.
+      await withClient(databaseUrl.href, (client) => client.query(`GRANT CREATE ON SCHEMA public TO "${role}"`));
+      serverDatabaseUrl.username = role;
+      serverDatabaseUrl.password = password;
+    }
+  } catch (error) {
+    // Report the failure, not a failure to clean up after it.
+    await drop().catch(() => {});
+    throw error;
+  }
   const port = await freePort();
   const url = `http://127.0.0.1:${port}`;
 
@@ -59,7 +92,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     env: {
       PATH: process.env.PATH,
       HOME: process.env.HOME,
-      DATABASE_URL: databaseUrl.href,
+      DATABASE_URL: serverDatabaseUrl.href,
       PUBLIC_URL: options.publicUrl ?? url,
       HOST: "127.0.0.1",
       PORT: String(port),
@@ -78,7 +111,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
 
   const stop = async () => {
     await terminate(child);
-    if (!options.sharing) await withClient(baseUrl, (client) => client.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`));
+    await drop();
   };
   const kill = async () => {
     if (child.exitCode !== null || child.signalCode !== null) return;
@@ -101,7 +134,8 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
   return { url, database, output: () => output.join(""), stop, kill, connectDatabase };
 }
 
-function adminDatabaseUrl(): string {
+/** DATABASE_URL, naming the PostgreSQL server tests create their databases on. */
+export function adminDatabaseUrl(): string {
   const envFile = path.join(repoDir, ".env");
   if (!process.env.DATABASE_URL && fs.existsSync(envFile)) process.loadEnvFile(envFile);
   const url = process.env.DATABASE_URL;

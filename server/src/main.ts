@@ -3,11 +3,12 @@ import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module.js";
 import { StartupError, loadConfig } from "./config.js";
-import { runMigrations } from "./migrations.js";
+import { checkIdleInTransactionTimeout, runMigrations } from "./migrations.js";
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
   await runMigrations(config);
+  await checkIdleInTransactionTimeout(config);
 
   const app = await NestFactory.create(AppModule.register(config));
   app.enableShutdownHooks();

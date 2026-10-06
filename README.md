@@ -132,6 +132,12 @@ docker run -d -p 3000:3000 \
   ghcr.io/loganfuller/decent-sync:0.1.0
 ```
 
+The user in `DATABASE_URL` should own its database: a migration sets the
+database's `idle_in_transaction_session_timeout`, so that a transaction left
+open by a vanished host releases its locks, and only the owner or a superuser
+may set it. If the user cannot, the server warns at startup and gives the
+statement for the owner to run.
+
 ### On a LAN, without TLS
 
 The server can run on a computer on the same network as the machines, with no
@@ -156,9 +162,9 @@ fly mpg create                  # Fly Managed Postgres; note its direct connecti
 fly secrets set --app my-decent-sync DATABASE_URL='postgresql://...'
 ```
 
-Use the database's direct URL, not the pooled one. The server sets connection
-parameters that the pooler may refuse, and it listens for PostgreSQL
-notifications, which the pooler drops in transaction mode.
+Use the database's direct URL, not the pooled one. The server has not yet been
+tested through the pooled URL, and it listens for PostgreSQL notifications,
+which the pooler drops in transaction mode.
 
 Save a `fly.toml` like this one, with your app's name and the image version to
 run, then deploy one machine. Before version 1.0, a new version must not run
@@ -280,7 +286,7 @@ interface everywhere else.
 Server tests and Playwright start the built server once per test file, each on
 a fresh database they create and drop on the PostgreSQL server named by
 `DATABASE_URL`, so they need it running and its user allowed to create
-databases (true of `npm run db:up`'s).
+databases and roles (true of `npm run db:up`'s).
 
 Decaid installs whatever is committed in `decent-sync.reaplugin/`, so commit the
 rebuilt plugin with every change to `plugin/` or `protocol/`. CI checks it, and
