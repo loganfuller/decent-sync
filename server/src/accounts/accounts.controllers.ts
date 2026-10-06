@@ -8,7 +8,6 @@ import {
   AccountsService,
   type AccountView,
   type ManagedAccountView,
-  TooManySignInAttempts,
   setupClosed,
   viewAccount,
 } from "./accounts.service.js";
@@ -67,14 +66,9 @@ export class SessionController {
   @HttpCode(200)
   async signIn(@Body() body: unknown, @Res({ passthrough: true }) response: Response): Promise<{ account: AccountView }> {
     const { email, password } = readCredentials(body);
-    try {
-      const account = await this.accounts.authenticate(email, password);
-      await this.sessions.start(account, response);
-      return { account: viewAccount(account) };
-    } catch (error) {
-      if (error instanceof TooManySignInAttempts) response.setHeader("Retry-After", String(error.retryAfterSeconds));
-      throw error;
-    }
+    const account = await this.accounts.authenticate(email, password);
+    await this.sessions.start(account, response);
+    return { account: viewAccount(account) };
   }
 
   @AllowStaff()

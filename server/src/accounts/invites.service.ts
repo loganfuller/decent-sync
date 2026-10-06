@@ -5,6 +5,7 @@ import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
 import { type AccountWithLocations, databaseNow, refuseUnknownLocations, withStaffLocations } from "./accounts.service.js";
 import { type Acceptance, type NewInvite, inviteNotFound } from "./input.js";
+import { PasswordChecks } from "./password-checks.js";
 import { hashPassword } from "./passwords.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -54,7 +55,10 @@ function viewInvite(invite: ListedInvite): InviteView {
  */
 @Injectable()
 export class InvitesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly passwordChecks: PasswordChecks,
+  ) {}
 
   /** Creates an invite. Its secret, which its link holds, is returned only here. */
   async create(fields: NewInvite): Promise<{ invite: InviteView; secret: string }> {
@@ -126,7 +130,7 @@ export class InvitesService {
   async accept(secret: string, acceptance: Acceptance): Promise<AccountWithLocations> {
     // Checked first, so a link that cannot be used costs no password hash.
     const { email } = await usable(this.prisma, secret);
-    const passwordHash = await hashPassword(acceptance.password);
+    const passwordHash = await this.passwordChecks.run(() => hashPassword(acceptance.password));
     try {
       return await this.prisma.$transaction(async (tx) => {
         const secretHash = hashSecret(secret);

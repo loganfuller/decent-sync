@@ -1,16 +1,9 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  HttpException,
-  HttpStatus,
-  Injectable,
-  UnauthorizedException,
-} from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, UnauthorizedException } from "@nestjs/common";
 import { PrismaService } from "../prisma.service.js";
 import { type Account, AccountRole, type Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { type Access, UNKNOWN_LOCATIONS, accountNotFound } from "./input.js";
+import { PasswordChecks, TooManyRequests } from "./password-checks.js";
 import { hashPassword, verifyAgainstDummy, verifyPassword } from "./passwords.js";
 import { SignInLimiter } from "./sign-in-limiter.js";
 
@@ -62,6 +55,7 @@ export class AccountsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly limiter: SignInLimiter,
+    private readonly passwordChecks: PasswordChecks,
   ) {}
 
   /** The account as the REST API returns it, or undefined if there is none. */
@@ -81,7 +75,7 @@ export class AccountsService {
    * holds an advisory lock while it checks for accounts and creates one.
    */
   async setUp(input: { email: string; name: string; password: string }): Promise<AccountWithLocations> {
-    const passwordHash = await hashPassword(input.password);
+    const passwordHash = await this.passwordChecks.run(() => hashPassword(input.password));
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SETUP_LOCK}::bigint)`;
       if ((await tx.account.count()) > 0) throw setupClosed();
@@ -96,17 +90,20 @@ export class AccountsService {
    * The account with this email and password. A wrong email and a wrong
    * password are refused alike, in about the same time. A deactivated
    * account is refused only after its password is checked, so saying so
-   * reveals nothing to someone who does not know it.
+   * reveals nothing to someone who does not know it. The check waits its
+   * turn among this instance's password checks, before the attempt counts
+   * towards the email's limit, and is refused if too many are waiting.
    */
   async authenticate(email: string, password: string): Promise<AccountWithLocations> {
-    const retryAfter = await this.limiter.begin(email);
-    if (retryAfter !== undefined) throw new TooManySignInAttempts(retryAfter);
+    const account = await this.passwordChecks.run(async () => {
+      const retryAfter = await this.limiter.begin(email);
+      if (retryAfter !== undefined) throw new TooManySignInAttempts(retryAfter);
 
-    const account = await this.prisma.account.findUnique({ where: { email }, include: withStaffLocations });
-    const valid = account
-      ? await verifyPassword(password, account.passwordHash)
-      : await verifyAgainstDummy(password);
-    if (!account || !valid) throw new UnauthorizedException("The email or password is incorrect");
+      const found = await this.prisma.account.findUnique({ where: { email }, include: withStaffLocations });
+      const valid = found ? await verifyPassword(password, found.passwordHash) : await verifyAgainstDummy(password);
+      if (!found || !valid) throw new UnauthorizedException("The email or password is incorrect");
+      return found;
+    });
     if (account.deactivatedAt) throw accountDeactivated();
 
     await this.limiter.succeeded(email);
@@ -236,16 +233,9 @@ export function setupClosed(): ConflictException {
 }
 
 /** Refuses a sign-in while its email is rate-limited. */
-export class TooManySignInAttempts extends HttpException {
-  constructor(readonly retryAfterSeconds: number) {
+export class TooManySignInAttempts extends TooManyRequests {
+  constructor(retryAfterSeconds: number) {
     const minutes = Math.ceil(retryAfterSeconds / 60);
-    super(
-      {
-        statusCode: HttpStatus.TOO_MANY_REQUESTS,
-        error: "Too Many Requests",
-        message: `Too many sign-in attempts for this email. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`,
-      },
-      HttpStatus.TOO_MANY_REQUESTS,
-    );
+    super(retryAfterSeconds, `Too many sign-in attempts for this email. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`);
   }
 }

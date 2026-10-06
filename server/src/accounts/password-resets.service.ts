@@ -10,6 +10,7 @@ import {
   viewManagedAccount,
   withStaffLocations,
 } from "./accounts.service.js";
+import { PasswordChecks } from "./password-checks.js";
 import { hashPassword } from "./passwords.js";
 import { SessionsService } from "./sessions.service.js";
 import { SignInLimiter } from "./sign-in-limiter.js";
@@ -54,6 +55,7 @@ export class PasswordResetsService {
     private readonly prisma: PrismaService,
     private readonly sessions: SessionsService,
     private readonly limiter: SignInLimiter,
+    private readonly passwordChecks: PasswordChecks,
   ) {}
 
   /**
@@ -85,7 +87,7 @@ export class PasswordResetsService {
   async redeem(secret: string, password: string): Promise<{ account: AccountWithLocations; token: string }> {
     // Checked first, so a link that cannot be used costs no password hash.
     const { accountId } = await usable(this.prisma, secret);
-    const passwordHash = await hashPassword(password);
+    const passwordHash = await this.passwordChecks.run(() => hashPassword(password));
     const redeemed = await this.prisma.$transaction(async (tx) => {
       // The account's row first, as deactivating takes it before withdrawing
       // the link and sign-ins take it to start a session: whichever runs
