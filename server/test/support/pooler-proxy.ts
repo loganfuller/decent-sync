@@ -8,16 +8,25 @@ import { adminDatabaseUrl } from "./test-server.js";
 // parameters each connection sent, and asks each new session for its
 // idle_in_transaction_session_timeout before handing it to the client.
 
-/** What PgBouncer accepts at startup unless told to ignore others (`ignore_startup_parameters`). */
+/**
+ * What PgBouncer 1.26 accepts at startup unless told to ignore others
+ * (`ignore_startup_parameters`): the user and database, and the settings it
+ * tracks by default, including those it tracks only from a later PostgreSQL
+ * version (`scram_iterations`, `search_path`).
+ */
 const TRACKED_PARAMETERS = new Set([
   "user",
   "database",
+  "application_name",
   "client_encoding",
   "datestyle",
-  "timezone",
-  "standard_conforming_strings",
-  "application_name",
+  "default_transaction_read_only",
   "intervalstyle",
+  "scram_iterations",
+  "search_path",
+  "session_authorization",
+  "standard_conforming_strings",
+  "timezone",
 ]);
 
 const PROTOCOL_3 = 196608;

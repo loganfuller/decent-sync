@@ -56,20 +56,31 @@ export interface TestServerOptions {
 export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
   const baseUrl = adminDatabaseUrl();
   const database = options.sharing?.database ?? `decent_sync_test_${randomBytes(6).toString("hex")}`;
-  if (!options.sharing) await withClient(baseUrl, (client) => client.query(`CREATE DATABASE "${database}"`));
+  const role = options.notOwner ? `decent_sync_test_${randomBytes(6).toString("hex")}` : undefined;
+  /** Drops the server's database, unless it shares another's, and its role. */
+  const drop = async () => {
+    if (!options.sharing) await withClient(baseUrl, (client) => client.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`));
+    if (role) await withClient(baseUrl, (client) => client.query(`DROP ROLE IF EXISTS "${role}"`));
+  };
 
   const databaseUrl = new URL(baseUrl);
   databaseUrl.pathname = `/${database}`;
   const serverDatabaseUrl = new URL(databaseUrl);
   if (options.databaseHost) serverDatabaseUrl.host = options.databaseHost;
-  const role = options.notOwner ? `decent_sync_test_${randomBytes(6).toString("hex")}` : undefined;
-  if (role) {
-    const password = randomBytes(16).toString("hex");
-    await withClient(baseUrl, (client) => client.query(`CREATE ROLE "${role}" LOGIN PASSWORD '${password}'`));
-    // From PostgreSQL 15, only the database's owner may create there by default.
-    await withClient(databaseUrl.href, (client) => client.query(`GRANT CREATE ON SCHEMA public TO "${role}"`));
-    serverDatabaseUrl.username = role;
-    serverDatabaseUrl.password = password;
+  try {
+    if (!options.sharing) await withClient(baseUrl, (client) => client.query(`CREATE DATABASE "${database}"`));
+    if (role) {
+      const password = randomBytes(16).toString("hex");
+      await withClient(baseUrl, (client) => client.query(`CREATE ROLE "${role}" LOGIN PASSWORD '${password}'`));
+      // From PostgreSQL 15, only the database's owner may create there by default.
+      await withClient(databaseUrl.href, (client) => client.query(`GRANT CREATE ON SCHEMA public TO "${role}"`));
+      serverDatabaseUrl.username = role;
+      serverDatabaseUrl.password = password;
+    }
+  } catch (error) {
+    // Report the failure, not a failure to clean up after it.
+    await drop().catch(() => {});
+    throw error;
   }
   const port = await freePort();
   const url = `http://127.0.0.1:${port}`;
@@ -98,8 +109,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
 
   const stop = async () => {
     await terminate(child);
-    if (!options.sharing) await withClient(baseUrl, (client) => client.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`));
-    if (role) await withClient(baseUrl, (client) => client.query(`DROP ROLE IF EXISTS "${role}"`));
+    await drop();
   };
   const kill = async () => {
     if (child.exitCode !== null || child.signalCode !== null) return;
