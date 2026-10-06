@@ -159,6 +159,17 @@ describe("Shot capture and reconciliation", () => {
     expect(tablet.shotPageRequests).toEqual(pages(0, 90, 180));
   }, 30_000);
 
+  it("resumes after a Shot read unchanged, not one whose time was edited to sort among unread Shots", async () => {
+    const machine = await api.createMachine("Retimed mid-scan");
+    const history = timeline("retimed-mid-scan", 150);
+    const tablet = load(machine, history);
+    // The newest Shot, read on the first page, edited to sort between the fifth and fourth oldest; Decaid gives it a new edit time.
+    const retimed = { timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, 4, 500)).toISOString(), updatedAt: "2026-11-01T12:00:00.000000Z" };
+    changeShotsBeforePages(tablet, machine, history, [[1, (shots) => shots.map((shot) => (shot.id === "retimed-mid-scan-149" ? { ...shot, ...retimed } : shot))]]);
+    await expect.poll(() => storedIds(machine.machine.id), { timeout: 20_000 }).toEqual(expect.arrayContaining(history.map((shot) => String(shot.id))));
+    expect(tablet.shotPageRequests).toEqual(pages(0, 90));
+  }, 30_000);
+
   it("rescans when more Shots than the pages overlap are deleted between two pages", async () => {
     const machine = await api.createMachine("Many deleted mid-scan");
     const history = timeline("many-deleted-mid-scan", 150);

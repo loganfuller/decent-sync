@@ -98,15 +98,20 @@ export class ShotCapture {
    * in the list as it is when each page is read, so a deletion moves later
    * Shots up and an addition moves them down. Each page after the first
    * therefore starts OVERLAP Shots before the previous page ended and
-   * resumes after the last Shot this pass has read: every older Shot sorts
-   * after it, so none that existed throughout the pass is missed. Returns
-   * true once the pass reaches the end or the capture stops, and false if no
-   * Shot it has read reappears, as when more than the overlap were deleted
-   * between two pages, or if the list grows past what the first page's total
-   * allows: the pass may have missed Shots, so it is repeated.
+   * resumes after the last Shot this pass has read and that has the edit
+   * time it was read with: every unedited Shot older than that one sorts
+   * after it, so none that existed throughout the pass is missed. A Shot
+   * edited since, its time perhaps among them, can sort anywhere; Decaid
+   * gives an edited Shot a new edit time, and its `shotUpdated` event
+   * captures it. Returns true once the pass reaches the end or the capture
+   * stops, and false if no such Shot reappears, as when more than the
+   * overlap were deleted between two pages, or if the list grows past what
+   * the first page's total allows: the pass may have missed Shots, so it is
+   * repeated.
    */
   private async scanPass(): Promise<boolean> {
-    const read = new Set<string>();
+    /** Each Shot this pass has read, with the edit time it was read with. */
+    const read = new Map<string, unknown>();
     // The first page sets how many requests the pass may make.
     let remaining = 1;
     for (let offset = 0; remaining > 0; remaining--) {
@@ -119,14 +124,14 @@ export class ShotCapture {
       if (offset === 0) remaining = Math.ceil(page.total / (PAGE_SIZE - OVERLAP)) + 2;
       else {
         for (let index = items.length - 1; index >= 0 && resume === 0; index--) {
-          const id = items[index]?.id;
-          if (typeof id === "string" && read.has(id)) resume = index + 1;
+          const summary = items[index];
+          if (typeof summary?.id === "string" && read.has(summary.id) && read.get(summary.id) === summary.updatedAt) resume = index + 1;
         }
         if (resume === 0) return false;
       }
       const shots = items.slice(resume).flatMap((summary) => {
         if (typeof summary?.id !== "string" || summary.id === "") return [];
-        read.add(summary.id);
+        read.set(summary.id, summary.updatedAt);
         // Decaid v0.8.7 and later give every Shot an edit time; a record without one is ignored.
         if (isLegacyImport(summary.id) || typeof summary.updatedAt !== "string") return [];
         this.ids.add(summary.id);

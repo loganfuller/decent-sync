@@ -22,8 +22,10 @@ not one those Decaid versions send: the server acknowledges and ignores it.
 On load, the plugin pages `GET /shots?limit=100&offset=...&order=desc` once,
 sending each page's ids and edit times. Offsets shift when Shots are deleted
 or added during the scan, so each page after the first repeats the previous
-page's last 10 positions and resumes after the last Shot already read; Shots
-that exist for the whole scan are all indexed. If no Shot already read
+page's last 10 positions and resumes after the last Shot already read whose
+edit time is unchanged; Shots that exist for the whole scan are all indexed,
+and one edited meanwhile, perhaps to another time, is captured by its
+`shotUpdated` event. If no Shot already read
 reappears (more than the overlap were deleted between two pages), or the list
 grows past what the first page's `total` allows, the scan starts again. After
 three passes it logs and leaves the rest to the next load. A reconnect in that
