@@ -6,6 +6,7 @@ import {
   type Hello,
   MAX_CHUNKS,
   MAX_FRAME_BYTES,
+  MAX_ID_LENGTH,
   type PluginMessage,
   Reassembly,
   type ReassemblyLimits,
@@ -336,6 +337,16 @@ describe("chunk envelopes", () => {
     for (const fields of [{ index: 1.5 }, { count: "2" }, { id: 3 }, { data: null }]) {
       expect(decodePluginFrame(JSON.stringify({ type: "chunk", id: "a", index: 0, count: 2, data: "", ...fields })).ok).toBe(false);
     }
+  });
+
+  it("refuses a chunk whose id is longer than a delivery's may be, without repeating it", () => {
+    const chunk = { type: "chunk", id: "a".repeat(MAX_ID_LENGTH), index: 0, count: 2, data: "{" };
+    expect(decodePluginFrame(JSON.stringify(chunk))).toEqual({ ok: true, message: chunk });
+    expect(decodePluginFrame(JSON.stringify({ ...chunk, id: "b".repeat(MAX_ID_LENGTH + 1) }))).toEqual({
+      ok: false,
+      error: "protocol_error",
+      problem: `chunk.id must be at most ${MAX_ID_LENGTH} characters`,
+    });
   });
 
   it("reads the server's receipt for a chunk", () => {

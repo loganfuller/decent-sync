@@ -107,6 +107,7 @@ var __decentSync = (() => {
   var PROTOCOL_VERSION = 1;
   var SYNC_PATH = "/sync";
   var MISSED_HEARTBEATS = 3;
+  var MAX_ID_LENGTH = 128;
   var CLOSE_CODES = {
     /** A frame that is not a valid message here, including no `hello` in time. */
     protocol_error: 4e3,
@@ -177,6 +178,13 @@ var __decentSync = (() => {
       const value = this.object[key];
       if (typeof value !== "string") this.problem(key, "must be a string");
       else if (options.nonEmpty && value === "") this.problem(key, "must not be empty");
+      else if (options.maxLength !== void 0 && value.length > options.maxLength) {
+        this.problem(key, `must be at most ${options.maxLength} characters`);
+      }
+    }
+    /** The id of a delivery or a chunk. */
+    id() {
+      this.string("id", { nonEmpty: true, maxLength: MAX_ID_LENGTH });
     }
     optionalString(key) {
       const value = this.object[key];
