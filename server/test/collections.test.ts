@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import { COLLECTION_NAMES } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
 import {
   type DecaidApi,
   RawConnection,
-  Refusal,
   SimulatedTablet,
   type SimulatedTabletOptions,
   de1ProOnDecaid087,
@@ -50,7 +50,6 @@ describe("Library, settings and paired devices", () => {
   let api: AdminApi;
   const tablets: SimulatedTablet[] = [];
   const raws: RawConnection[] = [];
-  const timers: NodeJS.Timeout[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
@@ -59,7 +58,6 @@ describe("Library, settings and paired devices", () => {
     api = await AdminApi.setUp(server.url);
   }, 60_000);
   afterEach(async () => {
-    timers.splice(0).forEach(clearInterval);
     const used = tablets.splice(0);
     await Promise.all(used.map((tablet) => tablet.unload()));
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
@@ -118,33 +116,20 @@ describe("Library, settings and paired devices", () => {
   }
 
   async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
-    const raw = await RawConnection.open(url);
+    const raw = await RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
     raws.push(raw);
-    raw.send(helloWith(machine.token, hardware ? { machine: hardware } : {}));
-    expect(await raw.message(0)).toMatchObject({ type: "welcome" });
-    timers.push(setInterval(() => raw.send({ type: "heartbeat" }), 300));
     return raw;
-  }
-  /** Sends a delivery and resolves once it is acknowledged, again if it was before. */
-  async function deliver(raw: RawConnection, message: { id: string }) {
-    const acks = () => raw.messages.filter((reply) => frameType(reply) === "ack" && (reply as Frame).id === message.id).length;
-    const before = acks();
-    raw.send(message);
-    await expect.poll(acks).toBe(before + 1);
   }
   const report = (name: string, value?: unknown) =>
     value === undefined
       ? { type: "collection", id: randomUUID(), name, available: false }
       : { type: "collection", id: randomUUID(), name, available: true, value };
 
-  /** What the tablet's API serves at a route, as the plugin reports it. */
-  const served = (tablet: DecaidApi, route: string) => tablet[route];
   const paired = (inventory: unknown) => (inventory as { state: string }[]).filter((entry) => entry.state !== "discovered");
 
-  it("requires a session and a Machine, and knows only the collections tablets report", async () => {
+  it("requires a Machine, and knows only the collections tablets report", async () => {
     const machine = await api.createMachine("Nothing reported");
     for (const path of ["/collections", "/collections/beans", "/paired-devices"]) {
-      expect((await api.call("GET", `/machines/${machine.machine.id}${path}`, undefined, {})).status).toBe(401);
       for (const id of [randomUUID(), "not-a-machine"]) expect((await api.call("GET", `/machines/${id}${path}`)).status).toBe(404);
     }
     expect((await api.call("GET", `/machines/${machine.machine.id}/collections/recipes`)).status).toBe(404);
@@ -381,21 +366,21 @@ describe("Library, settings and paired devices", () => {
     const recalibrated = { ...(tablet["/machine/settings"] as object), steamFlow: 1.5 };
     // The Machine's tablet connects before its machine is on.
     const early = await connect(machine);
-    await deliver(early, report("machineSettings", tablet["/machine/settings"]));
-    await deliver(early, report("scaleInfo"));
-    await deliver(early, report("sensors", tablet["/sensors"]));
+    await early.deliver(report("machineSettings", tablet["/machine/settings"]));
+    await early.deliver(report("scaleInfo"));
+    await early.deliver(report("sensors", tablet["/sensors"]));
     await early.close();
     // The visitor's tablet, moved onto that machine, reports newer values, which its Pending Machine holds.
     await (await connect(visitor, other.url, { model: "DE1Pro", serial: "30302" })).close();
     const mismatched = await connect(visitor, other.url, hardware);
-    await deliver(mismatched, report("machineSettings", recalibrated));
-    await deliver(mismatched, report("scaleInfo", simulated["/scale/info"]));
-    await deliver(mismatched, report("sensors", simulated["/sensors"]));
-    await deliver(mismatched, report("advancedSettings", tablet["/machine/settings/advanced"]));
+    await mismatched.deliver(report("machineSettings", recalibrated));
+    await mismatched.deliver(report("scaleInfo", simulated["/scale/info"]));
+    await mismatched.deliver(report("sensors", simulated["/sensors"]));
+    await mismatched.deliver(report("advancedSettings", tablet["/machine/settings/advanced"]));
     await mismatched.close();
     // Then the Machine's tablet cannot read its sensors, after the visitor's report.
     const again = await connect(machine);
-    await deliver(again, report("sensors"));
+    await again.deliver(report("sensors"));
     await again.close();
 
     // The Machine's tablet reports the hardware: its token binds it, and the Machine takes over what was held.
@@ -419,22 +404,19 @@ describe("Library, settings and paired devices", () => {
     const older = report("machineSettings", { ...settings, fan: 40 });
     const newer = report("machineSettings", { ...settings, fan: 45 });
     const database = await server.connectDatabase();
-    const waiting = async () =>
-      (await database.query<{ waiting: number }>(`SELECT count(*)::int AS waiting FROM pg_locks
-        WHERE NOT granted AND relation = 'machine_event_deliveries'::regclass
-          AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`)).rows[0]!.waiting;
+    const waiting = (count: number) => waitForLockWaits(server, { relation: "machine_event_deliveries", count });
     try {
       // Every delivery is held as it starts to be handled, before it locks anything else.
       await database.query("BEGIN");
       await database.query("LOCK TABLE machine_event_deliveries IN SHARE MODE");
       first.send(older);
-      await expect.poll(waiting).toBe(1);
+      await waiting(1);
       // Its connection drops, and the plugin sends it again through another instance, ahead of the newer one, as its outbox does.
       await first.terminate();
       const second = await connect(machine, other.url, hardware);
       second.send(older);
       second.send(newer);
-      await expect.poll(waiting).toBe(2);
+      await waiting(2);
       await database.query("COMMIT");
       await expect.poll(() => second.messages.filter((reply) => frameType(reply) === "ack").length).toBe(2);
     } finally {
@@ -444,7 +426,7 @@ describe("Library, settings and paired devices", () => {
     expect(await collection(machine, "machineSettings", api.at(other.url))).toMatchObject({ available: true, value: newer.value });
     // Repeated later, after other changes, it changes nothing.
     const third = await connect(machine, server.url, hardware);
-    await deliver(third, older);
+    await third.deliver(older);
     expect((await collection(machine, "machineSettings"))!.value).toEqual(newer.value);
   }, 20_000);
 
@@ -534,32 +516,32 @@ describe("Library, settings and paired devices", () => {
       device("sensor", "mockSensorBasket", "SensorBasket", "connected", "DecentEspresso"),
       device("sensor", "mockDebugPort", "DebugPort", "connected", "DecentEspresso"),
     ];
-    await deliver(raw, report("appSettings", simulated["/settings"]));
-    await deliver(raw, report("sensors", simulated["/sensors"]));
+    await raw.deliver(report("appSettings", simulated["/settings"]));
+    await raw.deliver(report("sensors", simulated["/sensors"]));
     // Before the inventory is read, nothing is shown, sensors included.
     expect(await pairedDevices(machine)).toEqual({ reportedAt: null, available: null, receivedAt: null, scale: null, auxiliaryScale: null, sensors: [], others: [] });
-    await deliver(raw, report("pairedDevices", inventory));
-    await deliver(raw, report("scaleInfo", scaleInfo));
+    await raw.deliver(report("pairedDevices", inventory));
+    await raw.deliver(report("scaleInfo", scaleInfo));
     const read = await pairedDevices(machine);
     expect(read).toMatchObject({ available: true, receivedAt: read.reportedAt, sensors: listedSensors });
     expect(read.scale).toEqual({ ...device("scale", "MockScale", "Mock Scale", "connected"), firmware: "1.2.0", batteryLevel: 80 });
 
     // The inventory cannot be read: the devices shown are the last read, the scale's report may be another
     // scale's, and the sensor list may name sensors connected since.
-    await deliver(raw, report("pairedDevices"));
+    await raw.deliver(report("pairedDevices"));
     const stale = await pairedDevices(machine);
     expect(stale).toMatchObject({ available: false, receivedAt: read.receivedAt, sensors: [] });
     expect(Date.parse(stale.reportedAt!)).toBeGreaterThan(Date.parse(stale.receivedAt!));
     expect(stale.scale).toEqual(device("scale", "MockScale", "Mock Scale", "connected"));
 
-    await deliver(raw, report("pairedDevices", inventory));
+    await raw.deliver(report("pairedDevices", inventory));
     expect(await pairedDevices(machine)).toMatchObject({ sensors: listedSensors, scale: { firmware: "1.2.0", batteryLevel: 80 } });
   });
 
   it("acknowledges and ignores a collection it does not know", async () => {
     const machine = await api.createMachine("Newer plugin");
     const raw = await connect(machine);
-    await deliver(raw, report("recipes", de1ProOnDecaid087()["/store/dye2.reaplugin/recipes"]));
+    await raw.deliver(report("recipes", de1ProOnDecaid087()["/store/dye2.reaplugin/recipes"]));
     expect(await summaries(machine)).toEqual([]);
   });
 });

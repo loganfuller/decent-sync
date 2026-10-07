@@ -7,7 +7,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "e2e",
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  // No retries, in CI either: a test that passes only when retried is flaky, and should fail until it is fixed.
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: { trace: "retain-on-failure" },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],

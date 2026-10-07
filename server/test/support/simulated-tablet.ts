@@ -4,6 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PROTOCOL_VERSION, SYNC_PATH } from "@decent-sync/protocol";
 import WebSocket from "ws";
+import { assertBuilt } from "./builds.js";
+import { rememberSecret, watchLog } from "./secrets.js";
 
 // Seam 1's simulated tablet: runs the built decent-sync.reaplugin/plugin.js
 // (`npm run build` first) in a stand-in for Decaid's plugin host, the way
@@ -41,15 +43,14 @@ import WebSocket from "ws";
 //   reach the plugin's timeouts and backoff quickly. The server keeps real
 //   time, though. The heartbeat interval in its `welcome` is slowed by the
 //   same factor, so a sped-up plugin still heartbeats, and expects the
-//   server's answers, at the server's pace. And while a connection waits for
-//   the server's first answer, the tablet's clock runs at real time: the
-//   server's work on a hello takes real time however fast the tablet runs,
-//   and a sped-up connect deadline would otherwise give up on a server that
-//   is merely busy. Until the server accepts the upgrade, though, the clock
-//   keeps the sped-up pace, since a stalled upgrade and a slow one look the
-//   same: a connection the server never upgrades still times out quickly,
-//   and at 100x the server has 150 ms to accept one. Its upgrade handler is
-//   synchronous; the database work comes after.
+//   server's answers, at the server's pace. And from the moment a connection
+//   starts to open until the server's first answer, the tablet's clock runs
+//   at real time: the server's work on an upgrade and a hello takes real time
+//   however fast the tablet runs, and a sped-up connect deadline would
+//   otherwise give up on a server that is merely busy. A stalled upgrade and
+//   a slow one look the same, though, so an upgrade the server never answers
+//   then waits out the deadline in real time; `upgradeAtTabletPace` times
+//   upgrades at the sped-up pace, for tests of servers that never answer one.
 //
 // RawConnection is the raw-frame mode, for protocol cases the plugin never
 // produces.
@@ -73,6 +74,7 @@ export interface BuiltPlugin {
 }
 
 export function readBuiltPlugin(): { source: string; manifest: Record<string, unknown> } {
+  assertBuilt("plugin");
   return {
     source: fs.readFileSync(path.join(reapluginDir, "plugin.js"), "utf8"),
     manifest: JSON.parse(fs.readFileSync(path.join(reapluginDir, "manifest.json"), "utf8")),
@@ -253,6 +255,7 @@ export function settingsFor({ token, serverUrl }: { token: string; serverUrl: st
 
 /** A valid `hello` of this protocol version, for raw frames. */
 export function helloWith(token: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  rememberSecret(token);
   return {
     type: "hello",
     protocolVersion: PROTOCOL_VERSION,
@@ -273,7 +276,8 @@ export interface SimulatedTabletOptions {
   machineConnected?: boolean;
   /**
    * Runs the plugin's timers, and the delays below, this many times faster,
-   * except while a connection waits for the server's first answer. Defaults to 1.
+   * except while a connection opens and waits for the server's first answer.
+   * Defaults to 1.
    */
   timeScale?: number;
   /** How long Decaid's API takes to answer each request; from 30 s on, the request times out. Defaults to 0. */
@@ -283,6 +287,15 @@ export interface SimulatedTabletOptions {
    * of real time, whatever `timeScale` is. Unlimited by default.
    */
   uploadBytesPerSecond?: number;
+  /**
+   * Times WebSocket upgrades at the sped-up pace, as the rest of the tablet's
+   * clock runs, so an upgrade the server never answers times out quickly. A
+   * server slow to answer one then has only the connect deadline divided by
+   * `timeScale`, 150 ms at 100x, so only tests of servers that never answer
+   * an upgrade use it. By default the clock runs at real time while a
+   * connection opens.
+   */
+  upgradeAtTabletPace?: boolean;
   /**
    * Stalls the network at the first queued frame, parsed, that this matches:
    * that frame and the ones behind it stay pending, unwritten, for as long as
@@ -357,7 +370,8 @@ export class SimulatedTablet {
   private readonly apiDelayMs: number;
   private readonly uploadBytesPerSecond: number | undefined;
   private readonly stallUpload: ((frame: unknown) => boolean) | undefined;
-  /** Opens not yet connected; Decaid counts them against the transport limit. */
+  private readonly upgradeAtTabletPace: boolean;
+  /** Opens not yet connected; Decaid counts them against the transport limit, and the clock runs at real time meanwhile. */
   private opening = 0;
   private readonly transports = new Map<string, TransportRecord>();
   /** Transports awaiting the server's first answer. */
@@ -382,6 +396,9 @@ export class SimulatedTablet {
     this.apiDelayMs = options.apiDelayMs ?? 0;
     this.uploadBytesPerSecond = options.uploadBytesPerSecond;
     this.stallUpload = options.stallUpload;
+    this.upgradeAtTabletPace = options.upgradeAtTabletPace ?? false;
+    rememberSecret(options.settings.Token);
+    watchLog("a simulated tablet's log", () => this.logs.join("\n"));
     const { source, manifest } = readBuiltPlugin();
     this.plugin = loadPlugin(source, String(manifest.id), {
       host: {
@@ -576,17 +593,24 @@ export class SimulatedTablet {
 
   /** How many times faster than real time the tablet's clock runs. */
   private rate(): number {
-    return this.awaitingServer > 0 ? 1 : this.timeScale;
+    return this.awaitingServer > 0 || (this.opening > 0 && !this.upgradeAtTabletPace) ? 1 : this.timeScale;
   }
 
-  /** Marks whether a transport awaits the server's first answer, rescheduling every timer if the clock's rate changes. */
-  private setAwaitingServer(record: TransportRecord, awaiting: boolean): void {
-    if (record.awaitingServer === awaiting) return;
+  /** Makes a change that may change the clock's rate, rescheduling every timer if it does. */
+  private retimed(change: () => void): void {
     const before = this.rate();
     this.now();
-    record.awaitingServer = awaiting;
-    this.awaitingServer += awaiting ? 1 : -1;
+    change();
     if (this.rate() !== before) for (const [id, timer] of this.timers) this.arm(id, timer);
+  }
+
+  /** Marks whether a transport awaits the server's first answer. */
+  private setAwaitingServer(record: TransportRecord, awaiting: boolean): void {
+    if (record.awaitingServer === awaiting) return;
+    this.retimed(() => {
+      record.awaitingServer = awaiting;
+      this.awaitingServer += awaiting ? 1 : -1;
+    });
   }
 
   private async open(options: unknown): Promise<{ handle: string; protocol?: string }> {
@@ -605,14 +629,14 @@ export class SimulatedTablet {
 
     // Only the URL and subprotocols: Decaid cannot send custom headers.
     const socket = new WebSocket(url, protocols as string[] | undefined);
-    this.opening++;
+    this.retimed(() => this.opening++);
     try {
       await new Promise<void>((resolve, reject) => {
         socket.once("open", resolve);
         socket.once("error", (error) => reject(new TransportError(`WebSocket connect failed: ${error.message}`)));
       });
     } finally {
-      this.opening--;
+      this.retimed(() => this.opening--);
     }
     socket.removeAllListeners("error");
     if (this.unloaded) {
@@ -852,6 +876,31 @@ export class RawConnection {
     return new RawConnection(socket);
   }
 
+  /**
+   * Connects, sends the `hello` and resolves once the server welcomes it,
+   * then keeps the connection alive with heartbeats every `heartbeatMs`.
+   */
+  static async welcomed(serverUrl: string, hello: Record<string, unknown>, heartbeatMs = 300): Promise<RawConnection> {
+    const raw = await RawConnection.open(serverUrl);
+    try {
+      raw.send(hello);
+      const answer = await raw.message(0);
+      if ((answer as { type?: unknown }).type !== "welcome") throw new Error(`The server did not welcome the hello: ${JSON.stringify(answer)}`);
+    } catch (error) {
+      // The caller never gets the connection to close.
+      await raw.terminate();
+      throw error;
+    }
+    raw.keepAlive(heartbeatMs);
+    return raw;
+  }
+
+  /** Sends a heartbeat every `intervalMs` until the connection ends, as the plugin does once welcomed. */
+  keepAlive(intervalMs = 300): void {
+    const heartbeats = setInterval(() => this.send({ type: "heartbeat" }), intervalMs);
+    void this.closed.then(() => clearInterval(heartbeats));
+  }
+
   /** Sends a string as is, or anything else as JSON, in a text frame. */
   send(frame: unknown): void {
     this.socket.send(typeof frame === "string" ? frame : JSON.stringify(frame));
@@ -863,16 +912,28 @@ export class RawConnection {
 
   /** Resolves with the message at `index` once it has arrived. */
   async message(index: number, timeoutMs = 10_000): Promise<unknown> {
-    const deadline = Date.now() + timeoutMs;
-    while (this.messages.length <= index) {
-      if (this.socket.readyState === WebSocket.CLOSED) throw new Error(`The connection closed after ${this.messages.length} messages`);
-      if (Date.now() > deadline) throw new Error(`No message ${index} within ${timeoutMs} ms`);
-      await new Promise<void>((resolve) => {
-        this.waiters.push(resolve);
-        setTimeout(resolve, 50);
-      });
-    }
+    await this.until(() => this.messages.length > index, timeoutMs, `message ${index}`);
     return this.messages[index];
+  }
+
+  /** How many times the server has acknowledged the delivery with this id. */
+  acks(id: string): number {
+    return this.messages.filter((message) => {
+      const { type, id: acked } = (message ?? {}) as { type?: unknown; id?: unknown };
+      return type === "ack" && acked === id;
+    }).length;
+  }
+
+  /** Resolves once the server has acknowledged the delivery with this id. */
+  async acknowledged(id: string, timeoutMs = 10_000): Promise<void> {
+    await this.until(() => this.acks(id) > 0, timeoutMs, `acknowledgment of ${id}`);
+  }
+
+  /** Sends a delivery and resolves once the server acknowledges it, again if it had before. */
+  async deliver(message: { id: string; [field: string]: unknown }, timeoutMs = 10_000): Promise<void> {
+    const before = this.acks(message.id);
+    this.send(message);
+    await this.until(() => this.acks(message.id) > before, timeoutMs, `acknowledgment of ${message.id}`);
   }
 
   close(): Promise<{ code: number; reason: string }> {
@@ -884,6 +945,19 @@ export class RawConnection {
   terminate(): Promise<{ code: number; reason: string }> {
     this.socket.terminate();
     return this.closed;
+  }
+
+  /** Resolves once `done` holds, checked as each message arrives; fails if the connection closes first. */
+  private async until(done: () => boolean, timeoutMs: number, what: string): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (!done()) {
+      if (this.socket.readyState === WebSocket.CLOSED) throw new Error(`The connection closed after ${this.messages.length} messages, before ${what}`);
+      if (Date.now() > deadline) throw new Error(`No ${what} within ${timeoutMs} ms`);
+      await new Promise<void>((resolve) => {
+        this.waiters.push(resolve);
+        setTimeout(resolve, 50);
+      });
+    }
   }
 
   private wake(): void {

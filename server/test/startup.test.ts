@@ -2,9 +2,11 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { assertBuilt } from "./support/builds.js";
 
 // Runs the built server the way a self-hoster does, so `npm run build` first.
 const main = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dist/main.js");
+assertBuilt("protocol", "server");
 
 function start(env: Record<string, string>) {
   const { PATH, HOME } = process.env;

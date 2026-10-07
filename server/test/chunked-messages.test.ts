@@ -28,7 +28,6 @@ describe("Chunked messages", () => {
   let api: AdminApi;
   const tablets: SimulatedTablet[] = [];
   const raws: RawConnection[] = [];
-  const timers: NodeJS.Timeout[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
@@ -37,7 +36,6 @@ describe("Chunked messages", () => {
     api = await AdminApi.setUp(server.url);
   }, 60_000);
   afterEach(async () => {
-    timers.splice(0).forEach(clearInterval);
     await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
@@ -62,11 +60,8 @@ describe("Chunked messages", () => {
     return tablet;
   }
   async function connect(machine: CreatedMachine, url = server.url) {
-    const raw = await RawConnection.open(url);
+    const raw = await RawConnection.welcomed(url, helloWith(machine.token));
     raws.push(raw);
-    raw.send(helloWith(machine.token));
-    expect(await raw.message(0)).toMatchObject({ type: "welcome" });
-    timers.push(setInterval(() => raw.send({ type: "heartbeat" }), 300));
     return raw;
   }
   async function stored(id: string) {
@@ -265,7 +260,7 @@ describe("Chunked messages", () => {
     // Each chunk's receipt, then the welcome.
     expect(await raw.message(chunks.length)).toMatchObject({ type: "welcome" });
     expect(raw.messages.slice(0, chunks.length)).toEqual(chunks.map(({ index }) => ({ type: "chunkReceived", id: "hello", index })));
-    timers.push(setInterval(() => raw.send({ type: "heartbeat" }), 300));
+    raw.keepAlive();
     await api.waitForMachine("Chunked hello", (view) => view.online);
 
     const flood = await RawConnection.open(server.url);

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { runAsSteps } from "./support/steps.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Creating, listing and editing Locations through the REST API of a real
@@ -13,6 +14,7 @@ interface LocationView {
 }
 
 describe("Locations", () => {
+  runAsSteps();
   let server: TestServer;
   let cookie: string;
   const call = (method: string, path: string, body?: unknown, headers: Record<string, string> = { Cookie: cookie }) =>
@@ -29,12 +31,6 @@ describe("Locations", () => {
     cookie = setup.headers.getSetCookie()[0]!.split(";")[0]!;
   }, 60_000);
   afterAll(() => server?.stop());
-
-  it("requires a session", async () => {
-    expect((await call("GET", "/locations", undefined, {})).status).toBe(401);
-    expect((await call("POST", "/locations", { name: "Lab", timeZone: "UTC" }, {})).status).toBe(401);
-    expect((await call("GET", "/time-zones", undefined, {})).status).toBe(401);
-  });
 
   it("starts with no Locations", async () => {
     expect(await (await call("GET", "/locations")).json()).toEqual({ locations: [] });

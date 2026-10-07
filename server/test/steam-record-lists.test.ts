@@ -8,7 +8,10 @@ import { startTestServer, type TestServer } from "./support/test-server.js";
 // Seam 1: filtering the Steam Records list through the REST API. Steam
 // Records are derived from a record Decaid produced, changing only their ids,
 // and are sent as raw frames by each Machine's connection with the UTC time
-// the plugin places them at. Hardware ids are made up.
+// the plugin places them at. Hardware ids are made up. The date filters are
+// the Shots list's (server/src/record-filters.ts), whose handling of daylight
+// saving changes shot-lists.test.ts covers; this file checks they read Steam
+// Records' times.
 
 interface SteamRecordView {
   id: string;
@@ -104,22 +107,13 @@ describe("Steam Records lists", () => {
    * Machine's token reporting the hardware given, and waits for each to be stored.
    */
   async function deliver(machine: CreatedMachine, reported: { model: string; serial: string }, steamedAt: Record<string, string>) {
-    const raw = await RawConnection.open(server.url);
+    const raw = await RawConnection.welcomed(server.url, helloWith(machine.token, { machine: reported }));
     raws.push(raw);
-    raw.send(helloWith(machine.token, { machine: reported }));
-    expect(await raw.message(0)).toMatchObject({ type: "welcome" });
-    const deliveries = Object.entries(steamedAt).map(([steamId, at]) => {
-      const id = randomUUID();
-      raw.send({ type: "steam", id, steamId, steamedAt: new Date(at).toISOString(), steam: derivedSteam(steamId) });
-      return id;
-    });
-    const acknowledged = () => new Set(raw.messages.flatMap((message) => ((message as { type: string }).type === "ack" ? [(message as { id: string }).id] : [])));
-    // Called from beforeAll, where expect.poll is unavailable.
-    const deadline = Date.now() + 10_000;
-    while (!deliveries.every((id) => acknowledged().has(id))) {
-      if (Date.now() > deadline) throw new Error(`Not every Steam Record was acknowledged: ${JSON.stringify(raw.messages)}`);
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+    await Promise.all(
+      Object.entries(steamedAt).map(([steamId, at]) =>
+        raw.deliver({ type: "steam", id: randomUUID(), steamId, steamedAt: new Date(at).toISOString(), steam: derivedSteam(steamId) }),
+      ),
+    );
   }
 
   async function list(query: Record<string, string> = {}): Promise<{ steamRecords: SteamRecordView[]; total: number }> {
@@ -196,18 +190,6 @@ describe("Steam Records lists", () => {
       expect((await api.call("PATCH", `/machines/${lab1.machine.id}/location-history/${entry!.id}`, { effectiveFrom: "2025-01-01T00:00:00Z" })).status).toBe(200);
     }
     expect(await ids({ from: "2026-02-10T06:00", to: "2026-02-10T12:00" })).toEqual(["lab-feb-morning", "uptown-feb-morning", "roaming-dawn"]);
-  });
-
-  it("follows a Location's clocks across daylight saving changes", async () => {
-    const atHarbor = (from: string, to: string) => ids({ locationId: harbor.id, from, to });
-    // The day the clocks go forward is 23 hours long: it starts at 05:00 UTC and ends at 04:00 UTC.
-    expect(await atHarbor("2026-03-08", "2026-03-08")).toEqual(["spring-night", "spring-later", "spring-after", "spring-before", "spring-midnight"]);
-    // From 1:30 to 3:30 by the Location's clocks is one hour.
-    expect(await atHarbor("2026-03-08T01:30", "2026-03-08T03:30")).toEqual(["spring-after", "spring-before"]);
-    // The day the clocks go back is 25 hours long, from 04:00 UTC to 05:00 UTC the next day.
-    expect(await atHarbor("2025-11-02", "2025-11-02")).toEqual(["fall-night", "fall-after", "fall-second", "fall-first"]);
-    // And 1:00 to 2:00 happens twice.
-    expect(await atHarbor("2025-11-02T01:00", "2025-11-02T02:00")).toEqual(["fall-second", "fall-first"]);
   });
 
   it("refuses filters it cannot read", async () => {
