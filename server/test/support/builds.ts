@@ -42,6 +42,9 @@ export function assertBuilt(...builds: Build[]): void {
     const ignore = "ignore" in rest ? path.join(repoDir, rest.ignore) : undefined;
     const missing = outputs.find((output) => !fs.existsSync(path.join(repoDir, output)));
     if (missing) throw new Error(`${missing} is missing: run \`npm run build\` before the tests`);
+    // Its build would fail now, so what was built from it is out of date.
+    const gone = sources.find((source) => !fs.existsSync(path.join(repoDir, source)));
+    if (gone) throw new Error(`${gone}, which ${outputs.join(" and ")} was built from, is missing: restore it and run \`npm run build\``);
     const built = files(outputs);
     if (built.length === 0) throw new Error(`${outputs.join(" and ")} holds nothing: run \`npm run build\` before the tests`);
     const oldest = built.reduce((a, b) => (b.mtimeMs < a.mtimeMs ? b : a));
