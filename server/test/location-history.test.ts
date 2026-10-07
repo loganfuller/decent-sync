@@ -777,12 +777,13 @@ describe("Location History", () => {
       await database.query("LOCK TABLE steam_records IN ACCESS EXCLUSIVE MODE");
       const abandoned = await RawConnection.open(server.url);
       raws.push(abandoned);
-      const sent = Date.now();
       abandoned.send(helloWith(created.token, { machine: hardware }));
       await someoneWaits(database, "steam_records");
+      // Counted from here, when the hello's transaction has certainly begun.
+      const held = Date.now();
       // The plugin gives up waiting for welcome (after 15 s) and closes the connection.
       await abandoned.close();
-      await new Promise((resolve) => setTimeout(resolve, 5_500 - (Date.now() - sent)));
+      await new Promise((resolve) => setTimeout(resolve, 5_500 - (Date.now() - held)));
       await database.query("ROLLBACK");
       expect(abandoned.messages).toEqual([]);
 
