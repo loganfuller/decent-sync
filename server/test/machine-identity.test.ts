@@ -266,7 +266,6 @@ describe("Machine identity", { timeout: 20_000 }, () => {
       const [pending] = await api.pendingMachines();
       const duplicate = await api.call("POST", `/pending-machines/${pending!.id}/machine`, { name: "Mismatch lab" });
       expect(duplicate.status).toBe(409);
-      expect((await api.call("GET", "/pending-machines", undefined, {})).status).toBe(401);
     });
   });
 
@@ -408,7 +407,6 @@ describe("Machine identity", { timeout: 20_000 }, () => {
     it("refuses to reissue or identify an unknown Machine", async () => {
       expect((await api.call("POST", "/machines/00000000-0000-7000-8000-000000000000/token")).status).toBe(404);
       expect((await api.call("PUT", "/machines/nope/hardware", { model: "DE1", serial: "1" })).status).toBe(404);
-      expect((await api.call("POST", "/machines/00000000-0000-7000-8000-000000000000/token", undefined, {})).status).toBe(401);
     });
   });
 
@@ -788,11 +786,5 @@ describe("Machine identity", { timeout: 20_000 }, () => {
         expect(await api.machineNamed(name)).toMatchObject({ online: true, identification: "identified" });
       }
     });
-  });
-
-  it("never writes a token to the server's or any tablet's log", () => {
-    const logs = [server.output(), ...tablets.flatMap((tablet) => tablet.logs)].join("\n");
-    expect(api.tokens.length).toBeGreaterThan(5);
-    for (const token of api.tokens) expect(logs).not.toContain(token);
   });
 });

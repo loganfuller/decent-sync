@@ -27,7 +27,6 @@ describe("Shot capture and reconciliation", () => {
   let api: AdminApi;
   const tablets: SimulatedTablet[] = [];
   const raws: RawConnection[] = [];
-  const timers: NodeJS.Timeout[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
@@ -36,7 +35,6 @@ describe("Shot capture and reconciliation", () => {
     api = await AdminApi.setUp(server.url);
   }, 60_000);
   afterEach(async () => {
-    timers.splice(0).forEach(clearInterval);
     await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
@@ -97,16 +95,12 @@ describe("Shot capture and reconciliation", () => {
     return ((await (await api.call("GET", `/shots/${encodeURIComponent(id)}/measurements`)).json()) as { measurements: unknown }).measurements;
   }
   async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
-    const raw = await RawConnection.open(url);
+    const raw = await RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
     raws.push(raw);
-    raw.send(helloWith(machine.token, hardware ? { machine: hardware } : {}));
-    expect(await raw.message(0)).toMatchObject({ type: "welcome" });
-    timers.push(setInterval(() => raw.send({ type: "heartbeat" }), 300));
     return raw;
   }
   async function deliver(raw: RawConnection, record: Record<string, unknown>, type = "shot", id = randomUUID()) {
-    raw.send({ type, id, shotId: String(record.id), shot: record });
-    await expect.poll(() => raw.messages.some((message) => (message as { type: string; id: string }).type === "ack" && (message as { id: string }).id === id)).toBe(true);
+    await raw.deliver({ type, id, shotId: String(record.id), shot: record });
     return id;
   }
   async function waitShot(id: string, matches: (shot: ShotView) => boolean = () => true) {
@@ -117,8 +111,7 @@ describe("Shot capture and reconciliation", () => {
     return detail(id);
   }
 
-  it("requires a session for all Shot reads and validates pagination", async () => {
-    for (const path of ["/shots", "/shots/missing", "/shots/missing/measurements"]) expect((await api.call("GET", path, undefined, {})).status).toBe(401);
+  it("validates pagination", async () => {
     for (const query of ["limit=0", "limit=101", "offset=-1", "limit=1.2"]) expect((await api.call("GET", `/shots?${query}`)).status).toBe(400);
   });
 

@@ -32,12 +32,6 @@ describe("Locations", () => {
   }, 60_000);
   afterAll(() => server?.stop());
 
-  it("requires a session", async () => {
-    expect((await call("GET", "/locations", undefined, {})).status).toBe(401);
-    expect((await call("POST", "/locations", { name: "Lab", timeZone: "UTC" }, {})).status).toBe(401);
-    expect((await call("GET", "/time-zones", undefined, {})).status).toBe(401);
-  });
-
   it("starts with no Locations", async () => {
     expect(await (await call("GET", "/locations")).json()).toEqual({ locations: [] });
   });

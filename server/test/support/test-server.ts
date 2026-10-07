@@ -2,10 +2,12 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import pg from "pg";
 import { assertBuilt } from "./builds.js";
+import { watchLog, watchSecrets } from "./secrets.js";
 
 // Runs the built server (`npm run build` first) as a self-hoster does, on its
 // own fresh PostgreSQL database, so each test file starts from an empty
@@ -16,6 +18,7 @@ import { assertBuilt } from "./builds.js";
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const main = path.join(repoDir, "server/dist/main.js");
 const clockOffset = path.join(repoDir, "server/test/support/clock-offset.mjs");
+const secretCapture = path.join(repoDir, "server/test/support/secret-capture.mjs");
 
 export interface TestServer {
   /** The server's origin, for example http://127.0.0.1:41234. */
@@ -90,6 +93,12 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
   const url = `http://127.0.0.1:${port}`;
 
   const output: string[] = [];
+  // Each secret the server hands out, recorded by secret-capture.mjs, read from its file until it stops.
+  const secretsFile = path.join(os.tmpdir(), `decent-sync-secrets-${randomBytes(6).toString("hex")}`);
+  let handedOut: string[] | undefined;
+  const readHandedOut = () => handedOut ?? (fs.existsSync(secretsFile) ? fs.readFileSync(secretsFile, "utf8").split("\n").filter(Boolean) : []);
+  watchSecrets(readHandedOut);
+  const preloads = [secretCapture, ...(options.clockOffsetMs === undefined ? [] : [clockOffset])];
   const child = spawn(process.execPath, [main], {
     env: {
       PATH: process.env.PATH,
@@ -99,20 +108,20 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
       HOST: "127.0.0.1",
       PORT: String(port),
       ...options.env,
-      ...(options.clockOffsetMs === undefined
-        ? {}
-        : {
-            NODE_OPTIONS: [options.env?.NODE_OPTIONS, `--import=${pathToFileURL(clockOffset).href}`].filter(Boolean).join(" "),
-            TEST_CLOCK_OFFSET_MS: String(options.clockOffsetMs),
-          }),
+      NODE_OPTIONS: [options.env?.NODE_OPTIONS, ...preloads.map((preload) => `--import=${pathToFileURL(preload).href}`)].filter(Boolean).join(" "),
+      TEST_SECRETS_FILE: secretsFile,
+      ...(options.clockOffsetMs === undefined ? {} : { TEST_CLOCK_OFFSET_MS: String(options.clockOffsetMs) }),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  watchLog(`the log of the server at ${url}`, () => output.join(""));
   child.stdout?.on("data", (chunk: Buffer) => output.push(chunk.toString()));
   child.stderr?.on("data", (chunk: Buffer) => output.push(chunk.toString()));
 
   const stop = async () => {
     await terminate(child);
+    handedOut = readHandedOut();
+    fs.rmSync(secretsFile, { force: true });
     await drop();
   };
   const kill = async () => {

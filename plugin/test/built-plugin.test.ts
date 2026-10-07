@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from "@decent-sync/protocol";
 import { parse } from "acorn";
 import { describe, expect, it } from "vitest";
 import { SimulatedTablet, loadPlugin, readBuiltPlugin } from "../../server/test/support/simulated-tablet.js";
@@ -42,7 +43,7 @@ describe("the built plugin", () => {
     const tablet = SimulatedTablet.load({ settings: { ServerUrl: "http://127.0.0.1:9", Token: "x" } });
 
     expect(tablet.plugin.version).toBe(manifest.version);
-    expect(tablet.logs).toEqual([`Decent Sync ${manifest.version} loaded (protocol 1)`]);
+    expect(tablet.logs).toEqual([`Decent Sync ${manifest.version} loaded (protocol ${PROTOCOL_VERSION})`]);
     // Nothing listens on port 9, so the timer's connection attempt fails and backs off.
     await tablet.waitForLog(/^Disconnected: could not connect to ws:\/\/127\.0\.0\.1:9\/sync: .*Reconnecting in 1 s\.$/);
     await tablet.unload();
