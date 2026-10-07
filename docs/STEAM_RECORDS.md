@@ -86,8 +86,8 @@ the hardware to a Machine, hands them over with its Shots
 (`transferPendingRecords`).
 
 A Steam Record's Location is derived from its Machine's Location History at
-`steamed_at`, stored in `steam_records.location_id` and derived again whenever
-that history changes, as a Shot's is at its pulled-at time
+`steamed_at`, stored in `steam_records.location_id` and derived again when a
+change to that history spans its time, as a Shot's is at its pulled-at time
 (`server/src/machines/location-history.ts`). Storing it holds the Machine's
 row lock, as history changes do. A Pending Machine's Steam Records have no
 Location.
