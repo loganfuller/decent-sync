@@ -18,6 +18,8 @@ export type Delivery = ShotDelivery | ShotIndex | SteamDelivery | SteamIndex | W
 /** The kinds of record the server can request by their ids. */
 export type RecordKind = "shot" | "steam";
 
+const RECORD_NAMES: Readonly<Record<RecordKind, string>> = { shot: "Shot", steam: "Steam Record" };
+
 /**
  * Reads a requested record from Decaid's API as a delivery with the given id:
  * null if the tablet no longer has it, or it is not a record Decent Sync
@@ -145,7 +147,7 @@ export class Outbox {
     if (this.retryTimer !== undefined || this.working || this.stopped || !this.sendMessage || this.sent !== undefined || (this.queued.size === 0 && this.requested.size === 0)) return;
     this.working = true;
     void this.work().catch(() => {
-      // SyncConnection drops a transport whose send failed; the outbox stays for its replacement.
+      // Only a send fails here: SyncConnection drops a transport whose send failed; the outbox stays for its replacement.
       this.log("Delivery interrupted; unacknowledged data remains queued.");
       this.retry();
     }).finally(() => {
@@ -160,11 +162,13 @@ export class Outbox {
       const [key, record] = this.requested.entries().next().value!;
       let delivery: Delivery | null;
       try { delivery = await this.readers[record.kind](record.id, this.nextId()); }
-      catch (error) {
+      catch {
         // Retry it after the others, so one unreadable record cannot hold up the rest.
         this.requested.delete(key);
         this.requested.set(key, record);
-        throw error;
+        this.log(`Could not read ${RECORD_NAMES[record.kind]} ${record.id} from Decaid; retrying it after the other requested records.`);
+        this.retry();
+        return;
       }
       if (this.stopped) return;
       this.requested.delete(key);

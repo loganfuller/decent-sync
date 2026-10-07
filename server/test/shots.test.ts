@@ -336,7 +336,8 @@ describe("Shot capture and reconciliation", () => {
       });
       expect((await detail(id)).record!.annotations).toEqual(annotations);
       expect(await measurements(id)).toEqual(record.measurements);
-      // Edits are queued as they are reported, while the full record is read only when nothing else is queued.
+      // An edit is queued as it is reported, and the full record only once read, which waits for a connection and
+      // nothing else queued, and takes a request to Decaid's API, during which an edit reported meanwhile goes ahead.
       expect([...new Set(tablet.sent.flatMap((frame) => ((frame as Frame).shotId === id ? [(frame as Frame).type] : [])))]).toEqual(["shotUpdated", "shot"]);
     }
   });
@@ -391,6 +392,9 @@ describe("Shot capture and reconciliation", () => {
     await waitShot(String(live.id));
     expect(tablet.requests.filter((path) => path === `/shots/${live.id}`)).toHaveLength(2);
     expect(tablet.shotPageRequests).toHaveLength(1);
+    // Each failed read says what failed; no delivery was interrupted.
+    for (const { id } of [record, live]) expect(tablet.logs).toContain(`Could not read Shot ${String(id)} from Decaid; retrying it after the other requested records.`);
+    expect(tablet.logs.join("\n")).not.toMatch(/Delivery interrupted/);
   });
 
   it("keeps retrying an unreadable Shot behind the other requested Shots", async () => {

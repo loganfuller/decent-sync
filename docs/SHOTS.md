@@ -24,7 +24,9 @@ outbox by id, ahead of backfill, and fetches it with `GET /shots/{id}` only
 when the outbox is about to send it, as it fetches backfill. With its
 measurements a Shot is tens of KB, so while the server is unreachable the
 plugin holds only the ids of the Shots stored meanwhile, and sends them once
-a connection is welcomed. A `shotUpdated` is queued as Decaid reports it, so
+a connection is welcomed. A Shot deleted before it is read is skipped, but
+stays among the ids a reconnect in that load sends, so each reconnect reads it
+once more and finds it absent. A `shotUpdated` is queued as Decaid reports it, so
 an edit can reach the server before its Shot's full record; the server stores
 it as an early edit (below).
 

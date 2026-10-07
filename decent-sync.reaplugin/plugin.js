@@ -544,6 +544,7 @@ var __decentSync = (() => {
   }
 
   // src/outbox.ts
+  var RECORD_NAMES = { shot: "Shot", steam: "Steam Record" };
   var SHORT_OUTBOX = 4;
   var Outbox = class {
     constructor(log, readers) {
@@ -656,10 +657,12 @@ var __decentSync = (() => {
         let delivery;
         try {
           delivery = await this.readers[record.kind](record.id, this.nextId());
-        } catch (error) {
+        } catch {
           this.requested.delete(key);
           this.requested.set(key, record);
-          throw error;
+          this.log(`Could not read ${RECORD_NAMES[record.kind]} ${record.id} from Decaid; retrying it after the other requested records.`);
+          this.retry();
+          return;
         }
         if (this.stopped) return;
         this.requested.delete(key);
