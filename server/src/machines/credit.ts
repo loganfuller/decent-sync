@@ -42,7 +42,8 @@ export async function creditReporter(tx: Prisma.TransactionClient, reporter: Rep
  * its token's Machine's own, since a resend always comes through the same
  * plugin and token. Recorded before the credit is locked, as by every
  * delivery, so a resend arriving meanwhile waits for this one to commit and
- * then finds it.
+ * then finds it. Ids are kept for DELIVERY_ID_RETENTION_DAYS
+ * (`delivery-id-cleanup.ts`); a resend after that counts as a first delivery.
  */
 export async function firstDelivery(tx: Prisma.TransactionClient, reporter: Reporter, deliveryId: string): Promise<boolean> {
   const recorded = await tx.$executeRaw`
