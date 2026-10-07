@@ -1,10 +1,10 @@
 # Agent Instructions
 
-Decent Sync is one repository containing the plugin, server and management interface. Milestone 1 is being built in it.
+Decent Sync is one repository containing the plugin, server and management interface. Milestone 1 is built, and milestone 2 is being built in it.
 
 ## Before implementation
 
-- Read `GLOSSARY.md` and ADRs 0001–0020 in `docs/adr/`, then [milestone 1's spec](https://github.com/loganfuller/decent-sync/issues/1) and the assigned ticket. ADR-0010 is superseded by ADR-0012; ADR-0005 is interim and its writes belong to a later milestone.
+- Read `GLOSSARY.md` and ADRs 0001–0020 in `docs/adr/`, then the spec of the ticket's milestone ([milestone 2](https://github.com/loganfuller/decent-sync/issues/77), or [milestone 1](https://github.com/loganfuller/decent-sync/issues/1) for its hardening) and the assigned ticket. ADR-0010 is superseded by ADR-0012; ADR-0005 is interim and its writes belong to a later milestone.
 - For orientation or a task spanning files, read `docs/AI_REPO_MAP.md`. Open known files directly.
 - Use the glossary's terms. Surface conflicts between a ticket, spec and ADR rather than silently choosing one. Inspect code to establish current behavior; use the spec and accepted ADRs for target behavior.
 
@@ -44,6 +44,6 @@ References written `<name>:<path>` are relative to that checkout. Use an existin
 - Protocol ownership and compatibility: `docs/AI_PROTOCOL_NOTES.md`.
 - Capture storage: `docs/AI_STORAGE_NOTES.md`.
 - Verification and real-tablet rules: `docs/AI_BUILD_NOTES.md`.
-- GitHub Issues and dependency conventions: `docs/agents/issue-tracker.md`.
+- GitHub Issues, milestones and dependency conventions: `docs/agents/issue-tracker.md`.
 - Triage label meanings: `docs/agents/triage-labels.md`.
 - Glossary use and ADR conflicts: `docs/agents/domain.md`.
