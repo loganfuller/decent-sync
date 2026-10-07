@@ -339,7 +339,7 @@ export class SyncConnection {
             throw error;
           }
         });
-        this.collections.welcome();
+        this.collections.sendAll();
         this.shots.welcome();
         this.steams.welcome();
         break;
@@ -355,6 +355,10 @@ export class SyncConnection {
         break;
       case "requestSteams":
         this.outbox.request("steam", message.steamIds);
+        break;
+      case "requestCollections":
+        // As when the Machine's Location changed: its Library is taken in there before anything is written to it.
+        this.collections.sendAll();
         break;
       case "write":
         // Answered on the connection that asked, which waits for the answer before asking for another write. If

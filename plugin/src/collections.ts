@@ -67,8 +67,8 @@ export class CollectionCapture {
     if (this.pollTimer !== undefined) clearTimeout(this.pollTimer);
   }
 
-  /** Every collection, read again and sent in full. */
-  welcome(): void {
+  /** Every collection, read again and sent in full, as on every welcome and whenever the server asks. */
+  sendAll(): void {
     this.read("full");
   }
 

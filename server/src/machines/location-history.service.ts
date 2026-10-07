@@ -12,9 +12,10 @@ import { type MachineView, MachinesService, lockMachine } from "./machines.servi
  * their Location History. Each change credits again the Machine's records
  * recorded in the span it affects, with its row locked. Staff move Machines
  * only between Locations they work at; correcting and removing entries is
- * for Admins. Each change is notified to every instance as a Library change
- * at the Machine's Location after it, so the instance holding its tablet's
- * connection writes it what that Location offers (`docs/LIBRARY.md`).
+ * for Admins. A change of the Location a Machine is at now is notified to
+ * every instance, so the one holding its tablet's connection has the
+ * tablet's Library taken in there afresh, then writes it what that Location
+ * offers (`docs/LIBRARY.md`).
  */
 @Injectable()
 export class LocationHistoryService {
@@ -54,7 +55,7 @@ export class LocationHistoryService {
       }
       await tx.locationAssignment.create({ data: { machineId, locationId: move.locationId, effectiveFrom } });
       await creditLocations(tx, machineId, { from: effectiveFrom, until: null });
-      await notifyLocationChanged(tx, machineId);
+      await notifyLocationChanged(tx, machineId, latest?.locationId ?? null);
     }, CREDITING_TRANSACTION);
     return this.machines.get(machineId);
   }
@@ -67,7 +68,7 @@ export class LocationHistoryService {
    */
   async correct(machineId: string, entryId: string, correction: Correction): Promise<MachineView> {
     await this.prisma.$transaction(async (tx) => {
-      const { entry, before, after } = await lockedEntry(tx, machineId, entryId);
+      const { entry, before, after, current } = await lockedEntry(tx, machineId, entryId);
       if (correction.locationId !== undefined) {
         const location = await tx.location.findUnique({ where: { id: correction.locationId }, select: { name: true } });
         if (!location) throw unknownLocation();
@@ -98,7 +99,7 @@ export class LocationHistoryService {
         from: new Date(Math.min(was, is)),
         until: relocated ? (after?.effectiveFrom ?? null) : new Date(Math.max(was, is)),
       });
-      await notifyLocationChanged(tx, machineId);
+      await notifyLocationChanged(tx, machineId, current);
     }, CREDITING_TRANSACTION);
     return this.machines.get(machineId);
   }
@@ -111,13 +112,13 @@ export class LocationHistoryService {
    */
   async remove(machineId: string, entryId: string): Promise<MachineView> {
     await this.prisma.$transaction(async (tx) => {
-      const { entry, before, after, afterThat } = await lockedEntry(tx, machineId, entryId);
+      const { entry, before, after, afterThat, current } = await lockedEntry(tx, machineId, entryId);
       const neverLeft = before && after && before.locationId === after.locationId;
       await tx.locationAssignment.deleteMany({ where: { id: { in: neverLeft ? [entryId, after.id] : [entryId] } } });
       // Records from its time to the next entry that remains change Location.
       const next = neverLeft ? afterThat : after;
       await creditLocations(tx, machineId, { from: entry.effectiveFrom, until: next?.effectiveFrom ?? null });
-      await notifyLocationChanged(tx, machineId);
+      await notifyLocationChanged(tx, machineId, current);
     }, CREDITING_TRANSACTION);
     return this.machines.get(machineId);
   }
@@ -133,17 +134,25 @@ async function lockedEntry(tx: Prisma.TransactionClient, machineId: string, entr
   });
   const index = history.findIndex((entry) => entry.id === entryId);
   if (index < 0) throw locationHistoryEntryNotFound();
-  return { before: history[index - 1], entry: history[index]!, after: history[index + 1], afterThat: history[index + 2] };
+  return {
+    before: history[index - 1],
+    entry: history[index]!,
+    after: history[index + 1],
+    afterThat: history[index + 2],
+    /** The Location the Machine is at before the change. */
+    current: history.at(-1)!.locationId,
+  };
 }
 
 /**
- * Tells every instance the Machine's tablet may be due what its Location
- * offers now: a Library change at that Location, if it is at one. A change
- * that leaves its current Location as it was makes no write due.
+ * Tells every instance when a change moved the Machine from the Location it
+ * was at, `was`, to another or to none, so its tablet's Library is taken in
+ * afresh where it is now before anything is written to it there. Correcting
+ * when a past move happened changes nothing on the tablet.
  */
-async function notifyLocationChanged(tx: Prisma.TransactionClient, machineId: string): Promise<void> {
+async function notifyLocationChanged(tx: Prisma.TransactionClient, machineId: string, was: string | null): Promise<void> {
   const latest = await tx.locationAssignment.findFirst({ where: { machineId }, orderBy: { effectiveFrom: "desc" }, select: { locationId: true } });
-  if (latest) await notify(tx, "library_changes", latest.locationId);
+  if ((latest?.locationId ?? null) !== was) await notify(tx, "machine_locations", machineId);
 }
 
 /** A Location History records where a Machine has been, judged by PostgreSQL's clock. */

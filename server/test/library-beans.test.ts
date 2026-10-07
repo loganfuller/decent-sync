@@ -286,22 +286,35 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     await uptownTablet.addBean({ roaster: "Roux", name: "Uptown Only" });
     const [movedInto, labSecond, uptownOnly] = [await libraryBean("Moved Into"), await libraryBean("Lab Second"), await libraryBean("Uptown Only")];
 
-    // A Machine with no Location connects, its tablet holding the lab's coffee entered on it before.
+    // A Machine with no Location connects, its tablet holding the lab's coffees entered on it before, one carrying a
+    // global id this server does not know, as after a restored backup or a wiped database.
     const traveller = await api.createMachine("Moving traveller");
-    const own = await beansEnteredOffline({ roaster: "roux", name: "moved into", notes: "Entered on the traveller" });
+    const own = await beansEnteredOffline(
+      { roaster: "roux", name: "moved into", notes: "Entered on the traveller" },
+      { roaster: "Roux", name: "Lab Second", extras: { [GLOBAL_ID_KEY]: randomUUID() } },
+    );
     const tablet = load(traveller, "14143", { beans: own });
     await online(traveller);
     await expect.poll(() => tablet.received.some((frame) => (frame as { type?: unknown }).type === "ack"), { timeout: 10_000 }).toBe(true);
     expect(tablet.writes).toEqual([]);
 
+    // Given the lab, its tablet is asked for its collections again, and its beans are linked to the lab's Beans.
     expect((await api.call("POST", `/machines/${traveller.machine.id}/location-history`, { locationId: lab.id })).status).toBe(201);
-    await holds(tablet, "Lab Second", labSecond.id);
-    await expect.poll(() => tablet.beans().filter((bean) => bean.id === own[0]!.id).map(globalIdOf), { timeout: 10_000 }).toEqual([movedInto.id]);
-    expect(heldAs(tablet, "Moved Into")).toEqual([]);
+    const byId = (id: unknown) => () => tablet.beans().filter((bean) => bean.id === id).map(globalIdOf);
+    await expect.poll(byId(own.find((bean) => bean.name === "moved into")!.id), { timeout: 10_000 }).toEqual([movedInto.id]);
+    await expect.poll(byId(own.find((bean) => bean.name === "Lab Second")!.id), { timeout: 10_000 }).toEqual([labSecond.id]);
+    expect(tablet.beans()).toHaveLength(2);
+    expect(tablet.writes.every((write) => write.startsWith("PUT "))).toBe(true);
+    expect(tablet.received).toContainEqual({ type: "requestCollections" });
     expect(await beansNamed("Moved Into")).toHaveLength(1);
+    expect(await beansNamed("Lab Second")).toHaveLength(1);
 
+    // Moved to Uptown, it is written Uptown's Bean once its beans are taken in there.
     expect((await api.call("POST", `/machines/${traveller.machine.id}/location-history`, { locationId: uptown.id })).status).toBe(201);
     await holds(tablet, "Uptown Only", uptownOnly.id);
+    expect(tablet.received.filter((frame) => (frame as { type?: unknown }).type === "requestCollections")).toHaveLength(2);
+    // The Beans it held keep being offered where they were: taking in what a joining Machine brings is ticket #89.
+    expect(locations(await libraryBean("Moved Into"))).toEqual(["Moving lab"]);
   });
 
   it("makes one Bean of a coffee two tablets enter at once, through either instance", async () => {

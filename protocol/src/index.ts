@@ -316,6 +316,16 @@ export interface RequestSteams {
 }
 
 /**
+ * Asks the plugin to read every collection again and send each in full, as
+ * it does on every `welcome`. The server sends it when the Machine's Location
+ * changes, so the tablet's beans are taken in at its new Location before
+ * anything is written to it there.
+ */
+export interface RequestCollections {
+  type: "requestCollections";
+}
+
+/**
  * The tablet's Workflow, as Decaid's `workflowUpdated` event gave it, sent on
  * every change and again on every `welcome`. The Workflow stays opaque.
  */
@@ -523,7 +533,16 @@ export type PluginMessage =
   | ItemWritten
   | WriteRefused;
 /** Messages the server sends, each in a frame of its own or, a `write` too large for one, in chunks. */
-export type ServerMessage = Welcome | Heartbeat | ErrorMessage | RequestShots | RequestSteams | Ack | ChunkReceived | LibraryWrite;
+export type ServerMessage =
+  | Welcome
+  | Heartbeat
+  | ErrorMessage
+  | RequestShots
+  | RequestSteams
+  | RequestCollections
+  | Ack
+  | ChunkReceived
+  | LibraryWrite;
 
 export type Decoded<T> =
   | { ok: true; message: T }
@@ -741,6 +760,8 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
       return check<RequestSteams>(object, "requestSteams", (fields) => {
         fields.array("steamIds", (value) => typeof value === "string" && value !== "", 100);
       });
+    case "requestCollections":
+      return check<RequestCollections>(object, "requestCollections", () => {});
     case "heartbeat":
       return check<Heartbeat>(object, "heartbeat", () => {});
     case "error":

@@ -130,7 +130,8 @@ interface Session {
  * not mismatched writes the Library its Machine's Location offers to its
  * tablet (`TabletWriter`), one write at a time, each answered by the plugin,
  * which the server acknowledges once it has recorded the answer. A write too
- * large for one frame goes in chunks.
+ * large for one frame goes in chunks. When the Machine's Location changes,
+ * the connection asks its plugin for its collections afresh.
  *
  * Any number of server instances may run. Which connection holds a Machine is
  * stored on its row; a change that may end a connection (another accepted
@@ -178,6 +179,14 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     // Each writer reads what its tablet is due, so every one looks, whichever Location changed.
     notifications.subscribe("library_changes", () => {
       for (const session of this.connections) session.writer?.wake();
+    });
+    // A Machine whose Location changed is written only once its tablet's beans are taken in there, so its plugin is
+    // asked for them afresh. Missed while not listening, a tablet waits for its next report or reconnection.
+    notifications.subscribe("machine_locations", (machineId) => {
+      if (machineId === null) return;
+      for (const session of this.connections) {
+        if (session.writer && session.machine?.id === machineId && !session.closing) this.send(session, { type: "requestCollections" });
+      }
     });
   }
 
@@ -356,7 +365,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return this.capture(session, message, text, () => this.machineEvents.storeMachineState(message, reporter));
       case "collection":
         return this.capture(session, message, text, async () => {
-          if (await this.collections.store(message, reporter)) session.writer?.reported();
+          const intake = await this.collections.store(message, reporter);
+          if (intake) session.writer?.reported(intake.takenInAt);
         });
       case "written":
       case "writeRefused":

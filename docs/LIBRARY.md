@@ -93,17 +93,23 @@ that joined the Library first are written first.
 
 It writes nothing until that connection's report of the tablet's beans, which
 the plugin sends on every welcome, has been taken in, and then only while the
-connection still holds the Machine and the Machine is at a Location. So a bean
-the tablet holds already, entered there or before it joined, is linked to the
-Library's Bean before anything is written, rather than written to it again. A
-tablet that was offline catches up once its report on reconnecting is taken
-in. The writer also looks whenever any Library change is notified, on any
-instance, and when the instance listens for notifications again after losing
-its connection. Every change to a Machine's Location History is notified as a
-Library change at its Location after the change, so a Machine moved, or given
-a Location, while connected is written that Location's Beans at once; a bean
-its tablet holds with the same roaster and name becomes the Bean, as below,
-rather than being written again.
+connection still holds the Machine and the Machine is at the Location the
+latest report was taken in at. So a bean the tablet holds already, entered
+there or before it joined, is linked to the Library's Bean before anything is
+written, rather than written to it again. A tablet that was offline catches up
+once its report on reconnecting is taken in. The writer also looks whenever
+any Library change is notified, on any instance, and when the instance listens
+for notifications again after losing its connection.
+
+A change to a Machine's Location History that changes the Location it is at
+now (a move, or correcting or removing its latest entry) commits with a
+`NOTIFY` on `machine_locations` naming the Machine. The instance holding its
+tablet's connection then sends the plugin `requestCollections`, and the plugin
+reads every collection again and sends each in full, as on a welcome. Once
+that report of its beans is taken in at the new Location, the tablet is
+written what that Location offers. A notification missed while an instance is
+not listening leaves the tablet waiting for its next report, when its beans
+change or it reconnects.
 
 One write is outstanding per connection, and only the connection holding a
 Machine writes, so a tablet is written one item at a time. The server sends a
@@ -169,11 +175,13 @@ likely duplicates.
   linked record keeps its own content, and only its global id is written;
   linking will then write the Library's content to it, keeping each field it
   differed in as a Conflict (ADR-0018).
-- Joining a Location, including taking in what a moved Machine brings and
-  hiding what its old Location offered: ticket #89. Until then a moved
-  Machine's tablet is written its new Location's Beans at once, keeps those of
-  its old one, and its own beans join the Library at its new Location with
-  its next report, when its beans change or it reconnects.
+- Joining a Location, including what a moved Machine brings and hiding what
+  its old Location offered: ticket #89. Until then a moved Machine's tablet
+  is written its new Location's Beans once its fresh report is taken in
+  there, and keeps those of its old one. That report links or adds only the
+  beans the tablet's map does not hold yet, such as those of a Machine given
+  its first Location: beans it shared at its old Location stay offered only
+  there.
 - The capture-only switch: ticket #90. Recording refused writes, and each
   Machine's sharing status: ticket #91.
 

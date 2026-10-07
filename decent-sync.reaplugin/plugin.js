@@ -268,6 +268,9 @@ var __decentSync = (() => {
         return check(object3, "requestSteams", (fields) => {
           fields.array("steamIds", (value) => typeof value === "string" && value !== "", 100);
         });
+      case "requestCollections":
+        return check(object3, "requestCollections", () => {
+        });
       case "heartbeat":
         return check(object3, "heartbeat", () => {
         });
@@ -604,8 +607,8 @@ var __decentSync = (() => {
       this.stopped = true;
       if (this.pollTimer !== void 0) clearTimeout(this.pollTimer);
     }
-    /** Every collection, read again and sent in full. */
-    welcome() {
+    /** Every collection, read again and sent in full, as on every welcome and whenever the server asks. */
+    sendAll() {
       this.read("full");
     }
     schedulePoll() {
@@ -1609,7 +1612,7 @@ var __decentSync = (() => {
               throw error;
             }
           });
-          this.collections.welcome();
+          this.collections.sendAll();
           this.shots.welcome();
           this.steams.welcome();
           break;
@@ -1625,6 +1628,9 @@ var __decentSync = (() => {
           break;
         case "requestSteams":
           this.outbox.request("steam", message.steamIds);
+          break;
+        case "requestCollections":
+          this.collections.sendAll();
           break;
         case "write":
           void this.writes.apply(message).then((answer) => {

@@ -12,11 +12,13 @@ import type { Prisma } from "./generated/prisma/client.js";
  *   changed, as when a hello was accepted, replacing the previous
  *   connection, its token was reissued, or hardware was dismissed for it;
  * - `library_changes`, a Location's id: what the Library offers there, or
- *   what its tablets must be written, has changed.
+ *   what its tablets must be written, has changed;
+ * - `machine_locations`, a Machine's id: the Location it is at now has
+ *   changed, so its tablet's Library is to be taken in afresh.
  */
-export type Channel = "machine_access" | "library_changes";
+export type Channel = "machine_access" | "library_changes" | "machine_locations";
 
-const CHANNELS: readonly Channel[] = ["machine_access", "library_changes"];
+const CHANNELS: readonly Channel[] = ["machine_access", "library_changes", "machine_locations"];
 const MIN_RETRY_MS = 1_000;
 const MAX_RETRY_MS = 30_000;
 
@@ -95,7 +97,7 @@ export class Notifications implements OnModuleInit, OnModuleDestroy {
     client.end().catch(() => {});
     if (this.retryTimer) return;
     this.logger.warn(
-      `Not listening for access changes or Library changes (${reason}); retrying in ${this.retryMs / 1000} s. Heartbeats still check every connection, and a tablet that reconnects is written what it lacks.`,
+      `Not listening for access changes, Library changes or moves (${reason}); retrying in ${this.retryMs / 1000} s. Heartbeats still check every connection, and a tablet that reconnects is written what it lacks.`,
     );
     this.retryTimer = setTimeout(() => {
       this.retryTimer = undefined;

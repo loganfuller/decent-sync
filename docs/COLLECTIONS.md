@@ -71,7 +71,9 @@ tests (`plugin/test/change-detection.test.ts`):
   poll.
 - On every `welcome`, it reads every collection again, without
   `If-None-Match`, and sends each, unavailable ones included, whether or not it
-  changed. That also covers whatever changed while it was disconnected.
+  changed. That also covers whatever changed while it was disconnected. It
+  does the same when the server sends `requestCollections`, as it does when
+  the Machine's Location changes (`LIBRARY.md`).
 - A newer delivery of a collection drops an older one still queued, unless
   the older one was ever handed to a connection. Such a delivery may still be
   being stored by the instance that received it, so it is sent again, under

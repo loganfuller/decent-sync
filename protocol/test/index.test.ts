@@ -444,6 +444,10 @@ describe("Library writes", () => {
   };
   const refused: WriteRefused = { type: "writeRefused", id: "write-1", kind: "bean", globalId, status: 404, error: '{"error":"Bean not found"}' };
 
+  it("reads a request for every collection afresh", () => {
+    expect(decodeServerMessage(frame({ type: "requestCollections" }))).toEqual({ ok: true, message: { type: "requestCollections" } });
+  });
+
   it("reads a write, creating or updating a record, accepting fields and kinds it does not know", () => {
     for (const message of [create, update, { ...create, kind: "grinder", priority: 1 }]) {
       expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
