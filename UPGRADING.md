@@ -31,3 +31,12 @@ curl -X POST http://<tablet>:8080/api/v1/plugins/decent-sync.reaplugin/update/ap
 This release's server refuses the plugin before it, whose `hello` has no
 tablet id. Until a tablet's update is approved, that tablet stays
 disconnected, and its Machine offline.
+
+### Reload the plugin after restoring the server's database
+
+The plugin now tells the server which Shots and Steam Records its tablet
+holds once each time it loads, rather than on every reconnect. A server
+whose database is wiped, or restored from an older backup, learns which
+records it lacks only when each tablet's plugin loads again. After such a
+restore, reload the plugin on every tablet: restart Decaid, or turn the
+plugin off and on again.

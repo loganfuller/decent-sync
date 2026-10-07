@@ -20,8 +20,8 @@ interface ShotView {
   profileTitle: string | null; duration: number | null; peakPressure: number | null;
   record?: Record<string, unknown>;
 }
-/** A frame the plugin sent, as far as these tests read it. */
-interface Frame { type?: string; shotId?: string }
+/** A frame the plugin sent or received, as far as these tests read it. */
+interface Frame { type?: string; id?: string; shotId?: string; shots?: { id: string }[] }
 
 describe("Shot capture and reconciliation", () => {
   let server: TestServer;
@@ -127,11 +127,19 @@ describe("Shot capture and reconciliation", () => {
     const tablet = load(machine, history, { apiDelayMs: 500 });
     await expect.poll(async () => (await list(machine.machine.id)).total, { timeout: 10_000 }).toBeGreaterThan(0);
     expect((await list(machine.machine.id)).total).toBeLessThan(history.length);
+    const acknowledged = new Set(tablet.received.flatMap((message) => ((message as Frame).type === "ack" ? [(message as Frame).id] : [])));
+    const sentBefore = tablet.sent.length;
     tablet.dropConnections();
     await tablet.waitForLogs(/^Connected to /, 2);
-    await expect.poll(async () => (await list(machine.machine.id)).total, { timeout: 20_000 }).toBe(205);
+    await expect.poll(async () => (await list(machine.machine.id, api.at(other.url))).total, { timeout: 20_000 }).toBe(205);
     expect(tablet.shotPageRequests).toEqual(pages(0, 90, 180));
     expect(tablet.requests).not.toContain("/shots/ids");
+    // The scan's index went once, each Shot in one page under one delivery id: after the reconnect,
+    // only a page cut off before its acknowledgment was sent again.
+    const indexPages = (frames: unknown[]) => (frames as Frame[]).filter((frame) => frame.type === "shotIndex");
+    const indexed = new Map(indexPages(tablet.sent).map((page) => [page.id, page.shots!.map((shot) => shot.id)]));
+    expect([...indexed.values()].flat().sort()).toEqual(history.map((shot) => String(shot.id)).sort());
+    expect(indexPages(tablet.sent.slice(sentBefore)).filter((page) => acknowledged.has(page.id))).toEqual([]);
     const first = await list(machine.machine.id);
     expect(first.shots[0]!.id).toBe("history-204");
     const lastPage = await (await api.call("GET", `/shots?limit=100&offset=200&machineId=${machine.machine.id}`)).json() as { shots: ShotView[] };

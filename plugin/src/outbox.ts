@@ -48,7 +48,7 @@ export class Outbox {
   private readonly runtimeId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   private sequence = 0;
   private sendMessage?: (message: PluginMessage) => Promise<void>;
-  /** Bumped by every welcome and disconnect, so work for an earlier connection stops. */
+  /** Bumped by every welcome and disconnect, so a send prepared for one connection is not made on the next. */
   private connections = 0;
   /** The delivery awaiting acknowledgment. */
   private sent?: string;
@@ -62,9 +62,6 @@ export class Outbox {
     private readonly log: (message: string) => void,
     private readonly readers: Readonly<Record<RecordKind, RecordReader>>,
   ) {}
-
-  /** Changes with every welcome and disconnect: work started for one connection checks it before sending. */
-  get generation(): number { return this.connections; }
 
   /** Whether a welcomed connection is sending. */
   get connected(): boolean { return this.sendMessage !== undefined; }

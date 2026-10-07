@@ -307,7 +307,9 @@ export class SyncConnection {
         this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
         // What the last connection left unacknowledged goes first, then the
         // latest Workflow, queued before the outbox starts sending, then
-        // every collection, read again, and the Shot and Steam Record indices.
+        // every collection, read again, and, after the load's first welcome,
+        // the Shot and Steam Record indices, which later welcomes resume
+        // rather than send again. Steam Records are polled at once.
         this.machineEvents.welcome();
         this.outbox.welcome(async (delivery) => {
           try { await this.send(handle, delivery); }

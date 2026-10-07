@@ -72,20 +72,33 @@ export function readSteam(id: string): Promise<Record<string, unknown> | null> {
 }
 
 /**
- * Every Steam Record id the server stores (`isRecordId`), or null if they
- * cannot be read now. Ids are all Decaid offers to find new Steam Records
- * by: it has no event for them, and `GET /steams` returns every record,
- * workflow included, in one response that outgrows the fetch limit.
+ * Every Steam Record id the server stores (`isRecordId`). Throws, saying
+ * why, if they cannot be read now: past about 268,900 Steam Records the list
+ * outgrows Decaid's 10 MiB fetch limit, which fails the fetch. Only this and
+ * `GET /steams` list Steam Records, and that returns every record, workflow
+ * included, in one response that outgrows the limit far sooner.
  */
-export async function readSteamIds(): Promise<string[] | null> {
-  try {
-    const response = await fetch(`${API}/steams/ids`);
-    if (!response.ok) return null;
-    const body: unknown = await response.json();
-    return Array.isArray(body) ? body.filter(isRecordId) : null;
-  } catch {
-    return null;
-  }
+export async function readSteamIds(): Promise<string[]> {
+  const response = await fetch(`${API}/steams/ids`);
+  if (!response.ok) throw new Error(`Decaid answered ${response.status}`);
+  const body: unknown = await response.json();
+  if (!Array.isArray(body)) throw new Error("Decaid's answer is not a list");
+  return body.filter(isRecordId);
+}
+
+/**
+ * The id of the newest Steam Record by its time, as `GET /steams/latest`
+ * answers it without measurements, or null if the tablet holds none or its
+ * id is not one the server stores. Throws if it cannot be read now.
+ */
+export async function readLatestSteamId(): Promise<string | null> {
+  const response = await fetch(`${API}/steams/latest`);
+  if (!response.ok) throw new Error(`Decaid answered ${response.status}`);
+  const body: unknown = await response.json();
+  if (body === null) return null;
+  if (typeof body !== "object" || Array.isArray(body)) throw new Error("Decaid's answer is not a Steam Record");
+  const id = (body as Record<string, unknown>).id;
+  return isRecordId(id) ? id : null;
 }
 
 /** One record, or null if the tablet no longer has it. Throws if it cannot be read now. */

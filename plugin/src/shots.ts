@@ -15,15 +15,13 @@ const MAX_PASSES = 3;
  * record. An edit is sent as Decaid reports it, metadata without curves, so
  * it may reach the server before the Shot's full record. Once per load,
  * every Shot summary is paged through with its edit time, so the server
- * requests the Shots it lacks or holds an older version of. A reconnect in
- * the same runtime sends the known ids only, since the outbox still holds
- * unacknowledged edits and requested Shots.
+ * requests the Shots it lacks or holds an older version of. A reconnect
+ * sends no index: the outbox still holds unacknowledged edits and requested
+ * Shots, and a scan a disconnect interrupts carries on where it was.
  */
 export class ShotCapture {
-  private readonly ids = new Set<string>();
   private scanning = false;
   private scanned = false;
-  private welcomed = false;
   private stopped = false;
   private timer?: number;
   /** The Shots Decaid reported stored or edited while a summary pass runs. */
@@ -35,8 +33,6 @@ export class ShotCapture {
   ) {}
 
   welcome(): void {
-    if (this.welcomed) void this.indexKnownIds();
-    this.welcomed = true;
     if (!this.scanned && !this.scanning && this.timer === undefined) void this.scan();
   }
 
@@ -52,14 +48,12 @@ export class ShotCapture {
     this.reported?.add(id);
     if (type === "shot") {
       // Its measurements make a Shot tens of KB, so it is read only as it is about to be sent.
-      this.ids.add(id);
       this.outbox.request("shot", [id], { first: true });
       return;
     }
     // Decaid's edit event carries the Shot's complete metadata, without curves.
     const shot = object(event.shot);
     if (!shot) return;
-    this.ids.add(id);
     this.outbox.enqueue({ type, id: this.outbox.nextId(), shotId: id, shot });
   }
 
@@ -136,7 +130,6 @@ export class ShotCapture {
         read.set(summary.id, summary.updatedAt);
         // Decaid v0.8.7 and later give every Shot an edit time; a record without one is ignored.
         if (!isCaptured(summary.id) || typeof summary.updatedAt !== "string") return [];
-        this.ids.add(summary.id);
         return [{ id: summary.id, updatedAt: summary.updatedAt }];
       });
       if (shots.length > 0) this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots });
@@ -147,16 +140,6 @@ export class ShotCapture {
       offset += page.items.length - OVERLAP;
     }
     return false;
-  }
-
-  private async indexKnownIds(): Promise<void> {
-    const generation = this.outbox.generation;
-    const ids = [...this.ids];
-    for (let offset = 0; offset < ids.length; offset += PAGE_SIZE) {
-      await this.outbox.waitForRoom();
-      if (this.stopped || generation !== this.outbox.generation) return;
-      this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots: ids.slice(offset, offset + PAGE_SIZE).map((id) => ({ id })) });
-    }
   }
 }
 
