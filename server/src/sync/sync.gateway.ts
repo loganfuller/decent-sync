@@ -17,6 +17,8 @@ import {
   type ReassemblyLimits,
   SYNC_PATH,
   type ServerMessage,
+  type ShotDelivery,
+  type SteamDelivery,
   decodePluginFrame,
   decodePluginMessage,
   encode,
@@ -111,7 +113,9 @@ interface Session {
  * A delivery is acknowledged once stored. One whose storage fails in a way
  * that would repeat is set aside as received and acknowledged as stored
  * (`SetAsideDeliveriesService`); any other failure closes the connection with
- * 1011, leaving the delivery for the plugin to send again.
+ * 1011, leaving the delivery for the plugin to send again. A Shot or Steam
+ * Record no supported Decaid sends is acknowledged and ignored, and logged
+ * by its id with what it lacks.
  *
  * Any number of server instances may run. Which connection holds a Machine is
  * stored on its row; a change that may end a connection (another accepted
@@ -319,9 +323,9 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return this.refuse(session, "protocol_error", "hello was already sent on this connection");
       case "shot":
       case "shotUpdated":
-        return this.capture(session, message, text, () => this.shots.store(message, reporter));
+        return this.captureRecord(session, message, text, () => this.shots.store(message, reporter));
       case "steam":
-        return this.capture(session, message, text, () => this.steamRecords.store(message, reporter));
+        return this.captureRecord(session, message, text, () => this.steamRecords.store(message, reporter));
       case "workflow":
         return this.capture(session, message, text, () => this.machineEvents.storeWorkflow(message, reporter));
       case "machineState":
@@ -368,6 +372,18 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       this.logger.warn(`Set aside a ${delivery.type} delivery from ${this.describe(session)} that cannot be stored: ${failure.message} (${failure.sqlState})`);
     }
     this.acknowledge(session, delivery.id, null);
+  }
+
+  /**
+   * Captures a Shot or Steam Record as `capture` does. One that is not a
+   * record any supported Decaid sends is acknowledged without being stored,
+   * and logged by its id with what it lacks, but no field's value.
+   */
+  private captureRecord(session: Session, delivery: ShotDelivery | SteamDelivery, text: string, store: () => Promise<string | null>): Promise<void> {
+    return this.capture(session, delivery, text, async () => {
+      const lacking = await store();
+      if (lacking !== null) this.logger.warn(`Ignored ${describeRecord(delivery)} from ${this.describe(session)}: its ${delivery.type} delivery has ${lacking}`);
+    });
   }
 
   /**
@@ -531,6 +547,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   private describe(session: Session): string {
     return session.machine ? `Machine ${session.machine.name} (${session.remote})` : session.remote;
   }
+}
+
+function describeRecord(delivery: ShotDelivery | SteamDelivery): string {
+  return delivery.type === "steam" ? `Steam Record ${delivery.steamId}` : `Shot ${delivery.shotId}`;
 }
 
 function describeTakenOver(connection: TakeoverConnectionView): string {

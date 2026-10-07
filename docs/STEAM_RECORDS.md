@@ -115,8 +115,10 @@ or DYE2 edits them.
 tablet sends it: a stored record is never replaced, so repeated deliveries,
 from any instance or Machine, change nothing. A record without a measurements
 array, which Decaid v0.8.7 and later always send, is acknowledged and ignored,
-and so is one whose id the server cannot store (`isRecordId`), which the
-plugin never indexes or sends and the server never requests. A delivery whose
+and logged as a warning naming the Machine, the Steam Record's id and what it
+lacks, with no field's value. One whose id the server cannot store
+(`isRecordId`), which the plugin never indexes or sends and the server never
+requests, is acknowledged and ignored without a warning. A delivery whose
 storage fails in a way that would repeat is set aside and acknowledged as
 stored, and the record counts as known to that Machine's indexes from then on
 (`AI_PROTOCOL_NOTES.md`, Deliveries set aside).
@@ -203,7 +205,7 @@ retried with backoff, counted from a slow failure; local times on both sides of 
 daylight-saving change, Location credit and its corrections (including one
 stored during a change on another instance), repeated and concurrent
 deliveries, deletion on the tablet, chunked records, mismatched connections,
-Pending Machines and their dismissal and adoption, and ignored records.
+Pending Machines and their dismissal and adoption, and ignored records and their warnings.
 
 ## Management interface
 

@@ -4,7 +4,7 @@ import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
 import { derivedShot, shotFixture, withShots } from "./support/shot-fixtures.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
-import { startTestServer, type TestServer } from "./support/test-server.js";
+import { ignoredRecordWarnings, startTestServer, type TestServer } from "./support/test-server.js";
 
 // Seam 1: built plugin, real PostgreSQL, and public REST assertions. Every
 // history/annotation/hardware variant is derived from a scrubbed real record.
@@ -586,19 +586,43 @@ describe("Shot capture and reconciliation", () => {
     expect(await measurements(record.id)).toEqual(expectedCurves);
   });
 
-  it("acknowledges and ignores records Decaid v0.8.7 and later would not send", async () => {
+  it("acknowledges and ignores records Decaid v0.8.7 and later would not send, logging each by its id and what it lacks", async () => {
     const machine = await api.createMachine("Incompatible records");
     const raw = await connect(machine);
     const { updatedAt: omitted, ...unversioned } = shot("unversioned-shot");
     await deliver(raw, unversioned);
     await deliver(raw, shot("local-version-shot", { updatedAt: "2026-01-01T12:00:00" }));
+    await deliver(raw, shot("offset-version-shot", { updatedAt: "2026-01-01T12:00:00+00:00" }));
     await deliver(raw, shot("curveless-shot", { measurements: undefined }));
     await deliver(raw, { id: "unversioned-edit", annotations: { enjoyment: 50 } }, "shotUpdated");
-    for (const id of ["unversioned-shot", "local-version-shot", "curveless-shot", "unversioned-edit"]) {
+    // Valid Shots and edits log nothing.
+    const valid = shot("compatible-shot", { updatedAt: "2026-01-01T12:00:00Z" });
+    const { measurements: omittedCurves, ...summary } = valid;
+    await deliver(raw, valid);
+    await deliver(raw, { ...summary, updatedAt: "2026-01-02T12:00:00Z", annotations: { enjoyment: 60 } }, "shotUpdated");
+    await deliver(raw, { id: "compatible-edit", updatedAt: "2026-01-02T12:00:00Z" }, "shotUpdated");
+    for (const id of ["unversioned-shot", "local-version-shot", "offset-version-shot", "curveless-shot", "unversioned-edit"]) {
       expect((await api.call("GET", `/shots/${id}`)).status).toBe(404);
     }
+    expect(await detail(String(valid.id))).toMatchObject({ enjoyment: 60 });
+
+    const ignored = (id: string, type: string, lacking: string) =>
+      `Ignored Shot ${id} from Machine Incompatible records (127.0.0.1): its ${type} delivery has ${lacking}`;
+    // One warning each, in the order delivered, with no field's value, such as the updatedAt sent.
+    await expect.poll(() => ignoredRecordWarnings(server, "Incompatible records")).toEqual([
+      ignored("unversioned-shot", "shot", "no updatedAt in UTC ending in Z"),
+      ignored("local-version-shot", "shot", "no updatedAt in UTC ending in Z"),
+      ignored("offset-version-shot", "shot", "no updatedAt in UTC ending in Z"),
+      ignored("curveless-shot", "shot", "no measurements array"),
+      ignored("unversioned-edit", "shotUpdated", "no updatedAt in UTC ending in Z"),
+    ]);
+    expect(server.output()).not.toMatch(/2026-01-0[12]T12:00:00/);
+
+    // Not held, so requested again, and ignored and logged again.
     raw.send({ type: "shotIndex", id: "incompatible-index", shots: [{ id: "unversioned-edit" }] });
     await expect.poll(() => raw.messages.find((m) => (m as { type: string }).type === "requestShots")).toEqual({ type: "requestShots", shotIds: ["unversioned-edit"] });
+    await deliver(raw, { id: "unversioned-edit", annotations: { enjoyment: 50 } }, "shotUpdated");
+    await expect.poll(() => ignoredRecordWarnings(server, "Incompatible records").length).toBe(6);
   });
 
   it("makes newer-wins choices across instances and restart", async () => {

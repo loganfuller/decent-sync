@@ -5,6 +5,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 import pg from "pg";
 import { assertBuilt } from "./builds.js";
 import { watchLog, watchSecrets } from "./secrets.js";
@@ -155,6 +156,17 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     return client;
   };
   return { url, database, output: () => output.join(""), stop, kill, connectDatabase };
+}
+
+/**
+ * The warnings the server logged on ignoring a Shot or Steam Record from the
+ * named Machine, in the order logged, each without the logger's prefix or colors.
+ */
+export function ignoredRecordWarnings(server: TestServer, machineName: string): string[] {
+  return stripVTControlCharacters(server.output()).split("\n").flatMap((line) => {
+    const warning = /\bWARN \[Sync\] (Ignored .*)$/.exec(line)?.[1];
+    return warning?.includes(` from Machine ${machineName} (`) ? [warning] : [];
+  });
 }
 
 /** DATABASE_URL, naming the PostgreSQL server tests create their databases on. */

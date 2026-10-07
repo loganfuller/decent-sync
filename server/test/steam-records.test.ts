@@ -5,7 +5,7 @@ import { waitForLockWaits } from "./support/lock-waits.js";
 import { derivedShot, shotFixture, withShots } from "./support/shot-fixtures.js";
 import { derivedSteam, longSteam, milkProbeSteamFixture, steamFixture, withSteams } from "./support/steam-fixtures.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor, type HeldSteamRead } from "./support/simulated-tablet.js";
-import { startTestServer, type TestServer } from "./support/test-server.js";
+import { ignoredRecordWarnings, startTestServer, type TestServer } from "./support/test-server.js";
 
 // Seam 1: Steam Record capture through the built plugin on simulated tablets,
 // and raw frames, against two server instances sharing PostgreSQL, asserting
@@ -774,10 +774,16 @@ describe("Steam Record capture", () => {
     expect((await list(adopted.machine.id)).steamRecords.map((steam) => steam.id)).toEqual(["mismatched-steam"]);
   });
 
-  it("acknowledges and ignores a Steam Record without measurements, which Decaid v0.8.7 and later never send", async () => {
+  it("acknowledges and ignores a Steam Record without measurements, which Decaid v0.8.7 and later never send, logging its id and what it lacks", async () => {
     const machine = await api.createMachine("Incompatible steam");
     const raw = await connect(machine);
     await raw.acknowledged(sendSteam(raw, derivedSteam("curveless-steam", { measurements: undefined }), "2026-10-05T14:07:03.341Z"));
     await absent("curveless-steam");
+    // A valid one logs nothing.
+    await raw.acknowledged(sendSteam(raw, derivedSteam("compatible-steam"), "2026-10-05T14:08:03.341Z"));
+    await waitSteam("compatible-steam");
+    await expect.poll(() => ignoredRecordWarnings(server, "Incompatible steam")).toEqual([
+      "Ignored Steam Record curveless-steam from Machine Incompatible steam (127.0.0.1): its steam delivery has no measurements array",
+    ]);
   });
 });

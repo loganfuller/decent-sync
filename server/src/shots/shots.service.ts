@@ -16,12 +16,19 @@ const SHOT_LOCK = 4_000_003;
 export class ShotsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async store(message: ShotDelivery, reporter: Reporter): Promise<void> {
+  /**
+   * Stores a Shot delivery, unless it is not a record Decaid v0.8.7 or later
+   * sends: then it is ignored, and what it lacks is returned, to be logged.
+   * Returns null otherwise, including for an id the server cannot store,
+   * which is ignored too, as the plugin never sends one.
+   */
+  async store(message: ShotDelivery, reporter: Reporter): Promise<string | null> {
     const { measurements, ...incoming } = message.shot;
     const version = shotVersion(incoming);
     const full = message.type === "shot";
-    // Not a record Decaid v0.8.7 or later sends, or an id the server cannot store: acknowledged, but ignored.
-    if (version === null || (full && !Array.isArray(measurements)) || !isRecordId(message.shotId)) return;
+    if (!isRecordId(message.shotId)) return null;
+    if (version === null) return "no updatedAt in UTC ending in Z";
+    if (full && !Array.isArray(measurements)) return "no measurements array";
     await this.prisma.$transaction(async (tx) => {
       // Serializes even the first insertion across instances. No row is held
       // until credit is resolved: hardware adoption can finish while we wait
@@ -70,6 +77,7 @@ export class ShotsService {
         });
       }
     });
+    return null;
   }
 
   /**
