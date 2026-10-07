@@ -125,7 +125,7 @@ export interface Machine {
   locationHistory: LocationHistoryEntry[];
   /** The tablet its latest connection came from, or null before any. A reset or replaced tablet is a new one. */
   tablet: Tablet | null;
-  /** The tablets its connections came from before, the one seen most recently first. */
+  /** The tablets its connections came from before, the one whose connection was accepted most recently first. */
   earlierTablets: Tablet[];
 }
 

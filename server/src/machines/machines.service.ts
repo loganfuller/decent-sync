@@ -73,7 +73,7 @@ export interface MachineView {
    * hardware, or with another Machine's token while reporting its hardware.
    */
   tablet: TabletView | null;
-  /** The tablets its connections came from before, the one seen most recently first. */
+  /** The tablets its connections came from before, the one whose connection was accepted most recently first. */
   earlierTablets: TabletView[];
 }
 
