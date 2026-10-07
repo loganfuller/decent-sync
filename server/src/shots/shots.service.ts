@@ -75,22 +75,25 @@ export class ShotsService {
   /**
    * The indexed Shots the Machine's tablet should send: those not stored, or
    * stored without their full record (even if their edits have already
-   * arrived) or at an older version. A Shot whose delivery from this Machine
-   * was set aside counts as known, and one whose id the server cannot store is
-   * never requested.
+   * arrived) or at an older version, in the index's order. A Shot whose
+   * delivery from this Machine was set aside counts as known, and one whose id
+   * the server cannot store is never requested.
    */
   async requested(index: ShotIndex, machineId: string): Promise<string[]> {
     const offered = index.shots.filter((shot) => isRecordId(shot.id));
     if (offered.length === 0) return [];
-    const entries = offered.map((shot) => Prisma.sql`(${shot.id}::text, ${shotVersion(shot)}::timestamptz)`);
-    const missing = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
-      SELECT offered.id FROM (VALUES ${Prisma.join(entries)}) AS offered(id, version_at)
+    const ids = offered.map((shot) => shot.id);
+    // Null in a reconnect's ids-only index.
+    const versions = offered.map((shot) => shotVersion(shot));
+    const missing = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT offered.id FROM unnest(${ids}::text[], ${versions}::timestamptz[]) WITH ORDINALITY AS offered(id, version_at, position)
       LEFT JOIN shots ON shots.id = offered.id
       WHERE (shots.id IS NULL OR NOT shots.has_full_record OR offered.version_at > shots.version_at)
         AND NOT EXISTS (
           SELECT 1 FROM set_aside_deliveries aside
           WHERE aside.machine_id = ${machineId}::uuid AND aside.record_id = offered.id AND aside.type IN ('shot', 'shotUpdated')
-        )`);
+        )
+      ORDER BY offered.position`;
     return [...new Set(missing.map((shot) => shot.id))];
   }
 

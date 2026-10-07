@@ -54,7 +54,9 @@ Record index is (`STEAM_RECORDS.md`). A reconnect sends no index, only the
 deliveries still unacknowledged, and a scan that a disconnect interrupted
 carries on where it was, so no page acknowledged before the disconnect is
 sent again. A server whose database was wiped or restored therefore learns
-which Shots it lacks only when the plugin is reloaded. The outbox
+which Shots it lacks only when the plugin is reloaded. The server's
+`requestShots` lists the Shots it lacks in the order the index offered them,
+each once, so backfill goes newest first. The outbox
 fetches requested Shots, new ones first, one at a time, when it has nothing
 else queued. Only one logical
 delivery awaits acknowledgment at a time, and the scan waits while the outbox
