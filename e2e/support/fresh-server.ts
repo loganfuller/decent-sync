@@ -1,5 +1,7 @@
 import { test } from "@playwright/test";
 import type pg from "pg";
+import { assertBuilt } from "../../server/test/support/builds.js";
+import { assertNoSecretLogged } from "../../server/test/support/secrets.js";
 import { type TestServer, type TestServerOptions, startTestServer } from "../../server/test/support/test-server.js";
 
 /**
@@ -12,6 +14,8 @@ export function useFreshServer(options: TestServerOptions = {}): {
   /** A client of the server's database, for changes no page can make, such as time passing. The caller ends it. */
   connectDatabase(): Promise<pg.Client>;
 } {
+  // The server serves the built management interface.
+  assertBuilt("web");
   let server: Promise<TestServer> | undefined;
 
   test.describe.configure({ mode: "serial" });
@@ -20,6 +24,8 @@ export function useFreshServer(options: TestServerOptions = {}): {
   test.use({ baseURL: async ({}, use) => use((await (server ??= startTestServer(options))).url) });
   test.afterAll(async () => {
     await (await server)?.stop();
+    // No token, link secret or session cookie the server handed out may reach its or a tablet's log.
+    assertNoSecretLogged();
   });
 
   let url: string | undefined;

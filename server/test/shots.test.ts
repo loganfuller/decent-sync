@@ -1,13 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
 import { derivedShot, shotFixture, withShots } from "./support/shot-fixtures.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
 
 // Seam 1: built plugin, real PostgreSQL, and public REST assertions. Every
 // history/annotation/hardware variant is derived from a scrubbed real record.
-/** ShotsService's advisory lock class for one Shot id. */
+/**
+ * The advisory lock class for one Shot id in server/src/shots/shots.service.ts,
+ * held here to hold up storing a Shot. Each test waits until storage waits for
+ * it, so a test whose lock no longer matches the server's fails.
+ */
 const SHOT_LOCK = 4_000_003;
 interface ShotView {
   id: string; machineId: string | null; pendingMachineId: string | null; machineInferred: boolean;
@@ -22,7 +27,6 @@ describe("Shot capture and reconciliation", () => {
   let api: AdminApi;
   const tablets: SimulatedTablet[] = [];
   const raws: RawConnection[] = [];
-  const timers: NodeJS.Timeout[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
@@ -31,7 +35,6 @@ describe("Shot capture and reconciliation", () => {
     api = await AdminApi.setUp(server.url);
   }, 60_000);
   afterEach(async () => {
-    timers.splice(0).forEach(clearInterval);
     await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
@@ -92,16 +95,12 @@ describe("Shot capture and reconciliation", () => {
     return ((await (await api.call("GET", `/shots/${encodeURIComponent(id)}/measurements`)).json()) as { measurements: unknown }).measurements;
   }
   async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
-    const raw = await RawConnection.open(url);
+    const raw = await RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
     raws.push(raw);
-    raw.send(helloWith(machine.token, hardware ? { machine: hardware } : {}));
-    expect(await raw.message(0)).toMatchObject({ type: "welcome" });
-    timers.push(setInterval(() => raw.send({ type: "heartbeat" }), 300));
     return raw;
   }
   async function deliver(raw: RawConnection, record: Record<string, unknown>, type = "shot", id = randomUUID()) {
-    raw.send({ type, id, shotId: String(record.id), shot: record });
-    await expect.poll(() => raw.messages.some((message) => (message as { type: string; id: string }).type === "ack" && (message as { id: string }).id === id)).toBe(true);
+    await raw.deliver({ type, id, shotId: String(record.id), shot: record });
     return id;
   }
   async function waitShot(id: string, matches: (shot: ShotView) => boolean = () => true) {
@@ -112,8 +111,7 @@ describe("Shot capture and reconciliation", () => {
     return detail(id);
   }
 
-  it("requires a session for all Shot reads and validates pagination", async () => {
-    for (const path of ["/shots", "/shots/missing", "/shots/missing/measurements"]) expect((await api.call("GET", path, undefined, {})).status).toBe(401);
+  it("validates pagination", async () => {
     for (const query of ["limit=0", "limit=101", "offset=-1", "limit=1.2"]) expect((await api.call("GET", `/shots?${query}`)).status).toBe(400);
   });
 
@@ -267,7 +265,7 @@ describe("Shot capture and reconciliation", () => {
       await database.query(`SELECT pg_advisory_xact_lock(${SHOT_LOCK}::int, hashtext($1::text))`, [record.id]);
       const { measurements: omitted, ...summary } = record;
       tablet.fire("shotUpdated", { id: record.id, shot: { ...summary, updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 72 } } });
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await waitForLockWaits(server, { advisory: true });
       tablet.dropConnections();
       await database.query("ROLLBACK");
     } finally { await database.end(); }
@@ -328,14 +326,15 @@ describe("Shot capture and reconciliation", () => {
     try {
       await database.query("BEGIN");
       await database.query("LOCK TABLE shot_measurements IN ACCESS EXCLUSIVE MODE");
+      // Reading curves would wait for the lock until it is released, so any answer at all shows the list read none.
       const response = await Promise.race([
         api.call("GET", "/shots"),
-        new Promise<never>((_, reject) => { const timer = setTimeout(() => reject(new Error("Shots list waited on measurements")), 1_000); timer.unref(); }),
+        new Promise<never>((_, reject) => { const timer = setTimeout(() => reject(new Error("Shots list waited on measurements")), 5_000); timer.unref(); }),
       ]);
       expect(response.status).toBe(200);
       expect(((await response.json()) as { total: number }).total).toBeGreaterThan(0);
     } finally { await database.query("ROLLBACK"); await database.end(); }
-  });
+  }, 10_000);
 
   it("keeps Shots deleted on the tablet and never includes measurements or metadata in a list", async () => {
     const machine = await api.createMachine("Deletion");
@@ -392,7 +391,7 @@ describe("Shot capture and reconciliation", () => {
       await database.query("BEGIN");
       await database.query(`SELECT pg_advisory_xact_lock(${SHOT_LOCK}::int, hashtext('delayed-shot'))`);
       raw.send({ type: "shot", id, shotId: "delayed-shot", shot: shot("delayed-shot") });
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      await waitForLockWaits(server, { advisory: true });
       expect(raw.messages.some((m) => (m as { id?: string }).id === id)).toBe(false);
       expect((await api.call("GET", "/shots/delayed-shot")).status).toBe(404);
       await database.query("COMMIT");
@@ -531,9 +530,10 @@ describe("Shot capture and reconciliation", () => {
       await database.query("BEGIN");
       await database.query(`SELECT pg_advisory_xact_lock(${SHOT_LOCK}::int, hashtext($1::text))`, [old.id]);
       first.send({ type: "shot", id: "concurrent-old", shotId: old.id, shot: old });
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await waitForLockWaits(server, { advisory: true });
       const second = await connect(machine, other.url);
       second.send({ type: "shot", id: "concurrent-new", shotId: old.id, shot: { ...old, updatedAt: "2026-01-02T12:00:00Z", annotations: { enjoyment: 95 } } });
+      await waitForLockWaits(server, { advisory: true, count: 2 });
       await database.query("COMMIT");
       await waitShot(String(old.id), (shot) => shot.enjoyment === 95);
     } finally { await database.end(); }

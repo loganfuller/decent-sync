@@ -26,7 +26,6 @@ describe("Deliveries sent again on one connection", () => {
   let other: TestServer;
   let api: AdminApi;
   const raws: RawConnection[] = [];
-  const timers: NodeJS.Timeout[] = [];
 
   beforeAll(async () => {
     const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
@@ -35,7 +34,6 @@ describe("Deliveries sent again on one connection", () => {
     api = await AdminApi.setUp(server.url);
   }, 60_000);
   afterEach(async () => {
-    timers.splice(0).forEach(clearInterval);
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
   afterAll(async () => {
@@ -44,25 +42,15 @@ describe("Deliveries sent again on one connection", () => {
   });
 
   async function connect(machine: CreatedMachine, url = server.url) {
-    const raw = await RawConnection.open(url);
+    const raw = await RawConnection.welcomed(url, helloWith(machine.token));
     raws.push(raw);
-    raw.send(helloWith(machine.token));
-    expect(await raw.message(0)).toMatchObject({ type: "welcome" });
-    timers.push(setInterval(() => raw.send({ type: "heartbeat" }), 300));
     return raw;
   }
   const received = (raw: RawConnection, type: string) => (raw.messages as Received[]).filter((message) => message.type === type);
-  const acks = (raw: RawConnection, id: string) => received(raw, "ack").filter((ack) => ack.id === id).length;
-  /** Sends a delivery and resolves once it is acknowledged, again if it was before. */
-  async function deliver(raw: RawConnection, message: { id: string }) {
-    const before = acks(raw, message.id);
-    raw.send(message);
-    await expect.poll(() => acks(raw, message.id)).toBe(before + 1);
-  }
   /** Sends an index and resolves with the request it was answered with, once it is acknowledged. */
   async function requestFor(raw: RawConnection, index: { id: string }, type = "requestShots") {
     const before = received(raw, type).length;
-    await deliver(raw, index);
+    await raw.deliver(index);
     const requests = received(raw, type);
     expect(requests).toHaveLength(before + 1);
     return requests.at(-1);
@@ -108,17 +96,17 @@ describe("Deliveries sent again on one connection", () => {
       collection: report("machineSettings", { ...settings, fan: 40 }),
     };
     expect(await requestFor(raw, earliest.index)).toEqual({ type: "requestShots", shotIds: ["replayed-shot", "indexed-shot"] });
-    for (const delivery of Object.values(earliest).slice(1)) await deliver(raw, delivery);
-    await deliver(raw, edit(replayedShot, "2026-10-05T10:00:00Z", 2));
-    await deliver(raw, shotDelivery(shot("indexed-shot")));
+    for (const delivery of Object.values(earliest).slice(1)) await raw.deliver(delivery);
+    await raw.deliver(edit(replayedShot, "2026-10-05T10:00:00Z", 2));
+    await raw.deliver(shotDelivery(shot("indexed-shot")));
     const dialledIn = derivedWorkflow({ targetYield: 40 });
-    await deliver(raw, workflow(dialledIn, "2026-10-05T12:01:00.000Z"));
-    await deliver(raw, report("machineSettings", { ...settings, fan: 45 }));
+    await raw.deliver(workflow(dialledIn, "2026-10-05T12:01:00.000Z"));
+    await raw.deliver(report("machineSettings", { ...settings, fan: 45 }));
     // More state transitions than the connection remembers deliveries, from idle to espresso and back, ending in espresso.
     const transitions = HANDLED_DELIVERY_LIMITS.maxDeliveries + 1;
     for (let n = 0; n < transitions; n++) {
       const observedAt = new Date(Date.parse("2026-10-05T12:02:00.000Z") + n * 1000).toISOString();
-      await deliver(raw, n % 2 === 0 ? state("espresso", "pouring", observedAt) : state("idle", "idle", observedAt));
+      await raw.deliver(n % 2 === 0 ? state("espresso", "pouring", observedAt) : state("idle", "idle", observedAt));
     }
 
     const visible = async () => ({
@@ -141,7 +129,7 @@ describe("Deliveries sent again on one connection", () => {
     expect(before.collection).toMatchObject({ collection: { value: { fan: 45 } } });
 
     // Each earliest delivery again: a stale edit, Workflow, state and value among them.
-    for (const delivery of Object.values(earliest)) await deliver(raw, delivery);
+    for (const delivery of Object.values(earliest)) await raw.deliver(delivery);
     expect(await visible()).toEqual(before);
     // The earliest index was forgotten, so it is answered from what is stored now.
     expect(received(raw, "requestShots").at(-1)).toEqual({ type: "requestShots", shotIds: [] });
@@ -149,7 +137,7 @@ describe("Deliveries sent again on one connection", () => {
 
     // So does a connection to another instance, which never handled them.
     const elsewhere = await connect(machine, other.url);
-    for (const delivery of Object.values(earliest)) await deliver(elsewhere, delivery);
+    for (const delivery of Object.values(earliest)) await elsewhere.deliver(delivery);
     expect(await visible()).toEqual(before);
   }, 30_000);
 
@@ -161,7 +149,7 @@ describe("Deliveries sent again on one connection", () => {
     expect(await requestFor(raw, index)).toEqual(request);
     const steamIndex = { type: "steamIndex", id: randomUUID(), steams: [{ id: "recent-steam" }] };
     expect(await requestFor(raw, steamIndex, "requestSteams")).toEqual({ type: "requestSteams", steamIds: ["recent-steam"] });
-    await deliver(raw, shotDelivery(shot("recently-requested")));
+    await raw.deliver(shotDelivery(shot("recently-requested")));
 
     // Its request is sent again, ahead of its acknowledgment, as first answered.
     expect(await requestFor(raw, index)).toEqual(request);
@@ -183,7 +171,7 @@ describe("Deliveries sent again on one connection", () => {
     const requested = async (index: { id: string }) => [...(await requestFor(raw, index))!.shotIds!].sort();
     const first = shotIndex("stored-later", ...longIds("first"));
     expect(await requested(first)).toEqual(["stored-later", ...longIds("first")].sort());
-    await deliver(raw, shotDelivery(shot("stored-later")));
+    await raw.deliver(shotDelivery(shot("stored-later")));
     for (let page = 0; page < pages; page++) await requested(shotIndex(`page-${page}`, ...longIds(`page-${page}`)));
 
     // Forgotten, the first index is answered from what is stored now.

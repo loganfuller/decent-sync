@@ -131,22 +131,9 @@ describe("Shots lists", () => {
 
   /** Sends the Shots through a connection with the Machine's token reporting its hardware, and waits for each to be stored. */
   async function deliver(machine: CreatedMachine, reported: { model: string; serial: string }, shots: Record<string, unknown>[]) {
-    const raw = await RawConnection.open(server.url);
+    const raw = await RawConnection.welcomed(server.url, helloWith(machine.token, { machine: reported }));
     raws.push(raw);
-    raw.send(helloWith(machine.token, { machine: reported }));
-    expect(await raw.message(0)).toMatchObject({ type: "welcome" });
-    const deliveries = shots.map((shot) => {
-      const id = randomUUID();
-      raw.send({ type: "shot", id, shotId: shot.id, shot });
-      return id;
-    });
-    const acknowledged = () => new Set(raw.messages.flatMap((message) => ((message as { type: string }).type === "ack" ? [(message as { id: string }).id] : [])));
-    // Called from beforeAll, where expect.poll is unavailable.
-    const deadline = Date.now() + 10_000;
-    while (!deliveries.every((id) => acknowledged().has(id))) {
-      if (Date.now() > deadline) throw new Error(`Not every Shot was acknowledged: ${JSON.stringify(raw.messages)}`);
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+    await Promise.all(shots.map((shot) => raw.deliver({ type: "shot", id: randomUUID(), shotId: shot.id, shot })));
   }
 
   async function list(query: Record<string, string> = {}, at = api): Promise<{ shots: ShotView[]; total: number }> {

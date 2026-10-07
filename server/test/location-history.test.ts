@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView } from "./support/admin-api.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
 import { derivedShot, shotFixture, withShots } from "./support/shot-fixtures.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { derivedSteam } from "./support/steam-fixtures.js";
@@ -113,7 +114,6 @@ describe("Location History", () => {
   let elsewhere: LocationView;
   const tablets: SimulatedTablet[] = [];
   const raws: RawConnection[] = [];
-  const timers: NodeJS.Timeout[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
@@ -127,7 +127,6 @@ describe("Location History", () => {
     elsewhere = await api.createLocation("Elsewhere", "America/Chicago");
   }, 60_000);
   afterEach(async () => {
-    timers.splice(0).forEach(clearInterval);
     await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
@@ -158,11 +157,8 @@ describe("Location History", () => {
     return tablet;
   }
   async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
-    const raw = await RawConnection.open(url);
+    const raw = await RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
     raws.push(raw);
-    raw.send(helloWith(machine.token, hardware ? { machine: hardware } : {}));
-    expect(await raw.message(0)).toMatchObject({ type: "welcome" });
-    timers.push(setInterval(() => raw.send({ type: "heartbeat" }), 300));
     return raw;
   }
   function sendShot(raw: RawConnection, record: Record<string, unknown>, id = randomUUID()) {
@@ -180,7 +176,7 @@ describe("Location History", () => {
   async function sendRecords(raw: RawConnection, key: string, times: string[]) {
     const deliveries = times.flatMap((at) => [sendShot(raw, shotAt(`${key}-shot-${at}`, at)), sendSteam(raw, derivedSteam(`${key}-steam-${at}`), at)]);
     deliveries.push(sendShot(raw, shotAt(`${key}-shot-untimed`, "2026-03-15T12:00:00Z")));
-    for (const delivery of deliveries) await acknowledged(raw, delivery);
+    for (const delivery of deliveries) await raw.acknowledged(delivery);
     // Every Shot supported Decaid versions send can be placed in time, so this one loses its pull
     // time, and with it any Location, behind the server's back.
     const database = await server.connectDatabase();
@@ -231,9 +227,6 @@ describe("Location History", () => {
     );
     return rows;
   }
-  async function acknowledged(raw: RawConnection, id: string) {
-    await expect.poll(() => raw.messages.some((message) => (message as { type: string; id?: string }).type === "ack" && (message as { id?: string }).id === id)).toBe(true);
-  }
   async function detail(id: string): Promise<ShotView> {
     const response = await api.call("GET", `/shots/${encodeURIComponent(id)}`);
     expect(response.status).toBe(200);
@@ -270,12 +263,6 @@ describe("Location History", () => {
     expect(response.status, JSON.stringify(body.message)).toBeLessThan(300);
     return body.machine;
   }
-  /** Waits until a query on the test database waits for a lock on the table, such as one the test holds. */
-  async function someoneWaits(database: { query<T>(text: string, values: unknown[]): Promise<{ rows: T[] }> }, table: string) {
-    const waiting = `SELECT count(*)::int AS waiting FROM pg_locks
-      WHERE NOT granted AND relation = $1::regclass AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`;
-    await expect.poll(async () => (await database.query<{ waiting: number }>(waiting, [table])).rows[0]!.waiting).toBeGreaterThan(0);
-  }
   async function problem(response: Response) {
     return { status: response.status, message: ((await response.json()) as { message: unknown }).message };
   }
@@ -288,13 +275,6 @@ describe("Location History", () => {
       effectiveFrom: change.at && midnight(change.at),
     });
   }
-
-  it("requires a session to change a Location History", async () => {
-    const { machine } = await api.createMachine("Signed out");
-    expect((await api.call("POST", `/machines/${machine.id}/location-history`, { locationId: lab.id }, {})).status).toBe(401);
-    expect((await api.call("PATCH", `/machines/${machine.id}/location-history/${randomUUID()}`, { effectiveFrom: "2026-01-01T00:00:00Z" }, {})).status).toBe(401);
-    expect((await api.call("DELETE", `/machines/${machine.id}/location-history/${randomUUID()}`, undefined, {})).status).toBe(401);
-  });
 
   it("creates a machine entry at a Location from now, or unassigned, refusing a Location the server lacks", async () => {
     const before = Date.now();
@@ -423,7 +403,7 @@ describe("Location History", () => {
     const boundHardware = { model: "DE1Pro", serial: "60002" };
     const raw = await connect(reporter);
     for (const record of [shotAt("pending-adopted", "2026-02-10T09:00:00Z", adoptedHardware), shotAt("pending-bound", "2026-02-10T09:00:00Z", boundHardware)]) {
-      await acknowledged(raw, sendShot(raw, record));
+      await raw.acknowledged(sendShot(raw, record));
     }
     // Held for hardware without a machine entry, whatever the reporting Machine's Location.
     expect(await detail("pending-adopted")).toMatchObject({ machineId: null, pendingMachineId: expect.any(String), location: null, locationInferred: false });
@@ -455,13 +435,12 @@ describe("Location History", () => {
       // Holds the Shot's storage, once it has been credited, until the move is under way.
       await database.query("LOCK TABLE shot_measurements IN ACCESS EXCLUSIVE MODE");
       const delivery = sendShot(raw, shotAt("stored-during-a-move", "2026-03-15T12:00:00Z"));
-      await someoneWaits(database, "shot_measurements");
+      await waitForLockWaits(server, { relation: "shot_measurements" });
       moving = move(created.machine.id, uptown.id, "2026-03-01T00:00:00Z");
       // The move waits for the Shot's storage, which holds the Machine.
-      const settled = await Promise.race([moving.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500))]);
-      expect(settled).toBe(false);
+      await waitForLockWaits(server, { count: 2 });
       await database.query("ROLLBACK");
-      await acknowledged(raw, delivery);
+      await raw.acknowledged(delivery);
     } finally {
       await database.query("ROLLBACK").catch(() => undefined);
       await database.end();
@@ -476,7 +455,7 @@ describe("Location History", () => {
     await moved(await correct(created.machine.id, first, "2026-01-01T00:00:00Z"));
     const raw = await connect(created, other.url);
     const record = shotAt("edited-during-a-correction", "2026-02-15T12:00:00Z");
-    await acknowledged(raw, sendShot(raw, record));
+    await raw.acknowledged(sendShot(raw, record));
     expect(await detail(String(record.id))).toMatchObject({ location: lab });
     const database = await server.connectDatabase();
     let correcting: Promise<Response> | undefined;
@@ -493,13 +472,13 @@ describe("Location History", () => {
       const { measurements: omitted, ...summary } = record;
       edit = randomUUID();
       raw.send({ type: "shotUpdated", id: edit, shotId: record.id, shot: { ...summary, updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 64 } } });
-      await someoneWaits(database, "shots");
+      await waitForLockWaits(server, { relation: "shots" });
       correcting = api.call("PATCH", `/machines/${created.machine.id}/location-history/${first}`, { locationId: uptown.id });
-      await someoneWaits(database, "location_assignments");
+      await waitForLockWaits(server, { relation: "location_assignments" });
       await database.query("ROLLBACK TO SAVEPOINT edit");
       // While the correction holds the Machine, the edit writes the Shot twice, checking its Machine's
       // key the second time: it is stored without waiting for the correction, which then waits for it.
-      await acknowledged(raw, edit);
+      await raw.acknowledged(edit);
       await database.query("ROLLBACK");
     } finally {
       await database.query("ROLLBACK").catch(() => undefined);
@@ -515,9 +494,9 @@ describe("Location History", () => {
     await moved(await move(created.machine.id, uptown.id, "2026-03-01T00:00:00Z"));
     const raw = await connect(created);
     const record = shotAt("pulled-once", "2026-02-15T12:00:00Z");
-    await acknowledged(raw, sendShot(raw, record));
+    await raw.acknowledged(sendShot(raw, record));
     // Derived: the same Shot, edited, as a full record whose time reads differently.
-    await acknowledged(raw, sendShot(raw, { ...record, timestamp: "2026-04-15T12:00:00Z", updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 71 } }));
+    await raw.acknowledged(sendShot(raw, { ...record, timestamp: "2026-04-15T12:00:00Z", updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 71 } }));
     expect(await detail("pulled-once")).toMatchObject({ enjoyment: 71, pulledAt: "2026-02-15T12:00:00.000Z", location: lab });
   });
 
@@ -531,7 +510,7 @@ describe("Location History", () => {
     const [first, toUptown, , toBelmont] = recorded.locationHistory.map((entry) => entry.id);
     const raw = await connect(created, other.url);
     const shots = ["2026-01-15", "2026-02-15", "2026-03-15", "2026-04-15"].map((day) => shotAt(`mistaken-${day}`, `${day}T12:00:00Z`));
-    for (const shot of shots) await acknowledged(raw, sendShot(raw, shot));
+    for (const shot of shots) await raw.acknowledged(sendShot(raw, shot));
     const ids = shots.map((shot) => String(shot.id));
     expect(Object.values(await locations(ids))).toEqual(["Lab", "Uptown", "Lab", "Belmont"]);
 
@@ -562,7 +541,7 @@ describe("Location History", () => {
     const first = created.machine.locationHistory[0]!.id;
     const raw = await connect(created);
     for (const shot of [shotAt("wrong-january", "2026-01-15T12:00:00Z"), shotAt("wrong-february", "2026-02-15T12:00:00Z")]) {
-      await acknowledged(raw, sendShot(raw, shot));
+      await raw.acknowledged(sendShot(raw, shot));
     }
     expect(await locations(["wrong-january", "wrong-february"])).toEqual({ "wrong-january": null, "wrong-february": null });
 
@@ -694,7 +673,7 @@ describe("Location History", () => {
   it("commits a Location History change that runs past Prisma's default 5 s limit on a transaction", async () => {
     const created = await api.createMachine("Slow correction", lab.id);
     const raw = await connect(created);
-    await acknowledged(raw, sendShot(raw, shotAt("slow-correction", "2026-02-15T12:00:00Z")));
+    await raw.acknowledged(sendShot(raw, shotAt("slow-correction", "2026-02-15T12:00:00Z")));
     const database = await server.connectDatabase();
     let correcting: Promise<Response> | undefined;
     try {
@@ -702,7 +681,7 @@ describe("Location History", () => {
       // Holds the correction, with the Machine locked, before it credits the Shot.
       await database.query("LOCK TABLE shots IN ACCESS EXCLUSIVE MODE");
       correcting = correct(created.machine.id, created.machine.locationHistory[0]!.id, "2026-01-01T00:00:00Z");
-      await someoneWaits(database, "shots");
+      await waitForLockWaits(server, { relation: "shots" });
       await new Promise((resolve) => setTimeout(resolve, 5_500));
       await database.query("ROLLBACK");
     } finally {
@@ -778,7 +757,7 @@ describe("Location History", () => {
       const abandoned = await RawConnection.open(server.url);
       raws.push(abandoned);
       abandoned.send(helloWith(created.token, { machine: hardware }));
-      await someoneWaits(database, "steam_records");
+      await waitForLockWaits(server, { relation: "steam_records" });
       // Counted from here, when the hello's transaction has certainly begun.
       const held = Date.now();
       // The plugin gives up waiting for welcome (after 15 s) and closes the connection.

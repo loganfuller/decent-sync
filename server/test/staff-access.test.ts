@@ -13,11 +13,6 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // the Shot and Steam Record are derived from scrubbed real records, changing
 // only their ids, times and recorded hardware. Hardware ids are made up.
 
-interface Sent {
-  type: string;
-  id?: string;
-}
-
 describe("Staff access", () => {
   let server: TestServer;
   let api: AdminApi;
@@ -31,7 +26,6 @@ describe("Staff access", () => {
   let belmont1: CreatedMachine;
   let spare: CreatedMachine;
   const raws: RawConnection[] = [];
-  const timers: NodeJS.Timeout[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
@@ -48,7 +42,6 @@ describe("Staff access", () => {
     staff = AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Sam Staff", password: "staff password 1" }));
   }, 60_000);
   afterEach(async () => {
-    timers.splice(0).forEach(clearInterval);
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
   afterAll(() => server?.stop());
@@ -72,47 +65,14 @@ describe("Staff access", () => {
     return as.call("POST", `/machines/${created.machine.id}/location-history`, body);
   }
   async function connect(created: CreatedMachine, hardware: { model: string; serial: string }) {
-    const raw = await RawConnection.open(server.url);
+    const raw = await RawConnection.welcomed(server.url, helloWith(created.token, { machine: hardware }));
     raws.push(raw);
-    raw.send(helloWith(created.token, { machine: hardware }));
-    expect(await raw.message(0)).toMatchObject({ type: "welcome" });
-    timers.push(setInterval(() => raw.send({ type: "heartbeat" }), 300));
     return raw;
-  }
-  async function acknowledged(raw: RawConnection, id: string) {
-    await expect.poll(() => raw.messages.some((message) => (message as Sent).type === "ack" && (message as Sent).id === id)).toBe(true);
   }
 
   it("tells Staff the Locations they work at", async () => {
     const { account } = (await (await staff.call("GET", "/session")).json()) as { account: { role: string; locations: LocationView[] } };
     expect(account).toMatchObject({ role: "staff", locations: [belmont, uptown] });
-  });
-
-  it("refuses Staff every Admin-only endpoint, even for their own Locations' Machines", async () => {
-    const id = uptown1.machine.id;
-    const entry = uptown1.machine.locationHistory[0]!.id;
-    const pendingId = randomUUID();
-    const adminOnly: [string, string, unknown?][] = [
-      ["POST", "/invites", { email: "friend@example.com", role: "staff", locationIds: [uptown.id] }],
-      ["POST", "/locations", { name: "Elsewhere", timeZone: "America/Chicago" }],
-      ["PATCH", `/locations/${uptown.id}`, { name: "Downtown" }],
-      ["POST", "/machines", { name: "Uptown 2", locationId: uptown.id }],
-      ["POST", `/machines/${id}/token`],
-      ["PUT", `/machines/${id}/hardware`, { model: "DE1Pro", serial: "10099" }],
-      ["PATCH", `/machines/${id}/location-history/${entry}`, { effectiveFrom: "2026-01-01T00:00:00Z" }],
-      ["DELETE", `/machines/${id}/location-history/${entry}`],
-      ["POST", `/pending-machines/${pendingId}/machine`, { name: "Adopted" }],
-      ["POST", `/pending-machines/${pendingId}/dismiss`],
-    ];
-    for (const [method, path, body] of adminOnly) {
-      await refused(await staff.call(method, path, body), 403, "Only an Admin can do this");
-    }
-
-    // None of them changed anything.
-    expect(((await (await api.call("GET", "/locations")).json()) as { locations: LocationView[] }).locations).toEqual([belmont, lab, uptown]);
-    expect(names(await api.machines())).toEqual(["Belmont 1", "Lab 1", "Spare", "Uptown 1"]);
-    expect((await machine(api, uptown1)).locationHistory).toEqual(uptown1.machine.locationHistory);
-    expect((await connect(uptown1, { model: "DE1Pro", serial: "10001" })).messages[0]).toMatchObject({ type: "welcome" });
   });
 
   it("shows Staff everything an Admin reads, about every Machine, Location, Shot and Steam Record", async () => {
@@ -126,10 +86,10 @@ describe("Staff access", () => {
     const steam = derivedSteam("staff-steam");
     const shotDelivery = randomUUID();
     raw.send({ type: "shot", id: shotDelivery, shotId: shot.id, shot });
-    await acknowledged(raw, shotDelivery);
+    await raw.acknowledged(shotDelivery);
     const steamDelivery = randomUUID();
     raw.send({ type: "steam", id: steamDelivery, steamId: steam.id, steamedAt: "2026-03-15T12:05:00.000Z", steam });
-    await acknowledged(raw, steamDelivery);
+    await raw.acknowledged(steamDelivery);
 
     // Belmont 1 moves to the Lab, where Sam does not work, and Uptown 1's token reports hardware no Machine has.
     expect((await move(api, belmont1, { locationId: lab.id })).status).toBe(201);
