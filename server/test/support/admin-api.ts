@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { expect } from "vitest";
-import { rememberSecret } from "./secrets.js";
+import { rememberSecretsIn } from "./secrets.js";
 
 // The REST API as a signed-in Admin uses it, for Seam 1 tests. Requests carry
 // no Origin, as a non-browser client's do.
@@ -94,6 +94,7 @@ export class AdminApi {
       body: JSON.stringify(admin),
     });
     expect(setup.status).toBe(201);
+    rememberSecretsIn(undefined, setup.headers.getSetCookie());
     return new AdminApi(serverUrl, setup.headers.getSetCookie()[0]!.split(";")[0]!);
   }
 
@@ -107,12 +108,15 @@ export class AdminApi {
     return new AdminApi(serverUrl, cookie);
   }
 
-  call(method: string, path: string, body?: unknown, headers: Record<string, string> = { Cookie: this.cookie }): Promise<Response> {
-    return fetch(`${this.serverUrl}/api${path}`, {
+  /** Calls the REST API, remembering any secret the response hands out (server/test/support/secrets.ts). */
+  async call(method: string, path: string, body?: unknown, headers: Record<string, string> = { Cookie: this.cookie }): Promise<Response> {
+    const response = await fetch(`${this.serverUrl}/api${path}`, {
       method,
       headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+    rememberSecretsIn(await response.clone().json().catch(() => undefined), response.headers.getSetCookie());
+    return response;
   }
 
   async machines(): Promise<MachineView[]> {
@@ -151,9 +155,7 @@ export class AdminApi {
   async invite(email: string, role: "admin" | "staff", locationIds: string[] = []): Promise<CreatedInvite> {
     const response = await this.call("POST", "/invites", { email, role, locationIds });
     expect(response.status).toBe(201);
-    const created = (await response.json()) as CreatedInvite;
-    rememberSecret(secretOf(created.link));
-    return created;
+    return (await response.json()) as CreatedInvite;
   }
 
   async accounts(): Promise<ManagedAccountView[]> {
@@ -194,7 +196,6 @@ export class AdminApi {
   async issued(response: Response): Promise<CreatedMachine> {
     const created = (await response.json()) as CreatedMachine;
     this.tokens.push(created.token);
-    rememberSecret(created.token);
     return created;
   }
 }
@@ -215,6 +216,7 @@ export async function acceptInvite(serverUrl: string, link: string, person: { na
     body: JSON.stringify(person),
   });
   expect(response.status).toBe(201);
+  rememberSecretsIn(undefined, response.headers.getSetCookie());
   return response.headers.getSetCookie()[0]!.split(";")[0]!;
 }
 
@@ -226,5 +228,6 @@ export async function signIn(serverUrl: string, credentials: { email: string; pa
     body: JSON.stringify(credentials),
   });
   expect(response.status).toBe(200);
+  rememberSecretsIn(undefined, response.headers.getSetCookie());
   return response.headers.getSetCookie()[0]!.split(";")[0]!;
 }

@@ -1,7 +1,7 @@
 import { test } from "@playwright/test";
 import type pg from "pg";
 import { assertBuilt } from "../../server/test/support/builds.js";
-import { assertNoSecretLogged } from "../../server/test/support/secrets.js";
+import { assertNoSecretLogged, rememberSecretsIn } from "../../server/test/support/secrets.js";
 import { type TestServer, type TestServerOptions, startTestServer } from "../../server/test/support/test-server.js";
 
 /**
@@ -24,13 +24,18 @@ export function useFreshServer(options: TestServerOptions = {}): {
   test.use({ baseURL: async ({}, use) => use((await (server ??= startTestServer(options))).url) });
   test.afterAll(async () => {
     await (await server)?.stop();
-    // No token or link secret the spec gave a tablet may reach the server's or a tablet's log.
+    // No token, link secret or session cookie the spec handled may reach the server's or a tablet's log.
     assertNoSecretLogged();
   });
 
   let url: string | undefined;
-  test.beforeEach(async ({ baseURL }) => {
+  test.beforeEach(async ({ baseURL, page }) => {
     url = baseURL;
+    // Each token, link secret and session cookie the page is handed, for the check above.
+    page.on("response", async (response) => {
+      if (!new URL(response.url()).pathname.startsWith("/api/")) return;
+      rememberSecretsIn(await response.json().catch(() => undefined), await response.headerValues("set-cookie"));
+    });
   });
   return {
     url: () => {

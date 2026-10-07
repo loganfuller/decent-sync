@@ -882,11 +882,14 @@ export class RawConnection {
    */
   static async welcomed(serverUrl: string, hello: Record<string, unknown>, heartbeatMs = 300): Promise<RawConnection> {
     const raw = await RawConnection.open(serverUrl);
-    raw.send(hello);
-    const answer = await raw.message(0);
-    if ((answer as { type?: unknown }).type !== "welcome") {
+    try {
+      raw.send(hello);
+      const answer = await raw.message(0);
+      if ((answer as { type?: unknown }).type !== "welcome") throw new Error(`The server did not welcome the hello: ${JSON.stringify(answer)}`);
+    } catch (error) {
+      // The caller never gets the connection to close.
       await raw.terminate();
-      throw new Error(`The server did not welcome the hello: ${JSON.stringify(answer)}`);
+      throw error;
     }
     raw.keepAlive(heartbeatMs);
     return raw;
