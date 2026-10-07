@@ -29,13 +29,13 @@ const TABLET_ORDER_LOCK = 4_000_005;
  * creating the tablet if the server has never seen it. Concurrent hellos, on
  * any instance, find one record.
  *
- * Then, once nothing is left to wait for, it numbers the record
- * (`last_hello`, from the column's sequence) under a lock every hello takes
- * last and holds until it commits. Numbers therefore rise in the order hellos
- * are accepted, whatever their holders and tokens, so they stay in order when
- * adoption joins two holders' records. A hello holding the lock waits for
- * nothing else, so hellos queue for it only through that statement and their
- * commit.
+ * Then, with no contested work left, it numbers the record (`last_hello`,
+ * from the column's sequence) under a lock every hello takes last and holds
+ * until it commits. Numbers therefore rise in the order hellos are accepted,
+ * whatever their holders and tokens, so they stay in order when adoption
+ * joins two holders' records. The lock covers only that statement and the
+ * commit, which can still wait, as on the lock PostgreSQL takes to queue the
+ * hello's NOTIFY or on writing its log, and hellos queued for it wait too.
  */
 export async function recordTablet(tx: Prisma.TransactionClient, tabletId: string, holder: TabletHolder): Promise<void> {
   await tx.$executeRaw`INSERT INTO tablets (id, first_seen_at) VALUES (${tabletId}::uuid, now()) ON CONFLICT (id) DO NOTHING`;
