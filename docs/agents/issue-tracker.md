@@ -13,6 +13,15 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
 
+## Milestones
+
+Each milestone is a GitHub milestone named `Milestone N: <name>`, such as `Milestone 1: Foundation` and `Milestone 2: Shared library`. It holds the milestone's spec issue, its tickets and the pull requests that implement them.
+
+- **Assign one** when creating a ticket: `gh issue create --milestone "Milestone 2: Shared library" ...`. For an existing issue or pull request, use `gh issue edit <number> --milestone "<title>"` or `gh pr edit <number> --milestone "<title>"`.
+- **Tickets from a spec** go in that spec's milestone, including those `/to-tickets` publishes.
+- **Work that serves a milestone joins it**, fixes to what it built included: Milestone 1 holds the codebase audit's hardening (#60 to #70) and its pull requests. Work waiting on something outside the project, such as an upstream change or a person with access, stays without a milestone (#24, #36, #54).
+- **A milestone closes** once everything in it is closed. Later milestones get a GitHub milestone when their scope is settled.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_

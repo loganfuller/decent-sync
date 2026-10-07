@@ -1,6 +1,6 @@
 # Decent Sync
 
-Decent Sync keeps the coffee data of several Decent espresso machines, across one or more physical sites, in one place. It shares a library of beans, profiles and equipment between those machines and collects every shot they pull.
+Decent Sync keeps the coffee data of several Decent espresso machines, across one or more physical sites, in one place. It shares a library of beans, bean batches, profiles, equipment and recipes between those machines and collects every shot they pull.
 
 ## Hardware and places
 
@@ -15,12 +15,16 @@ A machine that has connected without reporting a real serial number, and that no
 Hardware the server has seen but no machine entry covers: a tablet connected with another machine's token while reporting different hardware (a mismatch), or a shot recorded on hardware the server doesn't know. An Admin either creates a machine entry for it or dismisses it.
 _Avoid_: Unknown machine, orphan
 
+**Capture-only Machine**:
+A machine whose records the server collects but that takes no part in the library: it has no location, or an Admin has turned sharing off for it.
+_Avoid_: Read-only machine, unsynced machine
+
 **Token**:
 The secret a machine's plugin connects with. It belongs to one machine and is bound to the hardware that machine first reports.
 _Avoid_: Key, password, API key
 
 **Tablet**:
-The Android device running Decaid that is attached to a machine. It can be swapped or moved to another machine without changing the machine's identity.
+The Android device running Decaid that is attached to a machine, together with its Decaid data: resetting that data makes a new tablet, and restoring a backup onto another device brings back the tablet it came from. A tablet can be swapped or moved to another machine without changing the machine's identity.
 _Avoid_: Machine, client, install
 
 **Connection Id**:
@@ -57,21 +61,21 @@ A person who can change everything on the server, including machines, tokens and
 The person who pulled a shot, as named on the tablet. A barista doesn't need an account.
 
 **Staff**:
-A person who works at one or more locations and can move machines, manage recipes and record stock there.
+A person who works at one or more locations. They can edit the library's shared content anywhere, and move machines, change what their locations offer, manage recipes and record stock there.
 _Avoid_: User (when the role matters), barista (a barista may not have an account)
 
 ## Coffee
 
 **Bean**:
-A coffee as sold by a roaster, identified by roaster and name.
+A coffee as sold by a roaster, identified by roaster and name. It is offered at each location where one of its batches is.
 _Avoid_: Coffee (when the product is meant), blend
 
 **Bean Batch**:
-One roast of a bean that baristas pick and that stock is tracked for: a single roaster run if you roast, or one roast date from your supplier if you buy. One batch can be at several locations at once.
+One roast of a bean that baristas pick: a single roaster run if you roast, or one roast date from your supplier if you buy. A batch is at a location from when it's added there until it's finished there, and can be at several locations at once.
 _Avoid_: Roast (as a record), run, bag, bucket, lot
 
 **Stock**:
-How much of a bean batch is held at one location. A batch is at a location while it has stock there.
+How much of a bean batch is held at one location, when it is tracked.
 _Avoid_: Inventory (for one batch at one place), remaining weight
 
 **Stock Movement**:
@@ -79,7 +83,7 @@ One recorded change to a batch's stock at a location: a delivery, a transfer bet
 _Avoid_: Adjustment, transaction
 
 **Profile**:
-A program the machine follows while pulling a shot, such as a pressure or flow curve.
+A program the machine follows while pulling a shot, such as a pressure or flow curve. Each location shows or hides each profile.
 _Avoid_: Recipe (a recipe is more than a profile)
 
 **Recipe**:
@@ -101,3 +105,17 @@ _Avoid_: Pull, brew, extraction (as a noun for the record)
 **Steam Record**:
 One recorded use of a machine's steam wand: its measurements over time and the milk temperature reached.
 _Avoid_: Steam shot, steaming session
+
+## Library
+
+**Library**:
+The beans, bean batches, profiles, equipment and recipes that the server keeps and shares with machines, some everywhere and some per location.
+_Avoid_: Collection, catalogue
+
+**Archived**:
+A library item retired everywhere: kept so that past shots still name it, but offered nowhere.
+_Avoid_: Deleted, hidden (a profile is hidden at one location)
+
+**Conflict**:
+An edit to a field of a library item that lost to another edit of the same field made without seeing it, kept until someone uses its value or dismisses it.
+_Avoid_: Clash, collision

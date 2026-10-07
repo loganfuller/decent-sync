@@ -1,5 +1,5 @@
 ---
-status: accepted (amended by ADR-0016)
+status: accepted (amended by ADR-0016, ADR-0019 and ADR-0020)
 ---
 
 # The server is the source of truth, and tablets can still edit

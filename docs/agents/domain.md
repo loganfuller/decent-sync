@@ -7,7 +7,7 @@ How the engineering skills should consume this repo's domain documentation when 
 - **`GLOSSARY.md`** at the repo root.
 - **`docs/adr/`**: read ADRs that touch the area you're about to work in.
 
-`GLOSSARY.md` defines vocabulary; ADRs record decisions. ADR-0010 is superseded by ADR-0012, ADR-0005 is interim, and ADR-0015 extends ADR-0004. Read the milestone spec and ticket for implementation scope: an accepted later-milestone decision does not make its implementation part of milestone 1.
+`GLOSSARY.md` defines vocabulary; ADRs record decisions. ADR-0010 is superseded by ADR-0012, ADR-0005 is interim, and ADR-0015 extends ADR-0004. Read the milestone spec and ticket for implementation scope: an accepted later-milestone decision does not make its implementation part of the current milestone.
 
 The glossary is at the repo root; all ADRs are under `docs/adr/`. List that directory for the current set rather than relying on an example tree.
 

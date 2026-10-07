@@ -2,9 +2,10 @@
 
 Decent Sync connects Decent espresso machines (any DE1 model or a Bengle)
 running [Decaid](https://github.com/decentespresso/decaid) to one self-hosted
-server. The target design lets Machines at several Locations share a library
-of Beans, Bean Batches and Profiles. Machines at the same location share equipment, recipes and steam
-settings, working like the groups of one commercial espresso machine. The
+server. The target design lets Machines at several Locations share a Library
+of Beans, Bean Batches and Profiles, each Location offering its own part of it.
+Machines at the same location share equipment, recipes and steam settings,
+working like the groups of one commercial espresso machine. The
 server collects every shot and steam record they produce, and a web management
 interface shows machines, stock and analytics across all locations.
 
@@ -13,20 +14,24 @@ business with a roastery lab and several cafes.
 
 ## Status
 
-**Milestone 1 is in progress.** Admins sign in, manage Locations, and adopt
-Machines, which are identified by their hardware and record where they were
-in a Location History. Adopted tablets send their Shots and Steam Records, which
-the REST API serves, each credited to the Location its Machine was at when it
-was recorded, their Workflow changes and machine state transitions, and their
-library, settings and paired devices, so the management interface shows what
-each Machine is set up to pull next, what it is doing, and its scale, sensors
-and calibration. Admins and Staff list Shots across every Location, filter
-them, and open each one's curves beside the previous Shot on its Machine, and
-review Steam Records the same way, with each one's milk temperature and curves.
-[Milestone 1](https://github.com/loganfuller/decent-sync/issues/1)
-and its child tickets define the rest of its scope. The shared-library behavior
-below comes in later milestones; milestone 1 captures data without pushing
-changes to tablets.
+**Milestone 1 is built, and milestone 2 is next.** Admins sign in, manage
+Locations, and adopt Machines, which are identified by their hardware and
+record where they were in a Location History. Adopted tablets send their Shots
+and Steam Records, which the REST API serves, each credited to the Location its
+Machine was at when it was recorded, their Workflow changes and machine state
+transitions, and their library, settings and paired devices, so the management
+interface shows what each Machine is set up to pull next, what it is doing, and
+its scale, sensors and calibration. Admins and Staff list Shots across every
+Location, filter them, and open each one's curves beside the previous Shot on
+its Machine, and review Steam Records the same way, with each one's milk
+temperature and curves. Milestone 1's spec is
+[#1](https://github.com/loganfuller/decent-sync/issues/1), and its [GitHub
+milestone](https://github.com/loganfuller/decent-sync/milestone/1) holds its
+tickets and the hardening still in progress. [Milestone
+2](https://github.com/loganfuller/decent-sync/issues/77) ([GitHub
+milestone](https://github.com/loganfuller/decent-sync/milestone/2)) shares the
+Library with each Location's Machines. Until it lands, the server captures data
+without pushing changes to tablets.
 
 Releases publish the server image and the plugin ZIP, starting with
 [v0.1.0](https://github.com/loganfuller/decent-sync/releases/tag/v0.1.0).
@@ -41,8 +46,8 @@ The target sharing scopes are:
 
 | Shared | Across |
 |---|---|
-| Beans, bean batches, profiles | every location. Which profiles are shown, and each batch's stock, are tracked per location |
-| Equipment, recipe slots | machines at the same location |
+| Beans, bean batches, profiles | every location, each offering its own part: the profiles shown there, the batches at that location and their beans, and each batch's stock there |
+| Equipment (grinders included), recipe slots | machines at the same location |
 | Steam, hot water and rinse settings | machines of the same model at the same location. Turning steam on or off stays per machine |
 | Profile, dose, yield, batch and grinder in use | not shared: each machine has its own |
 
@@ -51,9 +56,12 @@ The target sharing scopes are:
 - Machines are adopted by hand. An admin creates the machine in the management
   interface, which issues a token. Someone enters the server URL and token in
   the plugin's settings.
-- The server is the source of truth, and tablets can still edit. Conflicting
-  edits resolve by last-writer-wins on the time of the original edit, and the
-  management interface shows them. Sync never hard-deletes.
+- The server is the source of truth, and tablets can still edit. A tablet
+  holds only what its location offers, and what a tablet creates starts at its
+  location only. Edits resolve per field by last-writer-wins on the time of the
+  original edit, and the management interface keeps a losing edit as a
+  Conflict to review. A delete on a tablet acts only at its location, and sync
+  never hard-deletes.
 
 ## Layout
 
@@ -343,16 +351,24 @@ prerelease-style tags, so publish only versions meant for every Machine.
 
 ## Milestones
 
-1. **Foundation.** The new layout and stack, machine adoption and identity,
+Each milestone is a
+[GitHub milestone](https://github.com/loganfuller/decent-sync/milestones)
+holding its spec, tickets and pull requests.
+
+1. **[Foundation](https://github.com/loganfuller/decent-sync/milestone/1).** The new layout and stack, machine adoption and identity,
    Locations with time zones, Admin and Staff accounts. Captures Shots, Steam
    Records, Workflow changes and machine state transitions, the library (including DYE2 recipes and equipment), settings and paired
    devices from every Machine. Includes Shot and Steam Record lists and detail
    pages, Shot filters and comparison, and Machine Location history.
-2. **Shared library.** Beans, batches, grinders and profiles pushed to tablets,
-   plus shared steam, hot water and rinse settings and a durable outbox.
-3. **Location sharing.** DYE2 recipes and equipment, Recipe Slots, and the effects
-   of moving a Machine on its tablet. Recording Location moves is already in
-   milestone 1.
+2. **[Shared library](https://github.com/loganfuller/decent-sync/milestone/2).**
+   Beans, Bean Batches, Grinders and Profiles shared with each Location's
+   Machines, each Location offering its own part, plus shared steam, hot water
+   and rinse settings, Conflicts and history in the management interface, Shots
+   linked to the Library, and a durable outbox. Spec:
+   [#77](https://github.com/loganfuller/decent-sync/issues/77).
+3. **Location sharing.** DYE2 recipes and equipment, Recipe Slots, and the
+   effects of moving a Machine on its recipes. Recording Location moves is in
+   milestone 1, and what a move changes in a tablet's Library is in milestone 2.
 4. **Stock.** Deliveries, transfers, counts and the coffee each shot uses.
 5. **Analytics.** Broader views across Machines and Locations, inferred Recipes
    and Barista grouping. Machine status, Shot filtering and comparison with the
