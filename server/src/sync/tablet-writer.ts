@@ -19,13 +19,21 @@ export type WriteOutcome = "written" | "refused";
  * Machine's Location offers, with its global id. What is due is read from
  * the database each time, so it reflects changes made through any instance;
  * the instance is woken to look again when one is notified, when the
- * connection is welcomed, and when its notifications may have been missed.
+ * connection's report of the tablet's beans is taken in, and when its
+ * notifications may have been missed.
+ *
+ * Nothing is written until the connection's first report of the tablet's
+ * beans is taken in, which the plugin sends on every welcome, and only while
+ * the Machine is at the Location its latest report was taken in at. A bean
+ * the tablet already holds, entered there or before it joined, is then
+ * linked to the Library's Bean rather than written to it again.
  *
  * Only the connection holding its Machine writes, and the plugin answers
  * only on the connection that asked, so a tablet is written one item at a
  * time. A write Decaid refuses, or the plugin does not answer in time, is
  * skipped for the rest of the connection, and tried again when the tablet
- * reconnects; the other writes go on.
+ * reconnects; the other writes go on. So is one still due right after it
+ * was written, which writing again would not change.
  */
 export class TabletWriter {
   private running = false;
@@ -34,8 +42,14 @@ export class TabletWriter {
   private stopped = false;
   /** The write awaiting its answer. */
   private waiting: { id: string; settle: (outcome: WriteOutcome | "stopped" | "timedOut") => void } | undefined;
-  /** Beans whose write was refused, or not answered, on this connection. */
+  /** Beans whose write was refused, or not answered, on this connection, or that writing did not change. */
   private readonly skipped = new Set<string>();
+  /**
+   * The Location the connection's latest report of the tablet's beans was
+   * taken in at: null while the Machine was at none, and undefined until one
+   * is.
+   */
+  private reportedAt: string | null | undefined;
 
   constructor(
     private readonly tablet: WrittenTablet,
@@ -64,6 +78,12 @@ export class TabletWriter {
     );
   }
 
+  /** A report of the tablet's beans from this connection was taken in, with its Machine at that Location, or at none. */
+  reported(locationId: string | null): void {
+    this.reportedAt = locationId;
+    this.wake();
+  }
+
   /** The plugin answered a write, and its answer is recorded. Answers to other writes, such as late ones, are ignored. */
   answered(id: string, outcome: WriteOutcome): void {
     if (this.waiting?.id === id) this.waiting.settle(outcome);
@@ -76,13 +96,21 @@ export class TabletWriter {
   }
 
   private async run(): Promise<void> {
+    /** The Bean written last, if its write changed what the tablet was due. */
+    let written: string | undefined;
     for (;;) {
       this.again = false;
-      const due = await nextBeanWrite(this.prisma, this.tablet, [...this.skipped]);
+      const reportedAt = this.reportedAt;
+      const due = reportedAt ? await nextBeanWrite(this.prisma, this.tablet, reportedAt, [...this.skipped]) : null;
       if (this.stopped) return;
       if (!due) {
         if (this.again) continue;
         return;
+      }
+      if (due.beanId === written) {
+        this.log.warn(`Tablet ${this.tablet.tabletId} is still due Bean ${due.beanId} once written; it is tried again once the tablet reconnects`);
+        this.skipped.add(due.beanId);
+        continue;
       }
       const write: LibraryWrite = { type: "write", id: randomUUID(), kind: "bean", globalId: due.beanId, localId: due.localId, fields: due.fields };
       const outcome = await this.ask(write);
@@ -90,6 +118,7 @@ export class TabletWriter {
       if (outcome === "timedOut") {
         this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the write of Bean ${due.beanId} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once the tablet reconnects`);
       }
+      written = outcome === "written" ? due.beanId : undefined;
       if (outcome !== "written") this.skipped.add(due.beanId);
     }
   }

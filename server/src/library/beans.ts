@@ -42,16 +42,17 @@ export interface ReportingTablet {
  * at a Location: a Machine without one is capture-only. Runs in the
  * transaction storing the report, holding the Machine's row lock, which
  * Location History changes take too. Tells every instance when the tablets
- * at its Location have something to be written.
+ * at its Location have something to be written. Returns the Location the
+ * report was taken in at, or null if none.
  */
 export async function takeInBeans(
   tx: Prisma.TransactionClient,
   tablet: ReportingTablet,
   value: unknown,
   updatedAt: readonly (string | null)[] | undefined,
-): Promise<void> {
+): Promise<string | null> {
   const locationId = await currentLocation(tx, tablet.machineId);
-  if (locationId === null) return;
+  if (locationId === null) return null;
   const reported = readReportedBeans(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
   const mapped = await tx.tabletBean.findMany({
@@ -103,6 +104,7 @@ export async function takeInBeans(
     if (step.kind === "add" || step.kind === "link" || bean.globalId !== beanId) writesDue = true;
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
+  return locationId;
 }
 
 /** A write a tablet is due: a Bean its Location offers that it lacks, or whose global id its record lacks. */
@@ -124,10 +126,18 @@ export interface WrittenTablet {
 /**
  * The next write the connection's tablet is due, the Beans that joined the
  * Library first, leaving out those in `skipped`; null while the connection
- * no longer holds its Machine, the Machine is at no Location, or the tablet
- * holds every Bean its Location offers with its global id.
+ * no longer holds its Machine, the Machine is not at the Location its
+ * tablet's latest report of its beans was taken in at (`reportedAt`), or the
+ * tablet holds every Bean that Location offers with its global id. A tablet
+ * is written only what the Library knows it lacks once its beans are taken
+ * in there, so a bean it holds already is linked rather than written again.
  */
-export async function nextBeanWrite(prisma: PrismaService, tablet: WrittenTablet, skipped: readonly string[]): Promise<BeanWrite | null> {
+export async function nextBeanWrite(
+  prisma: PrismaService,
+  tablet: WrittenTablet,
+  reportedAt: string,
+  skipped: readonly string[],
+): Promise<BeanWrite | null> {
   const [next] = await prisma.$queryRaw<{ beanId: string; content: Record<string, unknown>; localId: string | null }[]>`
     WITH holder AS (
       SELECT (
@@ -137,7 +147,7 @@ export async function nextBeanWrite(prisma: PrismaService, tablet: WrittenTablet
     )
     SELECT beans.id AS "beanId", beans.content, held.local_id AS "localId"
     FROM holder
-    JOIN bean_origins AS origin ON origin.location_id = holder.location_id
+    JOIN bean_origins AS origin ON origin.location_id = holder.location_id AND holder.location_id = ${reportedAt}::uuid
     JOIN beans ON beans.id = origin.bean_id AND NOT beans.archived
     LEFT JOIN tablet_beans AS held ON held.tablet_id = ${tablet.tabletId}::uuid AND held.bean_id = beans.id
     WHERE (held.bean_id IS NULL OR lower(held.record -> 'extras' ->> ${GLOBAL_ID_KEY}::text) IS DISTINCT FROM beans.id::text)
@@ -150,8 +160,9 @@ export async function nextBeanWrite(prisma: PrismaService, tablet: WrittenTablet
 
 /**
  * Records a Bean's record as Decaid returned the plugin's write of it: the
- * tablet's record of that Bean from now on, unless the tablet's map already
- * holds a newer one. Says whether the tablet holds the Bean now. It does not
+ * tablet's record of that Bean from now on, whatever the time of the record
+ * known, since Decaid has just returned it. Says whether the tablet holds the
+ * Bean now. It does not
  * when the record does not carry the Bean's global id, when the map holds
  * the record as another Bean's, or when the Library no longer has the Bean;
  * nothing is recorded then, and writing the Bean again would change nothing.
@@ -170,15 +181,18 @@ export async function recordBeanWritten(
     if ((await tx.bean.count({ where: { id: beanId } })) === 0) return false;
     const other = await tx.tabletBean.findUnique({ where: { tabletId_localId: { tabletId, localId } }, select: { beanId: true } });
     if (other && other.beanId !== beanId) return false;
-    await saveRecord(tx, tabletId, beanId, localId, record, updatedAt === null ? null : new Date(updatedAt));
+    await saveRecord(tx, tabletId, beanId, localId, record, updatedAt === null ? null : new Date(updatedAt), { evenIfOlder: true });
     return true;
   });
 }
 
 /**
  * Saves the tablet's record of a Bean as the one it holds, under its local
- * id, unless the record known is newer by the tablet's clock. A record whose
- * time could not be read, which only an answer to a write can be, is saved.
+ * id, unless the record known is newer by the tablet's clock, as a report
+ * read before the plugin's own write is. With `evenIfOlder`, as for a record
+ * Decaid has just returned, it is saved whatever the times say: a local time
+ * in the hour the clocks go back is placed at its first occurrence, so a
+ * newer record can read as older.
  */
 async function saveRecord(
   tx: Prisma.TransactionClient,
@@ -187,13 +201,14 @@ async function saveRecord(
   localId: string,
   record: Record<string, unknown>,
   updatedAt: Date | null,
+  { evenIfOlder = false } = {},
 ): Promise<void> {
   await tx.$executeRaw`
     INSERT INTO tablet_beans (tablet_id, bean_id, local_id, record, record_updated_at)
     VALUES (${tabletId}::uuid, ${beanId}::uuid, ${localId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz)
     ON CONFLICT (tablet_id, bean_id) DO UPDATE SET
       local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at
-    WHERE tablet_beans.local_id <> EXCLUDED.local_id OR EXCLUDED.record_updated_at IS NULL OR tablet_beans.record_updated_at IS NULL
+    WHERE ${evenIfOlder}::boolean OR tablet_beans.local_id <> EXCLUDED.local_id OR tablet_beans.record_updated_at IS NULL
       OR EXCLUDED.record_updated_at >= tablet_beans.record_updated_at`;
 }
 

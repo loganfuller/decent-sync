@@ -213,6 +213,9 @@ var __decentSync = (() => {
     return isUuid(value);
   }
   var GLOBAL_ID_KEY = "decentSyncId";
+  function beanMatchKey(roaster, name) {
+    return JSON.stringify([roaster.trim().toLowerCase(), name.trim().toLowerCase()]);
+  }
   function globalIdOf(record) {
     const extras = isObject(record) ? record.extras : void 0;
     const id = isObject(extras) ? extras[GLOBAL_ID_KEY] : void 0;
@@ -663,7 +666,11 @@ var __decentSync = (() => {
 
   // src/library-writes.ts
   var ROUTES = {
-    bean: { list: "/beans?includeArchived=true", records: "/beans" }
+    bean: {
+      list: "/beans?includeArchived=true",
+      records: "/beans",
+      sameItem: (record, fields) => typeof record.roaster === "string" && typeof record.name === "string" && typeof fields.roaster === "string" && typeof fields.name === "string" && beanMatchKey(record.roaster, record.name) === beanMatchKey(fields.roaster, fields.name)
+    }
   };
   var LibraryWrites = class {
     constructor() {
@@ -680,24 +687,21 @@ var __decentSync = (() => {
     const route = ROUTES[write.kind];
     if (!route) return refused(write, null, `This plugin cannot write a ${write.kind}`);
     try {
-      if (write.localId === null) {
-        const held = await heldRecord(route, write);
-        if (held !== null) return held;
-      }
-      return answerTo(write, write.localId === null ? await create(route, write) : await update(route, write, write.localId));
+      return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId));
     } catch (error) {
       return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  async function heldRecord(route, write) {
+  async function create(route, write) {
     const listed = await request("GET", route.list);
     if (!listed.ok) return refused(write, listed.status, listed.text);
-    const records = parsed(listed.text);
-    const held = Array.isArray(records) ? records.find((record) => globalIdOf(record) === write.globalId.toLowerCase()) : void 0;
-    return isObject2(held) ? written(write, held) : null;
-  }
-  function create(route, write) {
-    return request("POST", route.records, { ...write.fields, extras: { [GLOBAL_ID_KEY]: write.globalId } });
+    const parsedList = parsed(listed.text);
+    const records = Array.isArray(parsedList) ? parsedList.filter(isObject2) : [];
+    const held = records.find((record) => globalIdOf(record) === write.globalId.toLowerCase());
+    if (held) return written(write, held);
+    const same = records.find((record) => globalIdOf(record) === null && record.archived !== true && route.sameItem(record, write.fields));
+    if (same && typeof same.id === "string") return answerTo(write, await update(route, { ...write, fields: {} }, same.id));
+    return answerTo(write, await request("POST", route.records, { ...write.fields, extras: { [GLOBAL_ID_KEY]: write.globalId } }));
   }
   async function update(route, write, localId) {
     const path = `${route.records}/${encodeURIComponent(localId)}`;

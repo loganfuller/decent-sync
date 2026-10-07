@@ -126,10 +126,11 @@ interface Session {
  * Record no supported Decaid sends is acknowledged and ignored, and logged
  * by its id with what it lacks.
  *
- * Once welcomed, a connection that is not mismatched writes the Library its
- * Machine's Location offers to its tablet (`TabletWriter`), one write at a
- * time, each answered by the plugin, which the server acknowledges once it
- * has recorded the answer. A write too large for one frame goes in chunks.
+ * Once its report of the tablet's beans is taken in, a connection that is
+ * not mismatched writes the Library its Machine's Location offers to its
+ * tablet (`TabletWriter`), one write at a time, each answered by the plugin,
+ * which the server acknowledges once it has recorded the answer. A write too
+ * large for one frame goes in chunks.
  *
  * Any number of server instances may run. Which connection holds a Machine is
  * stored on its row; a change that may end a connection (another accepted
@@ -354,7 +355,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       case "machineState":
         return this.capture(session, message, text, () => this.machineEvents.storeMachineState(message, reporter));
       case "collection":
-        return this.capture(session, message, text, () => this.collections.store(message, reporter));
+        return this.capture(session, message, text, async () => {
+          const intake = await this.collections.store(message, reporter);
+          if (intake) session.writer?.reported(intake.takenInAt);
+        });
       case "written":
       case "writeRefused":
         return this.answered(session, message);
@@ -498,7 +502,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     this.send(session, { type: "welcome", protocolVersion: PROTOCOL_VERSION, heartbeatIntervalMs: this.config.heartbeatIntervalMs });
     session.welcomed = true;
     this.resetIdleTimer(session);
-    // A mismatched connection's tablet is not its token's Machine's, so nothing is written to it (ADR-0004).
+    // A mismatched connection's tablet is not its token's Machine's, so nothing is written to it (ADR-0004). The
+    // writer starts once the connection's report of the tablet's beans, sent on every welcome, is taken in.
     if (identity.kind !== "mismatch") {
       session.writer = new TabletWriter(
         { sessionId: session.id, machineId: machine.id, tabletId: live.tabletId },
@@ -507,7 +512,6 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         this.logger,
         (work) => this.track(work),
       );
-      session.writer.wake();
     }
     this.logger.log(
       `Machine ${machine.name} connected from ${session.remote}: ${describeVersions(hello)}, ${describeIdentity(identity, hardware)}`,

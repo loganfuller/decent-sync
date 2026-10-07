@@ -61,16 +61,21 @@ type Row = { name: string; available: boolean; reportedAt: Date; receivedAt: Dat
 export class CollectionsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async store(message: CollectionDelivery, reporter: Reporter): Promise<void> {
+  /**
+   * Stores a collection delivery. For a report of the tablet's beans taken
+   * in now, returns the Location it was taken in at, null for a Machine at
+   * none; otherwise, as for a delivery handled before, undefined.
+   */
+  async store(message: CollectionDelivery, reporter: Reporter): Promise<{ takenInAt: string | null } | undefined> {
     // A collection a newer plugin reports that this server does not know: acknowledged, and ignored.
-    if (!isCollectionName(message.name)) return;
+    if (!isCollectionName(message.name)) return undefined;
     const value = message.available ? JSON.stringify(message.value) : null;
     const items = message.available && Array.isArray(message.value) ? message.value.length : null;
     // A mismatched connection's tablet is not its token's Machine's, so it takes no part in the Library (ADR-0004).
     const takesIn = message.name === "beans" && message.available && reporter.identity.kind !== "mismatch";
-    await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       const credit = await creditFirstDelivery(tx, reporter, message.id);
-      if (!credit) return;
+      if (!credit) return undefined;
       const holder = credit.machineId !== null ? Prisma.sql`machine_id` : Prisma.sql`pending_machine_id`;
       await tx.$executeRaw`
         INSERT INTO reported_collections (${holder}, name, available, reported_at, value, received_at, items)
@@ -88,7 +93,8 @@ export class CollectionsService {
           END,
           received_at = COALESCE(EXCLUDED.received_at, reported_collections.received_at),
           items = CASE WHEN EXCLUDED.available THEN EXCLUDED.items ELSE reported_collections.items END`;
-      if (takesIn) await takeInBeans(tx, { machineId: reporter.machineId, tabletId: reporter.tabletId }, message.value, message.updatedAt);
+      if (!takesIn) return undefined;
+      return { takenInAt: await takeInBeans(tx, { machineId: reporter.machineId, tabletId: reporter.tabletId }, message.value, message.updatedAt) };
     }, takesIn ? INTAKE_TRANSACTION : undefined);
   }
 

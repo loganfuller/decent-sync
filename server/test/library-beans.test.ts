@@ -58,10 +58,10 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
   function load(
     machine: CreatedMachine,
     serial: string,
-    options: { instance?: TestServer; storage?: PluginStorage; beans?: Record_[] } = {},
+    options: { instance?: TestServer; storage?: PluginStorage; beans?: Record_[]; pollSeconds?: number } = {},
   ): SimulatedTablet {
     const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
+      settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
       api: { ...derivedDe1Pro({ serial }), "/beans": options.beans ?? [] },
       storage: options.storage,
       timeScale: 50,
@@ -168,6 +168,100 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     await expect.poll(() => uptownTablet.beans().map(globalIdOf), { timeout: 10_000 }).toEqual([bean.id]);
     expect(uptownTablet.beans()[0]).toMatchObject({ name: "LAUNCH DAY BLEND  ", notes: "Entered at Uptown" });
     expect((await libraryBean("Launch Day Blend")).id).toBe(bean.id);
+  });
+
+  it("links a bean a tablet holds when it joins to the Location's Bean, writing it nothing until its beans are taken in", async () => {
+    const lab = await api.createLocation("Joining lab", "UTC");
+    const first = await api.createMachine("Joining 1", lab.id);
+    const second = await api.createMachine("Joining 2", lab.id);
+    const one = load(first, "14111");
+    await online(first);
+    await one.addBean({ roaster: "Roux", name: "Already Here", country: "Ethiopia" });
+    const bean = await libraryBean("Already Here");
+
+    // The other tablet already holds the same coffee, entered there before it connected.
+    const own = await beansEnteredOffline({ roaster: "roux ", name: "Already Here", notes: "Entered on group 2" });
+    const two = load(second, "14112", { beans: own });
+    await expect.poll(() => two.beans().map(globalIdOf), { timeout: 10_000 }).toEqual([bean.id]);
+    expect(two.beans()[0]).toMatchObject({ id: own[0]!.id, notes: "Entered on group 2" });
+    expect(two.writes).toEqual([`PUT /beans/${String(own[0]!.id)}`]);
+    expect(await beansNamed("Already Here")).toHaveLength(1);
+    // Its first write came only once its report of its beans was acknowledged, so taken in.
+    const report = two.sent.find((frame) => (frame as { type?: unknown; name?: unknown }).type === "collection" && (frame as { name?: unknown }).name === "beans") as {
+      id: string;
+    };
+    const ackAt = two.received.findIndex((frame) => (frame as { type?: unknown; id?: unknown }).type === "ack" && (frame as { id?: unknown }).id === report.id);
+    const firstWriteAt = two.received.findIndex((frame) => (frame as { type?: unknown }).type === "write");
+    expect(ackAt).toBeGreaterThanOrEqual(0);
+    expect(firstWriteAt).toBeGreaterThan(ackAt);
+  });
+
+  it("makes a bean entered on a tablet, not yet reported, the Bean its Location's other tablet created meanwhile", async () => {
+    const lab = await api.createLocation("Race lab", "UTC");
+    const first = await api.createMachine("Race 1", lab.id);
+    const second = await api.createMachine("Race 2", lab.id);
+    const one = load(first, "14121");
+    // Polls once an hour (every 72 s here), so what is entered on it is not reported within the test.
+    const two = load(second, "14122", { pollSeconds: 3600 });
+    await online(first, second);
+    await expect.poll(() => beanReports(two), { timeout: 10_000 }).toBe(1);
+    await expect.poll(() => two.received.some((frame) => (frame as { type?: unknown }).type === "ack"), { timeout: 10_000 }).toBe(true);
+    const entered = await two.addBean({ roaster: "Roux", name: "launch race ", notes: "Entered on group 2" });
+
+    await one.addBean({ roaster: "Roux", name: "Launch Race" });
+    const bean = await libraryBean("Launch Race");
+    await expect.poll(() => two.beans().map(globalIdOf), { timeout: 10_000 }).toEqual([bean.id]);
+    expect(two.beans()[0]).toMatchObject({ id: entered.id, name: "launch race ", notes: "Entered on group 2" });
+    expect(two.writes).toEqual([`PUT /beans/${String(entered.id)}`]);
+  });
+
+  it("goes on writing past a write the tablet refuses or answers with another record, and tries both again once it reconnects", async () => {
+    const lab = await api.createLocation("Refusing lab", "UTC");
+    const first = await api.createMachine("Refusing 1", lab.id);
+    const second = await api.createMachine("Refusing 2", lab.id);
+    const one = load(first, "14131");
+    await online(first);
+    await one.addBean({ roaster: "Roux", name: "Refused" });
+    await libraryBean("Refused");
+    await one.addBean({ roaster: "Roux", name: "Answered Wrongly" });
+    await libraryBean("Answered Wrongly");
+
+    // A tablet sending raw frames, holding no beans, answers the first write with Decaid's refusal and the second
+    // with a record that is not the Bean's.
+    const tabletId = randomUUID();
+    const hello = helloWith(second.token, { tabletId, machine: { model: "DE1Pro", serial: "14132" } });
+    const raw = await RawConnection.welcomed(server.url, hello);
+    raws.push(raw);
+    await raw.deliver(emptyBeans());
+    const [refused] = await writesTo(raw, 1);
+    await raw.deliver({
+      type: "writeRefused",
+      id: refused!.id,
+      kind: "bean",
+      globalId: refused!.globalId,
+      status: 400,
+      error: JSON.stringify({ error: "type 'Null' is not a subtype of type 'String' in type cast" }),
+    });
+    const [, wrong] = await writesTo(raw, 2);
+    await raw.deliver({ type: "written", id: wrong!.id, kind: "bean", globalId: wrong!.globalId, record: { id: randomUUID(), name: "Other" }, updatedAt: null });
+    // Both are skipped: a Bean created later is the next write.
+    await one.addBean({ roaster: "Roux", name: "Written Next" });
+    const next = await libraryBean("Written Next");
+    const writes = await writesTo(raw, 3);
+    expect(writes.map((write) => write.globalId)).toEqual([(await libraryBean("Refused")).id, (await libraryBean("Answered Wrongly")).id, next.id]);
+    expect(server.output()).toContain(`did not write "bean" ${refused!.globalId}: Decaid answered 400`);
+    expect(server.output()).toContain(`answered the write of Bean ${wrong!.globalId} with a record that is not that Bean's`);
+    await raw.close();
+
+    // The same tablet reconnects, and is asked for both again, each once the one before it is answered.
+    const back = await RawConnection.welcomed(server.url, { ...hello, tabletId });
+    raws.push(back);
+    await back.deliver(emptyBeans());
+    for (let count = 1; count <= 3; count++) {
+      const write = (await writesTo(back, count))[count - 1]!;
+      await back.deliver({ type: "writeRefused", id: write.id, kind: "bean", globalId: write.globalId, status: null, error: "Decaid did not answer: Fetch timed out" });
+    }
+    expect((await writesTo(back, 3)).map((write) => write.globalId)).toEqual(writes.map((write) => write.globalId));
   });
 
   it("makes one Bean of a coffee two tablets enter at once, through either instance", async () => {
@@ -363,6 +457,28 @@ const mismatchedBean = {
   createdAt: "2026-10-05T14:03:13.044376",
   updatedAt: "2026-10-05T14:03:13.044376",
 };
+
+/** Beans entered in Decaid on a tablet not yet connected, as its Decaid holds them. */
+async function beansEnteredOffline(...fields: Record_[]): Promise<Record_[]> {
+  // No settings: the plugin does not connect.
+  const offline = SimulatedTablet.load({ settings: {}, api: { "/beans": [] } });
+  for (const bean of fields) await offline.addBean(bean);
+  const beans = offline.beans();
+  await offline.unload();
+  return beans;
+}
+
+/** A report that the tablet holds no beans. */
+function emptyBeans() {
+  return { type: "collection", id: randomUUID(), name: "beans", available: true, value: [], updatedAt: [] };
+}
+
+/** Resolves with the first `count` writes the server sent on the raw connection, once it has sent that many. */
+async function writesTo(raw: RawConnection, count: number): Promise<{ id: string; globalId: string; localId: string | null }[]> {
+  const writes = () => raw.messages.filter((message) => (message as { type?: unknown }).type === "write") as { id: string; globalId: string; localId: string | null }[];
+  await expect.poll(() => writes().length, { timeout: 10_000 }).toBeGreaterThanOrEqual(count);
+  return writes().slice(0, count);
+}
 
 /** How many reports of its beans the plugin has sent. */
 function beanReports(tablet: SimulatedTablet): number {

@@ -1,4 +1,4 @@
-import { globalIdOf, isRecordId } from "@decent-sync/protocol";
+import { beanMatchKey, globalIdOf, isRecordId } from "@decent-sync/protocol";
 
 // How a tablet's report of its beans is taken into the Library (ADR-0006,
 // ADR-0018), decided from the report, the tablet's map and the Library Beans
@@ -46,14 +46,6 @@ export type IntakeStep =
   | { kind: "link"; beanId: string; bean: ReportedBean }
   /** A bean new to the Library, which joins it. */
   | { kind: "add"; bean: ReportedBean };
-
-/**
- * The key two Beans with the same roaster and name share, ignoring case and
- * white space at either end (ADR-0018).
- */
-export function beanMatchKey(roaster: string, name: string): string {
-  return JSON.stringify([roaster.trim().toLowerCase(), name.trim().toLowerCase()]);
-}
 
 /**
  * The beans of a reported `beans` list that Decent Sync can take in, each

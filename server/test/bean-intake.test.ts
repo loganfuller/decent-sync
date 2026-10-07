@@ -1,11 +1,10 @@
-import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, beanMatchKey } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import {
   type LibraryBean,
   type MappedBean,
   type ReportedBean,
   beanContent,
-  beanMatchKey,
   planIntake,
   readReportedBeans,
 } from "../src/library/bean-intake.js";

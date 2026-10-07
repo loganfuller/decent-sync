@@ -191,6 +191,16 @@ export function isGlobalId(value: unknown): value is string {
  */
 export const GLOBAL_ID_KEY = "decentSyncId";
 
+/**
+ * The key two Beans with the same roaster and name share, ignoring case and
+ * white space at either end: how a bean new to the Library is matched to a
+ * Library Bean (ADR-0018). The server matches a tablet's new beans by it, and
+ * the plugin a bean it is asked to create to one its tablet already holds.
+ */
+export function beanMatchKey(roaster: string, name: string): string {
+  return JSON.stringify([roaster.trim().toLowerCase(), name.trim().toLowerCase()]);
+}
+
 /** The global id a tablet's Library record carries in its `extras`, or null if it carries none. */
 export function globalIdOf(record: unknown): string | null {
   const extras = isObject(record) ? record.extras : undefined;
@@ -421,9 +431,13 @@ export type LibraryKind = (typeof LIBRARY_KINDS)[number];
  *
  * With no `localId`, the plugin creates the record, unless the tablet already
  * holds one carrying this global id, as when the answer to an earlier write
- * was lost: it answers with that one instead. With one, it updates that
- * record. Either way it sets only `fields`, and writes the global id into the
- * record's `extras`, keeping the other keys there.
+ * was lost: it answers with that one instead. Nor does it create one when an
+ * unarchived record without a global id is the same item, such as a bean with
+ * the same roaster and name (`beanMatchKey`) entered before the tablet
+ * reported it: it writes only the global id to that record. With a
+ * `localId`, it updates that record. Either way it sets only `fields`, and
+ * writes the global id into the record's `extras`, keeping the other keys
+ * there.
  */
 export interface LibraryWrite {
   type: "write";

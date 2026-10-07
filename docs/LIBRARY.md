@@ -89,10 +89,17 @@ Each welcomed connection that is not mismatched has a writer
 the next write due (`nextBeanWrite`): a Bean the Machine's Location offers that
 the tablet's map lacks, which is created with the Bean's content, or one whose
 recorded record lacks its global id, which only that id is written to. Beans
-that joined the Library first are written first. It writes nothing while its
-connection no longer holds the Machine, or the Machine is at no Location. It
-looks when the connection is welcomed, which catches up a tablet that was
-offline, whenever any Library change is notified, on any instance, and when
+that joined the Library first are written first.
+
+It writes nothing until that connection's report of the tablet's beans, which
+the plugin sends on every welcome, has been taken in, and then only while the
+Machine is at the Location the latest report was taken in at, and the
+connection still holds the Machine. So a bean the tablet holds already, entered
+there or before it joined, is linked to the Library's Bean before anything is
+written, rather than written to it again; and a Machine moved since its
+tablet's latest report is written nothing until its next one. A tablet that
+was offline catches up once its report on reconnecting is taken in. The writer
+also looks whenever any Library change is notified, on any instance, and when
 the instance listens for notifications again after losing its connection.
 
 One write is outstanding per connection, and only the connection holding a
@@ -100,21 +107,29 @@ Machine writes, so a tablet is written one item at a time. The server sends a
 `write`, in chunks if it is too large for one frame (`AI_PROTOCOL_NOTES.md`),
 and the plugin answers it on the same connection with `written`, the record
 Decaid returned, or `writeRefused`, Decaid's refusal. The server records a
-written record as the tablet's record of the Bean, unless the record known is
-newer, then acknowledges the answer with `ack` and goes on. A record that does
-not carry the Bean's global id, or whose local id the map holds as another
-Bean's, is not recorded. A refusal, an answer that cannot be recorded, or no
-answer within 120 s skips that Bean for the rest of the connection; the other
-writes go on, and the tablet's next connection tries it again.
+written record as the tablet's record of the Bean, whatever the time of the
+record known, since Decaid has just returned it (a local time in the hour the
+clocks go back can read as older), then acknowledges the answer with `ack` and
+goes on. A record that does not carry the Bean's global id, or whose local id
+the map holds as another Bean's, is not recorded. A refusal, an answer that
+cannot be recorded, no answer within 120 s, or a Bean still due right after it
+was written skips that Bean for the rest of the connection; the other writes
+go on, and the tablet's next connection tries it again.
 
 The plugin (`plugin/src/library-writes.ts`) carries writes out through
 Decaid's API, one at a time:
 
 - To create a Bean, it first reads the tablet's beans, archived ones included.
   A record already carrying the global id was made by a write whose answer was
-  lost: it answers with that record, and writes nothing. Otherwise it creates
+  lost: it answers with that record, and writes nothing. An unarchived record
+  without a global id whose roaster and name match the Bean's (`beanMatchKey`,
+  shared with the server through `protocol/`) is a bean a barista entered
+  before the tablet reported it, as when two tablets at a Location enter the
+  same coffee within a poll interval: it becomes the Bean, and only the global
+  id is written to it, as to a record the server links. Otherwise it creates
   the record (`POST /beans`) with the Bean's content and the global id in
-  `extras`. Decaid assigns the record its id.
+  `extras`. Decaid assigns the record its id. Each create reads the whole list
+  once, which a tablet joining a Location with many Beans does once per Bean.
 - To write the global id into a record, it reads the record and updates it
   (`PUT /beans/{id}`) with `extras` holding its other keys beside the global
   id, since Decaid replaces `extras` whole.
