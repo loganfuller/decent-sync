@@ -1,9 +1,11 @@
 import { type MachineHardware, isRecordId } from "@decent-sync/protocol";
 import type { Reading } from "./change-detection.js";
 
-// Reads from Decaid's local API (assets/api/rest_v1.yml) through the
-// plugin-scoped fetch. Any request can fail, as /machine/info does while no
-// machine is connected, so each value read may be missing.
+// Decaid's local API (assets/api/rest_v1.yml), through the plugin-scoped
+// fetch: everything the plugin captures is read from it, and the Library
+// items the server shares are written through it (library-writes.ts). Any
+// request can fail, as /machine/info does while no machine is connected, so
+// each value read may be missing.
 
 const API = "http://localhost:8080/api/v1";
 
@@ -143,4 +145,24 @@ export async function readCollection(path: string, etag: string | null): Promise
   } catch {
     return { kind: "unavailable" };
   }
+}
+
+/** What Decaid's API answered a request: its status, and its body as text. */
+export interface Answer {
+  status: number;
+  ok: boolean;
+  text: string;
+}
+
+/**
+ * Sends a request to Decaid's API, with a JSON body if one is given, and
+ * resolves with its answer whatever its status. Throws if Decaid does not
+ * answer, as when its fetch times out after 30 s.
+ */
+export async function request(method: "GET" | "POST" | "PUT", path: string, body?: unknown): Promise<Answer> {
+  const response = await fetch(
+    API + path,
+    body === undefined ? { method } : { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  );
+  return { status: response.status, ok: response.ok, text: await response.text() };
 }

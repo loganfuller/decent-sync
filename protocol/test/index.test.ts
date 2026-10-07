@@ -3,15 +3,26 @@ import {
   CLOSE_CODES,
   COLLECTION_NAMES,
   type ErrorMessage,
+  GLOBAL_ID_KEY,
   type Hello,
+  type ItemWritten,
+  LIBRARY_LISTS,
+  type LibraryWrite,
   MAX_HARDWARE_LENGTH,
   MAX_ID_LENGTH,
   MAX_RECORD_ID_LENGTH,
+  MAX_REFUSAL_LENGTH,
   PROTOCOL_VERSION,
+  type WriteRefused,
   decodePluginMessage,
+  decodeServerFrame,
   decodeServerMessage,
   encode,
+  frames,
+  globalIdOf,
   isCollectionName,
+  isGlobalId,
+  isLibraryList,
   isRecordId,
 } from "@decent-sync/protocol";
 
@@ -389,6 +400,23 @@ describe("Collection envelopes", () => {
     expect(decodePluginMessage(frame({ ...beans, name: 3 }))).toMatchObject({ ok: false, problem: "collection.name must be a string" });
   });
 
+  it("carries each Library record's time in UTC beside a list, as long as it, or nothing", () => {
+    for (const name of LIBRARY_LISTS) expect(isLibraryList(name)).toBe(true);
+    expect(isLibraryList("pairedDevices")).toBe(false);
+    for (const updatedAt of [["2026-10-05T19:03:13.044Z"], [null]]) {
+      const message = { ...beans, updatedAt };
+      expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
+    }
+    const problem = "collection.updatedAt must be an array as long as value, of UTC times such as 2026-10-05T14:07:03.341Z or nulls";
+    for (const updatedAt of [[], ["2026-10-05T19:03:13.044Z", null], ["2026-10-05T14:03:13.044376"], ["2026-02-30T00:00:00.000Z"], "2026-10-05T19:03:13.044Z"]) {
+      expect(decodePluginMessage(frame({ ...beans, updatedAt }))).toMatchObject({ ok: false, problem });
+    }
+    expect(decodePluginMessage(frame({ ...beans, value: {}, updatedAt: [] }))).toMatchObject({
+      ok: false,
+      problem: "collection.updatedAt must be absent unless value is a list",
+    });
+  });
+
   it("requires a value, and not null, while available, and none while unavailable", () => {
     for (const value of [undefined, null]) {
       expect(decodePluginMessage(frame({ ...beans, value }))).toMatchObject({ ok: false, problem: "collection.value must be present and not null" });
@@ -399,6 +427,72 @@ describe("Collection envelopes", () => {
       expect(decodePluginMessage(frame({ ...beans, available }))).toMatchObject({ ok: false, problem: "collection.available must be true or false" });
     }
     expect(decodePluginMessage(frame({ ...beans, id: "" }))).toMatchObject({ ok: false, problem: "collection.id must not be empty" });
+  });
+});
+
+describe("Library writes", () => {
+  const globalId = "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d";
+  const create: LibraryWrite = { type: "write", id: "write-1", kind: "bean", globalId, localId: null, fields: { roaster: "Fixture Roaster", name: "Fixture Bean" } };
+  const update: LibraryWrite = { ...create, localId: "8ac511b9-81a6-4066-9a5e-5b67da092efc", fields: {} };
+  const written: ItemWritten = {
+    type: "written",
+    id: "write-1",
+    kind: "bean",
+    globalId,
+    record: { id: "8ac511b9-81a6-4066-9a5e-5b67da092efc", name: "Fixture Bean", extras: { [GLOBAL_ID_KEY]: globalId } },
+    updatedAt: "2026-10-08T03:16:48.842Z",
+  };
+  const refused: WriteRefused = { type: "writeRefused", id: "write-1", kind: "bean", globalId, status: 404, error: '{"error":"Bean not found"}' };
+
+  it("reads a write, creating or updating a record, accepting fields and kinds it does not know", () => {
+    for (const message of [create, update, { ...create, kind: "grinder", priority: 1 }]) {
+      expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
+    }
+  });
+
+  it("refuses a write without a global id, a usable local id or fields", () => {
+    expect(decodeServerMessage(frame({ ...create, globalId: "bean-1" }))).toMatchObject({ ok: false, problem: "write.globalId must be a UUID" });
+    for (const localId of [undefined, "", 7, "a".repeat(MAX_RECORD_ID_LENGTH + 1)]) {
+      expect(decodeServerMessage(frame({ ...create, localId })).ok).toBe(false);
+    }
+    expect(decodeServerMessage(frame({ ...create, fields: [] }))).toMatchObject({ ok: false, problem: "write.fields must be an object" });
+    expect(decodeServerMessage(frame({ ...create, kind: "" }))).toMatchObject({ ok: false, problem: "write.kind must not be empty" });
+  });
+
+  it("reads a write too large for one frame from its chunks, and no chunk as a whole message", () => {
+    const large = { ...create, fields: { ...create.fields, notes: "Stone fruit and jasmine. ".repeat(20_000) } };
+    const pieces = frames(encode(large), large.id);
+    expect(pieces.length).toBeGreaterThan(1);
+    const chunks = pieces.map((piece) => decodeServerFrame(piece.text));
+    expect(chunks.every((chunk) => chunk.ok && chunk.message.type === "chunk")).toBe(true);
+    const text = chunks.map((chunk) => (chunk.ok && chunk.message.type === "chunk" ? chunk.message.data : "")).join("");
+    expect(decodeServerMessage(text)).toEqual({ ok: true, message: large });
+    expect(decodeServerMessage(pieces[0]!.text)).toMatchObject({ ok: false, problem: "A chunked message must not be a chunk itself" });
+    expect(decodeServerFrame(frame({ type: "chunk", id: "write-1", index: -1, count: 2, data: "" }))).toMatchObject({ ok: false });
+  });
+
+  it("reads the answers to a write: the record Decaid returned, or its refusal", () => {
+    for (const message of [written, { ...written, updatedAt: null }, refused, { ...refused, status: null, error: "Decaid did not answer: Fetch timed out" }]) {
+      expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
+    }
+    expect(decodePluginMessage(frame({ ...written, updatedAt: undefined }))).toMatchObject({ ok: false, problem: "written.updatedAt must be a UTC time such as 2026-10-05T14:07:03.341Z" });
+    expect(decodePluginMessage(frame({ ...written, record: "record" }))).toMatchObject({ ok: false, problem: "written.record must be an object" });
+    expect(decodePluginMessage(frame({ ...refused, status: undefined }))).toMatchObject({ ok: false, problem: "writeRefused.status must be a whole number" });
+    expect(decodePluginMessage(frame({ ...refused, error: "e".repeat(MAX_REFUSAL_LENGTH) })).ok).toBe(true);
+    expect(decodePluginMessage(frame({ ...refused, error: "e".repeat(MAX_REFUSAL_LENGTH + 1) }))).toMatchObject({
+      ok: false,
+      problem: `writeRefused.error must be at most ${MAX_REFUSAL_LENGTH} characters`,
+    });
+  });
+
+  it("finds the global id a record carries in its extras, in lower case", () => {
+    expect(isGlobalId(globalId)).toBe(true);
+    expect(isGlobalId("bean-1")).toBe(false);
+    expect(globalIdOf(written.record)).toBe(globalId);
+    expect(globalIdOf({ extras: { bcUuid: "x", [GLOBAL_ID_KEY]: globalId.toUpperCase() } })).toBe(globalId);
+    for (const record of [{}, { extras: null }, { extras: { [GLOBAL_ID_KEY]: "bean-1" } }, { extras: [globalId] }, null, "record"]) {
+      expect(globalIdOf(record)).toBeNull();
+    }
   });
 });
 
@@ -413,6 +507,8 @@ describe("Delivery ids", () => {
     { type: "workflow", observedAt, workflow: {} },
     { type: "machineState", observedAt, state: "idle", substate: "idle" },
     { type: "collection", name: "scaleInfo", available: false },
+    { type: "written", kind: "bean", globalId: "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d", record: {}, updatedAt: null },
+    { type: "writeRefused", kind: "bean", globalId: "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d", status: 400, error: "" },
   ];
 
   it("are at most MAX_ID_LENGTH characters on every delivery, and a longer one is refused without being repeated", () => {

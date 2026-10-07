@@ -14,7 +14,7 @@ business with a roastery lab and several cafes.
 
 ## Status
 
-**Milestone 1 is built, and milestone 2 is next.** Admins sign in, manage
+**Milestone 1 is built, and milestone 2 is being built.** Admins sign in, manage
 Locations, and adopt Machines, which are identified by their hardware and
 record where they were in a Location History. Adopted tablets send their Shots
 and Steam Records, which the REST API serves, each credited to the Location its
@@ -30,8 +30,11 @@ milestone](https://github.com/loganfuller/decent-sync/milestone/1) holds its
 tickets and the hardening still in progress. [Milestone
 2](https://github.com/loganfuller/decent-sync/issues/77) ([GitHub
 milestone](https://github.com/loganfuller/decent-sync/milestone/2)) shares the
-Library with each Location's Machines. Until it lands, the server captures data
-without pushing changes to tablets.
+Library with each Location's Machines. So far it shares Beans: a bean entered
+on a tablet at a Location joins the Library, or becomes the Bean with the same
+roaster and name, and is written to that Location's other tablets, and the
+management interface's Library lists the Beans and where each is offered.
+Everything else is captured without being written to tablets.
 
 Releases publish the server image and the plugin ZIP, starting with
 [v0.1.0](https://github.com/loganfuller/decent-sync/releases/tag/v0.1.0).
@@ -287,6 +290,13 @@ the tablet it came from, provided the restore puts the id back: restore before
 installing the plugin, as Decaid's onboarding does, or choose to overwrite
 existing data. Otherwise the tablet keeps the new id it was given, and shows
 up as a new tablet.
+
+A Machine at a Location shares its tablet's beans with that Location's other
+Machines. The plugin writes to its tablet's Decaid: it adds the beans another
+tablet at the Location entered, and writes each bean's id in the Library into
+the record's `extras`, keeping what other plugins keep there. A Machine with no
+Location is only captured: its tablet is written nothing, and its beans stay
+out of the Library. See [docs/LIBRARY.md](docs/LIBRARY.md).
 
 | Setting | |
 |---|---|

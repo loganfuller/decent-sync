@@ -25,6 +25,8 @@ const PUBLIC = [
 const STAFF = [
   "GET /api/session",
   "DELETE /api/session",
+  "GET /api/beans",
+  "GET /api/beans/:id",
   "GET /api/locations",
   "GET /api/time-zones",
   "GET /api/machines",

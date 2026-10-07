@@ -165,9 +165,37 @@ export function sameHardware(a: Hardware | null, b: Hardware | null): boolean {
   return a.model.trim() === b.model.trim() && a.serial.trim() === b.serial.trim();
 }
 
-/** Whether a value is a tablet id as the plugin makes one: a UUID, such as 0f8e5d34-6c1b-4f0a-9d2e-7b3c4a5f6e81, in either case. */
-export function isTabletId(value: unknown): value is string {
+/** Whether a value is a UUID, such as 0f8e5d34-6c1b-4f0a-9d2e-7b3c4a5f6e81, in either case. */
+function isUuid(value: unknown): value is string {
   return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+/** Whether a value is a tablet id as the plugin makes one: a UUID, in either case. */
+export function isTabletId(value: unknown): value is string {
+  return isUuid(value);
+}
+
+/**
+ * Whether a value is a Library item's global id as the server gives one
+ * (ADR-0006): a UUID, in either case. The plugin writes it into the item's
+ * record on each tablet, in `extras` under GLOBAL_ID_KEY.
+ */
+export function isGlobalId(value: unknown): value is string {
+  return isUuid(value);
+}
+
+/**
+ * The key in a Library record's `extras` that holds its global id. Decaid
+ * replaces `extras` whole when a record is updated, so the plugin keeps the
+ * other keys there, which other plugins write, whenever it writes this one.
+ */
+export const GLOBAL_ID_KEY = "decentSyncId";
+
+/** The global id a tablet's Library record carries in its `extras`, or null if it carries none. */
+export function globalIdOf(record: unknown): string | null {
+  const extras = isObject(record) ? record.extras : undefined;
+  const id = isObject(extras) ? extras[GLOBAL_ID_KEY] : undefined;
+  return isGlobalId(id) ? id.toLowerCase() : null;
 }
 
 /** The plugin's first message on every connection. */
@@ -346,6 +374,17 @@ export function isCollectionName(name: string): name is CollectionName {
 }
 
 /**
+ * The collections that are the tablet's Library lists. Decaid writes each of
+ * their records' `updatedAt` in the tablet's local time without an offset,
+ * so the plugin sends each placed in UTC beside the list.
+ */
+export const LIBRARY_LISTS = ["beans", "beanBatches", "grinders", "profiles"] as const satisfies readonly CollectionName[];
+
+export function isLibraryList(name: string): name is (typeof LIBRARY_LISTS)[number] {
+  return (LIBRARY_LISTS as readonly string[]).includes(name);
+}
+
+/**
  * One collection, as Decaid's API answered it, sent when it changed and in
  * full on every `welcome`. A read that failed or had nothing to report (no
  * machine or scale connected, a DYE2 key never written) is sent as
@@ -360,7 +399,82 @@ export interface CollectionDelivery {
   available: boolean;
   /** Decaid's response, as sent, while available: anything but null. Absent while unavailable. */
   value?: unknown;
+  /**
+   * For one of the LIBRARY_LISTS, each record's `updatedAt`, read as the
+   * tablet's local time and placed in UTC, such as
+   * 2026-10-05T14:07:03.341Z, in the order of `value`: null for a record
+   * whose time cannot be read. Only with a list `value`, and as long as it.
+   */
+  updatedAt?: (string | null)[];
 }
+
+/** The kinds of Library item the server writes to tablets. */
+export const LIBRARY_KINDS = ["bean"] as const;
+
+export type LibraryKind = (typeof LIBRARY_KINDS)[number];
+
+/**
+ * Asks the plugin to write one Library item to its tablet through Decaid's
+ * API (ADR-0006). The server sends one at a time, and the next once this one
+ * is answered with `written` or `writeRefused`. A write too large for one
+ * frame comes in chunks, which the plugin puts back together.
+ *
+ * With no `localId`, the plugin creates the record, unless the tablet already
+ * holds one carrying this global id, as when the answer to an earlier write
+ * was lost: it answers with that one instead. With one, it updates that
+ * record. Either way it sets only `fields`, and writes the global id into the
+ * record's `extras`, keeping the other keys there.
+ */
+export interface LibraryWrite {
+  type: "write";
+  /** Names this write, which its answer repeats. */
+  id: string;
+  /** One of LIBRARY_KINDS. A plugin answers a kind it does not know with `writeRefused`. */
+  kind: string;
+  /** The item's global id. */
+  globalId: string;
+  /** The tablet's record to update, or null to create one. */
+  localId: string | null;
+  /** The record's fields to set, as Decaid names them: on creating, its content. */
+  fields: Record<string, unknown>;
+}
+
+/**
+ * The plugin's answer to a `write` Decaid carried out: the record as Decaid
+ * returned it, which the server records as the tablet's version of the item.
+ * The server acknowledges it with `ack` once recorded.
+ */
+export interface ItemWritten {
+  type: "written";
+  /** The write's id. */
+  id: string;
+  kind: string;
+  globalId: string;
+  /** The record as Decaid returned it, its global id in `extras`. */
+  record: Record<string, unknown>;
+  /** The record's `updatedAt`, read as the tablet's local time and placed in UTC; null if it cannot be read. */
+  updatedAt: string | null;
+}
+
+/**
+ * The plugin's answer to a `write` Decaid refused, or could not be asked to
+ * carry out. The server acknowledges it with `ack` and goes on to its next
+ * write.
+ */
+export interface WriteRefused {
+  type: "writeRefused";
+  /** The write's id. */
+  id: string;
+  kind: string;
+  globalId: string;
+  /** Decaid's HTTP status, such as 400 or 404, or null if Decaid did not answer. */
+  status: number | null;
+  /** What Decaid answered, or why it could not be asked, cut to MAX_REFUSAL_LENGTH. */
+  error: string;
+}
+
+/** The most of Decaid's answer a `writeRefused` repeats, in UTF-16 code units. */
+export const MAX_REFUSAL_LENGTH = 1000;
 
 /** A logical delivery acknowledged only after its transaction commits. */
 export interface Ack {
@@ -391,8 +505,11 @@ export type PluginMessage =
   | SteamIndex
   | WorkflowDelivery
   | MachineStateDelivery
-  | CollectionDelivery;
-export type ServerMessage = Welcome | Heartbeat | ErrorMessage | RequestShots | RequestSteams | Ack | ChunkReceived;
+  | CollectionDelivery
+  | ItemWritten
+  | WriteRefused;
+/** Messages the server sends, each in a frame of its own or, a `write` too large for one, in chunks. */
+export type ServerMessage = Welcome | Heartbeat | ErrorMessage | RequestShots | RequestSteams | Ack | ChunkReceived | LibraryWrite;
 
 export type Decoded<T> =
   | { ok: true; message: T }
@@ -536,6 +653,26 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         fields.boolean("available");
         if (object.available === true) fields.present("value");
         else if (object.available === false) fields.absent("value");
+        if (object.updatedAt !== undefined) {
+          const length = Array.isArray(object.value) ? object.value.length : -1;
+          fields.instants("updatedAt", length);
+        }
+      });
+    case "written":
+      return check<ItemWritten>(object, "written", (fields) => {
+        fields.id();
+        fields.string("kind", { nonEmpty: true });
+        fields.uuid("globalId");
+        fields.objectField("record");
+        if (object.updatedAt !== null) fields.instant("updatedAt");
+      });
+    case "writeRefused":
+      return check<WriteRefused>(object, "writeRefused", (fields) => {
+        fields.id();
+        fields.string("kind", { nonEmpty: true });
+        fields.uuid("globalId");
+        if (object.status !== null) fields.integer("status", { nonNegative: true });
+        fields.string("error", { maxLength: MAX_REFUSAL_LENGTH });
       });
     case "heartbeat":
       return check<Heartbeat>(object, "heartbeat", () => {});
@@ -544,11 +681,31 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
   }
 }
 
-/** Reads a frame the server sent. */
-export function decodeServerMessage(frame: string): Decoded<ServerMessage> {
+/** Reads a frame the server sent: a whole message, or a chunk of one too large for a frame. */
+export function decodeServerFrame(frame: string): Decoded<ServerMessage | Chunk> {
   const object = parseObject(frame);
   if (typeof object === "string") return invalid(object);
+  if (object.type !== "chunk") return decodeServerObject(object);
+  return check<Chunk>(object, "chunk", (fields) => {
+    fields.id();
+    fields.integer("index", { nonNegative: true });
+    fields.integer("count", { positive: true });
+    fields.string("data");
+  });
+}
 
+/**
+ * Reads a whole message from the server: a frame that is not a chunk, or the
+ * encoding a message's chunks were put back together into.
+ */
+export function decodeServerMessage(text: string): Decoded<ServerMessage> {
+  const object = parseObject(text);
+  if (typeof object === "string") return invalid(object);
+  if (object.type === "chunk") return invalid("A chunked message must not be a chunk itself");
+  return decodeServerObject(object);
+}
+
+function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMessage> {
   switch (object.type) {
     case "welcome":
       return check<Welcome>(object, "welcome", (fields) => {
@@ -576,6 +733,14 @@ export function decodeServerMessage(frame: string): Decoded<ServerMessage> {
       return check<ErrorMessage>(object, "error", (fields) => {
         fields.string("code");
         fields.string("message");
+      });
+    case "write":
+      return check<LibraryWrite>(object, "write", (fields) => {
+        fields.id();
+        fields.string("kind", { nonEmpty: true });
+        fields.uuid("globalId");
+        if (object.localId !== null) fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+        fields.objectField("fields");
       });
     default:
       return invalid("Unknown message type");
@@ -676,9 +841,19 @@ class FieldChecker {
 
   /** A UTC instant as `Date.prototype.toISOString` writes it. Read back, it must be written the same, so times that do not exist, which Date rolls over, are refused. */
   instant(key: string): void {
+    if (!isInstant(this.object[key])) this.problem(key, "must be a UTC time such as 2026-10-05T14:07:03.341Z");
+  }
+
+  /**
+   * An array of `length` UTC instants, as `instant` reads one, or nulls. A
+   * `length` below zero says there is nothing for it to go beside.
+   */
+  instants(key: string, length: number): void {
     const value = this.object[key];
-    const ms = typeof value === "string" ? Date.parse(value) : NaN;
-    if (!Number.isFinite(ms) || new Date(ms).toISOString() !== value) this.problem(key, "must be a UTC time such as 2026-10-05T14:07:03.341Z");
+    if (length < 0) this.problem(key, "must be absent unless value is a list");
+    else if (!Array.isArray(value) || value.length !== length || !value.every((entry) => entry === null || isInstant(entry))) {
+      this.problem(key, "must be an array as long as value, of UTC times such as 2026-10-05T14:07:03.341Z or nulls");
+    }
   }
 
   array(key: string, valid: (value: unknown) => boolean, max: number): void {
@@ -725,6 +900,12 @@ function parseObject(frame: string): (Fields & { type: string }) | string {
 
 function isObject(value: unknown): value is Fields {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Whether a value is a UTC instant as `Date.prototype.toISOString` writes it, naming a time that exists. */
+function isInstant(value: unknown): boolean {
+  const ms = typeof value === "string" ? Date.parse(value) : NaN;
+  return Number.isFinite(ms) && new Date(ms).toISOString() === value;
 }
 
 function invalid(problem: string): { ok: false; error: "protocol_error"; problem: string } {

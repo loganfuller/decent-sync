@@ -1,6 +1,7 @@
-import type { CollectionDelivery, CollectionName } from "@decent-sync/protocol";
+import { type CollectionDelivery, type CollectionName, isLibraryList } from "@decent-sync/protocol";
 import { type Fingerprint, type Reading, decide, ifNoneMatch, pairedDevices } from "./change-detection.js";
 import { readCollection } from "./decaid.js";
+import { utcTime } from "./local-time.js";
 import type { Outbox } from "./outbox.js";
 
 interface Source {
@@ -114,7 +115,7 @@ export class CollectionCapture {
     const id = this.outbox.nextId();
     const delivery: CollectionDelivery =
       reading.kind === "value"
-        ? { type: "collection", id, name: source.name, available: true, value: reading.value }
+        ? { type: "collection", id, name: source.name, available: true, value: reading.value, ...placedInTime(source.name, reading.value) }
         : { type: "collection", id, name: source.name, available: false };
     // The newer delivery makes older ones still queued unnecessary, unless they were sent before a
     // reconnect, except that a value stays ahead of a report that the collection became unavailable:
@@ -127,6 +128,16 @@ export class CollectionCapture {
     this.queued.set(source.name, { latest: id, value: delivery.available ? id : earlier?.value });
     this.outbox.enqueue(delivery);
   }
+}
+
+/**
+ * For a Library list, each record's `updatedAt` placed in UTC, beside the
+ * list: Decaid writes it in the tablet's local time without an offset, which
+ * only the plugin, running in the tablet's time zone, can place.
+ */
+function placedInTime(name: CollectionName, value: unknown): Pick<CollectionDelivery, "updatedAt"> {
+  if (!isLibraryList(name) || !Array.isArray(value)) return {};
+  return { updatedAt: value.map((record: unknown) => utcTime((record as { updatedAt?: unknown } | null)?.updatedAt)) };
 }
 
 function selected(source: Source, reading: Reading): Reading {

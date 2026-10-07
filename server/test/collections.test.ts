@@ -61,7 +61,7 @@ describe("Library, settings and paired devices", () => {
     const used = tablets.splice(0);
     await Promise.all(used.map((tablet) => tablet.unload()));
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
-    // The plugin only ever reads Decaid's API, DYE2's storage included.
+    // The plugin only reads Decaid's API, DYE2's storage included, for a Machine at no Location, as all of these are.
     for (const tablet of used) expect(tablet.writes).toEqual([]);
   });
   afterAll(async () => {

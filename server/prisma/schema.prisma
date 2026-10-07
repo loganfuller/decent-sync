@@ -164,6 +164,8 @@ model Location {
   steamRecords SteamRecord[]
   staff        StaffLocation[]
   invites      InviteLocation[]
+  beansCreated Bean[]          @relation("BeansCreated")
+  beanOrigins  BeanOrigin[]
 
   @@map("locations")
 }
@@ -322,6 +324,7 @@ model Tablet {
   firstSeenAt DateTime @map("first_seen_at") @db.Timestamptz(3)
 
   machines MachineTablet[]
+  beans    TabletBean[]
 
   @@map("tablets")
 }
@@ -617,4 +620,70 @@ model SetAsideDelivery {
   /// Finds the Shots and Steam Records set aside, which indexes leave out.
   @@index([machineId, recordId])
   @@map("set_aside_deliveries")
+}
+
+/// A Bean in the Library (ADR-0003): a coffee as sold by a roaster, shared
+/// with the tablets of each Location that offers it (ADR-0008). Its id is its
+/// global id, which the plugin writes into its record on each tablet
+/// (ADR-0006). See server/src/library/beans.ts.
+model Bean {
+  id                String     @id @default(uuid(7)) @db.Uuid
+  /// Decaid's record fields, those it does not know included, as the tablet
+  /// that created it sent them: all but its id, times, archived flag and
+  /// extras, which belong to each tablet's record.
+  content           Json       @db.JsonB
+  /// Its roaster and name as Beans are matched (ADR-0018), without spaces at
+  /// either end and in lower case (server/src/library/bean-matching.ts).
+  matchKey          String     @map("match_key")
+  /// Retired everywhere: offered nowhere, but kept so past Shots still name it.
+  archived          Boolean    @default(false)
+  /// The Location of the tablet that created it.
+  createdLocationId String?    @map("created_location_id") @db.Uuid
+  createdLocation   Location?  @relation("BeansCreated", fields: [createdLocationId], references: [id], onDelete: SetNull)
+  /// When it joined the Library, by PostgreSQL's clock.
+  createdAt         DateTime   @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+
+  origins BeanOrigin[]
+  tablets TabletBean[]
+
+  @@index([matchKey])
+  @@map("beans")
+}
+
+/// A Location where a tablet created the Bean, or linked a Bean of its own to
+/// it by roaster and name (ADR-0018). While it has no batches, a Bean is
+/// offered at each (ADR-0008).
+model BeanOrigin {
+  beanId     String   @map("bean_id") @db.Uuid
+  bean       Bean     @relation(fields: [beanId], references: [id], onDelete: Cascade)
+  locationId String   @map("location_id") @db.Uuid
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  /// When it was first created or linked there, by PostgreSQL's clock.
+  since      DateTime @default(dbgenerated("transaction_timestamp()")) @db.Timestamptz(3)
+
+  @@id([beanId, locationId])
+  @@index([locationId])
+  @@map("bean_origins")
+}
+
+/// A Library Bean's record on one tablet (ADR-0006): its id there, and the
+/// record as that tablet last had it, as it reported it or as Decaid returned
+/// the plugin's write. Kept per tablet, so a reset tablet, which has a new
+/// tablet id, holds nothing here.
+model TabletBean {
+  tabletId        String    @map("tablet_id") @db.Uuid
+  tablet          Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  beanId          String    @map("bean_id") @db.Uuid
+  bean            Bean      @relation(fields: [beanId], references: [id], onDelete: Cascade)
+  /// Decaid's id for the record on that tablet.
+  localId         String    @map("local_id")
+  /// The record, as Decaid sent it.
+  record          Json      @db.JsonB
+  /// The record's updatedAt, placed in UTC by the plugin; null if it could not be.
+  recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
+
+  @@id([tabletId, beanId])
+  @@unique([tabletId, localId])
+  @@index([beanId])
+  @@map("tablet_beans")
 }
