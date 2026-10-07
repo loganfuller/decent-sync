@@ -1,7 +1,11 @@
 import { type Browser, type BrowserContext, expect, type Page, test } from "@playwright/test";
+import { recordAlerts } from "./support/alerts.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { nextRefusedPoll } from "./support/polling.js";
 
 // First-run setup and signing in and out, on one server from first visit on.
+// A session that ends while a page is open sends it to sign-in, and back to
+// that page after signing in.
 const server = useFreshServer();
 
 const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
@@ -64,6 +68,64 @@ test("signing in survives a browser restart, and signing out ends the session on
   await expect(replayedPage).toHaveURL(/\/sign-in$/);
   await replayed.close();
   await restarted.close();
+});
+
+test("a session that expires while a Machine's page is open goes to sign-in at its next poll, and back after signing in", async ({ page }) => {
+  await page.goto("/");
+  await signIn(page, admin);
+  await expectSignedIn(page);
+  const response = await page.request.post("/api/machines", { data: { name: "Lab 1" } });
+  expect(response.status()).toBe(201);
+  const { machine } = (await response.json()) as { machine: { id: string } };
+  await page.goto(`/machines/${machine.id}`);
+  await expect(page.getByRole("heading", { name: "Lab 1", level: 1 })).toBeVisible();
+  const alerts = await recordAlerts(page);
+  let sessionReads = 0;
+  page.on("request", (request) => {
+    if (request.method() === "GET" && new URL(request.url()).pathname === "/api/session") sessionReads++;
+  });
+
+  // Its expiry passes.
+  const refused = nextRefusedPoll(page, `/api/machines/${machine.id}`);
+  const database = await server.connectDatabase();
+  try {
+    await database.query("UPDATE sessions SET expires_at = now() - interval '1 minute'");
+  } finally {
+    await database.end();
+  }
+
+  // The page's next poll is refused, and it goes to sign-in. All of the poll's refused requests read the session once.
+  await refused;
+  await expect(page).toHaveURL(/\/sign-in$/);
+  expect(await alerts()).toEqual([]);
+  expect(sessionReads).toBe(1);
+  await signIn(page, admin);
+  await expect(page).toHaveURL(new RegExp(`/machines/${machine.id}$`));
+  await expect(page.getByRole("heading", { name: "Lab 1", level: 1 })).toBeVisible();
+});
+
+test("signing out in one tab sends another to sign-in at its next action, and back after signing in", async ({ page }) => {
+  await page.goto("/");
+  await signIn(page, admin);
+  await expectSignedIn(page);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Locations" }).click();
+  await expect(page.getByRole("heading", { name: "Locations", level: 1 })).toBeVisible();
+  const alerts = await recordAlerts(page);
+
+  const otherTab = await page.context().newPage();
+  await otherTab.goto("/");
+  await otherTab.getByRole("button", { name: "Sign out" }).click();
+  await expect(otherTab).toHaveURL(/\/sign-in$/);
+
+  // The Locations page doesn't poll, so it learns at its next request.
+  const form = page.getByRole("form", { name: "New Location" });
+  await form.getByLabel("Name").fill("Uptown");
+  await form.getByRole("button", { name: "Create Location" }).click();
+  await expect(page).toHaveURL(/\/sign-in$/);
+  expect(await alerts()).toEqual([]);
+  await signIn(page, admin);
+  await expect(page.getByRole("heading", { name: "Locations", level: 1 })).toBeVisible();
+  await expect(page.getByText("No Locations yet.")).toBeVisible();
 });
 
 async function signIn(page: Page, credentials: { email: string; password: string }) {
