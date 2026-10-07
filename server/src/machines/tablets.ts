@@ -20,41 +20,40 @@ export interface TabletView {
 /** Whoever a connection's records go to: a Machine, or the Pending Machine holding hardware no Machine has. */
 export type TabletHolder = { machineId: string } | { pendingMachineId: string };
 
-// Advisory locks on a tablet holder use this as their first key, and a hash of
-// the holder's id as their second, as hardware locks do with theirs. Holders
-// whose hashes collide only wait for each other.
-const TABLET_HOLDER_LOCK = 4_000_005;
+// Every hello takes this advisory lock last, numbers its tablet's record
+// under it, and holds it until it commits.
+const TABLET_ORDER_LOCK = 4_000_005;
 
 /**
  * Records that a `hello` from the tablet was accepted for the holder, now,
  * creating the tablet if the server has never seen it. Concurrent hellos, on
  * any instance, find one record.
  *
- * It first locks the holder until the hello commits, the last lock a hello
- * takes and one nothing else does, so hellos record tablets for one holder
- * one at a time, whatever tokens they use. The number each takes for its
- * record (`last_hello`, from the column's sequence, which the inserted row's
- * default draws) therefore rises in the order they are accepted.
+ * Then, once nothing is left to wait for, it numbers the record
+ * (`last_hello`, from the column's sequence) under a lock every hello takes
+ * last and holds until it commits. Numbers therefore rise in the order hellos
+ * are accepted, whatever their holders and tokens, so they stay in order when
+ * adoption joins two holders' records. A hello holding the lock waits for
+ * nothing else, so hellos queue for it only through that statement and their
+ * commit.
  */
 export async function recordTablet(tx: Prisma.TransactionClient, tabletId: string, holder: TabletHolder): Promise<void> {
-  const holderId = "machineId" in holder ? holder.machineId : holder.pendingMachineId;
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${TABLET_HOLDER_LOCK}::int, hashtext(${holderId}::text))`;
   await tx.$executeRaw`INSERT INTO tablets (id, first_seen_at) VALUES (${tabletId}::uuid, now()) ON CONFLICT (id) DO NOTHING`;
-  if ("machineId" in holder) {
-    await tx.$executeRaw`
-      INSERT INTO machine_tablets (tablet_id, machine_id, first_seen_at, last_seen_at)
-      VALUES (${tabletId}::uuid, ${holder.machineId}::uuid, now(), now())
-      ON CONFLICT (tablet_id, machine_id) DO UPDATE SET
-        last_hello = EXCLUDED.last_hello,
-        last_seen_at = GREATEST(machine_tablets.last_seen_at, EXCLUDED.last_seen_at)`;
-  } else {
-    await tx.$executeRaw`
-      INSERT INTO machine_tablets (tablet_id, pending_machine_id, first_seen_at, last_seen_at)
-      VALUES (${tabletId}::uuid, ${holder.pendingMachineId}::uuid, now(), now())
-      ON CONFLICT (tablet_id, pending_machine_id) DO UPDATE SET
-        last_hello = EXCLUDED.last_hello,
-        last_seen_at = GREATEST(machine_tablets.last_seen_at, EXCLUDED.last_seen_at)`;
-  }
+  // May wait on the record's row, which a heartbeat or an adoption can hold.
+  const [record] =
+    "machineId" in holder
+      ? await tx.$queryRaw<[{ id: bigint }]>`
+          INSERT INTO machine_tablets (tablet_id, machine_id, first_seen_at, last_seen_at)
+          VALUES (${tabletId}::uuid, ${holder.machineId}::uuid, now(), now())
+          ON CONFLICT (tablet_id, machine_id) DO UPDATE SET last_seen_at = GREATEST(machine_tablets.last_seen_at, EXCLUDED.last_seen_at)
+          RETURNING id`
+      : await tx.$queryRaw<[{ id: bigint }]>`
+          INSERT INTO machine_tablets (tablet_id, pending_machine_id, first_seen_at, last_seen_at)
+          VALUES (${tabletId}::uuid, ${holder.pendingMachineId}::uuid, now(), now())
+          ON CONFLICT (tablet_id, pending_machine_id) DO UPDATE SET last_seen_at = GREATEST(machine_tablets.last_seen_at, EXCLUDED.last_seen_at)
+          RETURNING id`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${TABLET_ORDER_LOCK}::bigint)`;
+  await tx.$executeRaw`UPDATE machine_tablets SET last_hello = nextval(pg_get_serial_sequence('machine_tablets', 'last_hello')) WHERE id = ${record.id}`;
 }
 
 /** A welcomed connection, as a heartbeat finds the record of its tablet. */

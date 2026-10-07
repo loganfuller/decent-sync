@@ -330,7 +330,8 @@ model MachineTablet {
   pendingMachine   PendingMachine? @relation(fields: [pendingMachineId], references: [id], onDelete: Cascade)
   firstSeenAt      DateTime        @map("first_seen_at") @db.Timestamptz(3)
   /// Numbers its latest accepted `hello`, from a sequence every instance
-  /// shares, taken once the hello holds its locks: the highest of a
+  /// shares, under a lock every hello takes last and holds until it commits,
+  /// so numbers rise in the order hellos are accepted: the highest of a
   /// Machine's records is its latest connection's tablet.
   lastHello        BigInt          @default(autoincrement()) @map("last_hello")
   lastSeenAt       DateTime        @map("last_seen_at") @db.Timestamptz(3)

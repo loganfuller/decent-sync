@@ -356,7 +356,7 @@ describe("Tablets", { timeout: 20_000 }, () => {
     expect(tabletIds(await machine(created.machine.id))).toEqual({ current: accepted, earlier: [replaced] });
   });
 
-  it("records one holder's tablets in the order their hellos are accepted, whatever tokens they use", async () => {
+  it("makes the tablet of the hello accepted last current, whatever tokens the hellos use", async () => {
     const owner = await api.createMachine("Owns the hardware");
     const lender = await api.createMachine("Reports another's hardware");
     const reported = randomUUID();
@@ -366,28 +366,54 @@ describe("Tablets", { timeout: 20_000 }, () => {
     // A tablet reporting the owner's hardware with the other Machine's token is recorded against the owner.
     await (await connect(helloWith(lender.token, { tabletId: reported, machine: de1Pro("14301") }))).close();
 
-    const mismatched = await RawConnection.open(server.url);
-    const ownHello = await RawConnection.open(server.url);
-    connections.push(mismatched, ownHello);
     const database = await server.connectDatabase();
     try {
       // The test holds that record, as a heartbeat updating it would, so the tablet's next hello waits to record it.
       await database.query("BEGIN");
       await database.query("SELECT 1 FROM machine_tablets WHERE tablet_id = $1 FOR UPDATE", [reported]);
+      const mismatched = await RawConnection.open(server.url);
+      connections.push(mismatched);
       mismatched.send(helloWith(lender.token, { tabletId: reported, machine: de1Pro("14301") }));
       await waitForLockWaits(server);
-      // The owner's own tablet connects without hardware meanwhile, taking no lock the first hello holds but the
-      // owner's for recording tablets, and so waits for the first to be accepted.
-      ownHello.send(helloWith(owner.token, { tabletId: own, machine: null }));
-      await waitForLockWaits(server, { count: 2 });
+      // The owner's own tablet connects without hardware meanwhile, and is accepted first.
+      await connect(helloWith(owner.token, { tabletId: own, machine: null }));
       await database.query("COMMIT");
+      expect(await mismatched.message(0)).toMatchObject({ type: "welcome" });
     } finally {
       await database.end();
     }
-    expect(await mismatched.message(0)).toMatchObject({ type: "welcome" });
-    expect(await ownHello.message(0)).toMatchObject({ type: "welcome" });
-    // Accepted last, the owner's own tablet is current.
-    expect(tabletIds(await machine(owner.machine.id))).toEqual({ current: own, earlier: [reported] });
+    // Accepted last, the tablet that waited is current.
+    expect(tabletIds(await machine(owner.machine.id))).toEqual({ current: reported, earlier: [own] });
+  });
+
+  it("keeps the tablet of the hello accepted last current when adoption joins two holders' tablets", async () => {
+    const lender = await api.createMachine("Lends its token to a pending tablet");
+    const unidentified = await api.createMachine("Adopts the pending hardware");
+    const pendingTablet = randomUUID();
+    const ownTablet = randomUUID();
+    await (await connect(helloWith(lender.token, { machine: de1Pro("14401") }))).close();
+    // With the other Machine's token, a tablet reports hardware no Machine has, so a Pending Machine holds its record.
+    await (await connect(helloWith(lender.token, { tabletId: pendingTablet, machine: de1Pro("14402") }))).close();
+
+    const database = await server.connectDatabase();
+    try {
+      // The test holds that record, so the tablet's next hello waits to record it.
+      await database.query("BEGIN");
+      await database.query("SELECT 1 FROM machine_tablets WHERE tablet_id = $1 FOR UPDATE", [pendingTablet]);
+      const mismatched = await RawConnection.open(server.url);
+      connections.push(mismatched);
+      mismatched.send(helloWith(lender.token, { tabletId: pendingTablet, machine: de1Pro("14402") }));
+      await waitForLockWaits(server);
+      // Another Machine's own tablet connects meanwhile, its machine reporting no serial, and is accepted first.
+      await connect(helloWith(unidentified.token, { tabletId: ownTablet, machine: de1Pro("0") }));
+      await database.query("COMMIT");
+      expect(await mismatched.message(0)).toMatchObject({ type: "welcome" });
+    } finally {
+      await database.end();
+    }
+    // An Admin enters the pending hardware for that Machine, which takes over the Pending Machine's tablet.
+    expect((await api.call("PUT", `/machines/${unidentified.machine.id}/hardware`, { model: "DE1Pro", serial: "14402" })).status).toBe(200);
+    expect(tabletIds(await machine(unidentified.machine.id))).toEqual({ current: pendingTablet, earlier: [ownTablet] });
   });
 
   it("keeps the sighting of a mismatched connection's heartbeat that waited for its hardware's adoption", async () => {
