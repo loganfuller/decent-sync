@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import net from "node:net";
 import { CLOSE_CODES, MISSED_HEARTBEATS, PROTOCOL_VERSION } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -425,6 +426,34 @@ describe("Machines and the sync connection", () => {
       expect(await first.closed).toEqual({ code: CLOSE_CODES.replaced, reason: "replaced" });
       expect(first.messages[1]).toEqual({ type: "error", code: "replaced", message: expect.any(String) });
       expect(await machineNamed("Twice")).toMatchObject({ online: true });
+    });
+
+    it("log what a hello reported quoted and escaped, so a tablet cannot forge log lines or control a terminal", async () => {
+      // Logged as sent, each would end its line and forge another, then control the terminal showing the log.
+      const forged = (value: string) => `${value}\nWARN [Sync] forged\u001b[2J\u009b2J\u2028\u202e`;
+      const escaped = (value: string) => String.raw`${value}\u000aWARN [Sync] forged\u001b[2J\u009b2J\u2028\u202e`;
+      const quoted = (value: string) => String.raw`"${value}\nWARN [Sync] forged\u001b[2J\u009b2J\u2028\u202e"`;
+      const { token } = await createMachine("Forged hello");
+      const [firstTablet, secondTablet] = [randomUUID(), randomUUID()];
+      const first = await RawConnection.welcomed(server.url, helloWith(token, {
+        tabletId: firstTablet, pluginVersion: forged("0.1.0"), machine: { model: forged("DE1Pro"), serial: forged("20001") },
+      }));
+      // Another tablet takes the Machine over from it, reporting other hardware, which an Admin then dismisses.
+      raw = await RawConnection.welcomed(server.url, helloWith(token, { tabletId: secondTablet, machine: { model: forged("DE1XL"), serial: forged("20002") } }));
+      expect(await first.closed).toEqual({ code: CLOSE_CODES.replaced, reason: "replaced" });
+      const pending = (await api.pendingMachines()).find((machine) => machine.model === forged("DE1XL"));
+      expect((await call("POST", `/pending-machines/${pending!.id}/dismiss`)).status).toBe(200);
+      expect(await raw.closed).toEqual({ code: CLOSE_CODES.hardware_dismissed, reason: "hardware_dismissed" });
+
+      for (const line of [
+        `Machine Forged hello connected from 127.0.0.1: plugin ${quoted("0.1.0")}, Decaid "0.8.7+2847", bound to ${quoted("DE1Pro")} serial ${quoted("20001")}`,
+        `Machine Forged hello was taken over by tablet ${secondTablet} from 127.0.0.1, from tablet ${firstTablet} at 127.0.0.1: plugin ${quoted("0.1.0")}, Decaid "0.8.7+2847", which was still connected`,
+        `Machine Forged hello connected from 127.0.0.1: plugin "0.1.0", Decaid "0.8.7+2847", reports ${quoted("DE1XL")} serial ${quoted("20002")}, not the hardware its token is bound to`,
+        `Closing the sync connection of Machine Forged hello (127.0.0.1): An Admin dismissed ${escaped("DE1XL")} serial ${escaped("20002")}, which a tablet reported with this Machine's token`,
+      ]) {
+        await expect.poll(() => server.output()).toContain(line);
+      }
+      for (const character of ["\nWARN [Sync] forged", "\u001b[2J", "\u009b", "\u2028", "\u202e"]) expect(server.output()).not.toContain(character);
     });
 
     it("refuse upgrades on any path but /sync", async () => {

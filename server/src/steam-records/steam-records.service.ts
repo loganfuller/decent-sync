@@ -20,12 +20,18 @@ import { extractSteamRecord } from "./extraction.js";
 export class SteamRecordsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async store(message: SteamDelivery, reporter: Reporter): Promise<void> {
+  /**
+   * Stores a Steam Record delivery, unless it is not a record Decaid v0.8.7
+   * or later sends: then it is ignored, and what it lacks is returned, to be
+   * logged. Returns null otherwise, including for an id the server cannot
+   * store, which is ignored too, as the plugin never sends one.
+   */
+  async store(message: SteamDelivery, reporter: Reporter): Promise<string | null> {
     const { measurements, ...record } = message.steam;
-    // Not a record Decaid v0.8.7 or later sends, or an id the server cannot store: acknowledged, but ignored.
-    if (!Array.isArray(measurements) || !isRecordId(message.steamId)) return;
+    if (!isRecordId(message.steamId)) return null;
+    if (!Array.isArray(measurements)) return "no measurements array";
     // Spares a backfill's repeats the locks below.
-    if (await this.prisma.steamRecord.count({ where: { id: message.steamId } })) return;
+    if (await this.prisma.steamRecord.count({ where: { id: message.steamId } })) return null;
     await this.prisma.$transaction(async (tx) => {
       // Credited, with its Machine's row locked, before the record is written, as Shots are.
       const credit = await creditReporter(tx, reporter);
@@ -44,6 +50,7 @@ export class SteamRecordsService {
       await creditSteamRecordLocation(tx, message.steamId);
       await tx.steamMeasurements.create({ data: { steamRecordId: message.steamId, data: measurements as Prisma.InputJsonValue } });
     });
+    return null;
   }
 
   /**

@@ -17,6 +17,8 @@ import {
   type ReassemblyLimits,
   SYNC_PATH,
   type ServerMessage,
+  type ShotDelivery,
+  type SteamDelivery,
   decodePluginFrame,
   decodePluginMessage,
   encode,
@@ -28,7 +30,7 @@ import type { Config } from "../config.js";
 import { MachineEventsService } from "../machine-events/machine-events.service.js";
 import { AccessChanges } from "../machines/access-changes.js";
 import { type LiveConnection, LiveConnections } from "../machines/connections.js";
-import { MachinesService, type Refusal, describeHardware } from "../machines/machines.service.js";
+import { MachinesService, type Refusal } from "../machines/machines.service.js";
 import type { TakeoverConnectionView } from "../machines/takeovers.js";
 import { repeatingFailure } from "../set-aside-deliveries/repeating-failures.js";
 import { type CaptureDelivery, SetAsideDeliveriesService } from "../set-aside-deliveries/set-aside-deliveries.service.js";
@@ -111,7 +113,9 @@ interface Session {
  * A delivery is acknowledged once stored. One whose storage fails in a way
  * that would repeat is set aside as received and acknowledged as stored
  * (`SetAsideDeliveriesService`); any other failure closes the connection with
- * 1011, leaving the delivery for the plugin to send again.
+ * 1011, leaving the delivery for the plugin to send again. A Shot or Steam
+ * Record no supported Decaid sends is acknowledged and ignored, and logged
+ * by its id with what it lacks.
  *
  * Any number of server instances may run. Which connection holds a Machine is
  * stored on its row; a change that may end a connection (another accepted
@@ -319,9 +323,9 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return this.refuse(session, "protocol_error", "hello was already sent on this connection");
       case "shot":
       case "shotUpdated":
-        return this.capture(session, message, text, () => this.shots.store(message, reporter));
+        return this.captureRecord(session, message, text, () => this.shots.store(message, reporter));
       case "steam":
-        return this.capture(session, message, text, () => this.steamRecords.store(message, reporter));
+        return this.captureRecord(session, message, text, () => this.steamRecords.store(message, reporter));
       case "workflow":
         return this.capture(session, message, text, () => this.machineEvents.storeWorkflow(message, reporter));
       case "machineState":
@@ -371,6 +375,18 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
+   * Captures a Shot or Steam Record as `capture` does. One that is not a
+   * record any supported Decaid sends is acknowledged without being stored,
+   * and logged by its id, quoted, with what it lacks, but no field's value.
+   */
+  private captureRecord(session: Session, delivery: ShotDelivery | SteamDelivery, text: string, store: () => Promise<string | null>): Promise<void> {
+    return this.capture(session, delivery, text, async () => {
+      const lacking = await store();
+      if (lacking !== null) this.logger.warn(`Ignored ${describeRecord(delivery)} from ${this.describe(session)}: its ${delivery.type} delivery has ${lacking}`);
+    });
+  }
+
+  /**
    * Acknowledges a delivery once stored, after the request answering it if it
    * is an index. Both are remembered with the connection's recent deliveries:
    * replaying an index after losing its request must still let the tablet
@@ -415,7 +431,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     session.welcomed = true;
     this.resetIdleTimer(session);
     this.logger.log(
-      `Machine ${machine.name} connected from ${session.remote}: plugin ${hello.pluginVersion}, Decaid ${hello.decaidVersion}, ${describeIdentity(identity, hardware)}`,
+      `Machine ${machine.name} connected from ${session.remote}: ${describeVersions(hello)}, ${describeIdentity(identity, hardware)}`,
     );
     if (tookOverFrom) {
       this.logger.warn(
@@ -492,10 +508,13 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     return work;
   }
 
-  /** Tells the plugin why, then closes with the error's close code. */
+  /**
+   * Tells the plugin why, then closes with the error's close code. The
+   * message may name hardware the tablet reported, so it is logged escaped.
+   */
   private refuse(session: Session, code: ErrorCode, message: string): void {
     if (session.closing) return;
-    const log = `Closing the sync connection of ${this.describe(session)}: ${message}`;
+    const log = `Closing the sync connection of ${this.describe(session)}: ${escaped(message)}`;
     // Routine: a tablet reconnecting, or yielding to another one, which the takeover was logged for.
     if (code === "replaced" || code === "superseded" || code === "machine_held") this.logger.log(log);
     else this.logger.warn(log);
@@ -533,23 +552,56 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   }
 }
 
+function describeRecord(delivery: ShotDelivery | SteamDelivery): string {
+  return delivery.type === "steam" ? `Steam Record ${quoted(delivery.steamId)}` : `Shot ${quoted(delivery.shotId)}`;
+}
+
+/** Control, formatting, surrogate and line or paragraph separator characters. */
+const UNSAFE_IN_LOG = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/gu;
+
+/**
+ * Text that may hold what the tablet chose, as a log line shows it: every
+ * character that could end the line or change how it displays is escaped
+ * as \uXXXX, so the tablet cannot forge log lines.
+ */
+function escaped(text: string): string {
+  return text.replace(UNSAFE_IN_LOG, (character) =>
+    Array.from({ length: character.length }, (_, unit) => `\\u${character.charCodeAt(unit).toString(16).padStart(4, "0")}`).join(""),
+  );
+}
+
+/** A string the tablet chose, such as a record id or its plugin's version, escaped and quoted, so where it ends is clear. */
+function quoted(value: string): string {
+  return escaped(JSON.stringify(value));
+}
+
+/** Hardware a tablet reported, as a log line shows it. */
+function describeReported(hardware: Hardware): string {
+  return `${quoted(hardware.model)} serial ${quoted(hardware.serial)}`;
+}
+
+/** The versions a hello reported, as a log line shows them. */
+function describeVersions({ pluginVersion, decaidVersion }: { pluginVersion: string; decaidVersion: string }): string {
+  return `plugin ${quoted(pluginVersion)}, Decaid ${quoted(decaidVersion)}`;
+}
+
 function describeTakenOver(connection: TakeoverConnectionView): string {
-  return `${connection.tabletId} at ${connection.remoteAddress}: plugin ${connection.pluginVersion}, Decaid ${connection.decaidVersion}`;
+  return `${connection.tabletId} at ${connection.remoteAddress}: ${describeVersions(connection)}`;
 }
 
 function describeIdentity(identity: Identity, hardware: Hardware | null): string {
   switch (identity.kind) {
     case "identified":
       if (identity.recognisedBy === "alias" || !hardware) return "identified by its connection id";
-      return `${identity.bind ? "bound to" : "identified as"} ${describeHardware(hardware)}`;
+      return `${identity.bind ? "bound to" : "identified as"} ${describeReported(hardware)}`;
     case "hardwareNotReported":
       return "no machine connected to its tablet yet";
     case "unidentified":
       return "the machine reports no serial";
     case "mismatch":
-      return `reports ${describeHardware(identity.hardware)}, not the hardware its token is bound to`;
+      return `reports ${describeReported(identity.hardware)}, not the hardware its token is bound to`;
     case "rejected":
-      return `reports dismissed hardware ${describeHardware(identity.hardware)}`;
+      return `reports dismissed hardware ${describeReported(identity.hardware)}`;
   }
 }
 

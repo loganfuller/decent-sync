@@ -5,7 +5,7 @@ import { waitForLockWaits } from "./support/lock-waits.js";
 import { derivedShot, shotFixture, withShots } from "./support/shot-fixtures.js";
 import { derivedSteam, longSteam, milkProbeSteamFixture, steamFixture, withSteams } from "./support/steam-fixtures.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor, type HeldSteamRead } from "./support/simulated-tablet.js";
-import { startTestServer, type TestServer } from "./support/test-server.js";
+import { ignoredRecordWarnings, startTestServer, type TestServer } from "./support/test-server.js";
 
 // Seam 1: Steam Record capture through the built plugin on simulated tablets,
 // and raw frames, against two server instances sharing PostgreSQL, asserting
@@ -774,10 +774,22 @@ describe("Steam Record capture", () => {
     expect((await list(adopted.machine.id)).steamRecords.map((steam) => steam.id)).toEqual(["mismatched-steam"]);
   });
 
-  it("acknowledges and ignores a Steam Record without measurements, which Decaid v0.8.7 and later never send", async () => {
+  it("acknowledges and ignores a Steam Record without measurements, which Decaid v0.8.7 and later never send, logging its id and what it lacks", async () => {
     const machine = await api.createMachine("Incompatible steam");
     const raw = await connect(machine);
     await raw.acknowledged(sendSteam(raw, derivedSteam("curveless-steam", { measurements: undefined }), "2026-10-05T14:07:03.341Z"));
     await absent("curveless-steam");
+    // A valid one logs nothing.
+    await raw.acknowledged(sendSteam(raw, derivedSteam("compatible-steam"), "2026-10-05T14:08:03.341Z"));
+    await waitSteam("compatible-steam");
+    // The id is quoted and escaped, so it cannot forge a log line or control a terminal.
+    const forged = 'forged\nWARN [Sync] Ignored Steam Record "x" from Machine Incompatible steam (127.0.0.1): faked\u001b[2J\u009b2J\u2028\u202e';
+    await raw.acknowledged(sendSteam(raw, derivedSteam(forged, { measurements: undefined }), "2026-10-05T14:09:03.341Z"));
+    await expect.poll(() => ignoredRecordWarnings(server, "Incompatible steam")).toEqual([
+      'Ignored Steam Record "curveless-steam" from Machine Incompatible steam (127.0.0.1): its steam delivery has no measurements array',
+      String.raw`Ignored Steam Record "forged\nWARN [Sync] Ignored Steam Record \"x\" from Machine Incompatible steam (127.0.0.1): faked\u001b[2J\u009b2J\u2028\u202e"`
+        + " from Machine Incompatible steam (127.0.0.1): its steam delivery has no measurements array",
+    ]);
+    for (const character of ["\u001b[2J", "\u009b", "\u2028", "\u202e"]) expect(server.output()).not.toContain(character);
   });
 });
