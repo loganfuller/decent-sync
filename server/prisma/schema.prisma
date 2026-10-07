@@ -193,10 +193,12 @@ model Machine {
   reportedModel  String?               @map("reported_model")
   reportedSerial String?               @map("reported_serial")
   firmware       String?
-  /// The connection id, plugin and Decaid versions of the latest accepted `hello`.
+  /// The connection id, plugin and Decaid versions of the latest accepted
+  /// `hello`, and the address its connection came from as the server saw it.
   connectionId   String?               @map("connection_id")
   pluginVersion  String?               @map("plugin_version")
   decaidVersion  String?               @map("decaid_version")
+  remoteAddress  String?               @map("remote_address")
   /// Why a connection with its token was last refused, until one is accepted.
   refusalReason  String?               @map("refusal_reason")
   refusedAt      DateTime?             @map("refused_at") @db.Timestamptz(3)
@@ -207,6 +209,9 @@ model Machine {
   /// Online while set and heard from recently, so a crashed instance's
   /// connections go offline by themselves.
   connectedSessionId String?           @map("connected_session_id") @db.Uuid
+  /// The tablet that connection comes from, set and cleared with it, so the
+  /// next accepted `hello` can tell another tablet from this one reconnecting.
+  connectedTabletId  String?           @map("connected_tablet_id") @db.Uuid
   createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -222,6 +227,7 @@ model Machine {
   collections        ReportedCollection[]
   tablets            MachineTablet[]
   setAsideDeliveries SetAsideDelivery[]
+  takeover           Takeover?
 
   /// One Machine per piece of hardware. Unbound Machines (nulls) never clash.
   @@unique([model, serial])
@@ -342,6 +348,33 @@ model MachineTablet {
   @@index([machineId])
   @@index([pendingMachineId])
   @@map("machine_tablets")
+}
+
+/// The latest takeover of a Machine: a `hello` with its token, from one
+/// tablet, accepted while a live connection from another tablet held it,
+/// which it replaced. Recorded in the transaction that accepts the `hello`,
+/// under the Machine's row lock, and replaced by the next takeover. See
+/// server/src/machines/takeovers.ts.
+model Takeover {
+  machineId              String   @id @map("machine_id") @db.Uuid
+  machine                Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  /// When the `hello` that took over was accepted, by PostgreSQL's clock.
+  at                     DateTime @db.Timestamptz(3)
+  /// The connection replaced: its tablet, the address it came from, and the
+  /// connection id, plugin and Decaid versions of its `hello`.
+  replacedTabletId       String   @map("replaced_tablet_id") @db.Uuid
+  replacedRemoteAddress  String   @map("replaced_remote_address")
+  replacedConnectionId   String?  @map("replaced_connection_id")
+  replacedPluginVersion  String   @map("replaced_plugin_version")
+  replacedDecaidVersion  String   @map("replaced_decaid_version")
+  /// The connection that took over, the same way.
+  tabletId               String   @map("tablet_id") @db.Uuid
+  remoteAddress          String   @map("remote_address")
+  connectionId           String?  @map("connection_id")
+  pluginVersion          String   @map("plugin_version")
+  decaidVersion          String   @map("decaid_version")
+
+  @@map("takeovers")
 }
 
 /// Hardware an Admin dismissed for one reporting Machine. Connections using

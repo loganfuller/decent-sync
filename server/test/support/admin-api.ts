@@ -18,6 +18,7 @@ export interface MachineView {
   aliases: string[];
   mismatch: { model: string; serial: string; pendingMachineId: string | null; machine: { id: string; name: string } | null } | null;
   lastRefusal: { reason: string; at: string } | null;
+  takeover: TakeoverView | null;
   online: boolean;
   lastSeenAt: string | null;
   lastShot: { id: string; pulledAt: string | null } | null;
@@ -26,6 +27,21 @@ export interface MachineView {
   locationHistory: { id: string; location: LocationView; effectiveFrom: string }[];
   tablet: TabletView | null;
   earlierTablets: TabletView[];
+}
+
+/** A Machine's latest takeover: a connection from one tablet replacing a live one from another. */
+export interface TakeoverView {
+  at: string;
+  replaced: TakeoverConnectionView;
+  replacement: TakeoverConnectionView;
+}
+
+export interface TakeoverConnectionView {
+  tabletId: string;
+  remoteAddress: string;
+  connectionId: string | null;
+  pluginVersion: string;
+  decaidVersion: string;
 }
 
 /** A tablet a Machine's connections came from. */

@@ -320,6 +320,33 @@ test("a tablet whose Decaid data was reset shows up on its Machine's page as a n
   await expect(earlier).toContainText(/^.+First seen .+, last seen .+$/);
 });
 
+test("the Machine page shows when another tablet took it over, and from where, apart from refusals", async ({ page }) => {
+  const settings = await createMachine(page, "Taken over");
+  const [onMachine, elsewhere] = [new PluginStorage(), new PluginStorage()];
+  const replaced = loadTablet(settings, { storage: onMachine, api: derivedDe1Pro({ serial: "10040", connectionId: "00:00:5E:00:53:40" }) });
+  await replaced.waitForLog(/^Connected to /);
+  // An old tablet still holding the token is switched on away from the machine.
+  const replacement = loadTablet(settings, {
+    storage: elsewhere,
+    machineConnected: false,
+    api: derivedDe1Pro({ serial: "10040", connectionId: "00:00:5E:00:53:41" }),
+  });
+  await replacement.waitForLog(/^Connected to /);
+  await replaced.waitForLog(/^Another tablet connected with this Machine's token and took over\./);
+
+  await page.goto("/machines");
+  await machineRow(page, "Taken over").getByRole("link", { name: "Taken over" }).click();
+  const takeover = page.getByRole("alert").filter({ hasText: /^Another tablet took over at / });
+  await expect(field(takeover, "Took over")).toContainText(
+    `Tablet ${String(elsewhere.read("tabletId"))} at 127.0.0.1, connection id 00:00:5E:00:53:41, plugin `,
+  );
+  await expect(field(takeover, "Replaced")).toContainText(
+    `Tablet ${String(onMachine.read("tabletId"))} at 127.0.0.1, connection id 00:00:5E:00:53:40, plugin `,
+  );
+  await expect(page.getByRole("alert").filter({ hasText: "A connection was refused" })).toHaveCount(0);
+  await expect(field(page, "Status")).toHaveText("Online");
+});
+
 /** Creates a machine entry through the REST API, for tests about what follows. */
 async function createMachine(page: Page, name: string): Promise<{ serverUrl: string; token: string }> {
   const response = await page.request.post("/api/machines", { data: { name } });

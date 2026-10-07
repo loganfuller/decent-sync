@@ -38,6 +38,8 @@ import {
   type PairedDevices,
   type PendingMachine,
   type Tablet,
+  type Takeover,
+  type TakeoverConnection,
   type WorkflowEvent,
 } from "@/lib/api";
 import { usePolled } from "@/lib/use-polled";
@@ -155,6 +157,7 @@ function MachineDetails({ id }: { id: string }) {
               <AlertDescription>{machine.lastRefusal.reason}</AlertDescription>
             </Alert>
           )}
+          {machine.takeover && <TakeoverAlert takeover={machine.takeover} />}
 
           {machine.mismatch && (
             <Mismatch machine={machine} pending={data.pending} isAdmin={isAdmin} onCreated={created} onDismissed={reload} />
@@ -332,6 +335,38 @@ function firmwareText(machine: Machine): string {
   const binding = bindingOf(machine);
   const own = binding ? sameHardware(reported, binding) : !isRealSerial(reported.serial);
   return own ? firmware : `${firmware}, from ${describeHardware(reported)}, which its token last reported`;
+}
+
+/**
+ * The latest time a tablet took the Machine over from another that was still
+ * connected with its token. The tablet replaced waits until the other one has
+ * gone, so if it is the one on the machine, nothing reaches the server from
+ * it meanwhile.
+ */
+function TakeoverAlert({ takeover }: { takeover: Takeover }) {
+  const describe = (connection: TakeoverConnection) =>
+    [
+      `Tablet ${connection.tabletId} at ${connection.remoteAddress}`,
+      `connection id ${connection.connectionId ?? "not reported"}`,
+      `plugin ${connection.pluginVersion}`,
+      `Decaid ${connection.decaidVersion}`,
+    ].join(", ");
+  return (
+    <Alert>
+      <AlertTitle>Another tablet took over at {formatTime(takeover.at)}</AlertTitle>
+      <AlertDescription>
+        <p>
+          A tablet connected with this Machine's token while another was still connected with it, and took its place.
+          The tablet replaced sends nothing until the other one has gone. If it is the tablet on this machine, remove
+          this Machine's token from the other tablet's plugin.
+        </p>
+        <Fields label="Takeover">
+          <Field term="Took over">{describe(takeover.replacement)}</Field>
+          <Field term="Replaced">{describe(takeover.replaced)}</Field>
+        </Fields>
+      </AlertDescription>
+    </Alert>
+  );
 }
 
 /**

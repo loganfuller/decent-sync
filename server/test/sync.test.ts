@@ -61,6 +61,7 @@ describe("Machines and the sync connection", () => {
         aliases: [],
         mismatch: null,
         lastRefusal: null,
+        takeover: null,
         online: false,
         lastSeenAt: null,
         lastShot: null,
@@ -146,11 +147,11 @@ describe("Machines and the sync connection", () => {
         await waitForMachine("Uptown", (machine) => machine.online);
       });
 
-      it("replaces an older connection with the same token, and the older tablet stops", async () => {
+      it("replaces an older connection with the same token from another tablet, and the older tablet waits", async () => {
         const replacement = loadTablet(settingsFor(uptown));
         await replacement.waitForLog(/^Connected to /);
 
-        await tablet.waitForLog(/^Another tablet connected with this Machine's token, so this one stopped\./);
+        await tablet.waitForLog(/^Another tablet connected with this Machine's token and took over\. Connecting again in 300 s,/);
         await new Promise((resolve) => setTimeout(resolve, 1_500));
         expect(tablet.logs.filter((log) => log.startsWith("Connected to "))).toHaveLength(2);
         expect(await machineNamed("Uptown")).toMatchObject({ online: true });

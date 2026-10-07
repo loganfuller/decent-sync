@@ -137,6 +137,11 @@ export interface Machine {
   } | null;
   /** Why a connection with its token was last refused, until one is accepted. */
   lastRefusal: { reason: string; at: string } | null;
+  /**
+   * The latest time a connection with its token took it over from a live
+   * connection from another tablet, or null if none ever has.
+   */
+  takeover: Takeover | null;
   online: boolean;
   lastSeenAt: string | null;
   lastShot: { id: string; pulledAt: string | null } | null;
@@ -150,6 +155,25 @@ export interface Machine {
   tablet: Tablet | null;
   /** The tablets its connections came from before, the one whose connection was accepted most recently first. */
   earlierTablets: Tablet[];
+}
+
+/** One tablet taking a Machine over from another, both connected with its token. */
+export interface Takeover {
+  /** When the connection that took over was accepted. */
+  at: string;
+  /** The connection replaced, which was still connected. */
+  replaced: TakeoverConnection;
+  /** The connection that took over. */
+  replacement: TakeoverConnection;
+}
+
+/** A connection in a takeover: its tablet, the address the server saw it come from, and what its plugin reported. */
+export interface TakeoverConnection {
+  tabletId: string;
+  remoteAddress: string;
+  connectionId: string | null;
+  pluginVersion: string;
+  decaidVersion: string;
 }
 
 /** A tablet a Machine's connections came from: a device running Decaid, with its Decaid data. */

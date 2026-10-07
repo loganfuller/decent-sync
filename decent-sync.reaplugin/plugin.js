@@ -119,7 +119,10 @@ var __decentSync = (() => {
     bad_token: 4001,
     /** The plugin speaks a protocol version older than the server supports. */
     plugin_too_old: 4002,
-    /** A newer connection with the same token took over. */
+    /**
+     * A connection from another tablet took over with the same token. The
+     * plugin waits, then connects only with a `yielding` hello.
+     */
     replaced: 4003,
     /**
      * An Admin dismissed the hardware this tablet reports for this token: its
@@ -127,7 +130,18 @@ var __decentSync = (() => {
      */
     hardware_dismissed: 4004,
     /** The tablet runs a Decaid older than the server supports. */
-    decaid_too_old: 4005
+    decaid_too_old: 4005,
+    /**
+     * A `yielding` hello was refused because a live connection from another
+     * tablet holds the Machine. The plugin waits, then tries again the same way.
+     */
+    machine_held: 4006,
+    /**
+     * This connection no longer holds its Machine, but no other tablet's does:
+     * another connection from this tablet does, as when it reconnected while
+     * the server still held this one, or none does. The plugin reconnects.
+     */
+    superseded: 4007
   };
   function sameHardware(a, b) {
     if (a === null || b === null) return a === b;
@@ -209,6 +223,10 @@ var __decentSync = (() => {
     }
     boolean(key) {
       if (typeof this.object[key] !== "boolean") this.problem(key, "must be true or false");
+    }
+    optionalBoolean(key) {
+      const value = this.object[key];
+      if (value !== void 0 && typeof value !== "boolean") this.problem(key, "must be true or false");
     }
     objectField(key) {
       if (!isObject(this.object[key])) this.problem(key, "must be an object");
@@ -1122,11 +1140,18 @@ var __decentSync = (() => {
   var CONNECT_TIMEOUT_MS = 15e3;
   var MAX_TRANSPORTS = 8;
   var HARDWARE_CHECK_COOLDOWN_MS = 5e3;
+  var YIELD_MS = 5 * 6e4;
   var FINAL_CLOSES = /* @__PURE__ */ new Map([
     [CLOSE_CODES.bad_token, "The server refused the token. Enter the token shown when the machine entry was created, or a newly issued one."],
     [CLOSE_CODES.plugin_too_old, "The server needs a newer version of this plugin. Update the plugin."],
-    [CLOSE_CODES.decaid_too_old, "The server needs a newer version of Decaid. Update Decaid on this tablet."],
-    [CLOSE_CODES.replaced, "Another tablet connected with this Machine's token, so this one stopped. Reload the plugin to take over again."]
+    [CLOSE_CODES.decaid_too_old, "The server needs a newer version of Decaid. Update Decaid on this tablet."]
+  ]);
+  var YIELDING_CLOSES = /* @__PURE__ */ new Map([
+    [
+      CLOSE_CODES.replaced,
+      `Another tablet connected with this Machine's token and took over. Connecting again in ${YIELD_MS / 1e3} s, unless that tablet is still connected then.`
+    ],
+    [CLOSE_CODES.machine_held, `Another tablet is still connected with this Machine's token. Trying again in ${YIELD_MS / 1e3} s.`]
   ]);
   var SyncConnection = class {
     constructor(host, settings, log) {
@@ -1152,6 +1177,8 @@ var __decentSync = (() => {
       __publicField(this, "sentHardware", null);
       /** Hardware the server dismissed for this token; while set, the plugin does not connect. */
       __publicField(this, "dismissedHardware", null);
+      /** Set once another tablet replaced this one, until a `yielding` hello is welcomed. */
+      __publicField(this, "yielding", false);
       /** Everything awaiting the server's acknowledgment, kept across reconnects in this runtime. */
       __publicField(this, "outbox");
       __publicField(this, "shots");
@@ -1266,7 +1293,8 @@ var __decentSync = (() => {
           decaidVersion: identity.decaidVersion,
           tabletId,
           connectionId: identity.connectionId,
-          machine: identity.machine
+          machine: identity.machine,
+          ...this.yielding ? { yielding: true } : {}
         });
       } catch (error) {
         if (attempt === this.attempt) this.drop(`could not connect to ${this.settings.syncUrl}: ${describe(error)}`);
@@ -1294,9 +1322,15 @@ var __decentSync = (() => {
             break;
           }
           const final = event.code === void 0 ? void 0 : FINAL_CLOSES.get(event.code);
+          const yielding = event.code === void 0 ? void 0 : YIELDING_CLOSES.get(event.code);
           if (final) {
             this.log(final);
             this.stop();
+          } else if (yielding) {
+            this.yielding = true;
+            this.abandon();
+            this.log(yielding);
+            this.setTimer("reconnect", YIELD_MS, () => void this.connect());
           } else {
             this.drop(`the server closed the connection${event.code === void 0 ? "" : ` (${event.code}${event.reason ? `: ${event.reason}` : ""})`}`);
           }
@@ -1317,6 +1351,7 @@ var __decentSync = (() => {
         case "welcome":
           if (this.welcomed) return;
           this.welcomed = true;
+          this.yielding = false;
           this.reconnectDelayMs = MIN_RECONNECT_MS;
           this.clearTimer("connect");
           this.log(`Connected to ${this.settings.syncUrl}`);

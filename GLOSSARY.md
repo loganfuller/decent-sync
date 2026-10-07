@@ -24,7 +24,7 @@ The secret a machine's plugin connects with. It belongs to one machine and is bo
 _Avoid_: Key, password, API key
 
 **Tablet**:
-The Android device running Decaid that is attached to a machine, together with its Decaid data: resetting that data makes a new tablet, and restoring a backup onto another device brings back the tablet it came from. A tablet can be swapped or moved to another machine without changing the machine's identity.
+The Android device running Decaid that is attached to a machine, together with its Decaid data: resetting that data makes a new tablet, and restoring a backup onto another device brings back the tablet it came from. A tablet can be swapped or moved to another machine without changing the machine's identity. Its **tablet id** is a random id the plugin keeps in that data to tell tablets apart, such as two connecting with one machine's token; it is not the machine's identity.
 _Avoid_: Machine, client, install
 
 **Connection Id**:
