@@ -30,7 +30,8 @@ test("the Beans list shows each Bean and the Locations offering it, and a Bean's
 
   await labTablet.addBean({ roaster: "Roux Bakehouse", name: "Guji Hambela", country: "Ethiopia", region: "Guji", variety: ["74110", "74112"], processing: "washed" });
   await uptownTablet.addBean({ roaster: "Sandbox Coffee Roasters", name: "Washed Heirloom", decaf: true, decafProcess: "Swiss Water" });
-  // Uptown enters the lab's coffee too: the same Bean, now offered at both.
+  await expect.poll(async () => offeredAt(page, "Guji Hambela")).toEqual(["Roastery lab"]);
+  // Uptown then enters the lab's coffee too: the same Bean, now offered at both.
   await uptownTablet.addBean({ roaster: " roux bakehouse", name: "GUJI HAMBELA " });
   await expect.poll(async () => offeredAt(page, "Guji Hambela")).toEqual(["Roastery lab", "Uptown"]);
   await expect.poll(async () => offeredAt(page, "Washed Heirloom")).toEqual(["Uptown"]);
