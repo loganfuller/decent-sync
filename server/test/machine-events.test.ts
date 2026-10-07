@@ -94,8 +94,7 @@ describe("Workflow changes and machine state transitions", () => {
     return raw;
   }
   // Longer than any test. A heartbeat records its Machine as seen, so while the test holds that Machine's row it
-  // would wait there, ahead of the deliveries sent after it. The server drops a connection silent for 3 s, so a test
-  // starts heartbeats once it lets the row go.
+  // would wait there, ahead of the deliveries sent after it.
   const SILENT = 60_000;
   const stateDelivery = (state: string, substate: string, observedAt: string) =>
     ({ type: "machineState", id: randomUUID(), observedAt, state, substate });
@@ -403,36 +402,42 @@ describe("Workflow changes and machine state transitions", () => {
   }, 20_000);
 
   it("decides deliveries for one Machine that arrive at once one at a time, on any instance", async () => {
-    const owner = await api.createMachine("Busy owner");
-    const visitor = await api.createMachine("Visitor");
-    await (await connect(visitor, other.url, { model: "DE1Pro", serial: "20202" })).close();
-    const own = await connect(owner, server.url, { model: "DE1Pro", serial: "20201" }, SILENT);
-    await own.deliver(stateDelivery("idle", "idle", "2026-10-05T13:00:00.000Z"));
-    // The visitor's tablet, moved onto the owner's machine: its events are the owner's.
-    const moved = await connect(visitor, other.url, { model: "DE1Pro", serial: "20201" });
-    const fromOwner = stateDelivery("espresso", "pouring", "2026-10-05T13:01:00.000Z");
-    const fromVisitor = stateDelivery("espresso", "pouring", "2026-10-05T13:01:00.500Z");
-    const acked = (raw: RawConnection, id: string) => raw.messages.some((reply) => frameType(reply) === "ack" && (reply as Frame).id === id);
-    const database = await server.connectDatabase();
+    // The owner's connection is silent while the test holds its Machine's row, for longer than this file's instances
+    // allow, as waiting for a lock may take up to 4 s; it goes through an instance that allows a minute.
+    const patient = await startTestServer({ env: { ...env, SYNC_HEARTBEAT_SECONDS: "20" }, sharing: server });
     try {
-      // Both are held as they start to be handled, at the owner's row, which each locks before it writes anything,
-      // so they arrive at once; let go, the owner's Machine decides them one at a time, each against what the other
-      // stored.
-      await database.query("BEGIN");
-      await database.query("SELECT 1 FROM machines WHERE id = $1 FOR NO KEY UPDATE", [owner.machine.id]);
-      own.send(fromOwner);
-      moved.send(fromVisitor);
-      await waitForLockWaits(server, { count: 2 });
-      expect(acked(own, fromOwner.id) || acked(moved, fromVisitor.id)).toBe(false);
-      await database.query("COMMIT");
+      const owner = await api.createMachine("Busy owner");
+      const visitor = await api.createMachine("Visitor");
+      await (await connect(visitor, other.url, { model: "DE1Pro", serial: "20202" })).close();
+      const own = await connect(owner, patient.url, { model: "DE1Pro", serial: "20201" }, SILENT);
+      await own.deliver(stateDelivery("idle", "idle", "2026-10-05T13:00:00.000Z"));
+      // The visitor's tablet, moved onto the owner's machine: its events are the owner's.
+      const moved = await connect(visitor, other.url, { model: "DE1Pro", serial: "20201" });
+      const fromOwner = stateDelivery("espresso", "pouring", "2026-10-05T13:01:00.000Z");
+      const fromVisitor = stateDelivery("espresso", "pouring", "2026-10-05T13:01:00.500Z");
+      const acked = (raw: RawConnection, id: string) => raw.messages.some((reply) => frameType(reply) === "ack" && (reply as Frame).id === id);
+      const database = await server.connectDatabase();
+      try {
+        // Both are held as they start to be handled, at the owner's row, which each locks before it writes anything,
+        // so they arrive at once; let go, the owner's Machine decides them one at a time, each against what the other
+        // stored.
+        await database.query("BEGIN");
+        await database.query("SELECT 1 FROM machines WHERE id = $1 FOR NO KEY UPDATE", [owner.machine.id]);
+        own.send(fromOwner);
+        moved.send(fromVisitor);
+        await waitForLockWaits(server, { count: 2 });
+        expect(acked(own, fromOwner.id) || acked(moved, fromVisitor.id)).toBe(false);
+        await database.query("COMMIT");
+      } finally {
+        await database.end();
+      }
+      await expect.poll(() => acked(own, fromOwner.id) && acked(moved, fromVisitor.id)).toBe(true);
+      expect(await transitions(owner)).toEqual([["idle", "idle"], ["espresso", "pouring"]]);
+      expect((await stateEvents(visitor)).total).toBe(0);
     } finally {
-      await database.end();
+      await patient.stop();
     }
-    own.keepAlive();
-    await expect.poll(() => acked(own, fromOwner.id) && acked(moved, fromVisitor.id)).toBe(true);
-    expect(await transitions(owner)).toEqual([["idle", "idle"], ["espresso", "pouring"]]);
-    expect((await stateEvents(visitor)).total).toBe(0);
-  });
+  }, 30_000);
 
   it("credits a mismatched connection's delivery once, to the Machine that has its hardware or its Pending Machine, however often it arrives", async () => {
     const owner = await api.createMachine("Owner of 20601");
