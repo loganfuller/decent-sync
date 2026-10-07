@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { COLLECTION_NAMES, type CollectionDelivery, type CollectionName, isCollectionName } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
-import { creditReporter, firstDelivery } from "../machines/credit.js";
+import { creditFirstDelivery } from "../machines/credit.js";
 import { machineNotFound } from "../machines/input.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
@@ -57,8 +57,8 @@ export class CollectionsService {
     const value = message.available ? JSON.stringify(message.value) : null;
     const items = message.available && Array.isArray(message.value) ? message.value.length : null;
     await this.prisma.$transaction(async (tx) => {
-      if (!(await firstDelivery(tx, reporter, message.id))) return;
-      const credit = await creditReporter(tx, reporter);
+      const credit = await creditFirstDelivery(tx, reporter, message.id);
+      if (!credit) return;
       const holder = credit.machineId !== null ? Prisma.sql`machine_id` : Prisma.sql`pending_machine_id`;
       await tx.$executeRaw`
         INSERT INTO reported_collections (${holder}, name, available, reported_at, value, received_at, items)

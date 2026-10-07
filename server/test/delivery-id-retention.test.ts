@@ -181,10 +181,10 @@ describe("delivery id retention", { timeout: 30_000 }, () => {
       await holder.query("BEGIN");
       // Another transaction holds an old id's row, as deleting its Machine would.
       await holder.query("SELECT 1 FROM machine_event_deliveries WHERE delivery_id = $1 FOR UPDATE", [held.id]);
-      // And the Machine's row, so a delivery waits there having recorded its id, its row locked until it commits.
-      await holder.query("SELECT 1 FROM machines WHERE id = $1 FOR NO KEY UPDATE", [machine.machine.id]);
+      // And the state events, so a delivery waits there having recorded its id, its row locked until it commits.
+      await holder.query("LOCK TABLE machine_state_events IN SHARE MODE");
       raw.send(storing);
-      await waitForLockWaits(server, { writing: "machine_event_deliveries" });
+      await waitForLockWaits(server, { relation: "machine_state_events", writing: "machine_event_deliveries" });
 
       const instance = await startInstance();
       expect(await deletedBy(instance)).toBe(1);

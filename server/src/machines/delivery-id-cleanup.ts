@@ -3,15 +3,15 @@ import { PrismaService } from "../prisma.service.js";
 
 /**
  * How long a recorded delivery id (`machine_event_deliveries`, see
- * `firstDelivery`) is kept, counted from when the server recorded it. Within
- * it, a resend changes nothing. Only the plugin load that sent a delivery
- * sends it again, from its in-memory outbox on its next welcomed connection,
- * so this is far longer than a resend can plausibly come. One that comes
- * later anyway is handled as a new delivery. Its plugin sends it ahead of
- * anything newer, and an event is stored only if it differs from the latest
- * stored, so at worst it puts one stale event or collection value after a
- * newer one another tablet's mismatched session reported for the same
- * Machine.
+ * `creditFirstDelivery`) is kept, counted from when the server recorded it.
+ * Within it, a resend changes nothing. Only the plugin load that sent a
+ * delivery sends it again, from its in-memory outbox on its next welcomed
+ * connection, so this is far longer than a resend can plausibly come. One
+ * that comes later anyway is handled as a new delivery. Its plugin sends it
+ * ahead of anything newer, and an event is stored only if it differs from
+ * the latest stored, so at worst it puts one stale event or collection value
+ * after a newer one another tablet's mismatched session reported for the
+ * same Machine.
  */
 export const DELIVERY_ID_RETENTION_DAYS = 90;
 /** How often each server instance deletes the delivery ids it no longer keeps. */

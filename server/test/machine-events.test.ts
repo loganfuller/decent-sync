@@ -87,11 +87,16 @@ describe("Workflow changes and machine state transitions", () => {
       .toBe(true);
   }
 
-  async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
-    const raw = await RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
+  /** Welcomed, sending heartbeats every `heartbeatMs`: SILENT for none while the test holds its Machine's row. */
+  async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }, heartbeatMs?: number) {
+    const raw = await RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}), heartbeatMs);
     raws.push(raw);
     return raw;
   }
+  // Longer than any test. A heartbeat records its Machine as seen, so while the test holds that Machine's row it
+  // would wait there, ahead of the deliveries sent after it. The server drops a connection silent for 3 s, so a test
+  // starts heartbeats once it lets the row go.
+  const SILENT = 60_000;
   const stateDelivery = (state: string, substate: string, observedAt: string) =>
     ({ type: "machineState", id: randomUUID(), observedAt, state, substate });
   const workflowDelivery = (workflow: Record<string, unknown>, observedAt: string) =>
@@ -399,10 +404,10 @@ describe("Workflow changes and machine state transitions", () => {
 
   it("decides deliveries for one Machine that arrive at once one at a time, on any instance", async () => {
     const owner = await api.createMachine("Busy owner");
-    const own = await connect(owner, server.url, { model: "DE1Pro", serial: "20201" });
-    await own.deliver(stateDelivery("idle", "idle", "2026-10-05T13:00:00.000Z"));
     const visitor = await api.createMachine("Visitor");
     await (await connect(visitor, other.url, { model: "DE1Pro", serial: "20202" })).close();
+    const own = await connect(owner, server.url, { model: "DE1Pro", serial: "20201" }, SILENT);
+    await own.deliver(stateDelivery("idle", "idle", "2026-10-05T13:00:00.000Z"));
     // The visitor's tablet, moved onto the owner's machine: its events are the owner's.
     const moved = await connect(visitor, other.url, { model: "DE1Pro", serial: "20201" });
     const fromOwner = stateDelivery("espresso", "pouring", "2026-10-05T13:01:00.000Z");
@@ -410,21 +415,56 @@ describe("Workflow changes and machine state transitions", () => {
     const acked = (raw: RawConnection, id: string) => raw.messages.some((reply) => frameType(reply) === "ack" && (reply as Frame).id === id);
     const database = await server.connectDatabase();
     try {
-      // Both are held as they start to be handled, recording their ids before they lock anything, so they
-      // arrive at once; let go, the owner's Machine decides them one at a time, each against what the other stored.
+      // Both are held as they start to be handled, at the owner's row, which each locks before it writes anything,
+      // so they arrive at once; let go, the owner's Machine decides them one at a time, each against what the other
+      // stored.
       await database.query("BEGIN");
-      await database.query("LOCK TABLE machine_event_deliveries IN SHARE MODE");
+      await database.query("SELECT 1 FROM machines WHERE id = $1 FOR NO KEY UPDATE", [owner.machine.id]);
       own.send(fromOwner);
       moved.send(fromVisitor);
-      await waitForLockWaits(server, { relation: "machine_event_deliveries", count: 2 });
+      await waitForLockWaits(server, { count: 2 });
       expect(acked(own, fromOwner.id) || acked(moved, fromVisitor.id)).toBe(false);
       await database.query("COMMIT");
     } finally {
       await database.end();
     }
+    own.keepAlive();
     await expect.poll(() => acked(own, fromOwner.id) && acked(moved, fromVisitor.id)).toBe(true);
     expect(await transitions(owner)).toEqual([["idle", "idle"], ["espresso", "pouring"]]);
     expect((await stateEvents(visitor)).total).toBe(0);
+  });
+
+  it("credits a mismatched connection's delivery once, to the Machine that has its hardware or its Pending Machine, however often it arrives", async () => {
+    const owner = await api.createMachine("Owner of 20601");
+    await (await connect(owner, server.url, { model: "DE1Pro", serial: "20601" })).close();
+    const visitor = await api.createMachine("Visitor of 20601");
+    await (await connect(visitor, server.url, { model: "DE1Pro", serial: "20602" })).close();
+    const dialledIn = derivedWorkflow({ targetYield: 46 });
+    // The visitor's tablet moves onto the owner's machine, then onto one no Machine has.
+    for (const serial of ["20601", "20603"]) {
+      const hardware = { model: "DE1Pro", serial };
+      const pouring = stateDelivery("espresso", "pouring", "2026-10-05T16:00:00.000Z");
+      const loaded = workflowDelivery(dialledIn, "2026-10-05T16:00:00.000Z");
+      const first = await connect(visitor, server.url, hardware);
+      await first.deliver(pouring);
+      await first.deliver(loaded);
+      await first.close();
+      // After later changes, the first deliveries again, through another instance, as after lost acknowledgments.
+      const second = await connect(visitor, other.url, hardware);
+      await second.deliver(stateDelivery("idle", "idle", "2026-10-05T16:01:00.000Z"));
+      await second.deliver(workflowDelivery(workflowFixture(), "2026-10-05T16:01:00.000Z"));
+      await second.deliver(pouring);
+      await second.deliver(loaded);
+      await second.close();
+    }
+    const pending = (await api.pendingMachines()).find((candidate) => candidate.serial === "20603")!;
+    const adopted = await api.issued(await api.call("POST", `/pending-machines/${pending.id}/machine`, { name: "Adopted 20603" }));
+    for (const credited of [owner, adopted]) {
+      expect(await transitions(credited)).toEqual([["espresso", "pouring"], ["idle", "idle"]]);
+      expect((await workflowEvents(credited)).events.map((event) => event.workflow)).toEqual([workflowFixture(), dialledIn]);
+    }
+    expect((await stateEvents(visitor)).total).toBe(0);
+    expect((await workflowEvents(visitor)).total).toBe(0);
   });
 
   it("refuses a state change timed by the tablet's local clock rather than in UTC, storing nothing", async () => {
