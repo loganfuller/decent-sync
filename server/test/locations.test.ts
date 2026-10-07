@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { runAsSteps } from "./support/steps.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Creating, listing and editing Locations through the REST API of a real
@@ -13,6 +14,7 @@ interface LocationView {
 }
 
 describe("Locations", () => {
+  runAsSteps();
   let server: TestServer;
   let cookie: string;
   const call = (method: string, path: string, body?: unknown, headers: Record<string, string> = { Cookie: cookie }) =>

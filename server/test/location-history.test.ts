@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView } from "./support/admin-api.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
 import { derivedShot, shotFixture, withShots } from "./support/shot-fixtures.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
@@ -124,12 +125,6 @@ describe("Location History", () => {
     const body = (await response.json()) as { machine: MachineView; message?: unknown };
     expect(response.status, JSON.stringify(body.message)).toBeLessThan(300);
     return body.machine;
-  }
-  /** Waits until a query on the test database waits for a lock on the table, such as one the test holds. */
-  async function someoneWaits(database: { query<T>(text: string, values: unknown[]): Promise<{ rows: T[] }> }, table: string) {
-    const waiting = `SELECT count(*)::int AS waiting FROM pg_locks
-      WHERE NOT granted AND relation = $1::regclass AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`;
-    await expect.poll(async () => (await database.query<{ waiting: number }>(waiting, [table])).rows[0]!.waiting).toBeGreaterThan(0);
   }
   async function problem(response: Response) {
     return { status: response.status, message: ((await response.json()) as { message: unknown }).message };
@@ -301,11 +296,10 @@ describe("Location History", () => {
       // Holds the Shot's storage, once it has been credited, until the move is under way.
       await database.query("LOCK TABLE shot_measurements IN ACCESS EXCLUSIVE MODE");
       const delivery = sendShot(raw, shotAt("stored-during-a-move", "2026-03-15T12:00:00Z"));
-      await someoneWaits(database, "shot_measurements");
+      await waitForLockWaits(server, { relation: "shot_measurements" });
       moving = move(created.machine.id, uptown.id, "2026-03-01T00:00:00Z");
       // The move waits for the Shot's storage, which holds the Machine.
-      const settled = await Promise.race([moving.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500))]);
-      expect(settled).toBe(false);
+      await waitForLockWaits(server, { count: 2 });
       await database.query("ROLLBACK");
       await acknowledged(raw, delivery);
     } finally {
@@ -339,9 +333,9 @@ describe("Location History", () => {
       const { measurements: omitted, ...summary } = record;
       edit = randomUUID();
       raw.send({ type: "shotUpdated", id: edit, shotId: record.id, shot: { ...summary, updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 64 } } });
-      await someoneWaits(database, "shots");
+      await waitForLockWaits(server, { relation: "shots" });
       correcting = api.call("PATCH", `/machines/${created.machine.id}/location-history/${first}`, { locationId: uptown.id });
-      await someoneWaits(database, "location_assignments");
+      await waitForLockWaits(server, { relation: "location_assignments" });
       await database.query("ROLLBACK TO SAVEPOINT edit");
       // While the correction holds the Machine, the edit writes the Shot twice, checking its Machine's
       // key the second time: it is stored without waiting for the correction, which then waits for it.

@@ -5,6 +5,7 @@ import net from "node:net";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import pg from "pg";
+import { assertBuilt } from "./builds.js";
 
 // Runs the built server (`npm run build` first) as a self-hoster does, on its
 // own fresh PostgreSQL database, so each test file starts from an empty
@@ -54,6 +55,7 @@ export interface TestServerOptions {
 }
 
 export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
+  assertBuilt("protocol", "server");
   // The role's grant would outlive it on a shared database, which stays, so the role could not be dropped.
   if (options.notOwner && options.sharing) throw new Error("notOwner needs a fresh database; it cannot be combined with sharing");
   const baseUrl = adminDatabaseUrl();

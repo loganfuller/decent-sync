@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type LocationView, type ManagedAccountView, acceptInvite, admin, secretOf, signIn } from "./support/admin-api.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Account management through the REST API of two server instances on one
@@ -64,21 +65,6 @@ async function invitePerson(api: AdminApi, name: string, role: "admin" | "staff"
     account: { id: string };
   };
   return { id: account.id, name, email, password, cookie };
-}
-
-/** Waits until this many queries on the database wait for a lock: an advisory lock, or any. */
-async function waitForLockWaits(database: pg.Client, count: number, kind: "advisory" | "any") {
-  const deadline = Date.now() + 10_000;
-  for (;;) {
-    const { rows } = await database.query<{ waiting: number }>(
-      `SELECT count(*)::int AS waiting FROM pg_stat_activity
-       WHERE datname = current_database() AND wait_event_type = 'Lock' AND ($1 = 'any' OR wait_event = $1)`,
-      [kind],
-    );
-    if (rows[0]!.waiting >= count) return;
-    if (Date.now() > deadline) throw new Error(`Fewer than ${count} queries waited for a lock within 10 seconds`);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
 }
 
 /** Waits until the row's `expires_at` has passed by the database's clock. */
@@ -293,7 +279,7 @@ describe("account management", () => {
       await revoking.query("UPDATE invites SET revoked_at = now() WHERE id = $1", [invite.id]);
       const acceptance = acceptingInvite(other, link, { name: "Gus", password: "gus password 1" });
       // It found the invite usable and waits for it.
-      await waitForLockWaits(database, 1, "any");
+      await waitForLockWaits(server);
       await waitUntilExpired(database, "invites", "id", invite.id);
       await revoking.query("ROLLBACK");
 
@@ -336,7 +322,7 @@ describe("account management", () => {
         await changing.query("BEGIN");
         await changing.query(change, [person.id]);
         const signingInMeanwhile = signingIn(other, person);
-        await waitForLockWaits(database, 1, "any");
+        await waitForLockWaits(server);
         await finish(changing);
         await changing.query("COMMIT");
         return await signingInMeanwhile;
@@ -452,7 +438,7 @@ describe("account management", () => {
         await deactivating.query("BEGIN");
         await deactivating.query("UPDATE accounts SET deactivated_at = now() WHERE id = $1", [ola.id]);
         const redemption = redeem(other, link, { password: "Ola's new password" });
-        await waitForLockWaits(database, 1, "any");
+        await waitForLockWaits(server);
         await deactivating.query("DELETE FROM sessions WHERE account_id = $1", [ola.id]);
         await deactivating.query("DELETE FROM password_resets WHERE account_id = $1", [ola.id]);
         await deactivating.query("COMMIT");
@@ -481,7 +467,7 @@ describe("account management", () => {
         await holding.query("SELECT 1 FROM accounts WHERE id = $1 FOR UPDATE", [eli.id]);
         const redemption = redeem(other, link, { password: "Eli's new password" });
         // It found the link usable, and waits for the account.
-        await waitForLockWaits(database, 1, "any");
+        await waitForLockWaits(server);
         await waitUntilExpired(database, "password_resets", "account_id", eli.id);
         await holding.query("ROLLBACK");
 
@@ -504,7 +490,7 @@ describe("account management", () => {
         await issuing.query("UPDATE password_resets SET created_at = now() WHERE account_id = $1", [fay.id]);
         const redemption = redeem(other, link, { password: "Fay's new password" });
         // It found the link usable and has the account; it waits for the link.
-        await waitForLockWaits(database, 1, "any");
+        await waitForLockWaits(server);
         await waitUntilExpired(database, "password_resets", "account_id", fay.id);
         await issuing.query("ROLLBACK");
 
@@ -630,7 +616,7 @@ describe("the last active Admin", { timeout: 30_000 }, () => {
       try {
         await locker.query("SELECT pg_advisory_lock($1::bigint)", [ACCOUNTS_LOCK]);
         const requests = Promise.all([xApi.call(...changes[first](y.id)), secondApi.call(...changes[second](x.id))]);
-        await waitForLockWaits(database, 2, "advisory");
+        await waitForLockWaits(server, { count: 2, advisory: true });
         await locker.query("SELECT pg_advisory_unlock($1::bigint)", [ACCOUNTS_LOCK]);
         results = await requests;
       } finally {

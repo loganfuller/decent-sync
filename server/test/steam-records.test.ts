@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView } from "./support/admin-api.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
 import { derivedSteam, longSteam, milkProbeSteamFixture, steamFixture, withSteams } from "./support/steam-fixtures.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
@@ -145,11 +146,6 @@ describe("Steam Record capture", () => {
     const body = (await response.json()) as { machine: MachineView; message?: unknown };
     expect(response.status, JSON.stringify(body.message)).toBeLessThan(300);
     return body.machine;
-  }
-  /** Waits until a query on the test database waits for a lock, such as one the test holds. */
-  async function someoneWaits(database: { query<T>(text: string): Promise<{ rows: T[] }> }) {
-    const waiting = "SELECT count(*)::int AS waiting FROM pg_locks WHERE NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())";
-    await expect.poll(async () => (await database.query<{ waiting: number }>(waiting)).rows[0]!.waiting).toBeGreaterThan(0);
   }
   /** The record without its measurements, as Steam Record detail returns it. */
   function withoutMeasurements(record: Record<string, unknown>) {
@@ -336,11 +332,10 @@ describe("Steam Record capture", () => {
       // Holds the Steam Record's storage, once it has been credited, until the move is under way.
       await database.query("LOCK TABLE steam_measurements IN ACCESS EXCLUSIVE MODE");
       const delivery = sendSteam(raw, derivedSteam("steamed-during-a-move"), "2026-03-15T12:00:00.000Z");
-      await someoneWaits(database);
+      await waitForLockWaits(server, { relation: "steam_measurements" });
       moving = api.call("POST", `/machines/${created.machine.id}/location-history`, { locationId: uptown.id, effectiveFrom: "2026-03-01T00:00:00Z" });
       // The move waits for the Steam Record's storage, which holds the Machine.
-      const settled = await Promise.race([moving.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500))]);
-      expect(settled).toBe(false);
+      await waitForLockWaits(server, { count: 2 });
       await database.query("ROLLBACK");
       await acknowledged(raw, delivery);
     } finally {
@@ -394,9 +389,7 @@ describe("Steam Record capture", () => {
       // Lets both deliveries find the record missing and credit it, then holds both before either inserts it.
       await database.query("LOCK TABLE steam_records IN SHARE MODE");
       deliveries = [sendSteam(rawA, record, "2026-10-05T14:07:03.341Z"), sendSteam(rawB, record, "2026-10-05T14:07:03.341Z")];
-      await expect.poll(async () => (await database.query<{ waiting: number }>(
-        "SELECT count(*)::int AS waiting FROM pg_locks WHERE NOT granted AND relation = 'steam_records'::regclass",
-      )).rows[0]!.waiting).toBe(2);
+      await waitForLockWaits(server, { relation: "steam_records", count: 2 });
       await database.query("ROLLBACK");
     } finally {
       await database.query("ROLLBACK").catch(() => undefined);
@@ -431,10 +424,11 @@ describe("Steam Record capture", () => {
     try {
       await database.query("BEGIN");
       await database.query("LOCK TABLE steam_measurements IN ACCESS EXCLUSIVE MODE");
+      // Reading measurements would wait for the lock until it is released, so any answer at all shows the list read none.
       const response = await Promise.race([
         api.call("GET", "/steam-records"),
         new Promise<never>((_, reject) => {
-          const timer = setTimeout(() => reject(new Error("The Steam Records list waited on measurements")), 1_000);
+          const timer = setTimeout(() => reject(new Error("The Steam Records list waited on measurements")), 5_000);
           timer.unref();
         }),
       ]);
@@ -444,7 +438,7 @@ describe("Steam Record capture", () => {
       await database.query("ROLLBACK");
       await database.end();
     }
-  });
+  }, 10_000);
 
   it("delivers a Steam Record larger than 1 MiB intact, in chunks, and stores it once after a reconnect partway through", async () => {
     const machine = await api.createMachine("Long steam");

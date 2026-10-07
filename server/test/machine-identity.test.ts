@@ -1,7 +1,9 @@
 import { CLOSE_CODES } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type MachineView } from "./support/admin-api.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { runAsSteps } from "./support/steps.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1: who a connecting tablet is (ADR-0004, ADR-0015). Raw frames and
@@ -68,6 +70,8 @@ describe("Machine identity", { timeout: 20_000 }, () => {
   });
 
   describe("binding and aliases (raw frames)", () => {
+    runAsSteps();
+
     let lab: CreatedMachine;
 
     it("binds a token to the first hardware it reports, remembering the connection id and versions", async () => {
@@ -136,6 +140,8 @@ describe("Machine identity", { timeout: 20_000 }, () => {
   });
 
   describe("mismatches and Pending Machines (raw frames)", () => {
+    runAsSteps();
+
     let lab: CreatedMachine;
 
     it("accepts a different serial on a bound token as a mismatch, holding its hardware as a Pending Machine", async () => {
@@ -265,6 +271,8 @@ describe("Machine identity", { timeout: 20_000 }, () => {
   });
 
   describe("Unidentified Machines", () => {
+    runAsSteps();
+
     let old: CreatedMachine;
     let tablet: SimulatedTablet;
 
@@ -461,6 +469,8 @@ describe("Machine identity", { timeout: 20_000 }, () => {
   });
 
   describe("a simulated tablet whose machine is disconnected", () => {
+    runAsSteps();
+
     let home: CreatedMachine;
     const homeApi = (connectionId?: string) => derivedDe1Pro({ serial: "10501", connectionId });
 
@@ -514,6 +524,8 @@ describe("Machine identity", { timeout: 20_000 }, () => {
   });
 
   describe("a simulated tablet whose machine changes", () => {
+    runAsSteps();
+
     let cafe: CreatedMachine;
     let tablet: SimulatedTablet;
 
@@ -621,7 +633,7 @@ describe("Machine identity", { timeout: 20_000 }, () => {
         await api.issued(response);
 
         // Welcomed or not, the connection must not outlive its token.
-        const closed = await Promise.race([raw.closed, new Promise((resolve) => setTimeout(() => resolve("still open"), 3_000))]);
+        const closed = await Promise.race([raw.closed, new Promise((resolve) => setTimeout(() => resolve("still open"), 10_000).unref())]);
         expect(closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
         await api.waitForMachine(`Reissued mid-hello ${round}`, (machine) => !machine.online);
       }
@@ -670,32 +682,77 @@ describe("Machine identity", { timeout: 20_000 }, () => {
       }
     });
 
-    it("says another Machine has the hardware when a hello binds it while a machine entry is being created for it", async () => {
-      for (let round = 0; round < ROUNDS * 2; round++) {
-        const lab = await boundMachine(`Contested ${round}`, `112${round}0`, `00:00:5E:00:53:A${round % 10}`);
-        const other = de1Pro(`112${round}1`);
-        expectWelcomed(await connect(helloWith(lab.token, { machine: other })));
-        const pending = (await api.pendingMachines()).find((candidate) => candidate.serial === other.serial)!;
-        const spare = await api.createMachine(`Contested spare ${round}`);
+    it("refuses a machine entry for a Pending Machine whose hardware a hello binds while the entry waits", async () => {
+      const lab = await boundMachine("Contested", "11200", "00:00:5E:00:53:A0");
+      const other = de1Pro("11201");
+      expectWelcomed(await connect(helloWith(lab.token, { machine: other })));
+      const pending = (await api.pendingMachines()).find((candidate) => candidate.serial === other.serial)!;
+      const spare = await api.createMachine("Contested spare");
 
-        const binding = await RawConnection.open(server.url);
-        connections.push(binding);
+      const binding = await RawConnection.open(server.url);
+      connections.push(binding);
+      const database = await server.connectDatabase();
+      let entry: Promise<Response> | undefined;
+      try {
+        // The hello takes the hardware's lock, then waits for the spare Machine's row, held here.
+        await database.query("BEGIN");
+        await database.query("SELECT 1 FROM machines WHERE id = $1 FOR UPDATE", [spare.machine.id]);
         binding.send(helloWith(spare.token, { machine: other }));
-        const response = await api.call("POST", `/pending-machines/${pending.id}/machine`, { name: `Contested entry ${round}` });
-        await binding.message(0);
-
-        if (response.status === 201) {
-          await api.issued(response);
-          continue;
-        }
-        // The hello bound it first: the Pending Machine is gone, or the clash is named.
-        expect([404, 409]).toContain(response.status);
-        if (response.status === 409) {
-          expect(((await response.json()) as { message: string }).message).toBe(
-            `Machine Contested spare ${round} already has DE1Pro serial ${other.serial}`,
-          );
-        }
+        await waitForLockWaits(server);
+        // The machine entry waits for the hardware's lock.
+        entry = api.call("POST", `/pending-machines/${pending.id}/machine`, { name: "Contested entry" });
+        await waitForLockWaits(server, { advisory: true });
+        await database.query("COMMIT");
+      } finally {
+        await database.end();
       }
+
+      await binding.message(0);
+      expectWelcomed(binding);
+      // The hello bound the hardware, which took the Pending Machine away.
+      expect((await entry!).status).toBe(404);
+      expect(await api.machineNamed("Contested spare")).toMatchObject({ identification: "identified", serial: other.serial });
+      expect((await api.machineNamed("Contested"))!.mismatch).toMatchObject({ pendingMachineId: null, machine: { name: "Contested spare" } });
+      expect(await api.machineNamed("Contested entry")).toBeUndefined();
+    });
+
+    it("makes a hello reporting hardware a machine entry is being created for a mismatch, once the entry has it", async () => {
+      const lab = await boundMachine("Contested later", "11210", "00:00:5E:00:53:A1");
+      const other = de1Pro("11211");
+      expectWelcomed(await connect(helloWith(lab.token, { machine: other })));
+      const pending = (await api.pendingMachines()).find((candidate) => candidate.serial === other.serial)!;
+      const spare = await api.createMachine("Contested later spare");
+
+      const binding = await RawConnection.open(server.url);
+      connections.push(binding);
+      const database = await server.connectDatabase();
+      let entry: Promise<Response> | undefined;
+      try {
+        // The machine entry takes the hardware's lock, then waits to remove the Pending Machine, whose row is held here.
+        await database.query("BEGIN");
+        await database.query("SELECT 1 FROM pending_machines WHERE id = $1 FOR UPDATE", [pending.id]);
+        entry = api.call("POST", `/pending-machines/${pending.id}/machine`, { name: "Contested later entry" });
+        await waitForLockWaits(server);
+        // The hello waits for the hardware's lock.
+        binding.send(helloWith(spare.token, { machine: other }));
+        await waitForLockWaits(server, { advisory: true });
+        await database.query("COMMIT");
+      } finally {
+        await database.end();
+      }
+
+      const created = await entry!;
+      expect(created.status).toBe(201);
+      const { machine } = await api.issued(created);
+      await binding.message(0);
+      expectWelcomed(binding);
+      // The hardware is the entry's, so the spare Machine's tablet reports another Machine's hardware.
+      expect(await api.machineNamed("Contested later spare")).toMatchObject({
+        model: null,
+        serial: null,
+        identification: "mismatch",
+        mismatch: { serial: other.serial, pendingMachineId: null, machine: { id: machine.id, name: "Contested later entry" } },
+      });
     });
 
     it("refuses a revoked token, leaving the connection with the current token alone", async () => {

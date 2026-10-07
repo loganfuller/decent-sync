@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { CLOSE_CODES } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
 import {
   RawConnection,
   SimulatedTablet,
@@ -102,12 +103,6 @@ describe("Workflow changes and machine state transitions", () => {
     const before = acks();
     raw.send(message);
     await expect.poll(acks).toBe(before + 1);
-  }
-  /** Resolves once a server connection waits for a lock on the table, such as one the test holds. */
-  async function someoneWaitsFor(database: { query<T>(text: string, values: unknown[]): Promise<{ rows: T[] }> }, table: string) {
-    const waiting = `SELECT count(*)::int AS waiting FROM pg_locks
-      WHERE NOT granted AND relation = $1::regclass AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`;
-    await expect.poll(async () => (await database.query<{ waiting: number }>(waiting, [table])).rows[0]!.waiting, { timeout: 5_000 }).toBeGreaterThan(0);
   }
   const stateDelivery = (state: string, substate: string, observedAt: string) =>
     ({ type: "machineState", id: randomUUID(), observedAt, state, substate });
@@ -402,7 +397,7 @@ describe("Workflow changes and machine state transitions", () => {
       await database.query("BEGIN");
       await database.query("LOCK TABLE workflow_events IN ACCESS EXCLUSIVE MODE");
       tablet.setWorkflow(dialledIn);
-      await someoneWaitsFor(database, "workflow_events");
+      await waitForLockWaits(server, { relation: "workflow_events" });
       // The tablet moves onto the destination's machine, losing its connection, and with it the acknowledgment.
       tablet.serve(derivedDe1Pro({ serial: "20302" }));
       tablet.dropConnections();
@@ -428,12 +423,13 @@ describe("Workflow changes and machine state transitions", () => {
     const acked = (raw: RawConnection, id: string) => raw.messages.some((reply) => frameType(reply) === "ack" && (reply as Frame).id === id);
     const database = await server.connectDatabase();
     try {
-      // While the owner's Machine is locked, both wait, each to decide against what the other stored.
+      // Both are held as they start to be handled, recording their ids before they lock anything, so they
+      // arrive at once; let go, the owner's Machine decides them one at a time, each against what the other stored.
       await database.query("BEGIN");
-      await database.query("SELECT 1 FROM machines WHERE id = $1 FOR NO KEY UPDATE", [owner.machine.id]);
+      await database.query("LOCK TABLE machine_event_deliveries IN SHARE MODE");
       own.send(fromOwner);
       moved.send(fromVisitor);
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await waitForLockWaits(server, { relation: "machine_event_deliveries", count: 2 });
       expect(acked(own, fromOwner.id) || acked(moved, fromVisitor.id)).toBe(false);
       await database.query("COMMIT");
     } finally {
