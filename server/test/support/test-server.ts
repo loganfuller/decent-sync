@@ -161,10 +161,11 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
 /**
  * The warnings the server logged on ignoring a Shot or Steam Record from the
  * named Machine, in the order logged, each without the logger's prefix or colors.
+ * A line a record's id forged would be one too, whatever characters it held.
  */
 export function ignoredRecordWarnings(server: TestServer, machineName: string): string[] {
   return stripVTControlCharacters(server.output()).split("\n").flatMap((line) => {
-    const warning = /\bWARN \[Sync\] (Ignored .*)$/.exec(line)?.[1];
+    const warning = /\bWARN \[Sync\] (Ignored .*)$/s.exec(line)?.[1];
     return warning?.includes(` from Machine ${machineName} (`) ? [warning] : [];
   });
 }

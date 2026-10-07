@@ -18,8 +18,9 @@ cleared fields included, and preserves stored measurements. A full `shot` is
 a complete record; unknown inner fields are accepted and retained. A record
 without a UTC `updatedAt` ending in `Z`, or a full record without a measurements array, is
 not one those Decaid versions send: the server acknowledges and ignores it,
-and logs a warning naming the Machine, the Shot's id, the message type and
-what the record lacks, with no field's value. A Shot ignored this way is not
+and logs a warning naming the Machine, the Shot's id (quoted, with anything
+that could end or restyle the line escaped), the message type and what the
+record lacks, with no field's value. A Shot ignored this way is not
 held, so indexes request it again, and it is ignored and logged each time.
 The server also acknowledges and ignores a Shot whose id it cannot store
 (`isRecordId`: more than `MAX_RECORD_ID_LENGTH`, 128, code units, or a NUL),

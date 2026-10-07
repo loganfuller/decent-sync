@@ -377,7 +377,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   /**
    * Captures a Shot or Steam Record as `capture` does. One that is not a
    * record any supported Decaid sends is acknowledged without being stored,
-   * and logged by its id with what it lacks, but no field's value.
+   * and logged by its id, quoted, with what it lacks, but no field's value.
    */
   private captureRecord(session: Session, delivery: ShotDelivery | SteamDelivery, text: string, store: () => Promise<string | null>): Promise<void> {
     return this.capture(session, delivery, text, async () => {
@@ -550,7 +550,21 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
 }
 
 function describeRecord(delivery: ShotDelivery | SteamDelivery): string {
-  return delivery.type === "steam" ? `Steam Record ${delivery.steamId}` : `Shot ${delivery.shotId}`;
+  return delivery.type === "steam" ? `Steam Record ${quoted(delivery.steamId)}` : `Shot ${quoted(delivery.shotId)}`;
+}
+
+/** Control, formatting and line or paragraph separator characters, which `JSON.stringify` leaves from U+007F on. */
+const UNSAFE_IN_LOG = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
+
+/**
+ * A string the tablet chose, such as a record id, as a log line shows it:
+ * quoted, with every character that could end the line or change how it
+ * displays escaped, so the tablet cannot forge log lines.
+ */
+function quoted(value: string): string {
+  return JSON.stringify(value).replace(UNSAFE_IN_LOG, (character) =>
+    Array.from({ length: character.length }, (_, unit) => `\\u${character.charCodeAt(unit).toString(16).padStart(4, "0")}`).join(""),
+  );
 }
 
 function describeTakenOver(connection: TakeoverConnectionView): string {

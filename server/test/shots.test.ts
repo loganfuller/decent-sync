@@ -607,7 +607,7 @@ describe("Shot capture and reconciliation", () => {
     expect(await detail(String(valid.id))).toMatchObject({ enjoyment: 60 });
 
     const ignored = (id: string, type: string, lacking: string) =>
-      `Ignored Shot ${id} from Machine Incompatible records (127.0.0.1): its ${type} delivery has ${lacking}`;
+      `Ignored Shot "${id}" from Machine Incompatible records (127.0.0.1): its ${type} delivery has ${lacking}`;
     // One warning each, in the order delivered, with no field's value, such as the updatedAt sent.
     await expect.poll(() => ignoredRecordWarnings(server, "Incompatible records")).toEqual([
       ignored("unversioned-shot", "shot", "no updatedAt in UTC ending in Z"),
@@ -623,6 +623,18 @@ describe("Shot capture and reconciliation", () => {
     await expect.poll(() => raw.messages.find((m) => (m as { type: string }).type === "requestShots")).toEqual({ type: "requestShots", shotIds: ["unversioned-edit"] });
     await deliver(raw, { id: "unversioned-edit", annotations: { enjoyment: 50 } }, "shotUpdated");
     await expect.poll(() => ignoredRecordWarnings(server, "Incompatible records").length).toBe(6);
+  });
+
+  it("quotes an ignored Shot's id in its warning, escaped, so the id cannot forge a log line or control a terminal", async () => {
+    const machine = await api.createMachine("Forged Shot ids");
+    const raw = await connect(machine);
+    const id = 'forged\nWARN [Sync] Ignored Shot "x" from Machine Forged Shot ids (127.0.0.1): faked\u001b[2J\u009b2J\u2028\u202e';
+    await deliver(raw, shot(id, { measurements: undefined }));
+    await expect.poll(() => ignoredRecordWarnings(server, "Forged Shot ids")).toEqual([
+      String.raw`Ignored Shot "forged\nWARN [Sync] Ignored Shot \"x\" from Machine Forged Shot ids (127.0.0.1): faked\u001b[2J\u009b2J\u2028\u202e"`
+        + " from Machine Forged Shot ids (127.0.0.1): its shot delivery has no measurements array",
+    ]);
+    for (const character of ["\u001b[2J", "\u009b", "\u2028", "\u202e"]) expect(server.output()).not.toContain(character);
   });
 
   it("makes newer-wins choices across instances and restart", async () => {

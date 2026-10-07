@@ -782,8 +782,14 @@ describe("Steam Record capture", () => {
     // A valid one logs nothing.
     await raw.acknowledged(sendSteam(raw, derivedSteam("compatible-steam"), "2026-10-05T14:08:03.341Z"));
     await waitSteam("compatible-steam");
+    // The id is quoted and escaped, so it cannot forge a log line or control a terminal.
+    const forged = 'forged\nWARN [Sync] Ignored Steam Record "x" from Machine Incompatible steam (127.0.0.1): faked\u001b[2J\u009b2J\u2028\u202e';
+    await raw.acknowledged(sendSteam(raw, derivedSteam(forged, { measurements: undefined }), "2026-10-05T14:09:03.341Z"));
     await expect.poll(() => ignoredRecordWarnings(server, "Incompatible steam")).toEqual([
-      "Ignored Steam Record curveless-steam from Machine Incompatible steam (127.0.0.1): its steam delivery has no measurements array",
+      'Ignored Steam Record "curveless-steam" from Machine Incompatible steam (127.0.0.1): its steam delivery has no measurements array',
+      String.raw`Ignored Steam Record "forged\nWARN [Sync] Ignored Steam Record \"x\" from Machine Incompatible steam (127.0.0.1): faked\u001b[2J\u009b2J\u2028\u202e"`
+        + " from Machine Incompatible steam (127.0.0.1): its steam delivery has no measurements array",
     ]);
+    for (const character of ["\u001b[2J", "\u009b", "\u2028", "\u202e"]) expect(server.output()).not.toContain(character);
   });
 });

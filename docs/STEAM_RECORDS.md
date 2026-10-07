@@ -115,8 +115,9 @@ or DYE2 edits them.
 tablet sends it: a stored record is never replaced, so repeated deliveries,
 from any instance or Machine, change nothing. A record without a measurements
 array, which Decaid v0.8.7 and later always send, is acknowledged and ignored,
-and logged as a warning naming the Machine, the Steam Record's id and what it
-lacks, with no field's value. One whose id the server cannot store
+and logged as a warning naming the Machine, the Steam Record's id (quoted,
+with anything that could end or restyle the line escaped) and what it lacks,
+with no field's value. One whose id the server cannot store
 (`isRecordId`), which the plugin never indexes or sends and the server never
 requests, is acknowledged and ignored without a warning. A delivery whose
 storage fails in a way that would repeat is set aside and acknowledged as
