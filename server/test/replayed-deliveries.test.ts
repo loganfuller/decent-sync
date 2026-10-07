@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { CLOSE_CODES, type Chunk, MAX_ID_LENGTH, frames } from "@decent-sync/protocol";
+import { CLOSE_CODES, type Chunk, MAX_ID_LENGTH, MAX_RECORD_ID_LENGTH, frames } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { HANDLED_DELIVERY_LIMITS } from "../src/sync/handled-deliveries.js";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
@@ -162,9 +162,9 @@ describe("Deliveries sent again on one connection", () => {
   it("forgets earlier deliveries sooner while indexes were answered with many long ids", async () => {
     const machine = await api.createMachine("Long requests");
     const raw = await connect(machine);
-    // Decaid's ids are UUIDs. Ids this long fill what the connection may hold in a few requests.
-    const longIds = (page: string) => Array.from({ length: 99 }, (_, n) => `${page}-${n}-`.padEnd(1_000, "x"));
-    const pages = Math.ceil(HANDLED_DELIVERY_LIMITS.maxLength / 100_000);
+    // Decaid's ids are UUIDs. Ids as long as the server stores fill what the connection may hold in a few dozen requests.
+    const longIds = (page: string) => Array.from({ length: 99 }, (_, n) => `${page}-${n}-`.padEnd(MAX_RECORD_ID_LENGTH, "x"));
+    const pages = Math.ceil(HANDLED_DELIVERY_LIMITS.maxLength / (99 * MAX_RECORD_ID_LENGTH));
     // Too few deliveries for their number alone to make the connection forget any.
     expect(2 + pages).toBeLessThanOrEqual(HANDLED_DELIVERY_LIMITS.maxDeliveries);
     // Answered in no particular order.

@@ -1,4 +1,4 @@
-import type { ShotDelivery } from "@decent-sync/protocol";
+import { type ShotDelivery, isRecordId } from "@decent-sync/protocol";
 import { readShot, readShotPage } from "./decaid.js";
 import type { Outbox } from "./outbox.js";
 
@@ -44,7 +44,7 @@ export class ShotCapture {
 
   event(type: "shot" | "shotUpdated", payload: unknown): void {
     const event = object(payload);
-    if (typeof event?.id !== "string" || event.id === "" || isLegacyImport(event.id)) return;
+    if (!event || !isCaptured(event.id)) return;
     const id = event.id;
     this.reported?.add(id);
     // Keep tablet event order even if its API takes different times to answer.
@@ -143,7 +143,7 @@ export class ShotCapture {
         if (typeof summary?.id !== "string" || summary.id === "") return [];
         read.set(summary.id, summary.updatedAt);
         // Decaid v0.8.7 and later give every Shot an edit time; a record without one is ignored.
-        if (isLegacyImport(summary.id) || typeof summary.updatedAt !== "string") return [];
+        if (!isCaptured(summary.id) || typeof summary.updatedAt !== "string") return [];
         this.ids.add(summary.id);
         return [{ id: summary.id, updatedAt: summary.updatedAt }];
       });
@@ -168,9 +168,12 @@ export class ShotCapture {
   }
 }
 
-/** Decaid's imports from the legacy de1app; Decent Sync does not capture them. */
-function isLegacyImport(id: string): boolean {
-  return id.startsWith("de1app-");
+/**
+ * Whether a Shot id is one Decent Sync captures: not one of Decaid's imports
+ * from the legacy de1app, and one the server stores (`isRecordId`).
+ */
+function isCaptured(id: unknown): id is string {
+  return isRecordId(id) && !id.startsWith("de1app-");
 }
 
 function object(value: unknown): Record<string, unknown> | undefined {

@@ -8,7 +8,9 @@ protocol version 1 with two deliveries, defined and validated in `protocol/`:
 | Plugin to server | `workflow` | `id` (delivery id), `observedAt`, `workflow` (opaque, as Decaid's `workflowUpdated` event gave it) |
 | Plugin to server | `machineState` | `id`, `observedAt`, `state` and `substate` (Decaid's names, such as `espresso` and `preinfusion`) |
 
-Both are acknowledged with `ack` once stored, as Shots are. Older plugins never
+Both are acknowledged with `ack` once stored, or set aside because storing
+them fails in a way that would repeat, as Shots are (`AI_PROTOCOL_NOTES.md`,
+Deliveries set aside). Older plugins never
 send them, so the protocol version stays 1.
 
 ## Plugin

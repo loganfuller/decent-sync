@@ -1,4 +1,4 @@
-import type { MachineHardware } from "@decent-sync/protocol";
+import { type MachineHardware, isRecordId } from "@decent-sync/protocol";
 import type { Reading } from "./change-detection.js";
 
 // Reads from Decaid's local API (assets/api/rest_v1.yml) through the
@@ -72,17 +72,17 @@ export function readSteam(id: string): Promise<Record<string, unknown> | null> {
 }
 
 /**
- * Every Steam Record id, or null if they cannot be read now. Ids are all
- * Decaid offers to find new Steam Records by: it has no event for them, and
- * `GET /steams` returns every record, workflow included, in one response
- * that outgrows the fetch limit.
+ * Every Steam Record id the server stores (`isRecordId`), or null if they
+ * cannot be read now. Ids are all Decaid offers to find new Steam Records
+ * by: it has no event for them, and `GET /steams` returns every record,
+ * workflow included, in one response that outgrows the fetch limit.
  */
 export async function readSteamIds(): Promise<string[] | null> {
   try {
     const response = await fetch(`${API}/steams/ids`);
     if (!response.ok) return null;
     const body: unknown = await response.json();
-    return Array.isArray(body) ? body.filter((id): id is string => typeof id === "string" && id !== "") : null;
+    return Array.isArray(body) ? body.filter(isRecordId) : null;
   } catch {
     return null;
   }

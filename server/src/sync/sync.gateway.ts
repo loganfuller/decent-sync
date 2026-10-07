@@ -29,6 +29,8 @@ import { MachineEventsService } from "../machine-events/machine-events.service.j
 import { AccessChanges } from "../machines/access-changes.js";
 import { type LiveConnection, LiveConnections } from "../machines/connections.js";
 import { MachinesService, type Refusal, describeHardware } from "../machines/machines.service.js";
+import { repeatingFailure } from "../set-aside-deliveries/repeating-failures.js";
+import { type CaptureDelivery, SetAsideDeliveriesService } from "../set-aside-deliveries/set-aside-deliveries.service.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { hashSecret } from "../secrets.js";
@@ -101,6 +103,11 @@ interface Session {
  * that connection alone and confirmed one by one; the whole message is then
  * handled, and acknowledged, like any other.
  *
+ * A delivery is acknowledged once stored. One whose storage fails in a way
+ * that would repeat is set aside as received and acknowledged as stored
+ * (`SetAsideDeliveriesService`); any other failure closes the connection with
+ * 1011, leaving the delivery for the plugin to send again.
+ *
  * Any number of server instances may run. Which connection holds a Machine is
  * stored on its row; a change that may end a connection (another accepted
  * hello, a reissued token, dismissed hardware) is notified to every
@@ -137,6 +144,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly steamRecords: SteamRecordsService,
     private readonly machineEvents: MachineEventsService,
     private readonly collections: CollectionsService,
+    private readonly setAside: SetAsideDeliveriesService,
     accessChanges: AccessChanges,
   ) {
     accessChanges.subscribe((machineId) => void this.check(this.live.of(machineId)));
@@ -216,11 +224,12 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     );
 
     socket.on("message", (data, isBinary) => {
-      const decoded = isBinary ? undefined : decodePluginFrame(rawToString(data));
+      const text = isBinary ? undefined : rawToString(data);
+      const decoded = text === undefined ? undefined : decodePluginFrame(text);
       const answered = decoded?.ok === true && decoded.message.type === "heartbeat" && this.answerHeartbeat(session);
       session.queue = this.track(
         session.queue
-          .then(() => this.receive(session, decoded, answered))
+          .then(() => this.receive(session, decoded, text, answered))
           .catch((error: unknown) => {
             this.logger.error(`Failed handling a message from ${this.describe(session)}: ${String(error)}`);
             this.end(session, INTERNAL_ERROR, "Server error");
@@ -245,34 +254,43 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     return true;
   }
 
-  /** Handles a frame in turn: `frame` is undefined for a binary frame, and `answered` says a heartbeat was answered on arrival. */
-  private async receive(session: Session, frame: Decoded<PluginMessage | Chunk> | undefined, answered: boolean): Promise<void> {
+  /**
+   * Handles a frame in turn: `frame` is undefined for a binary frame, `text`
+   * is the frame as received, and `answered` says a heartbeat was answered on
+   * arrival.
+   */
+  private async receive(
+    session: Session,
+    frame: Decoded<PluginMessage | Chunk> | undefined,
+    text: string | undefined,
+    answered: boolean,
+  ): Promise<void> {
     if (session.closing) return;
-    if (!frame) return this.refuse(session, "protocol_error", "Messages must be sent as text frames");
-    if (!frame.ok) return this.handle(session, frame, answered);
+    if (!frame || text === undefined) return this.refuse(session, "protocol_error", "Messages must be sent as text frames");
+    if (!frame.ok) return this.handle(session, frame, text, answered);
     const message = frame.message;
-    if (message.type !== "chunk") return this.handle(session, { ok: true, message }, answered);
+    if (message.type !== "chunk") return this.handle(session, { ok: true, message }, text, answered);
     const whole = this.reassemble(session, message);
-    if (whole) return this.handle(session, whole, false);
+    if (whole) return this.handle(session, decodePluginMessage(whole), whole, false);
   }
 
   /**
    * Adds a chunk to its message and confirms its receipt, so the plugin can
-   * send more. Returns the whole message once its last chunk is in, and
-   * null until then or if the chunks cannot be trusted.
+   * send more. Returns the whole message's text once its last chunk is in,
+   * and null until then or if the chunks cannot be trusted.
    */
-  private reassemble(session: Session, chunk: Chunk): Decoded<PluginMessage> | null {
+  private reassemble(session: Session, chunk: Chunk): string | null {
     const added = session.chunks.add(chunk, session.machine ? CHUNK_LIMITS : HELLO_CHUNK_LIMITS);
     if (added.status === "invalid") {
       this.refuse(session, "protocol_error", added.problem);
       return null;
     }
     this.send(session, { type: "chunkReceived", id: chunk.id, index: chunk.index });
-    return added.status === "complete" ? decodePluginMessage(added.text) : null;
+    return added.status === "complete" ? added.text : null;
   }
 
-  /** Handles a whole message, from one frame or put back together from chunks. */
-  private async handle(session: Session, decoded: Decoded<PluginMessage>, answered: boolean): Promise<void> {
+  /** Handles a whole message, from one frame or put back together from chunks, whose JSON text is `text`. */
+  private async handle(session: Session, decoded: Decoded<PluginMessage>, text: string, answered: boolean): Promise<void> {
     if (!decoded.ok) {
       // A hello of an unsupported version: its Machine, if the token is valid, shows why.
       if (!session.machine && decoded.token !== undefined) await this.recordVersionRefusal(decoded.token, decoded.problem);
@@ -296,24 +314,23 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return this.refuse(session, "protocol_error", "hello was already sent on this connection");
       case "shot":
       case "shotUpdated":
-        await this.shots.store(message, reporter);
-        return this.acknowledge(session, message.id, null);
+        return this.capture(session, message, text, () => this.shots.store(message, reporter));
       case "steam":
-        await this.steamRecords.store(message, reporter);
-        return this.acknowledge(session, message.id, null);
+        return this.capture(session, message, text, () => this.steamRecords.store(message, reporter));
       case "workflow":
-        await this.machineEvents.storeWorkflow(message, reporter);
-        return this.acknowledge(session, message.id, null);
+        return this.capture(session, message, text, () => this.machineEvents.storeWorkflow(message, reporter));
       case "machineState":
-        await this.machineEvents.storeMachineState(message, reporter);
-        return this.acknowledge(session, message.id, null);
+        return this.capture(session, message, text, () => this.machineEvents.storeMachineState(message, reporter));
       case "collection":
-        await this.collections.store(message, reporter);
-        return this.acknowledge(session, message.id, null);
-      case "shotIndex":
-        return this.acknowledge(session, message.id, { type: "requestShots", shotIds: await this.shots.requested(message) });
-      case "steamIndex":
-        return this.acknowledge(session, message.id, { type: "requestSteams", steamIds: await this.steamRecords.requested(message) });
+        return this.capture(session, message, text, () => this.collections.store(message, reporter));
+      case "shotIndex": {
+        const shotIds = await this.shots.requested(message, session.machine.id);
+        return this.acknowledge(session, message.id, { type: "requestShots", shotIds });
+      }
+      case "steamIndex": {
+        const steamIds = await this.steamRecords.requested(message, session.machine.id);
+        return this.acknowledge(session, message.id, { type: "requestSteams", steamIds });
+      }
       case "heartbeat":
         // One sent before its connection was welcomed is answered now.
         if (!answered) {
@@ -326,6 +343,26 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         }
         return;
     }
+  }
+
+  /**
+   * Stores a delivery of what the tablet captured, then acknowledges it. If
+   * storing fails in a way that would repeat whenever the delivery was sent
+   * again, it is set aside, its text kept as received, and acknowledged as
+   * stored, so the deliveries queued behind it on the tablet still flow. Any
+   * other failure is thrown, which closes the connection with 1011 and leaves
+   * the delivery unacknowledged.
+   */
+  private async capture(session: Session, delivery: CaptureDelivery, text: string, store: () => Promise<void>): Promise<void> {
+    try {
+      await store();
+    } catch (error) {
+      const failure = repeatingFailure(error);
+      if (!failure) throw error;
+      await this.setAside.record(session.machine!.id, delivery, text, failure);
+      this.logger.warn(`Set aside a ${delivery.type} delivery from ${this.describe(session)} that cannot be stored: ${failure.message} (${failure.sqlState})`);
+    }
+    this.acknowledge(session, delivery.id, null);
   }
 
   /**

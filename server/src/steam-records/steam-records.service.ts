@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import type { SteamDelivery, SteamIndex } from "@decent-sync/protocol";
+import { type SteamDelivery, type SteamIndex, isRecordId } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { creditReporter } from "../machines/credit.js";
 import { creditSteamRecordLocation } from "../machines/location-history.js";
@@ -22,8 +22,8 @@ export class SteamRecordsService {
 
   async store(message: SteamDelivery, reporter: Reporter): Promise<void> {
     const { measurements, ...record } = message.steam;
-    // Not a record Decaid v0.8.7 or later sends: acknowledged, but ignored.
-    if (!Array.isArray(measurements)) return;
+    // Not a record Decaid v0.8.7 or later sends, or an id the server cannot store: acknowledged, but ignored.
+    if (!Array.isArray(measurements) || !isRecordId(message.steamId)) return;
     // Spares a backfill's repeats the locks below.
     if (await this.prisma.steamRecord.count({ where: { id: message.steamId } })) return;
     await this.prisma.$transaction(async (tx) => {
@@ -46,12 +46,21 @@ export class SteamRecordsService {
     });
   }
 
-  /** The indexed Steam Records not stored yet, in the index's order. */
-  async requested(index: SteamIndex): Promise<string[]> {
-    if (index.steams.length === 0) return [];
+  /**
+   * The indexed Steam Records not stored yet, in the index's order. One whose
+   * delivery from this Machine was set aside counts as known, and one whose
+   * id the server cannot store is never requested.
+   */
+  async requested(index: SteamIndex, machineId: string): Promise<string[]> {
+    const offered = index.steams.flatMap((steam) => (isRecordId(steam.id) ? [steam.id] : []));
+    if (offered.length === 0) return [];
     const missing = await this.prisma.$queryRaw<{ id: string }[]>`
-      SELECT offered.id FROM unnest(${index.steams.map((steam) => steam.id)}::text[]) WITH ORDINALITY AS offered(id, position)
+      SELECT offered.id FROM unnest(${offered}::text[]) WITH ORDINALITY AS offered(id, position)
       WHERE NOT EXISTS (SELECT 1 FROM steam_records WHERE steam_records.id = offered.id)
+        AND NOT EXISTS (
+          SELECT 1 FROM set_aside_deliveries aside
+          WHERE aside.machine_id = ${machineId}::uuid AND aside.record_id = offered.id AND aside.type = 'steam'
+        )
       ORDER BY offered.position`;
     return [...new Set(missing.map((steam) => steam.id))];
   }

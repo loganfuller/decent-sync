@@ -206,6 +206,33 @@ export interface IssuedToken {
   serverUrl: string;
 }
 
+/**
+ * A delivery from a Machine's tablet that the server could not store, and
+ * would fail to store the same way if it was sent again, so it was set aside
+ * as sent. It is never listed with what it carried.
+ */
+export interface SetAsideDelivery {
+  id: string;
+  /** When it was set aside. */
+  receivedAt: string;
+  /** The message's type, such as shot or collection. */
+  type: string;
+  deliveryId: string;
+  /** The Decaid id of a Shot's or Steam Record's; null for other deliveries. */
+  recordId: string | null;
+  /** PostgreSQL's error code, such as 22P05, and its message. */
+  sqlState: string;
+  error: string;
+}
+
+/** One page of a Machine's deliveries set aside, latest first, and how many there are. */
+export interface SetAsideDeliveryPage {
+  deliveries: SetAsideDelivery[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 /** A collection a Machine's tablet reports (its library, settings or paired devices), as last reported, without its value. */
 export interface CollectionSummary {
   name: string;

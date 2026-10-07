@@ -18,6 +18,12 @@ cleared fields included, and preserves stored measurements. A full `shot` is
 a complete record; unknown inner fields are accepted and retained. A record
 without a UTC `updatedAt` ending in `Z`, or a full record without a measurements array, is
 not one those Decaid versions send: the server acknowledges and ignores it.
+It does the same with a Shot whose id it cannot store (`isRecordId`: more than
+`MAX_RECORD_ID_LENGTH`, 128, code units, or a NUL); Decaid's are UUIDs. A
+delivery whose storage fails in a way that would repeat, such as one with a
+NUL in a string, is set aside as received and acknowledged as stored, and the
+Shot counts as known to that Machine's indexes from then on
+(`AI_PROTOCOL_NOTES.md`, Deliveries set aside).
 
 On load, the plugin pages `GET /shots?limit=100&offset=...&order=desc` once,
 sending each page's ids and edit times. Offsets shift when Shots are deleted
@@ -39,7 +45,8 @@ delivery awaits acknowledgment at a time, and the scan waits while the outbox
 has four deliveries. A Shot whose fetch
 fails is retried after the other requested Shots; a 404 means the tablet
 deleted the record. Shots Decaid imported from the legacy de1app (`de1app-*`
-ids) are never indexed or sent (ADR-0004). Deletion
+ids), and Shots whose ids the server cannot store, are never indexed or sent
+(ADR-0004). Deletion
 never removes a server record. The outbox (`plugin/src/outbox.ts`) is in
 memory, and Steam Records and Workflow and machine state events share it
 (`STEAM_RECORDS.md`, `WORKFLOW-AND-STATE.md`); reload reconciliation recovers
@@ -51,7 +58,7 @@ in chunks and acknowledged once (`AI_PROTOCOL_NOTES.md`).
 then compares `updatedAt` in PostgreSQL. Edit-time
 precision is six fractional digits, matching Decaid, rather than JavaScript's
 milliseconds. A tie keeps the stored metadata. An early edit is stored as an
-incomplete Shot and acknowledged only after commit. Its full record is still
+incomplete Shot and acknowledged only after commit, or once set aside. Its full record is still
 requested and adds its measurements without rolling back the edit. Incomplete
 Shots are hidden from REST reads and Machine status.
 
@@ -123,6 +130,10 @@ All endpoints require a signed-in account, Admin or Staff.
   Machine, or held by the same Pending Machine, in list order.
 - `GET /api/shots/:id/measurements` returns `{ measurements }`, as sent by
   Decaid (null when none were sent).
+- `GET /api/machines/:id/set-aside-deliveries?limit=20&offset=0` returns
+  `{ deliveries, total, limit, offset }`: the deliveries from that Machine's
+  tablet set aside, latest first, each with `receivedAt`, `type`,
+  `deliveryId`, `recordId`, `sqlState` and `error`, never its message.
 - Machine list and detail responses include
   `lastShot: { id, pulledAt } | null`, by credited hardware rather than the
   tablet that delivered it.
