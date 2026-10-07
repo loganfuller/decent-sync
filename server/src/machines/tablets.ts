@@ -33,9 +33,11 @@ const TABLET_ORDER_LOCK = 4_000_005;
  * from the column's sequence) under a lock every hello takes last and holds
  * until it commits. Numbers therefore rise in the order hellos are accepted,
  * whatever their holders and tokens, so they stay in order when adoption
- * joins two holders' records. The lock covers only that statement and the
- * commit, which can still wait, as on the lock PostgreSQL takes to queue the
- * hello's NOTIFY or on writing its log, and hellos queued for it wait too.
+ * joins two holders' records. The lock covers only that statement, the
+ * Machine's last-seen time the hello writes next on a row it holds already,
+ * and the commit, which can still wait, as on the lock PostgreSQL takes to
+ * queue the hello's NOTIFY or on writing its log, and hellos queued for it
+ * wait too.
  */
 export async function recordTablet(tx: Prisma.TransactionClient, tabletId: string, holder: TabletHolder): Promise<void> {
   await tx.$executeRaw`INSERT INTO tablets (id, first_seen_at) VALUES (${tabletId}::uuid, now()) ON CONFLICT (id) DO NOTHING`;

@@ -198,28 +198,36 @@ describe("Takeovers", { timeout: 30_000 }, () => {
     // An instance judging connections by 0.5 s heartbeats, so live for 1.5 s.
     const judge = await startTestServer({ env: { ...env, SYNC_HEARTBEAT_SECONDS: "0.5" }, sharing: server });
     try {
-      const created = await api.createMachine("Accepted late");
-      const [taking, yielding] = [await opened(judge), await opened(judge)];
-      const database = await server.connectDatabase();
-      try {
-        // Both wait for the Machine's row, held here, and are decided in the order they asked.
-        await database.query("BEGIN");
-        await database.query("SELECT 1 FROM machines WHERE id = $1 FOR UPDATE", [created.machine.id]);
-        taking.send(helloWith(created.token, { machine: null }));
-        await waitForLockWaits(server);
-        yielding.send(helloWith(created.token, { machine: null, yielding: true }));
-        await waitForLockWaits(server, { count: 2 });
-        // Not to order them: their transactions start longer ago than a connection stays live.
-        await new Promise((resolve) => setTimeout(resolve, 1_700));
-        await database.query("COMMIT");
-      } finally {
-        await database.end();
-      }
+      // The ordinary hello waits for the Machine's row, which every hello takes early, or for the lock every hello
+      // takes last, to number its tablet's record; the yielding hello then waits for the Machine's row it holds.
+      for (const waitsFor of ["the Machine's row", "the lock that numbers tablets"] as const) {
+        const name = `Accepted late, waiting for ${waitsFor}`;
+        const created = await api.createMachine(name);
+        const [taking, yielding] = [await opened(judge), await opened(judge)];
+        const database = await server.connectDatabase();
+        try {
+          await database.query("BEGIN");
+          if (waitsFor === "the Machine's row") {
+            await database.query("SELECT 1 FROM machines WHERE id = $1 FOR UPDATE", [created.machine.id]);
+          } else {
+            await database.query("SELECT pg_advisory_xact_lock(4000005)");
+          }
+          taking.send(helloWith(created.token, { machine: null }));
+          await waitForLockWaits(server, { advisory: waitsFor !== "the Machine's row" });
+          yielding.send(helloWith(created.token, { machine: null, yielding: true }));
+          await waitForLockWaits(server, { count: 2 });
+          // Not to order them: the ordinary hello is accepted longer after it began than a connection stays live.
+          await new Promise((resolve) => setTimeout(resolve, 1_700));
+          await database.query("COMMIT");
+        } finally {
+          await database.end();
+        }
 
-      expect(await taking.message(0)).toMatchObject({ type: "welcome" });
-      taking.keepAlive();
-      expect(await expectRefusal(yielding, "machine_held")).toMatch(/asked not to replace it/);
-      expect(await api.at(judge.url).machineNamed("Accepted late")).toMatchObject({ online: true, takeover: null });
+        expect(await taking.message(0)).toMatchObject({ type: "welcome" });
+        taking.keepAlive();
+        expect(await expectRefusal(yielding, "machine_held")).toMatch(/asked not to replace it/);
+        expect(await api.at(judge.url).machineNamed(name)).toMatchObject({ online: true, takeover: null });
+      }
     } finally {
       await judge.stop();
     }

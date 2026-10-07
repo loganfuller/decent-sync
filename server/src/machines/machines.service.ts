@@ -473,10 +473,11 @@ export class MachinesService {
         holder = { pendingMachineId: pending.id };
       }
     }
-    // Seen after the waits and the handover, and before only its tablet's record and the lock that numbers it: a
-    // hello that waited longer than a connection stays live must not make a holder the next hello finds dead.
-    await touch(tx, machine.id);
     await recordTablet(tx, hello.tabletId, holder);
+    // Seen last, once nothing is left to wait for but the commit: its own row, held already, under the lock that
+    // numbered its tablet. A hello that waited longer than a connection stays live must not make a holder the next
+    // hello finds dead.
+    await touch(tx, machine.id);
     return { accepted: true, machine: { id: machine.id, name: machine.name }, identity, hardware, tookOverFrom };
   }
 
@@ -628,7 +629,8 @@ export function dismissedReason(hardware: Hardware): string {
 /**
  * Records that the Machine was seen now, by the database's clock, which
  * every instance shares: as it reads now, not at the transaction's start,
- * which waiting on locks may have left long past.
+ * which waiting on locks may have left long past. Its row lock must be held,
+ * so this waits for nothing.
  */
 async function touch(tx: Prisma.TransactionClient, id: string): Promise<void> {
   await tx.$executeRaw`UPDATE machines SET last_seen_at = clock_timestamp() WHERE id = ${id}::uuid`;
