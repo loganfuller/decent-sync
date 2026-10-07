@@ -71,7 +71,12 @@ tablet holds more than 250,000 Steam Records.
 `SteamRecordsService` stores a Steam Record once, by its Decaid id, whichever
 tablet sends it: a stored record is never replaced, so repeated deliveries,
 from any instance or Machine, change nothing. A record without a measurements
-array, which Decaid v0.8.7 and later always send, is acknowledged and ignored.
+array, which Decaid v0.8.7 and later always send, is acknowledged and ignored,
+and so is one whose id the server cannot store (`isRecordId`), which the
+plugin never indexes or sends and the server never requests. A delivery whose
+storage fails in a way that would repeat is set aside and acknowledged as
+stored, and the record counts as known to that Machine's indexes from then on
+(`AI_PROTOCOL_NOTES.md`, Deliveries set aside).
 Two deliveries of one record at once are decided by the insert's conflict on
 its id, so it is stored once whichever instance each reaches.
 

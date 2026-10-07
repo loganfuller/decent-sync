@@ -50,6 +50,25 @@ export const MISSED_HEARTBEATS = 3;
  */
 export const MAX_ID_LENGTH = 128;
 
+/**
+ * The longest Shot or Steam Record id the server stores, in UTF-16 code
+ * units. Decaid's are UUIDs. A longer one could not be indexed by
+ * PostgreSQL, so a record whose id fails `isRecordId` is never sent,
+ * requested or stored.
+ */
+export const MAX_RECORD_ID_LENGTH = 128;
+
+/**
+ * Whether a value is a Shot or Steam Record id the server stores: a string
+ * of 1 to MAX_RECORD_ID_LENGTH code units without NUL, which PostgreSQL's
+ * text cannot hold. The plugin leaves other records and index entries out;
+ * the server acknowledges a record with another id without storing it, and
+ * never requests one.
+ */
+export function isRecordId(value: unknown): value is string {
+  return typeof value === "string" && value !== "" && value.length <= MAX_RECORD_ID_LENGTH && !value.includes("\u0000");
+}
+
 /** Why the server refused or ended a connection, sent in an `error` before it closes. */
 export type ErrorCode = "protocol_error" | "bad_token" | "plugin_too_old" | "replaced" | "hardware_dismissed" | "decaid_too_old";
 

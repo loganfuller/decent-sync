@@ -19,6 +19,7 @@ import {
 import { TokenNotice } from "@/components/TokenNotice";
 import { Field, Fields } from "@/components/fields";
 import { LibraryCard, PairedDevicesCard, SETTINGS, SettingsCard } from "@/components/machine-collections";
+import { SetAsideDeliveriesCard } from "@/components/set-aside-deliveries";
 import { workflowFields } from "@/components/workflow";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -55,10 +56,11 @@ interface MachineData {
 }
 
 /**
- * One Machine: its identity, versions and status, its tablets, its Workflow,
- * paired devices, settings and library, its Location, its token, and
- * resolving its identity. Staff see all of it, and can move it between the
- * Locations they work at; every other change is for Admins.
+ * One Machine: its identity, versions and status, deliveries from its tablet
+ * set aside, its tablets, its Workflow, paired devices, settings and library,
+ * its Location, its token, and resolving its identity. Staff see all of it,
+ * and can move it between the Locations they work at; every other change is
+ * for Admins.
  */
 export function MachinePage() {
   const { id = "" } = useParams();
@@ -164,6 +166,7 @@ function MachineDetails({ id }: { id: string }) {
             ) : (
               <ConfirmHardware machine={machine} onSaved={reload} />
             ))}
+          <SetAsideDeliveriesCard machineId={machine.id} />
 
           <div className="grid gap-4 md:grid-cols-2">
             <Card>

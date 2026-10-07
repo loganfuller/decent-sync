@@ -221,6 +221,7 @@ model Machine {
   eventDeliveries    MachineEventDelivery[]
   collections        ReportedCollection[]
   tablets            MachineTablet[]
+  setAsideDeliveries SetAsideDelivery[]
 
   /// One Machine per piece of hardware. Unbound Machines (nulls) never clash.
   @@unique([model, serial])
@@ -543,4 +544,38 @@ model ReportedCollection {
   @@unique([machineId, name])
   @@unique([pendingMachineId, name])
   @@map("reported_collections")
+}
+
+/// A delivery whose storage failed in a way that would repeat whenever it was
+/// sent again, such as a NUL in a string, which jsonb and text cannot hold
+/// (server/src/set-aside-deliveries/repeating-failures.ts). It is kept here as
+/// received and acknowledged as if stored, so it cannot hold up the deliveries
+/// queued behind it on the tablet. Recorded once per delivery id, through any
+/// connection or instance. A Shot or Steam Record set aside is not requested
+/// again by indexes from the same Machine.
+model SetAsideDelivery {
+  /// Rises as deliveries are set aside; the highest is the latest.
+  id         BigInt   @id @default(autoincrement())
+  /// The Machine whose token delivered it: its plugin's delivery ids are its own.
+  machineId  String   @map("machine_id") @db.Uuid
+  machine    Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  deliveryId String   @map("delivery_id")
+  /// The message's type, such as shot or collection.
+  type       String
+  /// The Decaid id of a Shot's or Steam Record's; null for other deliveries.
+  recordId   String?  @map("record_id")
+  /// PostgreSQL's error code for the failure, such as 22P05, and its message.
+  sqlState   String   @map("sql_state")
+  error      String
+  /// By PostgreSQL's clock.
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+  /// The message as received: its JSON text, with escapes such as \u0000 as
+  /// sent. lz4 column compression is set by the migration.
+  message    String
+
+  @@unique([machineId, deliveryId])
+  @@index([machineId, id])
+  /// Finds the Shots and Steam Records set aside, which indexes leave out.
+  @@index([machineId, recordId])
+  @@map("set_aside_deliveries")
 }

@@ -7,7 +7,9 @@ protocol version 1 with one delivery, defined and validated in `protocol/`:
 |---|---|---|
 | Plugin to server | `collection` | `id` (delivery id), `name` (one of `COLLECTION_NAMES`), `available`, and `value` (opaque, as Decaid's API answered) while available |
 
-It is acknowledged with `ack` once stored, as Shots are. Older plugins never
+It is acknowledged with `ack` once stored, or set aside because storing it
+fails in a way that would repeat, as Shots are (`AI_PROTOCOL_NOTES.md`,
+Deliveries set aside). Older plugins never
 send it, so the protocol version stays 1. A name the server does not know, as
 a newer plugin might send, is acknowledged and ignored. While `available` is
 true, `value` is any JSON but null; while false, it is absent.

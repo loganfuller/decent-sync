@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import type { ShotDelivery, ShotIndex } from "@decent-sync/protocol";
+import { type ShotDelivery, type ShotIndex, isRecordId } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { creditHardware, creditReporter } from "../machines/credit.js";
 import { creditShotLocation } from "../machines/location-history.js";
@@ -20,8 +20,8 @@ export class ShotsService {
     const { measurements, ...incoming } = message.shot;
     const version = shotVersion(incoming);
     const full = message.type === "shot";
-    // Not a record Decaid v0.8.7 or later sends: acknowledged, but ignored.
-    if (version === null || (full && !Array.isArray(measurements))) return;
+    // Not a record Decaid v0.8.7 or later sends, or an id the server cannot store: acknowledged, but ignored.
+    if (version === null || (full && !Array.isArray(measurements)) || !isRecordId(message.shotId)) return;
     await this.prisma.$transaction(async (tx) => {
       // Serializes even the first insertion across instances. No row is held
       // until credit is resolved: hardware adoption can finish while we wait
@@ -72,14 +72,25 @@ export class ShotsService {
     });
   }
 
-  /** Missing full records are requested even if their edits have already arrived. */
-  async requested(index: ShotIndex): Promise<string[]> {
-    if (index.shots.length === 0) return [];
-    const entries = index.shots.map((shot) => Prisma.sql`(${shot.id}::text, ${shotVersion(shot)}::timestamptz)`);
+  /**
+   * The indexed Shots the Machine's tablet should send: those not stored, or
+   * stored without their full record (even if their edits have already
+   * arrived) or at an older version. A Shot whose delivery from this Machine
+   * was set aside counts as known, and one whose id the server cannot store is
+   * never requested.
+   */
+  async requested(index: ShotIndex, machineId: string): Promise<string[]> {
+    const offered = index.shots.filter((shot) => isRecordId(shot.id));
+    if (offered.length === 0) return [];
+    const entries = offered.map((shot) => Prisma.sql`(${shot.id}::text, ${shotVersion(shot)}::timestamptz)`);
     const missing = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
       SELECT offered.id FROM (VALUES ${Prisma.join(entries)}) AS offered(id, version_at)
       LEFT JOIN shots ON shots.id = offered.id
-      WHERE shots.id IS NULL OR NOT shots.has_full_record OR offered.version_at > shots.version_at`);
+      WHERE (shots.id IS NULL OR NOT shots.has_full_record OR offered.version_at > shots.version_at)
+        AND NOT EXISTS (
+          SELECT 1 FROM set_aside_deliveries aside
+          WHERE aside.machine_id = ${machineId}::uuid AND aside.record_id = offered.id AND aside.type IN ('shot', 'shotUpdated')
+        )`);
     return [...new Set(missing.map((shot) => shot.id))];
   }
 

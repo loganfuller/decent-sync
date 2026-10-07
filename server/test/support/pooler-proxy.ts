@@ -47,6 +47,11 @@ export interface PoolerProxy {
   sessions: PoolerSession[];
   /** The startup parameters it refused. */
   refused: Set<string>;
+  /**
+   * Resets every client's connection through it, as a network failure does:
+   * each client's end gets a TCP reset. Clients may connect again.
+   */
+  resetConnections(): void;
   close(): Promise<void>;
 }
 
@@ -56,6 +61,7 @@ export async function startPoolerProxy(): Promise<PoolerProxy> {
   const sessions: PoolerSession[] = [];
   const refused = new Set<string>();
   const sockets = new Set<net.Socket>();
+  const clients = new Set<net.Socket>();
   const track = (socket: net.Socket) => {
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
@@ -107,6 +113,8 @@ export async function startPoolerProxy(): Promise<PoolerProxy> {
 
   const server = net.createServer((client) => {
     track(client);
+    clients.add(client);
+    client.on("close", () => clients.delete(client));
     let received = Buffer.alloc(0);
     const onStartup = (chunk: Buffer) => {
       received = Buffer.concat([received, chunk]);
@@ -146,6 +154,9 @@ export async function startPoolerProxy(): Promise<PoolerProxy> {
     host: `127.0.0.1:${port}`,
     sessions,
     refused,
+    resetConnections: () => {
+      for (const client of clients) client.resetAndDestroy();
+    },
     close: async () => {
       for (const socket of sockets) socket.destroy();
       await new Promise((resolve) => server.close(resolve));

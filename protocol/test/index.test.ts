@@ -5,11 +5,13 @@ import {
   type ErrorMessage,
   type Hello,
   MAX_ID_LENGTH,
+  MAX_RECORD_ID_LENGTH,
   PROTOCOL_VERSION,
   decodePluginMessage,
   decodeServerMessage,
   encode,
   isCollectionName,
+  isRecordId,
 } from "@decent-sync/protocol";
 
 const token = "8cTqXr0b2m6Yw1zH4kLpQeNvSa7uJdFg9oIiBhC3E5s";
@@ -397,5 +399,14 @@ describe("Delivery ids", () => {
     const pairs = "\u{1D11E}".repeat(MAX_ID_LENGTH / 2);
     expect(decodePluginMessage(frame({ ...deliveries[0], id: pairs })).ok).toBe(true);
     expect(decodePluginMessage(frame({ ...deliveries[0], id: `${pairs}a` })).ok).toBe(false);
+  });
+});
+
+describe("Record ids", () => {
+  it("are the Shot and Steam Record ids the server stores: 1 to MAX_RECORD_ID_LENGTH code units, without NUL", () => {
+    expect(isRecordId("5f0c9f0e-7d0e-4a8b-9a51-2f3b4c5d6e7f")).toBe(true);
+    expect(isRecordId("a".repeat(MAX_RECORD_ID_LENGTH))).toBe(true);
+    expect(isRecordId("\u{1D11E}".repeat(MAX_RECORD_ID_LENGTH / 2))).toBe(true);
+    for (const value of ["", "a".repeat(MAX_RECORD_ID_LENGTH + 1), "shot\u0000", 1, null, undefined]) expect(isRecordId(value)).toBe(false);
   });
 });

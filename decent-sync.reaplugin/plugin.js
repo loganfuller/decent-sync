@@ -108,6 +108,10 @@ var __decentSync = (() => {
   var SYNC_PATH = "/sync";
   var MISSED_HEARTBEATS = 3;
   var MAX_ID_LENGTH = 128;
+  var MAX_RECORD_ID_LENGTH = 128;
+  function isRecordId(value) {
+    return typeof value === "string" && value !== "" && value.length <= MAX_RECORD_ID_LENGTH && !value.includes("\0");
+  }
   var CLOSE_CODES = {
     /** A frame that is not a valid message here, including no `hello` in time. */
     protocol_error: 4e3,
@@ -357,7 +361,7 @@ var __decentSync = (() => {
       const response = await fetch(`${API}/steams/ids`);
       if (!response.ok) return null;
       const body = await response.json();
-      return Array.isArray(body) ? body.filter((id) => typeof id === "string" && id !== "") : null;
+      return Array.isArray(body) ? body.filter(isRecordId) : null;
     } catch {
       return null;
     }
@@ -787,7 +791,7 @@ var __decentSync = (() => {
     }
     event(type, payload) {
       const event = object2(payload);
-      if (this.stopped || typeof event?.id !== "string" || event.id === "" || isLegacyImport(event.id)) return;
+      if (this.stopped || !event || !isCaptured(event.id)) return;
       const id = event.id;
       this.reported?.add(id);
       if (type === "shot") {
@@ -870,7 +874,7 @@ var __decentSync = (() => {
         const shots = items.slice(resume).flatMap((summary) => {
           if (typeof summary?.id !== "string" || summary.id === "") return [];
           read.set(summary.id, summary.updatedAt);
-          if (isLegacyImport(summary.id) || typeof summary.updatedAt !== "string") return [];
+          if (!isCaptured(summary.id) || typeof summary.updatedAt !== "string") return [];
           this.ids.add(summary.id);
           return [{ id: summary.id, updatedAt: summary.updatedAt }];
         });
@@ -893,8 +897,8 @@ var __decentSync = (() => {
       }
     }
   };
-  function isLegacyImport(id) {
-    return id.startsWith("de1app-");
+  function isCaptured(id) {
+    return isRecordId(id) && !id.startsWith("de1app-");
   }
   function object2(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
