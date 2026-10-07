@@ -20,6 +20,8 @@ interface ShotView {
   profileTitle: string | null; duration: number | null; peakPressure: number | null;
   record?: Record<string, unknown>;
 }
+/** A frame the plugin sent, as far as these tests read it. */
+interface Frame { type?: string; shotId?: string }
 
 describe("Shot capture and reconciliation", () => {
   let server: TestServer;
@@ -56,6 +58,10 @@ describe("Shot capture and reconciliation", () => {
     return Array.from({ length: count }, (_, n) => shot(`${prefix}-${n}`, { timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, n)).toISOString() }));
   }
   function pages(...offsets: number[]) { return offsets.map((offset) => ({ limit: 100, offset })); }
+  /** The ids of the full Shot records the plugin sent, from its `from`th frame on, in order. */
+  function fullRecordsSent(tablet: SimulatedTablet, from = 0): string[] {
+    return tablet.sent.slice(from).flatMap((frame) => ((frame as Frame).type === "shot" ? [String((frame as Frame).shotId)] : []));
+  }
   /**
    * Changes the tablet's Shots as the plugin requests the numbered summary
    * pages (the first is 0), before each is answered: each change is given
@@ -236,6 +242,103 @@ describe("Shot capture and reconciliation", () => {
     expect((await detail(String(record.id))).record!.annotations).toEqual({});
     expect(await measurements(String(record.id))).toEqual(curves);
     expect((await api.machineNamed("Live Shots"))!.lastShot).toEqual({ id: record.id, pulledAt: "2026-11-01T12:00:00.000Z" });
+  });
+
+  it("holds only the ids of Shots stored while the server is unreachable, then sends them ahead of requested backfill", async () => {
+    const machine = await api.createMachine("Unreachable");
+    const history = timeline("unreachable-history", 3);
+    // The first full record sent stays unwritten, so the rest of the history stays requested.
+    let stalled = true;
+    const tablet = load(machine, history, { stallUpload: (frame: unknown) => stalled && (frame as Frame).type === "shot" });
+    await expect.poll(() => fullRecordsSent(tablet).length, { timeout: 10_000 }).toBe(1);
+    const [cutOff] = fullRecordsSent(tablet);
+    tablet.loseNetwork();
+    const pulled = [shot("unreachable-a", { timestamp: "2026-02-01T00:00:00Z" }), shot("unreachable-b", { timestamp: "2026-02-01T00:01:00Z" })];
+    tablet.serve(withShots(tabletApi(machine), [...history, ...pulled]));
+    for (const record of pulled) tablet.fire("shotStored", { id: record.id });
+    await tablet.waitForLogs(/^Disconnected: could not connect/, 2);
+    expect(tablet.requests.filter((path) => pulled.some((record) => path === `/shots/${record.id}`))).toEqual([]);
+
+    const sentBefore = tablet.sent.length;
+    stalled = false;
+    tablet.restoreNetwork();
+    for (const record of [...pulled, ...history]) {
+      await waitShot(String(record.id));
+      expect(await measurements(String(record.id))).toEqual(record.measurements);
+    }
+    // The record cut off by the drop goes first, then the Shots new on the tablet, newest first, then the rest of the backfill.
+    const sent = [...new Set(fullRecordsSent(tablet, sentBefore))];
+    expect(sent.slice(0, 3)).toEqual([cutOff, "unreachable-b", "unreachable-a"]);
+    expect(sent.slice(3).sort()).toEqual(history.map((record) => String(record.id)).filter((id) => id !== cutOff).sort());
+    expect(tablet.shotPageRequests).toHaveLength(1);
+  }, 20_000);
+
+  it("skips a Shot deleted on the tablet before the server is reachable again, holding up nothing", async () => {
+    const machine = await api.createMachine("Deleted while unreachable");
+    const tablet = load(machine, []);
+    await tablet.waitForLog(/^Connected to /);
+    tablet.loseNetwork();
+    const kept = shot("kept-while-unreachable", { timestamp: "2026-02-01T00:00:00Z" });
+    const deleted = shot("deleted-while-unreachable", { timestamp: "2026-02-01T00:01:00Z" });
+    tablet.serve(withShots(tabletApi(machine), [kept, deleted]));
+    // The newer request is read first.
+    tablet.fire("shotStored", { id: kept.id });
+    tablet.fire("shotStored", { id: deleted.id });
+    tablet.serve(withShots(tabletApi(machine), [kept]));
+    await tablet.waitForLog(/^Disconnected: could not connect/);
+    tablet.restoreNetwork();
+    await waitShot(String(kept.id));
+    expect(tablet.requests.indexOf(`/shots/${deleted.id}`)).toBeGreaterThanOrEqual(0);
+    expect(tablet.requests.indexOf(`/shots/${deleted.id}`)).toBeLessThan(tablet.requests.indexOf(`/shots/${kept.id}`));
+    const later = shot("after-deleted-while-unreachable");
+    tablet.serve(withShots(tabletApi(machine), [kept, later]));
+    tablet.fire("shotStored", { id: later.id });
+    await waitShot(String(later.id));
+    expect(tablet.sent.some((frame) => (frame as Frame).shotId === deleted.id)).toBe(false);
+    expect((await api.call("GET", `/shots/${deleted.id}`)).status).toBe(404);
+  });
+
+  it("keeps an edit that reaches the server before its Shot's full record, with the record's curves and its recorded hardware's credit", async () => {
+    const owner = await api.createMachine("Edited Shots' machine");
+    await (await connect(owner, server.url, { model: "DE1Pro", serial: "60001" })).close();
+    const reporter = await api.createMachine("Edited Shots' tablet");
+    const tablet = load(reporter, []);
+    await tablet.waitForLog(/^Connected to /);
+    const workflow = shotFixture().workflow as Record<string, unknown>;
+    const recordedOn60001 = (id: string) => derivedShot(id, { workflow: { ...workflow, machine: { ...(workflow.machine as object), serialNumber: "60001" } } });
+    const annotations = { enjoyment: 88, espressoNotes: "Edited before it was sent" };
+    const served: Record<string, unknown>[] = [];
+    /** Stores a Shot, then edits it through Decaid's API, which then serves the edit and reports its metadata. */
+    const storeAndEdit = (record: Record<string, unknown>) => {
+      served.push(record);
+      tablet.serve(withShots(tabletApi(reporter), served));
+      tablet.fire("shotStored", { id: record.id });
+      const edited: Record<string, unknown> = { ...record, updatedAt: "2026-11-01T12:00:00.000000Z", annotations };
+      served[served.length - 1] = edited;
+      tablet.serve(withShots(tabletApi(reporter), served));
+      const { measurements: omitted, ...metadata } = edited;
+      tablet.fire("shotUpdated", { id: record.id, shot: metadata });
+    };
+
+    tablet.loseNetwork();
+    const unreachable = recordedOn60001("edited-while-unreachable");
+    storeAndEdit(unreachable);
+    await tablet.waitForLog(/^Disconnected: could not connect/);
+    tablet.restoreNetwork();
+    await tablet.waitForLogs(/^Connected to /, 2);
+    const connected = recordedOn60001("edited-while-connected");
+    storeAndEdit(connected);
+
+    for (const record of [unreachable, connected]) {
+      const id = String(record.id);
+      expect(await waitShot(id, (shot) => shot.enjoyment === 88)).toMatchObject({
+        machineId: owner.machine.id, pendingMachineId: null, machineInferred: false, pulledAt: expect.any(String), duration: 27.935,
+      });
+      expect((await detail(id)).record!.annotations).toEqual(annotations);
+      expect(await measurements(id)).toEqual(record.measurements);
+      // Edits are queued as they are reported, while the full record is read only when nothing else is queued.
+      expect([...new Set(tablet.sent.flatMap((frame) => ((frame as Frame).shotId === id ? [(frame as Frame).type] : [])))]).toEqual(["shotUpdated", "shot"]);
+    }
   });
 
   it("recovers edits made while unloaded, but a reconnect in one runtime repeats no summary scan", async () => {

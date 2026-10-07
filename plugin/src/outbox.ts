@@ -36,8 +36,9 @@ const SHORT_OUTBOX = 4;
  * recover the records. A delivery stays until the server acknowledges it.
  * One logical delivery awaits acknowledgment at a time; the connection's
  * Sender keeps it, chunked or not, within Decaid's pending limit. Requested
- * records are read from Decaid's API one at a time, when nothing else is
- * queued, oldest request first.
+ * records, those new on the tablet first, are read from Decaid's API one at
+ * a time, when a connection is sending and nothing else is queued, so while
+ * the server is unreachable only their ids are held.
  */
 export class Outbox {
   private readonly queued = new Map<string, Delivery>();
@@ -131,12 +132,6 @@ export class Outbox {
       for (const [key, record] of records) this.requested.set(key, record);
     }
     this.pump();
-  }
-
-  /** A record that could not be read now, to be read again, as if requested, after a pause. */
-  retryLater(kind: RecordKind, id: string): void {
-    this.requested.set(`${kind}:${id}`, { kind, id });
-    this.retry();
   }
 
   /** Resolves once few enough deliveries are queued for an index to add a page. */
