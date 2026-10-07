@@ -663,10 +663,12 @@ describe("Machine identity", { timeout: 20_000 }, () => {
         expect(response.status).toBe(201);
         await api.issued(response);
 
-        // Welcomed, then closed once the reissue commits; or refused, its token already replaced.
-        expect(await raw.closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
-        expect(raw.messages[0]).toMatchObject(helloFirst ? { type: "welcome" } : { type: "error", code: "bad_token" });
-        await api.waitForMachine(name, (machine) => !machine.online);
+        // Accepted, binding its hardware, then closed once the reissue commits (perhaps before its welcome
+        // was sent); or refused, its token already replaced.
+        await expectRefusal(raw, "bad_token");
+        const machine = await api.waitForMachine(name, (candidate) => !candidate.online);
+        if (helloFirst) expect(machine).toMatchObject({ serial: "10801", identification: "identified" });
+        else expect(machine).toMatchObject({ serial: null, lastRefusal: { reason: expect.stringContaining("replaced") } });
       }
     });
 
@@ -679,15 +681,18 @@ describe("Machine identity", { timeout: 20_000 }, () => {
         let dismissed: Promise<Response> | undefined;
         // The hello takes the hardware's lock, then waits for the Machine; the dismissal takes the hardware's
         // lock, then waits for the Machine that reported it.
-        const hello = () => again.send(helloWith(lab.token, { machine: de1Pro(other) }));
+        // A connection id of its own, which only an accepted hello records.
+        const connectionId = "00:00:5E:00:53:8F";
+        const hello = () => again.send(helloWith(lab.token, { machine: de1Pro(other), connectionId }));
         const dismiss = () => void (dismissed = api.call("POST", `/pending-machines/${pending.id}/dismiss`));
         await inOrder(holdMachine, [lab.machine.id], helloFirst ? [hello, dismiss] : [dismiss, hello]);
         expect((await dismissed!).status).toBe(200);
 
-        // Welcomed, then closed once the dismissal commits; or refused at hello.
-        expect(await again.closed).toEqual({ code: CLOSE_CODES.hardware_dismissed, reason: "hardware_dismissed" });
-        expect(again.messages[0]).toMatchObject(helloFirst ? { type: "welcome" } : { type: "error", code: "hardware_dismissed" });
-        expect(await api.machineNamed(name)).toMatchObject({ lastRefusal: { reason: expect.stringContaining(other) } });
+        // Accepted, then closed once the dismissal commits (perhaps before its welcome was sent); or refused at hello.
+        await expectRefusal(again, "hardware_dismissed");
+        const machine = (await api.machineNamed(name))!;
+        expect(machine).toMatchObject({ lastRefusal: { reason: expect.stringContaining(other) } });
+        expect(machine.connectionId === connectionId).toBe(helloFirst);
       }
     });
 
