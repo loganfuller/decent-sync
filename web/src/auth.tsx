@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { type Account, ApiError, api, lastRequestSent, onRefusal } from "@/lib/api";
+import { type Account, ApiError, api, onRefusal } from "@/lib/api";
 
 type AuthState =
   | { status: "loading" }
@@ -27,6 +27,24 @@ function authApi<T>(method: string, path: string, body?: unknown): Promise<T> {
   return api<T>(method, path, body, { reportRefusal: false });
 }
 
+/** Who is signed in now, as the server says. */
+async function readSession(): Promise<AuthState> {
+  try {
+    const { account } = await authApi<{ account: Account }>("GET", "/session");
+    return { status: "signed-in", account };
+  } catch (error) {
+    if (!(error instanceof ApiError && error.status === 401)) return { status: "unreachable" };
+    try {
+      const setup = await authApi<{ required: boolean; passwordMinLength: number }>("GET", "/setup");
+      return setup.required
+        ? { status: "signed-out", setupRequired: true, passwordMinLength: setup.passwordMinLength }
+        : { status: "signed-out", setupRequired: false };
+    } catch {
+      return { status: "unreachable" };
+    }
+  }
+}
+
 const AuthContext = createContext<Auth | undefined>(undefined);
 
 /**
@@ -39,49 +57,36 @@ const AuthContext = createContext<Auth | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading" });
 
-  const refresh = useCallback(async () => {
-    try {
-      const { account } = await authApi<{ account: Account }>("GET", "/session");
-      setState({ status: "signed-in", account });
-    } catch (error) {
-      if (!(error instanceof ApiError && error.status === 401)) {
-        setState({ status: "unreachable" });
-        return;
-      }
-      try {
-        const setup = await authApi<{ required: boolean; passwordMinLength: number }>("GET", "/setup");
-        setState(
-          setup.required
-            ? { status: "signed-out", setupRequired: true, passwordMinLength: setup.passwordMinLength }
-            : { status: "signed-out", setupRequired: false },
-        );
-      } catch {
-        setState({ status: "unreachable" });
-      }
-    }
+  const reread = useCallback(async () => {
+    const read = await readSession();
+    setState(read);
+    return read;
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void reread();
+  }, [reread]);
 
   const signedIn = state.status === "signed-in";
   useEffect(() => {
     if (!signedIn) return;
-    // Refusals that arrive together, such as a page's polls, share one read: it answers those that arrive
-    // while it is under way, and those of requests sent before it that arrive after.
-    let reading: Promise<void> | undefined;
-    let sentBeforeRead = 0;
-    return onRefusal((request) => {
-      if (reading) return reading;
-      if (request <= sentBeforeRead) return undefined;
-      sentBeforeRead = lastRequestSent();
-      reading = refresh().finally(() => {
+    // Refusals that arrive while a read is under way share it, as a page's polls refused together do.
+    let reading: Promise<AuthState> | undefined;
+    let signedOut = false;
+    const read = () =>
+      (reading ??= reread().finally(() => {
         reading = undefined;
-      });
-      return reading;
+      }));
+    return onRefusal(async (status) => {
+      // A read found nobody signed in, or the server unreachable, and Gate is leaving the page.
+      if (signedOut) return;
+      let found = await read();
+      // A 401 says the session has ended, but the server may have answered the read before it did, even a read
+      // sent after the refused request. One that found the session still going does not answer it: read once more.
+      if (status === 401 && found.status === "signed-in") found = await read();
+      if (found.status !== "signed-in") signedOut = true;
     });
-  }, [signedIn, refresh]);
+  }, [signedIn, reread]);
 
   const auth = useMemo<Auth>(
     () => ({
@@ -121,9 +126,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         setState({ status: "signed-out", setupRequired: false });
       },
-      refresh,
+      async refresh() {
+        await reread();
+      },
     }),
-    [state, refresh],
+    [state, reread],
   );
 
   return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;

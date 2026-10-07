@@ -1,6 +1,7 @@
 import { type Browser, type BrowserContext, expect, type Page, test } from "@playwright/test";
 import { recordAlerts } from "./support/alerts.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { nextRefusedPoll } from "./support/polling.js";
 
 // First-run setup and signing in and out, on one server from first visit on.
 // A session that ends while a page is open sends it to sign-in, and back to
@@ -85,6 +86,7 @@ test("a session that expires while a Machine's page is open goes to sign-in at i
   });
 
   // Its expiry passes.
+  const refused = nextRefusedPoll(page, `/api/machines/${machine.id}`);
   const database = await server.connectDatabase();
   try {
     await database.query("UPDATE sessions SET expires_at = now() - interval '1 minute'");
@@ -92,8 +94,9 @@ test("a session that expires while a Machine's page is open goes to sign-in at i
     await database.end();
   }
 
-  // Machine pages poll every 5 seconds. All of a poll's refused requests read the session once.
-  await expect(page).toHaveURL(/\/sign-in$/, { timeout: 15_000 });
+  // The page's next poll is refused, and it goes to sign-in. All of the poll's refused requests read the session once.
+  await refused;
+  await expect(page).toHaveURL(/\/sign-in$/);
   expect(await alerts()).toEqual([]);
   expect(sessionReads).toBe(1);
   await signIn(page, admin);

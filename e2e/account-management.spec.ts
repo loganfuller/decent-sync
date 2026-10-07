@@ -1,6 +1,7 @@
 import { expect as baseExpect, type Browser, type Page, test } from "@playwright/test";
 import { recordAlerts } from "./support/alerts.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { nextRefusedPoll } from "./support/polling.js";
 
 // Managing accounts: an Admin changes a Staff member's role and Locations,
 // which their open session follows; resets their password with a one-time
@@ -139,11 +140,13 @@ test("an Admin resets a Staff member's password with a one-time link that ends t
   await expect(samsPhone.getByLabel("Email")).toHaveValue(sam.email);
   await expect(samsPhone.getByLabel("Email")).not.toBeEditable();
   await samsPhone.getByLabel("New password").fill(newPassword);
+  const refused = nextRefusedPoll(samsLaptop, `/api/machines/${uptown1.id}`);
   await samsPhone.getByRole("button", { name: "Set password" }).click();
   await expect(samsPhone.getByRole("heading", { name: `Welcome, ${sam.name}` })).toBeVisible();
 
-  // The laptop's session ended, so its page goes to sign-in at its next poll, and back after Sam signs in.
-  await expect(samsLaptop).toHaveURL(/\/sign-in$/);
+  // The laptop's session ended, so its page is refused at its next poll and goes to sign-in, and back after Sam signs in.
+  await refused;
+  await baseExpect(samsLaptop).toHaveURL(/\/sign-in$/);
   baseExpect(await laptopAlerts()).toEqual([]);
   await signIn(samsLaptop, sam);
   await expect(samsLaptop.getByRole("alert")).toHaveText("The email or password is incorrect");
@@ -171,12 +174,14 @@ test("an Admin deactivates an account, which signs it out and refuses its sign-i
   const row = accountRow(page, sam.email);
   await row.getByRole("button", { name: `Deactivate ${sam.name}` }).click();
   const confirm = page.getByRole("alertdialog", { name: `Deactivate ${sam.name}?` });
+  const refused = nextRefusedPoll(samsPage, `/api/machines/${uptown1.id}`);
   await confirm.getByRole("button", { name: "Deactivate" }).click();
   await expect(row.getByRole("cell").nth(3)).toContainText("Deactivated");
   await expect(row.getByRole("button", { name: `Reset ${sam.name}'s password` })).toHaveCount(0);
 
-  // Sam's open page goes to sign-in at its next poll, where signing in is refused.
-  await expect(samsPage).toHaveURL(/\/sign-in$/);
+  // Sam's open page is refused at its next poll and goes to sign-in, where signing in is refused.
+  await refused;
+  await baseExpect(samsPage).toHaveURL(/\/sign-in$/);
   baseExpect(await alerts()).toEqual([]);
   await signIn(samsPage, { email: sam.email, password: newPassword });
   await expect(samsPage.getByRole("alert")).toHaveText("This account has been deactivated. Ask an Admin to reactivate it");
@@ -185,6 +190,53 @@ test("an Admin deactivates an account, which signs it out and refuses its sign-i
   await expect(row.getByRole("cell").nth(3)).toHaveText("Active");
   await signIn(samsPage, { email: sam.email, password: newPassword });
   await expect(samsPage.getByRole("heading", { name: "Uptown 1", level: 1 })).toBeVisible();
+  await samsPage.context().close();
+});
+
+test("a request the server answers only after the session ended goes to sign-in, though a later session read found it going", async ({
+  page,
+  browser,
+}) => {
+  const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };
+  const uptown = locations.find((location) => location.name === "Uptown")!;
+  await setAccess(page, sam.email, { role: "admin", locationIds: [] });
+
+  // Sam, an Admin, opens Locations, whose list the server is sent only once the test releases it.
+  const samsPage = await signedOutPage(browser);
+  baseExpect((await samsPage.request.post("/api/session", { data: { email: sam.email, password: newPassword } })).status()).toBe(200);
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  let held = false;
+  await samsPage.route("**/api/locations", async (route) => {
+    if (route.request().method() === "GET" && !held) {
+      held = true;
+      await released;
+    }
+    await route.continue();
+  });
+  await samsPage.goto("/locations");
+  const form = samsPage.getByRole("form", { name: "New Location" });
+  await expect(form).toBeVisible();
+  const alerts = await recordAlerts(samsPage);
+
+  // Made Staff again, Sam is refused creating a Location, and the session read that follows finds them signed in.
+  await setAccess(page, sam.email, { role: "staff", locationIds: [uptown.id] });
+  const sessionRead = samsPage.waitForResponse((response) => new URL(response.url()).pathname === "/api/session" && response.ok());
+  await form.getByLabel("Name").fill("Harbor");
+  await form.getByRole("button", { name: "Create Location" }).click();
+  await sessionRead;
+  await expect(samsPage.getByRole("heading", { name: "New Location" })).toHaveCount(0);
+
+  // Then Sam signs out in another tab, and only after that does the server get the list, which it refuses.
+  const otherTab = await samsPage.context().newPage();
+  await otherTab.goto("/");
+  await otherTab.getByRole("button", { name: "Sign out" }).click();
+  await expect(otherTab).toHaveURL(/\/sign-in$/);
+  const refused = samsPage.waitForResponse((response) => new URL(response.url()).pathname === "/api/locations" && response.status() === 401);
+  release();
+  await refused;
+  await baseExpect(samsPage).toHaveURL(/\/sign-in$/);
+  baseExpect(await alerts()).toEqual([]);
   await samsPage.context().close();
 });
 
@@ -234,6 +286,13 @@ async function createMachine(page: Page, name: string, locationId: string): Prom
   const response = await page.request.post("/api/machines", { data: { name, locationId } });
   baseExpect(response.status()).toBe(201);
   return ((await response.json()) as { machine: { id: string } }).machine;
+}
+
+/** Sets an account's role and Locations through the REST API, as the Accounts page does. */
+async function setAccess(page: Page, email: string, access: { role: "admin" | "staff"; locationIds: string[] }) {
+  const { accounts } = (await (await page.request.get("/api/accounts")).json()) as { accounts: { id: string; email: string }[] };
+  const account = accounts.find((candidate) => candidate.email === email)!;
+  baseExpect((await page.request.put(`/api/accounts/${account.id}/access`, { data: access })).status()).toBe(200);
 }
 
 /** Creates an invite through the REST API and returns its link. */
