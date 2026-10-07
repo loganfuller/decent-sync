@@ -179,10 +179,16 @@ describe("Location History", () => {
    */
   async function sendRecords(raw: RawConnection, key: string, times: string[]) {
     const deliveries = times.flatMap((at) => [sendShot(raw, shotAt(`${key}-shot-${at}`, at)), sendSteam(raw, derivedSteam(`${key}-steam-${at}`), at)]);
-    // Derived: without its createdAt, a local timestamp cannot be placed, so the Shot has no pull time.
-    const { createdAt: omitted, ...untimed } = shotAt(`${key}-shot-untimed`, "2026-03-15T12:00:00");
-    deliveries.push(sendShot(raw, untimed));
+    deliveries.push(sendShot(raw, shotAt(`${key}-shot-untimed`, "2026-03-15T12:00:00Z")));
     for (const delivery of deliveries) await acknowledged(raw, delivery);
+    // Every Shot supported Decaid versions send can be placed in time, so this one loses its pull
+    // time, and with it any Location, behind the server's back.
+    const database = await server.connectDatabase();
+    try {
+      await database.query("UPDATE shots SET pulled_at = NULL, location_id = NULL WHERE id = $1", [`${key}-shot-untimed`]);
+    } finally {
+      await database.end();
+    }
   }
   /**
    * Holds records for hardware no Machine has, sent at each time through a
