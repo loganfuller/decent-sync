@@ -133,7 +133,9 @@ describe("several server instances", { timeout: 30_000 }, () => {
   });
 
   it("releases a Machine whose hello is accepted while its instance shuts down", async () => {
-    const leaving = await startTestServer({ env, sharing: first });
+    // Heartbeats too rare to matter: the busy connection, silent, is not released for it while its row is held,
+    // which would be a lock wait of its own.
+    const leaving = await startTestServer({ env: { ...env, SYNC_HEARTBEAT_SECONDS: "10" }, sharing: first });
     const [holdingBusy, holdingLate] = await Promise.all([first.connectDatabase(), first.connectDatabase()]);
     try {
       const busy = await api.createMachine("Busy while stopping");

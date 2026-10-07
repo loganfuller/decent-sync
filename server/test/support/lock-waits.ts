@@ -17,6 +17,10 @@ export interface LockWaits {
  * own: one inside a transaction sees other sessions' activity only as it was
  * when the transaction first looked. It gives up after 4 s, within a test's
  * default 5 s, so a failure says which lock nothing waited for.
+ *
+ * It counts every such wait in the database, so nothing else may wait for a
+ * lock meanwhile: a connection the server releases for its silence, for one,
+ * waits for its Machine's row if the test holds it.
  */
 export async function waitForLockWaits(server: TestServer, { count = 1, relation, advisory = false }: LockWaits = {}): Promise<void> {
   const database = await server.connectDatabase();
