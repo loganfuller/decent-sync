@@ -1,15 +1,17 @@
 import net from "node:net";
-import { PROTOCOL_VERSION, SYNC_PATH } from "@decent-sync/protocol";
+import { MISSED_HEARTBEATS, SYNC_PATH } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi } from "./support/admin-api.js";
 import { RawConnection, SimulatedTablet, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { runAsSteps } from "./support/steps.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // The cap on connections one server instance holds before their hello is
 // accepted, with raw connections that send nothing, a simulated tablet
 // running the built plugin, and a real server on a fresh database. The hello
 // timeout is long enough that no connection is closed for its silence. The
-// tests share one server and run in order.
+// tests are steps of one scenario on one server, each starting from the cap
+// as the step before left it.
 
 /** Connections whose hello has not been accepted that an instance holds at once. */
 const CAP = 64;
@@ -17,6 +19,7 @@ const HEARTBEAT_SECONDS = 0.5;
 const WARNING = /Refusing sync connections while 64 have not had a hello accepted/g;
 
 describe("connections awaiting hello on one server instance", { timeout: 30_000 }, () => {
+  runAsSteps();
   let server: TestServer;
   let api: AdminApi;
   /** Connections that have sent nothing, filling the cap with `waiting`. */
@@ -50,17 +53,12 @@ describe("connections awaiting hello on one server instance", { timeout: 30_000 
     );
     return socket;
   };
-  const heartbeating: NodeJS.Timeout[] = [];
-  /** Sends a heartbeat every interval from now on, as the plugin does once welcomed. */
-  const keepAlive = (connection: RawConnection) => {
-    heartbeating.push(setInterval(() => connection.send({ type: "heartbeat" }), HEARTBEAT_SECONDS * 1000));
-  };
-  /** Waits three intervals, which would end a connection whose heartbeats went unanswered, and checks they were answered. */
-  const expectHeartbeatsAnswered = async (connection: RawConnection) => {
-    const answered = () => connection.messages.filter((message) => (message as { type: string }).type === "heartbeat").length;
-    const before = answered();
-    await new Promise((resolve) => setTimeout(resolve, HEARTBEAT_SECONDS * 3000));
-    expect(answered()).toBeGreaterThanOrEqual(before + 2);
+  /** Sends a heartbeat and expects an answer within the silence after which the plugin gives up on a connection, and no error so far. */
+  const expectAlive = async (connection: RawConnection) => {
+    const next = connection.messages.length;
+    connection.send({ type: "heartbeat" });
+    // Its own heartbeats are answered too, so the next answer may be to one of them.
+    expect(await connection.message(next, HEARTBEAT_SECONDS * 1000 * MISSED_HEARTBEATS)).toEqual({ type: "heartbeat" });
     expect(connection.messages.filter((message) => (message as { type: string }).type === "error")).toEqual([]);
   };
 
@@ -69,17 +67,13 @@ describe("connections awaiting hello on one server instance", { timeout: 30_000 
     api = await AdminApi.setUp(server.url);
   }, 60_000);
   afterAll(async () => {
-    for (const timer of heartbeating) clearInterval(timer);
     await tablet?.unload();
     await Promise.all([...silent, connected, waiting].filter(Boolean).map((connection) => connection.terminate()));
     await server?.stop();
   });
 
   it("refuses upgrades once 64 connections await hello, while a connected Machine keeps working", async () => {
-    connected = await RawConnection.open(server.url);
-    connected.send(helloWith((await api.createMachine("Connected")).token));
-    expect(await connected.message(0)).toMatchObject({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
-    keepAlive(connected);
+    connected = await RawConnection.welcomed(server.url, helloWith((await api.createMachine("Connected")).token), HEARTBEAT_SECONDS * 1000);
     waitingToken = (await api.createMachine("Waiting")).token;
 
     // The connected Machine's connection is not counted: 64 more fit.
@@ -88,7 +82,7 @@ describe("connections awaiting hello on one server instance", { timeout: 30_000 
     await expectRefused();
     await expectRefused();
 
-    await expectHeartbeatsAnswered(connected);
+    await expectAlive(connected);
     expect(await api.machineNamed("Connected")).toMatchObject({ online: true });
     await expectRefused();
   });
@@ -96,7 +90,7 @@ describe("connections awaiting hello on one server instance", { timeout: 30_000 
   it("accepts an upgrade again once a hello is accepted", async () => {
     waiting.send(helloWith(waitingToken));
     expect(await waiting.message(0)).toMatchObject({ type: "welcome" });
-    keepAlive(waiting);
+    waiting.keepAlive(HEARTBEAT_SECONDS * 1000);
 
     silent.push(await RawConnection.open(server.url));
     await expectRefused();
@@ -123,8 +117,8 @@ describe("connections awaiting hello on one server instance", { timeout: 30_000 
     silent.push(await RawConnection.open(server.url));
     await expectRefused();
     // The Machines connected earlier kept working throughout.
-    await expectHeartbeatsAnswered(connected);
-    await expectHeartbeatsAnswered(waiting);
+    await expectAlive(connected);
+    await expectAlive(waiting);
   });
 
   it("closes a refused upgrade's connection, on any path, though the client keeps its end open or resets it", async () => {
@@ -146,16 +140,25 @@ describe("connections awaiting hello on one server instance", { timeout: 30_000 
       expect(outcome).toBe("closed");
     }
 
-    // Clients that reset the connection as soon as they ask, before or after the server answers.
+    // Clients that reset the connection once the answer arrives: a socket the server left open then failed with no one handling it.
+    for (const path of [SYNC_PATH, "/elsewhere"]) {
+      const socket = await upgradeOverTcp(path);
+      await new Promise((resolve) => socket.once("data", resolve));
+      socket.resetAndDestroy();
+    }
+    // And clients that reset it as they ask. Only some resets reach the server
+    // before it writes its answer, which then fails; nothing can make one do so.
     for (let i = 0; i < 20; i++) {
       const socket = await upgradeOverTcp(i % 2 === 0 ? SYNC_PATH : "/elsewhere");
       if (i % 4 < 2) socket.resetAndDestroy();
       else setImmediate(() => socket.resetAndDestroy());
     }
+    // Time for a crash to show. Nothing signals that the server has seen the
+    // resets, and a shorter wait can only miss a crash, never fail a server that works.
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect((await fetch(`${server.url}/api/health`)).status).toBe(200);
     await expectRefused();
-    await expectHeartbeatsAnswered(connected);
+    await expectAlive(connected);
   });
 
   it("logs the refusals at most once a minute", () => {

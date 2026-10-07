@@ -4,6 +4,7 @@ import path from "node:path";
 import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type ManagedAccountView, acceptInvite, admin, secretOf } from "./support/admin-api.js";
+import { runAsSteps } from "./support/steps.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // The limit on password checks one server instance runs at once, through the
@@ -11,7 +12,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // while a gate file exists (startTestServer's `passwordHashGate`), so a test
 // can hold checks running and waiting, and count the hashes the server
 // starts. accounts.test.ts and sign-in-limits.test.ts cover sign-in within
-// the limit. The tests share one server and run in order.
+// the limit. The tests are steps of one scenario on one server: the second
+// sets up the Admin the third uses.
 
 /** Password checks an instance runs at once, and how many more may wait. */
 const RUNNING = 2;
@@ -19,6 +21,7 @@ const WAITING = 16;
 const BUSY = "The server is busy checking other passwords. Try again in a moment.";
 
 describe("password checks on one server instance", { timeout: 30_000 }, () => {
+  runAsSteps();
   let server: TestServer;
   let database: pg.Client;
   let gateDir: string;
@@ -110,6 +113,8 @@ describe("password checks on one server instance", { timeout: 30_000 }, () => {
 
     // The rest then run in turn, never more than two at once, and the refused sign-ins hashed nothing.
     await release(held);
+    // The output arrives apart from the responses, so wait for each hash's line before counting them all.
+    await waitForHashes(from, RUNNING + WAITING);
     expect(hashes(from)).toEqual({ started: RUNNING + WAITING, mostRunning: RUNNING });
     // And their emails count as before.
     const { rows: counted } = await database.query("SELECT 1 FROM sign_in_windows WHERE email = ANY($1)", [heldEmails]);
@@ -142,6 +147,7 @@ describe("password checks on one server instance", { timeout: 30_000 }, () => {
     // Opening a link checks no password, so it still answers.
     expect((await fetch(`${server.url}/api/invite-links/${secretOf(invited.link)}`)).status).toBe(200);
     await release(held);
+    await waitForHashes(from, RUNNING + WAITING);
     expect(hashes(from).started).toBe(RUNNING + WAITING);
 
     expect((await accept()).status).toBe(201);

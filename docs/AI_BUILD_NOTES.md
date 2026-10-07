@@ -20,7 +20,7 @@ Vitest tests that need build output (the committed plugin, the compiled server) 
 
 - Never sleep to put events in order. Wait for something observable: an acknowledgment, a log line, a row's state, or a query waiting for a lock the test holds (`waitForLockWaits` in `server/test/support/lock-waits.ts`). Waiting for the lock also makes a test whose lock no longer matches the server's fail, rather than pass without testing anything.
 - Bound times from below, not above: a limit on how long something may take fails on a busy machine. Leave the upper bound to a helper's timeout (`waitForLog`, `waitForMachine`, `expect.poll`).
-- Decide a race by holding a lock that puts its sides in the order under test, rather than running it several times hoping to hit that order.
+- Decide a race by holding a lock that puts its sides in the order under test, rather than running it several times hoping to hit that order. Work an instance limits in its memory takes no lock; hold it at a gate instead, as `passwordHashGate` holds password hashes.
 - Each test sets up the Machines and accounts it needs. A `describe` that is deliberately one scenario in steps calls `runAsSteps()` (`server/test/support/steps.ts`), so a failure is reported once and the later steps are skipped.
 - `vitest.config.ts` caps Vitest at five workers, since more exhaust a local PostgreSQL's 100 connections; test runs in other worktrees on the same database count against them too. Playwright retries nothing, in CI either: a test that passes only on a retry fails.
 
