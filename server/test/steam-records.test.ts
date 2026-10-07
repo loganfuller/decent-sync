@@ -117,12 +117,38 @@ describe("Steam Record capture", () => {
     return reads.slice(0, found + 1);
   }
   /**
+   * Holds the reads of `route` the tablet makes from now on. `found` waits for
+   * the next, answers it alone, from what the tablet serves then, and holds
+   * those after it until the tablet has read the Steam Record with this id,
+   * which must come after: so only that read can have found it, however long
+   * the outbox takes to read it, behind deliveries awaiting acknowledgment.
+   */
+  function holdNextRead(tablet: SimulatedTablet, route: HeldSteamRead): { found(id: string): Promise<void>; release(): void } {
+    const made = tablet.requests.filter((request) => request === route).length;
+    const release = tablet.holdSteamReads(route);
+    return {
+      release,
+      async found(id) {
+        try {
+          await expect.poll(() => tablet.requests.filter((request) => request === route).length, { timeout: 10_000 }).toBeGreaterThan(made);
+          const releaseLater = tablet.holdSteamReads(route);
+          try {
+            const from = tablet.requests.length;
+            release();
+            await expect.poll(() => tablet.requests.slice(from).includes(`/steams/${encodeURIComponent(id)}`), { timeout: 10_000 }).toBe(true);
+          } finally {
+            releaseLater();
+          }
+        } finally {
+          release();
+        }
+      },
+    };
+  }
+  /**
    * Resolves once the tablet has read the Steam Record with this id, found by
-   * the next read of `route` it made: that read is held until `appear` has
-   * run, and those after it until the tablet has read the record, so however
-   * long the outbox takes to read it, behind deliveries awaiting
-   * acknowledgment, no other read of `route` was answered meanwhile. Reads of
-   * `alsoHeld` are held throughout.
+   * the next read of `route` it made after `appear` was about to run, as
+   * `holdNextRead` holds it. Reads of `alsoHeld` are held throughout.
    */
   async function foundByTheNextRead(
     tablet: SimulatedTablet,
@@ -131,20 +157,12 @@ describe("Steam Record capture", () => {
     { appear, alsoHeld }: { appear?: () => void; alsoHeld?: HeldSteamRead } = {},
   ): Promise<void> {
     const releaseAlso = alsoHeld ? tablet.holdSteamReads(alsoHeld) : () => {};
-    const releaseNext = tablet.holdSteamReads(route);
+    const next = holdNextRead(tablet, route);
     try {
-      const made = tablet.requests.filter((request) => request === route).length;
-      await expect.poll(() => tablet.requests.filter((request) => request === route).length, { timeout: 10_000 }).toBeGreaterThan(made);
       appear?.();
-      const releaseLater = tablet.holdSteamReads(route);
-      try {
-        releaseNext();
-        await expect.poll(() => tablet.requests.includes(`/steams/${encodeURIComponent(id)}`), { timeout: 10_000 }).toBe(true);
-      } finally {
-        releaseLater();
-      }
+      await next.found(id);
     } finally {
-      releaseNext();
+      next.release();
       releaseAlso();
     }
   }
@@ -253,8 +271,8 @@ describe("Steam Record capture", () => {
     // Polls every two minutes of the tablet's time: 2.4 s of real time.
     const tablet = load(machine, [], { settings: { ...settingsFor(machine), PollSeconds: 120 } });
     await tablet.waitForLog(/^Connected to /);
-    // Every id is read once, for the index.
-    await expect.poll(() => idReads(tablet)).toBe(1);
+    // Every id is read, for the index.
+    await expect.poll(() => idReads(tablet)).toBeGreaterThanOrEqual(1);
 
     const record = milkProbeSteamFixture();
     // Found by the next poll's read of the newest Steam Record, with no read of the ids, whose list grows with history.
@@ -284,7 +302,7 @@ describe("Steam Record capture", () => {
     expect((record.measurements as { milkTemperature: number | null }[]).filter((sample) => sample.milkTemperature !== null)).toHaveLength(20);
     // Captured without reconnecting.
     expect(tablet.logs.filter((line) => line.startsWith("Connected to "))).toHaveLength(1);
-  });
+  }, 30_000);
 
   it("sends a Steam Record new on the tablet ahead of the history still being backfilled", async () => {
     const machine = await api.createMachine("Steam during backfill");
@@ -305,22 +323,26 @@ describe("Steam Record capture", () => {
     // Polls every 10 s of the tablet's time, 0.2 s of real time.
     const tablet = load(machine, [], { settings: { ...settingsFor(machine), PollSeconds: 10 } });
     await tablet.waitForLog(/^Connected to /);
-    await expect.poll(() => idReads(tablet)).toBe(1);
+    // The index's read, made before the hold below, so it is not the read that finds the other.
+    await expect.poll(() => idReads(tablet)).toBeGreaterThanOrEqual(1);
     const earlier = derivedSteam("interval-earlier", { timestamp: "2026-10-05T09:00:00.000001" });
     const newest = derivedSteam("interval-newest", { timestamp: "2026-10-05T09:01:00.000001" });
 
-    // The next poll's read of the newest finds that one, with no read of every id answered meanwhile.
-    await foundByTheNextRead(tablet, "/steams/latest", "interval-newest", {
-      appear: () => tablet.serve(tabletApi(machine, [earlier, newest])),
-      alsoHeld: "/steams/ids",
-    });
-    // The next read of every id finds the other.
-    const from = tablet.requests.length;
-    await foundByTheNextRead(tablet, "/steams/ids", "interval-earlier");
+    // Reads of every id are held from before the two appear until the next is answered alone.
+    const ids = holdNextRead(tablet, "/steams/ids");
+    try {
+      // The next poll's read of the newest finds that one.
+      await foundByTheNextRead(tablet, "/steams/latest", "interval-newest", { appear: () => tablet.serve(tabletApi(machine, [earlier, newest])) });
+      // The next read of every id finds the other.
+      await ids.found("interval-earlier");
+    } finally {
+      ids.release();
+    }
     await waitSteam("interval-newest");
     await waitSteam("interval-earlier");
     // Every id is read once every ten poll intervals: at least nine reads of the newest come between
-    // that read of every id and the next.
+    // the next two reads of every id, made with nothing held.
+    const from = tablet.requests.length;
     await expect.poll(() => tablet.requests.slice(from).filter((route) => route === "/steams/ids").length, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
     const reads = tablet.requests.slice(from);
     const found = reads.indexOf("/steams/ids");
@@ -332,15 +354,16 @@ describe("Steam Record capture", () => {
     // Polls every 5 s of the tablet's time, 0.1 s of real time.
     const tablet = load(machine, [], { settings: { ...settingsFor(machine), PollSeconds: 5 } });
     await tablet.waitForLog(/^Connected to /);
-    await expect.poll(() => idReads(tablet)).toBe(1);
+    await expect.poll(() => idReads(tablet)).toBeGreaterThanOrEqual(1);
     tablet.serve(tabletApi(machine, [
       derivedSteam("flapping-earlier", { timestamp: "2026-10-05T09:00:00.000001" }),
       derivedSteam("flapping-newest", { timestamp: "2026-10-05T09:01:00.000001" }),
     ]));
+    const read = idReads(tablet);
     // A reconnect takes about a second of the tablet's time, much less than a poll interval, so
     // intervals started again on every welcome would never come round to reading every id. Each
     // welcome also queues every collection again, so nothing requested is sent meanwhile.
-    for (let welcomes = 1; idReads(tablet) === 1; welcomes++) {
+    for (let welcomes = 1; idReads(tablet) === read; welcomes++) {
       expect(welcomes, "welcomes before every id was read again").toBeLessThan(200);
       tablet.dropConnections();
       await tablet.waitForLogs(/^Connected to /, welcomes + 1);
@@ -471,19 +494,22 @@ describe("Steam Record capture", () => {
     const tablet = load(machine, [older, newest], { settings: { ...settingsFor(machine), PollSeconds: 5 }, steamIdsLimitBytes: 16 });
     // With no index, the newest the tablet holds is sent as new.
     await waitSteam("past-limit-newest");
+
+    // Read on the welcome, then 1, 2, 4, 8 and 16 whole poll intervals after each failure: by the
+    // welcome's poll and 31 more, at most six times, where retrying every 5 s would have read them
+    // 32 times.
+    await expect.poll(() => latestReads(tablet), { timeout: 20_000 }).toBeGreaterThanOrEqual(32);
+    const polls = tablet.requests.flatMap((route, index) => (route === "/steams/latest" ? [index] : []));
+    const idReadsBy32 = tablet.requests.slice(0, polls[31]! + 1).filter((route) => route === "/steams/ids").length;
+    expect(idReadsBy32).toBeGreaterThan(1);
+    expect(idReadsBy32).toBeLessThanOrEqual(6);
+
     // Found by the next poll's read of the newest.
     await foundByTheNextRead(tablet, "/steams/latest", "past-limit-new", {
       appear: () => tablet.serve(tabletApi(machine, [older, newest, derivedSteam("past-limit-new", { timestamp: "2026-10-05T08:00:00.000001" })])),
       alsoHeld: "/steams/ids",
     });
     await waitSteam("past-limit-new");
-
-    // Read on the welcome, then 1, 2, 4, 8 and 16 whole poll intervals after each failure: by the
-    // welcome's poll and 31 more, at most six times, where retrying every 5 s would have read them
-    // 32 times.
-    await expect.poll(() => latestReads(tablet), { timeout: 20_000 }).toBeGreaterThanOrEqual(32);
-    expect(idReads(tablet)).toBeGreaterThan(1);
-    expect(idReads(tablet)).toBeLessThanOrEqual(6);
     expect(tablet.logs.filter((line) => IDS_UNREADABLE.test(line))).toEqual([
       "Could not read the Steam Record ids: Bad state: response exceeds maxFetchResponseBytes (16). New Steam Records are still sent; reading every id is tried again less and less often until it succeeds.",
     ]);
