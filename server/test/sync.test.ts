@@ -108,8 +108,9 @@ describe("Machines and the sync connection", () => {
         tablet = loadTablet(settingsFor(uptown));
 
         connected = await waitForMachine("Uptown", (machine) => machine.online);
+        // The last-seen time is by PostgreSQL's clock, which may run ahead of or behind this one.
         expect(Date.parse(connected.lastSeenAt!)).toBeGreaterThanOrEqual(before - 1_000);
-        expect(Date.parse(connected.lastSeenAt!)).toBeLessThanOrEqual(Date.now());
+        expect(Date.parse(connected.lastSeenAt!)).toBeLessThanOrEqual(Date.now() + 1_000);
         await tablet.waitForLog(/^Connected to ws:\/\/127\.0\.0\.1:\d+\/sync$/);
       });
 
