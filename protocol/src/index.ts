@@ -44,7 +44,7 @@ export const MISSED_HEARTBEATS = 3;
  * The longest id a delivery or chunk may have, in UTF-16 code units. The
  * plugin's are about 30 (`Outbox.nextId`). The server keeps the ids of
  * recent deliveries for each connection, and of Workflow, machine state and
- * collection deliveries for good, so a longer one is refused.
+ * collection deliveries for 90 days, so a longer one is refused.
  */
 export const MAX_ID_LENGTH = 128;
 

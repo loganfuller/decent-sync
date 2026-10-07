@@ -89,16 +89,20 @@ Machine) and name:
   unavailable report keeps them.
 
 Each delivery is handled once, by its delivery id, recorded in
-`machine_event_deliveries` as Workflow deliveries are, so a resend changes
-nothing however late it arrives. A collection belongs to the session's token's
-Machine, or for a mismatched session to its reported hardware: the Machine that
-has it, or else its Pending Machine (ADR-0015), locked as `creditReporter` in
-`server/src/machines/credit.ts` locks it. The token's Machine therefore keeps
-what its own tablet last reported. Every way a Machine takes over hardware
-hands its collections over with its records (`transferPendingRecords`, through
-`transferPendingCollections` in `server/src/collections/transfer.ts`): where
-the Machine has the same collection, the later report says whether it is
-available, and the later value received is kept.
+`machine_event_deliveries` and kept for 90 days as Workflow deliveries are
+(`docs/WORKFLOW-AND-STATE.md`), so a resend changes nothing. A resend after
+that is stored as a new report, so at worst it puts back one stale value
+until a later report with a value, such as the one its plugin reads on that
+same `welcome`, replaces it. A collection belongs to the session's token's
+Machine, or for a mismatched session to its reported hardware: the Machine
+that has it, or else its Pending Machine (ADR-0015), locked as
+`creditReporter` in `server/src/machines/credit.ts` locks it. The token's
+Machine therefore keeps what its own tablet last reported. Every way a
+Machine takes over hardware hands its collections over with its records
+(`transferPendingRecords`, through `transferPendingCollections` in
+`server/src/collections/transfer.ts`): where the Machine has the same
+collection, the later report says whether it is available, and the later
+value received is kept.
 
 Values are stored as jsonb, which keeps their content but not the order of
 their keys, and compressed with lz4.

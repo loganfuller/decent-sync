@@ -35,14 +35,14 @@ export interface MachineStateEventView extends MachineStateView {
  *
  * Each delivery is handled once: its id, which the plugin keeps when it
  * sends the delivery again, is recorded whether or not it changes anything,
- * so a resend changes nothing, however late it arrives and whatever changed
- * since. A delivery handled for the first time is stored as an event only if
- * it differs from the latest event stored for whoever it belongs to, decided
- * against the database while that Machine's row, or a Pending Machine's
- * hardware, is locked, so sessions on any server instance decide one at a
- * time, never by what an instance or connection remembers. The latest event
- * stored is the current one; one delivered late keeps the time the plugin
- * observed it.
+ * so a resend changes nothing, whatever changed since, for the 90 days the
+ * id is kept (`DeliveryIdCleanup`). A delivery handled for the first time is
+ * stored as an event only if it differs from the latest event stored for
+ * whoever it belongs to, decided against the database while that Machine's
+ * row, or a Pending Machine's hardware, is locked, so sessions on any server
+ * instance decide one at a time, never by what an instance or connection
+ * remembers. The latest event stored is the current one; one delivered late
+ * keeps the time the plugin observed it.
  */
 @Injectable()
 export class MachineEventsService {

@@ -52,13 +52,30 @@ First it records the delivery's id in `machine_event_deliveries`, keyed by the
 token's Machine, whether or not the delivery turns out to change anything. A
 delivery whose id is already recorded is acknowledged and changes nothing:
 the plugin keeps a delivery's id when it sends it again, and always through
-the same token, so a resend changes nothing however late it arrives, through
-any connection or instance, even after other changes, and even when the first
-delivery changed nothing either. A resend arriving while the first is still
-being stored waits for it on the record's key. Records are kept for good, one
-per delivery: a resend may come however late, from a tablet that lost an
-acknowledgment and then stayed offline, so pruning them would first need a
-limit on how late a resend may arrive.
+the same token, so a resend changes nothing, through any connection or
+instance, even after other changes, and even when the first delivery changed
+nothing either. A resend arriving while the first is still being stored waits
+for it on the record's key.
+
+Each id is kept for 90 days from when it was recorded, by PostgreSQL's clock
+(`DELIVERY_ID_RETENTION_DAYS` in `server/src/machines/delivery-id-cleanup.ts`).
+Every server instance deletes older ones as it starts and then hourly, at
+most 1,000 in each statement, oldest first. Each statement runs on its own,
+outside any delivery's transaction, and skips rows another transaction has
+locked, so it waits for no delivery, and instances running it at once delete
+different rows. A failed run is logged and the next tries again. The index on
+`received_at` finds the rows to delete.
+
+Deleting them is safe because a resend comes only from the plugin load that
+sent the delivery, from its in-memory outbox on its next welcomed connection,
+far sooner than 90 days. A resend that comes later anyway is handled as a new
+delivery. Only one delivery awaits acknowledgment at a time, so only that one
+can have been stored without the plugin knowing, and it is sent again ahead
+of anything newer. It is stored only if it differs from the latest event, so
+at worst it puts one stale event after a newer one another tablet's
+mismatched session stored for the same Machine. Milestone 2's durable outbox
+lets a delivery outlive its plugin load, so a resend may come later, but the
+same bound holds.
 
 An event belongs to the session's token's Machine, or for a mismatched
 session, to its reported hardware: the Machine that has it, or else its
