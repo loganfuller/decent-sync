@@ -32,6 +32,7 @@ export function createPlugin(host: PluginHost): Plugin {
       // Decaid sends the current Workflow just after loading the plugin, and again on every change.
       if (event?.name === "workflowUpdated") connection?.workflowUpdated(event.payload);
       if (event?.name === "stateUpdate") connection?.stateUpdate(event.payload);
+      if (event?.name === "storageRead" || event?.name === "storageWrite") connection?.storageEvent(event.name, event.payload);
     },
   };
 }

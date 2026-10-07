@@ -146,6 +146,20 @@ export interface Machine {
   location: Location | null;
   /** Where it has been, oldest first. Each entry lasts until the next one's time. */
   locationHistory: LocationHistoryEntry[];
+  /** The tablet its latest connection came from, or null before any. A reset or replaced tablet is a new one. */
+  tablet: Tablet | null;
+  /** The tablets its connections came from before, the one whose connection was accepted most recently first. */
+  earlierTablets: Tablet[];
+}
+
+/** A tablet a Machine's connections came from: a device running Decaid, with its Decaid data. */
+export interface Tablet {
+  /** The id its plugin made on its first run. */
+  id: string;
+  /** When a connection from it to this Machine was first accepted. */
+  firstSeenAt: string;
+  /** When one was last accepted, or last sent a heartbeat. */
+  lastSeenAt: string;
 }
 
 /** A machine state as Decaid names it, such as espresso and preinfusion, and when the plugin observed it. */

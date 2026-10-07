@@ -355,6 +355,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       machineId: machine.id,
       tokenHash: hashSecret(hello.token),
       mismatch: identity.kind === "mismatch" ? identity.hardware : null,
+      tabletId: hello.tabletId,
       end: (code, message) => this.refuse(session, code, message),
     };
     session.live = live;

@@ -67,6 +67,8 @@ describe("Machines and the sync connection", () => {
         machineState: null,
         location: null,
         locationHistory: [],
+        tablet: null,
+        earlierTablets: [],
       });
       expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
       expect(serverUrl).toBe(server.url);
@@ -366,6 +368,7 @@ describe("Machines and the sync connection", () => {
         [helloWith(token, { token: undefined }), "hello.token must be a string"],
         [helloWith(token, { pluginVersion: 7, machine: { model: "DE1Pro" } }), "hello.pluginVersion must be a string; hello.machine.serial must be a string"],
         [helloWith(token, { decaidVersion: undefined }), "hello.decaidVersion must be a string"],
+        [helloWith(token, { tabletId: undefined }), "hello.tabletId must be a UUID"],
         ["{not json", "The frame is not JSON"],
         [{ type: "heartbeat" }, "The first message must be hello"],
         [{ type: "shot" }, "shot.id must be a string; shot.shotId must be a string; shot.shot must be an object"],

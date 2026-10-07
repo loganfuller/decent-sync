@@ -1,6 +1,7 @@
 import { CLOSE_CODES } from "@decent-sync/protocol";
-import { expect as baseExpect, type Page, test } from "@playwright/test";
+import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
 import {
+  PluginStorage,
   RawConnection,
   SimulatedTablet,
   type SimulatedTabletOptions,
@@ -97,6 +98,13 @@ test("creating a Machine shows its token once, and a tablet using it shows the M
   await expect(field(page, "Decaid")).toHaveText("0.8.7+2847");
   await expect(field(page, "Plugin")).toHaveText(/^\d+\.\d+\.\d+/);
   await expect(field(page, "Status")).toHaveText("Online");
+
+  // The tablet its connection came from, known by the id the plugin keeps in Decaid's plugin storage.
+  const tablets = page.getByRole("region", { name: "Tablets" });
+  await expect(field(tablets, "Tablet id")).toHaveText(String(labTablet.storage.read("tabletId")));
+  await expect(field(tablets, "First seen")).not.toBeEmpty();
+  await expect(field(tablets, "Last seen")).not.toBeEmpty();
+  await expect(tablets.getByRole("list", { name: "Earlier tablets" })).toHaveCount(0);
 });
 
 let uptown: { serverUrl: string; token: string };
@@ -284,6 +292,34 @@ test("the Machine page shows why a too-old plugin was refused", async ({ page })
   await expect(page.getByRole("alert").filter({ hasText: "A connection was refused" })).toContainText("update the plugin");
 });
 
+test("a tablet whose Decaid data was reset shows up on its Machine's page as a new tablet", async ({ page }) => {
+  const settings = await createMachine(page, "Reset tablet");
+  const storage = new PluginStorage();
+  const api = derivedDe1Pro({ serial: "10030", connectionId: "00:00:5E:00:53:30" });
+  const before = loadTablet(settings, { storage, api });
+  await before.waitForLog(/^Connected to /);
+  const first = String(storage.read("tabletId"));
+
+  await page.goto("/machines");
+  await machineRow(page, "Reset tablet").getByRole("link", { name: "Reset tablet" }).click();
+  const tablets = page.getByRole("region", { name: "Tablets" });
+  await expect(field(tablets, "Tablet id")).toHaveText(first);
+
+  // Resetting Decaid's data loses the plugin's storage, and with it the tablet's id.
+  await before.unload();
+  storage.clear();
+  const after = loadTablet(settings, { storage, api });
+  await after.waitForLog(/^Connected to /);
+  const second = String(storage.read("tabletId"));
+  expect(second).not.toBe(first);
+
+  await expect(field(tablets, "Tablet id")).toHaveText(second);
+  const earlier = tablets.getByRole("list", { name: "Earlier tablets" }).getByRole("listitem");
+  await expect(earlier).toHaveCount(1);
+  await expect(earlier).toContainText(first);
+  await expect(earlier).toContainText(/^.+First seen .+, last seen .+$/);
+});
+
 /** Creates a machine entry through the REST API, for tests about what follows. */
 async function createMachine(page: Page, name: string): Promise<{ serverUrl: string; token: string }> {
   const response = await page.request.post("/api/machines", { data: { name } });
@@ -315,7 +351,7 @@ function pendingMachine(page: Page, list: string, hardware: string) {
   return page.getByRole("list", { name: list, exact: true }).getByRole("listitem").filter({ hasText: hardware });
 }
 
-/** The value of a field on a Machine page, by its term. */
-function field(page: Page, term: string) {
-  return page.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
+/** The value of a field on a Machine page, or in one part of it, by its term. */
+function field(scope: Page | Locator, term: string) {
+  return scope.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
 }

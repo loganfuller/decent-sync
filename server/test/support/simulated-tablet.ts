@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,6 +37,14 @@ import { rememberSecret, watchLog } from "./secrets.js";
 //   slows the writing, so pending bytes build up as on a slow network, and
 //   `stallUpload` stops it at a chosen frame. Closing a transport first
 //   waits for its queued frames to be written.
+// - `host.storage` is Decaid's plugin storage, given only to a plugin whose
+//   manifest declares `pluginStorage`: it answers a read with a `storageRead`
+//   event of `{ key, value }`, `value` null for a key never written, and a
+//   write with a `storageWrite` event of the data written, each in a later
+//   turn, and never answers a command that fails. Its values belong to a
+//   `PluginStorage`, which outlives the load: give the next load of the same
+//   tablet the same one. Decaid's store API (`/store/{plugin id}`) reads the
+//   same values.
 // - Unloading calls onUnload, then cancels the generation's timers and closes
 //   its transports, dropping their later events.
 // - Timers are the host's, so a test can run them faster with `timeScale` to
@@ -253,7 +261,7 @@ export function settingsFor({ token, serverUrl }: { token: string; serverUrl: st
   return { ServerUrl: serverUrl, Token: token };
 }
 
-/** A valid `hello` of this protocol version, for raw frames. */
+/** A valid `hello` of this protocol version, for raw frames, from a new tablet unless `extra` names its `tabletId`. */
 export function helloWith(token: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
   rememberSecret(token);
   return {
@@ -262,14 +270,111 @@ export function helloWith(token: string, extra: Record<string, unknown> = {}): R
     token,
     pluginVersion: "0.1.0",
     decaidVersion: "0.8.7+2847",
+    tabletId: randomUUID(),
     connectionId: "00:00:5E:00:53:01",
     ...extra,
   };
 }
 
+/**
+ * Decaid's plugin storage for this plugin (`_handlePluginStorage` in
+ * plugin_manager.dart, over its Hive store), which holds the tablet's id. It
+ * is part of the tablet's Decaid data, so it lasts across loads of the plugin:
+ * give each load of one tablet the same one. `clear()` stands for resetting
+ * the tablet's Decaid data, and `save()` and `restore()` for exporting it in
+ * a Decaid backup and importing that backup.
+ *
+ * Decaid's backup (`GET /api/v1/data/export`) holds a plugin's storage only
+ * once Decaid's store API has opened it since Decaid started: its
+ * KvStoreExportSection lists the stores that API's own Hive service opened,
+ * and `host.storage` goes through another. Each load of the plugin stands for
+ * Decaid starting. (Seen on Decaid v0.8.7's Linux release on 2026-10-07: a
+ * backup left out the plugin's storage until `GET
+ * /api/v1/store/decent-sync.reaplugin/tabletId` had been answered.)
+ */
+export class PluginStorage {
+  private values = new Map<string, unknown>();
+  private failingReads = 0;
+  /** Whether Decaid's store API has opened this storage since Decaid started, which a backup needs. */
+  private openedThroughApi = false;
+
+  /** The value at a key, as a read answers it: null if never written. */
+  read(key: string): unknown {
+    return this.values.has(key) ? structuredClone(this.values.get(key)) : null;
+  }
+
+  /** Writes a value, as anything else writing to the plugin's storage would. */
+  write(key: string, value: unknown): void {
+    this.values.set(key, structuredClone(value));
+  }
+
+  /** Loses every value, as resetting the tablet's Decaid data does. */
+  clear(): void {
+    this.values.clear();
+  }
+
+  /** The values a Decaid backup taken now holds: none until Decaid's store API has opened this storage since Decaid started. */
+  save(): ReadonlyMap<string, unknown> {
+    return this.openedThroughApi ? structuredClone(this.values) : new Map();
+  }
+
+  /** Puts back the values saved, and only those, as importing that backup onto a reset tablet does. */
+  restore(saved: ReadonlyMap<string, unknown>): void {
+    this.values = structuredClone(new Map(saved));
+  }
+
+  /** Leaves the next `count` reads unanswered, as Decaid leaves one whose read from its store fails. */
+  failNextReads(count: number): void {
+    this.failingReads = count;
+  }
+
+  /** Decaid starts, as each load of the plugin stands for: its store API has opened nothing yet. */
+  decaidStarted(): void {
+    this.openedThroughApi = false;
+  }
+
+  /**
+   * What Decaid's store API answers for this storage (KvStoreHandler in
+   * kv_store_handler.dart): its keys, or a key's value, null if never
+   * written. Answering opens the storage there, so backups include it.
+   */
+  readThroughApi(key: string | undefined): unknown {
+    this.openedThroughApi = true;
+    return key === undefined ? [...this.values.keys()] : this.read(key);
+  }
+
+  /**
+   * Carries out a command the plugin sent, as Decaid receives it, by way of
+   * JSON. Returns the event that answers it, or null for a command Decaid
+   * drops: one it cannot read, a write of null, or a read made to fail.
+   */
+  carryOut(command: unknown): { name: "storageRead" | "storageWrite"; payload: unknown } | null {
+    const { type, key, data } = (JSON.parse(JSON.stringify(command ?? null)) ?? {}) as { type?: unknown; key?: unknown; data?: unknown };
+    if (typeof key !== "string") return null;
+    if (type === "read") {
+      if (this.failingReads > 0) {
+        this.failingReads--;
+        return null;
+      }
+      return { name: "storageRead", payload: { key, value: this.read(key) } };
+    }
+    if (type === "write" && data !== undefined && data !== null) {
+      this.write(key, data);
+      return { name: "storageWrite", payload: data };
+    }
+    return null;
+  }
+}
+
 export interface SimulatedTabletOptions {
   /** Plugin settings as Decaid passes them: only the ones that are set. */
   settings: Record<string, unknown>;
+  /**
+   * The tablet's plugin storage, kept across loads: pass the one an earlier
+   * load used to load the plugin on the same tablet again. Defaults to an
+   * empty one, as on a new tablet.
+   */
+  storage?: PluginStorage;
   /** Decaid's API responses; defaults to de1ProOnDecaid087(). */
   api?: DecaidApi;
   /** Whether a machine is connected to the tablet; while not, /machine/info fails. Defaults to true. */
@@ -344,6 +449,8 @@ class TransportError extends Error {
 
 export class SimulatedTablet {
   readonly logs: string[] = [];
+  /** Decaid's storage for the plugin, which outlasts this load. */
+  readonly storage: PluginStorage;
   /** The Decaid API routes the plugin requested, in order, such as "/machine/info". */
   readonly requests: string[] = [];
   /** Requests that could change the tablet's data (any method but GET), such as "POST /store/dye2.reaplugin/recipes". */
@@ -366,6 +473,8 @@ export class SimulatedTablet {
   peakPendingOutboundBytes = 0;
   /** Sends refused for going past the pending outbound limit. */
   refusedSends = 0;
+  /** The plugin's id, which names its storage in Decaid's store API. */
+  private readonly pluginId: string;
   private readonly timeScale: number;
   private readonly apiDelayMs: number;
   private readonly uploadBytesPerSecond: number | undefined;
@@ -397,9 +506,13 @@ export class SimulatedTablet {
     this.uploadBytesPerSecond = options.uploadBytesPerSecond;
     this.stallUpload = options.stallUpload;
     this.upgradeAtTabletPace = options.upgradeAtTabletPace ?? false;
+    this.storage = options.storage ?? new PluginStorage();
+    this.storage.decaidStarted();
     rememberSecret(options.settings.Token);
     watchLog("a simulated tablet's log", () => this.logs.join("\n"));
     const { source, manifest } = readBuiltPlugin();
+    this.pluginId = String(manifest.id);
+    const permissions = manifest.permissions as string[];
     this.plugin = loadPlugin(source, String(manifest.id), {
       host: {
         log: (message: unknown) => this.logs.push(String(message)),
@@ -409,6 +522,11 @@ export class SimulatedTablet {
           send: (handle: string, payload: unknown) => this.send(handle, payload),
           close: (handle: string) => this.close(handle),
         },
+        storage: permissions.includes("pluginStorage")
+          ? (command: unknown) => this.storageCommand(command)
+          : () => {
+              throw new Error(`Plugin ${String(manifest.id)} requires manifest permission pluginStorage`);
+            },
       },
       fetch: (input: unknown, init?: unknown) => this.fetch(input, init),
       setTimeout: (callback: () => void, delay: number) => this.setTimer(callback, delay),
@@ -462,6 +580,16 @@ export class SimulatedTablet {
   /** Delivers a Decaid event to the plugin. */
   fire(name: string, payload?: unknown): void {
     if (!this.unloaded) this.plugin.onEvent({ name, payload });
+  }
+
+  /**
+   * A command to the plugin's storage: carried out at once, so a write made
+   * as the plugin unloads still lands, as Decaid finishes them, and answered
+   * in a later turn, while the plugin is still loaded.
+   */
+  private storageCommand(command: unknown): void {
+    const answer = this.storage.carryOut(command);
+    if (answer) setImmediate(() => this.fire(answer.name, answer.payload));
   }
 
   /** Loses the network: every connection ends without a close handshake, as if the Wi-Fi dropped. */
@@ -550,6 +678,11 @@ export class SimulatedTablet {
       // Every id at once, unpaginated, in the order of Decaid's primary key index.
       const ids = Object.keys(this.api).filter((path) => path.startsWith("/steams/")).map((path) => decodeURIComponent(path.slice("/steams/".length)));
       return response(200, JSON.stringify(ids.sort()));
+    }
+    // The plugin's own storage, as Decaid's store API reads it.
+    const [, store, namespace, key, ...rest] = route.split("/");
+    if (store === "store" && namespace === encodeURIComponent(this.pluginId) && rest.length === 0) {
+      return response(200, JSON.stringify(this.storage.readThroughApi(key === undefined ? undefined : decodeURIComponent(key))));
     }
     const answer = this.api[route];
     if (answer instanceof Refusal) return response(answer.status, JSON.stringify(answer.body));

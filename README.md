@@ -257,8 +257,16 @@ curl -X POST http://<tablet>:8080/api/v1/plugins/install/github-release \
 
 Decaid records where the plugin came from and updates it with its other update
 checks, or when you press **Check for updates** under Plugins
-(`POST /api/v1/plugins/update` does the same). An update that asks for new
-permissions waits under Plugins for approval.
+(`POST /api/v1/plugins/update` does the same). Decaid installs an update by
+itself only when it asks for no new permissions. One that does waits under
+Plugins, saying it needs approval and which permissions it adds, until someone
+at that tablet presses **Review**, then **Approve and update**, or sends
+`POST /api/v1/plugins/decent-sync.reaplugin/update/approve` to the tablet's API.
+Each tablet needs its own approval. The update that gives each tablet an id
+is one: it adds `pluginStorage`, the permission to keep that id in Decaid's
+plugin storage. Its server refuses the plugin before it, so until a tablet's
+update is approved, that tablet stays disconnected and its Machine offline.
+[UPGRADING.md](UPGRADING.md) lists what each release needs.
 
 Then enter the server URL and the Machine's token in the plugin's settings.
 Both are shown once, with copy buttons, when an Admin creates the Machine's
@@ -267,6 +275,18 @@ shown again: issue a new one from the Machine's page, which disconnects any
 tablet still using the old one. The plugin connects to
 `ws(s)://<server host>/sync`, derived from the server URL, and the Machine
 shows as online.
+
+On its first run on a tablet, the plugin gives the tablet an id, which it keeps
+in Decaid's plugin storage, where it survives plugin updates. The Machine's
+page shows the tablet its latest connection came from, and its earlier ones.
+Resetting the tablet's Decaid data, or replacing the tablet, makes a new tablet
+there. Decaid's backups hold the id only once Decaid's store API has read the
+plugin's storage since Decaid started, which the plugin asks for as it loads
+and again every 30 s until Decaid answers. Restoring such a backup brings back
+the tablet it came from, provided the restore puts the id back: restore before
+installing the plugin, as Decaid's onboarding does, or choose to overwrite
+existing data. Otherwise the tablet keeps the new id it was given, and shows
+up as a new tablet.
 
 | Setting | |
 |---|---|
@@ -331,7 +351,9 @@ without publishing either.
 One version covers the whole repo. It lives in the root `package.json`, and the
 plugin build copies it into `decent-sync.reaplugin/manifest.json`.
 
-1. Set the version and rebuild the plugin, then commit both and merge to `main`:
+1. Set the version, rebuild the plugin, and retitle the Unreleased notes in
+   `UPGRADING.md`, if any, with the version. Commit the changes and merge them
+   to `main`:
    ```bash
    npm version 0.2.0 --no-git-tag-version
    npm run build -w plugin
@@ -341,12 +363,17 @@ plugin build copies it into `decent-sync.reaplugin/manifest.json`.
    `main` rather than the tagged commit.
 
 The [release workflow](.github/workflows/release.yml) then fails unless the tag
-is `vX.Y.Z` matching the committed manifest's version and CI has passed on the
-tagged commit as a push to `main` (waiting for it rather than running it
-again), publishes the server image (amd64 and arm64) to
-`ghcr.io/loganfuller/decent-sync` as `0.2.0`, `0.2` and `latest`, and finally
-creates the GitHub release with `decent-sync.reaplugin-v0.2.0.zip` as its only
-asset. Decaid's release install and update read the latest release, and refuse
+is `vX.Y.Z` matching the committed manifest's version, `UPGRADING.md` has no
+notes left under Unreleased, and CI has passed on the tagged commit as a push
+to `main` (waiting for it rather than running it again), publishes the server
+image (amd64 and arm64) to `ghcr.io/loganfuller/decent-sync` as `0.2.0`, `0.2`
+and `latest`, and finally creates the GitHub release with
+`decent-sync.reaplugin-v0.2.0.zip` as its only asset. Its notes start with the
+version's section of `UPGRADING.md` (`scripts/release-notes.mjs`), followed by
+GitHub's notes generated from the pull requests merged since the last release.
+Anything owners must do when upgrading, such as approving a plugin update that
+adds a permission on every tablet, goes in `UPGRADING.md` under Unreleased.
+Decaid's release install and update read the latest release, and refuse
 prerelease-style tags, so publish only versions meant for every Machine.
 
 ## Milestones

@@ -129,6 +129,9 @@ var __decentSync = (() => {
     if (a === null || b === null) return a === b;
     return a.model.trim() === b.model.trim() && a.serial.trim() === b.serial.trim();
   }
+  function isTabletId(value) {
+    return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  }
   function encode(message) {
     return JSON.stringify(message);
   }
@@ -185,6 +188,10 @@ var __decentSync = (() => {
     /** The id of a delivery or a chunk. */
     id() {
       this.string("id", { nonEmpty: true, maxLength: MAX_ID_LENGTH });
+    }
+    /** A UUID, in either case, as a tablet id is. */
+    uuid(key) {
+      if (!isTabletId(this.object[key])) this.problem(key, "must be a UUID");
     }
     optionalString(key) {
       const value = this.object[key];
@@ -362,6 +369,13 @@ var __decentSync = (() => {
     const body = await response.json();
     if (body === null || typeof body !== "object" || Array.isArray(body)) throw new Error("Record response unavailable");
     return body;
+  }
+  async function keepStorageInBackups() {
+    try {
+      return (await fetch(`${API}/store/${encodeURIComponent("decent-sync.reaplugin")}`)).ok;
+    } catch {
+      return false;
+    }
   }
   async function readCollection(path, etag) {
     try {
@@ -1004,6 +1018,113 @@ var __decentSync = (() => {
     return (offset.startsWith("-") ? -1 : 1) * (hours * 60 + minutes);
   }
 
+  // src/tablet-id.ts
+  var KEY = "tabletId";
+  var STORAGE_TIMEOUT_MS = 1e4;
+  var BACKUP_RETRY_MS = 3e4;
+  var TabletId = class {
+    constructor(host, log) {
+      __publicField(this, "host", host);
+      __publicField(this, "log", log);
+      /** Known once read or made, for as long as this load lasts. */
+      __publicField(this, "id");
+      /** The read of the id under way, shared by callers meanwhile. */
+      __publicField(this, "reading");
+      /** Commands go one at a time. */
+      __publicField(this, "waiting");
+      /** The next attempt to have Decaid's backups include the id, while one is due. */
+      __publicField(this, "backupRetry");
+      __publicField(this, "stopped", false);
+    }
+    /**
+     * The tablet's id: the one in plugin storage, or, if that key was never
+     * written, a new one, once Decaid has written it there. Rejects, saying
+     * why, if Decaid refuses or does not answer in time; reading again later
+     * retries.
+     */
+    read() {
+      if (this.id !== void 0) return Promise.resolve(this.id);
+      this.reading ?? (this.reading = this.readOrMake().finally(() => {
+        this.reading = void 0;
+      }));
+      return this.reading;
+    }
+    /** A Decaid event, which may answer the storage command awaiting one. */
+    answered(name, payload) {
+      const waiting = this.waiting;
+      if (!waiting || name !== waiting.event || !waiting.answers(payload)) return;
+      this.settle();
+      waiting.resolve(payload);
+    }
+    stop() {
+      this.stopped = true;
+      if (this.backupRetry !== void 0) clearTimeout(this.backupRetry);
+      this.settle()?.reject(new Error("the plugin is unloading"));
+    }
+    async readOrMake() {
+      const read = await this.command("a read of this tablet's id", { type: "read", key: KEY }, "storageRead", (payload) => {
+        return typeof payload === "object" && payload !== null && payload.key === KEY;
+      });
+      const stored = read.value ?? null;
+      if (isTabletId(stored)) return this.known(stored);
+      const made = newTabletId();
+      await this.command("the write of this tablet's new id", { type: "write", key: KEY, data: made }, "storageWrite", (payload) => payload === made);
+      this.log(
+        stored === null ? `This tablet had no id in Decaid's plugin storage, so it was given one: ${made}.` : `This tablet's id in Decaid's plugin storage was not a UUID, so it was given a new one: ${made}.`
+      );
+      return this.known(made);
+    }
+    /** Keeps the id, once read or written, for this load, and has Decaid's backups include it. */
+    known(id) {
+      this.id = id;
+      void this.keepInBackups();
+      return id;
+    }
+    /** Has Decaid's store API read the plugin's storage, so backups hold the id, asking again until it answers. */
+    async keepInBackups() {
+      if (await keepStorageInBackups() || this.stopped) return;
+      this.backupRetry = setTimeout(() => {
+        this.backupRetry = void 0;
+        void this.keepInBackups();
+      }, BACKUP_RETRY_MS);
+    }
+    /**
+     * Sends a storage command, `what` for the log, and resolves with the
+     * payload of the `event` that `answers` it.
+     */
+    command(what, command, event, answers) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.settle();
+          reject(new Error(`Decaid's plugin storage did not answer ${what} within ${STORAGE_TIMEOUT_MS / 1e3} s`));
+        }, STORAGE_TIMEOUT_MS);
+        this.waiting = { event, answers, resolve, reject, timer };
+        try {
+          this.host.storage(command);
+        } catch (error) {
+          this.settle();
+          reject(new Error(`Decaid refused ${what}: ${error instanceof Error ? error.message : String(error)}`));
+        }
+      });
+    }
+    /** Stops waiting for the answer to the command, returning what waited. */
+    settle() {
+      const waiting = this.waiting;
+      if (waiting) clearTimeout(waiting.timer);
+      this.waiting = void 0;
+      return waiting;
+    }
+  };
+  function newTabletId() {
+    const hex2 = (digits) => {
+      let text = "";
+      for (let digit = 0; digit < digits; digit++) text += Math.floor(Math.random() * 16).toString(16);
+      return text;
+    };
+    const variant = (8 + Math.floor(Math.random() * 4)).toString(16);
+    return `${hex2(8)}-${hex2(4)}-4${hex2(3)}-${variant}${hex2(3)}-${hex2(12)}`;
+  }
+
   // src/connection.ts
   var MIN_RECONNECT_MS = 1e3;
   var MAX_RECONNECT_MS = 6e4;
@@ -1046,6 +1167,8 @@ var __decentSync = (() => {
       __publicField(this, "steams");
       __publicField(this, "machineEvents");
       __publicField(this, "collections");
+      /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
+      __publicField(this, "tabletId");
       __publicField(this, "checkingHardware", false);
       __publicField(this, "hardwareCooldown", false);
       this.outbox = new Outbox(log, {
@@ -1056,6 +1179,7 @@ var __decentSync = (() => {
       this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1e3, log);
       this.machineEvents = new MachineEvents(this.outbox);
       this.collections = new CollectionCapture(this.outbox, settings.pollSeconds * 1e3);
+      this.tabletId = new TabletId(host, log);
     }
     /** Connects from a timer, so the caller (onLoad) returns at once. */
     start() {
@@ -1079,12 +1203,17 @@ var __decentSync = (() => {
     shotEvent(type, payload) {
       this.shots.event(type, payload);
     }
+    /** Decaid's answer to a command to its plugin storage. */
+    storageEvent(name, payload) {
+      this.tabletId.answered(name, payload);
+    }
     stop() {
       this.stopped = true;
       this.outbox.stop();
       this.shots.stop();
       this.steams.stop();
       this.collections.stop();
+      this.tabletId.stop();
       for (const id of this.timers.values()) clearTimeout(id);
       this.timers.clear();
       this.closeHandle();
@@ -1103,6 +1232,14 @@ var __decentSync = (() => {
       this.connecting = true;
       const attempt = ++this.attempt;
       try {
+        let tabletId;
+        try {
+          tabletId = await this.tabletId.read();
+        } catch (error) {
+          if (attempt === this.attempt) this.drop(describe(error));
+          return;
+        }
+        if (this.stopped || attempt !== this.attempt) return;
         const identity = await readTabletIdentity();
         if (this.stopped || attempt !== this.attempt) return;
         if (identity.decaidVersion === null) {
@@ -1136,6 +1273,7 @@ var __decentSync = (() => {
           token: this.settings.token,
           pluginVersion: "0.2.1",
           decaidVersion: identity.decaidVersion,
+          tabletId,
           connectionId: identity.connectionId,
           machine: identity.machine
         });
@@ -1403,6 +1541,7 @@ var __decentSync = (() => {
         if (event?.name === "shotUpdated") connection?.shotEvent("shotUpdated", event.payload);
         if (event?.name === "workflowUpdated") connection?.workflowUpdated(event.payload);
         if (event?.name === "stateUpdate") connection?.stateUpdate(event.payload);
+        if (event?.name === "storageRead" || event?.name === "storageWrite") connection?.storageEvent(event.name, event.payload);
       }
     };
   }
