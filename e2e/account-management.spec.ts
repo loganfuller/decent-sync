@@ -284,12 +284,51 @@ test("a session read answered before signing out does not sign the person back i
 
   const answered = samsPage.waitForResponse((response) => new URL(response.url()).pathname === "/api/session");
   read.release();
-  baseExpect((await answered).status()).toBe(200);
-  // Nothing should happen, so give the page time to act on the answer, which takes it milliseconds.
-  await samsPage.waitForTimeout(500);
+  const answer = await answered;
+  baseExpect(answer.status()).toBe(200);
+  await answer.finished();
+
+  // The page got the answer before Sam tries a wrong password, whose answer comes back later still. Signed back in,
+  // the page would have left the sign-in form; it stays, with that refusal's own message.
+  await samsPage.getByLabel("Email").fill(sam.email, { timeout: 5_000 });
+  await samsPage.getByLabel("Password").fill("not Sam's password", { timeout: 5_000 });
+  await samsPage.getByRole("button", { name: "Sign in" }).click({ timeout: 5_000 });
+  await baseExpect(samsPage.getByRole("alert")).toHaveText("The email or password is incorrect");
   await baseExpect(samsPage).toHaveURL(/\/sign-in$/);
-  await baseExpect(samsPage.getByRole("heading", { name: "Sign in to Decent Sync" })).toBeVisible();
   await baseExpect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toHaveCount(0);
+  await samsPage.context().close();
+});
+
+test("a session read another read overtook leaves later refusals reading the session", async ({ page, browser }) => {
+  const uptown = await locationId(page, "Uptown");
+  await setAccess(page, sam.email, { role: "admin", locationIds: [] });
+  const samsPage = await signedInPage(browser);
+  await samsPage.goto("/accounts");
+  const form = samsPage.getByRole("form", { name: "Invite someone" });
+  await expect(accountRow(samsPage, sam.email)).toBeVisible();
+
+  // Made Staff, Sam is refused creating an invite, and the session read that follows waits on the network.
+  await setAccess(page, sam.email, { role: "staff", locationIds: [uptown] });
+  const read = await holdNextGet(samsPage, "/session", { answerNow: false });
+  await form.getByLabel("Email").fill("lee@example.com");
+  await form.getByRole("button", { name: "Create invite" }).click();
+  await read.held;
+
+  // Made an Admin again meanwhile, Sam saves their own role, which reads the session too, overtaking the first read.
+  // The first then fails, which leaves Sam signed in as the second found.
+  await setAccess(page, sam.email, { role: "admin", locationIds: [] });
+  await accountRow(samsPage, sam.email).getByRole("button", { name: `Edit ${sam.name}'s role` }).click();
+  const overtaking = samsPage.waitForResponse((response) => new URL(response.url()).pathname === "/api/session" && response.ok());
+  await samsPage.getByRole("dialog", { name: `Role of ${sam.name}` }).getByRole("button", { name: "Save" }).click();
+  await overtaking;
+  read.fail();
+  await expect(form.getByRole("alert")).toHaveText("Only an Admin can do this");
+
+  // Made Staff again, Sam's next invite is refused, and that refusal reads the session again.
+  await setAccess(page, sam.email, { role: "staff", locationIds: [uptown] });
+  await form.getByRole("button", { name: "Create invite" }).click();
+  await expect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toBeVisible();
+  await expect(samsPage.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Accounts" })).toHaveCount(0);
   await samsPage.context().close();
 });
 
@@ -349,12 +388,13 @@ async function locationId(page: Page, name: string): Promise<string> {
 /**
  * Holds the page's next GET of a REST API path until `release()`. With
  * `answerNow`, the server answers it at once and the page gets the answer only
- * then; without, the server gets the request only then. `held` resolves once
- * the request is held, and answered if `answerNow`.
+ * then; without, the server gets the request only then. `fail()` instead
+ * fails it as a network error would. `held` resolves once the request is
+ * held, and answered if `answerNow`.
  */
 async function holdNextGet(page: Page, path: string, { answerNow }: { answerNow: boolean }) {
-  let release!: () => void;
-  const released = new Promise<void>((resolve) => (release = resolve));
+  let settle!: (outcome: "release" | "fail") => void;
+  const settled = new Promise<"release" | "fail">((resolve) => (settle = resolve));
   let hold!: () => void;
   const held = new Promise<void>((resolve) => (hold = resolve));
   let holding = false;
@@ -363,10 +403,10 @@ async function holdNextGet(page: Page, path: string, { answerNow }: { answerNow:
     holding = true;
     const response = answerNow ? await route.fetch() : undefined;
     hold();
-    await released;
+    if ((await settled) === "fail") return route.abort("failed");
     await (response ? route.fulfill({ response }) : route.continue());
   });
-  return { held, release };
+  return { held, release: () => settle("release"), fail: () => settle("fail") };
 }
 
 /** Sets an account's role and Locations through the REST API, as the Accounts page does. */

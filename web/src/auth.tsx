@@ -56,19 +56,23 @@ const AuthContext = createContext<Auth | undefined>(undefined);
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading" });
-  // Counts the session reads started and the sign-ins and sign-outs made here. A read's answer applies only if
-  // nothing started or changed after it, so one the server answered before someone signed out can't sign them back in.
-  const changes = useRef(0);
+  // The newest session read, or the state the newest sign-in or sign-out set. A read's answer applies only if
+  // nothing overtook it, so one the server answered before someone signed out can't sign them back in.
+  const latest = useRef<Promise<AuthState> | undefined>(undefined);
 
   const change = useCallback((next: AuthState) => {
-    changes.current++;
+    latest.current = Promise.resolve(next);
     setState(next);
   }, []);
 
-  const reread = useCallback(async () => {
-    const started = ++changes.current;
-    const read = await readSession();
-    if (changes.current === started) setState(read);
+  // Resolves to the state in effect once it is done: its own answer, or that of what overtook it.
+  const reread = useCallback((): Promise<AuthState> => {
+    const read: Promise<AuthState> = readSession().then((found) => {
+      if (latest.current !== read) return latest.current!;
+      setState(found);
+      return found;
+    });
+    latest.current = read;
     return read;
   }, []);
 
@@ -92,12 +96,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return (following ??= reading.then((found) => {
         following = undefined;
-        // Finding nobody signed in, or the server unreachable, answers them all: Gate is leaving the page.
+        // Nobody signed in, or the server unreachable, answers them all: Gate is leaving the page.
         return found.status === "signed-in" ? read() : found;
       }));
     };
     return onRefusal(async () => {
-      // A read found nobody signed in, or the server unreachable, and Gate is leaving the page.
+      // A read left nobody signed in, or the server unreachable, and Gate is leaving the page.
       if (signedOut) return;
       if ((await read()).status !== "signed-in") signedOut = true;
     });
