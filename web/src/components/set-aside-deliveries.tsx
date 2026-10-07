@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type SetAsideDeliveryPage } from "@/lib/api";
-import { usePolled } from "@/lib/use-polled";
+import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
 const PAGE_SIZE = 20;
 
@@ -31,7 +31,7 @@ export function SetAsideDeliveriesCard({ machineId }: { machineId: string }) {
     const query = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
     return { offset, page: await api<SetAsideDeliveryPage>("GET", `/machines/${encodeURIComponent(machineId)}/set-aside-deliveries?${query}`) };
   }, [machineId, offset]);
-  const { data, error } = usePolled(load);
+  const { data, error } = usePolled(load, DETAILS_POLL_MS);
 
   if (!data) {
     return error ? (

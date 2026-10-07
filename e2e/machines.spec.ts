@@ -347,6 +347,37 @@ test("the Machine page shows when another tablet took it over, and from where, a
   await expect(field(page, "Status")).toHaveText("Online");
 });
 
+test("the Machine page shows a mismatch and its status while what its tablet reported cannot be read, and none held once its Pending Machine is gone", async ({ page }) => {
+  const settings = await createMachine(page, "Unread");
+  // Bound to serial 10050, its token then reports 10051, which no Machine has.
+  const binding = await RawConnection.welcomed(settings.serverUrl, helloWith(settings.token, { machine: { model: "DE1Pro", serial: "10050" } }));
+  connections.push(binding);
+  await binding.close();
+  connections.push(await RawConnection.welcomed(settings.serverUrl, helloWith(settings.token, { machine: { model: "DE1Pro", serial: "10051" } })));
+
+  // Its Workflow, paired devices, settings and library cannot be read.
+  await page.route(/\/api\/machines\/[^/]+\/(workflow|paired-devices|collections)/, (route) =>
+    route.fulfill({ status: 500, json: { message: "Not readable right now" } }),
+  );
+  await page.goto("/machines");
+  await machineRow(page, "Unread").getByRole("link", { name: "Unread" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Not readable right now" })).toBeVisible();
+  await expect(field(page, "Status")).toHaveText("Online");
+  const mismatch = page.getByRole("region", { name: "Mismatch" });
+  await expect(mismatch).toContainText("No machine entry covers DE1Pro serial 10051, so what the tablet sends is held as a Pending Machine.");
+  await expect(mismatch.getByRole("button", { name: "Dismiss" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Workflow" })).toHaveCount(0);
+
+  // Its Pending Machine is gone when the page asks for it, as when a machine entry takes its hardware over meanwhile.
+  await page.unrouteAll();
+  await page.route(/\/api\/pending-machines\/[^/]+$/, (route) => route.fulfill({ status: 404, json: { message: "No such Pending Machine" } }));
+  await page.reload();
+  await expect(page.getByRole("region", { name: "Workflow" })).toBeVisible();
+  await expect(mismatch).toContainText("No machine entry covers DE1Pro serial 10051.");
+  await expect(mismatch.getByRole("button", { name: "Dismiss" })).toHaveCount(0);
+  await expect(page.getByRole("alert").filter({ hasText: "No such Pending Machine" })).toHaveCount(0);
+});
+
 /** Creates a machine entry through the REST API, for tests about what follows. */
 async function createMachine(page: Page, name: string): Promise<{ serverUrl: string; token: string }> {
   const response = await page.request.post("/api/machines", { data: { name } });

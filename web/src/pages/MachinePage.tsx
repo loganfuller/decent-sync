@@ -42,13 +42,11 @@ import {
   type TakeoverConnection,
   type WorkflowEvent,
 } from "@/lib/api";
-import { usePolled } from "@/lib/use-polled";
+import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 import { formatInZone, fromZonedInput, toZonedInput } from "@/lib/zoned-time";
 
-interface MachineData {
-  machine: Machine;
-  /** The Pending Machine holding a mismatch's hardware, if one does. */
-  pending: PendingMachine | null;
+/** What a Machine's tablet reported besides its status, which changes less often. */
+interface Reports {
   /** Its current Workflow, or null until its tablet reports one. */
   workflow: WorkflowEvent | null;
   pairedDevices: PairedDevices;
@@ -63,6 +61,12 @@ interface MachineData {
  * its Location, its token, and resolving its identity. Staff see all of it,
  * and can move it between the Locations they work at; every other change is
  * for Admins.
+ *
+ * The Machine itself, with its status, is loaded every few seconds; the rest
+ * changes less often, and is loaded less often. A change made here loads
+ * again at once all it can change: the Machine, what its tablet reported and
+ * a mismatch's Pending Machine. No change made here alters the deliveries set
+ * aside, which keep their own interval.
  */
 export function MachinePage() {
   const { id = "" } = useParams();
@@ -73,38 +77,56 @@ export function MachinePage() {
 function MachineDetails({ id }: { id: string }) {
   const isAdmin = useIsAdmin();
   const [notFound, setNotFound] = useState(false);
-  const load = useCallback(async (): Promise<MachineData> => {
+  const path = `/machines/${encodeURIComponent(id)}`;
+  const loadMachine = useCallback(async () => {
     try {
-      const path = `/machines/${encodeURIComponent(id)}`;
-      const settingNames = Object.keys(SETTINGS) as (keyof typeof SETTINGS)[];
-      const [{ machine }, { workflow }, { pairedDevices }, { collections }, settings] = await Promise.all([
-        api<{ machine: Machine }>("GET", path),
-        api<{ workflow: WorkflowEvent | null }>("GET", `${path}/workflow`),
-        api<{ pairedDevices: PairedDevices }>("GET", `${path}/paired-devices`),
-        api<{ collections: CollectionSummary[] }>("GET", `${path}/collections`),
-        Promise.all(settingNames.map((name) => api<{ collection: Collection | null }>("GET", `${path}/collections/${name}`))),
-      ]);
-      const pendingId = machine.mismatch?.pendingMachineId;
-      const pending = pendingId
-        ? ((await api<{ pendingMachines: PendingMachine[] }>("GET", "/pending-machines")).pendingMachines.find(
-            (candidate) => candidate.id === pendingId,
-          ) ?? null)
-        : null;
+      const { machine } = await api<{ machine: Machine }>("GET", path);
       setNotFound(false);
-      return {
-        machine,
-        pending,
-        workflow,
-        pairedDevices,
-        collections,
-        settings: Object.fromEntries(settingNames.map((name, index) => [name, settings[index]!.collection])) as MachineData["settings"],
-      };
+      return machine;
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) setNotFound(true);
       throw error;
     }
-  }, [id]);
-  const { data, error, reload } = usePolled(load);
+  }, [path]);
+  const status = usePolled(loadMachine);
+  const loadReports = useCallback(async (): Promise<Reports> => {
+    const settingNames = Object.keys(SETTINGS) as (keyof typeof SETTINGS)[];
+    const [{ workflow }, { pairedDevices }, { collections }, settings] = await Promise.all([
+      api<{ workflow: WorkflowEvent | null }>("GET", `${path}/workflow`),
+      api<{ pairedDevices: PairedDevices }>("GET", `${path}/paired-devices`),
+      api<{ collections: CollectionSummary[] }>("GET", `${path}/collections`),
+      Promise.all(settingNames.map((name) => api<{ collection: Collection | null }>("GET", `${path}/collections/${name}`))),
+    ]);
+    return {
+      workflow,
+      pairedDevices,
+      collections,
+      settings: Object.fromEntries(settingNames.map((name, index) => [name, settings[index]!.collection])) as Reports["settings"],
+    };
+  }, [path]);
+  const reports = usePolled(loadReports, DETAILS_POLL_MS);
+  // The Pending Machine holding a mismatch's hardware, loaded as soon as the Machine's status names one.
+  const pendingId = status.data?.mismatch?.pendingMachineId ?? null;
+  // Each answer names the id it was for, so one for an id the status no longer names is never shown.
+  const loadPending = useCallback(async (): Promise<{ id: string | null; pendingMachine: PendingMachine | null }> => {
+    if (pendingId === null) return { id: null, pendingMachine: null };
+    try {
+      const path = `/pending-machines/${encodeURIComponent(pendingId)}`;
+      return { id: pendingId, pendingMachine: (await api<{ pendingMachine: PendingMachine }>("GET", path)).pendingMachine };
+    } catch (error) {
+      // A machine entry took its hardware over meanwhile, which the Machine's status shows next.
+      if (error instanceof ApiError && error.status === 404) return { id: pendingId, pendingMachine: null };
+      throw error;
+    }
+  }, [pendingId]);
+  const pending = usePolled(loadPending, DETAILS_POLL_MS);
+  const { reload: reloadStatus } = status;
+  const { reload: reloadReports } = reports;
+  const { reload: reloadPending } = pending;
+  const reload = useCallback(async () => {
+    await Promise.all([reloadStatus(), reloadReports(), reloadPending()]);
+  }, [reloadStatus, reloadReports, reloadPending]);
+  const error = status.error ?? reports.error ?? pending.error;
   const [issued, setIssued] = useState<IssuedToken>();
   const [actionError, setActionError] = useState<string>();
 
@@ -132,7 +154,10 @@ function MachineDetails({ id }: { id: string }) {
     );
   }
 
-  const machine = data?.machine;
+  const machine = status.data;
+  const data = reports.data;
+  // Undefined while the Pending Machine the status names is loading.
+  const pendingMachine = pendingId === null ? null : pending.data?.id === pendingId ? pending.data.pendingMachine : undefined;
   return (
     <section className="grid gap-6">
       <BackLink />
@@ -160,7 +185,7 @@ function MachineDetails({ id }: { id: string }) {
           {machine.takeover && <TakeoverAlert takeover={machine.takeover} />}
 
           {machine.mismatch && (
-            <Mismatch machine={machine} pending={data.pending} isAdmin={isAdmin} onCreated={created} onDismissed={reload} />
+            <Mismatch machine={machine} pending={pendingMachine} isAdmin={isAdmin} onCreated={created} onDismissed={reload} />
           )}
           {isAdmin &&
             needsHardware(machine) &&
@@ -275,10 +300,15 @@ function MachineDetails({ id }: { id: string }) {
           </div>
 
           <MachineTablets machine={machine} />
-          <MachineWorkflow current={data.workflow} />
-          <PairedDevicesCard devices={data.pairedDevices} />
-          <SettingsCard settings={data.settings} workflow={data.workflow} />
-          <LibraryCard collections={data.collections} />
+          {/* Shown once loaded: the status above does not wait for them. */}
+          {data && (
+            <>
+              <MachineWorkflow current={data.workflow} />
+              <PairedDevicesCard devices={data.pairedDevices} />
+              <SettingsCard settings={data.settings} workflow={data.workflow} />
+              <LibraryCard collections={data.collections} />
+            </>
+          )}
           <MachineLocation machine={machine} isAdmin={isAdmin} onChanged={reload} />
         </>
       )}
@@ -778,7 +808,8 @@ function Mismatch({
   onDismissed,
 }: {
   machine: Machine;
-  pending: PendingMachine | null;
+  /** The Pending Machine holding the hardware, null if none does, or undefined while it is loading. */
+  pending: PendingMachine | null | undefined;
   isAdmin: boolean;
   onCreated(issued: IssuedToken): void;
   onDismissed(): Promise<void>;
@@ -820,7 +851,7 @@ function Mismatch({
             {isAdmin && <PendingMachineActions pending={pending} onCreated={onCreated} onDismissed={onDismissed} />}
           </>
         ) : (
-          <p>No machine entry covers {hardware}.</p>
+          pending === null && <p>No machine entry covers {hardware}.</p>
         )}
         {!isAdmin && <p>An Admin can resolve this.</p>}
       </CardContent>

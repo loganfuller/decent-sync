@@ -211,9 +211,13 @@ var __decentSync = (() => {
     uuid(key) {
       if (!isTabletId(this.object[key])) this.problem(key, "must be a UUID");
     }
-    optionalString(key) {
+    optionalString(key, options = {}) {
       const value = this.object[key];
-      if (value !== void 0 && value !== null && typeof value !== "string") this.problem(key, "must be a string or null");
+      if (value === void 0 || value === null) return;
+      if (typeof value !== "string") this.problem(key, "must be a string or null");
+      else if (options.maxLength !== void 0 && value.length > options.maxLength) {
+        this.problem(key, `must be at most ${options.maxLength} characters`);
+      }
     }
     integer(key, options = {}) {
       const value = this.object[key];

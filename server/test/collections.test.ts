@@ -435,6 +435,69 @@ describe("Library, settings and paired devices", () => {
     expect((await collection(machine, "machineSettings"))!.value).toEqual(newer.value);
   }, 20_000);
 
+  it("records when a value delivered again was reported and received, and stores a changed one", async () => {
+    const machine = await api.createMachine("Reconnecting");
+    const hardware = { model: "DE1Pro", serial: "31001" };
+    const profiles = de1ProOnDecaid087()["/profiles"] as Record<string, unknown>[];
+    const first = await connect(machine, server.url, hardware);
+    await first.deliver(report("profiles", profiles));
+    const before = (await collection(machine, "profiles"))!;
+    await first.close();
+
+    // A reconnect, through any instance, sends it again unchanged.
+    const second = await connect(machine, other.url, hardware);
+    await second.deliver(report("profiles", profiles));
+    const resent = (await collection(machine, "profiles"))!;
+    expect(resent).toMatchObject({ available: true, value: profiles, items: profiles.length });
+    expect(Date.parse(resent.reportedAt)).toBeGreaterThan(Date.parse(before.reportedAt));
+    expect(Date.parse(resent.receivedAt!)).toBeGreaterThan(Date.parse(before.receivedAt!));
+
+    // Derived: one profile renamed, and one deleted.
+    const changed = profiles.slice(1).map((profile, index) => (index === 0 ? { ...profile, title: "Londonium, longer" } : profile));
+    await second.deliver(report("profiles", changed));
+    expect(await collection(machine, "profiles")).toMatchObject({ available: true, value: changed, items: changed.length });
+  });
+
+  it("does not write a value delivered again, keeping the TOAST data that holds it", async (context) => {
+    const database = await server.connectDatabase();
+    try {
+      // Writing a value again stores new TOAST chunks, under a new id, and deletes the old ones. Before
+      // PostgreSQL 17, no function names that id, and only a superuser may read the TOAST relation.
+      const { rows } = await database.query<{ version: number }>("SELECT current_setting('server_version_num')::int AS version");
+      if (rows[0]!.version < 170000) context.skip("pg_column_toast_chunk_id() needs PostgreSQL 17 or later");
+
+      const machine = await api.createMachine("Reconnecting to TOAST");
+      const hardware = { model: "DE1Pro", serial: "31002" };
+      const profiles = de1ProOnDecaid087()["/profiles"] as Record<string, unknown>[];
+      const toastId = async () =>
+        (
+          await database.query<{ id: string | null }>(
+            "SELECT pg_column_toast_chunk_id(value)::text AS id FROM reported_collections WHERE machine_id = $1 AND name = 'profiles'",
+            [machine.machine.id],
+          )
+        ).rows[0]!.id;
+      const first = await connect(machine, server.url, hardware);
+      await first.deliver(report("profiles", profiles));
+      const stored = await toastId();
+      // Large enough to be kept out of line, as profiles usually are.
+      expect(stored).not.toBeNull();
+      await first.close();
+
+      // A reconnect, through any instance, sends it again unchanged; then it is unavailable, then the same again.
+      const second = await connect(machine, other.url, hardware);
+      for (const again of [report("profiles", profiles), report("profiles"), report("profiles", profiles)]) {
+        await second.deliver(again);
+        expect(await toastId()).toBe(stored);
+      }
+
+      // Derived: one profile renamed. A changed value is written.
+      await second.deliver(report("profiles", profiles.map((profile, index) => (index === 0 ? { ...profile, title: "Londonium, longer" } : profile))));
+      expect(await toastId()).not.toBe(stored);
+    } finally {
+      await database.end();
+    }
+  });
+
   it("stores a mismatched connection's collection once, for the Machine that has its hardware or its Pending Machine, however often it arrives", async () => {
     const owner = await api.createMachine("Owner of 30901");
     await (await connect(owner, server.url, { model: "DE1Pro", serial: "30901" })).close();

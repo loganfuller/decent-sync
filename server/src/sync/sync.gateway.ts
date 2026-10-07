@@ -401,7 +401,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
 
   private async hello(session: Session, hello: Hello): Promise<void> {
     clearTimeout(session.helloTimer);
-    const outcome = await this.machines.acceptHello(hello, { sessionId: session.id, remoteAddress: session.remote }, new Date());
+    const outcome = await this.machines.acceptHello(hello, { sessionId: session.id, remoteAddress: session.remote });
     if (!outcome.accepted) return this.refuse(session, outcome.code, outcome.reason);
 
     const { machine, identity, hardware, tookOverFrom } = outcome;

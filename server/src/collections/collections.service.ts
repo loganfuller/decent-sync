@@ -46,6 +46,12 @@ type Row = { name: string; available: boolean; reportedAt: Date; receivedAt: Dat
  * ahead of newer ones, and its resend waits for it, so it cannot replace a
  * newer value. An unavailable report keeps the value already known, and says
  * only that the latest read had none.
+ *
+ * The plugin sends every collection on every `welcome`, changed or not. A
+ * value equal to the one stored, as jsonb compares them, is left as stored
+ * rather than written again, so a large one, such as profiles, does not
+ * rewrite its TOAST data and WAL on every reconnect. Its report time,
+ * received time and item count are recorded as for a changed value.
  */
 @Injectable()
 export class CollectionsService {
@@ -69,7 +75,11 @@ export class CollectionsService {
         ON CONFLICT (${holder}, name) DO UPDATE SET
           available = EXCLUDED.available,
           reported_at = EXCLUDED.reported_at,
-          value = COALESCE(EXCLUDED.value, reported_collections.value),
+          -- Set to itself, the stored value keeps its TOAST data rather than writing it again.
+          value = CASE
+            WHEN EXCLUDED.value IS NULL OR EXCLUDED.value = reported_collections.value THEN reported_collections.value
+            ELSE EXCLUDED.value
+          END,
           received_at = COALESCE(EXCLUDED.received_at, reported_collections.received_at),
           items = CASE WHEN EXCLUDED.available THEN EXCLUDED.items ELSE reported_collections.items END`;
     });

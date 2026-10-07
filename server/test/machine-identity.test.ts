@@ -1,4 +1,4 @@
-import { CLOSE_CODES } from "@decent-sync/protocol";
+import { CLOSE_CODES, MAX_HARDWARE_LENGTH } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type MachineView } from "./support/admin-api.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
@@ -159,6 +159,10 @@ describe("Machine identity", { timeout: 20_000 }, () => {
         dismissed: false,
         mismatchedMachines: [{ id: lab.machine.id, name: "Mismatch lab" }],
       });
+      // Read on its own, as the Machine's page reads it, it is the same.
+      const one = await api.call("GET", `/pending-machines/${pending!.id}`);
+      expect(one.status).toBe(200);
+      expect(await one.json()).toEqual({ pendingMachine: pending });
       expect(await api.machineNamed("Mismatch lab")).toMatchObject({
         // The token stays bound to its own hardware.
         model: "DE1Pro",
@@ -261,6 +265,8 @@ describe("Machine identity", { timeout: 20_000 }, () => {
     });
 
     it("refuses Pending Machine actions on unknown ids and duplicate names", async () => {
+      expect((await api.call("GET", "/pending-machines/not-an-id")).status).toBe(404);
+      expect((await api.call("GET", "/pending-machines/00000000-0000-7000-8000-000000000000")).status).toBe(404);
       expect((await api.call("POST", "/pending-machines/not-an-id/dismiss")).status).toBe(404);
       expect((await api.call("POST", "/pending-machines/00000000-0000-7000-8000-000000000000/machine", { name: "X" })).status).toBe(404);
       const [pending] = await api.pendingMachines();
@@ -450,6 +456,23 @@ describe("Machine identity", { timeout: 20_000 }, () => {
       });
       await new Promise((resolve) => setTimeout(resolve, 1_500));
       expect(tablet.logs.filter((log) => log.startsWith("Disconnected"))).toEqual([]);
+    });
+
+    it("refuses a hello reporting a model, serial or connection id longer than the server can index, writing nothing for it", async () => {
+      const created = await boundMachine("Long hardware", "12001", "00:00:5E:00:53:B0");
+      const [machineBefore, pendingBefore] = await Promise.all([api.machineNamed("Long hardware"), api.pendingMachines()]);
+      const tooLong = "9".repeat(MAX_HARDWARE_LENGTH + 1);
+      for (const [reported, field] of [
+        [{ machine: de1Pro(tooLong) }, "machine.serial"],
+        [{ machine: { ...de1Pro("12002"), model: tooLong } }, "machine.model"],
+        [{ machine: de1Pro("12002"), connectionId: tooLong }, "connectionId"],
+      ] as const) {
+        const raw = await connect(helloWith(created.token, reported));
+        expect(await expectRefusal(raw, "protocol_error")).toBe(`hello.${field} must be at most ${MAX_HARDWARE_LENGTH} characters`);
+      }
+      // No Pending Machine, alias or refusal: the Machine is as it was.
+      expect(await api.machineNamed("Long hardware")).toEqual(machineBefore);
+      expect(await api.pendingMachines()).toEqual(pendingBefore);
     });
 
     it("never lets an invalid token change any Machine's status", async () => {

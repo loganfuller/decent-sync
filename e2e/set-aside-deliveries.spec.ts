@@ -2,6 +2,7 @@ import { expect as baseExpect, type Locator, type Page, test } from "@playwright
 import { derivedShot, withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, de1ProOnDecaid087, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { afterDetailsPolls } from "./support/polling.js";
 
 // Deliveries from a Machine's tablet that the server could not store, on the
 // Machine's page, as an Admin. A simulated tablet running the built plugin
@@ -37,10 +38,13 @@ test("a Shot that cannot be stored is listed on its Machine's page, without what
   tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
 
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto("/machines");
   await machineRow(page, "Bar 1").getByRole("link", { name: "Bar 1" }).click();
   const setAside = page.getByRole("region", { name: "Deliveries set aside" });
-  await expect(setAside).toContainText("1 delivery from its tablet could not be stored");
+  // Loaded every 30 s, as is all but the Machine's status.
+  await afterDetailsPolls(page, () => baseExpect(setAside).toContainText("1 delivery from its tablet could not be stored", { timeout: 2_000 }));
   const rows = setAside.getByRole("table", { name: "Deliveries set aside" }).getByRole("row");
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(1).getByRole("cell")).toHaveText([/^\w{3} \d+, \d{4}, /, "Shot", "nul-shot", /^.+ \((?:22P05|22021)\)$/]);

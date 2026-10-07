@@ -2,6 +2,7 @@ import { expect as baseExpect, type Locator, type Page, test } from "@playwright
 import { derivedShot, withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, de1ProOnDecaid087, derivedWorkflow, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { DETAILS_POLL_MS, POLL_MS, afterDetailsPolls } from "./support/polling.js";
 
 // What a Machine is set up to do and what it is doing, in the management
 // interface, as an Admin in New York. A simulated tablet running the built
@@ -37,6 +38,8 @@ test("the Machines list and Machine page show the machine state, last Shot and c
   await tablet.waitForLog(/^Connected to /);
   tablet.reportState("espresso", "pouring");
 
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto("/machines");
   const row = machineRow(page, "Bar 1");
   await expect(row).toContainText("Espresso: pouring");
@@ -64,12 +67,13 @@ test("the Machines list and Machine page show the machine state, last Shot and c
   ];
   for (const [term, value] of expected) await expect(field(workflow, term)).toHaveText(value);
 
-  // A barista dials in, and the shot ends.
+  // A barista dials in, and the shot ends. The page follows the machine state
+  // within seconds, and loads the Workflow less often.
   tablet.setWorkflow(derivedWorkflow({ targetYield: 40, grinderSetting: "7.5" }));
   tablet.reportState("idle", "idle");
-  await expect(field(workflow, "Yield")).toHaveText("40 g");
-  await expect(field(workflow, "Grind setting")).toHaveText("7.5");
   await expect(field(page, "Machine state")).toHaveText(/^Idle, since /);
+  await afterDetailsPolls(page, () => baseExpect(field(workflow, "Yield")).toHaveText("40 g", { timeout: 2_000 }));
+  await expect(field(workflow, "Grind setting")).toHaveText("7.5");
   await page.goto("/machines");
   await expect(machineRow(page, "Bar 1")).toContainText("Idle");
 });
@@ -85,6 +89,39 @@ test("a Machine whose tablet has reported nothing says so", async ({ page }) => 
   await expect(field(page, "Machine state")).toHaveText("Not reported yet");
   await expect(field(page, "Last Shot")).toHaveText("None");
   await expect(page.getByRole("region", { name: "Workflow" })).toContainText("Its tablet has not reported it yet.");
+});
+
+test("the Machine page asks for its status every 5 s, and for the rest every 30 s", async ({ page }) => {
+  await createMachine(page, "Polled");
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
+  const requested: string[] = [];
+  page.on("request", (request) => requested.push(new URL(request.url()).pathname));
+  await page.goto("/machines");
+  await machineRow(page, "Polled").getByRole("link", { name: "Polled" }).click();
+  await expect(page.getByRole("heading", { name: "Polled", level: 1 })).toBeVisible();
+
+  const status = `/api${new URL(page.url()).pathname}`;
+  const rest = [
+    "/workflow",
+    "/paired-devices",
+    "/collections",
+    "/collections/appSettings",
+    "/collections/machineSettings",
+    "/collections/advancedSettings",
+    "/set-aside-deliveries",
+  ].map((path) => `${status}${path}`);
+  const times = (path: string) => requested.filter((requestedPath) => requestedPath === path).length;
+  const restTimes = () => rest.map(times);
+  await expect.poll(restTimes).toEqual(rest.map(() => 1));
+  const statusTimes = times(status);
+
+  await page.clock.fastForward(POLL_MS);
+  await expect.poll(() => times(status)).toBeGreaterThan(statusTimes);
+  baseExpect(restTimes()).toEqual(rest.map(() => 1));
+
+  await page.clock.fastForward(DETAILS_POLL_MS);
+  await expect.poll(restTimes).toEqual(rest.map(() => 2));
 });
 
 /** Creates a machine entry through the REST API, returning its token. */

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MAX_HARDWARE_LENGTH } from "@decent-sync/protocol";
 import { extractCurves, extractShot, shotHardware, shotVersion } from "../src/shots/extraction.js";
 import { shotFixture } from "./support/shot-fixtures.js";
 
@@ -14,6 +15,9 @@ describe("Shot extraction", () => {
     });
     expect(extractCurves(shot, shot.measurements)).toMatchObject({ duration: 27.935, peakPressure: expect.any(Number), peakFlow: expect.any(Number) });
     expect(shotHardware(shot)).toEqual({ model: "DE1Pro", serial: "10001" });
+    const longest = "9".repeat(MAX_HARDWARE_LENGTH);
+    const workflow = shot.workflow as Record<string, unknown>;
+    expect(shotHardware({ ...shot, workflow: { ...workflow, machine: { model: "DE1Pro", serialNumber: longest } } })).toEqual({ model: "DE1Pro", serial: longest });
   });
 
   it("places Decaid's offset-free local times using the UTC createdAt saved after the last sample", () => {
@@ -56,7 +60,15 @@ describe("Shot extraction", () => {
     expect(extractShot({})).toEqual(Object.fromEntries(Object.keys(extractShot({})).map((key) => [key, null])));
     const fixture = shotFixture();
     const workflow = fixture.workflow as Record<string, unknown>;
-    for (const machine of [undefined, { model: "DE1Pro", serialNumber: "0" }, { model: "DE1Pro", serialNumber: "10001", provenanceStatus: "unavailable" }]) {
+    const tooLong = "9".repeat(MAX_HARDWARE_LENGTH + 1);
+    for (const machine of [
+      undefined,
+      { model: "DE1Pro", serialNumber: "0" },
+      { model: "DE1Pro", serialNumber: "10001", provenanceStatus: "unavailable" },
+      // Longer than a hello may report: no Machine or Pending Machine could hold it.
+      { model: "DE1Pro", serialNumber: tooLong },
+      { model: tooLong, serialNumber: "10001" },
+    ]) {
       expect(shotHardware({ ...fixture, workflow: { ...workflow, machine } })).toBeNull();
     }
   });

@@ -177,7 +177,7 @@ export class MachinesService {
     // Locked, so a concurrent reissue revokes this one's token rather than missing it.
     await this.prisma.$transaction(async (tx) => {
       if (!(await lockMachine(tx, id))) throw machineNotFound();
-      await tx.machineToken.updateMany({ where: { machineId: id, revokedAt: null }, data: { revokedAt: new Date() } });
+      await tx.$executeRaw`UPDATE machine_tokens SET revoked_at = now() WHERE machine_id = ${id}::uuid AND revoked_at IS NULL`;
       await tx.machineToken.create({ data: { machineId: id, tokenHash: hashSecret(token) } });
       // Delivered on commit: every instance closes the connections using the old token.
       await notifyAccessChanged(tx, id);
@@ -259,13 +259,13 @@ export class MachinesService {
    * plugin's next hello finds the hardware bound, with nothing left to hand
    * over.
    */
-  async acceptHello(hello: Hello, connection: HelloConnection, at: Date): Promise<HelloOutcome> {
+  async acceptHello(hello: Hello, connection: HelloConnection): Promise<HelloOutcome> {
     try {
-      return await this.prisma.$transaction((tx) => this.decideHello(tx, hello, connection, at), CREDITING_TRANSACTION);
+      return await this.prisma.$transaction((tx) => this.decideHello(tx, hello, connection), CREDITING_TRANSACTION);
     } catch (error) {
       // Another Machine bound the same hardware meanwhile; decided again, this is a mismatch.
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        return this.prisma.$transaction((tx) => this.decideHello(tx, hello, connection, at), CREDITING_TRANSACTION);
+        return this.prisma.$transaction((tx) => this.decideHello(tx, hello, connection), CREDITING_TRANSACTION);
       }
       throw error;
     }
@@ -376,7 +376,7 @@ export class MachinesService {
     });
   }
 
-  private async decideHello(tx: Prisma.TransactionClient, hello: Hello, connection: HelloConnection, at: Date): Promise<HelloOutcome> {
+  private async decideHello(tx: Prisma.TransactionClient, hello: Hello, connection: HelloConnection): Promise<HelloOutcome> {
     const token = await tx.machineToken.findUnique({ where: { tokenHash: hashSecret(hello.token) }, select: { machineId: true } });
     if (!token) return { accepted: false, code: "bad_token", reason: BAD_TOKEN };
     const hardware = realHardware(hello.machine);
@@ -387,7 +387,7 @@ export class MachinesService {
     const current = await tx.machineToken.findUnique({ where: { tokenHash: hashSecret(hello.token) }, select: { revokedAt: true } });
     if (!current || current.revokedAt !== null) {
       // A tablet still using the Machine's old token: its page shows why it cannot connect.
-      await tx.machine.update({ where: { id: token.machineId }, data: { refusalReason: REVOKED_TOKEN, refusedAt: at } });
+      await recordRefusals(tx, [token.machineId], REVOKED_TOKEN);
       return { accepted: false, code: "bad_token", reason: REPLACED_TOKEN };
     }
 
@@ -409,7 +409,7 @@ export class MachinesService {
 
     if (identity.kind === "rejected") {
       const reason = dismissedReason(identity.hardware);
-      await tx.machine.update({ where: { id: machine.id }, data: { refusalReason: reason, refusedAt: at } });
+      await recordRefusals(tx, [machine.id], reason);
       return { accepted: false, code: "hardware_dismissed", reason };
     }
 
@@ -482,8 +482,8 @@ export class MachinesService {
   }
 
   /** Records why a connection with the Machine's token was refused, for its page. */
-  async recordRefusal(machineId: string, reason: string, at = new Date()): Promise<void> {
-    await this.prisma.machine.updateMany({ where: { id: machineId }, data: { refusalReason: reason, refusedAt: at } });
+  async recordRefusal(machineId: string, reason: string): Promise<void> {
+    await recordRefusals(this.prisma, [machineId], reason);
   }
 
   private async views(machines: ListedMachine[]): Promise<MachineView[]> {
@@ -624,6 +624,14 @@ export function hardwareTaken(owner: string | null, hardware: Hardware): Conflic
 
 export function dismissedReason(hardware: Hardware): string {
   return `An Admin dismissed ${describeHardware(hardware)}, which a tablet reported with this Machine's token`;
+}
+
+/**
+ * Records why connections with these Machines' tokens were refused, shown on
+ * their pages until one is accepted, at PostgreSQL's now().
+ */
+export async function recordRefusals(db: Prisma.TransactionClient, machineIds: string[], reason: string): Promise<void> {
+  await db.$executeRaw`UPDATE machines SET refusal_reason = ${reason}, refused_at = now() WHERE id = ANY(${machineIds}::uuid[])`;
 }
 
 /**

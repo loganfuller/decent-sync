@@ -1,4 +1,4 @@
-import { realHardware, type Hardware } from "@decent-sync/protocol";
+import { MAX_HARDWARE_LENGTH, realHardware, type Hardware } from "@decent-sync/protocol";
 
 /** Analytics are a projection; missing or unfamiliar Decaid fields never invalidate a record. */
 export function extractShot(record: unknown) {
@@ -34,10 +34,16 @@ export function shotVersion(record: unknown): string | null {
     : null;
 }
 
+/**
+ * The hardware a Shot recorded, if it names real hardware. A model or serial
+ * longer than a `hello` may report (MAX_HARDWARE_LENGTH) names none: no
+ * Machine or Pending Machine could hold it.
+ */
 export function shotHardware(record: unknown): Hardware | null {
   const machine = object(object(object(record).workflow).machine);
   if (machine.provenanceStatus === "unavailable") return null;
   if (typeof machine.model !== "string" || typeof machine.serialNumber !== "string") return null;
+  if (machine.model.length > MAX_HARDWARE_LENGTH || machine.serialNumber.length > MAX_HARDWARE_LENGTH) return null;
   return realHardware({ model: machine.model, serial: machine.serialNumber });
 }
 
