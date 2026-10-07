@@ -286,9 +286,14 @@ export class MachinesService {
    * A heartbeat: the connection's Machine and its tablet were seen, if the
    * connection still holds the Machine, and whether the connection may stay,
    * in one query.
+   *
+   * A heartbeat that waited for adoption to take over its tablet's record
+   * finds it gone: its query looked up whoever holds the hardware before
+   * the adoption committed. It looks again in a query of its own, which
+   * finds the record where the adoption put it.
    */
   async heard(connection: LiveConnection): Promise<Refusal | null> {
-    const [standing] = await this.prisma.$queryRaw<[Standing]>`
+    const [standing] = await this.prisma.$queryRaw<[Standing & { tabletSeen: boolean }]>`
       WITH seen AS (
         UPDATE machines SET last_seen_at = now()
         WHERE id = ${connection.machineId}::uuid AND connected_session_id = ${connection.sessionId}::uuid
@@ -296,6 +301,7 @@ export class MachinesService {
       ), tablet AS (
         UPDATE machine_tablets SET last_seen_at = GREATEST(last_seen_at, now())
         WHERE ${recordOf(connection)} AND EXISTS (SELECT 1 FROM seen)
+        RETURNING id
       )
       SELECT
         EXISTS (SELECT 1 FROM machine_tokens WHERE token_hash = ${connection.tokenHash} AND revoked_at IS NULL) AS "tokenCurrent",
@@ -304,7 +310,14 @@ export class MachinesService {
           WHERE machine_id = ${connection.machineId}::uuid
             AND model = ${connection.mismatch?.model ?? null}::text AND serial = ${connection.mismatch?.serial ?? null}::text
         ) AS dismissed,
-        EXISTS (SELECT 1 FROM seen) AS holds`;
+        EXISTS (SELECT 1 FROM seen) AS holds,
+        EXISTS (SELECT 1 FROM tablet) AS "tabletSeen"`;
+    if (standing.holds && !standing.tabletSeen) {
+      await this.prisma.$executeRaw`
+        UPDATE machine_tablets SET last_seen_at = GREATEST(last_seen_at, now())
+        WHERE ${recordOf(connection)}
+          AND EXISTS (SELECT 1 FROM machines WHERE id = ${connection.machineId}::uuid AND connected_session_id = ${connection.sessionId}::uuid)`;
+    }
     return refusalOf(connection, standing);
   }
 

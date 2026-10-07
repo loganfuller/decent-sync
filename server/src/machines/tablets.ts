@@ -23,23 +23,26 @@ export type TabletHolder = { machineId: string } | { pendingMachineId: string };
 /**
  * Records that a `hello` from the tablet was accepted for the holder, now,
  * creating the tablet if the server has never seen it. Concurrent hellos, on
- * any instance, find one record.
+ * any instance, find one record. Called once the hello holds its locks, so the
+ * number it takes for the record (`last_hello`, from the column's sequence,
+ * which the inserted row's default draws) orders it after every hello
+ * accepted before it.
  */
 export async function recordTablet(tx: Prisma.TransactionClient, tabletId: string, holder: TabletHolder): Promise<void> {
   await tx.$executeRaw`INSERT INTO tablets (id, first_seen_at) VALUES (${tabletId}::uuid, now()) ON CONFLICT (id) DO NOTHING`;
   if ("machineId" in holder) {
     await tx.$executeRaw`
-      INSERT INTO machine_tablets (tablet_id, machine_id, first_seen_at, connected_at, last_seen_at)
-      VALUES (${tabletId}::uuid, ${holder.machineId}::uuid, now(), now(), now())
+      INSERT INTO machine_tablets (tablet_id, machine_id, first_seen_at, last_seen_at)
+      VALUES (${tabletId}::uuid, ${holder.machineId}::uuid, now(), now())
       ON CONFLICT (tablet_id, machine_id) DO UPDATE SET
-        connected_at = GREATEST(machine_tablets.connected_at, EXCLUDED.connected_at),
+        last_hello = EXCLUDED.last_hello,
         last_seen_at = GREATEST(machine_tablets.last_seen_at, EXCLUDED.last_seen_at)`;
   } else {
     await tx.$executeRaw`
-      INSERT INTO machine_tablets (tablet_id, pending_machine_id, first_seen_at, connected_at, last_seen_at)
-      VALUES (${tabletId}::uuid, ${holder.pendingMachineId}::uuid, now(), now(), now())
+      INSERT INTO machine_tablets (tablet_id, pending_machine_id, first_seen_at, last_seen_at)
+      VALUES (${tabletId}::uuid, ${holder.pendingMachineId}::uuid, now(), now())
       ON CONFLICT (tablet_id, pending_machine_id) DO UPDATE SET
-        connected_at = GREATEST(machine_tablets.connected_at, EXCLUDED.connected_at),
+        last_hello = EXCLUDED.last_hello,
         last_seen_at = GREATEST(machine_tablets.last_seen_at, EXCLUDED.last_seen_at)`;
   }
 }
@@ -72,8 +75,8 @@ export function recordOf(connection: TabletConnection): Prisma.Sql {
 /**
  * Gives the Machine the tablets recorded against its hardware's Pending
  * Machine, even a dismissed one. A tablet both have keeps the Machine's
- * record, with the earliest first sighting and the latest connection and
- * last sighting of the two. The held record is deleted and read in one
+ * record, with the earliest first sighting and the latest hello and last
+ * sighting of the two. The held record is deleted and read in one
  * statement, so a heartbeat it waits for is kept. Taken over in place
  * otherwise. Its row lock must be held, as transferPendingRecords requires.
  */
@@ -84,11 +87,11 @@ export async function transferPendingTablets(tx: Prisma.TransactionClient, hardw
       USING pending_machines AS pending
       WHERE pending.id = held.pending_machine_id AND pending.model = ${hardware.model} AND pending.serial = ${hardware.serial}
         AND EXISTS (SELECT 1 FROM machine_tablets AS mine WHERE mine.machine_id = ${machineId}::uuid AND mine.tablet_id = held.tablet_id)
-      RETURNING held.tablet_id, held.first_seen_at, held.connected_at, held.last_seen_at
+      RETURNING held.tablet_id, held.first_seen_at, held.last_hello, held.last_seen_at
     )
     UPDATE machine_tablets AS mine SET
       first_seen_at = LEAST(mine.first_seen_at, held.first_seen_at),
-      connected_at = GREATEST(mine.connected_at, held.connected_at),
+      last_hello = GREATEST(mine.last_hello, held.last_hello),
       last_seen_at = GREATEST(mine.last_seen_at, held.last_seen_at)
     FROM held
     WHERE mine.machine_id = ${machineId}::uuid AND mine.tablet_id = held.tablet_id`;
@@ -97,7 +100,8 @@ export async function transferPendingTablets(tx: Prisma.TransactionClient, hardw
 
 /**
  * Each Machine's tablets: the one its latest accepted connection came from
- * first, then the earlier ones, most recently connected first.
+ * first, then the earlier ones, most recently connected first. Heartbeats
+ * never change the order.
  */
 export async function tabletsOf(prisma: PrismaService, machineIds: string[]): Promise<Map<string, TabletView[]>> {
   const records =
@@ -105,7 +109,7 @@ export async function tabletsOf(prisma: PrismaService, machineIds: string[]): Pr
       ? []
       : await prisma.machineTablet.findMany({
           where: { machineId: { in: machineIds } },
-          orderBy: [{ connectedAt: "desc" }, { lastSeenAt: "desc" }, { tabletId: "asc" }],
+          orderBy: { lastHello: "desc" },
           select: { machineId: true, tabletId: true, firstSeenAt: true, lastSeenAt: true },
         });
   const byMachine = new Map<string, TabletView[]>(machineIds.map((id) => [id, []]));

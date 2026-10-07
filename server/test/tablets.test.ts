@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type MachineView } from "./support/admin-api.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
 import {
   PluginStorage,
   RawConnection,
@@ -330,6 +331,67 @@ describe("Tablets", { timeout: 20_000 }, () => {
       (viewed) => Date.parse(viewed.tablet!.lastSeenAt) > Date.parse(joined.lastSeenAt),
     );
     expect(tabletIds(later)).toEqual({ current: tabletId, earlier: [] });
+  });
+
+  it("makes the tablet of the hello accepted last current, though another hello began after it", async () => {
+    const created = await api.createMachine("Accepted last");
+    const accepted = randomUUID();
+    const replaced = randomUUID();
+    const database = await server.connectDatabase();
+    try {
+      // The test holds the hardware's lock, which a hello reporting it takes first.
+      await database.query("BEGIN");
+      await database.query("SELECT pg_advisory_xact_lock(4000002, hashtext($1::text || '/' || $2::text))", ["DE1Pro", "14101"]);
+      const waiting = await RawConnection.open(server.url);
+      connections.push(waiting);
+      waiting.send(helloWith(created.token, { tabletId: accepted, machine: de1Pro("14101") }));
+      await waitForLockWaits(server, { advisory: true });
+      // A hello reporting no hardware takes no such lock, and is accepted meanwhile.
+      await connect(helloWith(created.token, { tabletId: replaced, machine: null }));
+      await database.query("COMMIT");
+      expect(await waiting.message(0)).toMatchObject({ type: "welcome" });
+    } finally {
+      await database.end();
+    }
+    expect(tabletIds(await machine(created.machine.id))).toEqual({ current: accepted, earlier: [replaced] });
+  });
+
+  it("keeps the sighting of a mismatched connection's heartbeat that waited for its hardware's adoption", async () => {
+    const lender = await api.createMachine("Lends a token while heard");
+    const unidentified = await api.createMachine("Entered while heard");
+    const tabletId = randomUUID();
+    await (await connect(helloWith(lender.token, { machine: de1Pro("14201") }))).close();
+    await (await connect(helloWith(unidentified.token, { tabletId, machine: de1Pro("0") }))).close();
+    // With the other Machine's token, sending heartbeats only when the test does.
+    const raw = await RawConnection.open(server.url);
+    connections.push(raw);
+    raw.send(helloWith(lender.token, { tabletId, machine: de1Pro("14202") }));
+    await raw.message(0);
+    const heldSince = Date.parse((await api.pendingMachines()).find((candidate) => candidate.serial === "14202")!.lastSeenAt!);
+
+    const database = await server.connectDatabase();
+    try {
+      // Entering the hardware joins the Pending Machine's record of the tablet into the Machine's, then waits
+      // to remove the Pending Machine, whose row the test holds.
+      await database.query("BEGIN");
+      await database.query("SELECT 1 FROM pending_machines WHERE model = 'DE1Pro' AND serial = '14202' FOR UPDATE");
+      const entered = api.call("PUT", `/machines/${unidentified.machine.id}/hardware`, { model: "DE1Pro", serial: "14202" });
+      await waitForLockWaits(server);
+      // A heartbeat meanwhile waits for the record the adoption has removed.
+      raw.send({ type: "heartbeat" });
+      await waitForLockWaits(server, { count: 2 });
+      await database.query("COMMIT");
+      expect((await entered).status).toBe(200);
+    } finally {
+      await database.end();
+    }
+    // The heartbeat is still recorded, on the record the Machine took over. PostgreSQL rounds a record's
+    // times to the millisecond where the Pending Machine's was truncated.
+    const heard = await api.waitForMachine(
+      "Entered while heard",
+      (viewed) => viewed.tablet?.id === tabletId && Date.parse(viewed.tablet.lastSeenAt) > heldSince + 1,
+    );
+    expect(heard.earlierTablets).toEqual([]);
   });
 
   it("records nothing for a refused hello", async () => {
