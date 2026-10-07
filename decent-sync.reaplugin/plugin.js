@@ -903,12 +903,15 @@ var __decentSync = (() => {
       __publicField(this, "known", /* @__PURE__ */ new Set());
       /** Whether every id has been read for the index. */
       __publicField(this, "indexed", false);
-      /** Poll intervals before every id is read again; 0 once it is due. */
-      __publicField(this, "untilFullRead", 0);
+      /** Whole poll intervals since the last read of every id began; one begun between intervals counts from the next. */
+      __publicField(this, "intervalsSinceFullRead", 0);
+      /** Intervals that must begin after a read of every id before the next; none before the first. */
+      __publicField(this, "fullReadWait", 0);
       /** Reads of every id that have failed in a row. */
       __publicField(this, "failures", 0);
       __publicField(this, "failureLogged", false);
-      __publicField(this, "polling", false);
+      __publicField(this, "readingAll", false);
+      __publicField(this, "readingLatest", false);
       __publicField(this, "stopped", false);
       __publicField(this, "pollTimer");
     }
@@ -920,15 +923,11 @@ var __decentSync = (() => {
       if (this.pollTimer !== void 0) clearTimeout(this.pollTimer);
     }
     /**
-     * Polls at once, reading every id if due, as for the load's index, and
-     * starts the poll intervals again from now. A welcome is not an interval,
-     * so reads of every id stay at least the intervals they wait apart.
+     * Polls at once, between intervals, which go on as they were: the poll
+     * finds what was recorded while disconnected, and starts the load's index.
      */
     welcome() {
-      if (this.stopped) return;
-      if (this.pollTimer !== void 0) clearTimeout(this.pollTimer);
-      void this.poll();
-      this.schedulePoll();
+      this.poll(false);
     }
     /** A Steam Record, as a delivery placed in time, or null if the tablet no longer has it or its time cannot be read. */
     async read(id, deliveryId) {
@@ -944,40 +943,40 @@ var __decentSync = (() => {
     schedulePoll() {
       this.pollTimer = setTimeout(() => {
         this.pollTimer = void 0;
-        if (this.untilFullRead > 0) this.untilFullRead--;
-        void this.poll();
+        this.intervalsSinceFullRead++;
+        this.poll(true);
         if (!this.stopped) this.schedulePoll();
       }, this.pollMs);
     }
     /**
      * Requests the Steam Records new since the last poll, ahead of those the
-     * server requested: any that every id shows, when they are due to be read,
-     * then the newest. A poll still running when the next is due skips it.
+     * server requested: the newest, and, when they are due, any that every id
+     * shows. Each read is skipped while its last one still runs.
      */
-    async poll() {
-      if (this.polling || this.stopped || !this.outbox.connected) return;
-      this.polling = true;
+    poll(atInterval) {
+      if (this.stopped || !this.outbox.connected) return;
+      if (!this.readingAll && this.intervalsSinceFullRead >= this.fullReadWait) void this.readAll(atInterval);
+      if (!this.readingLatest) void this.readLatest();
+    }
+    async readLatest() {
+      this.readingLatest = true;
       try {
-        if (this.untilFullRead === 0) await this.readAll();
-        if (this.stopped || !this.outbox.connected) return;
-        let latest;
-        try {
-          latest = await readLatestSteamId();
-        } catch {
-          return;
-        }
+        const latest = await readLatestSteamId();
         if (latest !== null && !this.stopped) this.request([latest]);
+      } catch {
       } finally {
-        this.polling = false;
+        this.readingLatest = false;
       }
     }
     /** Reads every id: the first time, to send them as the index; after that, to request those not seen. */
-    async readAll() {
+    async readAll(atInterval) {
+      this.readingAll = true;
+      this.intervalsSinceFullRead = atInterval ? 0 : -1;
       let ids;
       try {
         ids = await readSteamIds();
       } catch (error) {
-        this.untilFullRead = Math.min((this.indexed ? FULL_READ_INTERVALS : 1) * 2 ** this.failures, MAX_RETRY_INTERVALS);
+        this.fullReadWait = Math.min((this.indexed ? FULL_READ_INTERVALS : 1) * 2 ** this.failures, MAX_RETRY_INTERVALS);
         this.failures++;
         if (!this.failureLogged) {
           this.failureLogged = true;
@@ -986,8 +985,10 @@ var __decentSync = (() => {
           );
         }
         return;
+      } finally {
+        this.readingAll = false;
       }
-      this.untilFullRead = FULL_READ_INTERVALS;
+      this.fullReadWait = FULL_READ_INTERVALS;
       this.failures = 0;
       if (this.stopped) return;
       if (this.indexed) {

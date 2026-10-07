@@ -22,20 +22,26 @@ const MAX_RETRY_INTERVALS = 64;
  * one interval, one whose time is not the newest, and those recorded while
  * disconnected. A failed read of every id, as past Decaid's fetch limit, is
  * logged once per load and tried again after more and more intervals, while
- * the newest go on being sent. Decaid offers no way to detect an edit to a
- * Steam Record, so edits are not sent.
+ * the newest go on being sent. The two reads run apart, so a slow read of
+ * every id holds up no read of the newest; at a load's first welcome the
+ * newest may be requested before the index is read, and sent though the
+ * server has it. Decaid offers no way to detect an edit to a Steam Record, so
+ * edits are not sent.
  */
 export class SteamCapture {
   /** Every id this load has seen, in reads of every id and of the newest. */
   private readonly known = new Set<string>();
   /** Whether every id has been read for the index. */
   private indexed = false;
-  /** Poll intervals before every id is read again; 0 once it is due. */
-  private untilFullRead = 0;
+  /** Whole poll intervals since the last read of every id began; one begun between intervals counts from the next. */
+  private intervalsSinceFullRead = 0;
+  /** Intervals that must begin after a read of every id before the next; none before the first. */
+  private fullReadWait = 0;
   /** Reads of every id that have failed in a row. */
   private failures = 0;
   private failureLogged = false;
-  private polling = false;
+  private readingAll = false;
+  private readingLatest = false;
   private stopped = false;
   private pollTimer?: number;
 
@@ -55,15 +61,11 @@ export class SteamCapture {
   }
 
   /**
-   * Polls at once, reading every id if due, as for the load's index, and
-   * starts the poll intervals again from now. A welcome is not an interval,
-   * so reads of every id stay at least the intervals they wait apart.
+   * Polls at once, between intervals, which go on as they were: the poll
+   * finds what was recorded while disconnected, and starts the load's index.
    */
   welcome(): void {
-    if (this.stopped) return;
-    if (this.pollTimer !== undefined) clearTimeout(this.pollTimer);
-    void this.poll();
-    this.schedulePoll();
+    this.poll(false);
   }
 
   /** A Steam Record, as a delivery placed in time, or null if the tablet no longer has it or its time cannot be read. */
@@ -81,41 +83,46 @@ export class SteamCapture {
   private schedulePoll(): void {
     this.pollTimer = setTimeout(() => {
       this.pollTimer = undefined;
-      if (this.untilFullRead > 0) this.untilFullRead--;
+      this.intervalsSinceFullRead++;
       // While disconnected an interval passes with nothing read; the polls from the next welcome find what was recorded meanwhile.
-      void this.poll();
+      this.poll(true);
       if (!this.stopped) this.schedulePoll();
     }, this.pollMs);
   }
 
   /**
    * Requests the Steam Records new since the last poll, ahead of those the
-   * server requested: any that every id shows, when they are due to be read,
-   * then the newest. A poll still running when the next is due skips it.
+   * server requested: the newest, and, when they are due, any that every id
+   * shows. Each read is skipped while its last one still runs.
    */
-  private async poll(): Promise<void> {
-    if (this.polling || this.stopped || !this.outbox.connected) return;
-    this.polling = true;
+  private poll(atInterval: boolean): void {
+    if (this.stopped || !this.outbox.connected) return;
+    if (!this.readingAll && this.intervalsSinceFullRead >= this.fullReadWait) void this.readAll(atInterval);
+    if (!this.readingLatest) void this.readLatest();
+  }
+
+  private async readLatest(): Promise<void> {
+    this.readingLatest = true;
     try {
-      if (this.untilFullRead === 0) await this.readAll();
-      if (this.stopped || !this.outbox.connected) return;
-      let latest: string | null;
-      // The next poll reads it again.
-      try { latest = await readLatestSteamId(); } catch { return; }
+      const latest = await readLatestSteamId();
       if (latest !== null && !this.stopped) this.request([latest]);
+    } catch {
+      // The next poll reads it again.
     } finally {
-      this.polling = false;
+      this.readingLatest = false;
     }
   }
 
   /** Reads every id: the first time, to send them as the index; after that, to request those not seen. */
-  private async readAll(): Promise<void> {
+  private async readAll(atInterval: boolean): Promise<void> {
+    this.readingAll = true;
+    this.intervalsSinceFullRead = atInterval ? 0 : -1;
     let ids: string[];
     try {
       ids = await readSteamIds();
     } catch (error) {
       // Once the index has been read, a retry waits at least as long as the next read would have.
-      this.untilFullRead = Math.min((this.indexed ? FULL_READ_INTERVALS : 1) * 2 ** this.failures, MAX_RETRY_INTERVALS);
+      this.fullReadWait = Math.min((this.indexed ? FULL_READ_INTERVALS : 1) * 2 ** this.failures, MAX_RETRY_INTERVALS);
       this.failures++;
       if (!this.failureLogged) {
         this.failureLogged = true;
@@ -125,8 +132,10 @@ export class SteamCapture {
         );
       }
       return;
+    } finally {
+      this.readingAll = false;
     }
-    this.untilFullRead = FULL_READ_INTERVALS;
+    this.fullReadWait = FULL_READ_INTERVALS;
     this.failures = 0;
     if (this.stopped) return;
     if (this.indexed) {

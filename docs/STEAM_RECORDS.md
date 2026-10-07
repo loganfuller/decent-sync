@@ -43,10 +43,10 @@ Records, in the owner's planning notes, would remove the dependence.
 ## Plugin
 
 Decaid has no plugin event for Steam Records, so the plugin polls: every poll
-interval while a connection is welcomed, and on each `welcome`, which starts
-the intervals again. A poll reads `GET /steams/latest` (Decaid v0.8.7 and
-later): the newest Steam Record by its time, without measurements, or `null`
-while there are none. The plugin reads only its `id`, so a poll's work does
+interval while a connection is welcomed, and at once on each `welcome`, which
+leaves the intervals as they were. A poll reads `GET /steams/latest` (Decaid
+v0.8.7 and later): the newest Steam Record by its time, without measurements,
+or `null` while there are none. The plugin reads only its `id`, so a poll's work does
 not grow with history. If the plugin has not seen that id in this load, it
 requests the record from its outbox, ahead of backfill. While no connection
 is welcomed, and after a final close, the plugin reads no Steam Records; the
@@ -67,7 +67,15 @@ It reads `GET /steams/ids`, which lists every id in one response, only:
   `/steams/latest` misses: several Steam Records recorded in one interval, a
   record whose time is not the newest, and those recorded while
   disconnected. Intervals spent disconnected count, so after an outage of 10
-  intervals or more the read comes with the poll on `welcome`.
+  intervals or more the read comes with the poll on `welcome`. A read begun
+  between intervals, as on a `welcome`, counts from the next, so reads stay
+  whole intervals apart however often the connection drops.
+
+The two reads run apart, each skipped while its last one is still running,
+so a slow read of every id, as near the fetch limit, holds up no read of the
+newest. At a load's first `welcome` the newest may therefore be requested
+before the index has been read, and sent though the server has it; the server
+stores it once.
 
 Indexes are sent once per load, for Shots too (`SHOTS.md`), replacing
 milestone 1's "on every `welcome`". So a server whose database was wiped or

@@ -21,12 +21,12 @@ import { rememberSecret, watchLog } from "./secrets.js";
 //   30 s timeout. `GET /shots` pages the Shots served at `/shots/{id}`,
 //   `GET /steams/ids` lists the Steam Records served at `/steams/{id}`,
 //   failing as Decaid's 10 MiB response limit fails it once the list passes
-//   `steamIdsLimitBytes`, and `GET /steams/latest` answers the newest of them
-//   without measurements, or `null`. The library's lists leave out archived
-//   and hidden records unless asked for them, and send an ETag, answering 304
-//   to it in If-None-Match. A key of plugin storage never written answers
-//   `null`. The machine's settings, like its info, fail while no machine is
-//   connected.
+//   `steamIdsLimitBytes`, or held by `holdSteamIds`, and `GET /steams/latest`
+//   answers the newest of them without measurements, or `null`. The
+//   library's lists leave out archived and hidden records unless asked for
+//   them, and send an ETag, answering 304 to it in If-None-Match. A key of
+//   plugin storage never written answers `null`. The machine's settings, like
+//   its info, fail while no machine is connected.
 // - The plugin's local time, as JavaScript reads it, is this process's time
 //   zone: set `process.env.TZ` to put the tablet in another one.
 // - `host.transport` opens real WebSockets with only a URL and subprotocols
@@ -478,6 +478,8 @@ export class SimulatedTablet {
    * a change to the Shots, through `serve`, shows in that page.
    */
   beforeShotPage?: (request: { limit: number; offset: number }) => void;
+  /** While set, every `GET /steams/ids` waits for it before it is answered. */
+  private steamIdsHeld?: Promise<void>;
   /** Every frame the plugin sent, parsed, in order. */
   readonly sent: unknown[] = [];
   /** Every text frame the server sent the plugin, parsed, in order. */
@@ -589,6 +591,23 @@ export class SimulatedTablet {
     const snapshot = machineSnapshot(state, substate);
     this.api = { ...this.api, "/machine/state": snapshot };
     this.fire("stateUpdate", snapshot);
+  }
+
+  /**
+   * Holds every answer to `GET /steams/ids` until the function returned is
+   * called, as Decaid is slow to answer a long list. Each request is still
+   * made, and listed in `requests`, at once.
+   */
+  holdSteamIds(): () => void {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.steamIdsHeld = held;
+    return () => {
+      if (this.steamIdsHeld === held) this.steamIdsHeld = undefined;
+      release();
+    };
   }
 
   /** Fails this many upcoming reads of a local API route, as a transient Decaid failure does. */
@@ -708,6 +727,7 @@ export class SimulatedTablet {
       return response(200, JSON.stringify({ items, total: records.length, limit, offset }));
     }
     if (route === "/steams/ids") {
+      await this.steamIdsHeld;
       // Every id at once, unpaginated, in the order of Decaid's primary key index.
       const ids = Object.keys(this.api).filter((path) => path.startsWith("/steams/")).map((path) => decodeURIComponent(path.slice("/steams/".length)));
       const body = JSON.stringify(ids.sort());
