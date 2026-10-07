@@ -40,12 +40,12 @@ type Row = { name: string; available: boolean; reportedAt: Date; receivedAt: Dat
  * its token's Machine's own tablet last reported.
  *
  * Each delivery is handled once, by its delivery id, which is recorded
- * whatever it changes, as for Workflow and machine state events, and in the
- * order the plugin sends them. A delivery sent before a reconnect, still
- * being stored on another instance, is sent again ahead of newer ones, and
- * its resend waits for it, so it cannot replace a newer value. An
- * unavailable report keeps the value already known, and says only that the
- * latest read had none.
+ * whatever it changes and kept for 90 days, as for Workflow and machine
+ * state events, and in the order the plugin sends them. A delivery sent
+ * before a reconnect, still being stored on another instance, is sent again
+ * ahead of newer ones, and its resend waits for it, so it cannot replace a
+ * newer value. An unavailable report keeps the value already known, and says
+ * only that the latest read had none.
  */
 @Injectable()
 export class CollectionsService {
