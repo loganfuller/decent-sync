@@ -20,6 +20,7 @@ import {
   withLocationHistory,
 } from "./location-history.js";
 import { type TabletHolder, type TabletView, recordOf, recordTablet, tabletsOf, transferPendingTablets } from "./tablets.js";
+import { type TakeoverConnectionView, type TakeoverView, recordTakeover, takeoversOf } from "./takeovers.js";
 
 /** How a Machine's identity stands, as the REST API names it. */
 export type IdentificationView = "identified" | "hardwareNotReported" | "unidentified" | "mismatch";
@@ -55,6 +56,12 @@ export interface MachineView {
   } | null;
   /** Why a connection with its token was last refused, until one is accepted. */
   lastRefusal: { reason: string; at: string } | null;
+  /**
+   * The latest time a connection with its token took it over from a live
+   * connection from another tablet, or null if none ever has. Kept until
+   * the next takeover.
+   */
+  takeover: TakeoverView | null;
   /** Whether a plugin is connected with the Machine's token right now, to any server instance. */
   online: boolean;
   /** When a plugin connected with its token was last heard from, or null if never. */
@@ -84,26 +91,39 @@ export interface MachineStateView {
   observedAt: string;
 }
 
+/** The connection a `hello` came on. */
+export interface HelloConnection {
+  /** Written to its Machine's row if the hello is accepted, marking the connection that holds the Machine. */
+  sessionId: string;
+  /** The address it came from, as the server saw it. */
+  remoteAddress: string;
+}
+
 /** What became of a `hello`, decided and recorded while its Machine was locked. */
 export type HelloOutcome =
-  | { accepted: false; code: Extract<ErrorCode, "bad_token" | "hardware_dismissed">; reason: string }
+  | { accepted: false; code: Extract<ErrorCode, "bad_token" | "hardware_dismissed" | "machine_held">; reason: string }
   | {
       accepted: true;
       machine: { id: string; name: string };
       identity: Exclude<Identity, { kind: "rejected" }>;
       /** The real hardware the `hello` reported, if any. */
       hardware: Hardware | null;
+      /** The live connection from another tablet it took the Machine over from, if it did. */
+      tookOverFrom: TakeoverConnectionView | null;
     };
 
 /** Why a welcomed connection may no longer stay. */
 export interface Refusal {
-  code: Extract<ErrorCode, "bad_token" | "hardware_dismissed" | "replaced">;
+  code: Extract<ErrorCode, "bad_token" | "hardware_dismissed" | "replaced" | "superseded">;
   reason: string;
 }
 
 const BAD_TOKEN = "No Machine on this server has this token; it may have been replaced by a newer one";
 const REPLACED_TOKEN = "This Machine's token was replaced by a newer one; enter the new token in the plugin's settings";
-const REPLACED_CONNECTION = "A newer connection with this Machine's token took over";
+const REPLACED_CONNECTION = "A newer connection with this Machine's token, from another tablet, took over";
+const SUPERSEDED_CONNECTION = "Another connection from this tablet holds this Machine now";
+const RELEASED_CONNECTION = "This connection no longer holds its Machine, and no other connection does";
+const HELD = "A connection from another tablet holds this Machine, and this hello asked not to replace it";
 const REVOKED_TOKEN = "A tablet connected with a token that was replaced by a newer one; enter the new token in its plugin's settings";
 
 const withAliases = { aliases: { orderBy: { createdAt: "asc" }, select: { connectionId: true } } } as const;
@@ -227,22 +247,25 @@ export class MachinesService {
    * hardware are therefore decided one at a time, each seeing what the one
    * before it committed, on whichever instance they run.
    *
-   * An accepted hello makes `sessionId` the connection holding the Machine
-   * and notifies every instance, which closes the one it replaces. A refused
-   * hello changes neither, so it never replaces a connection.
+   * An accepted hello makes its connection the one holding the Machine, and
+   * keeps its tablet beside it, and notifies every instance, which closes the
+   * one it replaces. If that one was live and from another tablet, the hello
+   * took the Machine over, which is recorded on it (`recordTakeover`); a
+   * `yielding` hello is refused instead. A refused hello changes neither, so
+   * it never replaces a connection.
    *
    * A hello binding hardware hands over what its Pending Machine holds, which
    * may outlast the plugin's wait for `welcome`. It still commits, and the
    * plugin's next hello finds the hardware bound, with nothing left to hand
    * over.
    */
-  async acceptHello(hello: Hello, sessionId: string, at: Date): Promise<HelloOutcome> {
+  async acceptHello(hello: Hello, connection: HelloConnection, at: Date): Promise<HelloOutcome> {
     try {
-      return await this.prisma.$transaction((tx) => this.decideHello(tx, hello, sessionId, at), CREDITING_TRANSACTION);
+      return await this.prisma.$transaction((tx) => this.decideHello(tx, hello, connection, at), CREDITING_TRANSACTION);
     } catch (error) {
       // Another Machine bound the same hardware meanwhile; decided again, this is a mismatch.
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        return this.prisma.$transaction((tx) => this.decideHello(tx, hello, sessionId, at), CREDITING_TRANSACTION);
+        return this.prisma.$transaction((tx) => this.decideHello(tx, hello, connection, at), CREDITING_TRANSACTION);
       }
       throw error;
     }
@@ -265,19 +288,20 @@ export class MachinesService {
       }),
       this.prisma.machine.findMany({
         where: { id: { in: [...new Set(connections.map((connection) => connection.machineId))] } },
-        select: { id: true, connectedSessionId: true },
+        select: { id: true, connectedSessionId: true, connectedTabletId: true },
       }),
       mismatched.length === 0
         ? []
         : this.prisma.dismissedHardware.findMany({ where: { OR: mismatched }, select: { machineId: true, model: true, serial: true } }),
     ]);
     const currentTokens = new Set(tokens.map((token) => hex(token.tokenHash)));
-    const holders = new Map(machines.map((machine) => [machine.id, machine.connectedSessionId]));
+    const holders = new Map(machines.map((machine) => [machine.id, machine]));
     return connections.map((connection) =>
       refusalOf(connection, {
         tokenCurrent: currentTokens.has(hex(connection.tokenHash)),
         dismissed: dismissed.some((hardware) => hardware.machineId === connection.machineId && sameHardware(hardware, connection.mismatch)),
-        holds: holders.get(connection.machineId) === connection.sessionId,
+        holds: holders.get(connection.machineId)?.connectedSessionId === connection.sessionId,
+        holderTabletId: holders.get(connection.machineId)?.connectedTabletId ?? null,
       }),
     );
   }
@@ -291,9 +315,14 @@ export class MachinesService {
    * finds it gone: its query looked up whoever holds the hardware before
    * the adoption committed. It looks again in a query of its own, which
    * finds the record where the adoption put it.
+   *
+   * A connection that no longer holds its Machine is judged by `standings`
+   * instead, whose queries see who holds it now: this one's may have looked
+   * before the hello that replaced it committed, though its update waited
+   * for that hello.
    */
   async heard(connection: LiveConnection): Promise<Refusal | null> {
-    const [standing] = await this.prisma.$queryRaw<[Standing & { tabletSeen: boolean }]>`
+    const [standing] = await this.prisma.$queryRaw<[Omit<Standing, "holderTabletId"> & { tabletSeen: boolean }]>`
       WITH seen AS (
         UPDATE machines SET last_seen_at = now()
         WHERE id = ${connection.machineId}::uuid AND connected_session_id = ${connection.sessionId}::uuid
@@ -318,7 +347,8 @@ export class MachinesService {
         WHERE ${recordOf(connection)}
           AND EXISTS (SELECT 1 FROM machines WHERE id = ${connection.machineId}::uuid AND connected_session_id = ${connection.sessionId}::uuid)`;
     }
-    return refusalOf(connection, standing);
+    if (!standing.holds) return (await this.standings([connection]))[0]!;
+    return refusalOf(connection, { ...standing, holderTabletId: connection.tabletId });
   }
 
   /**
@@ -331,7 +361,8 @@ export class MachinesService {
   async released(sessionId: string, closeFrameHeard: boolean): Promise<boolean> {
     const count = await this.prisma.$executeRaw`
       UPDATE machines
-      SET connected_session_id = NULL, last_seen_at = CASE WHEN ${closeFrameHeard} THEN now() ELSE last_seen_at END
+      SET connected_session_id = NULL, connected_tablet_id = NULL,
+        last_seen_at = CASE WHEN ${closeFrameHeard} THEN now() ELSE last_seen_at END
       WHERE connected_session_id = ${sessionId}::uuid`;
     return count > 0;
   }
@@ -339,10 +370,13 @@ export class MachinesService {
   /** Releases every Machine these connections hold, as when their instance shuts down. */
   async releaseAll(sessionIds: string[]): Promise<void> {
     if (sessionIds.length === 0) return;
-    await this.prisma.machine.updateMany({ where: { connectedSessionId: { in: sessionIds } }, data: { connectedSessionId: null } });
+    await this.prisma.machine.updateMany({
+      where: { connectedSessionId: { in: sessionIds } },
+      data: { connectedSessionId: null, connectedTabletId: null },
+    });
   }
 
-  private async decideHello(tx: Prisma.TransactionClient, hello: Hello, sessionId: string, at: Date): Promise<HelloOutcome> {
+  private async decideHello(tx: Prisma.TransactionClient, hello: Hello, connection: HelloConnection, at: Date): Promise<HelloOutcome> {
     const token = await tx.machineToken.findUnique({ where: { tokenHash: hashSecret(hello.token) }, select: { machineId: true } });
     if (!token) return { accepted: false, code: "bad_token", reason: BAD_TOKEN };
     const hardware = realHardware(hello.machine);
@@ -379,6 +413,15 @@ export class MachinesService {
       return { accepted: false, code: "hardware_dismissed", reason };
     }
 
+    // A live connection from another tablet is taken over, unless this hello yields to it. Live is heard from
+    // within MISSED_HEARTBEATS intervals by PostgreSQL's clock, which wrote its last-seen time, as the Machine's
+    // view judges online. Replacing a dead connection, or one from this tablet, takes nothing over.
+    const tabletId = hello.tabletId.toLowerCase();
+    const [{ now }] = await tx.$queryRaw<[{ now: Date }]>`SELECT clock_timestamp() AS now`;
+    const tookOverFrom = liveHolderFromAnotherTablet(machine, tabletId, now.getTime() - this.config.heartbeatIntervalMs * MISSED_HEARTBEATS);
+    // A refusal the plugin expects while another tablet stays connected, so not recorded on the Machine.
+    if (tookOverFrom && hello.yielding) return { accepted: false, code: "machine_held", reason: HELD };
+
     const reported = hello.machine;
     const connectionId = hello.connectionId?.trim() || null;
     await tx.machine.update({
@@ -392,12 +435,17 @@ export class MachinesService {
         connectionId,
         pluginVersion: hello.pluginVersion,
         decaidVersion: hello.decaidVersion,
+        remoteAddress: connection.remoteAddress,
         refusalReason: null,
         refusedAt: null,
-        connectedSessionId: sessionId,
+        connectedSessionId: connection.sessionId,
+        connectedTabletId: tabletId,
       },
     });
-    await touch(tx, machine.id);
+    if (tookOverFrom) {
+      const replacement = { tabletId, remoteAddress: connection.remoteAddress, connectionId, pluginVersion: hello.pluginVersion, decaidVersion: hello.decaidVersion };
+      await recordTakeover(tx, machine.id, now, tookOverFrom, replacement);
+    }
     // Delivered on commit: the instance holding the connection this replaces closes it.
     await notifyAccessChanged(tx, machine.id);
     if ("rememberAlias" in identity && identity.rememberAlias && connectionId) {
@@ -426,7 +474,11 @@ export class MachinesService {
       }
     }
     await recordTablet(tx, hello.tabletId, holder);
-    return { accepted: true, machine: { id: machine.id, name: machine.name }, identity, hardware };
+    // Seen last, once nothing is left to wait for but the commit: its own row, held already, under the lock that
+    // numbered its tablet. A hello that waited longer than a connection stays live must not make a holder the next
+    // hello finds dead.
+    await touch(tx, machine.id);
+    return { accepted: true, machine: { id: machine.id, name: machine.name }, identity, hardware, tookOverFrom };
   }
 
   /** Records why a connection with the Machine's token was refused, for its page. */
@@ -445,7 +497,7 @@ export class MachinesService {
       return hardware ? [hardware] : [];
     });
     // Each Machine's last Shot and latest machine state are one index probe each, however long its history.
-    const [owners, pending, lastShots, states, tablets] = await Promise.all([
+    const [owners, pending, lastShots, states, tablets, takeovers] = await Promise.all([
       mismatched.length === 0 ? [] : this.prisma.machine.findMany({ where: { OR: mismatched }, select: { id: true, name: true, model: true, serial: true } }),
       mismatched.length === 0 ? [] : this.prisma.pendingMachine.findMany({ where: { OR: mismatched }, select: { id: true, model: true, serial: true } }),
       machines.length === 0 ? [] : this.prisma.$queryRaw<{ id: string; machineId: string; pulledAt: Date | null }[]>(Prisma.sql`
@@ -464,6 +516,7 @@ export class MachinesService {
           ORDER BY id DESC LIMIT 1
         ) AS latest`),
       tabletsOf(this.prisma, machines.map((machine) => machine.id)),
+      takeoversOf(this.prisma, machines.map((machine) => machine.id)),
     ]);
     const lastByMachine = new Map(lastShots.map((shot) => [shot.machineId, { id: shot.id, pulledAt: shot.pulledAt?.toISOString() ?? null }]));
     const stateByMachine = new Map(
@@ -497,6 +550,7 @@ export class MachinesService {
           machine.refusalReason !== null && machine.refusedAt !== null
             ? { reason: machine.refusalReason, at: machine.refusedAt.toISOString() }
             : null,
+        takeover: takeovers.get(machine.id) ?? null,
         online: machine.connectedSessionId !== null && machine.lastSeenAt !== null && machine.lastSeenAt.getTime() >= heardSince,
         lastSeenAt: machine.lastSeenAt?.toISOString() ?? null,
         lastShot: lastByMachine.get(machine.id) ?? null,
@@ -517,18 +571,42 @@ interface Standing {
   dismissed: boolean;
   /** It is still the connection holding its Machine. */
   holds: boolean;
+  /** The tablet of the connection holding its Machine, or null while none does. */
+  holderTabletId: string | null;
 }
 
 /**
  * Why a welcomed connection may no longer stay, if it may not: its token was
- * replaced, its mismatched hardware dismissed, or a newer connection holds
- * its Machine.
+ * replaced, its mismatched hardware dismissed, or another connection holds
+ * its Machine. One from another tablet replaced it, and its plugin yields to
+ * that tablet; otherwise the plugin reconnects, and takes the Machine back.
  */
 function refusalOf(connection: LiveConnection, standing: Standing): Refusal | null {
   if (!standing.tokenCurrent) return { code: "bad_token", reason: REPLACED_TOKEN };
   if (connection.mismatch && standing.dismissed) return { code: "hardware_dismissed", reason: dismissedReason(connection.mismatch) };
-  if (!standing.holds) return { code: "replaced", reason: REPLACED_CONNECTION };
-  return null;
+  if (standing.holds) return null;
+  if (standing.holderTabletId === null) return { code: "superseded", reason: RELEASED_CONNECTION };
+  if (standing.holderTabletId === connection.tabletId) return { code: "superseded", reason: SUPERSEDED_CONNECTION };
+  return { code: "replaced", reason: REPLACED_CONNECTION };
+}
+
+/**
+ * The connection holding the Machine, as a takeover records it, if it was
+ * heard from since `heardSince` (ms, by PostgreSQL's clock) and comes from
+ * another tablet than `tabletId`.
+ */
+function liveHolderFromAnotherTablet(machine: Machine, tabletId: string, heardSince: number): TakeoverConnectionView | null {
+  const { connectedSessionId, connectedTabletId, lastSeenAt } = machine;
+  if (connectedSessionId === null || connectedTabletId === null || connectedTabletId === tabletId) return null;
+  if (lastSeenAt === null || lastSeenAt.getTime() < heardSince) return null;
+  // The hello that made it the holder wrote these with its tablet.
+  return {
+    tabletId: connectedTabletId,
+    remoteAddress: machine.remoteAddress!,
+    connectionId: machine.connectionId,
+    pluginVersion: machine.pluginVersion!,
+    decaidVersion: machine.decaidVersion!,
+  };
 }
 
 function hex(bytes: Uint8Array): string {
@@ -548,9 +626,14 @@ export function dismissedReason(hardware: Hardware): string {
   return `An Admin dismissed ${describeHardware(hardware)}, which a tablet reported with this Machine's token`;
 }
 
-/** Records that the Machine was seen now, by the database's clock, which every instance shares. */
+/**
+ * Records that the Machine was seen now, by the database's clock, which
+ * every instance shares: as it reads now, not at the transaction's start,
+ * which waiting on locks may have left long past. Its row lock must be held,
+ * so this waits for nothing.
+ */
 async function touch(tx: Prisma.TransactionClient, id: string): Promise<void> {
-  await tx.$executeRaw`UPDATE machines SET last_seen_at = now() WHERE id = ${id}::uuid`;
+  await tx.$executeRaw`UPDATE machines SET last_seen_at = clock_timestamp() WHERE id = ${id}::uuid`;
 }
 
 // Advisory locks on hardware use this as their first key, and a hash of the

@@ -70,7 +70,15 @@ export function isRecordId(value: unknown): value is string {
 }
 
 /** Why the server refused or ended a connection, sent in an `error` before it closes. */
-export type ErrorCode = "protocol_error" | "bad_token" | "plugin_too_old" | "replaced" | "hardware_dismissed" | "decaid_too_old";
+export type ErrorCode =
+  | "protocol_error"
+  | "bad_token"
+  | "plugin_too_old"
+  | "replaced"
+  | "hardware_dismissed"
+  | "decaid_too_old"
+  | "machine_held"
+  | "superseded";
 
 /** The WebSocket close code that goes with each error. */
 export const CLOSE_CODES: Readonly<Record<ErrorCode, number>> = {
@@ -80,7 +88,10 @@ export const CLOSE_CODES: Readonly<Record<ErrorCode, number>> = {
   bad_token: 4001,
   /** The plugin speaks a protocol version older than the server supports. */
   plugin_too_old: 4002,
-  /** A newer connection with the same token took over. */
+  /**
+   * A connection from another tablet took over with the same token. The
+   * plugin waits, then connects only with a `yielding` hello.
+   */
   replaced: 4003,
   /**
    * An Admin dismissed the hardware this tablet reports for this token: its
@@ -89,6 +100,17 @@ export const CLOSE_CODES: Readonly<Record<ErrorCode, number>> = {
   hardware_dismissed: 4004,
   /** The tablet runs a Decaid older than the server supports. */
   decaid_too_old: 4005,
+  /**
+   * A `yielding` hello was refused because a live connection from another
+   * tablet holds the Machine. The plugin waits, then tries again the same way.
+   */
+  machine_held: 4006,
+  /**
+   * This connection no longer holds its Machine, but no other tablet's does:
+   * another connection from this tablet does, as when it reconnected while
+   * the server still held this one, or none does. The plugin reconnects.
+   */
+  superseded: 4007,
 };
 
 /** The hardware a machine reports while it is connected to its tablet. */
@@ -155,6 +177,13 @@ export interface Hello {
   connectionId?: string | null;
   /** Absent or null while no machine is connected to the tablet. */
   machine?: MachineHardware | null;
+  /**
+   * Asks not to replace a live connection from another tablet: the server
+   * refuses the hello with `machine_held` while one holds the Machine, and
+   * otherwise accepts it as any other. Sent by a plugin whose connection
+   * another tablet replaced, so two tablets with one token never take turns.
+   */
+  yielding?: boolean;
 }
 
 /**
@@ -434,6 +463,7 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
           machine.string("serial");
           machine.optionalString("firmware");
         });
+        fields.optionalBoolean("yielding");
       });
       if (!hello.ok) return hello;
       const decaid = decaidRelease(hello.message.decaidVersion);
@@ -607,6 +637,11 @@ class FieldChecker {
 
   boolean(key: string): void {
     if (typeof this.object[key] !== "boolean") this.problem(key, "must be true or false");
+  }
+
+  optionalBoolean(key: string): void {
+    const value = this.object[key];
+    if (value !== undefined && typeof value !== "boolean") this.problem(key, "must be true or false");
   }
 
   objectField(key: string): void {

@@ -87,6 +87,19 @@ describe("decodePluginMessage", () => {
     }
   });
 
+  it("reads whether a hello yields to a live connection from another tablet, which it need not say", () => {
+    for (const yielding of [true, false]) {
+      expect(decodePluginMessage(frame({ ...hello, yielding }))).toEqual({ ok: true, message: { ...hello, yielding } });
+    }
+    for (const bad of [null, "true", 1]) {
+      expect(decodePluginMessage(frame({ ...hello, yielding: bad }))).toEqual({
+        ok: false,
+        error: "protocol_error",
+        problem: "hello.yielding must be true or false",
+      });
+    }
+  });
+
   it("never repeats a field's value in a problem", () => {
     for (const bad of [
       { ...hello, pluginVersion: { token } },

@@ -42,13 +42,26 @@ const MAX_TRANSPORTS = 8;
  * connected; after one leads to a hardware check, the next waits this long.
  */
 const HARDWARE_CHECK_COOLDOWN_MS = 5_000;
+/**
+ * How long a plugin another tablet replaced waits before each `yielding`
+ * hello, which the server refuses while that tablet stays connected.
+ */
+const YIELD_MS = 5 * 60_000;
 
 /** Close codes after which retrying cannot help until someone changes something. */
 const FINAL_CLOSES = new Map<number, string>([
   [CLOSE_CODES.bad_token, "The server refused the token. Enter the token shown when the machine entry was created, or a newly issued one."],
   [CLOSE_CODES.plugin_too_old, "The server needs a newer version of this plugin. Update the plugin."],
   [CLOSE_CODES.decaid_too_old, "The server needs a newer version of Decaid. Update Decaid on this tablet."],
-  [CLOSE_CODES.replaced, "Another tablet connected with this Machine's token, so this one stopped. Reload the plugin to take over again."],
+]);
+
+/** Close codes after which, or after their error message, the plugin waits, then connects with a `yielding` hello. */
+const YIELDING_CLOSES = new Map<number, string>([
+  [
+    CLOSE_CODES.replaced,
+    `Another tablet connected with this Machine's token and took over. Connecting again in ${YIELD_MS / 1000} s, unless that tablet is still connected then.`,
+  ],
+  [CLOSE_CODES.machine_held, `Another tablet is still connected with this Machine's token. Trying again in ${YIELD_MS / 1000} s.`],
 ]);
 
 type TimerName = "reconnect" | "heartbeat" | "silence" | "connect" | "hardwarePoll" | "hardwareCooldown";
@@ -57,6 +70,13 @@ type TimerName = "reconnect" | "heartbeat" | "silence" | "connect" | "hardwarePo
  * The plugin's one connection to the sync server: `hello` on every connect,
  * heartbeats once welcomed, and reconnecting with backoff after a drop.
  * Stops for good on a close that retrying cannot fix.
+ *
+ * A connection from another tablet with the same token replaces this one.
+ * The plugin then keeps capturing, as while the server is unreachable, and
+ * after `YIELD_MS` connects with a `yielding` hello, which the server refuses
+ * while that tablet stays connected; it then waits and tries again the same
+ * way until a hello is welcomed. So two tablets with one token never take
+ * turns: the one connected last keeps the Machine until it goes away.
  *
  * The server answers every heartbeat, so a welcomed connection the server has
  * sent nothing on for `MISSED_HEARTBEATS` intervals is dropped. A server host
@@ -90,6 +110,8 @@ export class SyncConnection {
   private sentHardware: MachineHardware | null = null;
   /** Hardware the server dismissed for this token; while set, the plugin does not connect. */
   private dismissedHardware: MachineHardware | null = null;
+  /** Set once another tablet replaced this one, until a `yielding` hello is welcomed. */
+  private yielding = false;
   /** Everything awaiting the server's acknowledgment, kept across reconnects in this runtime. */
   private readonly outbox: Outbox;
   private readonly shots: ShotCapture;
@@ -216,6 +238,7 @@ export class SyncConnection {
         tabletId,
         connectionId: identity.connectionId,
         machine: identity.machine,
+        ...(this.yielding ? { yielding: true } : {}),
       });
     } catch (error) {
       if (attempt === this.attempt) this.drop(`could not connect to ${this.settings.syncUrl}: ${describe(error)}`);
@@ -247,9 +270,12 @@ export class SyncConnection {
           break;
         }
         const final = event.code === undefined ? undefined : FINAL_CLOSES.get(event.code);
+        const yielding = event.code === undefined ? undefined : YIELDING_CLOSES.get(event.code);
         if (final) {
           this.log(final);
           this.stop();
+        } else if (yielding) {
+          this.yieldToAnotherTablet(yielding);
         } else {
           this.drop(`the server closed the connection${event.code === undefined ? "" : ` (${event.code}${event.reason ? `: ${event.reason}` : ""})`}`);
         }
@@ -273,6 +299,7 @@ export class SyncConnection {
       case "welcome":
         if (this.welcomed) return;
         this.welcomed = true;
+        this.yielding = false;
         this.reconnectDelayMs = MIN_RECONNECT_MS;
         this.clearTimer("connect");
         this.log(`Connected to ${this.settings.syncUrl}`);
@@ -309,10 +336,14 @@ export class SyncConnection {
       case "heartbeat":
         // Its arrival is what counts.
         break;
-      case "error":
-        // The close that follows decides what happens next.
+      case "error": {
         this.log(`The server reported ${describeError(message.code)}: ${message.message}`);
+        // The close that follows decides what happens next, unless another tablet replaced this one or holds the
+        // Machine: then the plugin gives way now, in case the connection fails before that close arrives.
+        const yielding = YIELDING_CLOSES.get(CLOSE_CODES[message.code]);
+        if (yielding) this.yieldToAnotherTablet(yielding);
         break;
+      }
     }
   }
 
@@ -378,6 +409,18 @@ export class SyncConnection {
         if (!this.stopped) this.scheduleHardwarePoll();
       });
     });
+  }
+
+  /**
+   * Gives way to another tablet with this Machine's token: drops the
+   * connection, keeps capturing, and after YIELD_MS connects with a
+   * `yielding` hello.
+   */
+  private yieldToAnotherTablet(notice: string): void {
+    this.yielding = true;
+    this.abandon();
+    this.log(notice);
+    this.setTimer("reconnect", YIELD_MS, () => void this.connect());
   }
 
   /** Replaces the current connection, or ends a wait, with a new attempt at once. */

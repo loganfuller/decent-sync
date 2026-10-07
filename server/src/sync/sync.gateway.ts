@@ -29,6 +29,7 @@ import { MachineEventsService } from "../machine-events/machine-events.service.j
 import { AccessChanges } from "../machines/access-changes.js";
 import { type LiveConnection, LiveConnections } from "../machines/connections.js";
 import { MachinesService, type Refusal, describeHardware } from "../machines/machines.service.js";
+import type { TakeoverConnectionView } from "../machines/takeovers.js";
 import { repeatingFailure } from "../set-aside-deliveries/repeating-failures.js";
 import { type CaptureDelivery, SetAsideDeliveriesService } from "../set-aside-deliveries/set-aside-deliveries.service.js";
 import { ShotsService } from "../shots/shots.service.js";
@@ -97,8 +98,12 @@ interface Session {
  * `hello` within the hello timeout; its token decides the Machine, and its
  * reported hardware and connection id the session's identity (ADR-0004,
  * ADR-0015), once. A newer connection with the same token replaces an older
- * one. Every refusal sends an `error`, then closes with that error's close
- * code. Messages never reach the log: a `hello` carries the token. A message
+ * one: closed as replaced if it comes from another tablet, after which its
+ * plugin yields to that tablet, or as superseded if from the same one, which
+ * reconnects. Replacing a live connection from another tablet is recorded on
+ * the Machine as a takeover, and a `yielding` hello is refused with
+ * machine_held instead. Every refusal sends an `error`, then closes with that
+ * error's close code. Messages never reach the log: a `hello` carries the token. A message
  * too large for one frame arrives in chunks, which are put back together for
  * that connection alone and confirmed one by one; the whole message is then
  * handled, and acknowledged, like any other.
@@ -380,10 +385,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
 
   private async hello(session: Session, hello: Hello): Promise<void> {
     clearTimeout(session.helloTimer);
-    const outcome = await this.machines.acceptHello(hello, session.id, new Date());
+    const outcome = await this.machines.acceptHello(hello, { sessionId: session.id, remoteAddress: session.remote }, new Date());
     if (!outcome.accepted) return this.refuse(session, outcome.code, outcome.reason);
 
-    const { machine, identity, hardware } = outcome;
+    const { machine, identity, hardware, tookOverFrom } = outcome;
     this.awaitingHello.delete(session);
     session.machine = machine;
     session.identity = identity;
@@ -392,7 +397,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       machineId: machine.id,
       tokenHash: hashSecret(hello.token),
       mismatch: identity.kind === "mismatch" ? identity.hardware : null,
-      tabletId: hello.tabletId,
+      tabletId: hello.tabletId.toLowerCase(),
       end: (code, message) => this.refuse(session, code, message),
     };
     session.live = live;
@@ -412,6 +417,11 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     this.logger.log(
       `Machine ${machine.name} connected from ${session.remote}: plugin ${hello.pluginVersion}, Decaid ${hello.decaidVersion}, ${describeIdentity(identity, hardware)}`,
     );
+    if (tookOverFrom) {
+      this.logger.warn(
+        `Machine ${machine.name} was taken over by tablet ${live.tabletId} from ${session.remote}, from tablet ${describeTakenOver(tookOverFrom)}, which was still connected`,
+      );
+    }
   }
 
   /** Ends those of the connections that may no longer stay, read together. */
@@ -424,8 +434,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   private async enforce(connections: LiveConnection[], read: () => Promise<(Refusal | null)[]>): Promise<void> {
     try {
       const refusals = await read();
-      // Shutting down closes every connection as going away, to be retried,
-      // not as replaced, after which the plugin stops.
+      // Shutting down closes every connection as going away, to be retried at
+      // once, not as replaced, after which the plugin would wait.
       if (this.shuttingDown) return;
       connections.forEach((connection, index) => {
         const refusal = refusals[index];
@@ -486,7 +496,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   private refuse(session: Session, code: ErrorCode, message: string): void {
     if (session.closing) return;
     const log = `Closing the sync connection of ${this.describe(session)}: ${message}`;
-    if (code === "replaced") this.logger.log(log);
+    // Routine: a tablet reconnecting, or yielding to another one, which the takeover was logged for.
+    if (code === "replaced" || code === "superseded" || code === "machine_held") this.logger.log(log);
     else this.logger.warn(log);
     this.send(session, { type: "error", code, message });
     this.end(session, CLOSE_CODES[code], code);
@@ -520,6 +531,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   private describe(session: Session): string {
     return session.machine ? `Machine ${session.machine.name} (${session.remote})` : session.remote;
   }
+}
+
+function describeTakenOver(connection: TakeoverConnectionView): string {
+  return `${connection.tabletId} at ${connection.remoteAddress}: plugin ${connection.pluginVersion}, Decaid ${connection.decaidVersion}`;
 }
 
 function describeIdentity(identity: Identity, hardware: Hardware | null): string {

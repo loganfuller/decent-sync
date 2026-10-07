@@ -116,6 +116,16 @@ describe("Tablets", { timeout: 20_000 }, () => {
       await api.waitForMachine("Lab", (machine) => !machine.online);
     });
 
+    it("is kept when the plugin's settings change, which reloads it with them", async () => {
+      const tablet = loadTablet({ settings: { ...settingsFor(lab), PollSeconds: 10 }, storage, api: labApi() });
+      await tablet.waitForLog(/^Connected to /);
+      expect(helloTabletIds(tablet)).toEqual([first]);
+      expect(tablet.logs.join("\n")).not.toContain("was given");
+      expect(tabletIds(await api.waitForMachine("Lab", (machine) => machine.online))).toEqual({ current: first, earlier: [] });
+      await tablet.unload();
+      await api.waitForMachine("Lab", (machine) => !machine.online);
+    });
+
     it("is new once the tablet's Decaid data is reset, and the Machine lists a new tablet", async () => {
       backup = storage.save();
       storage.clear();
