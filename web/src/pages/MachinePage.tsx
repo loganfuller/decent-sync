@@ -64,7 +64,9 @@ interface Reports {
  *
  * The Machine itself, with its status, is loaded every few seconds; the rest
  * changes less often, and is loaded less often. A change made here loads
- * everything again at once.
+ * again at once all it can change: the Machine, what its tablet reported and
+ * a mismatch's Pending Machine. No change made here alters the deliveries set
+ * aside, which keep their own interval.
  */
 export function MachinePage() {
   const { id = "" } = useParams();
@@ -105,13 +107,15 @@ function MachineDetails({ id }: { id: string }) {
   const reports = usePolled(loadReports, DETAILS_POLL_MS);
   // The Pending Machine holding a mismatch's hardware, loaded as soon as the Machine's status names one.
   const pendingId = status.data?.mismatch?.pendingMachineId ?? null;
-  const loadPending = useCallback(async () => {
-    if (pendingId === null) return null;
+  // Each answer names the id it was for, so one for an id the status no longer names is never shown.
+  const loadPending = useCallback(async (): Promise<{ id: string | null; pendingMachine: PendingMachine | null }> => {
+    if (pendingId === null) return { id: null, pendingMachine: null };
     try {
-      return (await api<{ pendingMachine: PendingMachine }>("GET", `/pending-machines/${encodeURIComponent(pendingId)}`)).pendingMachine;
+      const path = `/pending-machines/${encodeURIComponent(pendingId)}`;
+      return { id: pendingId, pendingMachine: (await api<{ pendingMachine: PendingMachine }>("GET", path)).pendingMachine };
     } catch (error) {
       // A machine entry took its hardware over meanwhile, which the Machine's status shows next.
-      if (error instanceof ApiError && error.status === 404) return null;
+      if (error instanceof ApiError && error.status === 404) return { id: pendingId, pendingMachine: null };
       throw error;
     }
   }, [pendingId]);
@@ -153,7 +157,7 @@ function MachineDetails({ id }: { id: string }) {
   const machine = status.data;
   const data = reports.data;
   // Undefined while the Pending Machine the status names is loading.
-  const pendingMachine = pendingId === null ? null : pending.data?.id === pendingId ? pending.data : undefined;
+  const pendingMachine = pendingId === null ? null : pending.data?.id === pendingId ? pending.data.pendingMachine : undefined;
   return (
     <section className="grid gap-6">
       <BackLink />
@@ -164,7 +168,7 @@ function MachineDetails({ id }: { id: string }) {
       )}
       {/* Keyed, so a new token never inherits the last one's "Copied". */}
       {issued && <TokenNotice key={issued.token} issued={issued} onDone={() => setIssued(undefined)} />}
-      {machine && data && (
+      {machine && (
         <>
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-semibold">{machine.name}</h1>
@@ -296,10 +300,15 @@ function MachineDetails({ id }: { id: string }) {
           </div>
 
           <MachineTablets machine={machine} />
-          <MachineWorkflow current={data.workflow} />
-          <PairedDevicesCard devices={data.pairedDevices} />
-          <SettingsCard settings={data.settings} workflow={data.workflow} />
-          <LibraryCard collections={data.collections} />
+          {/* Shown once loaded: the status above does not wait for them. */}
+          {data && (
+            <>
+              <MachineWorkflow current={data.workflow} />
+              <PairedDevicesCard devices={data.pairedDevices} />
+              <SettingsCard settings={data.settings} workflow={data.workflow} />
+              <LibraryCard collections={data.collections} />
+            </>
+          )}
           <MachineLocation machine={machine} isAdmin={isAdmin} onChanged={reload} />
         </>
       )}

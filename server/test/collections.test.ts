@@ -441,27 +441,37 @@ describe("Library, settings and paired devices", () => {
     const profiles = de1ProOnDecaid087()["/profiles"] as Record<string, unknown>[];
     const database = await server.connectDatabase();
     try {
-      /** The stored profiles: the TOAST data holding their value, which writing it again replaces, and their times and count. */
+      // Values kept out of line are in the table's TOAST relation, as chunks of one id each. Writing a value
+      // again stores new chunks under a new id and deletes the old ones. Nothing else writes collections meanwhile.
+      const { rows: [relation] } = await database.query<{ name: string }>(
+        "SELECT reltoastrelid::regclass::text AS name FROM pg_class WHERE oid = 'reported_collections'::regclass",
+      );
+      const toastIds = async () =>
+        (await database.query<{ id: string }>(`SELECT DISTINCT chunk_id::text AS id FROM ${relation!.name} ORDER BY id`)).rows.map(({ id }) => id);
+      /** The stored profiles' times and count. */
       const stored = async () =>
         (
-          await database.query<{ toast: string | null; reportedAt: Date; receivedAt: Date; items: number }>(
-            `SELECT pg_column_toast_chunk_id(value)::text AS toast, reported_at AS "reportedAt", received_at AS "receivedAt", items
+          await database.query<{ reportedAt: Date; receivedAt: Date; items: number }>(
+            `SELECT reported_at AS "reportedAt", received_at AS "receivedAt", items
              FROM reported_collections WHERE machine_id = $1 AND name = 'profiles'`,
             [machine.machine.id],
           )
         ).rows[0]!;
+      const earlier = await toastIds();
       const first = await connect(machine, server.url, hardware);
       await first.deliver(report("profiles", profiles));
       const before = await stored();
-      // Large enough to be kept out of line, as profiles usually are.
-      expect(before.toast).not.toBeNull();
+      const kept = await toastIds();
+      // Large enough to be kept out of line, as profiles usually are: under one new id.
+      const value = kept.filter((id) => !earlier.includes(id));
+      expect(value).toHaveLength(1);
       await first.close();
 
       // A reconnect, through any instance, sends it again unchanged.
       const second = await connect(machine, other.url, hardware);
       await second.deliver(report("profiles", profiles));
       const resent = await stored();
-      expect(resent.toast).toBe(before.toast);
+      expect(await toastIds()).toEqual(kept);
       expect(resent.reportedAt.getTime()).toBeGreaterThan(before.reportedAt.getTime());
       expect(resent.receivedAt.getTime()).toBeGreaterThan(before.receivedAt.getTime());
       expect(resent.items).toBe(profiles.length);
@@ -470,14 +480,13 @@ describe("Library, settings and paired devices", () => {
       // An unavailable report keeps it too, and so does the same value read again after it.
       await second.deliver(report("profiles"));
       await second.deliver(report("profiles", profiles));
-      expect((await stored()).toast).toBe(before.toast);
+      expect(await toastIds()).toEqual(kept);
 
-      // Derived: one profile renamed, and one deleted. A changed value is stored.
+      // Derived: one profile renamed, and one deleted. A changed value is stored, its old chunks deleted.
       const changed = profiles.slice(1).map((profile, index) => (index === 0 ? { ...profile, title: "Londonium, longer" } : profile));
       await second.deliver(report("profiles", changed));
-      const after = await stored();
-      expect(after.toast).not.toBe(before.toast);
-      expect(after.items).toBe(changed.length);
+      expect(await toastIds()).not.toContain(value[0]);
+      expect((await stored()).items).toBe(changed.length);
       expect(await collection(machine, "profiles")).toMatchObject({ available: true, value: changed, items: changed.length });
     } finally {
       await database.end();
