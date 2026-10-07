@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
 import { type Scope, includesLocation } from "../accounts/scope.js";
 import type { Prisma } from "../generated/prisma/client.js";
+import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { type Correction, type Move, locationHistoryEntryNotFound, machineNotFound, unknownLocation } from "./input.js";
 import { CREDITING_TRANSACTION, creditLocations, databaseNow } from "./location-history.js";
@@ -11,7 +12,9 @@ import { type MachineView, MachinesService, lockMachine } from "./machines.servi
  * their Location History. Each change credits again the Machine's records
  * recorded in the span it affects, with its row locked. Staff move Machines
  * only between Locations they work at; correcting and removing entries is
- * for Admins.
+ * for Admins. Each change is notified to every instance as a Library change
+ * at the Machine's Location after it, so the instance holding its tablet's
+ * connection writes it what that Location offers (`docs/LIBRARY.md`).
  */
 @Injectable()
 export class LocationHistoryService {
@@ -51,6 +54,7 @@ export class LocationHistoryService {
       }
       await tx.locationAssignment.create({ data: { machineId, locationId: move.locationId, effectiveFrom } });
       await creditLocations(tx, machineId, { from: effectiveFrom, until: null });
+      await notifyLocationChanged(tx, machineId);
     }, CREDITING_TRANSACTION);
     return this.machines.get(machineId);
   }
@@ -94,6 +98,7 @@ export class LocationHistoryService {
         from: new Date(Math.min(was, is)),
         until: relocated ? (after?.effectiveFrom ?? null) : new Date(Math.max(was, is)),
       });
+      await notifyLocationChanged(tx, machineId);
     }, CREDITING_TRANSACTION);
     return this.machines.get(machineId);
   }
@@ -112,6 +117,7 @@ export class LocationHistoryService {
       // Records from its time to the next entry that remains change Location.
       const next = neverLeft ? afterThat : after;
       await creditLocations(tx, machineId, { from: entry.effectiveFrom, until: next?.effectiveFrom ?? null });
+      await notifyLocationChanged(tx, machineId);
     }, CREDITING_TRANSACTION);
     return this.machines.get(machineId);
   }
@@ -128,6 +134,16 @@ async function lockedEntry(tx: Prisma.TransactionClient, machineId: string, entr
   const index = history.findIndex((entry) => entry.id === entryId);
   if (index < 0) throw locationHistoryEntryNotFound();
   return { before: history[index - 1], entry: history[index]!, after: history[index + 1], afterThat: history[index + 2] };
+}
+
+/**
+ * Tells every instance the Machine's tablet may be due what its Location
+ * offers now: a Library change at that Location, if it is at one. A change
+ * that leaves its current Location as it was makes no write due.
+ */
+async function notifyLocationChanged(tx: Prisma.TransactionClient, machineId: string): Promise<void> {
+  const latest = await tx.locationAssignment.findFirst({ where: { machineId }, orderBy: { effectiveFrom: "desc" }, select: { locationId: true } });
+  if (latest) await notify(tx, "library_changes", latest.locationId);
 }
 
 /** A Location History records where a Machine has been, judged by PostgreSQL's clock. */

@@ -234,6 +234,15 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     raws.push(raw);
     await raw.deliver(emptyBeans());
     const [refused] = await writesTo(raw, 1);
+    // An answer to no write it was asked for, as one arriving after its write timed out, is acknowledged and not recorded.
+    await raw.deliver({
+      type: "written",
+      id: randomUUID(),
+      kind: "bean",
+      globalId: refused!.globalId,
+      record: { ...mismatchedBean, id: randomUUID(), name: "Refused", extras: { [GLOBAL_ID_KEY]: refused!.globalId } },
+      updatedAt: "2026-10-07T15:00:00.000Z",
+    });
     await raw.deliver({
       type: "writeRefused",
       id: refused!.id,
@@ -262,6 +271,37 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
       await back.deliver({ type: "writeRefused", id: write.id, kind: "bean", globalId: write.globalId, status: null, error: "Decaid did not answer: Fetch timed out" });
     }
     expect((await writesTo(back, 3)).map((write) => write.globalId)).toEqual(writes.map((write) => write.globalId));
+  });
+
+  it("writes a Machine given a Location, then moved, while connected, what each Location offers", async () => {
+    const lab = await api.createLocation("Moving lab", "UTC");
+    const uptown = await api.createLocation("Moving Uptown", "UTC");
+    const labMachine = await api.createMachine("Moving lab group", lab.id);
+    const uptownMachine = await api.createMachine("Moving Uptown group", uptown.id);
+    const labTablet = load(labMachine, "14141");
+    const uptownTablet = load(uptownMachine, "14142");
+    await online(labMachine, uptownMachine);
+    await labTablet.addBean({ roaster: "Roux", name: "Moved Into" });
+    await labTablet.addBean({ roaster: "Roux", name: "Lab Second" });
+    await uptownTablet.addBean({ roaster: "Roux", name: "Uptown Only" });
+    const [movedInto, labSecond, uptownOnly] = [await libraryBean("Moved Into"), await libraryBean("Lab Second"), await libraryBean("Uptown Only")];
+
+    // A Machine with no Location connects, its tablet holding the lab's coffee entered on it before.
+    const traveller = await api.createMachine("Moving traveller");
+    const own = await beansEnteredOffline({ roaster: "roux", name: "moved into", notes: "Entered on the traveller" });
+    const tablet = load(traveller, "14143", { beans: own });
+    await online(traveller);
+    await expect.poll(() => tablet.received.some((frame) => (frame as { type?: unknown }).type === "ack"), { timeout: 10_000 }).toBe(true);
+    expect(tablet.writes).toEqual([]);
+
+    expect((await api.call("POST", `/machines/${traveller.machine.id}/location-history`, { locationId: lab.id })).status).toBe(201);
+    await holds(tablet, "Lab Second", labSecond.id);
+    await expect.poll(() => tablet.beans().filter((bean) => bean.id === own[0]!.id).map(globalIdOf), { timeout: 10_000 }).toEqual([movedInto.id]);
+    expect(heldAs(tablet, "Moved Into")).toEqual([]);
+    expect(await beansNamed("Moved Into")).toHaveLength(1);
+
+    expect((await api.call("POST", `/machines/${traveller.machine.id}/location-history`, { locationId: uptown.id })).status).toBe(201);
+    await holds(tablet, "Uptown Only", uptownOnly.id);
   });
 
   it("makes one Bean of a coffee two tablets enter at once, through either instance", async () => {

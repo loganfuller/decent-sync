@@ -93,14 +93,17 @@ that joined the Library first are written first.
 
 It writes nothing until that connection's report of the tablet's beans, which
 the plugin sends on every welcome, has been taken in, and then only while the
-Machine is at the Location the latest report was taken in at, and the
-connection still holds the Machine. So a bean the tablet holds already, entered
-there or before it joined, is linked to the Library's Bean before anything is
-written, rather than written to it again; and a Machine moved since its
-tablet's latest report is written nothing until its next one. A tablet that
-was offline catches up once its report on reconnecting is taken in. The writer
-also looks whenever any Library change is notified, on any instance, and when
-the instance listens for notifications again after losing its connection.
+connection still holds the Machine and the Machine is at a Location. So a bean
+the tablet holds already, entered there or before it joined, is linked to the
+Library's Bean before anything is written, rather than written to it again. A
+tablet that was offline catches up once its report on reconnecting is taken
+in. The writer also looks whenever any Library change is notified, on any
+instance, and when the instance listens for notifications again after losing
+its connection. Every change to a Machine's Location History is notified as a
+Library change at its Location after the change, so a Machine moved, or given
+a Location, while connected is written that Location's Beans at once; a bean
+its tablet holds with the same roaster and name becomes the Bean, as below,
+rather than being written again.
 
 One write is outstanding per connection, and only the connection holding a
 Machine writes, so a tablet is written one item at a time. The server sends a
@@ -114,7 +117,10 @@ goes on. A record that does not carry the Bean's global id, or whose local id
 the map holds as another Bean's, is not recorded. A refusal, an answer that
 cannot be recorded, no answer within 120 s, or a Bean still due right after it
 was written skips that Bean for the rest of the connection; the other writes
-go on, and the tablet's next connection tries it again.
+go on, and the tablet's next connection tries it again. An answer to no write
+its connection awaits, such as one arriving after its write timed out, is
+acknowledged and not recorded: its record may be older than one reported
+since, and the tablet's next report shows what it holds.
 
 The plugin (`plugin/src/library-writes.ts`) carries writes out through
 Decaid's API, one at a time:
@@ -163,10 +169,11 @@ likely duplicates.
   linked record keeps its own content, and only its global id is written;
   linking will then write the Library's content to it, keeping each field it
   differed in as a Conflict (ADR-0018).
-- Joining a Location, including what a moved Machine brings and the hiding of
-  what its old Location offered: ticket #89. A move notifies nothing yet: a
-  moved Machine's tablet is written its new Location's Beans at its next
-  welcome or Library change.
+- Joining a Location, including taking in what a moved Machine brings and
+  hiding what its old Location offered: ticket #89. Until then a moved
+  Machine's tablet is written its new Location's Beans at once, keeps those of
+  its old one, and its own beans join the Library at its new Location with
+  its next report, when its beans change or it reconnects.
 - The capture-only switch: ticket #90. Recording refused writes, and each
   Machine's sharing status: ticket #91.
 

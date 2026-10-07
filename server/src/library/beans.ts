@@ -42,17 +42,16 @@ export interface ReportingTablet {
  * at a Location: a Machine without one is capture-only. Runs in the
  * transaction storing the report, holding the Machine's row lock, which
  * Location History changes take too. Tells every instance when the tablets
- * at its Location have something to be written. Returns the Location the
- * report was taken in at, or null if none.
+ * at its Location have something to be written.
  */
 export async function takeInBeans(
   tx: Prisma.TransactionClient,
   tablet: ReportingTablet,
   value: unknown,
   updatedAt: readonly (string | null)[] | undefined,
-): Promise<string | null> {
+): Promise<void> {
   const locationId = await currentLocation(tx, tablet.machineId);
-  if (locationId === null) return null;
+  if (locationId === null) return;
   const reported = readReportedBeans(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
   const mapped = await tx.tabletBean.findMany({
@@ -104,7 +103,6 @@ export async function takeInBeans(
     if (step.kind === "add" || step.kind === "link" || bean.globalId !== beanId) writesDue = true;
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
-  return locationId;
 }
 
 /** A write a tablet is due: a Bean its Location offers that it lacks, or whose global id its record lacks. */
@@ -126,18 +124,10 @@ export interface WrittenTablet {
 /**
  * The next write the connection's tablet is due, the Beans that joined the
  * Library first, leaving out those in `skipped`; null while the connection
- * no longer holds its Machine, the Machine is not at the Location its
- * tablet's latest report of its beans was taken in at (`reportedAt`), or the
- * tablet holds every Bean that Location offers with its global id. A tablet
- * is written only what the Library knows it lacks once its beans are taken
- * in there, so a bean it holds already is linked rather than written again.
+ * no longer holds its Machine, the Machine is at no Location, or the tablet
+ * holds every Bean its Location offers with its global id.
  */
-export async function nextBeanWrite(
-  prisma: PrismaService,
-  tablet: WrittenTablet,
-  reportedAt: string,
-  skipped: readonly string[],
-): Promise<BeanWrite | null> {
+export async function nextBeanWrite(prisma: PrismaService, tablet: WrittenTablet, skipped: readonly string[]): Promise<BeanWrite | null> {
   const [next] = await prisma.$queryRaw<{ beanId: string; content: Record<string, unknown>; localId: string | null }[]>`
     WITH holder AS (
       SELECT (
@@ -147,7 +137,7 @@ export async function nextBeanWrite(
     )
     SELECT beans.id AS "beanId", beans.content, held.local_id AS "localId"
     FROM holder
-    JOIN bean_origins AS origin ON origin.location_id = holder.location_id AND holder.location_id = ${reportedAt}::uuid
+    JOIN bean_origins AS origin ON origin.location_id = holder.location_id
     JOIN beans ON beans.id = origin.bean_id AND NOT beans.archived
     LEFT JOIN tablet_beans AS held ON held.tablet_id = ${tablet.tabletId}::uuid AND held.bean_id = beans.id
     WHERE (held.bean_id IS NULL OR lower(held.record -> 'extras' ->> ${GLOBAL_ID_KEY}::text) IS DISTINCT FROM beans.id::text)

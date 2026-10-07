@@ -23,10 +23,12 @@ export type WriteOutcome = "written" | "refused";
  * notifications may have been missed.
  *
  * Nothing is written until the connection's first report of the tablet's
- * beans is taken in, which the plugin sends on every welcome, and only while
- * the Machine is at the Location its latest report was taken in at. A bean
- * the tablet already holds, entered there or before it joined, is then
- * linked to the Library's Bean rather than written to it again.
+ * beans is taken in, which the plugin sends on every welcome, so a bean the
+ * tablet already holds is linked to the Library's Bean rather than written
+ * to it again. A Machine moved, or given a Location, while connected is
+ * written its new Location's Beans at once: its Location History change is
+ * notified, and the plugin makes a bean it holds with the same roaster and
+ * name the Bean rather than creating another (`library-writes.ts`).
  *
  * Only the connection holding its Machine writes, and the plugin answers
  * only on the connection that asked, so a tablet is written one item at a
@@ -44,12 +46,8 @@ export class TabletWriter {
   private waiting: { id: string; settle: (outcome: WriteOutcome | "stopped" | "timedOut") => void } | undefined;
   /** Beans whose write was refused, or not answered, on this connection, or that writing did not change. */
   private readonly skipped = new Set<string>();
-  /**
-   * The Location the connection's latest report of the tablet's beans was
-   * taken in at: null while the Machine was at none, and undefined until one
-   * is.
-   */
-  private reportedAt: string | null | undefined;
+  /** Whether a report of the tablet's beans from this connection has been taken in. */
+  private hasReported = false;
 
   constructor(
     private readonly tablet: WrittenTablet,
@@ -78,10 +76,15 @@ export class TabletWriter {
     );
   }
 
-  /** A report of the tablet's beans from this connection was taken in, with its Machine at that Location, or at none. */
-  reported(locationId: string | null): void {
-    this.reportedAt = locationId;
+  /** A report of the tablet's beans from this connection was taken in, at its Machine's Location if it had one. */
+  reported(): void {
+    this.hasReported = true;
     this.wake();
+  }
+
+  /** Whether the write with this id awaits its answer. */
+  awaits(id: string): boolean {
+    return this.waiting?.id === id;
   }
 
   /** The plugin answered a write, and its answer is recorded. Answers to other writes, such as late ones, are ignored. */
@@ -100,8 +103,7 @@ export class TabletWriter {
     let written: string | undefined;
     for (;;) {
       this.again = false;
-      const reportedAt = this.reportedAt;
-      const due = reportedAt ? await nextBeanWrite(this.prisma, this.tablet, reportedAt, [...this.skipped]) : null;
+      const due = this.hasReported ? await nextBeanWrite(this.prisma, this.tablet, [...this.skipped]) : null;
       if (this.stopped) return;
       if (!due) {
         if (this.again) continue;

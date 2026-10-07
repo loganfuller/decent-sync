@@ -356,8 +356,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return this.capture(session, message, text, () => this.machineEvents.storeMachineState(message, reporter));
       case "collection":
         return this.capture(session, message, text, async () => {
-          const intake = await this.collections.store(message, reporter);
-          if (intake) session.writer?.reported(intake.takenInAt);
+          if (await this.collections.store(message, reporter)) session.writer?.reported();
         });
       case "written":
       case "writeRefused":
@@ -424,14 +423,16 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * fails to store in a way that would repeat is logged and skipped the same
    * way, so it cannot stop the tablet's other writes. Any other failure
    * closes the connection with 1011, and the tablet's next connection is
-   * written the item again, which the plugin then finds it holds. A
-   * connection that is never written to, as a mismatched one, has its
-   * answers acknowledged and nothing more.
+   * written the item again, which the plugin then finds it holds. An answer
+   * to no write its connection awaits, as on a mismatched connection, which
+   * is never written to, or one arriving after its write timed out, is
+   * acknowledged and nothing more: its record may be older than one
+   * reported since.
    */
   private async answered(session: Session, answer: ItemWritten | WriteRefused): Promise<void> {
     let outcome: "written" | "refused" = "refused";
-    if (!session.writer) {
-      // Nothing was asked of it.
+    if (!session.writer?.awaits(answer.id)) {
+      // Nothing was asked of it, or the write timed out and its writer went on: the tablet's next report shows what it holds.
     } else if (answer.type === "writeRefused") {
       this.logger.warn(
         `The tablet of ${this.describe(session)} did not write ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? "Decaid did not answer" : `Decaid answered ${answer.status}`}, ${quoted(answer.error.slice(0, 200))}`,
