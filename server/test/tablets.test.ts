@@ -356,42 +356,82 @@ describe("Tablets", { timeout: 20_000 }, () => {
     expect(tabletIds(await machine(created.machine.id))).toEqual({ current: accepted, earlier: [replaced] });
   });
 
+  it("records one holder's tablets in the order their hellos are accepted, whatever tokens they use", async () => {
+    const owner = await api.createMachine("Owns the hardware");
+    const lender = await api.createMachine("Reports another's hardware");
+    const reported = randomUUID();
+    const own = randomUUID();
+    await (await connect(helloWith(owner.token, { tabletId: own, machine: de1Pro("14301") }))).close();
+    await (await connect(helloWith(lender.token, { machine: de1Pro("14302") }))).close();
+    // A tablet reporting the owner's hardware with the other Machine's token is recorded against the owner.
+    await (await connect(helloWith(lender.token, { tabletId: reported, machine: de1Pro("14301") }))).close();
+
+    const mismatched = await RawConnection.open(server.url);
+    const ownHello = await RawConnection.open(server.url);
+    connections.push(mismatched, ownHello);
+    const database = await server.connectDatabase();
+    try {
+      // The test holds that record, as a heartbeat updating it would, so the tablet's next hello waits to record it.
+      await database.query("BEGIN");
+      await database.query("SELECT 1 FROM machine_tablets WHERE tablet_id = $1 FOR UPDATE", [reported]);
+      mismatched.send(helloWith(lender.token, { tabletId: reported, machine: de1Pro("14301") }));
+      await waitForLockWaits(server);
+      // The owner's own tablet connects without hardware meanwhile, taking no lock the first hello holds but the
+      // owner's for recording tablets, and so waits for the first to be accepted.
+      ownHello.send(helloWith(owner.token, { tabletId: own, machine: null }));
+      await waitForLockWaits(server, { count: 2 });
+      await database.query("COMMIT");
+    } finally {
+      await database.end();
+    }
+    expect(await mismatched.message(0)).toMatchObject({ type: "welcome" });
+    expect(await ownHello.message(0)).toMatchObject({ type: "welcome" });
+    // Accepted last, the owner's own tablet is current.
+    expect(tabletIds(await machine(owner.machine.id))).toEqual({ current: own, earlier: [reported] });
+  });
+
   it("keeps the sighting of a mismatched connection's heartbeat that waited for its hardware's adoption", async () => {
     const lender = await api.createMachine("Lends a token while heard");
     const unidentified = await api.createMachine("Entered while heard");
     const tabletId = randomUUID();
     await (await connect(helloWith(lender.token, { machine: de1Pro("14201") }))).close();
     await (await connect(helloWith(unidentified.token, { tabletId, machine: de1Pro("0") }))).close();
-    // With the other Machine's token, sending heartbeats only when the test does.
-    const raw = await RawConnection.open(server.url);
-    connections.push(raw);
-    raw.send(helloWith(lender.token, { tabletId, machine: de1Pro("14202") }));
-    await raw.message(0);
-    const heldSince = Date.parse((await api.pendingMachines()).find((candidate) => candidate.serial === "14202")!.lastSeenAt!);
-
-    const database = await server.connectDatabase();
+    // The tablet connects with the other Machine's token to an instance that waits 30 s for a heartbeat, longer
+    // than the test's waits, and sends heartbeats only when the test does.
+    const patient = await startTestServer({ env: { ...env, SYNC_HEARTBEAT_SECONDS: "10" }, sharing: server });
     try {
-      // Entering the hardware joins the Pending Machine's record of the tablet into the Machine's, then waits
-      // to remove the Pending Machine, whose row the test holds.
-      await database.query("BEGIN");
-      await database.query("SELECT 1 FROM pending_machines WHERE model = 'DE1Pro' AND serial = '14202' FOR UPDATE");
-      const entered = api.call("PUT", `/machines/${unidentified.machine.id}/hardware`, { model: "DE1Pro", serial: "14202" });
-      await waitForLockWaits(server);
-      // A heartbeat meanwhile waits for the record the adoption has removed.
-      raw.send({ type: "heartbeat" });
-      await waitForLockWaits(server, { count: 2 });
-      await database.query("COMMIT");
-      expect((await entered).status).toBe(200);
+      const raw = await RawConnection.open(patient.url);
+      connections.push(raw);
+      raw.send(helloWith(lender.token, { tabletId, machine: de1Pro("14202") }));
+      await raw.message(0);
+      const heldSince = Date.parse((await api.pendingMachines()).find((candidate) => candidate.serial === "14202")!.lastSeenAt!);
+
+      const database = await server.connectDatabase();
+      try {
+        // Entering the hardware joins the Pending Machine's record of the tablet into the Machine's, then waits
+        // to remove the Pending Machine, whose row the test holds.
+        await database.query("BEGIN");
+        await database.query("SELECT 1 FROM pending_machines WHERE model = 'DE1Pro' AND serial = '14202' FOR UPDATE");
+        const entered = api.call("PUT", `/machines/${unidentified.machine.id}/hardware`, { model: "DE1Pro", serial: "14202" });
+        await waitForLockWaits(server);
+        // A heartbeat meanwhile waits for the record the adoption has removed.
+        raw.send({ type: "heartbeat" });
+        await waitForLockWaits(server, { count: 2 });
+        await database.query("COMMIT");
+        expect((await entered).status).toBe(200);
+      } finally {
+        await database.end();
+      }
+      // The heartbeat is still recorded, on the record the Machine took over. PostgreSQL rounds a record's
+      // times to the millisecond where the Pending Machine's was truncated.
+      const heard = await api.waitForMachine(
+        "Entered while heard",
+        (viewed) => viewed.tablet?.id === tabletId && Date.parse(viewed.tablet.lastSeenAt) > heldSince + 1,
+      );
+      expect(heard.earlierTablets).toEqual([]);
     } finally {
-      await database.end();
+      await patient.stop();
     }
-    // The heartbeat is still recorded, on the record the Machine took over. PostgreSQL rounds a record's
-    // times to the millisecond where the Pending Machine's was truncated.
-    const heard = await api.waitForMachine(
-      "Entered while heard",
-      (viewed) => viewed.tablet?.id === tabletId && Date.parse(viewed.tablet.lastSeenAt) > heldSince + 1,
-    );
-    expect(heard.earlierTablets).toEqual([]);
   });
 
   it("records nothing for a refused hello", async () => {
