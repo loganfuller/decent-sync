@@ -101,15 +101,17 @@ once its report on reconnecting is taken in. The writer also looks whenever
 any Library change is notified, on any instance, and when the instance listens
 for notifications again after losing its connection.
 
-A change to a Machine's Location History that changes the Location it is at
-now (a move, or correcting or removing its latest entry) commits with a
-`NOTIFY` on `machine_locations` naming the Machine. The instance holding its
-tablet's connection then sends the plugin `requestCollections`, and the plugin
-reads every collection again and sends each in full, as on a welcome. Once
-that report of its beans is taken in at the new Location, the tablet is
-written what that Location offers. A notification missed while an instance is
-not listening leaves the tablet waiting for its next report, when its beans
-change or it reconnects.
+When the writer finds the Machine at another Location than the one its
+tablet's latest report was taken in at, as once it has moved, it sends the
+plugin `requestCollections`, once for each Location it finds it at, and the
+plugin reads every collection again and sends each in full, as on a welcome.
+Once that report of its beans is taken in at the new Location, the tablet is
+written what that Location offers. A change to a Machine's Location History
+that changes the Location it is at now (a move, or correcting or removing its
+latest entry) commits with a `NOTIFY` on `machine_locations` naming the
+Machine, which wakes the writers of its connections, on any instance. A move
+an instance missed while not listening is found when it listens again, as
+every writer then looks.
 
 One write is outstanding per connection, and only the connection holding a
 Machine writes, so a tablet is written one item at a time. The server sends a

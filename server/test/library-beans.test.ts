@@ -317,6 +317,31 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     expect(locations(await libraryBean("Moved Into"))).toEqual(["Moving lab"]);
   });
 
+  it("finds a move it was not told of, as one made while its instance was not listening, once it looks again", async () => {
+    const lab = await api.createLocation("Drift lab", "UTC");
+    const uptown = await api.createLocation("Drift Uptown", "UTC");
+    const traveller = await api.createMachine("Drift traveller", lab.id);
+    const uptownMachine = await api.createMachine("Drift Uptown group", uptown.id);
+    const tablet = load(traveller, "14151");
+    const uptownTablet = load(uptownMachine, "14152");
+    await online(traveller, uptownMachine);
+    await expect.poll(() => beanReports(tablet), { timeout: 10_000 }).toBeGreaterThan(0);
+
+    // The traveller moves to Uptown with no notification, then a Bean joins Uptown, which every writer looks at.
+    const database = await server.connectDatabase();
+    try {
+      await database.query(
+        "INSERT INTO location_assignments (id, machine_id, location_id, effective_from) VALUES (gen_random_uuid(), $1, $2, now())",
+        [traveller.machine.id, uptown.id],
+      );
+    } finally {
+      await database.end();
+    }
+    await uptownTablet.addBean({ roaster: "Roux", name: "Drift Bean" });
+    await holds(tablet, "Drift Bean", (await libraryBean("Drift Bean")).id);
+    expect(tablet.received).toContainEqual({ type: "requestCollections" });
+  });
+
   it("makes one Bean of a coffee two tablets enter at once, through either instance", async () => {
     const uptown = await api.createLocation("Race Uptown", "UTC");
     const belmont = await api.createLocation("Race Belmont", "UTC");

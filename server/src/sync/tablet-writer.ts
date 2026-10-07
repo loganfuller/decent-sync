@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { LibraryWrite } from "@decent-sync/protocol";
-import { type WrittenTablet, nextBeanWrite } from "../library/beans.js";
+import { type WrittenTablet, tabletDue } from "../library/beans.js";
 import type { PrismaService } from "../prisma.service.js";
 
 /**
@@ -26,10 +26,13 @@ export type WriteOutcome = "written" | "refused";
  * taken in, which the plugin sends on every welcome, and only while the
  * Machine is at the Location its latest report was taken in at. A bean the
  * tablet already holds, entered there or before it joined, is then linked to
- * the Library's Bean rather than written to it again. When the Machine's
- * Location changes while it is connected, the server asks the plugin for its
- * collections afresh (`requestCollections`), and writes once that report is
- * taken in at the new Location.
+ * the Library's Bean rather than written to it again. When it finds the
+ * Machine at another Location than that, as once it has moved, it asks the
+ * plugin for its collections afresh (`requestCollections`), once for each
+ * Location it finds, and writes once that report is taken in there. A move is
+ * notified to every instance, which wakes the writers of the Machine's
+ * connections, and every writer looks again after its instance listens anew,
+ * so a move missed meanwhile is found too.
  *
  * Only the connection holding its Machine writes, and the plugin answers
  * only on the connection that asked, so a tablet is written one item at a
@@ -53,12 +56,21 @@ export class TabletWriter {
    * is.
    */
   private reportedAt: string | null | undefined;
+  /**
+   * The Location the plugin was last asked to report the tablet's collections
+   * afresh for, until the writer finds the Machine at the Location of its
+   * latest report. A report taken in just before a move, after the request,
+   * does not clear it, so the plugin is not asked twice.
+   */
+  private requestedFor: string | undefined;
 
   constructor(
     private readonly tablet: WrittenTablet,
     private readonly prisma: PrismaService,
     /** Sends a write on the connection, in chunks if it is too large for one frame. */
     private readonly send: (write: LibraryWrite) => void,
+    /** Asks the plugin for every collection afresh, as on a welcome. */
+    private readonly requestCollections: () => void,
     private readonly log: { warn(message: string): void; error(message: string): void },
     /** Keeps database work in the instance's work in flight, which shutdown waits for. */
     private readonly track: (work: Promise<void>) => Promise<void>,
@@ -108,9 +120,16 @@ export class TabletWriter {
     let written: string | undefined;
     for (;;) {
       this.again = false;
+      // Until the connection's first report is taken in, which its welcome brings, nothing is due.
       const reportedAt = this.reportedAt;
-      const due = reportedAt ? await nextBeanWrite(this.prisma, this.tablet, reportedAt, [...this.skipped]) : null;
+      const found = reportedAt === undefined ? null : await tabletDue(this.prisma, this.tablet, reportedAt, [...this.skipped]);
       if (this.stopped) return;
+      if (found?.locationId === reportedAt) this.requestedFor = undefined;
+      else if (found && found.locationId !== null && found.locationId !== this.requestedFor) {
+        this.requestedFor = found.locationId;
+        this.requestCollections();
+      }
+      const due = found?.write;
       if (!due) {
         if (this.again) continue;
         return;

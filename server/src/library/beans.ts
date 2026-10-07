@@ -123,39 +123,53 @@ export interface WrittenTablet {
   tabletId: string;
 }
 
+/** What a connection's tablet is due: where its Machine is now, and the next write, if any. */
+export interface TabletDue {
+  /** The Location its Machine is at now, or null if none. */
+  locationId: string | null;
+  /** The next write, or null if none is due. */
+  write: BeanWrite | null;
+}
+
 /**
- * The next write the connection's tablet is due, the Beans that joined the
- * Library first, leaving out those in `skipped`; null while the connection
- * no longer holds its Machine, the Machine is not at the Location its
+ * Where the connection's Machine is now, and the next write its tablet is
+ * due, the Beans that joined the Library first, leaving out those in
+ * `skipped`. No write is due while the Machine is not at the Location its
  * tablet's latest report of its beans was taken in at (`reportedAt`), or the
- * tablet holds every Bean that Location offers with its global id. A tablet
+ * tablet holds every Bean that Location offers with its global id: a tablet
  * is written only what the Library knows it lacks once its beans are taken
  * in there, so a bean it holds already is linked rather than written again.
+ * Null while the connection no longer holds its Machine.
  */
-export async function nextBeanWrite(
+export async function tabletDue(
   prisma: PrismaService,
   tablet: WrittenTablet,
-  reportedAt: string,
+  reportedAt: string | null,
   skipped: readonly string[],
-): Promise<BeanWrite | null> {
-  const [next] = await prisma.$queryRaw<{ beanId: string; content: Record<string, unknown>; localId: string | null }[]>`
+): Promise<TabletDue | null> {
+  const [due] = await prisma.$queryRaw<{ locationId: string | null; beanId: string | null; content: Record<string, unknown> | null; localId: string | null }[]>`
     WITH holder AS (
       SELECT (
         SELECT location_id FROM location_assignments WHERE machine_id = machines.id ORDER BY effective_from DESC LIMIT 1
       ) AS location_id
       FROM machines WHERE id = ${tablet.machineId}::uuid AND connected_session_id = ${tablet.sessionId}::uuid
     )
-    SELECT beans.id AS "beanId", beans.content, held.local_id AS "localId"
+    SELECT holder.location_id AS "locationId", next.id AS "beanId", next.content, next.local_id AS "localId"
     FROM holder
-    JOIN bean_origins AS origin ON origin.location_id = holder.location_id AND holder.location_id = ${reportedAt}::uuid
-    JOIN beans ON beans.id = origin.bean_id AND NOT beans.archived
-    LEFT JOIN tablet_beans AS held ON held.tablet_id = ${tablet.tabletId}::uuid AND held.bean_id = beans.id
-    WHERE (held.bean_id IS NULL OR lower(held.record -> 'extras' ->> ${GLOBAL_ID_KEY}::text) IS DISTINCT FROM beans.id::text)
-      AND beans.id <> ALL(${[...skipped]}::uuid[])
-    ORDER BY beans.created_at, beans.id
-    LIMIT 1`;
-  if (!next) return null;
-  return { beanId: next.beanId, localId: next.localId, fields: next.localId === null ? next.content : {} };
+    LEFT JOIN LATERAL (
+      SELECT beans.id, beans.content, held.local_id
+      FROM bean_origins AS origin
+      JOIN beans ON beans.id = origin.bean_id AND NOT beans.archived
+      LEFT JOIN tablet_beans AS held ON held.tablet_id = ${tablet.tabletId}::uuid AND held.bean_id = beans.id
+      WHERE origin.location_id = holder.location_id AND holder.location_id = ${reportedAt}::uuid
+        AND (held.bean_id IS NULL OR lower(held.record -> 'extras' ->> ${GLOBAL_ID_KEY}::text) IS DISTINCT FROM beans.id::text)
+        AND beans.id <> ALL(${[...skipped]}::uuid[])
+      ORDER BY beans.created_at, beans.id
+      LIMIT 1
+    ) AS next ON true`;
+  if (!due) return null;
+  const write = due.beanId === null ? null : { beanId: due.beanId, localId: due.localId, fields: due.localId === null ? due.content ?? {} : {} };
+  return { locationId: due.locationId, write };
 }
 
 /**
