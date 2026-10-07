@@ -9,11 +9,15 @@ const OVERLAP = 10;
 const MAX_PASSES = 3;
 
 /**
- * Shots, through the outbox: captured from Decaid's events as they are
- * stored or edited, and reconciled once per load by paging through every
- * Shot summary with its edit time, so the server requests the Shots it lacks
- * or holds an older version of. A reconnect in the same runtime sends the
- * known ids only, since the outbox still holds unacknowledged edits.
+ * Shots, through the outbox. A Shot Decaid reports stored is requested by
+ * its id, ahead of backfill, and read only when the outbox is about to send
+ * it, so while the server is unreachable the outbox holds its id, not its
+ * record. An edit is sent as Decaid reports it, metadata without curves, so
+ * it may reach the server before the Shot's full record. Once per load,
+ * every Shot summary is paged through with its edit time, so the server
+ * requests the Shots it lacks or holds an older version of. A reconnect in
+ * the same runtime sends the known ids only, since the outbox still holds
+ * unacknowledged edits and requested Shots.
  */
 export class ShotCapture {
   private readonly ids = new Set<string>();
@@ -22,7 +26,6 @@ export class ShotCapture {
   private welcomed = false;
   private stopped = false;
   private timer?: number;
-  private events: Promise<void> = Promise.resolve();
   /** The Shots Decaid reported stored or edited while a summary pass runs. */
   private reported?: Set<string>;
 
@@ -44,37 +47,26 @@ export class ShotCapture {
 
   event(type: "shot" | "shotUpdated", payload: unknown): void {
     const event = object(payload);
-    if (typeof event?.id !== "string" || event.id === "" || isLegacyImport(event.id)) return;
+    if (this.stopped || typeof event?.id !== "string" || event.id === "" || isLegacyImport(event.id)) return;
     const id = event.id;
     this.reported?.add(id);
-    // Keep tablet event order even if its API takes different times to answer.
-    this.events = this.events.then(async () => {
-      if (type === "shotUpdated") {
-        // Decaid's edit event carries the Shot's complete metadata, without curves.
-        const shot = object(event.shot);
-        if (shot && !this.stopped) this.capture(type, id, shot);
-        return;
-      }
-      let shot: Record<string, unknown> | null;
-      try { shot = await readShot(id); }
-      catch {
-        this.outbox.retryLater("shot", id);
-        return;
-      }
-      // Absent means the Shot was deleted since it was stored.
-      if (shot && !this.stopped) this.capture(type, id, shot);
-    }).catch(() => this.log("Could not capture a Shot event; reconciliation will recover it."));
+    if (type === "shot") {
+      // Its measurements make a Shot tens of KB, so it is read only as it is about to be sent.
+      this.ids.add(id);
+      this.outbox.request("shot", [id], { first: true });
+      return;
+    }
+    // Decaid's edit event carries the Shot's complete metadata, without curves.
+    const shot = object(event.shot);
+    if (!shot) return;
+    this.ids.add(id);
+    this.outbox.enqueue({ type, id: this.outbox.nextId(), shotId: id, shot });
   }
 
-  /** A Shot the server requested, as a delivery, or null if the tablet no longer has it. */
+  /** A Shot new on the tablet or requested by the server, as a delivery, or null if the tablet no longer has it. */
   async read(id: string, deliveryId: string): Promise<ShotDelivery | null> {
     const shot = await readShot(id);
     return shot && { type: "shot", id: deliveryId, shotId: id, shot };
-  }
-
-  private capture(type: "shot" | "shotUpdated", id: string, shot: Record<string, unknown>): void {
-    this.ids.add(id);
-    this.outbox.enqueue({ type, id: this.outbox.nextId(), shotId: id, shot });
   }
 
   /** Read bounded summaries once per load; never use the unbounded ids endpoint. */

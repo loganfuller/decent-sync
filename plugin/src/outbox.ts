@@ -18,6 +18,8 @@ export type Delivery = ShotDelivery | ShotIndex | SteamDelivery | SteamIndex | W
 /** The kinds of record the server can request by their ids. */
 export type RecordKind = "shot" | "steam";
 
+const RECORD_NAMES: Readonly<Record<RecordKind, string>> = { shot: "Shot", steam: "Steam Record" };
+
 /**
  * Reads a requested record from Decaid's API as a delivery with the given id:
  * null if the tablet no longer has it, or it is not a record Decent Sync
@@ -36,8 +38,9 @@ const SHORT_OUTBOX = 4;
  * recover the records. A delivery stays until the server acknowledges it.
  * One logical delivery awaits acknowledgment at a time; the connection's
  * Sender keeps it, chunked or not, within Decaid's pending limit. Requested
- * records are read from Decaid's API one at a time, when nothing else is
- * queued, oldest request first.
+ * records, those new on the tablet first, are read from Decaid's API one at
+ * a time, when a connection is sending and nothing else is queued, so while
+ * the server is unreachable only their ids are held.
  */
 export class Outbox {
   private readonly queued = new Map<string, Delivery>();
@@ -133,12 +136,6 @@ export class Outbox {
     this.pump();
   }
 
-  /** A record that could not be read now, to be read again, as if requested, after a pause. */
-  retryLater(kind: RecordKind, id: string): void {
-    this.requested.set(`${kind}:${id}`, { kind, id });
-    this.retry();
-  }
-
   /** Resolves once few enough deliveries are queued for an index to add a page. */
   async waitForRoom(): Promise<void> {
     while (!this.stopped && this.queued.size >= SHORT_OUTBOX) await new Promise<void>((resolve) => setTimeout(resolve, 50));
@@ -150,7 +147,7 @@ export class Outbox {
     if (this.retryTimer !== undefined || this.working || this.stopped || !this.sendMessage || this.sent !== undefined || (this.queued.size === 0 && this.requested.size === 0)) return;
     this.working = true;
     void this.work().catch(() => {
-      // SyncConnection drops a transport whose send failed; the outbox stays for its replacement.
+      // Only a send fails here: SyncConnection drops a transport whose send failed; the outbox stays for its replacement.
       this.log("Delivery interrupted; unacknowledged data remains queued.");
       this.retry();
     }).finally(() => {
@@ -165,11 +162,13 @@ export class Outbox {
       const [key, record] = this.requested.entries().next().value!;
       let delivery: Delivery | null;
       try { delivery = await this.readers[record.kind](record.id, this.nextId()); }
-      catch (error) {
+      catch {
         // Retry it after the others, so one unreadable record cannot hold up the rest.
         this.requested.delete(key);
         this.requested.set(key, record);
-        throw error;
+        this.log(`Could not read ${RECORD_NAMES[record.kind]} ${record.id} from Decaid; retrying it after the other requested records.`);
+        this.retry();
+        return;
       }
       if (this.stopped) return;
       this.requested.delete(key);
