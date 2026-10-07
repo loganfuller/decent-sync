@@ -18,12 +18,18 @@ describe("the built plugin", () => {
     expect(settings.PollSeconds).toMatchObject({ type: "number", default: 30 });
   });
 
-  it("returns from onLoad at once, leaving reading Decaid's API and connecting to timers", () => {
+  it("declares the permissions it uses, plugin storage for the tablet's id among them", () => {
+    // Decaid installs an update that adds a permission only once someone approves it on the tablet.
+    expect(manifest.permissions).toEqual(["log", "api", "events.machine", "events.shots", "events.workflow", "network.websocket", "pluginStorage"]);
+  });
+
+  it("returns from onLoad at once, leaving reading Decaid's API and plugin storage and connecting to timers", () => {
     const calls: string[] = [];
     const plugin = loadPlugin(source, String(manifest.id), {
       host: {
         log: () => {},
         transport: { open: () => calls.push("transport.open"), onEvent: () => {}, send: () => {}, close: () => {} },
+        storage: () => calls.push("storage"),
       },
       fetch: () => {
         calls.push("fetch");
@@ -36,6 +42,7 @@ describe("the built plugin", () => {
     plugin.onLoad({ ServerUrl: "http://127.0.0.1:9", Token: "x" });
     expect(calls).toContain("setTimeout");
     expect(calls).not.toContain("fetch");
+    expect(calls).not.toContain("storage");
     expect(calls).not.toContain("transport.open");
   });
 

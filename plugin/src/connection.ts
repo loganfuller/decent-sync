@@ -18,6 +18,7 @@ import { Sender } from "./sender.js";
 import { ShotCapture } from "./shots.js";
 import type { SyncSettings } from "./settings.js";
 import { SteamCapture } from "./steams.js";
+import { TabletId } from "./tablet-id.js";
 
 const MIN_RECONNECT_MS = 1_000;
 const MAX_RECONNECT_MS = 60_000;
@@ -95,6 +96,8 @@ export class SyncConnection {
   private readonly steams: SteamCapture;
   private readonly machineEvents: MachineEvents;
   private readonly collections: CollectionCapture;
+  /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
+  private readonly tabletId: TabletId;
   private checkingHardware = false;
   private hardwareCooldown = false;
 
@@ -111,6 +114,7 @@ export class SyncConnection {
     this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1000, log);
     this.machineEvents = new MachineEvents(this.outbox);
     this.collections = new CollectionCapture(this.outbox, settings.pollSeconds * 1000);
+    this.tabletId = new TabletId(host, log);
   }
 
   /** Connects from a timer, so the caller (onLoad) returns at once. */
@@ -137,12 +141,16 @@ export class SyncConnection {
 
   shotEvent(type: "shot" | "shotUpdated", payload: unknown): void { this.shots.event(type, payload); }
 
+  /** Decaid's answer to a command to its plugin storage. */
+  storageEvent(name: string, payload: unknown): void { this.tabletId.answered(name, payload); }
+
   stop(): void {
     this.stopped = true;
     this.outbox.stop();
     this.shots.stop();
     this.steams.stop();
     this.collections.stop();
+    this.tabletId.stop();
     for (const id of this.timers.values()) clearTimeout(id);
     this.timers.clear();
     this.closeHandle();
@@ -163,6 +171,15 @@ export class SyncConnection {
     this.connecting = true;
     const attempt = ++this.attempt;
     try {
+      let tabletId: string;
+      try {
+        tabletId = await this.tabletId.read();
+      } catch (error) {
+        // Retried after the backoff: a read that failed is never taken for an id never written.
+        if (attempt === this.attempt) this.drop(describe(error));
+        return;
+      }
+      if (this.stopped || attempt !== this.attempt) return;
       const identity = await readTabletIdentity();
       if (this.stopped || attempt !== this.attempt) return;
       // The server refuses a hello without it.
@@ -196,6 +213,7 @@ export class SyncConnection {
         token: this.settings.token,
         pluginVersion: __PLUGIN_VERSION__,
         decaidVersion: identity.decaidVersion,
+        tabletId,
         connectionId: identity.connectionId,
         machine: identity.machine,
       });

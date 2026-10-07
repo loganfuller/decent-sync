@@ -13,6 +13,7 @@ import {
 } from "@decent-sync/protocol";
 
 const token = "8cTqXr0b2m6Yw1zH4kLpQeNvSa7uJdFg9oIiBhC3E5s";
+const tabletId = "0f8e5d34-6c1b-4f0a-9d2e-7b3c4a5f6e81";
 
 const hello: Hello = {
   type: "hello",
@@ -20,6 +21,7 @@ const hello: Hello = {
   token,
   pluginVersion: "0.1.0",
   decaidVersion: "0.8.7+2847",
+  tabletId,
   connectionId: "00:00:5E:00:53:01",
   machine: { model: "DE1Pro", serial: "10001", firmware: "1333" },
 };
@@ -41,7 +43,7 @@ describe("decodePluginMessage", () => {
   });
 
   it("accepts a hello without hardware or connection id", () => {
-    const bare = { type: "hello", protocolVersion: PROTOCOL_VERSION, token, pluginVersion: "0.1.0", decaidVersion: "0.8.7+2847" };
+    const bare = { type: "hello", protocolVersion: PROTOCOL_VERSION, token, pluginVersion: "0.1.0", decaidVersion: "0.8.7+2847", tabletId };
     expect(decodePluginMessage(frame(bare))).toEqual({ ok: true, message: bare });
     for (const missing of [{ machine: null }, { connectionId: null }]) {
       expect(decodePluginMessage(frame({ ...bare, ...missing })).ok).toBe(true);
@@ -66,7 +68,7 @@ describe("decodePluginMessage", () => {
       ok: false,
       error: "protocol_error",
       problem:
-        "hello.token must not be empty; hello.pluginVersion must be a string; hello.decaidVersion must be a string; hello.connectionId must be a string or null; hello.machine.serial must be a string",
+        "hello.token must not be empty; hello.pluginVersion must be a string; hello.decaidVersion must be a string; hello.tabletId must be a UUID; hello.connectionId must be a string or null; hello.machine.serial must be a string",
     });
     expect(decodePluginMessage(frame({ ...hello, token: undefined }))).toMatchObject({ problem: "hello.token must be a string" });
     expect(decodePluginMessage(frame({ ...hello, decaidVersion: null }))).toMatchObject({ problem: "hello.decaidVersion must be a string" });
@@ -76,11 +78,19 @@ describe("decodePluginMessage", () => {
     });
   });
 
+  it("needs the tablet's id, a UUID in either case", () => {
+    expect(decodePluginMessage(frame({ ...hello, tabletId: tabletId.toUpperCase() }))).toMatchObject({ ok: true });
+    for (const bad of [undefined, null, "", 7, "0f8e5d346c1b4f0a9d2e7b3c4a5f6e81", `${tabletId}0`, `{${tabletId}}`, { tabletId }]) {
+      expect(decodePluginMessage(frame({ ...hello, tabletId: bad }))).toEqual({ ok: false, error: "protocol_error", problem: "hello.tabletId must be a UUID" });
+    }
+  });
+
   it("never repeats a field's value in a problem", () => {
     for (const bad of [
       { ...hello, pluginVersion: { token } },
       { ...hello, protocolVersion: token },
       { ...hello, machine: { model: token, serial: [token] } },
+      { ...hello, tabletId: token },
       { ...hello, type: token },
     ]) {
       const result = decodePluginMessage(frame(bad));

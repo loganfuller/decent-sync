@@ -2,9 +2,10 @@ name: Release
 
 # Pushing a vX.Y.Z tag releases the whole repo at that version (ADR-0012): the
 # server image goes to GitHub's container registry, then a GitHub release
-# attaches the one plugin ZIP that Decaid's release install downloads. Nothing
-# is published unless the tag matches the committed plugin manifest's version
-# and CI has passed on the tagged commit.
+# attaches the one plugin ZIP that Decaid's release install downloads, its
+# notes starting with the version's upgrade notes from UPGRADING.md. Nothing
+# is published unless the tag matches the committed plugin manifest's version,
+# no upgrade notes wait unreleased, and CI has passed on the tagged commit.
 on:
   push:
     tags: ["v*"]
@@ -33,6 +34,10 @@ jobs:
 
       - name: Check the tag matches the plugin manifest's version
         run: node scripts/check-release-tag.mjs "$GITHUB_REF_NAME"
+
+      # Read before anything is published: notes still under Unreleased stop the release.
+      - name: Read the release's upgrade notes
+        run: node scripts/release-notes.mjs "$GITHUB_REF_NAME" > "$RUNNER_TEMP/upgrade-notes.md"
 
       # CI has already run on the tagged commit when it landed on main, so use
       # that result instead of running it again. Only main's push runs count:
@@ -88,7 +93,11 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
       # Last, so a tablet never sees a release whose server image is missing.
+      # The upgrade notes, if any, come before the generated notes.
       - name: Create the GitHub release with the plugin ZIP
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.zip --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+        run: |
+          notes=()
+          if [ -s "$RUNNER_TEMP/upgrade-notes.md" ]; then notes=(--notes "$(cat "$RUNNER_TEMP/upgrade-notes.md")"); fi
+          gh release create "$GITHUB_REF_NAME" dist/*.zip --verify-tag --title "$GITHUB_REF_NAME" --generate-notes "${notes[@]}"

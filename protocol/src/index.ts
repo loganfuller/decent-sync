@@ -17,9 +17,11 @@ export * from "./chunking.js";
 export const PROTOCOL_VERSION = 1;
 
 /**
- * The oldest protocol version the server accepts. Before v1 it is always
- * PROTOCOL_VERSION: a wire change older plugins can't follow raises both.
- * From v1 it is the version the previous release's plugin speaks (ADR-0017).
+ * The oldest protocol version the server accepts. Before v1 both stay 1: a
+ * wire change needs only the plugin and server of the same commit, so it
+ * raises neither, and a plugin from before it fails validation. From v1 a
+ * change the previous release's plugin can't follow raises PROTOCOL_VERSION,
+ * and this is the version that plugin speaks (ADR-0017).
  */
 export const OLDEST_SUPPORTED_PROTOCOL_VERSION = 1;
 
@@ -110,6 +112,11 @@ export function sameHardware(a: Hardware | null, b: Hardware | null): boolean {
   return a.model.trim() === b.model.trim() && a.serial.trim() === b.serial.trim();
 }
 
+/** Whether a value is a tablet id as the plugin makes one: a UUID, such as 0f8e5d34-6c1b-4f0a-9d2e-7b3c4a5f6e81, in either case. */
+export function isTabletId(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
 /** The plugin's first message on every connection. */
 export interface Hello {
   type: "hello";
@@ -118,6 +125,13 @@ export interface Hello {
   pluginVersion: string;
   /** Decaid's full version, such as 0.8.7+2847. */
   decaidVersion: string;
+  /**
+   * The tablet's id (ADR-0006): a random UUID the plugin made on its first
+   * run and keeps in Decaid's plugin storage. Resetting the tablet's Decaid
+   * data makes a new one, and restoring a Decaid backup that holds it brings
+   * it back.
+   */
+  tabletId: string;
   /** The connection id of Decaid's preferred machine: a Bluetooth address or USB id. */
   connectionId?: string | null;
   /** Absent or null while no machine is connected to the tablet. */
@@ -394,6 +408,7 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         fields.string("token", { nonEmpty: true });
         fields.string("pluginVersion");
         fields.string("decaidVersion", { nonEmpty: true });
+        fields.uuid("tabletId");
         fields.optionalString("connectionId");
         fields.optionalObject("machine", (machine) => {
           machine.string("model");
@@ -552,6 +567,11 @@ class FieldChecker {
   /** The id of a delivery or a chunk. */
   id(): void {
     this.string("id", { nonEmpty: true, maxLength: MAX_ID_LENGTH });
+  }
+
+  /** A UUID, in either case, as a tablet id is. */
+  uuid(key: string): void {
+    if (!isTabletId(this.object[key])) this.problem(key, "must be a UUID");
   }
 
   optionalString(key: string): void {

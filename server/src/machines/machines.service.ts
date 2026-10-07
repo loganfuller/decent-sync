@@ -19,6 +19,7 @@ import {
   viewLocationHistory,
   withLocationHistory,
 } from "./location-history.js";
+import { type TabletHolder, type TabletView, recordTablet, tabletsOf, transferPendingTablets } from "./tablets.js";
 
 /** How a Machine's identity stands, as the REST API names it. */
 export type IdentificationView = "identified" | "hardwareNotReported" | "unidentified" | "mismatch";
@@ -65,6 +66,15 @@ export interface MachineView {
   location: LocationView | null;
   /** Where it has been, oldest first. Each entry lasts until the next one's time. */
   locationHistory: LocationHistoryEntryView[];
+  /**
+   * The tablet its latest connection came from, or null before any; a reset
+   * or replaced tablet is a new one. Its connections are those resolved to
+   * it, as their records are: with its token, unless they report other
+   * hardware, or with another Machine's token while reporting its hardware.
+   */
+  tablet: TabletView | null;
+  /** The tablets its connections came from before, the one seen most recently first. */
+  earlierTablets: TabletView[];
 }
 
 /** A machine state as Decaid names it, and when the plugin observed it, by the tablet's clock. */
@@ -83,6 +93,8 @@ export type HelloOutcome =
       identity: Exclude<Identity, { kind: "rejected" }>;
       /** The real hardware the `hello` reported, if any. */
       hardware: Hardware | null;
+      /** The record of its tablet against whoever the connection resolved to, which its heartbeats keep seen. */
+      machineTabletId: bigint;
     };
 
 /** Why a welcomed connection may no longer stay. */
@@ -273,8 +285,9 @@ export class MachinesService {
   }
 
   /**
-   * A heartbeat: the connection's Machine was seen, if the connection still
-   * holds it, and whether the connection may stay, in one query.
+   * A heartbeat: the connection's Machine and its tablet were seen, if the
+   * connection still holds the Machine, and whether the connection may stay,
+   * in one query.
    */
   async heard(connection: LiveConnection): Promise<Refusal | null> {
     const [standing] = await this.prisma.$queryRaw<[Standing]>`
@@ -282,6 +295,9 @@ export class MachinesService {
         UPDATE machines SET last_seen_at = now()
         WHERE id = ${connection.machineId}::uuid AND connected_session_id = ${connection.sessionId}::uuid
         RETURNING id
+      ), tablet AS (
+        UPDATE machine_tablets SET last_seen_at = GREATEST(last_seen_at, now())
+        WHERE id = ${connection.machineTabletId} AND EXISTS (SELECT 1 FROM seen)
       )
       SELECT
         EXISTS (SELECT 1 FROM machine_tokens WHERE token_hash = ${connection.tokenHash} AND revoked_at IS NULL) AS "tokenCurrent",
@@ -334,8 +350,8 @@ export class MachinesService {
       where: { id: token.machineId },
       include: { ...withAliases, dismissedHardware: { select: { model: true, serial: true } } },
     }))!;
-    const anotherMachineHasIt =
-      hardware !== null && (await tx.machine.count({ where: { ...hardware, NOT: { id: machine.id } } })) > 0;
+    // The Machine that has the hardware, if not this one. It cannot change while the hardware's lock is held.
+    const owner = hardware === null ? null : await tx.machine.findFirst({ where: { ...hardware, NOT: { id: machine.id } }, select: { id: true } });
     const identity = resolveIdentity(
       hello,
       {
@@ -343,7 +359,7 @@ export class MachinesService {
         aliases: machine.aliases.map((alias) => alias.connectionId),
         dismissed: machine.dismissedHardware,
       },
-      anotherMachineHasIt,
+      owner !== null,
     );
 
     if (identity.kind === "rejected") {
@@ -381,17 +397,25 @@ export class MachinesService {
       await transferPendingRecords(tx, hardware!, machine.id);
       await tx.pendingMachine.deleteMany({ where: hardware! });
     }
-    if (identity.kind === "mismatch" && !identity.anotherMachineHasIt) {
-      // No Machine can be given the hardware meanwhile: that takes the hardware's lock, held here.
-      // Seen by the database's clock, as Machines are, whatever the instances' clocks say.
-      const [{ now }] = await tx.$queryRaw<[{ now: Date }]>`SELECT now() AS now`;
-      await tx.pendingMachine.upsert({
-        where: { model_serial: identity.hardware },
-        create: { ...identity.hardware, lastSeenAt: now },
-        update: { lastSeenAt: now },
-      });
+    // The tablet is recorded against whoever the connection's records go to: for a mismatch, the reported hardware.
+    let holder: TabletHolder = { machineId: machine.id };
+    if (identity.kind === "mismatch") {
+      if (owner) {
+        holder = { machineId: owner.id };
+      } else {
+        // No Machine can be given the hardware meanwhile: that takes the hardware's lock, held here.
+        // Seen by the database's clock, as Machines are, whatever the instances' clocks say.
+        const [{ now }] = await tx.$queryRaw<[{ now: Date }]>`SELECT now() AS now`;
+        const pending = await tx.pendingMachine.upsert({
+          where: { model_serial: identity.hardware },
+          create: { ...identity.hardware, lastSeenAt: now },
+          update: { lastSeenAt: now },
+        });
+        holder = { pendingMachineId: pending.id };
+      }
     }
-    return { accepted: true, machine: { id: machine.id, name: machine.name }, identity, hardware };
+    const machineTabletId = await recordTablet(tx, hello.tabletId, holder);
+    return { accepted: true, machine: { id: machine.id, name: machine.name }, identity, hardware, machineTabletId };
   }
 
   /** Records why a connection with the Machine's token was refused, for its page. */
@@ -410,7 +434,7 @@ export class MachinesService {
       return hardware ? [hardware] : [];
     });
     // Each Machine's last Shot and latest machine state are one index probe each, however long its history.
-    const [owners, pending, lastShots, states] = await Promise.all([
+    const [owners, pending, lastShots, states, tablets] = await Promise.all([
       mismatched.length === 0 ? [] : this.prisma.machine.findMany({ where: { OR: mismatched }, select: { id: true, name: true, model: true, serial: true } }),
       mismatched.length === 0 ? [] : this.prisma.pendingMachine.findMany({ where: { OR: mismatched }, select: { id: true, model: true, serial: true } }),
       machines.length === 0 ? [] : this.prisma.$queryRaw<{ id: string; machineId: string; pulledAt: Date | null }[]>(Prisma.sql`
@@ -428,6 +452,7 @@ export class MachinesService {
           SELECT state, substate, observed_at FROM machine_state_events WHERE machine_id = listed.id
           ORDER BY id DESC LIMIT 1
         ) AS latest`),
+      tabletsOf(this.prisma, machines.map((machine) => machine.id)),
     ]);
     const lastByMachine = new Map(lastShots.map((shot) => [shot.machineId, { id: shot.id, pulledAt: shot.pulledAt?.toISOString() ?? null }]));
     const stateByMachine = new Map(
@@ -466,6 +491,8 @@ export class MachinesService {
         lastShot: lastByMachine.get(machine.id) ?? null,
         machineState: stateByMachine.get(machine.id) ?? null,
         ...viewLocationHistory(machine.locationHistory),
+        tablet: tablets.get(machine.id)![0] ?? null,
+        earlierTablets: tablets.get(machine.id)!.slice(1),
       };
     });
   }
@@ -582,10 +609,10 @@ function identificationOf(identity: Exclude<Identity, { kind: "rejected" }>): Ma
 /**
  * Gives the Machine whatever is held for its hardware, even by a dismissed
  * Pending Machine: its Shots and Steam Records, credited by its Location
- * History, its Workflow and machine state events, and its collections. The
- * Machine's own records are left as they are. Its row lock must be held, or
- * the Machine created in this transaction, and the transaction given
- * `CREDITING_TRANSACTION`'s limits.
+ * History, its Workflow and machine state events, its collections and its
+ * tablets. The Machine's own records are left as they are. Its row lock must
+ * be held, or the Machine created in this transaction, and the transaction
+ * given `CREDITING_TRANSACTION`'s limits.
  */
 export async function transferPendingRecords(tx: Prisma.TransactionClient, hardware: Hardware, machineId: string): Promise<void> {
   await handOverRecords(tx, hardware, machineId);
@@ -593,4 +620,5 @@ export async function transferPendingRecords(tx: Prisma.TransactionClient, hardw
   await tx.workflowEvent.updateMany({ where: { pendingMachine: hardware }, data: handover });
   await tx.machineStateEvent.updateMany({ where: { pendingMachine: hardware }, data: handover });
   await transferPendingCollections(tx, hardware, machineId);
+  await transferPendingTablets(tx, hardware, machineId);
 }

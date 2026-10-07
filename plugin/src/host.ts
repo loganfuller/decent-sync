@@ -7,7 +7,18 @@ export interface PluginHost {
   log(message: string): void;
   /** Outbound connections, with `network.websocket` (plugin_transport_service.dart). */
   transport: Transport;
+  /**
+   * Decaid's storage for this plugin, with `pluginStorage`, kept across loads
+   * and updates of the plugin. Sends the command and returns nothing: Decaid
+   * answers a read with a `storageRead` event carrying `{ key, value }`,
+   * `value` null for a key never written, and a write with a `storageWrite`
+   * event carrying the data written. A command that fails is never answered
+   * (`_handlePluginStorage` in plugin_manager.dart).
+   */
+  storage(command: StorageCommand): void;
 }
+
+export type StorageCommand = { type: "read"; key: string } | { type: "write"; key: string; data: unknown };
 
 export interface Transport {
   /** Resolves once connected. WebSocket options are the URL and subprotocols only: no headers. */

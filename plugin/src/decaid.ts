@@ -99,6 +99,22 @@ async function readRecord(collection: "shots" | "steams", id: string): Promise<R
 }
 
 /**
+ * Has Decaid's store API read this plugin's storage, for the side effect
+ * alone. Decaid's backup (`GET /api/v1/data/export`) holds only the stores
+ * that API has opened since Decaid started (KvStoreExportSection, in v0.8.7
+ * and v0.8.8), and `host.storage` reaches the same storage without opening it
+ * there, so without this read a backup leaves out the tablet's id. A read
+ * that fails leaves it out until the plugin's next load.
+ */
+export async function keepStorageInBackups(): Promise<void> {
+  try {
+    await fetch(`${API}/store/${encodeURIComponent(__PLUGIN_ID__)}`);
+  } catch {
+    // Nothing to do until the next load.
+  }
+}
+
+/**
  * One read of a collection at `path`, a route under the API with its query.
  * With an ETag, Decaid answers 304 if it is still current. A failed read, a
  * refusal (such as 500 while no machine is connected, or 503 while no scale

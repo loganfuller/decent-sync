@@ -11,7 +11,8 @@
     "events.machine",
     "events.shots",
     "events.workflow",
-    "network.websocket"
+    "network.websocket",
+    "pluginStorage"
   ],
   "settings": {
     "ServerUrl": {

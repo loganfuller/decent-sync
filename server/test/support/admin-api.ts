@@ -24,6 +24,15 @@ export interface MachineView {
   machineState: { state: string; substate: string; observedAt: string } | null;
   location: LocationView | null;
   locationHistory: { id: string; location: LocationView; effectiveFrom: string }[];
+  tablet: TabletView | null;
+  earlierTablets: TabletView[];
+}
+
+/** A tablet a Machine's connections came from. */
+export interface TabletView {
+  id: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
 }
 
 export interface LocationView {

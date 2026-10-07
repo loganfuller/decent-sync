@@ -36,6 +36,7 @@ import {
   type Machine,
   type PairedDevices,
   type PendingMachine,
+  type Tablet,
   type WorkflowEvent,
 } from "@/lib/api";
 import { usePolled } from "@/lib/use-polled";
@@ -54,10 +55,10 @@ interface MachineData {
 }
 
 /**
- * One Machine: its identity, versions and status, its Workflow, paired
- * devices, settings and library, its Location, its token, and resolving its
- * identity. Staff see all of it, and can move it between the Locations they
- * work at; every other change is for Admins.
+ * One Machine: its identity, versions and status, its tablets, its Workflow,
+ * paired devices, settings and library, its Location, its token, and
+ * resolving its identity. Staff see all of it, and can move it between the
+ * Locations they work at; every other change is for Admins.
  */
 export function MachinePage() {
   const { id = "" } = useParams();
@@ -267,6 +268,7 @@ function MachineDetails({ id }: { id: string }) {
             )}
           </div>
 
+          <MachineTablets machine={machine} />
           <MachineWorkflow current={data.workflow} />
           <PairedDevicesCard devices={data.pairedDevices} />
           <SettingsCard settings={data.settings} workflow={data.workflow} />
@@ -327,6 +329,54 @@ function firmwareText(machine: Machine): string {
   const binding = bindingOf(machine);
   const own = binding ? sameHardware(reported, binding) : !isRealSerial(reported.serial);
   return own ? firmware : `${firmware}, from ${describeHardware(reported)}, which its token last reported`;
+}
+
+/**
+ * The tablets the Machine's connections came from: its latest connection's,
+ * then earlier ones. A tablet is known by the id its plugin keeps in Decaid's
+ * data, so a reset or replaced tablet shows up as a new one.
+ */
+function MachineTablets({ machine }: { machine: Machine }) {
+  const seen = (tablet: Tablet) => `First seen ${formatTime(tablet.firstSeenAt)}, last seen ${formatTime(tablet.lastSeenAt)}`;
+  return (
+    <Card role="region" aria-label="Tablets">
+      <CardHeader>
+        <CardTitle>
+          <h2>Tablets</h2>
+        </CardTitle>
+        <CardDescription>
+          The tablets its connections came from. Resetting a tablet's Decaid data, or replacing the tablet, makes a new
+          one; restoring a Decaid backup can bring back the tablet it came from.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-6">
+        {machine.tablet ? (
+          <Fields label="Current tablet">
+            <Field term="Tablet id">
+              <span className="font-mono">{machine.tablet.id}</span>
+            </Field>
+            <Field term="First seen">{formatTime(machine.tablet.firstSeenAt)}</Field>
+            <Field term="Last seen">{formatTime(machine.tablet.lastSeenAt)}</Field>
+          </Fields>
+        ) : (
+          <p className="text-sm text-muted-foreground">No tablet has connected yet.</p>
+        )}
+        {machine.earlierTablets.length > 0 && (
+          <section className="grid gap-2">
+            <h3 className="font-medium">Earlier tablets</h3>
+            <ol aria-label="Earlier tablets" className="grid max-w-2xl divide-y rounded-lg border">
+              {machine.earlierTablets.map((tablet) => (
+                <li key={tablet.id} className="grid gap-0.5 p-4">
+                  <span className="font-mono text-sm wrap-anywhere">{tablet.id}</span>
+                  <span className="text-sm text-muted-foreground">{seen(tablet)}</span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 /** What the Machine is set up to do next, from the Workflow its tablet last reported. */

@@ -220,6 +220,7 @@ model Machine {
   machineStateEvents MachineStateEvent[]
   eventDeliveries    MachineEventDelivery[]
   collections        ReportedCollection[]
+  tablets            MachineTablet[]
 
   /// One Machine per piece of hardware. Unbound Machines (nulls) never clash.
   @@unique([model, serial])
@@ -291,9 +292,49 @@ model PendingMachine {
   workflowEvents     WorkflowEvent[]
   machineStateEvents MachineStateEvent[]
   collections        ReportedCollection[]
+  tablets            MachineTablet[]
 
   @@unique([model, serial])
   @@map("pending_machines")
+}
+
+/// A tablet: the device running Decaid together with its Decaid data, known
+/// by the id its plugin made on its first run and keeps in Decaid's plugin
+/// storage (ADR-0006). Resetting that data makes a new tablet; restoring a
+/// Decaid backup brings the old one back. A tablet may move between Machines.
+model Tablet {
+  /// The id the plugin made: a random UUID, sent in every `hello`.
+  id          String   @id @db.Uuid
+  /// When a `hello` with it was first accepted, by PostgreSQL's clock.
+  firstSeenAt DateTime @map("first_seen_at") @db.Timestamptz(3)
+
+  machines MachineTablet[]
+
+  @@map("tablets")
+}
+
+/// A tablet that connections were accepted from, recorded against whoever
+/// those connections resolved to, as their records are: the token's Machine,
+/// or, for a mismatch, the reported hardware's Machine, or the Pending
+/// Machine holding it until a Machine takes it over. One tablet on several
+/// Machines has a row for each. Times are PostgreSQL's clock: first seen at
+/// the first accepted `hello`, last seen at the latest `hello` or heartbeat.
+model MachineTablet {
+  id               BigInt          @id @default(autoincrement())
+  tabletId         String          @map("tablet_id") @db.Uuid
+  tablet           Tablet          @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  machineId        String?         @map("machine_id") @db.Uuid
+  machine          Machine?        @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  pendingMachineId String?         @map("pending_machine_id") @db.Uuid
+  pendingMachine   PendingMachine? @relation(fields: [pendingMachineId], references: [id], onDelete: Cascade)
+  firstSeenAt      DateTime        @map("first_seen_at") @db.Timestamptz(3)
+  lastSeenAt       DateTime        @map("last_seen_at") @db.Timestamptz(3)
+
+  @@unique([tabletId, machineId])
+  @@unique([tabletId, pendingMachineId])
+  @@index([machineId])
+  @@index([pendingMachineId])
+  @@map("machine_tablets")
 }
 
 /// Hardware an Admin dismissed for one reporting Machine. Connections using

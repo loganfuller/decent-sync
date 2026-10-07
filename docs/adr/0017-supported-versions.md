@@ -1,3 +1,7 @@
+---
+status: accepted (amended in place on 2026-10-07: the protocol version stays 1 until v1)
+---
+
 # A short window of Decaid and plugin versions, enforced at hello
 
 Before v1, Decent Sync supports only Decaid v0.8.7 and later and only the current release of its own plugin and server. It supports nothing from the legacy Tcl de1app. Nobody but the owner runs it before v1, so code for older versions would add paths that nothing exercises. A release may change the wire protocol or the database incompatibly, and the database may be recreated (ADR-0016).
@@ -13,7 +17,7 @@ We rejected checking the Decaid version in the plugin. The minimum would then mo
 
 ## Consequences
 
-- **No compatibility code before v1.** No fallbacks for older Decaid record layouts, no server handling for messages an older plugin sent, and no upgrade paths for pre-v1 data. A wire change that older plugins can't follow raises `PROTOCOL_VERSION` and `OLDEST_SUPPORTED_PROTOCOL_VERSION` together; one they already follow or can ignore doesn't.
+- **No compatibility code before v1.** No fallbacks for older Decaid record layouts, no server handling for messages an older plugin sent, and no upgrade paths for pre-v1 data. The protocol stays at version 1 until v1: a wire change needs only the current plugin and server, so it raises no version, and a plugin from before it simply fails validation. From v1, a change the previous release's plugin can't follow raises `PROTOCOL_VERSION`; one it already follows or can ignore doesn't.
 - **de1app.** The plugin skips Decaid's imports from the legacy Tcl app (ids `de1app-*`, ADR-0004). Nothing else handles them.
 - **Unfamiliar fields are still accepted.** Validators ignore fields they do not know, and Decaid payloads are stored as sent, so a newer Decaid or plugin within the window doesn't break capture.
 - **Raising the Decaid minimum is a release step from v1.** Before tagging, check Decaid's releases and set `OLDEST_SUPPORTED_DECAID`. Once the server is upgraded, it refuses tablets below the new minimum, so the release notes name it.
