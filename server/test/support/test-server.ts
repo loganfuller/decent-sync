@@ -19,6 +19,7 @@ const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.
 const main = path.join(repoDir, "server/dist/main.js");
 const clockOffset = path.join(repoDir, "server/test/support/clock-offset.mjs");
 const secretCapture = path.join(repoDir, "server/test/support/secret-capture.mjs");
+const passwordHashGate = path.join(repoDir, "server/test/support/password-hash-gate.mjs");
 
 export interface TestServer {
   /** The server's origin, for example http://127.0.0.1:41234. */
@@ -47,6 +48,12 @@ export interface TestServerOptions {
   sharing?: TestServer;
   /** Runs the server with its clock this far ahead of real time (behind if negative), as on a drifting host. */
   clockOffsetMs?: number;
+  /**
+   * A file path: while that file exists, every password hash the server
+   * starts waits, and its output reports each hash started and finished as
+   * `[password hash] started, <n> running`.
+   */
+  passwordHashGate?: string;
   /** Connects the server to PostgreSQL through this host and port, such as a pooler's. */
   databaseHost?: string;
   /**
@@ -98,7 +105,11 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
   let handedOut: string[] | undefined;
   const readHandedOut = () => handedOut ?? (fs.existsSync(secretsFile) ? fs.readFileSync(secretsFile, "utf8").split("\n").filter(Boolean) : []);
   watchSecrets(readHandedOut);
-  const preloads = [secretCapture, ...(options.clockOffsetMs === undefined ? [] : [clockOffset])];
+  const preloads = [
+    secretCapture,
+    ...(options.clockOffsetMs === undefined ? [] : [clockOffset]),
+    ...(options.passwordHashGate === undefined ? [] : [passwordHashGate]),
+  ];
   const child = spawn(process.execPath, [main], {
     env: {
       PATH: process.env.PATH,
@@ -111,6 +122,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
       NODE_OPTIONS: [options.env?.NODE_OPTIONS, ...preloads.map((preload) => `--import=${pathToFileURL(preload).href}`)].filter(Boolean).join(" "),
       TEST_SECRETS_FILE: secretsFile,
       ...(options.clockOffsetMs === undefined ? {} : { TEST_CLOCK_OFFSET_MS: String(options.clockOffsetMs) }),
+      ...(options.passwordHashGate === undefined ? {} : { TEST_PASSWORD_HASH_GATE: options.passwordHashGate }),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

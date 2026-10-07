@@ -44,6 +44,14 @@ const MAX_PAYLOAD_BYTES = 1 << 20;
  * smaller.
  */
 const HELLO_CHUNK_LIMITS: ReassemblyLimits = { ...CHUNK_LIMITS, maxLength: MAX_PAYLOAD_BYTES };
+/**
+ * Connections whose hello has not been accepted that one instance holds at
+ * once. Each may hold a frame and chunks of up to 1 MiB until its hello
+ * timeout, and needs no token to open, so upgrades beyond these are refused.
+ */
+const MAX_AWAITING_HELLO = 64;
+/** Refusing upgrades over that cap is logged at most this often. */
+const REFUSAL_WARNING_INTERVAL_MS = 60_000;
 /** Received when the connection ended without a close frame. */
 const ABNORMAL_CLOSURE = 1006;
 const INTERNAL_ERROR = 1011;
@@ -98,6 +106,12 @@ interface Session {
  * hello, a reissued token, dismissed hardware) is notified to every
  * instance, which checks its connections to that Machine against the
  * database. Heartbeats check too, in case a notification was missed.
+ *
+ * Each instance holds at most `MAX_AWAITING_HELLO` connections whose hello
+ * has not been accepted, and refuses further upgrades with 503 until one is
+ * accepted or closes. Connections that hold a Machine are not counted. The
+ * count is this instance's own: it protects its memory and decides nothing
+ * shared (ADR-0016).
  */
 @Injectable()
 export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
@@ -105,6 +119,11 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly server = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES });
   /** Every open connection, welcomed or not. */
   private readonly connections = new Set<Session>();
+  /** Open connections whose hello has not been accepted. */
+  private readonly awaitingHello = new Set<Session>();
+  /** Upgrades refused over that cap since it was last logged, and when that was (`performance.now()`). */
+  private refusedUpgrades = 0;
+  private refusalLoggedAt: number | undefined;
   /** Message handling and releases still running, which shutdown waits for before the database disconnects. */
   private readonly inFlight = new Set<Promise<void>>();
   private shuttingDown = false;
@@ -158,11 +177,23 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
 
   private upgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {
     const path = (request.url ?? "").split("?")[0];
-    if (path !== SYNC_PATH || this.shuttingDown) {
-      socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
-      return;
-    }
+    if (path !== SYNC_PATH || this.shuttingDown) return rejectUpgrade(socket, "404 Not Found");
+    if (this.awaitingHello.size >= MAX_AWAITING_HELLO) return this.refuseUpgrade(socket);
+    // Without verifyClient, ws upgrades and calls back synchronously, so the
+    // connection is counted before the next upgrade is judged.
     this.server.handleUpgrade(request, socket, head, (ws) => this.open(ws, request));
+  }
+
+  /** Refuses an upgrade over the cap on connections awaiting hello, saying so at most once a minute. */
+  private refuseUpgrade(socket: Duplex): void {
+    rejectUpgrade(socket, "503 Service Unavailable");
+    this.refusedUpgrades++;
+    const now = performance.now();
+    if (this.refusalLoggedAt !== undefined && now - this.refusalLoggedAt < REFUSAL_WARNING_INTERVAL_MS) return;
+    const since = this.refusalLoggedAt === undefined ? "" : ` (${this.refusedUpgrades} refused since this was last logged)`;
+    this.logger.warn(`Refusing sync connections while ${MAX_AWAITING_HELLO} have not had a hello accepted${since}`);
+    this.refusalLoggedAt = now;
+    this.refusedUpgrades = 0;
   }
 
   private open(socket: WebSocket, request: IncomingMessage): void {
@@ -178,6 +209,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       closing: false,
     };
     this.connections.add(session);
+    this.awaitingHello.add(session);
     session.helloTimer = setTimeout(
       () => this.refuse(session, "protocol_error", `No hello within ${this.config.helloTimeoutMs / 1000} seconds`),
       this.config.helloTimeoutMs,
@@ -315,6 +347,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     if (!outcome.accepted) return this.refuse(session, outcome.code, outcome.reason);
 
     const { machine, identity, hardware } = outcome;
+    this.awaitingHello.delete(session);
     session.machine = machine;
     session.identity = identity;
     const live: LiveConnection = {
@@ -381,6 +414,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
 
   private closed(session: Session, code: number): void {
     this.connections.delete(session);
+    this.awaitingHello.delete(session);
     this.clearTimers(session);
     session.closing = true;
     if (!session.live) return;
@@ -464,6 +498,19 @@ function describeIdentity(identity: Identity, hardware: Hardware | null): string
     case "rejected":
       return `reports dismissed hardware ${describeHardware(identity.hardware)}`;
   }
+}
+
+/**
+ * Answers an upgrade with an HTTP error instead of a WebSocket, then destroys
+ * the socket once that is sent, as ws does: a client that keeps its end open
+ * would otherwise hold it. The HTTP server stops handling a socket's errors
+ * once it is upgraded, so a client resetting the connection would otherwise
+ * crash the process.
+ */
+function rejectUpgrade(socket: Duplex, status: string): void {
+  socket.on("error", () => socket.destroy());
+  socket.once("finish", () => socket.destroy());
+  socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
 }
 
 function rawToString(data: RawData): string {

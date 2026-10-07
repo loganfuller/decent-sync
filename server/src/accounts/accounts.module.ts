@@ -1,5 +1,5 @@
 import { Module } from "@nestjs/common";
-import { APP_GUARD } from "@nestjs/core";
+import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 import {
   AccountsController,
   InviteLinksController,
@@ -11,6 +11,7 @@ import {
 import { AccountsService } from "./accounts.service.js";
 import { SameOriginGuard, SessionGuard } from "./guards.js";
 import { InvitesService } from "./invites.service.js";
+import { PasswordChecks, RetryAfterFilter } from "./password-checks.js";
 import { PasswordResetsService } from "./password-resets.service.js";
 import { SessionsService } from "./sessions.service.js";
 import { SignInLimiter } from "./sign-in-limiter.js";
@@ -38,8 +39,10 @@ import { SignInLimiter } from "./sign-in-limiter.js";
     InvitesService,
     PasswordResetsService,
     SignInLimiter,
+    PasswordChecks,
     { provide: APP_GUARD, useClass: SameOriginGuard },
     { provide: APP_GUARD, useClass: SessionGuard },
+    { provide: APP_FILTER, useClass: RetryAfterFilter },
   ],
 })
 export class AccountsModule {}

@@ -150,6 +150,24 @@ Traffic on the LAN is then unencrypted, including each Machine's token, so use
 this only on a network you trust. To reach the server from outside the network,
 put it behind HTTPS instead.
 
+### On the internet
+
+Anyone who can reach the server can try to sign in or open a sync connection.
+Each server instance checks at most 2 passwords at once, with 16 more
+waiting, and refuses further sign-ins with 429. It also holds at most 64 sync
+connections that have not yet had a `hello` accepted, and refuses more with
+503. That keeps the instance running, but a flood can still keep real sign-ins
+and tablets out. In front of a server exposed to the internet, also limit, at
+the reverse proxy:
+
+- the rate of sign-in requests (`POST /api/session`), per client address if
+  the proxy sees it: people sign in rarely, so a few a minute is plenty;
+- concurrent connections to `/sync`, to well above your number of tablets.
+
+fly.io's proxy cannot limit one route's request rate, but it can cap the
+connections it sends each machine: see `[http_service.concurrency]` in the
+fly.io example below.
+
 ### fly.io
 
 [fly.io](https://fly.io) can host the server on the internet for machines at
@@ -192,6 +210,13 @@ primary_region = "ord"
   # Tablets hold a WebSocket open; keep one machine running for them.
   auto_stop_machines = "off"
   min_machines_running = 1
+
+  # Optional: the most connections, tablets' included, the proxy sends this
+  # machine at once; it holds back the rest. fly.io sets no limit by default.
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 100
+    hard_limit = 200
 
   [[http_service.checks]]
     method = "GET"
