@@ -255,11 +255,13 @@ describe("Shot capture and reconciliation", () => {
   it("holds only the ids of Shots stored while the server is unreachable, then sends them ahead of requested backfill", async () => {
     const machine = await api.createMachine("Unreachable");
     const history = timeline("unreachable-history", 3);
+    const [oldest, middle, newest] = history.map((record) => String(record.id));
     // The first full record sent stays unwritten, so the rest of the history stays requested.
     let stalled = true;
     const tablet = load(machine, history, { stallUpload: (frame: unknown) => stalled && (frame as Frame).type === "shot" });
     await expect.poll(() => fullRecordsSent(tablet).length, { timeout: 10_000 }).toBe(1);
-    const [cutOff] = fullRecordsSent(tablet);
+    // The history is backfilled newest first.
+    expect(fullRecordsSent(tablet)).toEqual([newest]);
     tablet.loseNetwork();
     const pulled = [shot("unreachable-a", { timestamp: "2026-02-01T00:00:00Z" }), shot("unreachable-b", { timestamp: "2026-02-01T00:01:00Z" })];
     tablet.serve(withShots(tabletApi(machine), [...history, ...pulled]));
@@ -274,10 +276,9 @@ describe("Shot capture and reconciliation", () => {
       await waitShot(String(record.id));
       expect(await measurements(String(record.id))).toEqual(record.measurements);
     }
-    // The record cut off by the drop goes first, then the Shots new on the tablet, newest first, then the rest of the backfill.
+    // The record cut off by the drop goes first, then the Shots new on the tablet, then the rest of the backfill, each newest first.
     const sent = [...new Set(fullRecordsSent(tablet, sentBefore))];
-    expect(sent.slice(0, 3)).toEqual([cutOff, "unreachable-b", "unreachable-a"]);
-    expect(sent.slice(3).sort()).toEqual(history.map((record) => String(record.id)).filter((id) => id !== cutOff).sort());
+    expect(sent).toEqual([newest, "unreachable-b", "unreachable-a", middle, oldest]);
     expect(tablet.shotPageRequests).toHaveLength(1);
   }, 20_000);
 
@@ -633,6 +634,33 @@ describe("Shot capture and reconciliation", () => {
     raw.send({ type: "shotIndex", id: "index-reconnect", shots: [{ id: record.id }] });
     await expect.poll(() => raw.messages.filter((m) => (m as { type: string }).type === "requestShots").length).toBe(2);
     expect(raw.messages.filter((m) => (m as { type: string }).type === "requestShots")[1]).toEqual({ type: "requestShots", shotIds: [] });
+  });
+
+  it("requests Shots in the order the index offered them, whatever order PostgreSQL finds them in", async () => {
+    const machine = await api.createMachine("Index order");
+    const raw = await connect(machine);
+    const version = "2026-01-01T12:00:00Z";
+    const kinds = ["current", "current", "newer", "early", "missing"] as const;
+    const entries = Array.from({ length: 99 }, (_, n) => ({ id: `index-order-${String(n).padStart(2, "0")}`, kind: kinds[n % kinds.length]! }));
+    for (const { id, kind } of entries) {
+      if (kind === "early") await deliver(raw, { id, updatedAt: version }, "shotUpdated");
+      else if (kind !== "missing") await deliver(raw, shot(id, { updatedAt: version }));
+    }
+    // Offered in an order unrelated to their ids or when they were stored, so a plan that reads them from `shots` reorders them.
+    const offered = entries.map((_, position) => entries[(position * 37) % entries.length]!);
+    // A Shot offered twice is requested once, where it was first offered.
+    offered.push(offered.find((entry) => entry.kind === "missing")!);
+    const shots = offered.map(({ id, kind }) => ({ id, updatedAt: kind === "newer" ? "2026-01-02T12:00:00Z" : version }));
+    const requested = (...requestedKinds: string[]) => [...new Set(offered.filter((entry) => requestedKinds.includes(entry.kind)).map((entry) => entry.id))];
+    const requests = () => raw.messages.filter((m) => (m as { type: string }).type === "requestShots");
+
+    raw.send({ type: "shotIndex", id: "index-ordered", shots });
+    await expect.poll(() => requests().length).toBe(1);
+    expect(requests()[0]).toEqual({ type: "requestShots", shotIds: requested("newer", "early", "missing") });
+    // A reconnect's ids-only index has no edit times to compare.
+    raw.send({ type: "shotIndex", id: "index-ordered-ids", shots: shots.map(({ id }) => ({ id })) });
+    await expect.poll(() => requests().length).toBe(2);
+    expect(requests()[1]).toEqual({ type: "requestShots", shotIds: requested("early", "missing") });
   });
 
   it("converges when a delivery through a replaced connection overlaps its replacement on another instance", async () => {
