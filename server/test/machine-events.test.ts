@@ -423,12 +423,13 @@ describe("Workflow changes and machine state transitions", () => {
     const acked = (raw: RawConnection, id: string) => raw.messages.some((reply) => frameType(reply) === "ack" && (reply as Frame).id === id);
     const database = await server.connectDatabase();
     try {
-      // While the owner's Machine is locked, both wait, each to decide against what the other stored.
+      // Both are held as they start to be handled, recording their ids before they lock anything, so they
+      // arrive at once; let go, the owner's Machine decides them one at a time, each against what the other stored.
       await database.query("BEGIN");
-      await database.query("SELECT 1 FROM machines WHERE id = $1 FOR NO KEY UPDATE", [owner.machine.id]);
+      await database.query("LOCK TABLE machine_event_deliveries IN SHARE MODE");
       own.send(fromOwner);
       moved.send(fromVisitor);
-      await waitForLockWaits(server, { count: 2 });
+      await waitForLockWaits(server, { relation: "machine_event_deliveries", count: 2 });
       expect(acked(own, fromOwner.id) || acked(moved, fromVisitor.id)).toBe(false);
       await database.query("COMMIT");
     } finally {

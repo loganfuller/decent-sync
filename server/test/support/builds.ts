@@ -9,14 +9,14 @@ import { fileURLToPath } from "node:url";
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
 /**
- * Each build's outputs, and what it is built from, relative to the repo. Each
- * build writes every one of its outputs afresh (Nest and Vite empty their
- * output directories first). The Prisma client in server/src/generated is left
- * out, as every typecheck generates it again; the schema it is generated from
- * is in.
+ * Each build's outputs, and what it is built from, configuration included,
+ * relative to the repo. Each build writes every one of its outputs afresh: Nest,
+ * Vite and the protocol's build empty their output directories first. The
+ * Prisma client in server/src/generated is left out, as every typecheck
+ * generates it again; the schema it is generated from is in.
  */
 const BUILDS = {
-  protocol: { outputs: ["protocol/dist"], sources: ["protocol/src", "protocol/tsconfig.build.json", "tsconfig.base.json"] },
+  protocol: { outputs: ["protocol/dist"], sources: ["protocol/src", "protocol/tsconfig.build.json", "protocol/tsconfig.json", "tsconfig.base.json"] },
   server: {
     outputs: ["server/dist"],
     sources: ["server/src", "server/prisma/schema.prisma", "server/tsconfig.json", "server/tsconfig.build.json", "server/nest-cli.json", "tsconfig.base.json"],
@@ -27,7 +27,7 @@ const BUILDS = {
     outputs: ["decent-sync.reaplugin/plugin.js", "decent-sync.reaplugin/manifest.json"],
     sources: ["plugin/src", "plugin/manifest.json", "plugin/build.mjs", "protocol/src", "package.json"],
   },
-  web: { outputs: ["web/dist"], sources: ["web/src", "web/index.html", "web/vite.config.ts"] },
+  web: { outputs: ["web/dist"], sources: ["web/src", "web/index.html", "web/vite.config.ts", "web/tsconfig.app.json", "tsconfig.base.json"] },
 } satisfies Record<string, { outputs: string[]; sources: string[]; ignore?: string }>;
 
 export type Build = keyof typeof BUILDS;
@@ -43,6 +43,7 @@ export function assertBuilt(...builds: Build[]): void {
     const missing = outputs.find((output) => !fs.existsSync(path.join(repoDir, output)));
     if (missing) throw new Error(`${missing} is missing: run \`npm run build\` before the tests`);
     const built = files(outputs);
+    if (built.length === 0) throw new Error(`${outputs.join(" and ")} holds nothing: run \`npm run build\` before the tests`);
     const oldest = built.reduce((a, b) => (b.mtimeMs < a.mtimeMs ? b : a));
     const changed = files(sources, ignore).filter((source) => source.mtimeMs > oldest.mtimeMs);
     if (changed.length > 0) {
