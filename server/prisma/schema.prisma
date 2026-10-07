@@ -450,16 +450,21 @@ model MachineStateEvent {
 /// A Workflow, machine state or collection delivery the server has handled,
 /// recorded whether or not it changed anything. The plugin keeps a delivery's id when
 /// it sends it again, so a delivery recorded here changes nothing when it
-/// arrives again, through any connection or instance, however late.
+/// arrives again, through any connection or instance. Kept for 90 days
+/// (DELIVERY_ID_RETENTION_DAYS in server/src/machines/delivery-id-cleanup.ts):
+/// only the plugin load that sent a delivery resends it, and a resend after
+/// that changes at most one event or collection value.
 model MachineEventDelivery {
   /// The Machine whose token delivered it: its plugin's delivery ids are its own.
   machineId  String   @map("machine_id") @db.Uuid
   machine    Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
   deliveryId String   @map("delivery_id")
-  /// By PostgreSQL's clock.
+  /// By PostgreSQL's clock. The retention period counts from here.
   receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
 
   @@id([machineId, deliveryId])
+  /// Finds the ids old enough to delete without reading the whole table.
+  @@index([receivedAt])
   @@map("machine_event_deliveries")
 }
 
