@@ -97,8 +97,9 @@ that is stored as a new report, so at worst it puts back one stale value
 until a later report with a value, such as the one its plugin reads on that
 same `welcome`, replaces it. A collection belongs to the session's token's
 Machine, or for a mismatched session to its reported hardware: the Machine
-that has it, or else its Pending Machine (ADR-0015), locked as
-`creditReporter` in `server/src/machines/credit.ts` locks it. The token's
+that has it, or else its Pending Machine (ADR-0015), locked before the
+delivery's id is recorded, as `creditFirstDelivery` in
+`server/src/machines/credit.ts` locks it. The token's
 Machine therefore keeps what its own tablet last reported. Every way a
 Machine takes over hardware hands its collections over with its records
 (`transferPendingRecords`, through `transferPendingCollections` in

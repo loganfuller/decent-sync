@@ -50,14 +50,23 @@ next state update, again.
 `server/src/machine-events/machine-events.service.ts` appends each delivery to
 `workflow_events` or `machine_state_events`, handling each delivery once.
 
-First it records the delivery's id in `machine_event_deliveries`, keyed by the
-token's Machine, whether or not the delivery turns out to change anything. A
-delivery whose id is already recorded is acknowledged and changes nothing:
-the plugin keeps a delivery's id when it sends it again, and always through
-the same token, so a resend changes nothing, through any connection or
-instance, even after other changes, and even when the first delivery changed
-nothing either. A resend arriving while the first is still being stored waits
-for it on the record's key.
+First it locks whoever the event belongs to (below), then records the
+delivery's id in `machine_event_deliveries`, keyed by the token's Machine,
+whether or not the delivery turns out to change anything
+(`creditFirstDelivery` in `server/src/machines/credit.ts`). A delivery whose
+id is already recorded is acknowledged and changes nothing: the plugin keeps a
+delivery's id when it sends it again, and always through the same token, so a
+resend changes nothing, through any connection or instance, even after other
+changes, and even when the first delivery changed nothing either. A resend
+arriving while the first is still being stored waits for it, at that lock or
+on the record's key.
+
+The lock comes first because the record references the token's Machine, and
+whatever writes a row referencing a Machine locks first (`lockMachine` in
+`server/src/machines/machines.service.ts`). Recorded first, the record's
+foreign-key check held the Machine's row against an update of its model and
+serial while the delivery waited for the row lock, so a hello or an Admin
+binding the Machine's hardware under that lock deadlocked with it.
 
 Each id is kept for 90 days from when it was recorded, by PostgreSQL's clock
 (`DELIVERY_ID_RETENTION_DAYS` in `server/src/machines/delivery-id-cleanup.ts`).
@@ -126,3 +135,6 @@ also shows its current Workflow.
 `server/test/machine-events.test.ts` covers this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL, and
 `e2e/workflow-and-state.spec.ts` the management interface.
+`server/test/binding-deadlocks.test.ts` races deliveries, collections
+included, against a hello or an Admin binding the Machine's hardware, in
+both orders.

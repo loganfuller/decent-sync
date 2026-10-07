@@ -395,7 +395,7 @@ describe("Library, settings and paired devices", () => {
     expect((await api.pendingMachines()).some((pending) => pending.serial === hardware.serial)).toBe(false);
   });
 
-  it("stores each delivery once, so a resend through another instance never replaces a newer value, even when the first arrives last", async () => {
+  it("stores each delivery once, so a resend through another instance never replaces a newer value, whether the first is still being stored or arrives again last", async () => {
     const machine = await api.createMachine("Resent");
     const hardware = { model: "DE1Pro", serial: "30401" };
     const first = await connect(machine, server.url, hardware);
@@ -404,31 +404,64 @@ describe("Library, settings and paired devices", () => {
     const older = report("machineSettings", { ...settings, fan: 40 });
     const newer = report("machineSettings", { ...settings, fan: 45 });
     const database = await server.connectDatabase();
-    const waiting = (count: number) => waitForLockWaits(server, { relation: "machine_event_deliveries", count });
+    let second: RawConnection;
     try {
-      // Every delivery is held as it starts to be handled, before it locks anything else.
+      // Holds the delivery once it has locked its Machine and recorded its id, as it writes the value.
       await database.query("BEGIN");
-      await database.query("LOCK TABLE machine_event_deliveries IN SHARE MODE");
+      await database.query("LOCK TABLE reported_collections IN SHARE MODE");
       first.send(older);
-      await waiting(1);
-      // Its connection drops, and the plugin sends it again through another instance, ahead of the newer one, as its outbox does.
+      await waitForLockWaits(server, { relation: "reported_collections" });
+      // Its connection drops, and the plugin connects again through another instance. That hello waits for the
+      // Machine the first delivery holds, as does releasing the dropped connection, so nothing is sent again yet.
       await first.terminate();
-      const second = await connect(machine, other.url, hardware);
-      second.send(older);
-      second.send(newer);
-      await waiting(2);
+      second = await RawConnection.open(other.url);
+      raws.push(second);
+      second.send(helloWith(machine.token, { machine: hardware }));
+      await waitForLockWaits(server, { count: 3 });
+      expect(second.messages).toEqual([]);
       await database.query("COMMIT");
-      await expect.poll(() => second.messages.filter((reply) => frameType(reply) === "ack").length).toBe(2);
     } finally {
       await database.end();
     }
-    // Whichever instance stored the older value, the newer one came after it.
+    expect(await second.message(0)).toMatchObject({ type: "welcome" });
+    second.keepAlive();
+    // The plugin sends it again, ahead of the newer one, as its outbox does.
+    await second.deliver(older);
+    await second.deliver(newer);
     expect(await collection(machine, "machineSettings", api.at(other.url))).toMatchObject({ available: true, value: newer.value });
-    // Repeated later, after other changes, it changes nothing.
+    // Arriving again last, after other changes, it changes nothing.
     const third = await connect(machine, server.url, hardware);
     await third.deliver(older);
     expect((await collection(machine, "machineSettings"))!.value).toEqual(newer.value);
   }, 20_000);
+
+  it("stores a mismatched connection's collection once, for the Machine that has its hardware or its Pending Machine, however often it arrives", async () => {
+    const owner = await api.createMachine("Owner of 30901");
+    await (await connect(owner, server.url, { model: "DE1Pro", serial: "30901" })).close();
+    const visitor = await api.createMachine("Visitor of 30901");
+    await (await connect(visitor, server.url, { model: "DE1Pro", serial: "30902" })).close();
+    // Derived: the tablet's machine settings with two fan thresholds.
+    const settings = de1ProOnDecaid087()["/machine/settings"] as object;
+    // The visitor's tablet moves onto the owner's machine, then onto one no Machine has.
+    for (const serial of ["30901", "30903"]) {
+      const hardware = { model: "DE1Pro", serial };
+      const older = report("machineSettings", { ...settings, fan: 40 });
+      const first = await connect(visitor, server.url, hardware);
+      await first.deliver(older);
+      await first.close();
+      // After a newer read, the first delivery again, through another instance, as after a lost acknowledgment.
+      const second = await connect(visitor, other.url, hardware);
+      await second.deliver(report("machineSettings", { ...settings, fan: 45 }));
+      await second.deliver(older);
+      await second.close();
+    }
+    const pending = (await api.pendingMachines()).find((candidate) => candidate.serial === "30903")!;
+    const adopted = await api.issued(await api.call("POST", `/pending-machines/${pending.id}/machine`, { name: "Adopted 30903" }));
+    for (const credited of [owner, adopted]) {
+      expect(await collection(credited, "machineSettings")).toMatchObject({ available: true, value: { ...settings, fan: 45 } });
+    }
+    expect(await summaries(visitor)).toEqual([]);
+  });
 
   it("sends a collection delivery a dropped connection left unacknowledged again, under its id, ahead of a newer read of it", async () => {
     const machine = await api.createMachine("Unacknowledged");

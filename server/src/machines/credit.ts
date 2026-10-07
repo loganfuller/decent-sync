@@ -6,6 +6,7 @@ import { lockHardware, lockMachine } from "./machines.service.js";
 // takes the locks that keep its credit consistent: the hardware's before any
 // Machine row, as everything that gives hardware to a Machine does, and the
 // credited Machine's row, which changes to its Location History hold too.
+// Taken before the record writes any row referencing a Machine.
 
 /** A record's credit: a Machine, or the Pending Machine holding what is credited to hardware no Machine has. */
 export interface Credit {
@@ -36,19 +37,28 @@ export async function creditReporter(tx: Prisma.TransactionClient, reporter: Rep
 }
 
 /**
- * Records that the session's token delivered this id, and says whether it is
- * the first time, for deliveries handled once however often they arrive:
- * Workflow and machine state events, and collections. A delivery's ids are
- * its token's Machine's own, since a resend always comes through the same
- * plugin and token. Recorded before the credit is locked, as by every
- * delivery, so a resend arriving meanwhile waits for this one to commit and
- * then finds it. Ids are kept for DELIVERY_ID_RETENTION_DAYS
- * (`delivery-id-cleanup.ts`); a resend after that counts as a first delivery.
+ * Credits a delivery handled once however often it arrives (Workflow and
+ * machine state events, and collections) as `creditReporter` does, and
+ * records that the session's token delivered its id. Returns the credit the
+ * first time, and null once the id is recorded, when the delivery changes
+ * nothing. A delivery's ids are its token's Machine's own, since a resend
+ * always comes through the same plugin and token. Ids are kept for
+ * DELIVERY_ID_RETENTION_DAYS (`delivery-id-cleanup.ts`); a resend after that
+ * counts as a first delivery.
+ *
+ * The credit's locks come first, before the id's row, which references the
+ * token's Machine (see `lockMachine`). From a mismatched connection that row
+ * references the token's Machine without its lock, which cannot matter: the
+ * delivery then writes only what its credit's locks cover. A resend arriving
+ * meanwhile, on any instance, waits at those locks for this one to commit,
+ * or, given another identity at its hello, at the id's row, then finds the
+ * id.
  */
-export async function firstDelivery(tx: Prisma.TransactionClient, reporter: Reporter, deliveryId: string): Promise<boolean> {
+export async function creditFirstDelivery(tx: Prisma.TransactionClient, reporter: Reporter, deliveryId: string): Promise<Credit | null> {
+  const credit = await creditReporter(tx, reporter);
   const recorded = await tx.$executeRaw`
     INSERT INTO machine_event_deliveries (machine_id, delivery_id)
     VALUES (${reporter.machineId}::uuid, ${deliveryId})
     ON CONFLICT DO NOTHING`;
-  return recorded > 0;
+  return recorded > 0 ? credit : null;
 }

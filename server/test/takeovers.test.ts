@@ -253,9 +253,6 @@ describe("Takeovers", { timeout: 30_000 }, () => {
   it("leaves the Machine to a tablet whose earlier hello, held back on one instance, commits after its later one on another", async () => {
     const created = await api.createMachine("Abandoned hello");
     const tabletId = randomUUID();
-    // The tablet's machine is bound to its token already.
-    await (await welcomed(helloWith(created.token, { tabletId, machine: de1Pro("16201") }))).close();
-    await api.waitForMachine("Abandoned hello", (viewed) => !viewed.online);
     const storage = new PluginStorage();
     storage.write("tabletId", tabletId);
     let tablet: SimulatedTablet | undefined;

@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import type { MachineStateDelivery, WorkflowDelivery } from "@decent-sync/protocol";
 import { type MachineStateEvent, Prisma, type WorkflowEvent } from "../generated/prisma/client.js";
-import { type Credit, creditReporter, firstDelivery } from "../machines/credit.js";
+import { type Credit, creditFirstDelivery } from "../machines/credit.js";
 import { machineNotFound } from "../machines/input.js";
 import type { MachineStateView } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
@@ -51,8 +51,8 @@ export class MachineEventsService {
   async storeWorkflow(message: WorkflowDelivery, reporter: Reporter): Promise<void> {
     const workflow = JSON.stringify(message.workflow);
     await this.prisma.$transaction(async (tx) => {
-      if (!(await firstDelivery(tx, reporter, message.id))) return;
-      const credit = await creditReporter(tx, reporter);
+      const credit = await creditFirstDelivery(tx, reporter, message.id);
+      if (!credit) return;
       await tx.$executeRaw`
         INSERT INTO workflow_events (machine_id, pending_machine_id, observed_at, workflow)
         SELECT ${credit.machineId}::uuid, ${credit.pendingMachineId}::uuid, ${message.observedAt}::timestamptz, ${workflow}::jsonb
@@ -66,8 +66,8 @@ export class MachineEventsService {
   async storeMachineState(message: MachineStateDelivery, reporter: Reporter): Promise<void> {
     const { state, substate } = message;
     await this.prisma.$transaction(async (tx) => {
-      if (!(await firstDelivery(tx, reporter, message.id))) return;
-      const credit = await creditReporter(tx, reporter);
+      const credit = await creditFirstDelivery(tx, reporter, message.id);
+      if (!credit) return;
       await tx.$executeRaw`
         INSERT INTO machine_state_events (machine_id, pending_machine_id, observed_at, state, substate)
         SELECT ${credit.machineId}::uuid, ${credit.pendingMachineId}::uuid, ${message.observedAt}::timestamptz, ${state}, ${substate}

@@ -662,6 +662,16 @@ export async function lockHardware(tx: Prisma.TransactionClient, hardware: Hardw
  * Shot edit that writes its row twice checks that key again, and with FOR
  * UPDATE it would wait for a Location History change that is itself waiting
  * for the Shot's row.
+ *
+ * Those checks hold the row FOR KEY SHARE. An update changing the Machine's
+ * model or serial, even from NULL, takes it FOR UPDATE, as they carry a
+ * unique index, so it waits for them; a hello or an Admin binding hardware
+ * makes that update holding this lock. So whatever writes a row referencing
+ * a Machine takes this lock before the write, or the hardware's lock and
+ * then its owner's row (`credit.ts`), unless it can be shown not to matter,
+ * as for a Shot edit's repeated check, which waits for no lock after it. A
+ * write that referenced the Machine and then waited for this lock would
+ * deadlock with the binding.
  */
 export async function lockMachine(tx: Prisma.TransactionClient, id: string): Promise<boolean> {
   const rows = await tx.$queryRaw<unknown[]>`SELECT 1 FROM machines WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
