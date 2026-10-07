@@ -184,7 +184,7 @@ describe("delivery id retention", { timeout: 30_000 }, () => {
       // And the Machine's row, so a delivery waits there having recorded its id, its row locked until it commits.
       await holder.query("SELECT 1 FROM machines WHERE id = $1 FOR NO KEY UPDATE", [machine.machine.id]);
       raw.send(storing);
-      await waitForLockWaits(server, { wrote: "machine_event_deliveries" });
+      await waitForLockWaits(server, { writing: "machine_event_deliveries" });
 
       const instance = await startInstance();
       expect(await deletedBy(instance)).toBe(1);
