@@ -574,109 +574,153 @@ describe("Machine identity", { timeout: 20_000 }, () => {
   });
 
   describe("at the same time (raw frames)", () => {
-    // Each race is run several times: without the Machine's lock its outcome depends on timing.
-    const ROUNDS = 5;
+    /**
+     * Decides concurrent work in the order given: holds a row with `lock`,
+     * starts each step once the ones before it wait for a lock, then lets them
+     * go. Steps waiting for the same row are granted it in the order they
+     * asked for it.
+     */
+    async function inOrder(lock: string, values: unknown[], steps: (() => void)[]): Promise<void> {
+      const database = await server.connectDatabase();
+      try {
+        await database.query("BEGIN");
+        await database.query(lock, values);
+        for (const [index, step] of steps.entries()) {
+          step();
+          await waitForLockWaits(server, { count: index + 1 });
+        }
+        await database.query("COMMIT");
+      } finally {
+        await database.end();
+      }
+    }
+    const holdMachine = "SELECT 1 FROM machines WHERE id = $1 FOR UPDATE";
+    /** A raw connection, opened but sent nothing yet. */
+    const opened = async () => {
+      const raw = await RawConnection.open(server.url);
+      connections.push(raw);
+      return raw;
+    };
+    /** A Machine bound to DE1Pro `bound` whose token's last hello reported `other`, with no connection open. */
+    const mismatched = async (name: string, bound: string, other: string, connectionId: string) => {
+      const lab = await boundMachine(name, bound, connectionId);
+      const first = await connect(helloWith(lab.token, { machine: de1Pro(other) }));
+      expectWelcomed(first);
+      await first.close();
+      await api.waitForMachine(name, (machine) => !machine.online);
+      const pending = (await api.pendingMachines()).find((candidate) => candidate.serial === other)!;
+      return { lab, pending };
+    };
 
     it("binds a token to the hardware of the first of two simultaneous connections, and the other is a mismatch", async () => {
-      for (let round = 0; round < ROUNDS; round++) {
-        const name = `First of two ${round}`;
-        const { token } = await api.createMachine(name);
-        const [a, b] = await Promise.all([RawConnection.open(server.url), RawConnection.open(server.url)]);
-        connections.push(a!, b!);
-        a!.send(helloWith(token, { machine: de1Pro(`106${round}1`), connectionId: `00:00:5E:00:53:6${round}` }));
-        b!.send(helloWith(token, { machine: de1Pro(`106${round}2`), connectionId: `00:00:5E:00:53:7${round}` }));
-        await Promise.all([a!.message(0), b!.message(0)]);
-
-        const machine = (await api.machineNamed(name))!;
-        const bound = machine.serial === `106${round}1` ? 0 : 1;
-        expect([`106${round}1`, `106${round}2`]).toContain(machine.serial);
-        // The second, decided after the first bound, is the mismatch.
-        expect(machine).toMatchObject({
-          identification: "mismatch",
-          mismatch: { serial: bound === 0 ? `106${round}2` : `106${round}1` },
-          aliases: [bound === 0 ? `00:00:5E:00:53:6${round}` : `00:00:5E:00:53:7${round}`],
-        });
-      }
+      const created = await api.createMachine("First of two");
+      const [a, b] = [await opened(), await opened()];
+      // Both wait for the Machine, and the first to ask is decided first.
+      await inOrder(holdMachine, [created.machine.id], [
+        () => a.send(helloWith(created.token, { machine: de1Pro("10601"), connectionId: "00:00:5E:00:53:60" })),
+        () => b.send(helloWith(created.token, { machine: de1Pro("10602"), connectionId: "00:00:5E:00:53:70" })),
+      ]);
+      await Promise.all([a.message(0), b.message(0)]);
+      expect(await api.machineNamed("First of two")).toMatchObject({
+        model: "DE1Pro",
+        serial: "10601",
+        identification: "mismatch",
+        mismatch: { serial: "10602" },
+        aliases: ["00:00:5E:00:53:60"],
+      });
     });
 
     it("leaves only the last of two simultaneous reissued tokens valid", async () => {
-      for (let round = 0; round < ROUNDS; round++) {
-        const created = await api.createMachine(`Reissued twice ${round}`);
-        const responses = await Promise.all([1, 2].map(() => api.call("POST", `/machines/${created.machine.id}/token`)));
-        const tokens = [created.token];
-        for (const response of responses) {
-          expect(response.status).toBe(201);
-          tokens.push((await api.issued(response)).token);
-        }
-
-        const answers = [];
-        for (const token of tokens) {
-          const raw = await connect(helloWith(token, { machine: de1Pro(`107${round}1`) }));
-          answers.push((raw.messages[0] as { type: string; code?: string }).code ?? "welcome");
-          await raw.close();
-        }
-        expect(answers[0]).toBe("bad_token");
-        expect(answers.slice(1).sort()).toEqual(["bad_token", "welcome"]);
+      const created = await api.createMachine("Reissued twice");
+      const reissues: Promise<Response>[] = [];
+      const reissue = () => reissues.push(api.call("POST", `/machines/${created.machine.id}/token`));
+      await inOrder(holdMachine, [created.machine.id], [reissue, reissue]);
+      const tokens = [created.token];
+      for (const response of await Promise.all(reissues)) {
+        expect(response.status).toBe(201);
+        tokens.push((await api.issued(response)).token);
       }
+
+      const answers = [];
+      for (const token of tokens) {
+        const raw = await connect(helloWith(token, { machine: de1Pro("10701") }));
+        answers.push((raw.messages[0] as { type: string; code?: string }).code ?? "welcome");
+        await raw.close();
+      }
+      expect(answers).toEqual(["bad_token", "bad_token", "welcome"]);
     });
 
-    it("closes a connection whose hello is accepted while its token is reissued", async () => {
-      for (let round = 0; round < ROUNDS * 2; round++) {
-        const created = await api.createMachine(`Reissued mid-hello ${round}`);
-        const raw = await RawConnection.open(server.url);
-        connections.push(raw);
-        raw.send(helloWith(created.token, { machine: de1Pro(`108${round}1`) }));
-        const response = await api.call("POST", `/machines/${created.machine.id}/token`);
+    it("closes a connection whose hello is decided before or after its token is reissued", async () => {
+      for (const helloFirst of [true, false]) {
+        const name = `Reissued mid-hello, hello ${helloFirst ? "first" : "second"}`;
+        const created = await api.createMachine(name);
+        const raw = await opened();
+        let reissued: Promise<Response> | undefined;
+        const hello = () => raw.send(helloWith(created.token, { machine: de1Pro(helloFirst ? "10801" : "10802") }));
+        const reissue = () => void (reissued = api.call("POST", `/machines/${created.machine.id}/token`));
+        await inOrder(holdMachine, [created.machine.id], helloFirst ? [hello, reissue] : [reissue, hello]);
+        const response = await reissued!;
         expect(response.status).toBe(201);
         await api.issued(response);
 
-        // Welcomed or not, the connection must not outlive its token.
-        const closed = await Promise.race([raw.closed, new Promise((resolve) => setTimeout(() => resolve("still open"), 10_000).unref())]);
-        expect(closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
-        await api.waitForMachine(`Reissued mid-hello ${round}`, (machine) => !machine.online);
+        // Accepted, binding its hardware, then closed once the reissue commits (perhaps before its welcome
+        // was sent); or refused, its token already replaced.
+        await expectRefusal(raw, "bad_token");
+        const machine = await api.waitForMachine(name, (candidate) => !candidate.online);
+        if (helloFirst) expect(machine).toMatchObject({ serial: "10801", identification: "identified" });
+        else expect(machine).toMatchObject({ serial: null, lastRefusal: { reason: expect.stringContaining("replaced") } });
       }
     });
 
-    it("dismisses a Pending Machine while a tablet reporting it reconnects, refusing that tablet either way", async () => {
-      for (let round = 0; round < ROUNDS * 2; round++) {
-        const name = `Dismissed mid-hello ${round}`;
-        const lab = await boundMachine(name, `110${round}0`, `00:00:5E:00:53:8${round % 10}`);
-        const other = de1Pro(`110${round}1`);
-        const first = await connect(helloWith(lab.token, { machine: other }));
-        expectWelcomed(first);
-        const pending = (await api.pendingMachines()).find((candidate) => candidate.serial === other.serial)!;
+    it("refuses a tablet reporting a Pending Machine's hardware as it is dismissed, whichever is decided first", async () => {
+      for (const helloFirst of [true, false]) {
+        const name = `Dismissed mid-hello, hello ${helloFirst ? "first" : "second"}`;
+        const other = helloFirst ? "11001" : "11011";
+        const { lab, pending } = await mismatched(name, helloFirst ? "11000" : "11010", other, helloFirst ? "00:00:5E:00:53:80" : "00:00:5E:00:53:81");
+        const again = await opened();
+        let dismissed: Promise<Response> | undefined;
+        // The hello takes the hardware's lock, then waits for the Machine; the dismissal takes the hardware's
+        // lock, then waits for the Machine that reported it.
+        // A connection id of its own, which only an accepted hello records.
+        const connectionId = "00:00:5E:00:53:8F";
+        const hello = () => again.send(helloWith(lab.token, { machine: de1Pro(other), connectionId }));
+        const dismiss = () => void (dismissed = api.call("POST", `/pending-machines/${pending.id}/dismiss`));
+        await inOrder(holdMachine, [lab.machine.id], helloFirst ? [hello, dismiss] : [dismiss, hello]);
+        expect((await dismissed!).status).toBe(200);
 
-        const again = await RawConnection.open(server.url);
-        connections.push(again);
-        again.send(helloWith(lab.token, { machine: other }));
-        const response = await api.call("POST", `/pending-machines/${pending.id}/dismiss`);
-        expect(response.status).toBe(200);
-        // Refused at hello, or closed once welcomed.
-        expect(await again.closed).toEqual({ code: CLOSE_CODES.hardware_dismissed, reason: "hardware_dismissed" });
-        expect(await api.machineNamed(name)).toMatchObject({ lastRefusal: { reason: expect.stringContaining(other.serial) } });
+        // Accepted, then closed once the dismissal commits (perhaps before its welcome was sent); or refused at hello.
+        await expectRefusal(again, "hardware_dismissed");
+        const machine = (await api.machineNamed(name))!;
+        expect(machine).toMatchObject({ lastRefusal: { reason: expect.stringContaining(other) } });
+        expect(machine.connectionId === connectionId).toBe(helloFirst);
       }
     });
 
     it("leaves no Pending Machine behind when a machine entry is created for it while a tablet reports it", async () => {
-      for (let round = 0; round < ROUNDS * 2; round++) {
-        const lab = await boundMachine(`Adopted mid-hello ${round}`, `111${round}0`, `00:00:5E:00:53:9${round % 10}`);
-        const other = de1Pro(`111${round}1`);
-        expectWelcomed(await connect(helloWith(lab.token, { machine: other })));
-        const pending = (await api.pendingMachines()).find((candidate) => candidate.serial === other.serial)!;
-
-        const again = await RawConnection.open(server.url);
-        connections.push(again);
-        again.send(helloWith(lab.token, { machine: other }));
-        const response = await api.call("POST", `/pending-machines/${pending.id}/machine`, { name: `Adopted ${round}` });
-        expect(response.status).toBe(201);
-        await api.issued(response);
+      for (const helloFirst of [true, false]) {
+        const name = `Adopted mid-hello, hello ${helloFirst ? "first" : "second"}`;
+        const other = helloFirst ? "11101" : "11111";
+        const { lab, pending } = await mismatched(name, helloFirst ? "11100" : "11110", other, helloFirst ? "00:00:5E:00:53:90" : "00:00:5E:00:53:91");
+        const entryName = `Adopted, hello ${helloFirst ? "first" : "second"}`;
+        const again = await opened();
+        let entry: Promise<Response> | undefined;
+        const hello = () => again.send(helloWith(lab.token, { machine: de1Pro(other) }));
+        const create = () => void (entry = api.call("POST", `/pending-machines/${pending.id}/machine`, { name: entryName }));
+        if (helloFirst) {
+          // The hello takes the hardware's lock, then waits for the Machine; the entry waits for the hardware's lock.
+          await inOrder(holdMachine, [lab.machine.id], [hello, create]);
+        } else {
+          // The entry takes the hardware's lock, then waits to remove the Pending Machine; the hello waits for the hardware's lock.
+          await inOrder("SELECT 1 FROM pending_machines WHERE id = $1 FOR UPDATE", [pending.id], [create, hello]);
+        }
+        const created = await entry!;
+        expect(created.status).toBe(201);
+        await api.issued(created);
         await again.message(0);
+        expectWelcomed(again);
 
-        expect((await api.pendingMachines()).filter((candidate) => candidate.serial === other.serial)).toEqual([]);
-        expect((await api.machineNamed(`Adopted mid-hello ${round}`))!.mismatch).toMatchObject({
-          pendingMachineId: null,
-          machine: { name: `Adopted ${round}` },
-        });
+        expect((await api.pendingMachines()).filter((candidate) => candidate.serial === other)).toEqual([]);
+        expect((await api.machineNamed(name))!.mismatch).toMatchObject({ pendingMachineId: null, machine: { name: entryName } });
       }
     });
 
@@ -753,37 +797,25 @@ describe("Machine identity", { timeout: 20_000 }, () => {
       });
     });
 
-    it("refuses a revoked token, leaving the connection with the current token alone", async () => {
-      for (let round = 0; round < ROUNDS; round++) {
-        const created = await api.createMachine(`Revoked and current ${round}`);
-        const reissued = await api.issued(await api.call("POST", `/machines/${created.machine.id}/token`));
-        const [revoked, current] = await Promise.all([RawConnection.open(server.url), RawConnection.open(server.url)]);
-        connections.push(revoked!, current!);
-        revoked!.send(helloWith(created.token, { machine: de1Pro(`113${round}1`) }));
-        current!.send(helloWith(reissued.token, { machine: de1Pro(`113${round}1`) }));
-
-        await expectRefusal(revoked!, "bad_token");
-        expect(await current!.message(0)).toMatchObject({ type: "welcome" });
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        expect(current!.messages).toHaveLength(1);
-      }
-    });
-
-    it("never lets a hello refused for its revoked token replace the connection using the new one", async () => {
-      for (let round = 0; round < ROUNDS * 2; round++) {
-        const name = `Stale hello ${round}`;
+    it("refuses a hello with a replaced token, decided before or after the connection using the new token, and leaves that connection alone", async () => {
+      for (const currentFirst of [true, false]) {
+        const name = `Revoked and current, current ${currentFirst ? "first" : "second"}`;
         const created = await api.createMachine(name);
-        const stale = await RawConnection.open(server.url);
-        connections.push(stale);
-        stale.send(helloWith(created.token, { machine: de1Pro(`109${round}1`) }));
         const reissued = await api.issued(await api.call("POST", `/machines/${created.machine.id}/token`));
-        const current = await connect(helloWith(reissued.token, { machine: de1Pro(`109${round}1`) }));
-        expectWelcomed(current);
+        const hardware = de1Pro(currentFirst ? "10901" : "10911");
+        const [revoked, current] = [await opened(), await opened()];
+        // Each takes the hardware's lock, then the Machine's: the first waits for the Machine, the second for the hardware.
+        const send = (raw: RawConnection, token: string) => () => raw.send(helloWith(token, { machine: hardware }));
+        const steps = [send(current, reissued.token), send(revoked, created.token)];
+        await inOrder(holdMachine, [created.machine.id], currentFirst ? steps : steps.reverse());
 
-        expect(await stale.closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        expect(current.messages).toHaveLength(1);
+        await expectRefusal(revoked, "bad_token");
+        expect(await current.message(0)).toMatchObject({ type: "welcome" });
         expect(await api.machineNamed(name)).toMatchObject({ online: true, identification: "identified" });
+        // A heartbeat answered and nothing else: the refusal closed nothing of the current connection's.
+        current.send({ type: "heartbeat" });
+        expect(await current.message(1)).toEqual({ type: "heartbeat" });
+        expect(current.messages).toHaveLength(2);
       }
     });
   });

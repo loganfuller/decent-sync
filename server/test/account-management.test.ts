@@ -269,20 +269,34 @@ describe("account management", () => {
   });
 
   it("revokes or accepts an invite, never both, from concurrent requests on two instances", async () => {
-    for (let round = 0; round < 6; round++) {
-      const { invite, link } = await api.invite(`race${round}@example.com`, "staff", [lab.id]);
-      const [revoked, accepted] = await Promise.all([
-        api.at(round % 2 === 0 ? server.url : other.url).call("POST", `/invites/${invite.id}/revoke`),
-        acceptingInvite(round % 2 === 0 ? other : server, link, { name: `Racer ${round}`, password: `racing password ${round}` }),
-      ]);
-      expect([revoked.status, accepted.status]).toSatisfy(
-        ([revoke, accept]: number[]) => (revoke === 204 && accept === 410) || (revoke === 409 && accept === 201),
-      );
+    for (const revokeFirst of [true, false]) {
+      const email = `race-${revokeFirst ? "revoked" : "accepted"}@example.com`;
+      const { invite, link } = await api.invite(email, "staff", [lab.id]);
+      let revoked: Promise<Response> | undefined;
+      let accepted: Promise<Response> | undefined;
+      const revoke = () => void (revoked = api.at(revokeFirst ? server.url : other.url).call("POST", `/invites/${invite.id}/revoke`));
+      const accept = () => void (accepted = acceptingInvite(revokeFirst ? other : server, link, { name: "Racer", password: "racing password 1" }));
+
+      // Both wait for the invite's row, held here, and the first to ask is decided first.
+      const holding = await server.connectDatabase();
+      try {
+        await holding.query("BEGIN");
+        await holding.query("SELECT 1 FROM invites WHERE id = $1 FOR UPDATE", [invite.id]);
+        for (const [index, step] of (revokeFirst ? [revoke, accept] : [accept, revoke]).entries()) {
+          step();
+          await waitForLockWaits(server, { count: index + 1 });
+        }
+        await holding.query("COMMIT");
+      } finally {
+        await holding.end();
+      }
+
+      expect([(await revoked!).status, (await accepted!).status]).toEqual(revokeFirst ? [204, 410] : [409, 201]);
       const { rows } = await database.query<{ accepted: boolean; revoked: boolean }>(
         "SELECT accepted_at IS NOT NULL AS accepted, revoked_at IS NOT NULL AS revoked FROM invites WHERE id = $1",
         [invite.id],
       );
-      expect(rows[0]).toEqual({ accepted: accepted.status === 201, revoked: revoked.status === 204 });
+      expect(rows[0]).toEqual({ accepted: !revokeFirst, revoked: revokeFirst });
     }
   });
 
