@@ -1327,10 +1327,7 @@ var __decentSync = (() => {
             this.log(final);
             this.stop();
           } else if (yielding) {
-            this.yielding = true;
-            this.abandon();
-            this.log(yielding);
-            this.setTimer("reconnect", YIELD_MS, () => void this.connect());
+            this.yieldToAnotherTablet(yielding);
           } else {
             this.drop(`the server closed the connection${event.code === void 0 ? "" : ` (${event.code}${event.reason ? `: ${event.reason}` : ""})`}`);
           }
@@ -1385,9 +1382,12 @@ var __decentSync = (() => {
           break;
         case "heartbeat":
           break;
-        case "error":
+        case "error": {
           this.log(`The server reported ${describeError(message.code)}: ${message.message}`);
+          const yielding = YIELDING_CLOSES.get(CLOSE_CODES[message.code]);
+          if (yielding) this.yieldToAnotherTablet(yielding);
           break;
+        }
       }
     }
     scheduleHeartbeat(handle, intervalMs) {
@@ -1445,6 +1445,17 @@ var __decentSync = (() => {
           if (!this.stopped) this.scheduleHardwarePoll();
         });
       });
+    }
+    /**
+     * Gives way to another tablet with this Machine's token: drops the
+     * connection, keeps capturing, and after YIELD_MS connects with a
+     * `yielding` hello.
+     */
+    yieldToAnotherTablet(notice) {
+      this.yielding = true;
+      this.abandon();
+      this.log(notice);
+      this.setTimer("reconnect", YIELD_MS, () => void this.connect());
     }
     /** Replaces the current connection, or ends a wait, with a new attempt at once. */
     reconnectNow() {

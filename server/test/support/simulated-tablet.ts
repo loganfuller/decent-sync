@@ -33,7 +33,8 @@ import { rememberSecret, watchLog } from "./secrets.js";
 //   closes a transport whose undelivered inbound bytes pass 1 MiB, and
 //   delivers events asynchronously and in order, ending with a close event.
 //   `dropConnectionsUnnoticed` ends them for the plugin while leaving them
-//   open, and silent, for the server.
+//   open, and silent, for the server, and `cutConnectionAfter` ends one right
+//   after a frame the server sent.
 //   A send resolves once its frame is queued. Frames are written in order,
 //   one at a time, and stay pending until written; `uploadBytesPerSecond`
 //   slows the writing, so pending bytes build up as on a slow network, and
@@ -500,6 +501,8 @@ export class SimulatedTablet {
   private networkLost = false;
   /** Connections the plugin was told ended that the server still holds open, until it closes them or the plugin unloads. */
   private readonly unnoticed = new Set<WebSocket>();
+  /** Matches the frame after which the next connection to receive one ends, until one does. */
+  private cutAfter: ((frame: unknown) => boolean) | undefined;
 
   /** Loads the built plugin and calls onLoad, as Decaid does when the plugin is enabled. */
   static load(options: SimulatedTabletOptions): SimulatedTablet {
@@ -620,6 +623,15 @@ export class SimulatedTablet {
       record.socket.once("close", () => this.unnoticed.delete(record.socket));
       this.terminate(record, "WebSocket error: Software caused connection abort", "transport_error");
     }
+  }
+
+  /**
+   * Ends the next connection to receive a text frame that matches right after
+   * it, as a network failing then does: the plugin is given that frame, then
+   * a transport error, and nothing the server sent after it.
+   */
+  cutConnectionAfter(matches: (frame: unknown) => boolean): void {
+    this.cutAfter = matches;
   }
 
   /**
@@ -843,11 +855,18 @@ export class SimulatedTablet {
     socket.on("message", (data, isBinary) => {
       this.setAwaitingServer(record, false);
       const buffer = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer);
-      if (!isBinary) this.received.push(parsed(buffer.toString("utf8")));
+      const frame = isBinary ? undefined : parsed(buffer.toString("utf8"));
+      if (!isBinary) this.received.push(frame);
       const event = isBinary
         ? { type: "data", dataType: "binary", data: buffer.toString("base64") }
         : { type: "data", dataType: "text", data: this.atServerPace(buffer.toString("utf8")) };
       this.enqueue(record, event, buffer.length);
+      if (!isBinary && this.cutAfter?.(frame)) {
+        this.cutAfter = undefined;
+        this.terminate(record, "WebSocket error: Connection reset by peer", "transport_error");
+        socket.removeAllListeners("message");
+        socket.terminate();
+      }
     });
     socket.on("error", (error) => {
       failure = `WebSocket error: ${error.message}`;

@@ -446,7 +446,6 @@ export class MachinesService {
       const replacement = { tabletId, remoteAddress: connection.remoteAddress, connectionId, pluginVersion: hello.pluginVersion, decaidVersion: hello.decaidVersion };
       await recordTakeover(tx, machine.id, now, tookOverFrom, replacement);
     }
-    await touch(tx, machine.id);
     // Delivered on commit: the instance holding the connection this replaces closes it.
     await notifyAccessChanged(tx, machine.id);
     if ("rememberAlias" in identity && identity.rememberAlias && connectionId) {
@@ -474,6 +473,9 @@ export class MachinesService {
         holder = { pendingMachineId: pending.id };
       }
     }
+    // Seen after the waits and the handover, and before only its tablet's record and the lock that numbers it: a
+    // hello that waited longer than a connection stays live must not make a holder the next hello finds dead.
+    await touch(tx, machine.id);
     await recordTablet(tx, hello.tabletId, holder);
     return { accepted: true, machine: { id: machine.id, name: machine.name }, identity, hardware, tookOverFrom };
   }
@@ -623,9 +625,13 @@ export function dismissedReason(hardware: Hardware): string {
   return `An Admin dismissed ${describeHardware(hardware)}, which a tablet reported with this Machine's token`;
 }
 
-/** Records that the Machine was seen now, by the database's clock, which every instance shares. */
+/**
+ * Records that the Machine was seen now, by the database's clock, which
+ * every instance shares: as it reads now, not at the transaction's start,
+ * which waiting on locks may have left long past.
+ */
 async function touch(tx: Prisma.TransactionClient, id: string): Promise<void> {
-  await tx.$executeRaw`UPDATE machines SET last_seen_at = now() WHERE id = ${id}::uuid`;
+  await tx.$executeRaw`UPDATE machines SET last_seen_at = clock_timestamp() WHERE id = ${id}::uuid`;
 }
 
 // Advisory locks on hardware use this as their first key, and a hash of the

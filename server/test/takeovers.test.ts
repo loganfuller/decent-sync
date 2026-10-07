@@ -173,6 +173,58 @@ describe("Takeovers", { timeout: 30_000 }, () => {
     });
   });
 
+  it("yields to the tablet that took over though its connection fails between the server's error and its close", async () => {
+    const created = await api.createMachine("Cut off");
+    const first = loadTablet({ settings: settingsFor(created), timeScale: TIME_SCALE, api: derivedDe1Pro({ serial: "16301" }) });
+    await first.waitForLog(/^Connected to /);
+    // Its network fails as the server tells it another tablet took over, before the close that follows arrives.
+    first.cutConnectionAfter((frame) => {
+      const { type, code } = frame as { type?: unknown; code?: unknown };
+      return type === "error" && code === "replaced";
+    });
+    const second = loadTablet({ settings: settingsFor(created), machineConnected: false });
+    await second.waitForLog(/^Connected to /);
+
+    await first.waitForLog(/^Another tablet connected with this Machine's token and took over\./);
+    await first.waitForLog(/^Another tablet is still connected with this Machine's token\./, 20_000);
+    expect(hellos(first).slice(1).every((hello) => hello.yielding === true)).toBe(true);
+    expect(second.logs.filter((log) => log.startsWith("Disconnected"))).toEqual([]);
+    expect(await machine(created.machine.id)).toMatchObject({ online: true, tablet: { id: second.storage.read("tabletId") } });
+    await first.unload();
+    await second.unload();
+  });
+
+  it("keeps a hello that waited longer than a connection stays live, live for a yielding hello decided after it", async () => {
+    // An instance judging connections by 0.5 s heartbeats, so live for 1.5 s.
+    const judge = await startTestServer({ env: { ...env, SYNC_HEARTBEAT_SECONDS: "0.5" }, sharing: server });
+    try {
+      const created = await api.createMachine("Accepted late");
+      const [taking, yielding] = [await opened(judge), await opened(judge)];
+      const database = await server.connectDatabase();
+      try {
+        // Both wait for the Machine's row, held here, and are decided in the order they asked.
+        await database.query("BEGIN");
+        await database.query("SELECT 1 FROM machines WHERE id = $1 FOR UPDATE", [created.machine.id]);
+        taking.send(helloWith(created.token, { machine: null }));
+        await waitForLockWaits(server);
+        yielding.send(helloWith(created.token, { machine: null, yielding: true }));
+        await waitForLockWaits(server, { count: 2 });
+        // Not to order them: their transactions start longer ago than a connection stays live.
+        await new Promise((resolve) => setTimeout(resolve, 1_700));
+        await database.query("COMMIT");
+      } finally {
+        await database.end();
+      }
+
+      expect(await taking.message(0)).toMatchObject({ type: "welcome" });
+      taking.keepAlive();
+      expect(await expectRefusal(yielding, "machine_held")).toMatch(/asked not to replace it/);
+      expect(await api.at(judge.url).machineNamed("Accepted late")).toMatchObject({ online: true, takeover: null });
+    } finally {
+      await judge.stop();
+    }
+  });
+
   it("records no takeover when a tablet whose network dropped reconnects while the server still holds its old connection", async () => {
     const created = await api.createMachine("Dropped");
     const storage = new PluginStorage();

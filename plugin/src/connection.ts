@@ -55,7 +55,7 @@ const FINAL_CLOSES = new Map<number, string>([
   [CLOSE_CODES.decaid_too_old, "The server needs a newer version of Decaid. Update Decaid on this tablet."],
 ]);
 
-/** Close codes after which the plugin waits, then connects with a `yielding` hello. */
+/** Close codes after which, or after their error message, the plugin waits, then connects with a `yielding` hello. */
 const YIELDING_CLOSES = new Map<number, string>([
   [
     CLOSE_CODES.replaced,
@@ -275,10 +275,7 @@ export class SyncConnection {
           this.log(final);
           this.stop();
         } else if (yielding) {
-          this.yielding = true;
-          this.abandon();
-          this.log(yielding);
-          this.setTimer("reconnect", YIELD_MS, () => void this.connect());
+          this.yieldToAnotherTablet(yielding);
         } else {
           this.drop(`the server closed the connection${event.code === undefined ? "" : ` (${event.code}${event.reason ? `: ${event.reason}` : ""})`}`);
         }
@@ -339,10 +336,14 @@ export class SyncConnection {
       case "heartbeat":
         // Its arrival is what counts.
         break;
-      case "error":
-        // The close that follows decides what happens next.
+      case "error": {
         this.log(`The server reported ${describeError(message.code)}: ${message.message}`);
+        // The close that follows decides what happens next, unless another tablet replaced this one or holds the
+        // Machine: then the plugin gives way now, in case the connection fails before that close arrives.
+        const yielding = YIELDING_CLOSES.get(CLOSE_CODES[message.code]);
+        if (yielding) this.yieldToAnotherTablet(yielding);
         break;
+      }
     }
   }
 
@@ -408,6 +409,18 @@ export class SyncConnection {
         if (!this.stopped) this.scheduleHardwarePoll();
       });
     });
+  }
+
+  /**
+   * Gives way to another tablet with this Machine's token: drops the
+   * connection, keeps capturing, and after YIELD_MS connects with a
+   * `yielding` hello.
+   */
+  private yieldToAnotherTablet(notice: string): void {
+    this.yielding = true;
+    this.abandon();
+    this.log(notice);
+    this.setTimer("reconnect", YIELD_MS, () => void this.connect());
   }
 
   /** Replaces the current connection, or ends a wait, with a new attempt at once. */
