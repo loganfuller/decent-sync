@@ -28,7 +28,8 @@ describe("delivery id retention", { timeout: 30_000 }, () => {
   let database: pg.Client;
   const instances: TestServer[] = [];
   const raws: RawConnection[] = [];
-  const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
+  // The default heartbeat interval, 30 s, allows 90 s of silence, so connections here send no heartbeats.
+  const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2" };
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -50,14 +51,22 @@ describe("delivery id retention", { timeout: 30_000 }, () => {
     instances.push(instance);
     return instance;
   }
+  /** How many delivery ids the instance's cleanup has logged deleting: 0 until it logs any. */
+  const deletedSoFar = (instance: TestServer) => Number(DELETED.exec(instance.output())?.[1] ?? 0);
+  const expectNoFailedRun = (instance: TestServer) => expect(instance.output()).not.toContain("Could not delete delivery ids");
   /** How many delivery ids the instance's cleanup deleted, once it logs that it deleted some. */
   async function deletedBy(instance: TestServer): Promise<number> {
-    await expect.poll(() => DELETED.test(instance.output()), { timeout: 10_000 }).toBe(true);
-    expect(instance.output()).not.toContain("Could not delete delivery ids");
-    return Number(DELETED.exec(instance.output())![1]);
+    await expect.poll(() => deletedSoFar(instance), { timeout: 10_000 }).toBeGreaterThan(0);
+    expectNoFailedRun(instance);
+    return deletedSoFar(instance);
   }
-  async function connect(machine: CreatedMachine, serial: string) {
-    const raw = await RawConnection.welcomed(server.url, helloWith(machine.token, { machine: { model: "DE1Pro", serial } }));
+  /**
+   * A connection with the Machine's token that sends no heartbeat within a
+   * test: a heartbeat updates the Machine's row, so one could wait for a row
+   * the test holds, ahead of the delivery the test means to hold there.
+   */
+  async function connect(machine: CreatedMachine, serial: string, url = server.url) {
+    const raw = await RawConnection.welcomed(url, helloWith(machine.token, { machine: { model: "DE1Pro", serial } }), 60_000);
     raws.push(raw);
     return raw;
   }
@@ -109,12 +118,14 @@ describe("delivery id retention", { timeout: 30_000 }, () => {
     await recordedAgo(old, "90 days 1 minute");
     await recordedAgo(kept, "89 days 23 hours");
 
-    // Its clock runs two days ahead: by that clock, the kept ids would be more than 90 days old.
-    const instance = await startInstance({ clockOffsetMs: 2 * DAY_MS });
+    // Its clock runs two days behind: by that clock, the old ids would be within 90 days.
+    const instance = await startInstance({ clockOffsetMs: -2 * DAY_MS });
     expect(await deletedBy(instance)).toBe(old.length);
     expect(await recorded(machine)).toEqual(ids([...kept, ...recent]));
 
-    for (const delivery of kept) await raw.deliver(delivery);
+    // Resent through a new connection, which has handled none of them, so only the ids recorded decide.
+    const resending = await connect(machine, "30101", instance.url);
+    for (const delivery of kept) await resending.deliver(delivery);
     expect(await transitions(machine)).toEqual([["idle", "idle"], ["espresso", "pouring"], ["idle", "idle"]]);
     expect(await workflows(machine)).toEqual([pulled, dialledIn, pulled]);
     expect(await grinders(machine)).toEqual([{ id: "Lab grinder", name: "Lab grinder" }]);
@@ -134,25 +145,24 @@ describe("delivery id retention", { timeout: 30_000 }, () => {
 
     const lock = await server.connectDatabase();
     let ahead: TestServer;
-    let behind: TestServer;
+    let other: TestServer;
     try {
       // Holds both instances' first statements until both have started, so they delete at once.
       await lock.query("BEGIN");
       await lock.query("LOCK TABLE machine_event_deliveries IN SHARE MODE");
-      // By their own clocks, the one ahead would delete ids within 90 days, and the one behind none at all.
-      [ahead, behind] = await Promise.all([
-        startInstance({ clockOffsetMs: 2 * DAY_MS }),
-        startInstance({ clockOffsetMs: -2 * DAY_MS }),
-      ]);
+      // One's clock runs two days ahead: by that clock, the ids within 90 days would be deleted too.
+      [ahead, other] = await Promise.all([startInstance({ clockOffsetMs: 2 * DAY_MS }), startInstance()]);
       await waitForLockWaits(server, { relation: "machine_event_deliveries", count: 2 });
       await lock.query("COMMIT");
     } finally {
       await lock.end();
     }
 
-    // Each deleted some, together all, without failing.
-    const [byAhead, byBehind] = await Promise.all([deletedBy(ahead), deletedBy(behind)]);
-    expect(byAhead + byBehind).toBe(10_000);
+    // Together they delete every old id, though one may find none left. Stopping waits for a run in progress.
+    await expect.poll(() => deletedSoFar(ahead) + deletedSoFar(other), { timeout: 10_000 }).toBe(10_000);
+    await Promise.all([ahead.stop(), other.stop()]);
+    expectNoFailedRun(ahead);
+    expectNoFailedRun(other);
     expect(await recorded(machine)).toEqual(Array.from({ length: 500 }, (_, n) => `kept-${n + 1}`).sort());
   });
 
@@ -174,7 +184,7 @@ describe("delivery id retention", { timeout: 30_000 }, () => {
       // And the Machine's row, so a delivery waits there having recorded its id, its row locked until it commits.
       await holder.query("SELECT 1 FROM machines WHERE id = $1 FOR NO KEY UPDATE", [machine.machine.id]);
       raw.send(storing);
-      await waitForLockWaits(server);
+      await waitForLockWaits(server, { wrote: "machine_event_deliveries" });
 
       const instance = await startInstance();
       expect(await deletedBy(instance)).toBe(1);

@@ -77,15 +77,20 @@ export class DeliveryIdCleanup implements OnApplicationBootstrap, OnModuleDestro
    * other instances at the same time delete other rows. A delivery waits for
    * it only if it resends an id this statement is deleting, and then
    * records that id again.
+   *
+   * The rows are deleted by their ctid, which cannot change while this
+   * statement holds their locks, so it reads only those rows. Matched by
+   * key instead, each batch scanned the whole table of 10,000 or 100,000
+   * ids.
    */
   private deleteBatch(): Promise<number> {
     return this.prisma.$executeRaw`
-      DELETE FROM machine_event_deliveries WHERE (machine_id, delivery_id) IN (
-        SELECT machine_id, delivery_id FROM machine_event_deliveries
+      DELETE FROM machine_event_deliveries WHERE ctid = ANY(ARRAY(
+        SELECT ctid FROM machine_event_deliveries
         WHERE received_at < now() - make_interval(days => ${DELIVERY_ID_RETENTION_DAYS}::integer)
         ORDER BY received_at
         LIMIT ${DELIVERY_ID_CLEANUP_BATCH}::integer
         FOR UPDATE SKIP LOCKED
-      )`;
+      ))`;
   }
 }

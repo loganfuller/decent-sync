@@ -8,6 +8,8 @@ export interface LockWaits {
   relation?: string;
   /** Counts only queries waiting for an advisory lock. */
   advisory?: boolean;
+  /** Counts only queries whose transaction has written to this table, such as a delivery that has recorded its id. */
+  wrote?: string;
 }
 
 /**
@@ -22,7 +24,7 @@ export interface LockWaits {
  * lock meanwhile: a connection the server releases for its silence, for one,
  * waits for its Machine's row if the test holds it.
  */
-export async function waitForLockWaits(server: TestServer, { count = 1, relation, advisory = false }: LockWaits = {}): Promise<void> {
+export async function waitForLockWaits(server: TestServer, { count = 1, relation, advisory = false, wrote }: LockWaits = {}): Promise<void> {
   const database = await server.connectDatabase();
   try {
     await vi.waitFor(
@@ -31,12 +33,15 @@ export async function waitForLockWaits(server: TestServer, { count = 1, relation
           `SELECT count(*)::int AS waiting FROM pg_stat_activity AS a
            WHERE a.datname = current_database() AND a.wait_event_type = 'Lock'
              AND (NOT $1 OR a.wait_event = 'advisory')
-             AND ($2::regclass IS NULL OR EXISTS (SELECT 1 FROM pg_locks AS l WHERE l.pid = a.pid AND NOT l.granted AND l.relation = $2::regclass))`,
-          [advisory, relation ?? null],
+             AND ($2::regclass IS NULL OR EXISTS (SELECT 1 FROM pg_locks AS l WHERE l.pid = a.pid AND NOT l.granted AND l.relation = $2::regclass))
+             AND ($3::regclass IS NULL OR EXISTS (
+               SELECT 1 FROM pg_locks AS l WHERE l.pid = a.pid AND l.granted AND l.relation = $3::regclass AND l.mode = 'RowExclusiveLock'
+             ))`,
+          [advisory, relation ?? null, wrote ?? null],
         );
         const waiting = rows[0]!.waiting;
         if (waiting < count) {
-          const what = [advisory ? "an advisory lock" : "a lock", relation ? `on ${relation}` : ""].filter(Boolean).join(" ");
+          const what = [advisory ? "an advisory lock" : "a lock", relation ? `on ${relation}` : "", wrote ? `having written to ${wrote}` : ""].filter(Boolean).join(" ");
           throw new Error(`${waiting} of ${count} queries wait for ${what}`);
         }
       },
