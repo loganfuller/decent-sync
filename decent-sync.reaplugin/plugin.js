@@ -903,7 +903,7 @@ var __decentSync = (() => {
       __publicField(this, "known", /* @__PURE__ */ new Set());
       /** Whether every id has been read for the index. */
       __publicField(this, "indexed", false);
-      /** Whole poll intervals since the last read of every id began; one begun between intervals counts from the next. */
+      /** Whole poll intervals since the last read of every id began, or failed; one begun or failed between intervals counts from the next. */
       __publicField(this, "intervalsSinceFullRead", 0);
       /** Intervals that must begin after a read of every id before the next; none before the first. */
       __publicField(this, "fullReadWait", 0);
@@ -976,6 +976,7 @@ var __decentSync = (() => {
       try {
         ids = await readSteamIds();
       } catch (error) {
+        this.intervalsSinceFullRead = -1;
         this.fullReadWait = Math.min((this.indexed ? FULL_READ_INTERVALS : 1) * 2 ** this.failures, MAX_RETRY_INTERVALS);
         this.failures++;
         if (!this.failureLogged) {

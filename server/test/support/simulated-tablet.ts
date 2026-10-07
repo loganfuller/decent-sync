@@ -21,8 +21,8 @@ import { rememberSecret, watchLog } from "./secrets.js";
 //   30 s timeout. `GET /shots` pages the Shots served at `/shots/{id}`,
 //   `GET /steams/ids` lists the Steam Records served at `/steams/{id}`,
 //   failing as Decaid's 10 MiB response limit fails it once the list passes
-//   `steamIdsLimitBytes`, or held by `holdSteamIds`, and `GET /steams/latest`
-//   answers the newest of them without measurements, or `null`. The
+//   `steamIdsLimitBytes`, and `GET /steams/latest` answers the newest of them
+//   without measurements, or `null`; `holdSteamReads` holds either. The
 //   library's lists leave out archived and hidden records unless asked for
 //   them, and send an ETag, answering 304 to it in If-None-Match. A key of
 //   plugin storage never written answers `null`. The machine's settings, like
@@ -423,6 +423,8 @@ export interface SimulatedTabletOptions {
 }
 
 type TransportEvent = Record<string, unknown> & { type: string };
+/** The reads of Steam Records a test can hold: of every id, and of the newest. */
+export type HeldSteamRead = "/steams/ids" | "/steams/latest";
 
 interface TransportRecord {
   handle: string;
@@ -478,8 +480,8 @@ export class SimulatedTablet {
    * a change to the Shots, through `serve`, shows in that page.
    */
   beforeShotPage?: (request: { limit: number; offset: number }) => void;
-  /** While set, every `GET /steams/ids` waits for it before it is answered. */
-  private steamIdsHeld?: Promise<void>;
+  /** Each read of Steam Records held, as it is requested, until its promise settles: true if it is to time out. */
+  private readonly steamReadsHeld = new Map<HeldSteamRead, Promise<boolean>>();
   /** Every frame the plugin sent, parsed, in order. */
   readonly sent: unknown[] = [];
   /** Every text frame the server sent the plugin, parsed, in order. */
@@ -594,19 +596,23 @@ export class SimulatedTablet {
   }
 
   /**
-   * Holds every answer to `GET /steams/ids` until the function returned is
-   * called, as Decaid is slow to answer a long list. Each request is still
-   * made, and listed in `requests`, at once.
+   * Holds every answer to `GET /steams/ids` or `GET /steams/latest` until the
+   * function returned is called, as Decaid is slow to answer a long list.
+   * Each request is still made, and listed in `requests`, at once, and
+   * answered, when released, from what the tablet serves then. Released with
+   * `"timedOut"`, the held requests fail as Decaid's fetch fails one after
+   * 30 s. Holding a route again holds the requests made after, while those
+   * held before wait for their own release.
    */
-  holdSteamIds(): () => void {
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
+  holdSteamReads(route: HeldSteamRead): (outcome?: "timedOut") => void {
+    let release!: (timedOut: boolean) => void;
+    const held = new Promise<boolean>((resolve) => {
       release = resolve;
     });
-    this.steamIdsHeld = held;
-    return () => {
-      if (this.steamIdsHeld === held) this.steamIdsHeld = undefined;
-      release();
+    this.steamReadsHeld.set(route, held);
+    return (outcome) => {
+      if (this.steamReadsHeld.get(route) === held) this.steamReadsHeld.delete(route);
+      release(outcome === "timedOut");
     };
   }
 
@@ -726,8 +732,8 @@ export class SimulatedTablet {
       const items = records.slice(offset, offset + Math.min(100, Math.max(1, limit))).map(({ measurements, ...summary }) => summary);
       return response(200, JSON.stringify({ items, total: records.length, limit, offset }));
     }
+    if ((route === "/steams/ids" || route === "/steams/latest") && (await this.steamReadsHeld.get(route))) throw new Error("Fetch timed out");
     if (route === "/steams/ids") {
-      await this.steamIdsHeld;
       // Every id at once, unpaginated, in the order of Decaid's primary key index.
       const ids = Object.keys(this.api).filter((path) => path.startsWith("/steams/")).map((path) => decodeURIComponent(path.slice("/steams/".length)));
       const body = JSON.stringify(ids.sort());

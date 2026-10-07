@@ -4,7 +4,7 @@ import { AdminApi, type CreatedMachine, type LocationView, type MachineView } fr
 import { waitForLockWaits } from "./support/lock-waits.js";
 import { derivedShot, shotFixture, withShots } from "./support/shot-fixtures.js";
 import { derivedSteam, longSteam, milkProbeSteamFixture, steamFixture, withSteams } from "./support/steam-fixtures.js";
-import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor, type HeldSteamRead } from "./support/simulated-tablet.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
 
 // Seam 1: Steam Record capture through the built plugin on simulated tablets,
@@ -116,6 +116,38 @@ describe("Steam Record capture", () => {
     expect(found, `the tablet read Steam Record ${id}`).toBeGreaterThanOrEqual(0);
     return reads.slice(0, found + 1);
   }
+  /**
+   * Resolves once the tablet has read the Steam Record with this id, found by
+   * the next read of `route` it made: that read is held until `appear` has
+   * run, and those after it until the tablet has read the record, so however
+   * long the outbox takes to read it, behind deliveries awaiting
+   * acknowledgment, no other read of `route` was answered meanwhile. Reads of
+   * `alsoHeld` are held throughout.
+   */
+  async function foundByTheNextRead(
+    tablet: SimulatedTablet,
+    route: HeldSteamRead,
+    id: string,
+    { appear, alsoHeld }: { appear?: () => void; alsoHeld?: HeldSteamRead } = {},
+  ): Promise<void> {
+    const releaseAlso = alsoHeld ? tablet.holdSteamReads(alsoHeld) : () => {};
+    const releaseNext = tablet.holdSteamReads(route);
+    try {
+      const made = tablet.requests.filter((request) => request === route).length;
+      await expect.poll(() => tablet.requests.filter((request) => request === route).length, { timeout: 10_000 }).toBeGreaterThan(made);
+      appear?.();
+      const releaseLater = tablet.holdSteamReads(route);
+      try {
+        releaseNext();
+        await expect.poll(() => tablet.requests.includes(`/steams/${encodeURIComponent(id)}`), { timeout: 10_000 }).toBe(true);
+      } finally {
+        releaseLater();
+      }
+    } finally {
+      releaseNext();
+      releaseAlso();
+    }
+  }
   /** The deliveries the server has acknowledged to the tablet so far. */
   function acknowledged(tablet: SimulatedTablet): Set<string> {
     return new Set((tablet.received as Sent[]).flatMap((message) => (message.type === "ack" ? [String(message.id)] : [])));
@@ -225,11 +257,12 @@ describe("Steam Record capture", () => {
     await expect.poll(() => idReads(tablet)).toBe(1);
 
     const record = milkProbeSteamFixture();
-    const from = tablet.requests.length;
-    tablet.serve(tabletApi(machine, [record]));
+    // Found by the next poll's read of the newest Steam Record, with no read of the ids, whose list grows with history.
+    await foundByTheNextRead(tablet, "/steams/latest", String(record.id), {
+      appear: () => tablet.serve(tabletApi(machine, [record])),
+      alsoHeld: "/steams/ids",
+    });
     await waitSteam(String(record.id));
-    // Found by the first poll after it appeared, which read the newest Steam Record and no ids, whose list grows with history.
-    expect(steamReadsUntil(tablet, from, String(record.id))).toEqual(["/steams/latest", `/steams/${encodeURIComponent(String(record.id))}`]);
 
     expect(await detail(String(record.id))).toEqual({
       id: record.id,
@@ -269,24 +302,29 @@ describe("Steam Record capture", () => {
 
   it("sends both of two Steam Records recorded in one poll interval: the newest by the next poll, the other by the next read of every id", async () => {
     const machine = await api.createMachine("Two steams in an interval");
-    // Polls every 30 s of the tablet's time, 0.6 s of real time.
-    const tablet = load(machine, [], { settings: { ...settingsFor(machine), PollSeconds: 30 } });
+    // Polls every 10 s of the tablet's time, 0.2 s of real time.
+    const tablet = load(machine, [], { settings: { ...settingsFor(machine), PollSeconds: 10 } });
     await tablet.waitForLog(/^Connected to /);
     await expect.poll(() => idReads(tablet)).toBe(1);
     const earlier = derivedSteam("interval-earlier", { timestamp: "2026-10-05T09:00:00.000001" });
     const newest = derivedSteam("interval-newest", { timestamp: "2026-10-05T09:01:00.000001" });
-    const from = tablet.requests.length;
-    tablet.serve(tabletApi(machine, [earlier, newest]));
 
+    // The next poll's read of the newest finds that one, with no read of every id answered meanwhile.
+    await foundByTheNextRead(tablet, "/steams/latest", "interval-newest", {
+      appear: () => tablet.serve(tabletApi(machine, [earlier, newest])),
+      alsoHeld: "/steams/ids",
+    });
+    // The next read of every id finds the other.
+    const from = tablet.requests.length;
+    await foundByTheNextRead(tablet, "/steams/ids", "interval-earlier");
     await waitSteam("interval-newest");
-    await waitSteam("interval-earlier", 20_000);
-    // The first poll after they appeared read the newest, and no ids.
-    const reads = steamReadsUntil(tablet, from, "interval-earlier");
-    expect(reads.slice(0, 2)).toEqual(["/steams/latest", "/steams/interval-newest"]);
-    // Every id was read again ten poll intervals after the index's read, at least nine of them after
-    // the two appeared, and that read found the other.
-    expect(reads.filter((route) => route === "/steams/ids")).toEqual(["/steams/ids"]);
-    expect(reads.slice(0, reads.indexOf("/steams/ids")).filter((route) => route === "/steams/latest").length).toBeGreaterThanOrEqual(9);
+    await waitSteam("interval-earlier");
+    // Every id is read once every ten poll intervals: at least nine reads of the newest come between
+    // that read of every id and the next.
+    await expect.poll(() => tablet.requests.slice(from).filter((route) => route === "/steams/ids").length, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+    const reads = tablet.requests.slice(from);
+    const found = reads.indexOf("/steams/ids");
+    expect(reads.slice(found, reads.indexOf("/steams/ids", found + 1)).filter((route) => route === "/steams/latest").length).toBeGreaterThanOrEqual(9);
   }, 30_000);
 
   it("reads every id on schedule though the connection drops more often than it polls", async () => {
@@ -318,10 +356,11 @@ describe("Steam Record capture", () => {
     // Polls every 5 s of the tablet's time, 0.1 s of real time.
     const tablet = load(machine, [before], { settings: { ...settingsFor(machine), PollSeconds: 5 } });
     await waitSteam("before-a-slow-read");
-    const release = tablet.holdSteamIds();
+    const read = idReads(tablet);
+    const release = tablet.holdSteamReads("/steams/ids");
     try {
-      // The next read of every id, ten poll intervals after the index's, goes unanswered.
-      await expect.poll(() => idReads(tablet), { timeout: 10_000 }).toBe(2);
+      // The next read of every id, up to ten poll intervals on, goes unanswered.
+      await expect.poll(() => idReads(tablet), { timeout: 10_000 }).toBeGreaterThan(read);
       const from = tablet.requests.length;
       tablet.serve(tabletApi(machine, [before, derivedSteam("during-a-slow-read")]));
       await waitSteam("during-a-slow-read");
@@ -330,6 +369,33 @@ describe("Steam Record capture", () => {
       release();
     }
   }, 20_000);
+
+  it("waits as long to read every id again after a read that failed slowly as after one refused at once", async () => {
+    const machine = await api.createMachine("Steam after a slow failure");
+    // Polls every 5 s of the tablet's time, 0.1 s of real time.
+    const tablet = load(machine, [derivedSteam("before-a-slow-failure")], { settings: { ...settingsFor(machine), PollSeconds: 5 } });
+    await waitSteam("before-a-slow-failure");
+    const read = idReads(tablet);
+    const release = tablet.holdSteamReads("/steams/ids");
+    try {
+      // The next read of every id, up to ten poll intervals on, goes unanswered for ten more, then
+      // times out, as Decaid's fetch does after 30 s.
+      await expect.poll(() => idReads(tablet), { timeout: 10_000 }).toBeGreaterThan(read);
+      const held = tablet.requests.length;
+      await expect.poll(() => tablet.requests.slice(held).filter((route) => route === "/steams/latest").length, { timeout: 10_000 }).toBeGreaterThanOrEqual(10);
+      const failed = tablet.requests.length;
+      release("timedOut");
+      // Read again ten whole intervals after it failed, not at once, though ten had passed since it began.
+      await expect.poll(() => tablet.requests.slice(failed).includes("/steams/ids"), { timeout: 10_000 }).toBe(true);
+      const reads = tablet.requests.slice(failed);
+      expect(reads.slice(0, reads.indexOf("/steams/ids")).filter((route) => route === "/steams/latest").length).toBeGreaterThanOrEqual(9);
+      expect(tablet.logs.filter((line) => IDS_UNREADABLE.test(line))).toEqual([
+        "Could not read the Steam Record ids: Fetch timed out. New Steam Records are still sent; reading every id is tried again less and less often until it succeeds.",
+      ]);
+    } finally {
+      release();
+    }
+  }, 30_000);
 
   it("reads no Steam Records while the server is unreachable, and sends those recorded meanwhile once it is reachable again", async () => {
     const machine = await api.createMachine("Steam while unreachable");
@@ -405,15 +471,16 @@ describe("Steam Record capture", () => {
     const tablet = load(machine, [older, newest], { settings: { ...settingsFor(machine), PollSeconds: 5 }, steamIdsLimitBytes: 16 });
     // With no index, the newest the tablet holds is sent as new.
     await waitSteam("past-limit-newest");
-    const from = tablet.requests.length;
-    tablet.serve(tabletApi(machine, [older, newest, derivedSteam("past-limit-new", { timestamp: "2026-10-05T08:00:00.000001" })]));
+    // Found by the next poll's read of the newest.
+    await foundByTheNextRead(tablet, "/steams/latest", "past-limit-new", {
+      appear: () => tablet.serve(tabletApi(machine, [older, newest, derivedSteam("past-limit-new", { timestamp: "2026-10-05T08:00:00.000001" })])),
+      alsoHeld: "/steams/ids",
+    });
     await waitSteam("past-limit-new");
-    // Found by the first poll after it appeared.
-    expect(steamReadsUntil(tablet, from, "past-limit-new").filter((route) => route === "/steams/latest")).toEqual(["/steams/latest"]);
 
-    // Read on the welcome, then a whole poll interval later, and 2, 4, 8 and 16 intervals after each
-    // read that failed: by the welcome's poll and 31 more, at most six times, where retrying every
-    // 5 s would have read them 32 times.
+    // Read on the welcome, then 1, 2, 4, 8 and 16 whole poll intervals after each failure: by the
+    // welcome's poll and 31 more, at most six times, where retrying every 5 s would have read them
+    // 32 times.
     await expect.poll(() => latestReads(tablet), { timeout: 20_000 }).toBeGreaterThanOrEqual(32);
     expect(idReads(tablet)).toBeGreaterThan(1);
     expect(idReads(tablet)).toBeLessThanOrEqual(6);

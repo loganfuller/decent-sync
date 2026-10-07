@@ -33,7 +33,7 @@ export class SteamCapture {
   private readonly known = new Set<string>();
   /** Whether every id has been read for the index. */
   private indexed = false;
-  /** Whole poll intervals since the last read of every id began; one begun between intervals counts from the next. */
+  /** Whole poll intervals since the last read of every id began, or failed; one begun or failed between intervals counts from the next. */
   private intervalsSinceFullRead = 0;
   /** Intervals that must begin after a read of every id before the next; none before the first. */
   private fullReadWait = 0;
@@ -121,7 +121,9 @@ export class SteamCapture {
     try {
       ids = await readSteamIds();
     } catch (error) {
-      // Once the index has been read, a retry waits at least as long as the next read would have.
+      // Once the index has been read, a retry waits at least as long as the next read would have. It waits from
+      // the failure, so a read slow to fail, as one Decaid times out after 30 s, does not use up the wait.
+      this.intervalsSinceFullRead = -1;
       this.fullReadWait = Math.min((this.indexed ? FULL_READ_INTERVALS : 1) * 2 ** this.failures, MAX_RETRY_INTERVALS);
       this.failures++;
       if (!this.failureLogged) {

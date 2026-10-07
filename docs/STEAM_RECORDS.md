@@ -85,8 +85,10 @@ reloaded.
 Past about 268,900 Steam Records (39 bytes per UUID), `GET /steams/ids` is
 larger than Decaid's 10 MiB plugin fetch limit, and the fetch fails. The
 plugin logs that once per load, with Decaid's reason. It tries again after 1
-poll interval, then 2, 4 and so on up to 64, or from 10 once the index has
-been sent, rather than every 5 s. Each try makes Decaid buffer up to 10 MiB.
+whole poll interval, then 2, 4 and so on up to 64, or from 10 once the index
+has been sent, rather than every 5 s. The intervals count from the failure,
+so a read Decaid times out after 30 s waits as long as one refused at once.
+Each try makes Decaid buffer up to 10 MiB.
 Live capture through `/steams/latest` continues. History the server lacks is
 not backfilled until every id can be read, which needs Decaid support (the
 upstream ask in the owner's planning notes). The plugin never requests
@@ -191,11 +193,13 @@ combined, across Locations in different time zones and both of New York's
 `server/test/steam-records.test.ts` verifies the built plugin through Seam 1 on
 two server instances sharing PostgreSQL: history backfill in pages, indexed
 once and resumed after a disconnect partway through the index; live capture
-by the next poll, which reads no ids; two records recorded in one interval;
-no reads while the server is unreachable or after a final close, and those
-recorded meanwhile sent after reconnecting; no index sent again on a
-reconnect; live capture past the fetch limit, which is logged once and
-retried with backoff; local times on both sides of a
+by the next poll's read of the newest, while reads of every id are held; two
+records recorded in one interval; reads of every id on schedule through
+reconnects more frequent than the poll interval, and none holding up the
+newest's; no reads while the server is unreachable or after a final close,
+and those recorded meanwhile sent after reconnecting; no index sent again on
+a reconnect; live capture past the fetch limit, which is logged once and
+retried with backoff, counted from a slow failure; local times on both sides of a
 daylight-saving change, Location credit and its corrections (including one
 stored during a change on another instance), repeated and concurrent
 deliveries, deletion on the tablet, chunked records, mismatched connections,
