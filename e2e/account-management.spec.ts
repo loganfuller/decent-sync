@@ -1,17 +1,22 @@
 import { expect as baseExpect, type Browser, type Page, test } from "@playwright/test";
+import { recordAlerts } from "./support/alerts.js";
 import { useFreshServer } from "./support/fresh-server.js";
 
 // Managing accounts: an Admin changes a Staff member's role and Locations,
 // which their open session follows; resets their password with a one-time
 // link they open themselves; deactivates and reactivates their account; and
 // revokes an unused invite. The last active Admin cannot deactivate
-// themselves.
+// themselves. A session the Admin ends sends its open page to sign-in, and
+// back to that page after signing in.
 const server = useFreshServer();
+// Machine pages poll the server every few seconds.
 const expect = baseExpect.configure({ timeout: 15_000 });
 
 const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const sam = { name: "Sam Staff", email: "sam@example.com", password: "staff password 1" };
 const newPassword = "Sam's new password";
+/** A Machine at Uptown, whose page Sam keeps open, once the first test has created it. */
+let uptown1: { id: string };
 
 test.beforeEach(async ({ page }) => {
   // The first test sets the server up; later ones sign in. Both sign the page's context in.
@@ -23,6 +28,8 @@ test.beforeEach(async ({ page }) => {
 test("an Admin changes a Staff member's Locations and role, which their open session follows", async ({ page, browser }) => {
   const uptown = await createLocation(page, "Uptown", "America/Chicago");
   await createLocation(page, "Belmont", "America/Chicago");
+  await createLocation(page, "Lab", "America/Denver");
+  uptown1 = await createMachine(page, "Uptown 1", uptown.id);
   const link = await invite(page, { email: sam.email, role: "staff", locationIds: [uptown.id] });
 
   // Sam accepts in their own browser, and keeps it open.
@@ -38,42 +45,84 @@ test("an Admin changes a Staff member's Locations and role, which their open ses
   await expect(row.getByRole("cell")).toHaveText([sam.name, sam.email, "Staff at Uptown", "Active", /Edit role/]);
   await expect(accountRow(page, admin.email).getByRole("cell").first()).toHaveText(`${admin.name}You`);
 
-  // Sam works at Belmont too.
+  // Sam works at Belmont and the Lab too, which an open page shows once it loads again.
   await row.getByRole("button", { name: `Edit ${sam.name}'s role` }).click();
   const dialog = page.getByRole("dialog", { name: `Role of ${sam.name}` });
   await expect(dialog.getByRole("checkbox", { name: "Uptown" })).toBeChecked();
   await dialog.getByRole("checkbox", { name: "Belmont" }).check();
+  await dialog.getByRole("checkbox", { name: "Lab" }).check();
   await dialog.getByRole("button", { name: "Save" }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(row.getByRole("cell").nth(2)).toHaveText("Staff at Belmont and Uptown");
+  await expect(row.getByRole("cell").nth(2)).toHaveText("Staff at Belmont, Lab, and Uptown");
 
   await samsPage.reload();
-  await expect(worksAt).toHaveText([/^Belmont/, /^Uptown/]);
+  await expect(worksAt).toHaveText([/^Belmont/, /^Lab/, /^Uptown/]);
 
-  // Then an Admin, and Staff at Uptown again.
+  // Sam is about to move Uptown 1 to Belmont when Ada takes Belmont away.
+  await samsPage.goto(`/machines/${uptown1.id}`);
+  const move = samsPage.getByRole("region", { name: "Location" }).getByRole("form", { name: "Move" });
+  await move.getByRole("combobox", { name: "Move to" }).click();
+  await expect(samsPage.getByRole("option")).toHaveText(["Belmont", "Lab"]);
+  await samsPage.getByRole("option", { name: "Belmont" }).click();
+
+  await row.getByRole("button", { name: `Edit ${sam.name}'s role` }).click();
+  await dialog.getByRole("checkbox", { name: "Belmont" }).uncheck();
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(row.getByRole("cell").nth(2)).toHaveText("Staff at Lab and Uptown");
+
+  // The move is refused, and the choices follow without a reload.
+  await move.getByRole("button", { name: "Move" }).click();
+  await expect(move.getByRole("alert")).toHaveText("You can move a Machine only to a Location you work at");
+  await expect(move.getByRole("combobox", { name: "Move to" })).toHaveText("Choose a Location");
+  await move.getByRole("combobox", { name: "Move to" }).click();
+  await expect(samsPage.getByRole("option")).toHaveText(["Lab"]);
+  await samsPage.keyboard.press("Escape");
+
+  // Then an Admin, with the Admin's controls open in two tabs.
   await row.getByRole("button", { name: `Edit ${sam.name}'s role` }).click();
   await dialog.getByRole("combobox", { name: "Role" }).click();
   await page.getByRole("option", { name: "Admin" }).click();
   await expect(dialog.getByRole("checkbox")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Save" }).click();
   await expect(row.getByRole("cell").nth(2)).toHaveText("Admin");
-  await samsPage.goto("/");
-  await expect(samsPage.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Accounts" })).toBeVisible();
+  await samsPage.goto("/locations");
+  const samsNav = samsPage.getByRole("navigation", { name: "Main" });
+  await expect(samsNav.getByRole("link", { name: "Accounts" })).toBeVisible();
+  await expect(samsPage.getByRole("heading", { name: "New Location" })).toBeVisible();
+  const samsOtherTab = await samsPage.context().newPage();
+  await samsOtherTab.goto("/machines");
+  const newMachine = samsOtherTab.getByRole("form", { name: "New Machine" });
+  await expect(newMachine).toBeVisible();
 
+  // And Staff at Uptown again: each tab drops the Admin's controls at its next request that only an Admin may make.
   await row.getByRole("button", { name: `Edit ${sam.name}'s role` }).click();
   await dialog.getByRole("combobox", { name: "Role" }).click();
   await page.getByRole("option", { name: "Staff" }).click();
   await dialog.getByRole("checkbox", { name: "Uptown" }).check();
   await dialog.getByRole("button", { name: "Save" }).click();
   await expect(row.getByRole("cell").nth(2)).toHaveText("Staff at Uptown");
-  await samsPage.reload();
-  await expect(samsPage.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Accounts" })).toHaveCount(0);
+
+  await newMachine.getByLabel("Name").fill("Uptown 2");
+  await newMachine.getByRole("button", { name: "Create Machine" }).click();
+  await expect(samsOtherTab.getByRole("heading", { name: "New Machine" })).toHaveCount(0);
+  await expect(samsOtherTab.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Accounts" })).toHaveCount(0);
+
+  await samsNav.getByRole("link", { name: "Accounts" }).click();
+  await expect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toBeVisible();
+  await expect(samsNav.getByRole("link", { name: "Accounts" })).toHaveCount(0);
+  await samsNav.getByRole("link", { name: "Locations" }).click();
+  await expect(samsPage.getByRole("heading", { name: "Locations", level: 1 })).toBeVisible();
+  await expect(samsPage.getByRole("heading", { name: "New Location" })).toHaveCount(0);
   await samsPage.context().close();
 });
 
 test("an Admin resets a Staff member's password with a one-time link that ends their other sessions", async ({ page, browser }) => {
+  // Sam has Uptown 1's page open on their laptop.
   const samsLaptop = await signedOutPage(browser);
   baseExpect((await samsLaptop.request.post("/api/session", { data: sam })).status()).toBe(200);
+  await samsLaptop.goto(`/machines/${uptown1.id}`);
+  await expect(samsLaptop.getByRole("heading", { name: "Uptown 1", level: 1 })).toBeVisible();
+  const laptopAlerts = await recordAlerts(samsLaptop);
 
   await page.goto("/accounts");
   await accountRow(page, sam.email).getByRole("button", { name: `Reset ${sam.name}'s password` }).click();
@@ -93,13 +142,13 @@ test("an Admin resets a Staff member's password with a one-time link that ends t
   await samsPhone.getByRole("button", { name: "Set password" }).click();
   await expect(samsPhone.getByRole("heading", { name: `Welcome, ${sam.name}` })).toBeVisible();
 
-  // The laptop's session ended.
-  await samsLaptop.goto("/");
+  // The laptop's session ended, so its page goes to sign-in at its next poll, and back after Sam signs in.
   await expect(samsLaptop).toHaveURL(/\/sign-in$/);
+  baseExpect(await laptopAlerts()).toEqual([]);
   await signIn(samsLaptop, sam);
   await expect(samsLaptop.getByRole("alert")).toHaveText("The email or password is incorrect");
   await signIn(samsLaptop, { email: sam.email, password: newPassword });
-  await expect(samsLaptop.getByRole("heading", { name: `Welcome, ${sam.name}` })).toBeVisible();
+  await expect(samsLaptop.getByRole("heading", { name: "Uptown 1", level: 1 })).toBeVisible();
 
   // The link worked once.
   const later = await signedOutPage(browser);
@@ -110,10 +159,13 @@ test("an Admin resets a Staff member's password with a one-time link that ends t
 });
 
 test("an Admin deactivates an account, which signs it out and refuses its sign-in, then reactivates it", async ({ page, browser }) => {
+  // Sam opens Uptown 1's page, signing in on the way.
   const samsPage = await signedOutPage(browser);
-  await samsPage.goto("/");
+  await samsPage.goto(`/machines/${uptown1.id}`);
+  await expect(samsPage).toHaveURL(/\/sign-in$/);
   await signIn(samsPage, { email: sam.email, password: newPassword });
-  await expect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toBeVisible();
+  await expect(samsPage.getByRole("heading", { name: "Uptown 1", level: 1 })).toBeVisible();
+  const alerts = await recordAlerts(samsPage);
 
   await page.goto("/accounts");
   const row = accountRow(page, sam.email);
@@ -123,15 +175,16 @@ test("an Admin deactivates an account, which signs it out and refuses its sign-i
   await expect(row.getByRole("cell").nth(3)).toContainText("Deactivated");
   await expect(row.getByRole("button", { name: `Reset ${sam.name}'s password` })).toHaveCount(0);
 
-  await samsPage.reload();
+  // Sam's open page goes to sign-in at its next poll, where signing in is refused.
   await expect(samsPage).toHaveURL(/\/sign-in$/);
+  baseExpect(await alerts()).toEqual([]);
   await signIn(samsPage, { email: sam.email, password: newPassword });
   await expect(samsPage.getByRole("alert")).toHaveText("This account has been deactivated. Ask an Admin to reactivate it");
 
   await row.getByRole("button", { name: `Reactivate ${sam.name}` }).click();
   await expect(row.getByRole("cell").nth(3)).toHaveText("Active");
   await signIn(samsPage, { email: sam.email, password: newPassword });
-  await expect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toBeVisible();
+  await expect(samsPage.getByRole("heading", { name: "Uptown 1", level: 1 })).toBeVisible();
   await samsPage.context().close();
 });
 
@@ -175,6 +228,12 @@ async function createLocation(page: Page, name: string, timeZone: string): Promi
   const response = await page.request.post("/api/locations", { data: { name, timeZone } });
   baseExpect(response.status()).toBe(201);
   return ((await response.json()) as { location: { id: string } }).location;
+}
+
+async function createMachine(page: Page, name: string, locationId: string): Promise<{ id: string }> {
+  const response = await page.request.post("/api/machines", { data: { name, locationId } });
+  baseExpect(response.status()).toBe(201);
+  return ((await response.json()) as { machine: { id: string } }).machine;
 }
 
 /** Creates an invite through the REST API and returns its link. */

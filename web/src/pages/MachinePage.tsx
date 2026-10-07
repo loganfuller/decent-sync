@@ -469,10 +469,12 @@ function MoveForm({ machine, isAdmin, onMoved }: { machine: Machine; isAdmin: bo
   const { locations: all, error: locationsError } = useLocations();
   const worksAt = useStaffLocationIds();
   const locations = isAdmin ? all : all?.filter((location) => worksAt.has(location.id));
-  const [locationId, setLocationId] = useState("");
+  const [chosenId, setChosenId] = useState("");
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
   const choices = locations?.filter((location) => location.id !== machine.location?.id) ?? [];
+  // A choice goes when a Staff member stops working there, or the Machine moves there meanwhile.
+  const locationId = choices.some((location) => location.id === chosenId) ? chosenId : "";
   const verb = machine.location ? "Move" : "Assign";
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -481,7 +483,7 @@ function MoveForm({ machine, isAdmin, onMoved }: { machine: Machine; isAdmin: bo
     setError(undefined);
     try {
       await api("POST", `/machines/${machine.id}/location-history`, { locationId });
-      setLocationId("");
+      setChosenId("");
       await onMoved();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Something went wrong");
@@ -516,7 +518,7 @@ function MoveForm({ machine, isAdmin, onMoved }: { machine: Machine; isAdmin: bo
       <div className="grid gap-2">
         <Label htmlFor={`${id}-location`}>{verb} to</Label>
         <div className="flex flex-wrap gap-2">
-          <Select value={locationId} onValueChange={setLocationId}>
+          <Select value={locationId} onValueChange={setChosenId}>
             <SelectTrigger id={`${id}-location`} className="w-64">
               <SelectValue placeholder="Choose a Location" />
             </SelectTrigger>

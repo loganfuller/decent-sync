@@ -12,14 +12,46 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
+// Requests are numbered in the order they are sent.
+let requestsSent = 0;
+const refusalListeners = new Set<(request: number) => Promise<void> | undefined>();
+
+/**
+ * Calls `listener` whenever the server refuses a request with 401 or 403,
+ * since the session may have ended or its account's role or Locations
+ * changed. It gets the request's number, and the request's caller sees the
+ * refusal only once the promise it returns settles. Returns a function that
+ * removes it.
+ */
+export function onRefusal(listener: (request: number) => Promise<void> | undefined): () => void {
+  refusalListeners.add(listener);
+  return () => refusalListeners.delete(listener);
+}
+
+/** How many requests have been sent: every request numbered up to this one was sent before now. */
+export function lastRequestSent(): number {
+  return requestsSent;
+}
+
+/**
+ * Sends a request to the REST API. Its refusals with 401 or 403 go to the
+ * `onRefusal` listeners first, unless `reportRefusal` is false for a request
+ * whose refusal answers it alone, such as signing in with a wrong password.
+ */
+export async function api<T>(method: string, path: string, body?: unknown, { reportRefusal = true } = {}): Promise<T> {
+  const request = ++requestsSent;
   const response = await fetch(`/api${path}`, {
     method,
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data: unknown = response.status === 204 ? undefined : await response.json().catch(() => undefined);
-  if (!response.ok) throw new ApiError(response.status, errorMessage(data) ?? response.statusText);
+  if (!response.ok) {
+    if (reportRefusal && (response.status === 401 || response.status === 403)) {
+      await Promise.allSettled([...refusalListeners].map((listener) => listener(request)));
+    }
+    throw new ApiError(response.status, errorMessage(data) ?? response.statusText);
+  }
   return data as T;
 }
 
