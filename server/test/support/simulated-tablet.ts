@@ -18,12 +18,15 @@ import { rememberSecret, watchLog } from "./secrets.js";
 //   synchronously without awaiting it. Then the plugin is sent the current
 //   Workflow in a `workflowUpdated` event, as Decaid sends it after every load.
 // - `fetch` answers Decaid's local API from fixtures, failing after Decaid's
-//   30 s timeout. `GET /shots` pages the Shots served at `/shots/{id}`, and
-//   `GET /steams/ids` lists the Steam Records served at `/steams/{id}`. The
-//   library's lists leave out archived and hidden records unless asked for
-//   them, and send an ETag, answering 304 to it in If-None-Match. A key of
-//   plugin storage never written answers `null`. The machine's settings, like
-//   its info, fail while no machine is connected.
+//   30 s timeout. `GET /shots` pages the Shots served at `/shots/{id}`,
+//   `GET /steams/ids` lists the Steam Records served at `/steams/{id}`,
+//   failing as Decaid's 10 MiB response limit fails it once the list passes
+//   `steamIdsLimitBytes`, and `GET /steams/latest` answers the newest of them
+//   without measurements, or `null`. The library's lists leave out archived
+//   and hidden records unless asked for them, and send an ETag, answering 304
+//   to it in If-None-Match. A key of plugin storage never written answers
+//   `null`. The machine's settings, like its info, fail while no machine is
+//   connected.
 // - The plugin's local time, as JavaScript reads it, is this process's time
 //   zone: set `process.env.TZ` to put the tablet in another one.
 // - `host.transport` opens real WebSockets with only a URL and subprotocols
@@ -71,6 +74,8 @@ const fixturesDir = path.join(repoDir, "server/test/fixtures/decaid");
 
 const API_ORIGIN = "http://localhost:8080";
 const FETCH_TIMEOUT_MS = 30_000;
+/** The largest response Decaid's plugin fetch answers (maxFetchResponseBytes in plugin_manager.dart). */
+const MAX_FETCH_RESPONSE_BYTES = 10 * 1024 * 1024;
 const MAX_LIVE_TRANSPORTS = 8;
 const MAX_PENDING_OUTBOUND_BYTES = 1 << 20;
 const MAX_QUEUED_INBOUND_BYTES = 1 << 20;
@@ -390,6 +395,12 @@ export interface SimulatedTabletOptions {
   /** How long Decaid's API takes to answer each request; from 30 s on, the request times out. Defaults to 0. */
   apiDelayMs?: number;
   /**
+   * The largest `GET /steams/ids` response the plugin's fetch answers: a
+   * longer list fails the fetch, as Decaid's 10 MiB limit, the default, fails
+   * it on a tablet holding about 268,900 Steam Records.
+   */
+  steamIdsLimitBytes?: number;
+  /**
    * How fast the tablet's network takes queued frames, in bytes per second
    * of real time, whatever `timeScale` is. Unlimited by default.
    */
@@ -479,6 +490,7 @@ export class SimulatedTablet {
   private readonly pluginId: string;
   private readonly timeScale: number;
   private readonly apiDelayMs: number;
+  private readonly steamIdsLimitBytes: number;
   private readonly uploadBytesPerSecond: number | undefined;
   private readonly stallUpload: ((frame: unknown) => boolean) | undefined;
   private readonly upgradeAtTabletPace: boolean;
@@ -507,6 +519,7 @@ export class SimulatedTablet {
     this.machineConnected = options.machineConnected ?? true;
     this.timeScale = options.timeScale ?? 1;
     this.apiDelayMs = options.apiDelayMs ?? 0;
+    this.steamIdsLimitBytes = options.steamIdsLimitBytes ?? MAX_FETCH_RESPONSE_BYTES;
     this.uploadBytesPerSecond = options.uploadBytesPerSecond;
     this.stallUpload = options.stallUpload;
     this.upgradeAtTabletPace = options.upgradeAtTabletPace ?? false;
@@ -697,7 +710,18 @@ export class SimulatedTablet {
     if (route === "/steams/ids") {
       // Every id at once, unpaginated, in the order of Decaid's primary key index.
       const ids = Object.keys(this.api).filter((path) => path.startsWith("/steams/")).map((path) => decodeURIComponent(path.slice("/steams/".length)));
-      return response(200, JSON.stringify(ids.sort()));
+      const body = JSON.stringify(ids.sort());
+      // Decaid's fetch reads a response only up to its limit, then fails it with this error.
+      if (Buffer.byteLength(body) > this.steamIdsLimitBytes) throw new Error(`Bad state: response exceeds maxFetchResponseBytes (${this.steamIdsLimitBytes})`);
+      return response(200, body);
+    }
+    if (route === "/steams/latest") {
+      // The newest by its time, without measurements (getLatestSteamMeta in steam_dao.dart), compared as
+      // written, which orders Decaid's local times; `null` while there are none.
+      const steams = Object.entries(this.api).filter(([path]) => path.startsWith("/steams/")).map(([, steam]) => steam as Record<string, unknown>);
+      steams.sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)) || String(a.id).localeCompare(String(b.id)));
+      const { measurements, ...latest } = steams[0] ?? {};
+      return response(200, JSON.stringify(steams.length === 0 ? null : latest));
     }
     // The plugin's own storage, as Decaid's store API reads it.
     const [, store, namespace, key, ...rest] = route.split("/");

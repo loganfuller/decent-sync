@@ -61,8 +61,9 @@ For upstream paths and checkout conventions, see `AGENTS.md` External sources. V
 Shot storage and reconciliation are described in `docs/SHOTS.md`, and Steam
 Records in `docs/STEAM_RECORDS.md`. The built plugin keeps one in-memory
 `Outbox` beside `SyncConnection`: `ShotCapture` captures shot events and scans
-bounded summary pages once per load, `SteamCapture` polls Steam Record ids and
-indexes them on every welcome, `MachineEvents` sends Workflow changes and
+bounded summary pages once per load, `SteamCapture` polls the newest Steam
+Record while connected, reads every id at most every 10 intervals and indexes
+them once per load, `MachineEvents` sends Workflow changes and
 machine state transitions, `CollectionCapture` polls the library, settings and
 paired devices and sends each whole on every welcome, and the outbox replays
 what is unacknowledged on reconnect. `ShotsService` stores early edits durably, compares versions under

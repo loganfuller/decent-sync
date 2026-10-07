@@ -42,16 +42,50 @@ Records, in the owner's planning notes, would remove the dependence.
 
 ## Plugin
 
-Decaid has no plugin event for Steam Records. Every poll interval the plugin
-reads `GET /steams/ids`, which lists every id in one response, and requests
-the ids it had not seen before from its outbox, ahead of backfill. Its first
-read only notes the ids. It never requests `GET /steams`, which returns every
-record, workflow and profile included, in one response that outgrows Decaid's
-10 MiB fetch limit at cafe volume.
+Decaid has no plugin event for Steam Records, so the plugin polls: every poll
+interval while a connection is welcomed, and on each `welcome`, which starts
+the intervals again. A poll reads `GET /steams/latest` (Decaid v0.8.7 and
+later): the newest Steam Record by its time, without measurements, or `null`
+while there are none. The plugin reads only its `id`, so a poll's work does
+not grow with history. If the plugin has not seen that id in this load, it
+requests the record from its outbox, ahead of backfill. While no connection
+is welcomed, and after a final close, the plugin reads no Steam Records; the
+polls from the next `welcome` find those recorded meanwhile.
 
-On every `welcome` it reads the ids again and sends them as `steamIndex` pages
-of at most 100. The server answers each page with the ids it does not store,
-and the plugin backfills them one at a time. Steam Records and Shots share the
+It reads `GET /steams/ids`, which lists every id in one response, only:
+
+- To build the index, once per load. The first `welcome` reads every id and
+  sends them as `steamIndex` pages of at most 100. The server answers each
+  page with the ids it does not store, and the plugin backfills them. A
+  reconnect does not send the index again. A disconnect partway through
+  pauses it, and the next `welcome` sends the pages it had not sent, after
+  any page sent but not acknowledged, which the outbox sends again with its
+  delivery id. Pages already acknowledged are safe: the server sends its
+  request before its acknowledgment, and requested ids survive reconnects.
+- Otherwise, at most once every 10 poll intervals while connected, requesting
+  the ids it has not seen, ahead of backfill. This finds what
+  `/steams/latest` misses: several Steam Records recorded in one interval, a
+  record whose time is not the newest, and those recorded while
+  disconnected. Intervals spent disconnected count, so after an outage of 10
+  intervals or more the read comes with the poll on `welcome`.
+
+Indexes are sent once per load, for Shots too (`SHOTS.md`), replacing
+milestone 1's "on every `welcome`". So a server whose database was wiped or
+restored learns which records it lacks only when each tablet's plugin is
+reloaded.
+
+Past about 268,900 Steam Records (39 bytes per UUID), `GET /steams/ids` is
+larger than Decaid's 10 MiB plugin fetch limit, and the fetch fails. The
+plugin logs that once per load, with Decaid's reason. It tries again after 1
+poll interval, then 2, 4 and so on up to 64, or from 10 once the index has
+been sent, rather than every 5 s. Each try makes Decaid buffer up to 10 MiB.
+Live capture through `/steams/latest` continues. History the server lacks is
+not backfilled until every id can be read, which needs Decaid support (the
+upstream ask in the owner's planning notes). The plugin never requests
+`GET /steams`, which returns every record, workflow and profile included, in
+one response that outgrows the limit far sooner.
+
+Steam Records and Shots share the
 plugin's one outbox (`plugin/src/outbox.ts`): one logical delivery awaits
 acknowledgment at a time, and index pages wait while four deliveries are
 queued. The outbox reads every Steam Record with `GET /steams/{id}`, one at a
@@ -63,8 +97,7 @@ sent in chunks (`AI_PROTOCOL_NOTES.md`).
 
 Steam Record edits are out of scope in milestone 1: Steam Records have no
 `updatedAt`, Decaid sends no event for them, and nothing in Decaid, Streamline
-or DYE2 edits them. Every id fits in one `GET /steams/ids` response until a
-tablet holds more than 250,000 Steam Records.
+or DYE2 edits them.
 
 ## Server
 
@@ -148,8 +181,13 @@ combined, across Locations in different time zones and both of New York's
 2025-2026 daylight-saving changes.
 
 `server/test/steam-records.test.ts` verifies the built plugin through Seam 1 on
-two server instances sharing PostgreSQL: history backfill in pages through a
-reconnect, live capture by the next poll, local times on both sides of a
+two server instances sharing PostgreSQL: history backfill in pages, indexed
+once and resumed after a disconnect partway through the index; live capture
+by the next poll, which reads no ids; two records recorded in one interval;
+no reads while the server is unreachable or after a final close, and those
+recorded meanwhile sent after reconnecting; no index sent again on a
+reconnect; live capture past the fetch limit, which is logged once and
+retried with backoff; local times on both sides of a
 daylight-saving change, Location credit and its corrections (including one
 stored during a change on another instance), repeated and concurrent
 deliveries, deletion on the tablet, chunked records, mismatched connections,

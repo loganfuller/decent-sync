@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView } from "./support/admin-api.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
+import { derivedShot, shotFixture, withShots } from "./support/shot-fixtures.js";
 import { derivedSteam, longSteam, milkProbeSteamFixture, steamFixture, withSteams } from "./support/steam-fixtures.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
@@ -41,6 +42,9 @@ interface Sent {
   steams?: { id: string }[];
   index?: number;
 }
+
+/** A failed read of every Steam Record id, as the plugin logs it. */
+const IDS_UNREADABLE = /^Could not read the Steam Record ids: /;
 
 describe("Steam Record capture", () => {
   let server: TestServer;
@@ -93,6 +97,18 @@ describe("Steam Record capture", () => {
   /** How many times the tablet has read its Steam Record ids. */
   function idReads(tablet: SimulatedTablet): number {
     return tablet.requests.filter((route) => route === "/steams/ids").length;
+  }
+  /** How many times the tablet has read its newest Steam Record: once a poll interval, and on every welcome, while connected. */
+  function latestReads(tablet: SimulatedTablet): number {
+    return tablet.requests.filter((route) => route === "/steams/latest").length;
+  }
+  /** Every read of Steam Records the tablet has made: of their ids, of the newest, or of one by its id. */
+  function steamReads(tablet: SimulatedTablet): number {
+    return tablet.requests.filter((route) => route.startsWith("/steams")).length;
+  }
+  /** The deliveries the server has acknowledged to the tablet so far. */
+  function acknowledged(tablet: SimulatedTablet): Set<string> {
+    return new Set((tablet.received as Sent[]).flatMap((message) => (message.type === "ack" ? [String(message.id)] : [])));
   }
   function sent(tablet: SimulatedTablet, type: string): Sent[] {
     return (tablet.sent as Sent[]).filter((message) => message.type === type);
@@ -151,24 +167,32 @@ describe("Steam Record capture", () => {
     await absent("missing");
   });
 
-  it("backfills an adopted tablet's whole history, indexing it in pages of at most 100, including after a mid-backfill disconnect", async () => {
+  it("backfills an adopted tablet's whole history, indexing it once in pages of at most 100, resumed after a disconnect partway through", async () => {
     const machine = await api.createMachine("Steam history");
     const history = Array.from({ length: 205 }, (_, n) =>
       derivedSteam(`history-${String(n).padStart(3, "0")}`, { timestamp: new Date(Date.UTC(2026, 0, 1, 8, n)).toISOString().replace("Z", "001") }),
     );
-    const tablet = load(machine, history, { apiDelayMs: 500 });
-    await expect.poll(async () => (await list(machine.machine.id)).total, { timeout: 10_000 }).toBeGreaterThan(0);
-    expect((await list(machine.machine.id)).total).toBeLessThan(history.length);
+    // The network stalls at the index's second page, so the connection drops partway through the index.
+    let stalled = true;
+    const stallUpload = (frame: unknown) => stalled && (frame as Sent).type === "steamIndex" && (frame as Sent).steams?.[0]?.id === "history-100";
+    const tablet = load(machine, history, { apiDelayMs: 500, stallUpload });
+    await expect.poll(() => sent(tablet, "steamIndex").length, { timeout: 10_000 }).toBe(2);
+    const [firstPage, cutOff] = sent(tablet, "steamIndex");
+    await expect.poll(() => acknowledged(tablet).has(firstPage!.id!)).toBe(true);
+    const sentBefore = tablet.sent.length;
+    stalled = false;
     tablet.dropConnections();
     await tablet.waitForLogs(/^Connected to /, 2);
-    await expect.poll(async () => (await list(machine.machine.id)).total, { timeout: 20_000 }).toBe(205);
+    await expect.poll(async () => (await list(machine.machine.id, api.at(other.url))).total, { timeout: 20_000 }).toBe(205);
 
-    // Every welcome sent every id, in pages of at most 100.
-    const pages = sent(tablet, "steamIndex").map((page) => page.steams!.map((steam) => steam.id));
-    expect(pages.slice(0, 3).map((page) => page.length)).toEqual([100, 100, 5]);
-    expect(new Set(pages.slice(0, 3).flat())).toEqual(new Set(history.map((steam) => steam.id)));
-    expect(pages.length).toBeGreaterThan(3);
-    expect(pages.every((page) => page.length <= 100)).toBe(true);
+    // Every id went once, in pages of at most 100, each under one delivery id. The reconnect sent the
+    // page cut off before its acknowledgment again, with its id, then the last; the first never again.
+    const pages = new Map(sent(tablet, "steamIndex").map((page) => [page.id!, page.steams!.map((steam) => steam.id)]));
+    expect([...pages.values()].map((page) => page.length)).toEqual([100, 100, 5]);
+    expect([...pages.values()].flat()).toEqual(history.map((steam) => String(steam.id)));
+    const resent = (tablet.sent.slice(sentBefore) as Sent[]).filter((frame) => frame.type === "steamIndex");
+    expect(resent.map((page) => page.steams![0]!.id)).toEqual(["history-100", "history-200"]);
+    expect(resent[0]!.id).toBe(cutOff!.id);
     // Each fetched by its id; the one list Decaid offers of whole records never.
     expect(tablet.requests.filter((route) => route.startsWith("/steams/") && route !== "/steams/ids").length).toBeGreaterThanOrEqual(205);
 
@@ -182,19 +206,22 @@ describe("Steam Record capture", () => {
     expect(new Set(first.steamRecords.map((steam) => steam.id)).size).toBe(100);
   }, 40_000);
 
-  it("sends a new Steam Record by the next poll, with its measurements and milk temperature, credited to the reporting Machine", async () => {
+  it("sends a new Steam Record by the next poll, reading only the newest, with its measurements and milk temperature, credited to the reporting Machine", async () => {
     const machine = await api.createMachine("Live steam");
     // Polls every two minutes of the tablet's time: 2.4 s of real time.
     const tablet = load(machine, [], { settings: { ...settingsFor(machine), PollSeconds: 120 } });
     await tablet.waitForLog(/^Connected to /);
-    await expect.poll(() => idReads(tablet)).toBeGreaterThan(0);
+    // Every id is read once, for the index.
+    await expect.poll(() => idReads(tablet)).toBe(1);
 
     const record = milkProbeSteamFixture();
+    const polled = latestReads(tablet);
     tablet.serve(tabletApi(machine, [record]));
-    const readsBefore = idReads(tablet);
-    // Stored once the first read of the ids after it appeared found it, before the next read.
+    // Stored once the first poll after it appeared read the newest Steam Record, before the next poll.
     await expect.poll(async () => (await api.call("GET", `/steam-records/${record.id}`)).status, { timeout: 10_000, interval: 20 }).toBe(200);
-    expect(idReads(tablet)).toBe(readsBefore + 1);
+    expect(latestReads(tablet)).toBe(polled + 1);
+    // That poll read no ids, whose list grows with history.
+    expect(idReads(tablet)).toBe(1);
 
     expect(await detail(String(record.id))).toEqual({
       id: record.id,
@@ -231,6 +258,116 @@ describe("Steam Record capture", () => {
     expect((await list(machine.machine.id)).total).toBeLessThan(history.length + 1);
     await expect.poll(async () => (await list(machine.machine.id)).total, { timeout: 20_000 }).toBe(history.length + 1);
   }, 40_000);
+
+  it("sends both of two Steam Records recorded in one poll interval: the newest by the next poll, the other by the next read of every id", async () => {
+    const machine = await api.createMachine("Two steams in an interval");
+    // Polls every 30 s of the tablet's time, 0.6 s of real time.
+    const tablet = load(machine, [], { settings: { ...settingsFor(machine), PollSeconds: 30 } });
+    await tablet.waitForLog(/^Connected to /);
+    await expect.poll(() => idReads(tablet)).toBe(1);
+    const earlier = derivedSteam("interval-earlier", { timestamp: "2026-10-05T09:00:00.000001" });
+    const newest = derivedSteam("interval-newest", { timestamp: "2026-10-05T09:01:00.000001" });
+    tablet.serve(tabletApi(machine, [earlier, newest]));
+
+    await waitSteam("interval-newest");
+    expect(idReads(tablet)).toBe(1);
+    await absent("interval-earlier");
+    // Every id is read again ten poll intervals after the last read, which finds the other.
+    await waitSteam("interval-earlier", 20_000);
+    expect(idReads(tablet)).toBe(2);
+    expect(latestReads(tablet)).toBeGreaterThanOrEqual(10);
+  }, 30_000);
+
+  it("reads no Steam Records while the server is unreachable, and sends those recorded meanwhile once it is reachable again", async () => {
+    const machine = await api.createMachine("Steam while unreachable");
+    const before = derivedSteam("before-unreachable", { timestamp: "2026-10-05T08:00:00.000001" });
+    // Polls every 5 s of the tablet's time, 0.1 s of real time.
+    const tablet = load(machine, [before], { settings: { ...settingsFor(machine), PollSeconds: 5 } });
+    await waitSteam("before-unreachable");
+    tablet.loseNetwork();
+    await tablet.waitForLog(/^Disconnected: could not connect/);
+    const reads = steamReads(tablet);
+    const meanwhile = [
+      derivedSteam("unreachable-earlier", { timestamp: "2026-10-05T08:30:00.000001" }),
+      derivedSteam("unreachable-newest", { timestamp: "2026-10-05T09:00:00.000001" }),
+    ];
+    tablet.serve(tabletApi(machine, [before, ...meanwhile]));
+    // Reconnecting backs off from 1 s, doubling: by the sixth failed attempt more than a minute of the
+    // tablet's time has passed, over ten poll intervals, so every id is due to be read again.
+    await tablet.waitForLogs(/^Disconnected: could not connect/, 6);
+    expect(steamReads(tablet)).toBe(reads);
+
+    tablet.restoreNetwork();
+    for (const record of meanwhile) await waitSteam(String(record.id));
+    expect((await list(machine.machine.id, api.at(other.url))).total).toBe(3);
+  });
+
+  it("reads no Steam Records once the server refuses the plugin for good", async () => {
+    const machine = await api.createMachine("Steam after a refusal");
+    // Polls every 5 s of the tablet's time, 0.1 s of real time.
+    const tablet = load(machine, [], { settings: { ...settingsFor(machine), PollSeconds: 5 } });
+    await tablet.waitForLog(/^Connected to /);
+    await expect.poll(() => steamReads(tablet)).toBeGreaterThan(2);
+    // A new token closes the connection using the old one with bad_token, after which retrying cannot help.
+    await api.issued(await api.call("POST", `/machines/${machine.machine.id}/token`));
+    await tablet.waitForLog(/^The server refused the token\./);
+    const reads = steamReads(tablet);
+    // Twenty poll intervals of the tablet's time.
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    expect(steamReads(tablet)).toBe(reads);
+  });
+
+  it("sends no Shot or Steam Record index again on a reconnect after the load sent them, and goes on polling", async () => {
+    const machine = await api.createMachine("Indexed before a reconnect");
+    // Without the hardware it was recorded on, so it is credited to the Machine whose tablet sends it.
+    const { machine: omitted, ...workflow } = shotFixture().workflow as Record<string, unknown>;
+    const shots = [derivedShot("indexed-before-a-reconnect", { workflow })];
+    const steams = [derivedSteam("indexed-steam", { timestamp: "2026-10-05T08:00:00.000001" })];
+    // Polls every 5 s of the tablet's time, 0.1 s of real time.
+    const tablet = SimulatedTablet.load({ settings: { ...settingsFor(machine), PollSeconds: 5 }, api: withShots(tabletApi(machine, steams), shots), timeScale: 50 });
+    tablets.push(tablet);
+    await waitSteam("indexed-steam");
+    await expect.poll(async () => (await api.at(other.url).call("GET", "/shots/indexed-before-a-reconnect")).status).toBe(200);
+    const indexes = (frames: unknown[]) => (frames as Sent[]).filter((frame) => frame.type === "shotIndex" || frame.type === "steamIndex");
+    expect(indexes(tablet.sent).map((page) => page.type).sort()).toEqual(["shotIndex", "steamIndex"]);
+    await expect.poll(() => indexes(tablet.sent).every((page) => acknowledged(tablet).has(page.id!))).toBe(true);
+    const sentBefore = tablet.sent.length;
+    const reads = idReads(tablet);
+
+    tablet.dropConnections();
+    await tablet.waitForLogs(/^Connected to /, 2);
+    // A Steam Record recorded since is sent by the next poll, and every id is read again on schedule.
+    tablet.serve(withShots(tabletApi(machine, [...steams, derivedSteam("after-a-reconnect")]), shots));
+    await waitSteam("after-a-reconnect");
+    await expect.poll(() => idReads(tablet), { timeout: 10_000 }).toBeGreaterThan(reads);
+    expect(indexes(tablet.sent.slice(sentBefore))).toEqual([]);
+  });
+
+  it("goes on sending new Steam Records while Decaid's fetch limit refuses every id, logging that once and reading every id less and less often", async () => {
+    const machine = await api.createMachine("Past the fetch limit");
+    const older = derivedSteam("past-limit-older", { timestamp: "2026-10-01T08:00:00.000001" });
+    const newest = derivedSteam("past-limit-newest", { timestamp: "2026-10-04T08:00:00.000001" });
+    // A list of two ids passes this limit, as one of about 268,900 passes Decaid's 10 MiB.
+    // Polls every 5 s of the tablet's time, 0.1 s of real time.
+    const tablet = load(machine, [older, newest], { settings: { ...settingsFor(machine), PollSeconds: 5 }, steamIdsLimitBytes: 16 });
+    // With no index, the newest the tablet holds is sent as new.
+    await waitSteam("past-limit-newest");
+    const polled = latestReads(tablet);
+    tablet.serve(tabletApi(machine, [older, newest, derivedSteam("past-limit-new", { timestamp: "2026-10-05T08:00:00.000001" })]));
+    await waitSteam("past-limit-new");
+    expect(latestReads(tablet)).toBe(polled + 1);
+
+    // Read on the welcome, then after 1, 2, 4, 8 and 16 more poll intervals: by the welcome's poll
+    // and 31 more, six times, where retrying every 5 s would have read them 32 times.
+    await expect.poll(() => latestReads(tablet), { timeout: 20_000 }).toBeGreaterThanOrEqual(32);
+    expect(idReads(tablet)).toBeGreaterThan(1);
+    expect(idReads(tablet)).toBeLessThanOrEqual(6);
+    expect(tablet.logs.filter((line) => IDS_UNREADABLE.test(line))).toEqual([
+      "Could not read the Steam Record ids: Bad state: response exceeds maxFetchResponseBytes (16). New Steam Records are still sent; reading every id is tried again less and less often until it succeeds.",
+    ]);
+    // History waits until every id can be read.
+    await absent("past-limit-older");
+  }, 30_000);
 
   it("places each Steam Record's local time in UTC by the tablet's time zone, on both sides of a daylight-saving change", async () => {
     const machine = await api.createMachine("Chicago tablet");

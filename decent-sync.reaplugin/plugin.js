@@ -357,14 +357,20 @@ var __decentSync = (() => {
     return readRecord("steams", id);
   }
   async function readSteamIds() {
-    try {
-      const response = await fetch(`${API}/steams/ids`);
-      if (!response.ok) return null;
-      const body = await response.json();
-      return Array.isArray(body) ? body.filter(isRecordId) : null;
-    } catch {
-      return null;
-    }
+    const response = await fetch(`${API}/steams/ids`);
+    if (!response.ok) throw new Error(`Decaid answered ${response.status}`);
+    const body = await response.json();
+    if (!Array.isArray(body)) throw new Error("Decaid's answer is not a list");
+    return body.filter(isRecordId);
+  }
+  async function readLatestSteamId() {
+    const response = await fetch(`${API}/steams/latest`);
+    if (!response.ok) throw new Error(`Decaid answered ${response.status}`);
+    const body = await response.json();
+    if (body === null) return null;
+    if (typeof body !== "object" || Array.isArray(body)) throw new Error("Decaid's answer is not a Steam Record");
+    const id = body.id;
+    return isRecordId(id) ? id : null;
   }
   async function readRecord(collection, id) {
     const response = await fetch(`${API}/${collection}/${encodeURIComponent(id)}`);
@@ -559,7 +565,7 @@ var __decentSync = (() => {
       __publicField(this, "runtimeId", `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
       __publicField(this, "sequence", 0);
       __publicField(this, "sendMessage");
-      /** Bumped by every welcome and disconnect, so work for an earlier connection stops. */
+      /** Bumped by every welcome and disconnect, so a send prepared for one connection is not made on the next. */
       __publicField(this, "connections", 0);
       /** The delivery awaiting acknowledgment. */
       __publicField(this, "sent");
@@ -568,10 +574,6 @@ var __decentSync = (() => {
       __publicField(this, "working", false);
       __publicField(this, "stopped", false);
       __publicField(this, "retryTimer");
-    }
-    /** Changes with every welcome and disconnect: work started for one connection checks it before sending. */
-    get generation() {
-      return this.connections;
     }
     /** Whether a welcomed connection is sending. */
     get connected() {
@@ -771,18 +773,14 @@ var __decentSync = (() => {
     constructor(outbox, log) {
       __publicField(this, "outbox", outbox);
       __publicField(this, "log", log);
-      __publicField(this, "ids", /* @__PURE__ */ new Set());
       __publicField(this, "scanning", false);
       __publicField(this, "scanned", false);
-      __publicField(this, "welcomed", false);
       __publicField(this, "stopped", false);
       __publicField(this, "timer");
       /** The Shots Decaid reported stored or edited while a summary pass runs. */
       __publicField(this, "reported");
     }
     welcome() {
-      if (this.welcomed) void this.indexKnownIds();
-      this.welcomed = true;
       if (!this.scanned && !this.scanning && this.timer === void 0) void this.scan();
     }
     stop() {
@@ -795,13 +793,11 @@ var __decentSync = (() => {
       const id = event.id;
       this.reported?.add(id);
       if (type === "shot") {
-        this.ids.add(id);
         this.outbox.request("shot", [id], { first: true });
         return;
       }
       const shot = object2(event.shot);
       if (!shot) return;
-      this.ids.add(id);
       this.outbox.enqueue({ type, id: this.outbox.nextId(), shotId: id, shot });
     }
     /** A Shot new on the tablet or requested by the server, as a delivery, or null if the tablet no longer has it. */
@@ -875,7 +871,6 @@ var __decentSync = (() => {
           if (typeof summary?.id !== "string" || summary.id === "") return [];
           read.set(summary.id, summary.updatedAt);
           if (!isCaptured(summary.id) || typeof summary.updatedAt !== "string") return [];
-          this.ids.add(summary.id);
           return [{ id: summary.id, updatedAt: summary.updatedAt }];
         });
         if (shots.length > 0) this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots });
@@ -887,15 +882,6 @@ var __decentSync = (() => {
       }
       return false;
     }
-    async indexKnownIds() {
-      const generation = this.outbox.generation;
-      const ids = [...this.ids];
-      for (let offset = 0; offset < ids.length; offset += PAGE_SIZE) {
-        await this.outbox.waitForRoom();
-        if (this.stopped || generation !== this.outbox.generation) return;
-        this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots: ids.slice(offset, offset + PAGE_SIZE).map((id) => ({ id })) });
-      }
-    }
   };
   function isCaptured(id) {
     return isRecordId(id) && !id.startsWith("de1app-");
@@ -906,17 +892,25 @@ var __decentSync = (() => {
 
   // src/steams.ts
   var PAGE_SIZE2 = 100;
-  var RETRY_MS = 5e3;
+  var FULL_READ_INTERVALS = 10;
+  var MAX_RETRY_INTERVALS = 64;
   var SteamCapture = class {
     constructor(outbox, pollMs, log) {
       __publicField(this, "outbox", outbox);
       __publicField(this, "pollMs", pollMs);
       __publicField(this, "log", log);
-      /** The ids the latest read found, or null before the first, which finds none new. */
-      __publicField(this, "known", null);
+      /** Every id this load has seen, in reads of every id and of the newest. */
+      __publicField(this, "known", /* @__PURE__ */ new Set());
+      /** Whether every id has been read for the index. */
+      __publicField(this, "indexed", false);
+      /** Poll intervals before every id is read again; 0 once it is due. */
+      __publicField(this, "untilFullRead", 0);
+      /** Reads of every id that have failed in a row. */
+      __publicField(this, "failures", 0);
+      __publicField(this, "failureLogged", false);
+      __publicField(this, "polling", false);
       __publicField(this, "stopped", false);
       __publicField(this, "pollTimer");
-      __publicField(this, "indexTimer");
     }
     start() {
       this.schedulePoll();
@@ -924,12 +918,17 @@ var __decentSync = (() => {
     stop() {
       this.stopped = true;
       if (this.pollTimer !== void 0) clearTimeout(this.pollTimer);
-      if (this.indexTimer !== void 0) clearTimeout(this.indexTimer);
     }
+    /**
+     * Polls at once, reading every id if due, as for the load's index, and
+     * starts the poll intervals again from now. A welcome is not an interval,
+     * so reads of every id stay at least the intervals they wait apart.
+     */
     welcome() {
-      if (this.indexTimer !== void 0) clearTimeout(this.indexTimer);
-      this.indexTimer = void 0;
-      void this.index(this.outbox.generation);
+      if (this.stopped) return;
+      if (this.pollTimer !== void 0) clearTimeout(this.pollTimer);
+      void this.poll();
+      this.schedulePoll();
     }
     /** A Steam Record, as a delivery placed in time, or null if the tablet no longer has it or its time cannot be read. */
     async read(id, deliveryId) {
@@ -942,44 +941,80 @@ var __decentSync = (() => {
       }
       return { type: "steam", id: deliveryId, steamId: id, steamedAt, steam };
     }
-    async index(generation) {
-      if (this.stopped || generation !== this.outbox.generation) return;
-      const ids = await this.readIds();
-      if (this.stopped || generation !== this.outbox.generation) return;
-      if (!ids) {
-        this.log("Could not read the Steam Record ids; retrying.");
-        this.indexTimer = setTimeout(() => {
-          this.indexTimer = void 0;
-          void this.index(generation);
-        }, RETRY_MS);
-        return;
-      }
-      for (let offset = 0; offset < ids.all.length; offset += PAGE_SIZE2) {
-        await this.outbox.waitForRoom();
-        if (this.stopped || generation !== this.outbox.generation) return;
-        this.outbox.enqueue({ type: "steamIndex", id: this.outbox.nextId(), steams: ids.all.slice(offset, offset + PAGE_SIZE2).map((id) => ({ id })) });
-      }
-    }
     schedulePoll() {
       this.pollTimer = setTimeout(() => {
         this.pollTimer = void 0;
-        void this.poll().finally(() => {
-          if (!this.stopped) this.schedulePoll();
-        });
+        if (this.untilFullRead > 0) this.untilFullRead--;
+        void this.poll();
+        if (!this.stopped) this.schedulePoll();
       }, this.pollMs);
     }
-    /** Requests the Steam Records recorded since the last read, ahead of those the server requested. */
+    /**
+     * Requests the Steam Records new since the last poll, ahead of those the
+     * server requested: any that every id shows, when they are due to be read,
+     * then the newest. A poll still running when the next is due skips it.
+     */
     async poll() {
-      const ids = await this.readIds();
-      if (ids && ids.fresh.length > 0 && !this.stopped) this.outbox.request("steam", ids.fresh, { first: true });
+      if (this.polling || this.stopped || !this.outbox.connected) return;
+      this.polling = true;
+      try {
+        if (this.untilFullRead === 0) await this.readAll();
+        if (this.stopped || !this.outbox.connected) return;
+        let latest;
+        try {
+          latest = await readLatestSteamId();
+        } catch {
+          return;
+        }
+        if (latest !== null && !this.stopped) this.request([latest]);
+      } finally {
+        this.polling = false;
+      }
     }
-    /** Every Steam Record id, and those new since the last read; null if they cannot be read now. */
-    async readIds() {
-      const all = await readSteamIds();
-      if (!all) return null;
-      const known = this.known;
-      this.known = new Set(all);
-      return { all, fresh: known ? all.filter((id) => !known.has(id)) : [] };
+    /** Reads every id: the first time, to send them as the index; after that, to request those not seen. */
+    async readAll() {
+      let ids;
+      try {
+        ids = await readSteamIds();
+      } catch (error) {
+        this.untilFullRead = Math.min((this.indexed ? FULL_READ_INTERVALS : 1) * 2 ** this.failures, MAX_RETRY_INTERVALS);
+        this.failures++;
+        if (!this.failureLogged) {
+          this.failureLogged = true;
+          this.log(
+            `Could not read the Steam Record ids: ${error instanceof Error ? error.message : String(error)}. New Steam Records are still sent; reading every id is tried again less and less often until it succeeds.`
+          );
+        }
+        return;
+      }
+      this.untilFullRead = FULL_READ_INTERVALS;
+      this.failures = 0;
+      if (this.stopped) return;
+      if (this.indexed) {
+        this.request(ids);
+        return;
+      }
+      this.indexed = true;
+      for (const id of ids) this.known.add(id);
+      void this.sendIndex(ids);
+    }
+    /** Requests the Steam Records among these not seen before, ahead of those the server requested. */
+    request(ids) {
+      const fresh = ids.filter((id) => !this.known.has(id));
+      for (const id of fresh) this.known.add(id);
+      if (fresh.length > 0) this.outbox.request("steam", fresh, { first: true });
+    }
+    /**
+     * Queues the index in pages, each once few deliveries are queued. While
+     * disconnected the outbox sends nothing, so the pages wait, and the next
+     * welcome sends those left, after any it had sent and not had acknowledged.
+     */
+    async sendIndex(ids) {
+      for (let offset = 0; offset < ids.length; offset += PAGE_SIZE2) {
+        await this.outbox.waitForRoom();
+        if (this.stopped) return;
+        this.outbox.enqueue({ type: "steamIndex", id: this.outbox.nextId(), steams: ids.slice(offset, offset + PAGE_SIZE2).map((id) => ({ id })) });
+      }
     }
   };
   var ISO_TIME = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d)?$/;
