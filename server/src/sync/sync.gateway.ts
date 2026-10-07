@@ -346,7 +346,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     const outcome = await this.machines.acceptHello(hello, session.id, new Date());
     if (!outcome.accepted) return this.refuse(session, outcome.code, outcome.reason);
 
-    const { machine, identity, hardware, machineTabletId } = outcome;
+    const { machine, identity, hardware } = outcome;
     this.awaitingHello.delete(session);
     session.machine = machine;
     session.identity = identity;
@@ -355,7 +355,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       machineId: machine.id,
       tokenHash: hashSecret(hello.token),
       mismatch: identity.kind === "mismatch" ? identity.hardware : null,
-      machineTabletId,
+      tabletId: hello.tabletId,
       end: (code, message) => this.refuse(session, code, message),
     };
     session.live = live;

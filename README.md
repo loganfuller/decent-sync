@@ -280,7 +280,7 @@ On its first run on a tablet, the plugin gives the tablet an id, which it keeps
 in Decaid's plugin storage, where it survives plugin updates. The Machine's
 page shows the tablet its latest connection came from, and its earlier ones.
 Resetting the tablet's Decaid data, or replacing the tablet, makes a new tablet
-there. A Decaid backup taken while the plugin is enabled holds the id, and
+there. A Decaid backup taken while the plugin is running holds the id, and
 restoring it brings back the tablet it came from, provided the restore puts
 the id back: restore before installing the plugin, as Decaid's onboarding
 does, or choose to overwrite existing data. Otherwise the tablet keeps the new

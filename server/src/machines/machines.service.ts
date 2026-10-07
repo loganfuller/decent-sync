@@ -19,7 +19,7 @@ import {
   viewLocationHistory,
   withLocationHistory,
 } from "./location-history.js";
-import { type TabletHolder, type TabletView, recordTablet, tabletsOf, transferPendingTablets } from "./tablets.js";
+import { type TabletHolder, type TabletView, recordOf, recordTablet, tabletsOf, transferPendingTablets } from "./tablets.js";
 
 /** How a Machine's identity stands, as the REST API names it. */
 export type IdentificationView = "identified" | "hardwareNotReported" | "unidentified" | "mismatch";
@@ -93,8 +93,6 @@ export type HelloOutcome =
       identity: Exclude<Identity, { kind: "rejected" }>;
       /** The real hardware the `hello` reported, if any. */
       hardware: Hardware | null;
-      /** The record of its tablet against whoever the connection resolved to, which its heartbeats keep seen. */
-      machineTabletId: bigint;
     };
 
 /** Why a welcomed connection may no longer stay. */
@@ -297,7 +295,7 @@ export class MachinesService {
         RETURNING id
       ), tablet AS (
         UPDATE machine_tablets SET last_seen_at = GREATEST(last_seen_at, now())
-        WHERE id = ${connection.machineTabletId} AND EXISTS (SELECT 1 FROM seen)
+        WHERE ${recordOf(connection)} AND EXISTS (SELECT 1 FROM seen)
       )
       SELECT
         EXISTS (SELECT 1 FROM machine_tokens WHERE token_hash = ${connection.tokenHash} AND revoked_at IS NULL) AS "tokenCurrent",
@@ -414,8 +412,8 @@ export class MachinesService {
         holder = { pendingMachineId: pending.id };
       }
     }
-    const machineTabletId = await recordTablet(tx, hello.tabletId, holder);
-    return { accepted: true, machine: { id: machine.id, name: machine.name }, identity, hardware, machineTabletId };
+    await recordTablet(tx, hello.tabletId, holder);
+    return { accepted: true, machine: { id: machine.id, name: machine.name }, identity, hardware };
   }
 
   /** Records why a connection with the Machine's token was refused, for its page. */

@@ -13,6 +13,7 @@ CREATE TABLE "machine_tablets" (
     "machine_id" UUID,
     "pending_machine_id" UUID,
     "first_seen_at" TIMESTAMPTZ(3) NOT NULL,
+    "connected_at" TIMESTAMPTZ(3) NOT NULL,
     "last_seen_at" TIMESTAMPTZ(3) NOT NULL,
 
     CONSTRAINT "machine_tablets_pkey" PRIMARY KEY ("id")

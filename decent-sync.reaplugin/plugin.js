@@ -372,8 +372,9 @@ var __decentSync = (() => {
   }
   async function keepStorageInBackups() {
     try {
-      await fetch(`${API}/store/${encodeURIComponent("decent-sync.reaplugin")}`);
+      return (await fetch(`${API}/store/${encodeURIComponent("decent-sync.reaplugin")}`)).ok;
     } catch {
+      return false;
     }
   }
   async function readCollection(path, etag) {
@@ -1020,6 +1021,7 @@ var __decentSync = (() => {
   // src/tablet-id.ts
   var KEY = "tabletId";
   var STORAGE_TIMEOUT_MS = 1e4;
+  var BACKUP_RETRY_MS = 3e4;
   var TabletId = class {
     constructor(host, log) {
       __publicField(this, "host", host);
@@ -1030,6 +1032,9 @@ var __decentSync = (() => {
       __publicField(this, "reading");
       /** Commands go one at a time. */
       __publicField(this, "waiting");
+      /** The next attempt to have Decaid's backups include the id, while one is due. */
+      __publicField(this, "backupRetry");
+      __publicField(this, "stopped", false);
     }
     /**
      * The tablet's id: the one in plugin storage, or, if that key was never
@@ -1052,6 +1057,8 @@ var __decentSync = (() => {
       waiting.resolve(payload);
     }
     stop() {
+      this.stopped = true;
+      if (this.backupRetry !== void 0) clearTimeout(this.backupRetry);
       this.settle()?.reject(new Error("the plugin is unloading"));
     }
     async readOrMake() {
@@ -1070,8 +1077,16 @@ var __decentSync = (() => {
     /** Keeps the id, once read or written, for this load, and has Decaid's backups include it. */
     known(id) {
       this.id = id;
-      void keepStorageInBackups();
+      void this.keepInBackups();
       return id;
+    }
+    /** Has Decaid's store API read the plugin's storage, so backups hold the id, asking again until it answers. */
+    async keepInBackups() {
+      if (await keepStorageInBackups() || this.stopped) return;
+      this.backupRetry = setTimeout(() => {
+        this.backupRetry = void 0;
+        void this.keepInBackups();
+      }, BACKUP_RETRY_MS);
     }
     /**
      * Sends a storage command, `what` for the log, and resolves with the

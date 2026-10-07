@@ -106,7 +106,7 @@ describe("Tablets", { timeout: 20_000 }, () => {
       expect(helloTabletIds(tablet)).toEqual([first]);
       expect(tablet.logs.join("\n")).not.toContain("was given");
       // Decaid's backups hold it only once its store API has read the plugin's storage, which the plugin has it do.
-      expect(storage.save()).toEqual(new Map([["tabletId", first]]));
+      await expect.poll(() => storage.save()).toEqual(new Map([["tabletId", first]]));
 
       const reloaded = await api.waitForMachine("Lab", (machine) => machine.online && machine.tablet!.lastSeenAt > firstSeenAt);
       expect(tabletIds(reloaded)).toEqual({ current: first, earlier: [] });
@@ -178,6 +178,21 @@ describe("Tablets", { timeout: 20_000 }, () => {
     });
   });
 
+  it("keeps asking Decaid's store API to read the plugin's storage until it does, so backups hold the tablet's id", async () => {
+    const created = await api.createMachine("Backed up");
+    const storage = new PluginStorage();
+    // 50 times faster: the plugin asks again 600 ms after each read that fails.
+    const tablet = loadTablet({ settings: settingsFor(created), storage, api: derivedDe1Pro({ serial: "13601" }), timeScale: 50 });
+    tablet.failNextApiReads("/store/decent-sync.reaplugin", 2);
+    await tablet.waitForLog(/^Connected to /);
+
+    const tabletId = storage.read("tabletId");
+    expect(tabletId).toMatch(UUID);
+    await expect.poll(() => storage.save(), { timeout: 10_000 }).toEqual(new Map([["tabletId", tabletId]]));
+    // Two reads failed, and the third, answered, was the last.
+    expect(tablet.requests.filter((route) => route === "/store/decent-sync.reaplugin")).toHaveLength(3);
+  });
+
   it("keeps the current tablet's last-seen time current with heartbeats, on whichever instance", async () => {
     const created = await api.createMachine("Heartbeats");
     const tabletId = randomUUID();
@@ -186,6 +201,27 @@ describe("Tablets", { timeout: 20_000 }, () => {
 
     const later = await api.waitForMachine("Heartbeats", (viewed) => Date.parse(viewed.tablet!.lastSeenAt) > Date.parse(connected.firstSeenAt) + HEARTBEAT_SECONDS * 1000);
     expect(later.tablet).toEqual({ id: tabletId, firstSeenAt: connected.firstSeenAt, lastSeenAt: expect.any(String) });
+  });
+
+  it("keeps the latest connection's tablet current while an earlier connection's heartbeats continue", async () => {
+    const roastery = await api.createMachine("Two tablets");
+    const other = await api.createMachine("Other token");
+    const earlier = randomUUID();
+    const later = randomUUID();
+    await (await connect(helloWith(other.token, { machine: de1Pro("13802") }))).close();
+    // The Machine's own tablet stays connected, sending heartbeats.
+    await connect(helloWith(roastery.token, { tabletId: earlier, machine: de1Pro("13801") }));
+    // Another tablet reports the Machine's hardware with another Machine's token, after it, and leaves.
+    await (await connect(helloWith(other.token, { tabletId: later, machine: de1Pro("13801") }))).close();
+
+    const record = (viewed: MachineView, id: string) =>
+      [...(viewed.tablet ? [viewed.tablet] : []), ...viewed.earlierTablets].find((tablet) => tablet.id === id);
+    // Once the earlier tablet has been heard from after the later one last was, the later one is still current.
+    const heard = await api.waitForMachine("Two tablets", (viewed) => {
+      const [first, second] = [record(viewed, earlier), record(viewed, later)];
+      return first !== undefined && second !== undefined && Date.parse(first.lastSeenAt) > Date.parse(second.lastSeenAt);
+    });
+    expect(tabletIds(heard)).toEqual({ current: later, earlier: [earlier] });
   });
 
   it("records a tablet once, whichever instance its connections go through", async () => {
@@ -272,6 +308,28 @@ describe("Tablets", { timeout: 20_000 }, () => {
     const firstSeenAt = Date.parse(bound.tablet!.firstSeenAt);
     expect(firstSeenAt).toBeLessThan(ownFirstSeenAt);
     expect(Math.abs(firstSeenAt - pendingSeenAt)).toBeLessThanOrEqual(1);
+  });
+
+  it("keeps a mismatched connection's tablet seen once a Machine takes its hardware over and joins the two records of it", async () => {
+    const lender = await api.createMachine("Lends its token");
+    const unidentified = await api.createMachine("Unidentified until entered");
+    const tabletId = randomUUID();
+    await (await connect(helloWith(lender.token, { machine: de1Pro("13701") }))).close();
+    // The tablet first connects as an Unidentified Machine, whose machine reports no serial.
+    await (await connect(helloWith(unidentified.token, { tabletId, machine: de1Pro("0") }))).close();
+    // Then it stays connected with another Machine's token while its machine reports a serial no Machine has.
+    await connect(helloWith(lender.token, { tabletId, machine: de1Pro("13702") }));
+    // An Admin enters that serial for the Unidentified Machine, which takes over the Pending Machine's record of the tablet.
+    expect((await api.call("PUT", `/machines/${unidentified.machine.id}/hardware`, { model: "DE1Pro", serial: "13702" })).status).toBe(200);
+    const joined = (await machine(unidentified.machine.id)).tablet!;
+    expect(joined.id).toBe(tabletId);
+
+    // The connection's heartbeats keep the joined record seen.
+    const later = await api.waitForMachine(
+      "Unidentified until entered",
+      (viewed) => Date.parse(viewed.tablet!.lastSeenAt) > Date.parse(joined.lastSeenAt),
+    );
+    expect(tabletIds(later)).toEqual({ current: tabletId, earlier: [] });
   });
 
   it("records nothing for a refused hello", async () => {

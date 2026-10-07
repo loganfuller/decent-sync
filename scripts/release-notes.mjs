@@ -2,7 +2,8 @@
 // tag's version, without its heading, which the release workflow puts at the
 // top of the GitHub release's notes. Prints nothing for a version without
 // notes. Fails while UPGRADING.md has notes under Unreleased, since they belong
-// to the release being tagged and must be retitled with its version first.
+// to the release being tagged and must be retitled with its version first; an
+// Unreleased heading with nothing under it is no notes.
 //
 // Usage: node scripts/release-notes.mjs vX.Y.Z [UPGRADING.md]
 
@@ -28,7 +29,7 @@ for (const line of fs.readFileSync(file, "utf8").split("\n")) {
   }
 }
 
-if (sections.has("Unreleased")) {
+if ((sections.get("Unreleased") ?? []).join("\n").trim() !== "") {
   console.error(
     `UPGRADING.md has notes under Unreleased. Retitle them ${version}, the version being released, ` +
       "commit that, and tag that commit.",

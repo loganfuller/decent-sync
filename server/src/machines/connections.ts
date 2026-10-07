@@ -11,8 +11,8 @@ export interface LiveConnection {
   tokenHash: Uint8Array<ArrayBuffer>;
   /** For a mismatch, the hardware reported, to check it has not been dismissed for this token. */
   mismatch: Hardware | null;
-  /** The record of its tablet against whoever it resolved to, which its heartbeats keep seen. */
-  machineTabletId: bigint;
+  /** The tablet it comes from, whose record its heartbeats keep seen. */
+  tabletId: string;
   /** Sends the plugin an `error` with this code, then closes with its close code. */
   end(code: ErrorCode, message: string): void;
 }

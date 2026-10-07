@@ -11,12 +11,15 @@ import type { PluginHost, StorageCommand } from "./host.js";
 // one unanswered, so each waits at most STORAGE_TIMEOUT_MS. A read that fails
 // is retried by the caller, and never taken for a key never written. Decaid's
 // backups hold the id only once its store API has read the plugin's storage
-// since Decaid started, so the plugin has it read there on every load.
+// since Decaid started, so the plugin has it read there on every load, asking
+// again until it answers.
 
 /** The id's key in this plugin's storage. */
 const KEY = "tabletId";
 /** How long Decaid may take to answer a storage command before it counts as failed. */
 const STORAGE_TIMEOUT_MS = 10_000;
+/** How long to wait before asking Decaid's store API again to read the plugin's storage, after it failed to. */
+const BACKUP_RETRY_MS = 30_000;
 
 /** A storage command awaiting Decaid's answer. */
 interface Waiting {
@@ -36,6 +39,9 @@ export class TabletId {
   private reading: Promise<string> | undefined;
   /** Commands go one at a time. */
   private waiting: Waiting | undefined;
+  /** The next attempt to have Decaid's backups include the id, while one is due. */
+  private backupRetry: number | undefined;
+  private stopped = false;
 
   constructor(
     private readonly host: PluginHost,
@@ -65,6 +71,8 @@ export class TabletId {
   }
 
   stop(): void {
+    this.stopped = true;
+    if (this.backupRetry !== undefined) clearTimeout(this.backupRetry);
     this.settle()?.reject(new Error("the plugin is unloading"));
   }
 
@@ -88,8 +96,17 @@ export class TabletId {
   /** Keeps the id, once read or written, for this load, and has Decaid's backups include it. */
   private known(id: string): string {
     this.id = id;
-    void keepStorageInBackups();
+    void this.keepInBackups();
     return id;
+  }
+
+  /** Has Decaid's store API read the plugin's storage, so backups hold the id, asking again until it answers. */
+  private async keepInBackups(): Promise<void> {
+    if ((await keepStorageInBackups()) || this.stopped) return;
+    this.backupRetry = setTimeout(() => {
+      this.backupRetry = undefined;
+      void this.keepInBackups();
+    }, BACKUP_RETRY_MS);
   }
 
   /**

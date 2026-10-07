@@ -85,6 +85,13 @@ describe("a release's upgrade notes", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("Retitle them 0.3.0, the version being released");
   });
+
+  it("let the release go on under an Unreleased heading with no notes", () => {
+    const result = notesFor("v0.3.0", upgrading.replace("## 0.3.0", "## Unreleased\n\n## 0.3.0"));
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("### Approve the plugin update on every tablet\n\nIt adds `pluginStorage`.\n");
+  });
 });
 
 describe("the plugin release ZIP", () => {

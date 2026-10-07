@@ -318,7 +318,8 @@ model Tablet {
 /// or, for a mismatch, the reported hardware's Machine, or the Pending
 /// Machine holding it until a Machine takes it over. One tablet on several
 /// Machines has a row for each. Times are PostgreSQL's clock: first seen at
-/// the first accepted `hello`, last seen at the latest `hello` or heartbeat.
+/// the first accepted `hello`, connected at the latest, which makes it its
+/// Machine's current tablet, and last seen at the latest `hello` or heartbeat.
 model MachineTablet {
   id               BigInt          @id @default(autoincrement())
   tabletId         String          @map("tablet_id") @db.Uuid
@@ -328,6 +329,7 @@ model MachineTablet {
   pendingMachineId String?         @map("pending_machine_id") @db.Uuid
   pendingMachine   PendingMachine? @relation(fields: [pendingMachineId], references: [id], onDelete: Cascade)
   firstSeenAt      DateTime        @map("first_seen_at") @db.Timestamptz(3)
+  connectedAt      DateTime        @map("connected_at") @db.Timestamptz(3)
   lastSeenAt       DateTime        @map("last_seen_at") @db.Timestamptz(3)
 
   @@unique([tabletId, machineId])
