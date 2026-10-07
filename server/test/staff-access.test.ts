@@ -139,6 +139,7 @@ describe("Staff access", () => {
       "/machines",
       "/machines/models",
       "/pending-machines",
+      `/pending-machines/${mismatched.mismatch!.pendingMachineId}`,
       ...[lab1, uptown1, belmont1, spare].flatMap(({ machine: { id } }) => [
         `/machines/${id}`,
         `/machines/${id}/workflow`,

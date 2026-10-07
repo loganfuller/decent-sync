@@ -130,7 +130,8 @@ that takes their hardware over. Staff read them as Admins do.
   `{ id, state, substate, observedAt, receivedAt }`. Limit is 1–100.
 
 The Machines list shows each Machine's state and last Shot; the Machine page
-also shows its current Workflow.
+also shows its current Workflow, loaded every 30 s rather than every 5 s as
+the state is.
 
 `server/test/machine-events.test.ts` covers this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL, and

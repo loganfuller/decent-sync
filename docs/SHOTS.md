@@ -81,8 +81,11 @@ requested and adds its measurements without rolling back the edit. Incomplete
 Shots are hidden from REST reads and Machine status.
 
 First full records resolve credit from their own hardware (ADR-0015), or the
-session's reporting identity when inferred. A mismatched session's inferred
-records use its reported hardware, held by a Pending Machine until adopted.
+session's reporting identity when inferred. A recorded model or serial longer
+than `MAX_HARDWARE_LENGTH`, which a `hello` may not report either, names no
+hardware: the Shot is inferred, and no Pending Machine is made for it. A
+mismatched session's inferred records use its reported hardware, held by a
+Pending Machine until adopted.
 Hardware is locked before Machine rows and the Pending Machine upsert,
 matching identity resolution. The Shot advisory lock holds no Shot row while
 waiting for that hardware lock; adoption never takes the Shot advisory lock.

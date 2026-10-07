@@ -13,6 +13,12 @@ datasource db {
 }
 
 // Tables and columns use PostgreSQL's snake_case; models keep Prisma's casing.
+//
+// Times the server stores come from PostgreSQL's clock, never an instance's
+// (ADR-0016). Prisma fills @default(now()) itself, with the instance's clock,
+// so creation times default to dbgenerated("transaction_timestamp()"), which
+// is now() under a name Prisma leaves to the database: it reads now() and
+// CURRENT_TIMESTAMP back as its own now(). @updatedAt is still the instance's.
 
 enum AccountRole {
   ADMIN
@@ -31,7 +37,7 @@ model Account {
   role          AccountRole
   /// scrypt, in the self-describing format of server/src/accounts/passwords.ts.
   passwordHash  String      @map("password_hash")
-  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdAt     DateTime    @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
   /// Set by PostgreSQL's clock when an Admin deactivates the account, which
   /// ends its sessions and refuses its sign-ins; null while it is active.
@@ -69,7 +75,7 @@ model Invite {
   /// The email the account will sign in with, stored trimmed and lower-cased.
   email      String
   role       AccountRole
-  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdAt  DateTime    @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
   /// Set and judged by PostgreSQL's clock, whichever instance creates or accepts it.
   expiresAt  DateTime    @map("expires_at") @db.Timestamptz(3)
   /// Set once, by a conditional update, so it is used once whichever instance accepts it.
@@ -120,7 +126,7 @@ model Session {
   tokenHash  Bytes    @unique @map("token_hash")
   accountId  String   @map("account_id") @db.Uuid
   account    Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdAt  DateTime @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
   /// Pushed forward as the session is used, so a device in use stays signed in.
   expiresAt  DateTime @map("expires_at") @db.Timestamptz(3)
 
@@ -136,7 +142,7 @@ model SignInWindow {
   email     String   @id
   attempts  Int
   /// By PostgreSQL's clock, which every instance judges it by.
-  startedAt DateTime @default(now()) @map("started_at") @db.Timestamptz(3)
+  startedAt DateTime @default(dbgenerated("transaction_timestamp()")) @map("started_at") @db.Timestamptz(3)
 
   @@index([startedAt])
   @@map("sign_in_windows")
@@ -150,7 +156,7 @@ model Location {
   /// An IANA time zone, spelled as PostgreSQL knows it, so date filters can
   /// use it with AT TIME ZONE. See server/src/locations/time-zones.ts.
   timeZone  String   @map("time_zone")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdAt DateTime @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   assignments  LocationAssignment[]
@@ -212,7 +218,7 @@ model Machine {
   /// The tablet that connection comes from, set and cleared with it, so the
   /// next accepted `hello` can tell another tablet from this one reconnecting.
   connectedTabletId  String?           @map("connected_tablet_id") @db.Uuid
-  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdAt      DateTime              @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   shots              Shot[]
@@ -245,7 +251,7 @@ model LocationAssignment {
   location      Location @relation(fields: [locationId], references: [id])
   /// By PostgreSQL's clock when it is now, or as an Admin entered it.
   effectiveFrom DateTime @map("effective_from") @db.Timestamptz(3)
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdAt     DateTime @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
 
   @@unique([machineId, effectiveFrom])
   @@map("location_assignments")
@@ -258,7 +264,7 @@ model MachineToken {
   tokenHash Bytes     @unique @map("token_hash")
   machineId String    @map("machine_id") @db.Uuid
   machine   Machine   @relation(fields: [machineId], references: [id], onDelete: Cascade)
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
   /// Set when a newer token replaces it; a revoked token connects nothing.
   revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
 
@@ -274,7 +280,7 @@ model MachineAlias {
   machineId    String   @map("machine_id") @db.Uuid
   machine      Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
   connectionId String   @map("connection_id")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdAt    DateTime @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
 
   @@id([machineId, connectionId])
   @@map("machine_aliases")
@@ -290,7 +296,7 @@ model PendingMachine {
   id           String    @id @default(uuid(7)) @db.Uuid
   model        String
   serial       String
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdAt    DateTime  @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
   /// When a connection last reported it.
   lastSeenAt   DateTime? @map("last_seen_at") @db.Timestamptz(3)
   /// Dismissed Pending Machines stay, so creating a machine entry later restores what they hold.
@@ -384,7 +390,7 @@ model DismissedHardware {
   machine   Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
   model     String
   serial    String
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdAt DateTime @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
 
   @@id([machineId, model, serial])
   @@map("dismissed_hardware")
@@ -498,7 +504,7 @@ model WorkflowEvent {
   /// By the tablet's clock; the plugin may deliver it much later.
   observedAt       DateTime        @map("observed_at") @db.Timestamptz(3)
   /// By PostgreSQL's clock.
-  receivedAt       DateTime        @default(now()) @map("received_at") @db.Timestamptz(3)
+  receivedAt       DateTime        @default(dbgenerated("transaction_timestamp()")) @map("received_at") @db.Timestamptz(3)
   /// Decaid's Workflow, as sent.
   workflow         Json            @db.JsonB
 
@@ -518,7 +524,7 @@ model MachineStateEvent {
   pendingMachineId String?         @map("pending_machine_id") @db.Uuid
   pendingMachine   PendingMachine? @relation(fields: [pendingMachineId], references: [id])
   observedAt       DateTime        @map("observed_at") @db.Timestamptz(3)
-  receivedAt       DateTime        @default(now()) @map("received_at") @db.Timestamptz(3)
+  receivedAt       DateTime        @default(dbgenerated("transaction_timestamp()")) @map("received_at") @db.Timestamptz(3)
   /// Decaid's names, such as espresso and preinfusion.
   state            String
   substate         String
@@ -541,7 +547,7 @@ model MachineEventDelivery {
   machine    Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
   deliveryId String   @map("delivery_id")
   /// By PostgreSQL's clock. The retention period counts from here.
-  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+  receivedAt DateTime @default(dbgenerated("transaction_timestamp()")) @map("received_at") @db.Timestamptz(3)
 
   @@id([machineId, deliveryId])
   /// Finds the ids old enough to delete without reading the whole table.
@@ -601,7 +607,7 @@ model SetAsideDelivery {
   sqlState   String   @map("sql_state")
   error      String
   /// By PostgreSQL's clock.
-  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+  receivedAt DateTime @default(dbgenerated("transaction_timestamp()")) @map("received_at") @db.Timestamptz(3)
   /// The message as received: its JSON text, with escapes such as \u0000 as
   /// sent. lz4 column compression is set by the migration.
   message    String

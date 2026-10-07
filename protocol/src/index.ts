@@ -51,6 +51,18 @@ export const MISSED_HEARTBEATS = 3;
 export const MAX_ID_LENGTH = 128;
 
 /**
+ * The longest machine model, serial or connection id a `hello` may report, in
+ * UTF-16 code units, which is also the longest serial an Admin may enter.
+ * Decaid's are far shorter: a model such as DE1Pro, a serial number, and a
+ * Bluetooth address or a USB id made of the device's vendor, product and
+ * serial (`computeUsbStableId` in decaid:lib/src/services/serial/utils.dart).
+ * The server keeps them in unique indexes, which refuse an entry over about
+ * 2.7 KB every time it is tried, so a longer one is refused in `hello`, and a
+ * Shot recording one counts as recording no hardware.
+ */
+export const MAX_HARDWARE_LENGTH = 100;
+
+/**
  * The longest Shot or Steam Record id the server stores, in UTF-16 code
  * units. Decaid's are UUIDs. A longer one could not be indexed by
  * PostgreSQL, so a record whose id fails `isRecordId` is never sent,
@@ -457,10 +469,10 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         fields.string("pluginVersion");
         fields.string("decaidVersion", { nonEmpty: true });
         fields.uuid("tabletId");
-        fields.optionalString("connectionId");
+        fields.optionalString("connectionId", { maxLength: MAX_HARDWARE_LENGTH });
         fields.optionalObject("machine", (machine) => {
-          machine.string("model");
-          machine.string("serial");
+          machine.string("model", { maxLength: MAX_HARDWARE_LENGTH });
+          machine.string("serial", { maxLength: MAX_HARDWARE_LENGTH });
           machine.optionalString("firmware");
         });
         fields.optionalBoolean("yielding");
@@ -623,9 +635,13 @@ class FieldChecker {
     if (!isTabletId(this.object[key])) this.problem(key, "must be a UUID");
   }
 
-  optionalString(key: string): void {
+  optionalString(key: string, options: { maxLength?: number } = {}): void {
     const value = this.object[key];
-    if (value !== undefined && value !== null && typeof value !== "string") this.problem(key, "must be a string or null");
+    if (value === undefined || value === null) return;
+    if (typeof value !== "string") this.problem(key, "must be a string or null");
+    else if (options.maxLength !== undefined && value.length > options.maxLength) {
+      this.problem(key, `must be at most ${options.maxLength} characters`);
+    }
   }
 
   integer(key: string, options: { positive?: boolean; nonNegative?: boolean } = {}): void {

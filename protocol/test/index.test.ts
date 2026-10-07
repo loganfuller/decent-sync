@@ -4,6 +4,7 @@ import {
   COLLECTION_NAMES,
   type ErrorMessage,
   type Hello,
+  MAX_HARDWARE_LENGTH,
   MAX_ID_LENGTH,
   MAX_RECORD_ID_LENGTH,
   PROTOCOL_VERSION,
@@ -98,6 +99,25 @@ describe("decodePluginMessage", () => {
         problem: "hello.yielding must be true or false",
       });
     }
+  });
+
+  it("refuses a hello whose machine model, serial or connection id is longer than the server can index", () => {
+    const longest = "1".repeat(MAX_HARDWARE_LENGTH);
+    const atLimit = { ...hello, connectionId: longest, machine: { model: longest, serial: longest, firmware: "1333" } };
+    expect(decodePluginMessage(frame(atLimit))).toEqual({ ok: true, message: atLimit });
+
+    const tooLong = "2".repeat(MAX_HARDWARE_LENGTH + 1);
+    for (const [bad, field] of [
+      [{ ...hello, machine: { ...hello.machine, model: tooLong } }, "hello.machine.model"],
+      [{ ...hello, machine: { ...hello.machine, serial: tooLong } }, "hello.machine.serial"],
+      [{ ...hello, connectionId: tooLong }, "hello.connectionId"],
+    ] as const) {
+      const result = decodePluginMessage(frame(bad));
+      expect(result).toEqual({ ok: false, error: "protocol_error", problem: `${field} must be at most ${MAX_HARDWARE_LENGTH} characters` });
+      expect(JSON.stringify(result)).not.toContain(tooLong);
+    }
+    // No index holds the firmware, so it may be any length.
+    expect(decodePluginMessage(frame({ ...hello, machine: { ...hello.machine, firmware: tooLong } })).ok).toBe(true);
   });
 
   it("never repeats a field's value in a problem", () => {

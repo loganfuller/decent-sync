@@ -126,6 +126,13 @@ export class PendingMachinesController {
     return { pendingMachines: await this.pending.list() };
   }
 
+  /** One Pending Machine, as the list shows it. */
+  @AllowStaff()
+  @Get(":id")
+  async get(@Param("id") id: string): Promise<{ pendingMachine: PendingMachineView }> {
+    return { pendingMachine: await this.pending.get(readPendingMachineId(id)) };
+  }
+
   /** Creates a machine entry for the hardware. The response is the only time its token is shown. */
   @Post(":id/machine")
   async createMachine(@Param("id") id: string, @Body() body: unknown): Promise<{ machine: MachineView; token: string; serverUrl: string }> {

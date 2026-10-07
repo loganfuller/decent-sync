@@ -1,11 +1,11 @@
 import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { MAX_HARDWARE_LENGTH } from "@decent-sync/protocol";
 import { type Hardware, isRealSerial } from "../sync/identity.js";
 
 // Request bodies for the Machine endpoints, checked by hand like the other
 // endpoints: each problem gets a message the management interface can show.
 
 const MAX_NAME_LENGTH = 100;
-const MAX_SERIAL_LENGTH = 100;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO_INSTANT = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)(?::(\d\d)(?:\.\d+)?)?(?:Z|[+-](\d\d):(\d\d))$/i;
 
@@ -104,7 +104,8 @@ export function readHardware(body: unknown): Hardware {
   if (!(MACHINE_MODELS as readonly string[]).includes(model)) problems.push(`Choose a model: ${MACHINE_MODELS.join(", ")}`);
   const serial = typeof fields.serial === "string" ? fields.serial.trim() : "";
   if (!isRealSerial(serial)) problems.push("Enter the machine's serial number; 0 is what a machine without one reports");
-  else if (serial.length > MAX_SERIAL_LENGTH) problems.push(`Use a serial of at most ${MAX_SERIAL_LENGTH} characters`);
+  // The longest a tablet may report: no tablet could report a longer one.
+  else if (serial.length > MAX_HARDWARE_LENGTH) problems.push(`Use a serial of at most ${MAX_HARDWARE_LENGTH} characters`);
   if (problems.length > 0) throw new BadRequestException(problems);
   return { model, serial };
 }

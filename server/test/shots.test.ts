@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { MAX_HARDWARE_LENGTH } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
@@ -558,6 +559,23 @@ describe("Shot capture and reconciliation", () => {
     ];
     load(machine, records);
     for (const record of records) expect(await waitShot(String(record.id))).toMatchObject({ machineId: machine.machine.id, machineInferred: true });
+  });
+
+  it("credits a Shot recording a model or serial longer than a hello may report as inferred, holding no Pending Machine for it", async () => {
+    const machine = await api.createMachine("Long recorded hardware");
+    const raw = await connect(machine);
+    const pendingBefore = await api.pendingMachines();
+    const workflow = shotFixture().workflow as Record<string, unknown>;
+    const tooLong = "9".repeat(MAX_HARDWARE_LENGTH + 1);
+    for (const [id, recorded] of [
+      ["long-recorded-serial", { model: "DE1Pro", serialNumber: tooLong }],
+      ["long-recorded-model", { model: tooLong, serialNumber: "40901" }],
+    ] as const) {
+      // Acknowledged once stored.
+      await deliver(raw, derivedShot(id, { workflow: { ...workflow, machine: recorded } }));
+      expect(await detail(id)).toMatchObject({ machineId: machine.machine.id, pendingMachineId: null, machineInferred: true });
+    }
+    expect(await api.pendingMachines()).toEqual(pendingBefore);
   });
 
   it("captures an identity mismatch against its Pending hardware and preserves it on resolution", async () => {

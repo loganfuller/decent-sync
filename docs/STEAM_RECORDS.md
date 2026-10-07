@@ -35,10 +35,33 @@ Node with `TZ` set to `America/Chicago`. On 2026-10-05 the built plugin also
 ran in Decaid v0.8.7's Linux release, in a container with that `TZ` and
 Decaid's simulated Bengle, against a scratch server: it backfilled and
 captured Steam Records live, each placed at the right UTC instant, so QuickJS
-on Linux reads local time in the process's time zone. Whether QuickJS on an
-Android tablet reads it in the tablet's zone is unverified; that needs the
-plugin installed on the test tablet. The upstream ask for a UTC time on Steam
-Records, in the owner's planning notes, would remove the dependence.
+on Linux reads local time in the process's time zone. On an Android tablet it
+reads local time in the zone Decaid wrote it in, by the sources (checked on
+2026-10-07):
+
+- Decaid v0.8.7 and v0.8.8 run plugins in QuickJS 2026-06-04, through
+  [tadelv/dart_js](https://github.com/tadelv/dart_js/blob/d6e8849210c0081d19c78be97628947e6e2976e2/android/CMakeLists.txt)
+  (`flutter_js` at `d6e8849` in `decaid:pubspec.lock`), whose Android build
+  compiles the same QuickJS as its Linux one. QuickJS takes local time from
+  bionic's `localtime_r` (`getTimezoneOffset` in
+  `linux/quickjs/upstream/quickjs.c` there), for the `Date` constructor's
+  local times too.
+- Decaid's Dart VM, in the same process, makes the same call to write the
+  `DateTime.now()` that times a Steam Record (`SteamSequencer`) in local time
+  (`LocalTime` in
+  [`runtime/vm/os_android.cc`](https://github.com/dart-lang/sdk/blob/3.12.2/runtime/vm/os_android.cc),
+  at the Dart 3.12.2 that Flutter 3.44.2, which Decaid's release builds use,
+  ships).
+- Bionic takes the zone from `TZ`, else from the device's
+  `persist.sys.timezone` (`tzset_unlocked` in
+  [`libc/tzcode/bionic.cpp`](https://android.googlesource.com/platform/bionic/+/refs/heads/main/libc/tzcode/bionic.cpp)).
+
+So the plugin reads those local times with the zone that wrote them, unless
+the tablet's zone changed between Decaid writing a record and the plugin
+reading it, as backfill may. Comparing `new Date().getTimezoneOffset()` in the
+plugin with Android's zone setting on a real tablet would confirm it outright.
+The upstream ask for a UTC time on Steam Records, in the owner's planning
+notes, would remove the dependence.
 
 ## Plugin
 

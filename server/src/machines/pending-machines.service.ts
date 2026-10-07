@@ -11,6 +11,7 @@ import {
   dismissedReason,
   hardwareTaken,
   lockHardware,
+  recordRefusals,
   refuseDuplicateName,
   transferPendingRecords,
 } from "./machines.service.js";
@@ -46,15 +47,15 @@ export class PendingMachinesService {
   async list(): Promise<PendingMachineView[]> {
     const pending = await this.prisma.pendingMachine.findMany({ orderBy: { createdAt: "desc" } });
     if (pending.length === 0) return [];
-    const mismatched = await this.prisma.machine.findMany({
-      where: {
-        identification: MachineIdentification.MISMATCH,
-        OR: pending.map(({ model, serial }) => ({ reportedModel: model, reportedSerial: serial })),
-      },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, reportedModel: true, reportedSerial: true },
-    });
+    const mismatched = await this.mismatchedMachines(pending);
     return pending.map((machine) => view(machine, mismatched));
+  }
+
+  /** One Pending Machine, dismissed or not, as the list shows it. */
+  async get(id: string): Promise<PendingMachineView> {
+    const pending = await this.prisma.pendingMachine.findUnique({ where: { id } });
+    if (!pending) throw pendingMachineNotFound();
+    return view(pending, await this.mismatchedMachines([pending]));
   }
 
   /**
@@ -103,7 +104,6 @@ export class PendingMachinesService {
    * holds it.
    */
   async dismiss(id: string): Promise<PendingMachineView> {
-    const at = new Date();
     const { pending, refused } = await this.prisma.$transaction(async (tx) => {
       // A hello reporting the hardware, which may make its Machine a mismatch of it, waits for the
       // dismissal or is waited for, so every Machine that is one when this commits is found here.
@@ -115,15 +115,13 @@ export class PendingMachinesService {
         WHERE identification = 'MISMATCH' AND reported_model = ${found.model} AND reported_serial = ${found.serial}
         ORDER BY id
         FOR NO KEY UPDATE`;
-      const pending = found.dismissedAt ? found : await tx.pendingMachine.update({ where: { id }, data: { dismissedAt: at } });
+      if (!found.dismissedAt) await tx.$executeRaw`UPDATE pending_machines SET dismissed_at = now() WHERE id = ${id}::uuid`;
+      const pending = await tx.pendingMachine.findUniqueOrThrow({ where: { id } });
       await tx.dismissedHardware.createMany({
         data: refused.map((machine) => ({ machineId: machine.id, model: pending.model, serial: pending.serial })),
         skipDuplicates: true,
       });
-      await tx.machine.updateMany({
-        where: { id: { in: refused.map((machine) => machine.id) } },
-        data: { refusalReason: dismissedReason(pending), refusedAt: at },
-      });
+      await recordRefusals(tx, refused.map((machine) => machine.id), dismissedReason(pending));
       // Delivered on commit: each instance closes its connections reporting this hardware with those tokens.
       for (const machine of refused) await notifyAccessChanged(tx, machine.id);
       return { pending, refused };
@@ -133,6 +131,18 @@ export class PendingMachinesService {
       pending,
       refused.map((machine) => ({ ...machine, reportedModel: pending.model, reportedSerial: pending.serial })),
     );
+  }
+
+  /** The Machines whose token's connection reports any of this hardware as a mismatch, by name. */
+  private mismatchedMachines(pending: Hardware[]) {
+    return this.prisma.machine.findMany({
+      where: {
+        identification: MachineIdentification.MISMATCH,
+        OR: pending.map(({ model, serial }) => ({ reportedModel: model, reportedSerial: serial })),
+      },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, reportedModel: true, reportedSerial: true },
+    });
   }
 }
 

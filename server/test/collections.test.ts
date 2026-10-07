@@ -435,6 +435,55 @@ describe("Library, settings and paired devices", () => {
     expect((await collection(machine, "machineSettings"))!.value).toEqual(newer.value);
   }, 20_000);
 
+  it("leaves a value delivered again as stored, not writing it again, while recording when it was reported and received", async () => {
+    const machine = await api.createMachine("Reconnecting");
+    const hardware = { model: "DE1Pro", serial: "31001" };
+    const profiles = de1ProOnDecaid087()["/profiles"] as Record<string, unknown>[];
+    const database = await server.connectDatabase();
+    try {
+      /** The stored profiles: the TOAST data holding their value, which writing it again replaces, and their times and count. */
+      const stored = async () =>
+        (
+          await database.query<{ toast: string | null; reportedAt: Date; receivedAt: Date; items: number }>(
+            `SELECT pg_column_toast_chunk_id(value)::text AS toast, reported_at AS "reportedAt", received_at AS "receivedAt", items
+             FROM reported_collections WHERE machine_id = $1 AND name = 'profiles'`,
+            [machine.machine.id],
+          )
+        ).rows[0]!;
+      const first = await connect(machine, server.url, hardware);
+      await first.deliver(report("profiles", profiles));
+      const before = await stored();
+      // Large enough to be kept out of line, as profiles usually are.
+      expect(before.toast).not.toBeNull();
+      await first.close();
+
+      // A reconnect, through any instance, sends it again unchanged.
+      const second = await connect(machine, other.url, hardware);
+      await second.deliver(report("profiles", profiles));
+      const resent = await stored();
+      expect(resent.toast).toBe(before.toast);
+      expect(resent.reportedAt.getTime()).toBeGreaterThan(before.reportedAt.getTime());
+      expect(resent.receivedAt.getTime()).toBeGreaterThan(before.receivedAt.getTime());
+      expect(resent.items).toBe(profiles.length);
+      expect(await collection(machine, "profiles")).toMatchObject({ available: true, value: profiles, items: profiles.length });
+
+      // An unavailable report keeps it too, and so does the same value read again after it.
+      await second.deliver(report("profiles"));
+      await second.deliver(report("profiles", profiles));
+      expect((await stored()).toast).toBe(before.toast);
+
+      // Derived: one profile renamed, and one deleted. A changed value is stored.
+      const changed = profiles.slice(1).map((profile, index) => (index === 0 ? { ...profile, title: "Londonium, longer" } : profile));
+      await second.deliver(report("profiles", changed));
+      const after = await stored();
+      expect(after.toast).not.toBe(before.toast);
+      expect(after.items).toBe(changed.length);
+      expect(await collection(machine, "profiles")).toMatchObject({ available: true, value: changed, items: changed.length });
+    } finally {
+      await database.end();
+    }
+  });
+
   it("stores a mismatched connection's collection once, for the Machine that has its hardware or its Pending Machine, however often it arrives", async () => {
     const owner = await api.createMachine("Owner of 30901");
     await (await connect(owner, server.url, { model: "DE1Pro", serial: "30901" })).close();

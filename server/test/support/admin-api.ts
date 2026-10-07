@@ -197,16 +197,14 @@ export class AdminApi {
   /**
    * How far the instance's clock runs ahead of the database's (behind if
    * negative), as its code sees it, to check `clockOffsetMs` took effect.
-   * Reissuing a token stamps the old one revoked by the instance's clock.
-   * Leaves a machine entry behind.
+   * Prisma's `@updatedAt` fills in a new machine entry's `updated_at` by the
+   * instance's clock, unlike every time the server stores. Leaves a machine
+   * entry behind.
    */
   async instanceClockOffsetMs(database: pg.Client): Promise<number> {
     const { machine } = await this.createMachine(`Clock check ${randomUUID()}`);
-    const reissued = await this.call("POST", `/machines/${machine.id}/token`);
-    expect(reissued.status).toBe(201);
-    await this.issued(reissued);
     const { rows } = await database.query<{ ms: string }>(
-      "SELECT extract(epoch FROM revoked_at - now()) * 1000 AS ms FROM machine_tokens WHERE machine_id = $1 AND revoked_at IS NOT NULL",
+      "SELECT extract(epoch FROM updated_at - now()) * 1000 AS ms FROM machines WHERE id = $1",
       [machine.id],
     );
     return Number(rows[0]!.ms);

@@ -108,7 +108,13 @@ collection, the later report says whether it is available, and the later
 value received is kept.
 
 Values are stored as jsonb, which keeps their content but not the order of
-their keys, and compressed with lz4.
+their keys, and compressed with lz4. The plugin sends every collection on
+every `welcome`, changed or not, so a value equal to the one stored, as jsonb
+compares them, is left as stored rather than written again: large ones, such
+as profiles, would otherwise rewrite their TOAST data and WAL on every
+reconnect. Its report time, received time and item count are recorded just as
+for a changed value. jsonb counts numbers equal however they are written, so a
+value that changes only `1.0` to `1` keeps the spelling stored.
 
 ## REST API
 
@@ -143,7 +149,8 @@ Machine that takes their hardware over. Staff read them as Admins do.
 
 The Machine page shows the paired devices, the app, machine and advanced
 settings, the steam, hot water and rinse settings of the current Workflow, and
-how many of each library collection its tablet reported.
+how many of each library collection its tablet reported, loaded every 30 s
+rather than every 5 s as the Machine's status is.
 
 `server/test/collections.test.ts` covers this through Seam 1, with the built
 plugin and raw frames on two instances sharing PostgreSQL, and

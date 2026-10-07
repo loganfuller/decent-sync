@@ -1,3 +1,4 @@
+import { COLLECTION_NAMES } from "@decent-sync/protocol";
 import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
 import {
   SimulatedTablet,
@@ -8,6 +9,7 @@ import {
   simulatedLibrary,
 } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { afterDetailsPolls } from "./support/polling.js";
 
 // A Machine's paired devices, settings and library in the management
 // interface. A simulated tablet running the built plugin serves the test
@@ -34,13 +36,18 @@ test.afterAll(async () => {
 });
 
 test("the Machine page shows paired devices, settings and the library, and follows a machine and scale switched off", async ({ page }) => {
-  const token = await createMachine(page, "Bar 2");
+  const { id, token } = await createMachine(page, "Bar 2");
   const served = { ...de1ProOnDecaid087(), ...simulatedLibrary(), ...simulatedDevices() };
   // Polls every 5 s of the tablet's time, which runs five times faster here.
   const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api: served, timeScale: 5 });
   tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
+  // The page loads what the tablet reported every 30 s, so it opens once the server holds all of it.
+  const reported = async () => ((await (await page.request.get(`/api/machines/${id}/collections`)).json()) as { collections: unknown[] }).collections;
+  await expect.poll(async () => (await reported()).length).toBe(COLLECTION_NAMES.length);
 
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto("/machines");
   await page.getByRole("link", { name: "Bar 2", exact: true }).click();
   const devices = page.getByRole("region", { name: "Paired devices" });
@@ -77,16 +84,18 @@ test("the Machine page shows paired devices, settings and the library, and follo
   // DYE2 has never saved any equipment on this tablet.
   await expect(rows(library).filter({ hasText: /^DYE2 equipment/ })).toHaveText(/^DYE2 equipmentNoneNot available when last read, at /);
 
-  // The machine and the scale are switched off: the last settings read stay, marked as such.
+  // The machine and the scale are switched off: the last settings read stay, marked as such, from the page's next load of them.
   tablet.machineConnected = false;
   tablet.serve({ ...served, ...simulatedDevicesSwitchedOff() });
-  await expect(rows(devices).first()).toHaveText(["Scale", "Mock Scale", "Disconnected", "Not reported", "Not reported"].join(""));
-  await expect(machineSettings).toContainText(/Not available when last read, at .+; shown as reported at /);
+  await afterDetailsPolls(page, async () => {
+    await baseExpect(rows(devices).first()).toHaveText(["Scale", "Mock Scale", "Disconnected", "Not reported", "Not reported"].join(""), { timeout: 2_000 });
+    await baseExpect(machineSettings).toContainText(/Not available when last read, at .+; shown as reported at /, { timeout: 2_000 });
+  });
   await expect(field(machineSettings, "fan")).toHaveText("55");
 });
 
 test("a Machine whose tablet has reported nothing says so", async ({ page }) => {
-  const token = await createMachine(page, "Spare 2");
+  const { token } = await createMachine(page, "Spare 2");
   baseExpect(token).toBeTruthy();
   await page.goto("/machines");
   await page.getByRole("link", { name: "Spare 2", exact: true }).click();
@@ -99,11 +108,12 @@ test("a Machine whose tablet has reported nothing says so", async ({ page }) => 
   await expect(rows(page.getByRole("region", { name: "Library" })).first()).toHaveText("BeansNoneNot reported yet");
 });
 
-/** Creates a machine entry through the REST API, returning its token. */
-async function createMachine(page: Page, name: string): Promise<string> {
+/** Creates a machine entry through the REST API, returning its id and token. */
+async function createMachine(page: Page, name: string): Promise<{ id: string; token: string }> {
   const response = await page.request.post("/api/machines", { data: { name } });
   baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { token: string }).token;
+  const { machine, token } = (await response.json()) as { machine: { id: string }; token: string };
+  return { id: machine.id, token };
 }
 
 /** A table's rows below its header. */
