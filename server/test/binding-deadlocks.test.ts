@@ -18,8 +18,7 @@ import { startTestServer, type TestServer } from "./support/test-server.js";
 
 const OBSERVED_AT = "2026-10-07T12:00:00.000Z";
 // Longer than any test. A heartbeat records its Machine as seen, so while the test holds that Machine's row it
-// would wait there, ahead of the deliveries sent after it. The server drops a connection silent for 3 s, so a test
-// starts heartbeats once it lets the row go.
+// would wait there, ahead of the deliveries sent after it. A test starts heartbeats once it lets the row go.
 const SILENT = 60_000;
 
 describe("Deliveries while a Machine's hardware is bound", () => {
@@ -27,7 +26,10 @@ describe("Deliveries while a Machine's hardware is bound", () => {
   let other: TestServer;
   let api: AdminApi;
   const raws: RawConnection[] = [];
-  const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
+  // Limits well beyond a test's waits, which may each take up to 4 s under load: a connection silent while the test
+  // holds its Machine's row is dropped only after three heartbeat intervals, and one opened for a race sends its hello
+  // only once the steps before it wait.
+  const env = { SYNC_HELLO_TIMEOUT_SECONDS: "30", SYNC_HEARTBEAT_SECONDS: "20" };
 
   beforeAll(async () => {
     server = await startTestServer({ env });
