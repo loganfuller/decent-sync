@@ -36,7 +36,9 @@ import { rememberSecret, watchLog } from "./secrets.js";
 //   one at a time, and stay pending until written; `uploadBytesPerSecond`
 //   slows the writing, so pending bytes build up as on a slow network, and
 //   `stallUpload` stops it at a chosen frame. Closing a transport first
-//   waits for its queued frames to be written.
+//   waits for its queued frames to be written. `loseNetwork` ends every
+//   connection and fails every open until `restoreNetwork`, while Decaid's
+//   own API keeps answering.
 // - `host.storage` is Decaid's plugin storage, given only to a plugin whose
 //   manifest declares `pluginStorage`: it answers a read with a `storageRead`
 //   event of `{ key, value }`, `value` null for a key never written, and a
@@ -492,6 +494,8 @@ export class SimulatedTablet {
   private nextTimerId = 0;
   private nextHandle = 0;
   private unloaded = false;
+  /** Whether the server cannot be reached: every open fails. */
+  private networkLost = false;
 
   /** Loads the built plugin and calls onLoad, as Decaid does when the plugin is enabled. */
   static load(options: SimulatedTabletOptions): SimulatedTablet {
@@ -595,6 +599,22 @@ export class SimulatedTablet {
   /** Loses the network: every connection ends without a close handshake, as if the Wi-Fi dropped. */
   dropConnections(): void {
     for (const record of this.transports.values()) record.socket.terminate();
+  }
+
+  /**
+   * Loses the network until `restoreNetwork`: every connection ends as in
+   * `dropConnections`, and every connection opened meanwhile fails, as
+   * while the Wi-Fi is down or the server cannot be reached. Decaid's own
+   * API still answers.
+   */
+  loseNetwork(): void {
+    this.networkLost = true;
+    this.dropConnections();
+  }
+
+  /** Brings back the network `loseNetwork` lost: connections open again. */
+  restoreNetwork(): void {
+    this.networkLost = false;
   }
 
   /** Unloads the plugin, as disabling it, changing its settings or quitting Decaid does. */
@@ -759,6 +779,7 @@ export class SimulatedTablet {
     if (live.length + this.opening >= MAX_LIVE_TRANSPORTS) {
       throw new TransportError("Too many open transports for this plugin", "transport_resource_limit");
     }
+    if (this.networkLost) throw new TransportError("WebSocket connect failed: Network is unreachable");
 
     // Only the URL and subprotocols: Decaid cannot send custom headers.
     const socket = new WebSocket(url, protocols as string[] | undefined);
@@ -775,6 +796,10 @@ export class SimulatedTablet {
     if (this.unloaded) {
       socket.terminate();
       throw new TransportError("Plugin unloaded during connect");
+    }
+    if (this.networkLost) {
+      socket.terminate();
+      throw new TransportError("WebSocket connect failed: Network is unreachable");
     }
 
     const record: TransportRecord = {

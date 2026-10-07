@@ -548,6 +548,7 @@ var __decentSync = (() => {
   }
 
   // src/outbox.ts
+  var RECORD_NAMES = { shot: "Shot", steam: "Steam Record" };
   var SHORT_OUTBOX = 4;
   var Outbox = class {
     constructor(log, readers) {
@@ -635,11 +636,6 @@ var __decentSync = (() => {
       }
       this.pump();
     }
-    /** A record that could not be read now, to be read again, as if requested, after a pause. */
-    retryLater(kind, id) {
-      this.requested.set(`${kind}:${id}`, { kind, id });
-      this.retry();
-    }
     /** Resolves once few enough deliveries are queued for an index to add a page. */
     async waitForRoom() {
       while (!this.stopped && this.queued.size >= SHORT_OUTBOX) await new Promise((resolve) => setTimeout(resolve, 50));
@@ -665,10 +661,12 @@ var __decentSync = (() => {
         let delivery;
         try {
           delivery = await this.readers[record.kind](record.id, this.nextId());
-        } catch (error) {
+        } catch {
           this.requested.delete(key);
           this.requested.set(key, record);
-          throw error;
+          this.log(`Could not read ${RECORD_NAMES[record.kind]} ${record.id} from Decaid; retrying it after the other requested records.`);
+          this.retry();
+          return;
         }
         if (this.stopped) return;
         this.requested.delete(key);
@@ -779,7 +777,6 @@ var __decentSync = (() => {
       __publicField(this, "welcomed", false);
       __publicField(this, "stopped", false);
       __publicField(this, "timer");
-      __publicField(this, "events", Promise.resolve());
       /** The Shots Decaid reported stored or edited while a summary pass runs. */
       __publicField(this, "reported");
     }
@@ -794,33 +791,23 @@ var __decentSync = (() => {
     }
     event(type, payload) {
       const event = object2(payload);
-      if (!event || !isCaptured(event.id)) return;
+      if (this.stopped || !event || !isCaptured(event.id)) return;
       const id = event.id;
       this.reported?.add(id);
-      this.events = this.events.then(async () => {
-        if (type === "shotUpdated") {
-          const shot2 = object2(event.shot);
-          if (shot2 && !this.stopped) this.capture(type, id, shot2);
-          return;
-        }
-        let shot;
-        try {
-          shot = await readShot(id);
-        } catch {
-          this.outbox.retryLater("shot", id);
-          return;
-        }
-        if (shot && !this.stopped) this.capture(type, id, shot);
-      }).catch(() => this.log("Could not capture a Shot event; reconciliation will recover it."));
+      if (type === "shot") {
+        this.ids.add(id);
+        this.outbox.request("shot", [id], { first: true });
+        return;
+      }
+      const shot = object2(event.shot);
+      if (!shot) return;
+      this.ids.add(id);
+      this.outbox.enqueue({ type, id: this.outbox.nextId(), shotId: id, shot });
     }
-    /** A Shot the server requested, as a delivery, or null if the tablet no longer has it. */
+    /** A Shot new on the tablet or requested by the server, as a delivery, or null if the tablet no longer has it. */
     async read(id, deliveryId) {
       const shot = await readShot(id);
       return shot && { type: "shot", id: deliveryId, shotId: id, shot };
-    }
-    capture(type, id, shot) {
-      this.ids.add(id);
-      this.outbox.enqueue({ type, id: this.outbox.nextId(), shotId: id, shot });
     }
     /** Read bounded summaries once per load; never use the unbounded ids endpoint. */
     async scan() {

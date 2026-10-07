@@ -56,8 +56,8 @@ plugin's one outbox (`plugin/src/outbox.ts`): one logical delivery awaits
 acknowledgment at a time, and index pages wait while four deliveries are
 queued. The outbox reads every Steam Record with `GET /steams/{id}`, one at a
 time and only while nothing else is queued; a record that cannot be read is
-retried after the others. Shot events read their Shots on their own, as
-before. A 404 means the tablet deleted the
+retried after the others. Shots Decaid reports stored are requested and read
+the same way (`SHOTS.md`). A 404 means the tablet deleted the
 record; nothing deletes the server's copy. A record too large for one frame is
 sent in chunks (`AI_PROTOCOL_NOTES.md`).
 

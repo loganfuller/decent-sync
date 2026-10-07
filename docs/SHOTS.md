@@ -25,6 +25,17 @@ NUL in a string, is set aside as received and acknowledged as stored, and the
 Shot counts as known to that Machine's indexes from then on
 (`AI_PROTOCOL_NOTES.md`, Deliveries set aside).
 
+Decaid's `shotStored` event names a new Shot. The plugin requests it from its
+outbox by id, ahead of backfill, and fetches it with `GET /shots/{id}` only
+when the outbox is about to send it, as it fetches backfill. With its
+measurements a Shot is tens of KB, so while the server is unreachable the
+plugin holds only the ids of the Shots stored meanwhile, and sends them once
+a connection is welcomed. A Shot deleted before it is read is skipped, but
+stays among the ids a reconnect in that load sends, so each reconnect reads it
+once more and finds it absent. A `shotUpdated` is queued as Decaid reports it, so
+an edit can reach the server before its Shot's full record; the server stores
+it as an early edit (below).
+
 On load, the plugin pages `GET /shots?limit=100&offset=...&order=desc` once,
 sending each page's ids and edit times. Offsets shift when Shots are deleted
 or added during the scan, so each page after the first repeats the previous
@@ -39,8 +50,9 @@ If that count falls short, no Shot already read reappears (more than the
 overlap were deleted between two pages), or the list grows past what the
 first page's `total` allows, the scan starts again. After
 three passes it logs and leaves the rest to the next load. A reconnect in that
-runtime sends cached ids only and resends unacknowledged deliveries. Backfill fetches one
-Shot at a time, when the outbox has nothing else queued. Only one logical
+runtime sends cached ids only and resends unacknowledged deliveries. The outbox
+fetches requested Shots, new ones first, one at a time, when it has nothing
+else queued. Only one logical
 delivery awaits acknowledgment at a time, and the scan waits while the outbox
 has four deliveries. A Shot whose fetch
 fails is retried after the other requested Shots; a 404 means the tablet
@@ -159,7 +171,8 @@ measurements into curves, counting time as `elapsedSeconds` does.
 
 `server/test/shots.test.ts` verifies the built plugin through Seam 1, REST
 reads, and two server instances sharing PostgreSQL. It includes 205-record
-history paging, mid-backfill reconnect, live capture and edits, reload recovery,
+history paging, mid-backfill reconnect, live capture and edits, Shots stored,
+edited or deleted while the server is unreachable, reload recovery,
 unacknowledged edits, deletion, late full records, edits that clear fields,
 replays, precise version ordering, restart, hardware attribution, dismissal
 and adoption, identity mismatch, transient and persistent API failures, ignored
