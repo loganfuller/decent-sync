@@ -12,7 +12,7 @@ export class ApiError extends Error {
   }
 }
 
-const refusalListeners = new Set<(status: 401 | 403) => Promise<void>>();
+const refusalListeners = new Set<() => Promise<void>>();
 
 /**
  * Calls `listener` whenever the server refuses a request with 401 or 403,
@@ -20,7 +20,7 @@ const refusalListeners = new Set<(status: 401 | 403) => Promise<void>>();
  * changed. The request's caller sees the refusal only once the promise it
  * returns settles. Returns a function that removes it.
  */
-export function onRefusal(listener: (status: 401 | 403) => Promise<void>): () => void {
+export function onRefusal(listener: () => Promise<void>): () => void {
   refusalListeners.add(listener);
   return () => refusalListeners.delete(listener);
 }
@@ -38,11 +38,10 @@ export async function api<T>(method: string, path: string, body?: unknown, { rep
   });
   const data: unknown = response.status === 204 ? undefined : await response.json().catch(() => undefined);
   if (!response.ok) {
-    const { status } = response;
-    if (reportRefusal && (status === 401 || status === 403)) {
-      await Promise.allSettled([...refusalListeners].map((listener) => listener(status)));
+    if (reportRefusal && (response.status === 401 || response.status === 403)) {
+      await Promise.allSettled([...refusalListeners].map((listener) => listener()));
     }
-    throw new ApiError(status, errorMessage(data) ?? response.statusText);
+    throw new ApiError(response.status, errorMessage(data) ?? response.statusText);
   }
   return data as T;
 }

@@ -197,30 +197,19 @@ test("a request the server answers only after the session ended goes to sign-in,
   page,
   browser,
 }) => {
-  const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };
-  const uptown = locations.find((location) => location.name === "Uptown")!;
   await setAccess(page, sam.email, { role: "admin", locationIds: [] });
 
   // Sam, an Admin, opens Locations, whose list the server is sent only once the test releases it.
-  const samsPage = await signedOutPage(browser);
-  baseExpect((await samsPage.request.post("/api/session", { data: { email: sam.email, password: newPassword } })).status()).toBe(200);
-  let release!: () => void;
-  const released = new Promise<void>((resolve) => (release = resolve));
-  let held = false;
-  await samsPage.route("**/api/locations", async (route) => {
-    if (route.request().method() === "GET" && !held) {
-      held = true;
-      await released;
-    }
-    await route.continue();
-  });
+  const samsPage = await signedInPage(browser);
+  const list = await holdNextGet(samsPage, "/locations", { answerNow: false });
   await samsPage.goto("/locations");
   const form = samsPage.getByRole("form", { name: "New Location" });
   await expect(form).toBeVisible();
   const alerts = await recordAlerts(samsPage);
 
   // Made Staff again, Sam is refused creating a Location, and the session read that follows finds them signed in.
-  await setAccess(page, sam.email, { role: "staff", locationIds: [uptown.id] });
+  await list.held;
+  await setAccess(page, sam.email, { role: "staff", locationIds: [await locationId(page, "Uptown")] });
   const sessionRead = samsPage.waitForResponse((response) => new URL(response.url()).pathname === "/api/session" && response.ok());
   await form.getByLabel("Name").fill("Harbor");
   await form.getByRole("button", { name: "Create Location" }).click();
@@ -233,10 +222,74 @@ test("a request the server answers only after the session ended goes to sign-in,
   await otherTab.getByRole("button", { name: "Sign out" }).click();
   await expect(otherTab).toHaveURL(/\/sign-in$/);
   const refused = samsPage.waitForResponse((response) => new URL(response.url()).pathname === "/api/locations" && response.status() === 401);
-  release();
+  list.release();
   await refused;
   await baseExpect(samsPage).toHaveURL(/\/sign-in$/);
   baseExpect(await alerts()).toEqual([]);
+  await samsPage.context().close();
+});
+
+test("a refusal that arrives while a session read is under way is answered by a later read", async ({ page, browser }) => {
+  const [uptown, lab] = [await locationId(page, "Uptown"), await locationId(page, "Lab")];
+  await setAccess(page, sam.email, { role: "admin", locationIds: [] });
+
+  // Sam, an Admin, has Uptown 1's page open when made Staff at Uptown and the Lab.
+  const samsPage = await signedInPage(browser);
+  await samsPage.goto(`/machines/${uptown1.id}`);
+  await expect(samsPage.getByRole("heading", { name: "Token" })).toBeVisible();
+  await setAccess(page, sam.email, { role: "staff", locationIds: [uptown, lab] });
+
+  // Issuing a token is refused. The server answers the session read that follows, but the page gets the answer only later.
+  const read = await holdNextGet(samsPage, "/session", { answerNow: true });
+  await samsPage.getByRole("button", { name: "Issue new token" }).click();
+  await samsPage.getByRole("alertdialog", { name: "Issue a new token for Uptown 1?" }).getByRole("button", { name: "Issue new token" }).click();
+  await read.held;
+
+  // Meanwhile Ada takes the Lab away, and Sam's move there is refused while that read is under way.
+  await setAccess(page, sam.email, { role: "staff", locationIds: [uptown] });
+  const move = samsPage.getByRole("region", { name: "Location" }).getByRole("form", { name: "Move" });
+  await move.getByRole("combobox", { name: "Move to" }).click();
+  await samsPage.getByRole("option", { name: "Lab" }).click();
+  const refused = samsPage.waitForResponse(
+    (response) => new URL(response.url()).pathname.endsWith("/location-history") && response.status() === 403,
+  );
+  await move.getByRole("button", { name: "Move" }).click();
+  await refused;
+
+  // The answer that arrives late is from before the Lab went; the read after it shows Sam has nowhere to move Uptown 1.
+  read.release();
+  await expect(samsPage.getByRole("region", { name: "Location" })).toContainText("There is no other Location you work at to move it to.");
+  await expect(samsPage.getByRole("heading", { name: "Token" })).toHaveCount(0);
+  await samsPage.context().close();
+});
+
+test("a session read answered before signing out does not sign the person back in", async ({ page, browser }) => {
+  await setAccess(page, sam.email, { role: "admin", locationIds: [] });
+  const samsPage = await signedInPage(browser);
+  await samsPage.goto("/machines");
+  const form = samsPage.getByRole("form", { name: "New Machine" });
+  await expect(form).toBeVisible();
+  await setAccess(page, sam.email, { role: "staff", locationIds: [await locationId(page, "Uptown")] });
+
+  // Creating a Machine is refused. The server answers the session read that follows, but the page gets the answer
+  // only after Sam has gone home, which doesn't poll, and signed out.
+  const read = await holdNextGet(samsPage, "/session", { answerNow: true });
+  await form.getByLabel("Name").fill("Uptown 3");
+  await form.getByRole("button", { name: "Create Machine" }).click();
+  await read.held;
+  await samsPage.getByRole("link", { name: "Decent Sync" }).click();
+  await expect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toBeVisible();
+  await samsPage.getByRole("button", { name: "Sign out" }).click();
+  await baseExpect(samsPage).toHaveURL(/\/sign-in$/);
+
+  const answered = samsPage.waitForResponse((response) => new URL(response.url()).pathname === "/api/session");
+  read.release();
+  baseExpect((await answered).status()).toBe(200);
+  // Nothing should happen, so give the page time to act on the answer, which takes it milliseconds.
+  await samsPage.waitForTimeout(500);
+  await baseExpect(samsPage).toHaveURL(/\/sign-in$/);
+  await baseExpect(samsPage.getByRole("heading", { name: "Sign in to Decent Sync" })).toBeVisible();
+  await baseExpect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toHaveCount(0);
   await samsPage.context().close();
 });
 
@@ -288,6 +341,34 @@ async function createMachine(page: Page, name: string, locationId: string): Prom
   return ((await response.json()) as { machine: { id: string } }).machine;
 }
 
+async function locationId(page: Page, name: string): Promise<string> {
+  const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };
+  return locations.find((location) => location.name === name)!.id;
+}
+
+/**
+ * Holds the page's next GET of a REST API path until `release()`. With
+ * `answerNow`, the server answers it at once and the page gets the answer only
+ * then; without, the server gets the request only then. `held` resolves once
+ * the request is held, and answered if `answerNow`.
+ */
+async function holdNextGet(page: Page, path: string, { answerNow }: { answerNow: boolean }) {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  let hold!: () => void;
+  const held = new Promise<void>((resolve) => (hold = resolve));
+  let holding = false;
+  await page.route(`**/api${path}`, async (route) => {
+    if (holding || route.request().method() !== "GET") return route.continue();
+    holding = true;
+    const response = answerNow ? await route.fetch() : undefined;
+    hold();
+    await released;
+    await (response ? route.fulfill({ response }) : route.continue());
+  });
+  return { held, release };
+}
+
 /** Sets an account's role and Locations through the REST API, as the Accounts page does. */
 async function setAccess(page: Page, email: string, access: { role: "admin" | "staff"; locationIds: string[] }) {
   const { accounts } = (await (await page.request.get("/api/accounts")).json()) as { accounts: { id: string; email: string }[] };
@@ -308,6 +389,13 @@ function secretOf(link: string): string {
 
 async function signedOutPage(browser: Browser): Promise<Page> {
   return (await browser.newContext({ baseURL: server.url() })).newPage();
+}
+
+/** A page in a browser of Sam's own, signed in with their password as the reset left it. */
+async function signedInPage(browser: Browser): Promise<Page> {
+  const page = await signedOutPage(browser);
+  baseExpect((await page.request.post("/api/session", { data: { email: sam.email, password: newPassword } })).status()).toBe(200);
+  return page;
 }
 
 async function signIn(page: Page, credentials: { email: string; password: string }) {

@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { type Account, ApiError, api, onRefusal } from "@/lib/api";
 
 type AuthState =
@@ -56,10 +56,19 @@ const AuthContext = createContext<Auth | undefined>(undefined);
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading" });
+  // Counts the session reads started and the sign-ins and sign-outs made here. A read's answer applies only if
+  // nothing started or changed after it, so one the server answered before someone signed out can't sign them back in.
+  const changes = useRef(0);
+
+  const change = useCallback((next: AuthState) => {
+    changes.current++;
+    setState(next);
+  }, []);
 
   const reread = useCallback(async () => {
+    const started = ++changes.current;
     const read = await readSession();
-    setState(read);
+    if (changes.current === started) setState(read);
     return read;
   }, []);
 
@@ -70,21 +79,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signedIn = state.status === "signed-in";
   useEffect(() => {
     if (!signedIn) return;
-    // Refusals that arrive while a read is under way share it, as a page's polls refused together do.
+    // The server may have answered a read already under way before it refused a request, even one sent first, so
+    // only a read sent after a refusal arrives answers it. Refusals that arrive during a read share the next one.
     let reading: Promise<AuthState> | undefined;
+    let following: Promise<AuthState> | undefined;
     let signedOut = false;
-    const read = () =>
-      (reading ??= reread().finally(() => {
-        reading = undefined;
+    const read = (): Promise<AuthState> => {
+      if (!reading) {
+        return (reading = reread().finally(() => {
+          reading = undefined;
+        }));
+      }
+      return (following ??= reading.then((found) => {
+        following = undefined;
+        // Finding nobody signed in, or the server unreachable, answers them all: Gate is leaving the page.
+        return found.status === "signed-in" ? read() : found;
       }));
-    return onRefusal(async (status) => {
+    };
+    return onRefusal(async () => {
       // A read found nobody signed in, or the server unreachable, and Gate is leaving the page.
       if (signedOut) return;
-      let found = await read();
-      // A 401 says the session has ended, but the server may have answered the read before it did, even a read
-      // sent after the refused request. One that found the session still going does not answer it: read once more.
-      if (status === 401 && found.status === "signed-in") found = await read();
-      if (found.status !== "signed-in") signedOut = true;
+      if ((await read()).status !== "signed-in") signedOut = true;
     });
   }, [signedIn, reread]);
 
@@ -94,20 +109,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async setUp(input) {
         try {
           const { account } = await authApi<{ account: Account }>("POST", "/setup", input);
-          setState({ status: "signed-in", account });
+          change({ status: "signed-in", account });
         } catch (error) {
           // Someone else finished setup first, so sign-in replaces this screen.
-          if (error instanceof ApiError && error.status === 409) setState({ status: "signed-out", setupRequired: false });
+          if (error instanceof ApiError && error.status === 409) change({ status: "signed-out", setupRequired: false });
           throw error;
         }
       },
       async signIn(input) {
         const { account } = await authApi<{ account: Account }>("POST", "/session", input);
-        setState({ status: "signed-in", account });
+        change({ status: "signed-in", account });
       },
       async acceptInvite(secret, input) {
         const { account } = await authApi<{ account: Account }>("POST", `/invite-links/${encodeURIComponent(secret)}/accept`, input);
-        setState({ status: "signed-in", account });
+        change({ status: "signed-in", account });
       },
       async redeemPasswordReset(secret, input) {
         const { account } = await authApi<{ account: Account }>(
@@ -115,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           `/password-reset-links/${encodeURIComponent(secret)}/redeem`,
           input,
         );
-        setState({ status: "signed-in", account });
+        change({ status: "signed-in", account });
       },
       async signOut() {
         try {
@@ -124,13 +139,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Already signed out on the server, for example after it expired.
           if (!(error instanceof ApiError && error.status === 401)) throw error;
         }
-        setState({ status: "signed-out", setupRequired: false });
+        change({ status: "signed-out", setupRequired: false });
       },
       async refresh() {
         await reread();
       },
     }),
-    [state, reread],
+    [state, change, reread],
   );
 
   return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;
