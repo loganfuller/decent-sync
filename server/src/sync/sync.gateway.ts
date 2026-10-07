@@ -30,7 +30,7 @@ import type { Config } from "../config.js";
 import { MachineEventsService } from "../machine-events/machine-events.service.js";
 import { AccessChanges } from "../machines/access-changes.js";
 import { type LiveConnection, LiveConnections } from "../machines/connections.js";
-import { MachinesService, type Refusal, describeHardware } from "../machines/machines.service.js";
+import { MachinesService, type Refusal } from "../machines/machines.service.js";
 import type { TakeoverConnectionView } from "../machines/takeovers.js";
 import { repeatingFailure } from "../set-aside-deliveries/repeating-failures.js";
 import { type CaptureDelivery, SetAsideDeliveriesService } from "../set-aside-deliveries/set-aside-deliveries.service.js";
@@ -431,7 +431,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     session.welcomed = true;
     this.resetIdleTimer(session);
     this.logger.log(
-      `Machine ${machine.name} connected from ${session.remote}: plugin ${hello.pluginVersion}, Decaid ${hello.decaidVersion}, ${describeIdentity(identity, hardware)}`,
+      `Machine ${machine.name} connected from ${session.remote}: ${describeVersions(hello)}, ${describeIdentity(identity, hardware)}`,
     );
     if (tookOverFrom) {
       this.logger.warn(
@@ -508,10 +508,13 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     return work;
   }
 
-  /** Tells the plugin why, then closes with the error's close code. */
+  /**
+   * Tells the plugin why, then closes with the error's close code. The
+   * message may name hardware the tablet reported, so it is logged escaped.
+   */
   private refuse(session: Session, code: ErrorCode, message: string): void {
     if (session.closing) return;
-    const log = `Closing the sync connection of ${this.describe(session)}: ${message}`;
+    const log = `Closing the sync connection of ${this.describe(session)}: ${escaped(message)}`;
     // Routine: a tablet reconnecting, or yielding to another one, which the takeover was logged for.
     if (code === "replaced" || code === "superseded" || code === "machine_held") this.logger.log(log);
     else this.logger.warn(log);
@@ -553,37 +556,52 @@ function describeRecord(delivery: ShotDelivery | SteamDelivery): string {
   return delivery.type === "steam" ? `Steam Record ${quoted(delivery.steamId)}` : `Shot ${quoted(delivery.shotId)}`;
 }
 
-/** Control, formatting and line or paragraph separator characters, which `JSON.stringify` leaves from U+007F on. */
-const UNSAFE_IN_LOG = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
+/** Control, formatting, surrogate and line or paragraph separator characters. */
+const UNSAFE_IN_LOG = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/gu;
 
 /**
- * A string the tablet chose, such as a record id, as a log line shows it:
- * quoted, with every character that could end the line or change how it
- * displays escaped, so the tablet cannot forge log lines.
+ * Text that may hold what the tablet chose, as a log line shows it: every
+ * character that could end the line or change how it displays is escaped
+ * as \uXXXX, so the tablet cannot forge log lines.
  */
-function quoted(value: string): string {
-  return JSON.stringify(value).replace(UNSAFE_IN_LOG, (character) =>
+function escaped(text: string): string {
+  return text.replace(UNSAFE_IN_LOG, (character) =>
     Array.from({ length: character.length }, (_, unit) => `\\u${character.charCodeAt(unit).toString(16).padStart(4, "0")}`).join(""),
   );
 }
 
+/** A string the tablet chose, such as a record id or its plugin's version, escaped and quoted, so where it ends is clear. */
+function quoted(value: string): string {
+  return escaped(JSON.stringify(value));
+}
+
+/** Hardware a tablet reported, as a log line shows it. */
+function describeReported(hardware: Hardware): string {
+  return `${quoted(hardware.model)} serial ${quoted(hardware.serial)}`;
+}
+
+/** The versions a hello reported, as a log line shows them. */
+function describeVersions({ pluginVersion, decaidVersion }: { pluginVersion: string; decaidVersion: string }): string {
+  return `plugin ${quoted(pluginVersion)}, Decaid ${quoted(decaidVersion)}`;
+}
+
 function describeTakenOver(connection: TakeoverConnectionView): string {
-  return `${connection.tabletId} at ${connection.remoteAddress}: plugin ${connection.pluginVersion}, Decaid ${connection.decaidVersion}`;
+  return `${connection.tabletId} at ${connection.remoteAddress}: ${describeVersions(connection)}`;
 }
 
 function describeIdentity(identity: Identity, hardware: Hardware | null): string {
   switch (identity.kind) {
     case "identified":
       if (identity.recognisedBy === "alias" || !hardware) return "identified by its connection id";
-      return `${identity.bind ? "bound to" : "identified as"} ${describeHardware(hardware)}`;
+      return `${identity.bind ? "bound to" : "identified as"} ${describeReported(hardware)}`;
     case "hardwareNotReported":
       return "no machine connected to its tablet yet";
     case "unidentified":
       return "the machine reports no serial";
     case "mismatch":
-      return `reports ${describeHardware(identity.hardware)}, not the hardware its token is bound to`;
+      return `reports ${describeReported(identity.hardware)}, not the hardware its token is bound to`;
     case "rejected":
-      return `reports dismissed hardware ${describeHardware(identity.hardware)}`;
+      return `reports dismissed hardware ${describeReported(identity.hardware)}`;
   }
 }
 
