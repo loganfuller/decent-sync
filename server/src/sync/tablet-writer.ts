@@ -60,7 +60,11 @@ export class TabletWriter {
    * The Location the plugin was last asked to report the tablet's collections
    * afresh for, until the writer finds the Machine at the Location of its
    * latest report. A report taken in just before a move, after the request,
-   * does not clear it, so the plugin is not asked twice.
+   * does not clear it, so the plugin is not asked twice. The cost: should the
+   * Machine move back, have the reply taken in there, and move to that
+   * Location again before the writer next looks, it is not asked again, and
+   * the tablet is written there only after its next report, when its beans
+   * change or it reconnects. Nothing is written twice meanwhile.
    */
   private requestedFor: string | undefined;
 

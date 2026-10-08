@@ -86,7 +86,7 @@ holds, shared with `machine_access`).
 
 Each welcomed connection that is not mismatched has a writer
 (`server/src/sync/tablet-writer.ts`), on the instance holding it. It looks for
-the next write due (`nextBeanWrite`): a Bean the Machine's Location offers that
+the next write due (`tabletDue`): a Bean the Machine's Location offers that
 the tablet's map lacks, which is created with the Bean's content, or one whose
 recorded record lacks its global id, which only that id is written to. Beans
 that joined the Library first are written first.
