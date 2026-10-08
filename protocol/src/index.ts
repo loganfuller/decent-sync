@@ -428,8 +428,8 @@ export interface CollectionDelivery {
   updatedAt?: (string | null)[];
 }
 
-/** The kinds of Library item the server writes to tablets. */
-export const LIBRARY_KINDS = ["bean"] as const;
+/** The kinds of Library item the server writes to tablets: Beans and Bean Batches. */
+export const LIBRARY_KINDS = ["bean", "beanBatch"] as const;
 
 export type LibraryKind = (typeof LIBRARY_KINDS)[number];
 
@@ -444,10 +444,16 @@ export type LibraryKind = (typeof LIBRARY_KINDS)[number];
  * was lost: it answers with that one instead. Nor does it create one when an
  * unarchived record without a global id is the same item, such as a bean with
  * the same roaster and name (`beanMatchKey`) entered before the tablet
- * reported it: it writes only the global id to that record. With a
- * `localId`, it updates that record. Either way it sets only `fields`, and
- * writes the global id into the record's `extras`, keeping the other keys
- * there.
+ * reported it: it writes only the global id to that record. Bean Batches are
+ * never the same item (ADR-0018). With a `localId`, it updates that record.
+ * Either way it sets only `fields`, and writes the global id into the
+ * record's `extras`, keeping the other keys there.
+ *
+ * A Bean Batch is created under its Bean: `fields.beanId` is the tablet's id
+ * for the Bean's record, which the server writes first. Decaid's create
+ * takes neither `archived` nor `weightRemaining`, setting the remaining
+ * weight to `weight`, so the plugin writes those it is given in a second
+ * request when they differ from what Decaid made.
  */
 export interface LibraryWrite {
   type: "write";
@@ -467,6 +473,14 @@ export interface LibraryWrite {
  * The plugin's answer to a `write` Decaid carried out: the record as Decaid
  * returned it, which the server records as the tablet's version of the item.
  * The server acknowledges it with `ack` once recorded.
+ *
+ * The plugin reads the tablet's Library lists and carries out writes one at
+ * a time, and sends answers through its outbox, behind every report it read
+ * before the write. So the server takes in a report read before a write
+ * before that write's answer, and never reads an item it wrote as deleted
+ * from a report that predates it. An answer the connection's drop held back
+ * is sent on the next connection, which answers it with `ack` and nothing
+ * more, as for any answer to a write that connection did not ask for.
  */
 export interface ItemWritten {
   type: "written";
@@ -482,8 +496,8 @@ export interface ItemWritten {
 
 /**
  * The plugin's answer to a `write` Decaid refused, or could not be asked to
- * carry out. The server acknowledges it with `ack` and goes on to its next
- * write.
+ * carry out, sent as `written` is. The server acknowledges it with `ack` and
+ * goes on to its next write.
  */
 export interface WriteRefused {
   type: "writeRefused";

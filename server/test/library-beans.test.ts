@@ -123,6 +123,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     await one.addBean({ roaster: "Roux", name: "Echo Natural" });
     const bean = await libraryBean("Echo Natural");
     await holds(two, "Echo Natural", bean.id);
+    await holds(one, "Echo Natural", bean.id);
     const writes = [one.writes.length, two.writes.length];
     const record = two.beans().find((candidate) => candidate.name === "Echo Natural");
 
@@ -130,7 +131,9 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const reportsBefore = beanReports(two);
     await expect.poll(() => beanReports(two), { timeout: 10_000 }).toBeGreaterThan(reportsBefore);
     await one.addBean({ roaster: "Roux", name: "Echo Washed" });
-    await holds(two, "Echo Washed", (await libraryBean("Echo Washed")).id);
+    const washed = await libraryBean("Echo Washed");
+    await holds(two, "Echo Washed", washed.id);
+    await holds(one, "Echo Washed", washed.id);
     expect(two.beans().find((candidate) => candidate.name === "Echo Natural")).toEqual(record);
     // Each tablet was written only the second Bean: its global id to the one, the Bean itself to the other.
     expect([one.writes.length, two.writes.length]).toEqual([writes[0]! + 1, writes[1]! + 1]);
@@ -233,6 +236,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const raw = await RawConnection.welcomed(server.url, hello);
     raws.push(raw);
     await raw.deliver(emptyBeans());
+    await raw.deliver(emptyBatches());
     const [refused] = await writesTo(raw, 1);
     // An answer to no write it was asked for, as one arriving after its write timed out, is acknowledged and not recorded.
     await raw.deliver({
@@ -266,6 +270,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const back = await RawConnection.welcomed(server.url, { ...hello, tabletId });
     raws.push(back);
     await back.deliver(emptyBeans());
+    await back.deliver(emptyBatches());
     for (let count = 1; count <= 3; count++) {
       const write = (await writesTo(back, count))[count - 1]!;
       await back.deliver({ type: "writeRefused", id: write.id, kind: "bean", globalId: write.globalId, status: null, error: "Decaid did not answer: Fetch timed out" });
@@ -309,10 +314,12 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     expect(await beansNamed("Moved Into")).toHaveLength(1);
     expect(await beansNamed("Lab Second")).toHaveLength(1);
 
-    // Moved to Uptown, it is written Uptown's Bean once its beans are taken in there.
+    // Moved to Uptown, it is written Uptown's Bean once its beans are taken in there, and the lab's are archived on
+    // it, as Uptown does not offer them.
     expect((await api.call("POST", `/machines/${traveller.machine.id}/location-history`, { locationId: uptown.id })).status).toBe(201);
     await holds(tablet, "Uptown Only", uptownOnly.id);
     expect(tablet.received.filter((frame) => (frame as { type?: unknown }).type === "requestCollections")).toHaveLength(2);
+    await expect.poll(() => tablet.beans().filter((bean) => bean.archived === true).map((bean) => bean.name).sort(), { timeout: 10_000 }).toEqual(["Lab Second", "moved into"]);
     // The Beans it held keep being offered where they were: taking in what a joining Machine brings is ticket #89.
     expect(locations(await libraryBean("Moved Into"))).toEqual(["Moving lab"]);
   });
@@ -549,6 +556,11 @@ async function beansEnteredOffline(...fields: Record_[]): Promise<Record_[]> {
 /** A report that the tablet holds no beans. */
 function emptyBeans() {
   return { type: "collection", id: randomUUID(), name: "beans", available: true, value: [], updatedAt: [] };
+}
+
+/** A report that the tablet holds no bean batches, which, with its beans, is taken in before anything is written to it. */
+function emptyBatches() {
+  return { type: "collection", id: randomUUID(), name: "beanBatches", available: true, value: [], updatedAt: [] };
 }
 
 /** Resolves with the first `count` writes the server sent on the raw connection, once it has sent that many. */

@@ -1,7 +1,10 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { COLLECTION_NAMES, type CollectionDelivery, type CollectionName, isCollectionName } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
-import { INTAKE_TRANSACTION, takeInBeans } from "../library/beans.js";
+import { takeInBatches } from "../library/bean-batches.js";
+import { takeInBeans } from "../library/beans.js";
+import { INTAKE_TRANSACTION } from "../library/intake.js";
+import type { TakenInList } from "../sync/tablet-writer.js";
 import { creditFirstDelivery } from "../machines/credit.js";
 import { machineNotFound } from "../machines/input.js";
 import { PrismaService } from "../prisma.service.js";
@@ -32,10 +35,10 @@ type Row = { name: string; available: boolean; reportedAt: Date; receivedAt: Dat
 /**
  * The collections tablets report: their library, settings and paired
  * devices, stored as the latest value of each, per Machine. A tablet's
- * `beans` are also taken into the Library, in the same transaction, when its
- * connection is not mismatched and its Machine is at a Location
- * (server/src/library/beans.ts); the Library is written back to tablets, not
- * these collections.
+ * `beans` and `beanBatches` are also taken into the Library, in the same
+ * transaction, when its connection is not mismatched and its Machine is at
+ * a Location (server/src/library/beans.ts and bean-batches.ts); the Library
+ * is written back to tablets, not these collections.
  *
  * A collection belongs to the session's token's Machine, or for a mismatched
  * session to its reported hardware: the Machine that has it, or else its
@@ -62,18 +65,20 @@ export class CollectionsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Stores a collection delivery. For a report of the tablet's beans from a
-   * connection that is not mismatched, taken in now, returns the Location it
-   * was taken in at, null for a Machine at none; otherwise, as for a delivery
-   * handled before, undefined.
+   * Stores a collection delivery. For a report of the tablet's beans or bean
+   * batches from a connection that is not mismatched, stored now, returns
+   * which it was and the Location it was taken in at, null for a Machine at
+   * none, or undefined if it was unavailable and so not taken in; otherwise,
+   * as for a delivery handled before, undefined.
    */
-  async store(message: CollectionDelivery, reporter: Reporter): Promise<{ takenInAt: string | null } | undefined> {
+  async store(message: CollectionDelivery, reporter: Reporter): Promise<{ list: TakenInList; takenInAt: string | null | undefined } | undefined> {
     // A collection a newer plugin reports that this server does not know: acknowledged, and ignored.
     if (!isCollectionName(message.name)) return undefined;
     const value = message.available ? JSON.stringify(message.value) : null;
     const items = message.available && Array.isArray(message.value) ? message.value.length : null;
     // A mismatched connection's tablet is not its token's Machine's, so it takes no part in the Library (ADR-0004).
-    const takesIn = message.name === "beans" && message.available && reporter.identity.kind !== "mismatch";
+    const list = (message.name === "beans" || message.name === "beanBatches") && reporter.identity.kind !== "mismatch" ? message.name : null;
+    const takesIn = list !== null && message.available;
     return this.prisma.$transaction(async (tx) => {
       const credit = await creditFirstDelivery(tx, reporter, message.id);
       if (!credit) return undefined;
@@ -94,8 +99,11 @@ export class CollectionsService {
           END,
           received_at = COALESCE(EXCLUDED.received_at, reported_collections.received_at),
           items = CASE WHEN EXCLUDED.available THEN EXCLUDED.items ELSE reported_collections.items END`;
-      if (!takesIn) return undefined;
-      return { takenInAt: await takeInBeans(tx, { machineId: reporter.machineId, tabletId: reporter.tabletId }, message.value, message.updatedAt) };
+      if (list === null) return undefined;
+      if (!takesIn) return { list, takenInAt: undefined };
+      const tablet = { machineId: reporter.machineId, tabletId: reporter.tabletId };
+      const takeIn = list === "beans" ? takeInBeans : takeInBatches;
+      return { list, takenInAt: await takeIn(tx, tablet, message.value, message.updatedAt) };
     }, takesIn ? INTAKE_TRANSACTION : undefined);
   }
 

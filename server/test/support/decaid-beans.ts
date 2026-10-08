@@ -142,7 +142,7 @@ function castOptional(value: unknown, type: "String" | "bool" | "List" | "Map<St
 }
 
 /** The message of the TypeError Dart throws casting a JSON value to a type it is not. */
-function castError(value: unknown, type: string): string {
+export function castError(value: unknown, type: string): string {
   return `type '${dartType(value)}' is not a subtype of type '${type}' in type cast`;
 }
 

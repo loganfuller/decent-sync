@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
+import { atText, batchName } from "@/components/bean-batches";
 import { BeanBadges, beanName, offeredAtText } from "@/components/beans";
 import { Field, Fields } from "@/components/fields";
 import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError, api, type Bean } from "@/lib/api";
 
 /** The content fields a Bean's page names, in Decaid's order, with how each is shown. */
@@ -20,7 +22,7 @@ const CONTENT: [key: string, term: string][] = [
   ["notes", "Notes"],
 ];
 
-/** One Bean: what it is, where it is offered, and other Beans that may be the same coffee. */
+/** One Bean: what it is, where it is offered, its batches, and other Beans that may be the same coffee. */
 export function BeanPage() {
   const { id = "" } = useParams();
   return <BeanDetails key={id} id={id} />;
@@ -88,7 +90,10 @@ function BeanDetails({ id }: { id: string }) {
             <CardTitle>
               <h2>In the Library</h2>
             </CardTitle>
-            <CardDescription>A Bean without batches is offered where a tablet created it or entered it too.</CardDescription>
+            <CardDescription>
+              Offered where one of its batches is, and, with no batch there yet, where a tablet created it or entered it
+              too.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <Fields label="In the Library">
@@ -126,6 +131,41 @@ function BeanDetails({ id }: { id: string }) {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <h2>Batches</h2>
+          </CardTitle>
+          <CardDescription>Its roasts, the latest first, and the Locations each is at.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {bean.batches.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No batches yet.</p>
+          ) : (
+            <Table aria-label="Batches">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Batch</TableHead>
+                  <TableHead>At</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {bean.batches.map((batch) => (
+                  <TableRow key={batch.id}>
+                    <TableCell className="font-medium">
+                      <Link to={`/library/bean-batches/${batch.id}`} className="underline-offset-4 hover:underline">
+                        {batchName(batch)}
+                      </Link>
+                    </TableCell>
+                    <TableCell>{atText(batch.locations)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       {bean.likelyDuplicates.length > 0 && (
         <Card>

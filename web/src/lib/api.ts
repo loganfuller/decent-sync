@@ -395,7 +395,10 @@ export interface BeanSummary {
   roaster: string | null;
   name: string | null;
   archived: boolean;
-  /** The Locations offering it: while it has no batches, those where a tablet created it or linked a bean of its own to it. */
+  /**
+   * The Locations offering it: each where one of its batches is, and each where it has no batch yet but a tablet
+   * created it, linked a bean of its own to it or un-archived it. None while it is Archived.
+   */
   offeredAt: Location[];
   /** When it joined the Library. */
   createdAt: string;
@@ -408,4 +411,38 @@ export interface BeanSummary {
 /** A Bean with its content: Decaid's record fields, as the tablet that created it sent them. */
 export interface Bean extends BeanSummary {
   content: Record<string, unknown>;
+  /** Its batches, the latest roasted first. */
+  batches: BeanBatchSummary[];
+}
+
+/** A Bean Batch at a Location. */
+export interface BatchAtLocation {
+  location: Location;
+  /** The remaining weight entered there last, in grams: null if none was, or it was cleared. */
+  remainingWeight: number | null;
+  /** When it was added there. */
+  since: string;
+}
+
+/** A Bean Batch in the Library, as the Bean Batches list shows it. */
+export interface BeanBatchSummary {
+  /** Its global id, which its record on each tablet carries. */
+  id: string;
+  bean: { id: string; roaster: string | null; name: string | null };
+  /** Its roast date as Decaid recorded it, such as 2026-10-01T00:00:00.000. */
+  roastDate: string | null;
+  archived: boolean;
+  /** The Locations it is at, by name, with its remaining weight at each. */
+  locations: BatchAtLocation[];
+  /** When it joined the Library. */
+  createdAt: string;
+  /** The Location of the tablet that created it. */
+  createdLocation: Location | null;
+}
+
+/** A Bean Batch with its content: Decaid's record fields, as the tablet that created it sent them. */
+export interface BeanBatch extends BeanBatchSummary {
+  content: Record<string, unknown>;
+  /** The Locations it was at and has been finished at since, with when and the remaining weight last entered there. */
+  finished: { location: Location; remainingWeight: number | null; finishedAt: string }[];
 }

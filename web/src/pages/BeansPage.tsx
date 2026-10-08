@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { Link } from "react-router";
+import { LibraryNav } from "@/components/bean-batches";
 import { BeanBadges, beanName, offeredAtText } from "@/components/beans";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -17,8 +18,10 @@ export function BeansPage() {
         <h1 className="text-2xl font-semibold">Beans</h1>
         <p className="text-muted-foreground">
           The coffees in the Library. A Bean entered on a tablet joins the Library at that tablet's Location, or becomes
-          the Bean already there with the same roaster and name, and is written to every tablet at that Location.
+          the Bean already there with the same roaster and name, and is written to every tablet at that Location. Once it
+          has a batch at a Location, it is offered there while one of its batches is.
         </p>
+        <LibraryNav />
       </div>
 
       {error && (

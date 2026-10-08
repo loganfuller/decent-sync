@@ -31,6 +31,7 @@ import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { CollectionsService } from "../collections/collections.service.js";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
+import { recordBatchWritten } from "../library/bean-batches.js";
 import { recordBeanWritten } from "../library/beans.js";
 import { MachineEventsService } from "../machine-events/machine-events.service.js";
 import { type LiveConnection, LiveConnections } from "../machines/connections.js";
@@ -126,12 +127,13 @@ interface Session {
  * Record no supported Decaid sends is acknowledged and ignored, and logged
  * by its id with what it lacks.
  *
- * Once its report of the tablet's beans is taken in, a connection that is
- * not mismatched writes the Library its Machine's Location offers to its
- * tablet (`TabletWriter`), one write at a time, each answered by the plugin,
- * which the server acknowledges once it has recorded the answer. A write too
- * large for one frame goes in chunks. When the Machine's Location changes,
- * the writer asks the plugin for its collections afresh.
+ * Once its reports of the tablet's beans and bean batches are taken in, a
+ * connection that is not mismatched writes the Library its Machine's
+ * Location offers to its tablet (`TabletWriter`), one write at a time, each
+ * answered by the plugin, which the server acknowledges once it has recorded
+ * the answer. A write too large for one frame goes in chunks. When the
+ * Machine's Location changes, the writer asks the plugin for its
+ * collections afresh.
  *
  * Any number of server instances may run. Which connection holds a Machine is
  * stored on its row; a change that may end a connection (another accepted
@@ -361,10 +363,15 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       case "machineState":
         return this.capture(session, message, text, () => this.machineEvents.storeMachineState(message, reporter));
       case "collection":
-        return this.capture(session, message, text, async () => {
+        // The plugin follows each report of the tablet's beans with one of its batches, and nothing is written between.
+        if (message.name === "beans" && message.available) session.writer?.awaitBatches();
+        await this.capture(session, message, text, async () => {
           const intake = await this.collections.store(message, reporter);
-          if (intake) session.writer?.reported(intake.takenInAt);
+          if (intake) session.writer?.reported(intake.list, intake.takenInAt);
         });
+        // One set aside ends that wait all the same.
+        if (message.name === "beanBatches") session.writer?.reported("beanBatches", undefined);
+        return;
       case "written":
       case "writeRefused":
         return this.answered(session, message);
@@ -432,28 +439,31 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * closes the connection with 1011, and the tablet's next connection is
    * written the item again, which the plugin then finds it holds. An answer
    * to no write its connection awaits, as on a mismatched connection, which
-   * is never written to, or one arriving after its write timed out, is
-   * acknowledged and nothing more: its record may be older than one
-   * reported since.
+   * is never written to, one arriving after its write timed out, or one the
+   * plugin's outbox held across a reconnect, is acknowledged and nothing
+   * more: its record may be older than one reported since.
    */
   private async answered(session: Session, answer: ItemWritten | WriteRefused): Promise<void> {
     let outcome: "written" | "refused" = "refused";
-    if (!session.writer?.awaits(answer.id)) {
+    const write = session.writer?.awaited(answer.id);
+    if (!write) {
       // Nothing was asked of it, or the write timed out and its writer went on: the tablet's next report shows what it holds.
     } else if (answer.type === "writeRefused") {
       this.logger.warn(
         `The tablet of ${this.describe(session)} did not write ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? "Decaid did not answer" : `Decaid answered ${answer.status}`}, ${quoted(answer.error.slice(0, 200))}`,
       );
-    } else if (answer.kind !== "bean") {
-      this.logger.warn(`The tablet of ${this.describe(session)} answered a write of a ${quoted(answer.kind)}, which this server never asks for`);
     } else {
+      // The write it answers names the item, whatever the answer says: its record must carry that item's global id.
+      const kind = write.kind === "bean" ? "Bean" : "Bean Batch";
+      const record = write.kind === "bean" ? recordBeanWritten : recordBatchWritten;
       try {
-        if (await recordBeanWritten(this.prisma, session.live!.tabletId, answer.globalId, answer.record, answer.updatedAt)) outcome = "written";
-        else this.logger.warn(`The tablet of ${this.describe(session)} answered the write of Bean ${answer.globalId} with a record that is not that Bean's`);
+        const tablet = { machineId: session.machine!.id, tabletId: session.live!.tabletId };
+        if (await record(this.prisma, tablet, write.globalId, write.fields, answer.record, answer.updatedAt)) outcome = "written";
+        else this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${kind} ${write.globalId} with a record that is not that ${kind}'s`);
       } catch (error) {
         const failure = repeatingFailure(error);
         if (!failure) throw error;
-        this.logger.warn(`Could not record the Bean ${answer.globalId} written to the tablet of ${this.describe(session)}: ${failure.message} (${failure.sqlState})`);
+        this.logger.warn(`Could not record the ${kind} ${write.globalId} written to the tablet of ${this.describe(session)}: ${failure.message} (${failure.sqlState})`);
       }
     }
     this.acknowledge(session, answer.id, null);

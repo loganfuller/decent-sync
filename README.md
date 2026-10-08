@@ -30,11 +30,15 @@ milestone](https://github.com/loganfuller/decent-sync/milestone/1) holds its
 tickets and the hardening still in progress. [Milestone
 2](https://github.com/loganfuller/decent-sync/issues/77) ([GitHub
 milestone](https://github.com/loganfuller/decent-sync/milestone/2)) shares the
-Library with each Location's Machines. So far it shares Beans: a bean entered
-on a tablet at a Location joins the Library, or becomes the Bean with the same
-roaster and name, and is written to that Location's other tablets, and the
-management interface's Library lists the Beans and where each is offered.
-Everything else is captured without being written to tablets.
+Library with each Location's Machines. So far it shares Beans and Bean
+Batches: a bean or batch entered on a tablet at a Location joins the Library
+(a bean may become the Bean with the same roaster and name) and is written to
+that Location's other tablets. A batch is at the Locations where it was added
+until it is finished there, with its own remaining weight at each, and a Bean
+is offered where its batches are. Archiving or deleting one on a tablet acts
+at that tablet's Location only. The management interface's Library lists the
+Beans, the Bean Batches, and where each is. Everything else is captured
+without being written to tablets.
 
 Releases publish the server image and the plugin ZIP, starting with
 [v0.1.0](https://github.com/loganfuller/decent-sync/releases/tag/v0.1.0).
@@ -291,12 +295,17 @@ installing the plugin, as Decaid's onboarding does, or choose to overwrite
 existing data. Otherwise the tablet keeps the new id it was given, and shows
 up as a new tablet.
 
-A Machine at a Location shares its tablet's beans with that Location's other
-Machines. The plugin writes to its tablet's Decaid: it adds the beans another
-tablet at the Location entered, and writes each bean's id in the Library into
-the record's `extras`, keeping what other plugins keep there. A Machine with no
-Location is only captured: its tablet is written nothing, and its beans stay
-out of the Library. See [docs/LIBRARY.md](docs/LIBRARY.md).
+A Machine at a Location shares its tablet's beans and bean batches with that
+Location's other Machines. The plugin writes to its tablet's Decaid: it adds
+the beans and batches another tablet at the Location entered, writes each
+one's id in the Library into the record's `extras`, keeping what other plugins
+keep there, and sets each batch's remaining weight to its Location's. What the
+Location no longer offers, such as a batch finished there, is archived on the
+tablet, never deleted. A barista archiving a batch finishes it at that
+Location, un-archiving it adds it back, and deleting or archiving a bean
+finishes its batches there. A Machine with no Location is only captured: its
+tablet is written nothing, and its beans and batches stay out of the Library.
+See [docs/LIBRARY.md](docs/LIBRARY.md).
 
 | Setting | |
 |---|---|

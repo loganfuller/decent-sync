@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { PROTOCOL_VERSION, SYNC_PATH } from "@decent-sync/protocol";
 import WebSocket from "ws";
 import { assertBuilt } from "./builds.js";
+import { batchesOf, createBatch, deleteBatch, deleteBean, listedBatches, updateBatch } from "./decaid-batches.js";
 import { type DecaidAnswer, createBean, listedBeans, updateBean } from "./decaid-beans.js";
 import { rememberSecret, watchLog } from "./secrets.js";
 
@@ -25,12 +26,16 @@ import { rememberSecret, watchLog } from "./secrets.js";
 //   `steamIdsLimitBytes`, and `GET /steams/latest` answers the newest of them
 //   without measurements, or `null`; `holdSteamReads` holds either. The
 //   library's lists leave out archived and hidden records unless asked for
-//   them, and send an ETag, answering 304 to it in If-None-Match. A key of
+//   them, the bean batches leaving out those of archived beans too, and send
+//   an ETag, answering 304 to it in If-None-Match. A key of
 //   plugin storage never written answers `null`. The machine's settings, like
 //   its info, fail while no machine is connected.
-// - Of Decaid's writes, it carries out only those to beans (`POST /beans`
-//   and `PUT /beans/{id}`) as Decaid does (decaid-beans.ts), and serves each
-//   bean at `/beans/{id}`; it refuses every other request but a `GET`.
+// - Of Decaid's writes, it carries out only those to beans (`POST /beans`,
+//   `PUT /beans/{id}` and `DELETE /beans/{id}`) and their batches (`POST
+//   /beans/{beanId}/batches`, `PUT` and `DELETE /bean-batches/{id}`) as
+//   Decaid does (decaid-beans.ts, decaid-batches.ts), and serves each bean
+//   at `/beans/{id}`, its batches at `/beans/{id}/batches`, and each batch at
+//   `/bean-batches/{id}`; it refuses every other request but a `GET`.
 // - The plugin's local time, as JavaScript reads it, is this process's time
 //   zone: set `process.env.TZ` to put the tablet in another one.
 // - `host.transport` opens real WebSockets with only a URL and subprotocols
@@ -399,8 +404,20 @@ export interface SimulatedTabletOptions {
    * Defaults to 1.
    */
   timeScale?: number;
-  /** How long Decaid's API takes to answer each request; from 30 s on, the request times out. Defaults to 0. */
-  apiDelayMs?: number;
+  /**
+   * How long Decaid's API takes to answer each request, or a request with
+   * that method and path (its route and query); from 30 s on, the request
+   * times out. Defaults to 0.
+   */
+  apiDelayMs?: number | ((method: string, path: string) => number);
+  /**
+   * Answers each of the plugin's requests from what Decaid holds when the
+   * request arrives, its answer then taking `apiDelayMs` to reach the plugin,
+   * as when Decaid read its database at once but its answer was slow. A
+   * write is carried out on arrival too, even if the plugin's fetch then
+   * times out. By default a request is answered once its delay is over.
+   */
+  answerOnArrival?: boolean;
   /**
    * The largest `GET /steams/ids` response the plugin's fetch answers: a
    * longer list fails the fetch, as Decaid's 10 MiB limit, the default, fails
@@ -500,7 +517,8 @@ export class SimulatedTablet {
   /** The plugin's id, which names its storage in Decaid's store API. */
   private readonly pluginId: string;
   private readonly timeScale: number;
-  private readonly apiDelayMs: number;
+  private readonly apiDelayMs: (method: string, path: string) => number;
+  private readonly answerOnArrival: boolean;
   private readonly steamIdsLimitBytes: number;
   private readonly uploadBytesPerSecond: number | undefined;
   private readonly stallUpload: ((frame: unknown) => boolean) | undefined;
@@ -533,7 +551,9 @@ export class SimulatedTablet {
     this.api = options.api ?? de1ProOnDecaid087();
     this.machineConnected = options.machineConnected ?? true;
     this.timeScale = options.timeScale ?? 1;
-    this.apiDelayMs = options.apiDelayMs ?? 0;
+    const apiDelayMs = options.apiDelayMs ?? 0;
+    this.apiDelayMs = typeof apiDelayMs === "number" ? () => apiDelayMs : apiDelayMs;
+    this.answerOnArrival = options.answerOnArrival ?? false;
     this.steamIdsLimitBytes = options.steamIdsLimitBytes ?? MAX_FETCH_RESPONSE_BYTES;
     this.uploadBytesPerSecond = options.uploadBytesPerSecond;
     this.stallUpload = options.stallUpload;
@@ -731,13 +751,18 @@ export class SimulatedTablet {
     return structuredClone((this.api["/beans"] as Record<string, unknown>[] | undefined) ?? []);
   }
 
+  /** The tablet's bean batches, archived ones included, as `GET /bean-batches?includeArchived=true` lists them. */
+  batches(): Record<string, unknown>[] {
+    return structuredClone((this.api["/bean-batches"] as Record<string, unknown>[] | undefined) ?? []);
+  }
+
   /**
    * Calls Decaid's API as something else on the tablet does, such as a
    * barista adding a bean in Decaid or another plugin: the plugin is not
    * told, and it is not listed in `requests` or `writes`. Resolves with what
    * Decaid answers, its body read as JSON.
    */
-  async callApi(method: "GET" | "POST" | "PUT", path: string, body?: unknown): Promise<DecaidAnswer> {
+  async callApi(method: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown): Promise<DecaidAnswer> {
     const answered = (await this.answer(`${API_ORIGIN}/api/v1${path}`, method, {}, body === undefined ? undefined : JSON.stringify(body))) as {
       status: number;
       text(): Promise<string>;
@@ -753,12 +778,50 @@ export class SimulatedTablet {
     return body as Record<string, unknown>;
   }
 
+  /** Adds a batch of the tablet's bean with that id in Decaid, as a barista does, and resolves with the record Decaid made. */
+  async addBatch(beanId: unknown, fields: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { status, body } = await this.callApi("POST", `/beans/${encodeURIComponent(String(beanId))}/batches`, fields);
+    if (status !== 201) throw new Error(`Decaid refused the batch with ${status}: ${JSON.stringify(body)}`);
+    return body as Record<string, unknown>;
+  }
+
+  /** Changes the tablet's batch with that id in Decaid, as a barista does, and resolves with the record Decaid returned. */
+  async editBatch(id: unknown, fields: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { status, body } = await this.callApi("PUT", `/bean-batches/${encodeURIComponent(String(id))}`, fields);
+    if (status !== 200) throw new Error(`Decaid refused the change with ${status}: ${JSON.stringify(body)}`);
+    return body as Record<string, unknown>;
+  }
+
+  /**
+   * Deletes the tablet's bean with that id as DYE2 does
+   * (`deleteBeanWithBatches` in dye2:dye2-plugin/src/utils/bean-delete.ts):
+   * its batches first, archived ones included, since Decaid refuses to
+   * delete a bean that has any, then the bean.
+   */
+  async deleteBean(id: unknown): Promise<void> {
+    const bean = encodeURIComponent(String(id));
+    const { body: batches } = await this.callApi("GET", `/beans/${bean}/batches?includeArchived=true`);
+    for (const batch of batches as Record<string, unknown>[]) await this.callApi("DELETE", `/bean-batches/${encodeURIComponent(String(batch.id))}`);
+    const { status, body } = await this.callApi("DELETE", `/beans/${bean}`);
+    if (status !== 200) throw new Error(`Decaid refused to delete the bean with ${status}: ${JSON.stringify(body)}`);
+  }
+
   // Decaid's plugin fetch, limited to its own API.
   private async fetch(input: unknown, init: unknown): Promise<unknown> {
-    await new Promise<void>((resolve) => this.setTimer(resolve, Math.min(this.apiDelayMs, FETCH_TIMEOUT_MS)));
-    if (this.apiDelayMs >= FETCH_TIMEOUT_MS) throw new Error("Fetch timed out");
+    const arrived = this.answerOnArrival ? this.request(input, init) : undefined;
+    // Answered or not, a request failing is not seen before its delay is over.
+    arrived?.catch(() => {});
+    const { method = "GET" } = (init ?? {}) as { method?: string };
+    const delayMs = this.apiDelayMs(method.toUpperCase(), String(input).slice(`${API_ORIGIN}/api/v1`.length));
+    await new Promise<void>((resolve) => this.setTimer(resolve, Math.min(delayMs, FETCH_TIMEOUT_MS)));
+    if (delayMs >= FETCH_TIMEOUT_MS) throw new Error("Fetch timed out");
+    return arrived ?? this.request(input, init);
+  }
+
+  /** Takes one of the plugin's requests, and starts answering it from what Decaid holds now. */
+  private request(input: unknown, init: unknown): Promise<unknown> {
     const url = String(input);
-    if (!url.startsWith(`${API_ORIGIN}/api/v1/`)) throw new Error(`The simulated tablet has no network for ${url}`);
+    if (!url.startsWith(`${API_ORIGIN}/api/v1/`)) return Promise.reject(new Error(`The simulated tablet has no network for ${url}`));
     const route = url.slice(`${API_ORIGIN}/api/v1`.length).split("?")[0]!;
     this.requests.push(route);
     // Decaid's fetch sends a request's method, headers and body as given (plugin_manager.dart).
@@ -770,8 +833,8 @@ export class SimulatedTablet {
   /** What Decaid's API answers a request, as its plugin fetch gives it. */
   private async answer(url: string, method: string, headers: Record<string, string>, requestBody: unknown): Promise<unknown> {
     const route = url.slice(`${API_ORIGIN}/api/v1`.length).split("?")[0]!;
-    const written = this.writeBeans(method, route, requestBody);
-    if (written) return response(written.status, JSON.stringify(written.body));
+    const written = this.writeLibrary(method, route, new URL(url).searchParams, requestBody);
+    if (written) return written.etag ? conditional(JSON.stringify(written.body), headers) : response(written.status, JSON.stringify(written.body));
     if (method !== "GET") throw new Error(`The simulated tablet's API carries out no ${method} ${route}`);
     const failures = this.apiFailures.get(route) ?? 0;
     if (failures > 0) {
@@ -786,11 +849,9 @@ export class SimulatedTablet {
     const list = LIBRARY_LISTS[route];
     if (list && Array.isArray(this.api[route])) {
       const all = this.api[route] as Record<string, unknown>[];
-      const body = JSON.stringify(new URL(url).searchParams.get(list.include) === "true" ? all : all.filter((record) => !list.hidden(record)));
-      // A strong tag derived from the body, as Decaid's is.
-      const etag = `"${createHash("sha256").update(body).digest("hex").slice(0, 16)}"`;
-      const ifNoneMatch = Object.entries(headers).find(([name]) => name.toLowerCase() === "if-none-match")?.[1]?.trim();
-      return ifNoneMatch === etag || ifNoneMatch === "*" ? response(304, "", { etag }) : response(200, body, { etag });
+      const include = new URL(url).searchParams.get(list.include) === "true";
+      if (route === "/bean-batches") return conditional(JSON.stringify(listedBatches(this.beans(), all, include)), headers);
+      return conditional(JSON.stringify(include ? all : all.filter((record) => !list.hidden(record))), headers);
     }
     if (route === "/shots") {
       const params = new URL(url).searchParams;
@@ -834,21 +895,52 @@ export class SimulatedTablet {
   }
 
   /**
-   * Carries out a write to the tablet's beans as Decaid does, or reads one
-   * bean, and gives Decaid's answer; undefined for any other request.
+   * Carries out a write to the tablet's beans or bean batches as Decaid does,
+   * or reads one bean, one bean's batches or one batch, and gives Decaid's
+   * answer, with `etag` for a list Decaid answers with one; undefined for any
+   * other request.
    */
-  private writeBeans(method: string, route: string, body: unknown): DecaidAnswer | undefined {
-    const one = /^\/beans\/([^/]+)$/.exec(route);
-    if (!(method === "POST" && route === "/beans") && !(one && (method === "PUT" || method === "GET"))) return undefined;
+  private writeLibrary(method: string, route: string, query: URLSearchParams, body: unknown): (DecaidAnswer & { etag?: true }) | undefined {
+    const bean = /^\/beans\/([^/]+)$/.exec(route)?.[1];
+    const ofBean = /^\/beans\/([^/]+)\/batches$/.exec(route)?.[1];
+    const batch = /^\/bean-batches\/([^/]+)$/.exec(route)?.[1];
+    const id = decodeURIComponent(bean ?? ofBean ?? batch ?? "");
     const beans = this.beans();
-    if (method === "GET") {
-      const bean = beans.find((candidate) => candidate.id === decodeURIComponent(one![1]!));
-      return bean ? { status: 200, body: bean } : { status: 404, body: { error: "Bean not found" } };
+    const batches = this.batches();
+    const json = () => {
+      if (typeof body !== "string") throw new Error("The plugin sent a write without a JSON body");
+      return JSON.parse(body) as unknown;
+    };
+    const keep = (result: { answer: DecaidAnswer; beans?: Record<string, unknown>[]; batches?: Record<string, unknown>[] }) => {
+      this.api = {
+        ...this.api,
+        ...(result.beans ? { "/beans": listedBeans(result.beans) } : {}),
+        ...(result.batches ? { "/bean-batches": listedBatches(beans, result.batches, true) } : {}),
+      };
+      return result.answer;
+    };
+    if (method === "POST" && route === "/beans") return keep(createBean(beans, json()));
+    if (bean !== undefined) {
+      if (method === "GET") {
+        const found = beans.find((candidate) => candidate.id === id);
+        return found ? { status: 200, body: found } : { status: 404, body: { error: "Bean not found" } };
+      }
+      if (method === "PUT") return keep(updateBean(beans, id, json()));
+      if (method === "DELETE") return keep(deleteBean(beans, batches, id));
     }
-    if (typeof body !== "string") throw new Error("The plugin sent a write without a JSON body");
-    const result = method === "POST" ? createBean(beans, JSON.parse(body)) : updateBean(beans, decodeURIComponent(one![1]!), JSON.parse(body));
-    this.api = { ...this.api, "/beans": listedBeans(result.beans) };
-    return result.answer;
+    if (ofBean !== undefined) {
+      if (method === "GET") return { status: 200, body: batchesOf(batches, id, query.get("includeArchived") === "true"), etag: true };
+      if (method === "POST") return keep(createBatch(beans, batches, id, json()));
+    }
+    if (batch !== undefined) {
+      if (method === "GET") {
+        const found = batches.find((candidate) => candidate.id === id);
+        return found ? { status: 200, body: found } : { status: 404, body: { error: "Batch not found" } };
+      }
+      if (method === "PUT") return keep(updateBatch(batches, id, json()));
+      if (method === "DELETE") return keep(deleteBatch(batches, id));
+    }
+    return undefined;
   }
 
   private setTimer(callback: () => void, delayMs: number): number {
@@ -1277,6 +1369,16 @@ function response(status: number, body: string, headers: Record<string, string> 
     text: async () => body,
     json: async () => JSON.parse(body || "null"),
   };
+}
+
+/**
+ * A list as Decaid answers it (jsonOkConditional in json_response.dart): with
+ * a strong tag derived from its body, or 304 to that tag in If-None-Match.
+ */
+function conditional(body: string, headers: Record<string, string>) {
+  const etag = `"${createHash("sha256").update(body).digest("hex").slice(0, 16)}"`;
+  const ifNoneMatch = Object.entries(headers).find(([name]) => name.toLowerCase() === "if-none-match")?.[1]?.trim();
+  return ifNoneMatch === etag || ifNoneMatch === "*" ? response(304, "", { etag }) : response(200, body, { etag });
 }
 
 function delay(ms: number): Promise<void> {
