@@ -30,8 +30,9 @@ A tablet holds only what its Machine's Location offers (ADR-0008):
   until it is finished there, unless it or its Bean is Archived;
 - a **Bean** while one of its batches is there, and, while none of its
   batches is there yet, where a tablet created it, linked a bean of its own
-  to it, or un-archived its record (its origins, below), unless it is
-  Archived.
+  to it, or un-archived its record, unless it is Archived. This document and
+  the code call each such Location one of the Bean's origins (`bean_origins`,
+  below); it is a name for how the server keeps this, not a glossary term.
 
 So a Bean with batches is offered only where they are: once its last batch
 at a Location is finished, it is no longer offered there. Archived items,
@@ -116,7 +117,10 @@ order reported (`planIntake` in `bean-intake.ts`):
    a tablet whose answer to a write was lost, or one restored from a Decaid
    backup, unless another record the tablet reports is that Bean already: it
    is then matched as a new record. Such a record changes nothing at the
-   Location; the Location's state is written to it.
+   Location; the Location's state is written to it, over any change the
+   tablet made to it before it was mapped, as when the plugin reloaded
+   between a write whose answer was lost and a barista's edit, so no outbox
+   held the answer any more.
 
 Records whose Bean these settle come first, so a record matched by roaster
 and name, though listed before them, cannot take their Bean. Then, in the
@@ -168,7 +172,8 @@ beans, and taken in the same way, under the same locks (`takeInBatches` in
   it was entered later than the value known, which the tablet had not seen;
   Conflicts come with ticket #84.
 - A record carrying a Library batch's global id is that batch, changing
-  nothing at the Location, as a bean's.
+  nothing at the Location, as a bean's, and so written the Location's state
+  over any change the tablet made to it before it was mapped.
 - Any other record is new: Bean Batches are never matched (ADR-0018). It
   joins the Library as a batch of the Bean that the tablet's map holds its
   bean's record as. Unless it is archived on the tablet, it is at the
@@ -361,7 +366,10 @@ finished.
   what only its old one offered archived. Those reports link or add only the
   items the tablet's map does not hold yet, such as those of a Machine given
   its first Location: what it held at its old Location stays offered only
-  there, though a batch un-archived on it is added at its new one.
+  there, though a batch un-archived on it is added at its new one. A change
+  made on the tablet just before a move, which a report or an answer brings
+  after it, means what it would at the Machine's new Location, as the
+  server reads it where the Machine is when it is taken in.
 - The capture-only switch: ticket #90. Recording refused writes, and each
   Machine's sharing status: ticket #91.
 - Linking Shots to the Library's batches: ticket #92.
