@@ -27,6 +27,8 @@ export interface MappedBean {
   localId: string;
   /** When the record known was updated, by the tablet's clock; null if its time could not be read. */
   updatedAt: Date | null;
+  /** The global id the record known carries, if any. */
+  globalId: string | null;
 }
 
 /** A Library Bean the report may name, by the global id a record carries or by roaster and name. */
@@ -82,20 +84,24 @@ export function beanContent(record: Record<string, unknown>): Record<string, unk
 }
 
 /**
- * What a report changes, in the order reported. A record the tablet's map
- * holds by its local id stays that Bean whatever global id it carries, so a
- * record whose global id another plugin wiped is not taken for a new one
- * (ADR-0006); its record is replaced if it is newer. Otherwise a record
- * carrying a Library Bean's global id is that Bean, as on a tablet whose
- * answer to the write was lost, or that was restored from a backup. Any other
- * record is new: it is linked to a Library Bean with the same roaster and
- * name, the oldest first, or joins the Library (ADR-0018). A Bean already
- * held by another record the tablet still reports is neither mapped nor
- * linked again, so it never gets two records on one tablet.
+ * What a report changes. Records whose Bean is known come first, in the
+ * order reported, so no record matched by roaster and name can take their
+ * Bean. A record the tablet's map holds by its local id stays that Bean
+ * whatever global id it carries, so a record whose global id another plugin
+ * wiped is not taken for a new one (ADR-0006). Its record replaces the one
+ * known when it is newer, or when it no longer carries the Bean's global id
+ * while the one known does, whatever its time: a tablet's clock can go back,
+ * and the id is still to be written back. Otherwise a record carrying a
+ * Library Bean's global id is that Bean, as on a tablet whose answer to the
+ * write was lost, or that was restored from a backup.
  *
- * A new record archived on the tablet is left until archiving has its
- * meaning at a Location (ADR-0008), and so is not matched against Archived
- * Beans, which are offered nowhere.
+ * Every other record is new, and comes next, in the order reported: it is
+ * linked to a Library Bean with the same roaster and name, the oldest first,
+ * or joins the Library (ADR-0018). A Bean already held by another record the
+ * tablet still reports is neither mapped nor linked again, so it never gets
+ * two records on one tablet. A new record archived on the tablet is left
+ * until archiving has its meaning at a Location (ADR-0008), and so is not
+ * matched against Archived Beans, which are offered nowhere.
  */
 export function planIntake(reported: readonly ReportedBean[], mapped: readonly MappedBean[], library: readonly LibraryBean[]): IntakeStep[] {
   const byLocalId = new Map(mapped.map((bean) => [bean.localId, bean]));
@@ -105,12 +111,15 @@ export function planIntake(reported: readonly ReportedBean[], mapped: readonly M
   const known = new Map(library.map((bean) => [bean.id, bean]));
   const seen = new Set<string>();
   const steps: IntakeStep[] = [];
+  const unknown: ReportedBean[] = [];
   for (const bean of reported) {
     if (seen.has(bean.localId)) continue;
     seen.add(bean.localId);
     const mine = byLocalId.get(bean.localId);
     if (mine) {
-      if (mine.updatedAt === null || bean.updatedAt.getTime() > mine.updatedAt.getTime()) steps.push({ kind: "update", beanId: mine.beanId, bean });
+      const newer = mine.updatedAt === null || bean.updatedAt.getTime() > mine.updatedAt.getTime();
+      const lostId = bean.globalId !== mine.beanId && mine.globalId === mine.beanId;
+      if (newer || lostId) steps.push({ kind: "update", beanId: mine.beanId, bean });
       continue;
     }
     const named = bean.globalId === null ? undefined : known.get(bean.globalId);
@@ -119,6 +128,9 @@ export function planIntake(reported: readonly ReportedBean[], mapped: readonly M
       steps.push({ kind: "map", beanId: named.id, bean });
       continue;
     }
+    unknown.push(bean);
+  }
+  for (const bean of unknown) {
     if (bean.archived) continue;
     const match = library.find((candidate) => candidate.matchKey === bean.matchKey && !candidate.archived && !held.has(candidate.id));
     if (match) {

@@ -55,10 +55,10 @@ export async function takeInBeans(
   if (locationId === null) return null;
   const reported = readReportedBeans(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
-  const mapped = await tx.tabletBean.findMany({
-    where: { tabletId: tablet.tabletId },
-    select: { beanId: true, localId: true, recordUpdatedAt: true },
-  });
+  const mapped = await tx.$queryRaw<{ beanId: string; localId: string; updatedAt: Date | null; globalId: string | null }[]>`
+    SELECT bean_id AS "beanId", local_id AS "localId", record_updated_at AS "updatedAt",
+      lower(record -> 'extras' ->> ${GLOBAL_ID_KEY}::text) AS "globalId"
+    FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid`;
   const mappedIds = new Set(mapped.map((bean) => bean.localId));
   const unmapped = reported.filter((bean) => !mappedIds.has(bean.localId));
   if (unmapped.length > 0) await tx.$executeRaw`SELECT pg_advisory_xact_lock(${BEAN_MATCHING_LOCK}::bigint)`;
@@ -76,11 +76,7 @@ export async function takeInBeans(
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
           select: { id: true, matchKey: true, archived: true },
         });
-  const steps = planIntake(
-    reported,
-    mapped.map((bean) => ({ beanId: bean.beanId, localId: bean.localId, updatedAt: bean.recordUpdatedAt })),
-    library,
-  );
+  const steps = planIntake(reported, mapped, library);
 
   let writesDue = false;
   for (const step of steps) {
@@ -195,18 +191,16 @@ export async function recordBeanWritten(
     if ((await tx.bean.count({ where: { id: beanId } })) === 0) return false;
     const other = await tx.tabletBean.findUnique({ where: { tabletId_localId: { tabletId, localId } }, select: { beanId: true } });
     if (other && other.beanId !== beanId) return false;
-    await saveRecord(tx, tabletId, beanId, localId, record, updatedAt === null ? null : new Date(updatedAt), { evenIfOlder: true });
+    await saveRecord(tx, tabletId, beanId, localId, record, updatedAt === null ? null : new Date(updatedAt));
     return true;
   });
 }
 
 /**
  * Saves the tablet's record of a Bean as the one it holds, under its local
- * id, unless the record known is newer by the tablet's clock, as a report
- * read before the plugin's own write is. With `evenIfOlder`, as for a record
- * Decaid has just returned, it is saved whatever the times say: a local time
- * in the hour the clocks go back is placed at its first occurrence, so a
- * newer record can read as older.
+ * id. Whether a reported record replaces the one known is decided by
+ * `planIntake`, under the tablet's row lock; a record Decaid has just
+ * returned for a write always does.
  */
 async function saveRecord(
   tx: Prisma.TransactionClient,
@@ -215,15 +209,12 @@ async function saveRecord(
   localId: string,
   record: Record<string, unknown>,
   updatedAt: Date | null,
-  { evenIfOlder = false } = {},
 ): Promise<void> {
   await tx.$executeRaw`
     INSERT INTO tablet_beans (tablet_id, bean_id, local_id, record, record_updated_at)
     VALUES (${tabletId}::uuid, ${beanId}::uuid, ${localId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz)
     ON CONFLICT (tablet_id, bean_id) DO UPDATE SET
-      local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at
-    WHERE ${evenIfOlder}::boolean OR tablet_beans.local_id <> EXCLUDED.local_id OR tablet_beans.record_updated_at IS NULL
-      OR EXCLUDED.record_updated_at >= tablet_beans.record_updated_at`;
+      local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at`;
 }
 
 /** Holds the tablet's row lock until the transaction ends, so its map changes one report or write at a time. */

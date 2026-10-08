@@ -58,11 +58,20 @@ order reported (`planIntake`):
    global id it carries, so a global id another plugin wiped is written back
    rather than the record taken for a new Bean. Its record replaces the one
    known if its time is later; one as old or older, such as a report read
-   before the plugin's own write, changes nothing.
+   before the plugin's own write, changes nothing. But a record that no
+   longer carries the Bean's global id, while the one known does, replaces it
+   whatever its time, as after the tablet's clock went back, so the id is
+   written back; at worst a report read just before the plugin's own write of
+   the id has it written once more.
 2. Otherwise a record carrying a Library Bean's global id in `extras` is that
    Bean, as on a tablet whose answer to a write was lost, or one restored from
    a Decaid backup.
-3. Otherwise the record is new. One archived on the tablet is left out until
+
+Records whose Bean these settle come first, so a record matched by roaster
+and name, though listed before them, cannot take their Bean. Then, in the
+order reported:
+
+3. Any other record is new. One archived on the tablet is left out until
    archiving has its meaning at a Location (ticket #81). Another is linked to
    the oldest Library Bean, not Archived, whose roaster and name match its own,
    ignoring case and white space at either end (`beanMatchKey`), unless one of

@@ -37,10 +37,12 @@ function reported(localId: string, fields: Record<string, unknown> = {}, updated
 }
 
 const library = (id: string, roaster: string, name: string, archived = false): LibraryBean => ({ id, matchKey: beanMatchKey(roaster, name), archived });
-const mapped = (beanId: string, localId: string, updatedAt: string | null = "2026-10-05T19:03:13.044Z"): MappedBean => ({
+/** A record the tablet's map holds, known at a time and, as when its global id was written, carrying one. */
+const mapped = (beanId: string, localId: string, updatedAt: string | null = "2026-10-05T19:03:13.044Z", globalId: string | null = null): MappedBean => ({
   beanId,
   localId,
   updatedAt: updatedAt === null ? null : new Date(updatedAt),
+  globalId,
 });
 const withId = (id: string) => ({ extras: { [GLOBAL_ID_KEY]: id } });
 
@@ -132,6 +134,20 @@ describe("planIntake", () => {
     ]);
   });
 
+  it("resolves records whose Bean is known before matching others by name, so a duplicate listed first cannot take their Bean", () => {
+    // A newer duplicate, entered without a global id, is listed before the record that carries the Bean's id, as
+    // after the answer to the write that gave it the id was lost.
+    const duplicate = reported(LOCAL[0], {}, "2026-10-07T00:00:00.000Z");
+    const tagged = reported(LOCAL[1], withId(GLOBAL[0]));
+    const existing = library(GLOBAL[0], "Fixture Roaster", "Fixture Bean");
+    expect(planIntake([duplicate, tagged], [], [existing])).toEqual([
+      { kind: "map", beanId: GLOBAL[0], bean: tagged },
+      { kind: "add", bean: duplicate },
+    ]);
+    // So too after a record the map holds by its local id.
+    expect(planIntake([duplicate, tagged], [mapped(GLOBAL[0], LOCAL[1])], [existing])).toEqual([{ kind: "add", bean: duplicate }]);
+  });
+
   it("takes a record carrying a global id the Library does not know for a new one", () => {
     const bean = reported(LOCAL[0], withId(GLOBAL[2]));
     expect(planIntake([bean], [], [])).toEqual([{ kind: "add", bean }]);
@@ -148,6 +164,16 @@ describe("planIntake", () => {
     expect(planIntake([wiped], [mapped(GLOBAL[0], LOCAL[0], "2026-10-07T00:00:00.000Z")], library_)).toEqual([]);
     // A known record whose time could not be read is replaced.
     expect(planIntake([wiped], [mapped(GLOBAL[0], LOCAL[0], null)], library_)).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: wiped }]);
+  });
+
+  it("replaces a known record carrying the Bean's global id with one that no longer does, whatever its time, so the id is written back", () => {
+    // Reported with an older time than the record known, as after the tablet's clock went back or a backup was restored.
+    const wiped = reported(LOCAL[0], { extras: { otherPlugin: true } }, "2026-10-06T00:00:00.000Z");
+    const intact = reported(LOCAL[0], withId(GLOBAL[0]), "2026-10-06T00:00:00.000Z");
+    const known = mapped(GLOBAL[0], LOCAL[0], "2026-10-07T00:00:00.000Z", GLOBAL[0]);
+    expect(planIntake([wiped], [known], [])).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: wiped }]);
+    // An older record still carrying the id changes nothing.
+    expect(planIntake([intact], [known], [])).toEqual([]);
   });
 
   it("leaves a new bean archived on the tablet out, and reads a record repeated in one report once", () => {
