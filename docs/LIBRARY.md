@@ -76,8 +76,8 @@ it (Writing to tablets, below).
   grams, with that edit's time. A batch is at a Location while it was added
   there and not finished since. Whether it is there is a field whose latest
   edit wins (ADR-0020), with when that was last decided by PostgreSQL's
-  clock. An edit from a tablet whose record of the batch had seen that (its
-  `seen_at`, below, is later) applies. Otherwise, as from a tablet that was
+  clock. An edit from a tablet whose record of the batch had seen that
+  decision (`seen_at`, below) applies. Otherwise, as from a tablet that was
   offline, adding it there loses to a finish timed later, and finishing it
   there to an add timed later; the Location's state is then written back to
   that tablet. It is never finished before it was added, nor added again
@@ -103,13 +103,14 @@ it (Writing to tablets, below).
   tablet id (ticket #79): each item's local id on that tablet, which is a
   Profile's own, and the record as the tablet last had it, as it reported it
   or as Decaid returned the plugin's write, with that record's `updatedAt`
-  placed in UTC by the plugin, and, for a batch or Profile, by when it shows
-  what the tablet had seen of its Location's state (`seen_at`, by
-  PostgreSQL's clock): when a report holding it was taken in, or when the
-  server planned the write it answers. An answer to a write no longer
-  awaited, such as one arriving after a reconnect, keeps the time known
-  before, as its write's is not. A reset tablet has a new tablet id, so it
-  starts with nothing here.
+  placed in UTC by the plugin, and, for a batch or Profile, the Location's
+  last decision of it that the record has seen (`seen_at`, its time by
+  PostgreSQL's clock): the one the server's write it answers carried, or one
+  its own edit made. A report shows nothing of what the tablet saw of other
+  tablets' decisions, as the plugin may have read it before them and sent it
+  after, as across a reconnect; nor does an answer to a write no longer
+  awaited, whose write is not known. Either keeps the decision known seen
+  before. A reset tablet has a new tablet id, so it starts with nothing here.
 
 ## Taking in a tablet's beans
 
@@ -246,8 +247,8 @@ Decaid's delete marks a user's Profile with, and hides a bundled one.
   but of another visibility. Made visible since, the Profile is shown at the
   tablet's Location; hidden or deleted since, it is hidden there (ADR-0019).
   Only a Profile the tablet held can be hidden this way. Each is an edit timed
-  by the record. One from a tablet whose record had seen the Location's state
-  last decided (`seen_at`, above) applies. Otherwise, as from
+  by the record. One from a tablet whose record had seen the Location's last
+  decision of the Profile (`seen_at`, above) applies. Otherwise, as from
   a tablet that was offline, one timed before the edit that decided the
   Location's state loses to it (ADR-0020), and the Location's state is
   written back to that tablet. Conflicts, which will keep the losing edit,
@@ -477,10 +478,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
   title, ignoring case. `id` is Decaid's, such as
   `profile:bf1ca48b9c7389c7d146`; `title`, `author` and `beverageType` are its
   content's. `shownAt` lists the Locations showing it, by name, each `{
-  location, since }`, the time of the edit that showed it there: a tablet's
-  by its record's time, which for a Profile a tablet brought, such as a
-  bundled one, can be before the Location existed. None while it is
-  Archived.
+  location, since }`, since when it is shown there, by PostgreSQL's clock.
+  None while it is Archived.
 - `GET /api/profiles/:id` returns `{ profile }`, the same with its `content`
   and `parent`, `{ id, title }` of the Profile it was saved from if the
   Library has it, or null; or 404. The id goes in the path as it is or

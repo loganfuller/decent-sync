@@ -39,6 +39,9 @@ const profileContent = {
 };
 const batchContent = { roastDate: "2026-10-01T00:00:00.000", roastLevel: "medium", weight: 250, frozen: false };
 
+/** When the Location last decided each batch's presence and each Profile's showing, by PostgreSQL's clock: what a write's record then holds. */
+const DECIDED = new Date("2026-10-08T12:00:00.000Z");
+
 /** A batch as the Location has it: offered there with 180.5 g left, unless given otherwise. */
 const batch = (id: string, state: Partial<LocationBatch> = {}): LocationBatch => ({
   id,
@@ -46,6 +49,7 @@ const batch = (id: string, state: Partial<LocationBatch> = {}): LocationBatch =>
   content: batchContent,
   offered: true,
   remainingWeight: 180.5,
+  decidedAt: DECIDED,
   ...state,
 });
 const offer = (beans: string[], batches: LocationBatch[] = [], profiles: ShownProfile[] = []): LocationOffer => ({
@@ -57,7 +61,7 @@ const offer = (beans: string[], batches: LocationBatch[] = [], profiles: ShownPr
 const holding = (beans: HeldRecord[], batches: HeldRecord[], profiles: HeldRecord[] = []): TabletHoldings => ({ beans, batches, profiles });
 
 /** A Profile the Location shows, with its content, as one the tablet lacks has it, unless given otherwise. */
-const shown = (id: string, fields: Partial<ShownProfile> = {}): ShownProfile => ({ id, bundled: false, content: profileContent, ...fields });
+const shown = (id: string, fields: Partial<ShownProfile> = {}): ShownProfile => ({ id, bundled: false, content: profileContent, decidedAt: DECIDED, ...fields });
 /** The tablet's record of a Profile, as the map holds it for planning: its visibility. */
 const heldProfile = (id: string, visibility: string): HeldRecord => ({ itemId: id, localId: id, record: { visibility } });
 
@@ -85,31 +89,31 @@ describe("plannedWrites", () => {
 
   it("writes a Bean the tablet lacks before its batch, which waits for the tablet's record of it", () => {
     expect(plannedWrites(offer([BEANS[0]], [batch(BATCHES[0])]), holding([], []))).toEqual([
-      { kind: "bean", globalId: BEANS[0], localId: null, fields: beanContent },
+      { kind: "bean", globalId: BEANS[0], localId: null, fields: beanContent, decidedAt: null },
     ]);
   });
 
   it("creates a batch under the tablet's record of its Bean, with the Location's remaining weight, or none if none was entered there", () => {
     const held = holding([heldBean(BEANS[0])], []);
     expect(plannedWrites(offer([BEANS[0]], [batch(BATCHES[0])]), held)).toEqual([
-      { kind: "beanBatch", globalId: BATCHES[0], localId: null, fields: { ...batchContent, beanId: LOCAL_BEAN, weightRemaining: 180.5 } },
+      { kind: "beanBatch", globalId: BATCHES[0], localId: null, fields: { ...batchContent, beanId: LOCAL_BEAN, weightRemaining: 180.5 }, decidedAt: DECIDED },
     ]);
     expect(plannedWrites(offer([BEANS[0]], [batch(BATCHES[0], { remainingWeight: undefined })]), held)).toEqual([
-      { kind: "beanBatch", globalId: BATCHES[0], localId: null, fields: { ...batchContent, beanId: LOCAL_BEAN } },
+      { kind: "beanBatch", globalId: BATCHES[0], localId: null, fields: { ...batchContent, beanId: LOCAL_BEAN }, decidedAt: DECIDED },
     ]);
   });
 
   it("un-archives a Bean and a batch the Location offers that the tablet holds archived, and writes the Location's remaining weight", () => {
     const held = holding([heldBean(BEANS[0], { archived: true })], [heldBatch(BATCHES[0], { archived: true, weightRemaining: 250 })]);
     expect(plannedWrites(offer([BEANS[0]], [batch(BATCHES[0])]), held)).toEqual([
-      { kind: "bean", globalId: BEANS[0], localId: LOCAL_BEAN, fields: { archived: false } },
-      { kind: "beanBatch", globalId: BATCHES[0], localId: LOCAL_BATCH, fields: { archived: false, weightRemaining: 180.5 } },
+      { kind: "bean", globalId: BEANS[0], localId: LOCAL_BEAN, fields: { archived: false }, decidedAt: null },
+      { kind: "beanBatch", globalId: BATCHES[0], localId: LOCAL_BATCH, fields: { archived: false, weightRemaining: 180.5 }, decidedAt: DECIDED },
     ]);
   });
 
   it("clears a remaining weight cleared at the Location, and keeps the tablet's own where none was ever entered there", () => {
     expect(plannedWrites(offer([BEANS[0]], [batch(BATCHES[0], { remainingWeight: null })]), holding([heldBean(BEANS[0])], [heldBatch(BATCHES[0])]))).toEqual([
-      { kind: "beanBatch", globalId: BATCHES[0], localId: LOCAL_BATCH, fields: { weightRemaining: null } },
+      { kind: "beanBatch", globalId: BATCHES[0], localId: LOCAL_BATCH, fields: { weightRemaining: null }, decidedAt: DECIDED },
     ]);
     expect(
       plannedWrites(offer([BEANS[0]], [batch(BATCHES[0], { remainingWeight: undefined })]), holding([heldBean(BEANS[0])], [heldBatch(BATCHES[0])])),
@@ -119,8 +123,8 @@ describe("plannedWrites", () => {
   it("archives, never deletes, what the tablet holds that its Location no longer offers: batches before their Beans", () => {
     const held = holding([heldBean(BEANS[0])], [heldBatch(BATCHES[0])]);
     expect(plannedWrites(offer([], [batch(BATCHES[0], { offered: false })]), held)).toEqual([
-      { kind: "beanBatch", globalId: BATCHES[0], localId: LOCAL_BATCH, fields: { archived: true } },
-      { kind: "bean", globalId: BEANS[0], localId: LOCAL_BEAN, fields: { archived: true } },
+      { kind: "beanBatch", globalId: BATCHES[0], localId: LOCAL_BATCH, fields: { archived: true }, decidedAt: DECIDED },
+      { kind: "bean", globalId: BEANS[0], localId: LOCAL_BEAN, fields: { archived: true }, decidedAt: null },
     ]);
     // Already archived, they are left as they are.
     expect(
@@ -135,11 +139,11 @@ describe("plannedWrites", () => {
   it("writes the global id back to a record that lost it, beside any other field due, keeping it offered or not", () => {
     const wiped = { extras: { otherPlugin: true } };
     expect(plannedWrites(offer([BEANS[0]], [batch(BATCHES[0])]), holding([heldBean(BEANS[0], wiped)], [heldBatch(BATCHES[0], wiped)]))).toEqual([
-      { kind: "bean", globalId: BEANS[0], localId: LOCAL_BEAN, fields: {} },
-      { kind: "beanBatch", globalId: BATCHES[0], localId: LOCAL_BATCH, fields: {} },
+      { kind: "bean", globalId: BEANS[0], localId: LOCAL_BEAN, fields: {}, decidedAt: null },
+      { kind: "beanBatch", globalId: BATCHES[0], localId: LOCAL_BATCH, fields: {}, decidedAt: DECIDED },
     ]);
     expect(plannedWrites(offer([]), holding([heldBean(BEANS[1], { ...wiped, archived: true })], []))).toEqual([
-      { kind: "bean", globalId: BEANS[1], localId: LOCAL_BEAN, fields: {} },
+      { kind: "bean", globalId: BEANS[1], localId: LOCAL_BEAN, fields: {}, decidedAt: null },
     ]);
   });
 
@@ -157,21 +161,21 @@ describe("plannedWrites", () => {
 
   it("creates a Profile the Location shows that the tablet lacks, visible, with its parent and metadata, and never one of Decaid's bundled Profiles", () => {
     expect(plannedWrites(offer([], [], [shown(PROFILES[0]), shown(BUNDLED, { bundled: true, content: null })]), holding([], []))).toEqual([
-      { kind: "profile", globalId: PROFILES[0], localId: null, fields: { profile: profileContent.profile, parentId: PROFILES[1], metadata: { fixture: "lab" }, visibility: "visible" } },
+      { kind: "profile", globalId: PROFILES[0], localId: null, fields: { profile: profileContent.profile, parentId: PROFILES[1], metadata: { fixture: "lab" }, visibility: "visible" }, decidedAt: DECIDED },
     ]);
     // Without a parent or metadata, Decaid is sent none.
     const plain = { profile: profileContent.profile, isDefault: false };
     expect(plannedWrites(offer([], [], [shown(PROFILES[0], { content: plain })]), holding([], []))).toEqual([
-      { kind: "profile", globalId: PROFILES[0], localId: null, fields: { profile: plain.profile, parentId: null, metadata: null, visibility: "visible" } },
+      { kind: "profile", globalId: PROFILES[0], localId: null, fields: { profile: plain.profile, parentId: null, metadata: null, visibility: "visible" }, decidedAt: DECIDED },
     ]);
   });
 
   it("shows a Profile the Location shows that the tablet holds hidden or deleted, bundled ones included, and hides, never deletes, one it holds visible that the Location does not show", () => {
     const held = holding([], [], [heldProfile(PROFILES[0], "hidden"), heldProfile(BUNDLED, "deleted"), heldProfile(PROFILES[1], "visible")]);
     expect(plannedWrites(offer([], [], [shown(PROFILES[0], { content: null }), shown(BUNDLED, { bundled: true, content: null })]), held)).toEqual([
-      { kind: "profile", globalId: PROFILES[0], localId: PROFILES[0], fields: { visibility: "visible" } },
-      { kind: "profile", globalId: BUNDLED, localId: BUNDLED, fields: { visibility: "visible" } },
-      { kind: "profile", globalId: PROFILES[1], localId: PROFILES[1], fields: { visibility: "hidden" } },
+      { kind: "profile", globalId: PROFILES[0], localId: PROFILES[0], fields: { visibility: "visible" }, decidedAt: DECIDED },
+      { kind: "profile", globalId: BUNDLED, localId: BUNDLED, fields: { visibility: "visible" }, decidedAt: DECIDED },
+      { kind: "profile", globalId: PROFILES[1], localId: PROFILES[1], fields: { visibility: "hidden" }, decidedAt: null },
     ]);
     // One the Location does not show, hidden or deleted on the tablet, is left as it is.
     expect(plannedWrites(offer([]), holding([], [], [heldProfile(PROFILES[0], "hidden"), heldProfile(PROFILES[1], "deleted")]))).toEqual([]);
@@ -205,7 +209,7 @@ describe("plannedWrites", () => {
   it("leaves out the items skipped for the connection", () => {
     const skipped = new Set([writeKey("bean", BEANS[0])]);
     expect(plannedWrites(offer([BEANS[0], BEANS[1]]), holding([], []), skipped)).toEqual([
-      { kind: "bean", globalId: BEANS[1], localId: null, fields: beanContent },
+      { kind: "bean", globalId: BEANS[1], localId: null, fields: beanContent, decidedAt: null },
     ]);
   });
 });

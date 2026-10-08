@@ -15,12 +15,7 @@ export interface ProfileSummary {
   /** Whether it is one of Decaid's bundled Profiles, which every tablet has already. */
   bundled: boolean;
   archived: boolean;
-  /**
-   * The Locations showing it (ADR-0008), by name, each with the time of the
-   * edit that showed it there: a tablet's by its record's time, which for a
-   * Profile a tablet brought can be before the Location existed. None while
-   * it is Archived.
-   */
+  /** The Locations showing it (ADR-0008), by name, each since when it is shown there, by PostgreSQL's clock. None while it is Archived. */
   shownAt: { location: LocationView; since: string }[];
   /** When it joined the Library, by PostgreSQL's clock. */
   createdAt: string;
@@ -82,7 +77,7 @@ function summary(profile: ListedProfile): ProfileSummary {
     shownAt: profile.archived
       ? []
       : profile.locations
-          .map((here) => ({ location: viewLocation(here.location), since: here.changedAt.toISOString() }))
+          .map((here) => ({ location: viewLocation(here.location), since: here.decidedAt.toISOString() }))
           .sort((a, b) => a.location.name.localeCompare(b.location.name)),
     createdAt: profile.createdAt.toISOString(),
     createdLocation: profile.createdLocation ? viewLocation(profile.createdLocation) : null,

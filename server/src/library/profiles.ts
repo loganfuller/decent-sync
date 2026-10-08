@@ -1,4 +1,4 @@
-import { Prisma } from "../generated/prisma/client.js";
+import type { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { type AnswerRecorded, type AnsweringTablet, INTAKE_TRANSACTION, type ReportingTablet, currentLocation, lockHeldMachine, lockTablet } from "./intake.js";
@@ -43,7 +43,7 @@ export async function takeInProfiles(
   const mapped = await tx.$queryRaw<{ profileId: string; updatedAt: Date | null; visible: boolean; seenAt: Date | null }[]>`
     SELECT profile_id AS "profileId", record_updated_at AS "updatedAt", (record ->> 'visibility') = 'visible' AS visible, seen_at AS "seenAt"
     FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid`;
-  /** By when each record the map holds had seen the Location's state: a change to it decided before that, the tablet had seen. */
+  /** The Location's decision of each Profile that the tablet's record the map holds has seen: one decided by then, the tablet had seen. */
   const seenAt = new Map(mapped.map((profile) => [profile.profileId, profile.seenAt]));
   const mappedIds = new Set(mapped.map((profile) => profile.profileId));
   const unmapped = reported.flatMap((profile) => (mappedIds.has(profile.id) ? [] : [profile.id]));
@@ -78,7 +78,12 @@ export async function takeInProfiles(
       continue;
     }
     if (step.kind === "decide") {
-      writesDue = (await decideProfileAt(tx, step.profileId, locationId, step.shown, step.at)) || writesDue;
+      const decided = await decideProfileAt(tx, step.profileId, locationId, step.shown, step.at);
+      if (decided !== null) {
+        writesDue = true;
+        // The tablet's record decided it, so it has seen that.
+        await tx.$executeRaw`UPDATE tablet_profiles SET seen_at = ${decided}::timestamptz WHERE tablet_id = ${tablet.tabletId}::uuid AND profile_id = ${step.profileId}`;
+      }
       continue;
     }
     const { profile } = step;
@@ -88,19 +93,20 @@ export async function takeInProfiles(
         VALUES (${profile.id}, ${JSON.stringify(profileContent(profile.record))}::jsonb, ${profile.bundled}, ${locationId}::uuid)
         ON CONFLICT (id) DO NOTHING`;
     }
+    /** When the record's own edit decided the Profile's state at the Location, which it has seen then; null if it did not. */
+    let decided: Date | null = null;
     if (step.kind === "update") {
-      if (step.shown !== undefined) {
-        writesDue = (await showProfileAt(tx, profile.id, locationId, step.shown, profile.updatedAt, seenAt.get(profile.id) ?? null)) || writesDue;
-      }
+      if (step.shown !== undefined) decided = await showProfileAt(tx, profile.id, locationId, step.shown, profile.updatedAt, seenAt.get(profile.id) ?? null);
+      writesDue = decided !== null || writesDue;
     } else {
       // The tablet holds it as the Location has it, or is written so; the Location's other tablets may lack it.
-      if (step.decide !== undefined) await decideProfileAt(tx, profile.id, locationId, step.decide, profile.updatedAt);
+      if (step.decide !== undefined) decided = await decideProfileAt(tx, profile.id, locationId, step.decide, profile.updatedAt);
       // The map did not hold it, so only its time tells whether the tablet saw the Location's state.
-      if (step.kind === "map" && step.shown) await showProfileAt(tx, profile.id, locationId, true, profile.updatedAt, null);
+      if (step.kind === "map" && step.shown) decided = (await showProfileAt(tx, profile.id, locationId, true, profile.updatedAt, null)) ?? decided;
       writesDue = true;
     }
-    // Saved after what it changed at the Location, which it has seen.
-    await saveRecord(tx, tablet.tabletId, profile.id, profile.record, profile.updatedAt, "now");
+    // A report shows nothing of what the tablet saw of others' decisions, only of the one its own edit made.
+    await saveRecord(tx, tablet.tabletId, profile.id, profile.record, profile.updatedAt, decided);
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
   return locationId;
@@ -113,9 +119,9 @@ export async function takeInProfiles(
  * sets its visibility, so its answer shows no change the tablet made at its
  * Location. Recorded only while the answering connection holds its Machine,
  * under the Machine's and the tablet's locks, in the order a report takes
- * them. The record shows what the tablet had seen of its Location's state
- * when the server planned the write (`plannedAt`), or null for an answer to
- * a write no longer awaited, whose time is not known. Nothing is recorded
+ * them. The record has seen the Location's decision of the Profile that the
+ * write carried (`seenAt`); null says nothing new, as for an answer to a
+ * write no longer awaited. Nothing is recorded
  * when the record is another Profile's, as one a Decaid hashing profiles
  * otherwise would make, or when the Library no longer has the Profile.
  */
@@ -125,14 +131,14 @@ export async function recordProfileWritten(
   profileId: string,
   record: Record<string, unknown>,
   updatedAt: string | null,
-  plannedAt: Date | null,
+  seenAt: Date | null,
 ): Promise<AnswerRecorded> {
   if (record.id !== profileId) return "notTheItem";
   return prisma.$transaction(async (tx): Promise<AnswerRecorded> => {
     if (!(await lockHeldMachine(tx, tablet))) return "released";
     await lockTablet(tx, tablet.tabletId);
     if ((await tx.profile.count({ where: { id: profileId } })) === 0) return "notTheItem";
-    await saveRecord(tx, tablet.tabletId, profileId, record, updatedAt === null ? null : new Date(updatedAt), plannedAt);
+    await saveRecord(tx, tablet.tabletId, profileId, record, updatedAt === null ? null : new Date(updatedAt), seenAt);
     return "recorded";
   }, INTAKE_TRANSACTION);
 }
@@ -154,11 +160,9 @@ async function joinedAt(tx: Prisma.TransactionClient, tablet: ReportingTablet): 
 
 /**
  * Saves the tablet's record of a Profile as the one it holds, as `saveRecord`
- * in beans.ts does a Bean's, with by when it shows what the tablet had seen
- * of its Location's state (`seenAt`): "now" for a report taken in now, after
- * what it changed there, the
- * time a write it answers was planned, or null if not known, which keeps the
- * time known for the record it replaces.
+ * in beans.ts does a Bean's, with the Location's decision of the Profile it
+ * has now seen (`seenAt`): one the server's write carried, or one its own
+ * edit made. Null keeps the decision known seen before, if any.
  */
 async function saveRecord(
   tx: Prisma.TransactionClient,
@@ -166,12 +170,11 @@ async function saveRecord(
   profileId: string,
   record: Record<string, unknown>,
   updatedAt: Date | null,
-  seenAt: Date | "now" | null,
+  seenAt: Date | null,
 ): Promise<void> {
-  const seen = seenAt === "now" ? Prisma.sql`clock_timestamp()` : Prisma.sql`${seenAt}::timestamptz`;
   await tx.$executeRaw`
     INSERT INTO tablet_profiles (tablet_id, profile_id, record, record_updated_at, seen_at)
-    VALUES (${tabletId}::uuid, ${profileId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz, ${seen})
+    VALUES (${tabletId}::uuid, ${profileId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz, ${seenAt}::timestamptz)
     ON CONFLICT (tablet_id, profile_id) DO UPDATE SET
       record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at, seen_at = COALESCE(EXCLUDED.seen_at, tablet_profiles.seen_at)`;
 }

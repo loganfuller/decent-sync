@@ -40,7 +40,7 @@ export async function takeInBatches(
       lower(record -> 'extras' ->> ${GLOBAL_ID_KEY}::text) AS "globalId", (record ->> 'archived') = 'true' AS archived,
       CASE WHEN jsonb_typeof(record -> 'weightRemaining') = 'number' THEN (record ->> 'weightRemaining')::double precision END AS "weightRemaining"
     FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid`;
-  /** By when each record the map holds had seen the Location's state: a change to it decided before that, the tablet had seen. */
+  /** The Location's decision of each batch that the tablet's record the map holds has seen: one decided by then, the tablet had seen. */
   const seenAt = new Map(mapped.map((batch) => [batch.batchId, batch.seenAt]));
   // The Library Beans the tablet's records of its beans are, by their ids there.
   const beans = await tx.tabletBean.findMany({ where: { tabletId: tablet.tabletId }, select: { localId: true, beanId: true } });
@@ -72,9 +72,10 @@ export async function takeInBatches(
       batchId = step.batchId;
     }
     if (step.kind === "add" || step.kind === "map") writesDue = true;
-    if (step.kind !== "map") writesDue = (await applyEdits(tx, batchId, locationId, step.edits, batch.updatedAt, seenAt.get(batchId) ?? null)) || writesDue;
-    // Saved after what it changed at the Location, which it has seen.
-    await saveRecord(tx, tablet.tabletId, batchId, batch.localId, batch.record, batch.updatedAt, "now");
+    const applied = step.kind === "map" ? null : await applyEdits(tx, batchId, locationId, step.edits, batch.updatedAt, seenAt.get(batchId) ?? null);
+    if (applied?.changed) writesDue = true;
+    // A report shows nothing of what the tablet saw of others' decisions, only of the one its own edit made.
+    await saveRecord(tx, tablet.tabletId, batchId, batch.localId, batch.record, batch.updatedAt, applied?.decidedAt ?? null);
     // A record whose global id is lost has it written back.
     if (batch.globalId !== batchId) writesDue = true;
   }
@@ -84,8 +85,10 @@ export async function takeInBatches(
 
 /**
  * Makes a tablet's changes to a batch at its Location, timed by the edit,
- * from a tablet whose record of the batch the server took in at `seenAt`, or
- * never. Says whether any changed the Location's state.
+ * from a tablet whose record of the batch had seen the Location's decision of
+ * its presence there at `seenAt`, or none. Says whether any changed the
+ * Location's state, and when the edit decided the batch's presence there,
+ * which the tablet's record has seen then; null if it did not.
  */
 async function applyEdits(
   tx: Prisma.TransactionClient,
@@ -94,16 +97,18 @@ async function applyEdits(
   edits: readonly LocationEdit[],
   at: Date,
   seenAt: Date | null,
-): Promise<boolean> {
+): Promise<{ changed: boolean; decidedAt: Date | null }> {
   let changed = false;
+  let decidedAt: Date | null = null;
   for (const edit of edits) {
     if (edit.field === "at") {
-      changed = (edit.value ? await addBatchAt(tx, batchId, locationId, at, seenAt) : await finishBatchAt(tx, batchId, locationId, at, seenAt)) || changed;
+      decidedAt = edit.value ? await addBatchAt(tx, batchId, locationId, at, seenAt) : await finishBatchAt(tx, batchId, locationId, at, seenAt);
+      changed = decidedAt !== null || changed;
     } else {
       changed = (await enterRemainingWeight(tx, batchId, locationId, edit, at)) || changed;
     }
   }
-  return changed;
+  return { changed, decidedAt };
 }
 
 /**
@@ -111,10 +116,10 @@ async function applyEdits(
  * fields were `written`), as `recordBeanWritten` does a Bean's: a change the
  * tablet made at its Location since its last report, which the write kept,
  * such as archiving the batch just before the server wrote its global id, is
- * taken in as a report would take it (`editsInAnswer`). The record shows
- * what the tablet had seen of its Location's state when the server planned
- * the write (`plannedAt`), or null for an answer to a write no longer
- * awaited, whose time is not known.
+ * taken in as a report would take it (`editsInAnswer`). The record has seen
+ * the Location's decision of the batch's presence that the write carried
+ * (`seenAt`), or, deciding it itself, its own; null says nothing new, as for
+ * an answer to a write no longer awaited.
  */
 export async function recordBatchWritten(
   prisma: PrismaService,
@@ -123,7 +128,7 @@ export async function recordBatchWritten(
   written: ReadonlySet<string>,
   record: Record<string, unknown>,
   updatedAt: string | null,
-  plannedAt: Date | null,
+  seenAt: Date | null,
 ): Promise<AnswerRecorded> {
   if (!isRecordId(record.id) || globalIdOf(record) !== batchId.toLowerCase()) return "notTheItem";
   const localId = record.id;
@@ -140,25 +145,24 @@ export async function recordBatchWritten(
     const at = updatedAt === null ? null : new Date(updatedAt);
     const edits = editsInAnswer(known ?? null, record, written);
     const locationId = edits.length === 0 ? null : await currentLocation(tx, tablet.machineId);
-    let changed = false;
+    let decidedAt: Date | null = null;
     if (locationId !== null) {
       await lockLocation(tx, locationId);
-      changed = await applyEdits(tx, batchId, locationId, edits, at ?? (await transactionTime(tx)), known?.seenAt ?? null);
-      if (changed) await notify(tx, "library_changes", locationId);
+      const applied = await applyEdits(tx, batchId, locationId, edits, at ?? (await transactionTime(tx)), known?.seenAt ?? null);
+      if (applied.changed) await notify(tx, "library_changes", locationId);
+      decidedAt = applied.decidedAt;
     }
-    // Saved after what it changed at the Location, which it has seen.
-    await saveRecord(tx, tablet.tabletId, batchId, localId, record, at, changed ? "now" : plannedAt);
+    await saveRecord(tx, tablet.tabletId, batchId, localId, record, at, decidedAt ?? seenAt);
     return "recorded";
   }, INTAKE_TRANSACTION);
 }
 
 /**
  * Saves the tablet's record of a batch as the one it holds, under its local
- * id, as `saveRecord` in beans.ts does a Bean's, with by when it shows what
- * the tablet had seen of its Location's state (`seenAt`): "now" for a report
- * taken in now, after what it changed there, the time a write it answers was
- * planned, or null if not
- * known, which keeps the time known for the record it replaces.
+ * id, as `saveRecord` in beans.ts does a Bean's, with the Location's decision
+ * of the batch's presence it has now seen (`seenAt`): one the server's write
+ * carried, or one its own edit made. Null keeps the decision known seen
+ * before, if any.
  */
 async function saveRecord(
   tx: Prisma.TransactionClient,
@@ -167,12 +171,11 @@ async function saveRecord(
   localId: string,
   record: Record<string, unknown>,
   updatedAt: Date | null,
-  seenAt: Date | "now" | null,
+  seenAt: Date | null,
 ): Promise<void> {
-  const seen = seenAt === "now" ? Prisma.sql`clock_timestamp()` : Prisma.sql`${seenAt}::timestamptz`;
   await tx.$executeRaw`
     INSERT INTO tablet_bean_batches (tablet_id, batch_id, local_id, record, record_updated_at, seen_at)
-    VALUES (${tabletId}::uuid, ${batchId}::uuid, ${localId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz, ${seen})
+    VALUES (${tabletId}::uuid, ${batchId}::uuid, ${localId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz, ${seenAt}::timestamptz)
     ON CONFLICT (tablet_id, batch_id) DO UPDATE SET
       local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at,
       seen_at = COALESCE(EXCLUDED.seen_at, tablet_bean_batches.seen_at)`;

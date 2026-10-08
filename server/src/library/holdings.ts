@@ -25,6 +25,8 @@ export interface LocationBatch {
   offered: boolean;
   /** The remaining weight entered at the Location last, null if cleared; undefined if none ever was. */
   remainingWeight: number | null | undefined;
+  /** When the Location last decided whether it is there, by PostgreSQL's clock; null if it never did. */
+  decidedAt: Date | null;
 }
 
 /** A Profile a Location shows (ADR-0008). */
@@ -35,6 +37,8 @@ export interface ShownProfile {
   bundled: boolean;
   /** Its content, to create its record with; null where the tablet holds it already. */
   content: Record<string, unknown> | null;
+  /** When the Location decided to show it, by PostgreSQL's clock. */
+  decidedAt: Date;
 }
 
 /** What a Location offers, and its state of each batch the tablet holds. Each list is in the order to write it: oldest first. */
@@ -51,6 +55,8 @@ export interface HeldRecord {
   itemId: string;
   localId: string;
   record: Record<string, unknown>;
+  /** For a Profile, when the tablet's Location last decided whether it shows it, by PostgreSQL's clock; null if it never did. */
+  decidedAt?: Date | null;
 }
 
 /** What the tablet holds, by its map. A Profile's local id is its id. */
@@ -68,6 +74,12 @@ export interface PlannedWrite {
   localId: string | null;
   /** The fields to set, as Decaid names them: on creating, the item's content; otherwise only those that differ. */
   fields: Record<string, unknown>;
+  /**
+   * The Location's decision of the batch's presence or the Profile's showing
+   * that the tablet's record holds once written, by PostgreSQL's clock: its
+   * answer has seen it. Null for a Bean, and where the Location never decided it.
+   */
+  decidedAt: Date | null;
 }
 
 /** The key a write's item is skipped under, for the rest of a connection. */
@@ -100,8 +112,8 @@ export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skippe
   const writes: PlannedWrite[] = [];
   for (const bean of offer.beans) {
     const record = beans.get(bean.id);
-    if (!record) writes.push({ kind: "bean", globalId: bean.id, localId: null, fields: bean.content });
-    else pushUpdate(writes, "bean", bean.id, record, record.record.archived === true ? { archived: false } : {});
+    if (!record) writes.push({ kind: "bean", globalId: bean.id, localId: null, fields: bean.content, decidedAt: null });
+    else pushUpdate(writes, "bean", bean.id, record, record.record.archived === true ? { archived: false } : {}, null);
   }
   for (const batch of offer.batches) {
     const record = batches.get(batch.id);
@@ -114,31 +126,34 @@ export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skippe
         globalId: batch.id,
         localId: null,
         fields: { ...batch.content, beanId: bean.localId, ...(weight === undefined ? {} : { weightRemaining: weight }) },
+        decidedAt: batch.decidedAt,
       });
       continue;
     }
     const fields: Record<string, unknown> = {};
     if ((record.record.archived === true) === batch.offered) fields.archived = !batch.offered;
     if (weight !== undefined && weightOf(record.record) !== weight) fields.weightRemaining = weight;
-    pushUpdate(writes, "beanBatch", batch.id, record, fields);
+    pushUpdate(writes, "beanBatch", batch.id, record, fields, batch.decidedAt);
   }
   for (const record of held.beans) {
-    if (!offeredBeans.has(record.itemId)) pushUpdate(writes, "bean", record.itemId, record, record.record.archived === true ? {} : { archived: true });
+    if (!offeredBeans.has(record.itemId)) pushUpdate(writes, "bean", record.itemId, record, record.record.archived === true ? {} : { archived: true }, null);
   }
   const profiles = new Map(held.profiles.map((record) => [record.itemId, record]));
   const shownProfiles = new Set(offer.profiles.map((profile) => profile.id));
   for (const profile of parentsFirst(offer.profiles)) {
     const record = profiles.get(profile.id);
     if (record) {
-      if (record.record.visibility !== "visible") writes.push({ kind: "profile", globalId: profile.id, localId: record.localId, fields: { visibility: "visible" } });
+      if (record.record.visibility !== "visible") {
+        writes.push({ kind: "profile", globalId: profile.id, localId: record.localId, fields: { visibility: "visible" }, decidedAt: profile.decidedAt });
+      }
     } else if (!profile.bundled && profile.content !== null) {
-      writes.push({ kind: "profile", globalId: profile.id, localId: null, fields: { ...profileToCreate(profile.content), visibility: "visible" } });
+      writes.push({ kind: "profile", globalId: profile.id, localId: null, fields: { ...profileToCreate(profile.content), visibility: "visible" }, decidedAt: profile.decidedAt });
     }
   }
   for (const record of held.profiles) {
     // One hidden or deleted on the tablet is not shown there already.
     if (!shownProfiles.has(record.itemId) && record.record.visibility === "visible") {
-      writes.push({ kind: "profile", globalId: record.itemId, localId: record.localId, fields: { visibility: "hidden" } });
+      writes.push({ kind: "profile", globalId: record.itemId, localId: record.localId, fields: { visibility: "hidden" }, decidedAt: record.decidedAt ?? null });
     }
   }
   return writes.filter((write) => !skipped.has(writeKey(write.kind, write.globalId)));
@@ -173,7 +188,7 @@ function profileToCreate(content: Record<string, unknown>): Record<string, unkno
 }
 
 /** Adds an update of the tablet's record, if it lacks its global id or any of `fields`. */
-function pushUpdate(writes: PlannedWrite[], kind: LibraryKind, globalId: string, record: HeldRecord, fields: Record<string, unknown>): void {
+function pushUpdate(writes: PlannedWrite[], kind: LibraryKind, globalId: string, record: HeldRecord, fields: Record<string, unknown>, decidedAt: Date | null): void {
   if (Object.keys(fields).length === 0 && globalIdOf(record.record) === globalId.toLowerCase()) return;
-  writes.push({ kind, globalId, localId: record.localId, fields });
+  writes.push({ kind, globalId, localId: record.localId, fields, decidedAt });
 }

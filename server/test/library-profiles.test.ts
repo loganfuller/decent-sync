@@ -59,10 +59,15 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
    * polling every 5 s (0.1 s here) unless given otherwise, its Decaid holding
    * its bundled Profiles and no others, as on a fresh install.
    */
-  function load(machine: CreatedMachine, serial: string, instance: TestServer = server, pollSeconds = 5, decaidClockOffsetMs = 0): SimulatedTablet {
+  function load(
+    machine: CreatedMachine,
+    serial: string,
+    options: { instance?: TestServer; pollSeconds?: number; decaidClockOffsetMs?: number; stallUpload?: (frame: unknown) => boolean } = {},
+  ): SimulatedTablet {
     const tablet = SimulatedTablet.load({
-      decaidClockOffsetMs,
-      settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: pollSeconds },
+      decaidClockOffsetMs: options.decaidClockOffsetMs,
+      stallUpload: options.stallUpload,
+      settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
       api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/profiles": bundled() },
       timeScale: 50,
     });
@@ -106,9 +111,9 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
       await api.createMachine(`${name} cafe 2`, cafeLocation.id),
     ] as const;
     const one = load(machines[0], String(serials));
-    const two = load(machines[1], String(serials + 1), other);
+    const two = load(machines[1], String(serials + 1), { instance: other });
     const cafe = load(machines[2], String(serials + 2));
-    const cafeTwo = load(machines[3], String(serials + 3), other);
+    const cafeTwo = load(machines[3], String(serials + 3), { instance: other });
     await online(...machines);
     // Each Location shows Decaid's bundled Profiles, as its first tablet reported them.
     await expect.poll(() => shownAt(name, BUNDLED), { timeout: 10_000 }).toEqual([`${name} cafe`, `${name} lab`]);
@@ -229,7 +234,7 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     const second = await api.createMachine("Held 2", location.id);
     const one = load(first, "17061");
     // Polls once an hour (every 72 s here), so what is entered on it is not reported within the test.
-    const slow = load(second, "17062", server, 3600);
+    const slow = load(second, "17062", { pollSeconds: 3600 });
     await online(first, second);
     await expect.poll(() => slow.sent.some((frame) => (frame as { name?: unknown }).name === "profiles"), { timeout: 10_000 }).toBe(true);
     const entered = await slow.addProfile(derivedProfile("Held Bloom", 9.25));
@@ -283,8 +288,8 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     const first = await api.createMachine("Fast 1", location.id);
     const second = await api.createMachine("Fast 2", location.id);
     // Its Decaid's clock runs 5 minutes fast, so every edit it makes is timed after the other tablet's.
-    const fast = load(first, "17101", server, 5, 5 * 60_000);
-    const steady = load(second, "17102", other);
+    const fast = load(first, "17101", { decaidClockOffsetMs: 5 * 60_000 });
+    const steady = load(second, "17102", { instance: other });
     await online(first, second);
     const record = await save("Fast", fast, derivedProfile("Fast Bloom", 2.5), ["lab"]);
     await holds(steady, record.id, "visible");
@@ -306,6 +311,42 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     await holds(fast, replacement.id, "visible");
     expect(visibilityOn(steady, record.id)).toBeUndefined();
     expect(profileWrites(steady).filter((write) => write.startsWith("POST"))).toEqual(["POST /profiles"]);
+  });
+
+  it("keeps a Profile hidden at the lab when a tablet's report from before it went offline arrives after another lab tablet hid it, as does the tablet's earlier change", async () => {
+    const location = await api.createLocation("Resent lab", "America/Chicago");
+    const first = await api.createMachine("Resent 1", location.id);
+    const second = await api.createMachine("Resent 2", location.id);
+    // Its reports of its profiles wait unsent while this holds them, as on a network that stalls before it drops.
+    let holdingReports = false;
+    const resent = load(first, "17111", {
+      stallUpload: (frame) => holdingReports && (frame as { type?: unknown; name?: unknown }).type === "collection" && (frame as { name?: unknown }).name === "profiles",
+    });
+    // Its clock runs a second ahead, so its hide is timed after the other tablet's show, which come within a millisecond here.
+    const lab2 = load(second, "17112", { instance: other, decaidClockOffsetMs: 1000 });
+    await online(first, second);
+    const record = await save("Resent", resent, derivedProfile("Resent Bloom", 2.25), ["lab"]);
+    await holds(lab2, record.id, "visible");
+
+    // The tablet hides it; its report is handed to the connection, which drops before it is written.
+    holdingReports = true;
+    const reportsBefore = resent.sent.length;
+    await resent.setProfileVisibility(record.id, "hidden");
+    await expect
+      .poll(() => resent.sent.slice(reportsBefore).some((frame) => (frame as { name?: unknown }).name === "profiles"), { timeout: 10_000 })
+      .toBe(true);
+    resent.loseNetwork();
+    holdingReports = false;
+    // Offline, its barista shows it again; later the lab's other tablet hides it.
+    await resent.setProfileVisibility(record.id, "visible");
+    await lab2.setProfileVisibility(record.id, "hidden");
+    await expect.poll(() => shownAt("Resent", record.id), { timeout: 10_000 }).toEqual([]);
+
+    // Back online, the held report arrives first, then the tablet's earlier show: neither saw the later hide (ADR-0020).
+    resent.restoreNetwork();
+    await holds(resent, record.id, "hidden");
+    expect(await shownAt("Resent", record.id)).toEqual([]);
+    expect(visibilityOn(lab2, record.id)).toBe("hidden");
   });
 
   it("keeps Decaid's bundled Profiles as a moved tablet had them at a Location that has decided nothing of them, and hides the Profiles of its old Location there", async () => {

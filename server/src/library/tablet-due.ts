@@ -19,8 +19,6 @@ export interface TabletDue {
   locationId: string | null;
   /** The writes due, in the order they are made; null while none is planned, as the Machine is not where they were reported. */
   writes: PlannedWrite[] | null;
-  /** When they were read, by PostgreSQL's clock: a write's answer shows what the tablet had seen of its Location's state by then. */
-  plannedAt: Date;
 }
 
 /**
@@ -41,14 +39,14 @@ export async function tabletDue(
 ): Promise<TabletDue | null> {
   return prisma.$transaction(
     async (tx) => {
-      const [holder] = await tx.$queryRaw<{ locationId: string | null; plannedAt: Date }[]>`
+      const [holder] = await tx.$queryRaw<{ locationId: string | null }[]>`
         SELECT (
           SELECT location_id FROM location_assignments WHERE machine_id = machines.id ORDER BY effective_from DESC LIMIT 1
-        ) AS "locationId", now() AS "plannedAt"
+        ) AS "locationId"
         FROM machines WHERE id = ${tablet.machineId}::uuid AND connected_session_id = ${tablet.sessionId}::uuid`;
       if (!holder) return null;
-      const { locationId, plannedAt } = holder;
-      if (locationId === null || locationId !== reportedAt) return { locationId, writes: null, plannedAt };
+      const { locationId } = holder;
+      if (locationId === null || locationId !== reportedAt) return { locationId, writes: null };
       const beans = await tx.$queryRaw<OfferedBean[]>`
         SELECT beans.id, beans.content FROM beans
         WHERE NOT beans.archived AND (
@@ -64,7 +62,7 @@ export async function tabletDue(
       const batches = await tx.$queryRaw<(Omit<LocationBatch, "remainingWeight"> & { remainingWeight: number | null; entered: boolean })[]>`
         SELECT batch.id, batch.bean_id AS "beanId", batch.content,
           (here.added_at IS NOT NULL AND here.finished_at IS NULL AND NOT batch.archived AND NOT bean.archived) AS offered,
-          here.remaining_weight AS "remainingWeight", here.remaining_weight_at IS NOT NULL AS entered
+          here.remaining_weight AS "remainingWeight", here.remaining_weight_at IS NOT NULL AS entered, here.presence_decided_at AS "decidedAt"
         FROM bean_batches AS batch
         JOIN beans AS bean ON bean.id = batch.bean_id
         LEFT JOIN batch_locations AS here ON here.batch_id = batch.id AND here.location_id = ${locationId}::uuid
@@ -77,22 +75,26 @@ export async function tabletDue(
         SELECT batch_id AS "itemId", local_id AS "localId", record FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid ORDER BY batch_id`;
       // Each Profile's content only where the tablet lacks it, to create its record with: what a Location shows is many and large.
       const profiles = await tx.$queryRaw<ShownProfile[]>`
-        SELECT profiles.id, profiles.bundled,
+        SELECT profiles.id, profiles.bundled, here.decided_at AS "decidedAt",
           CASE WHEN held.profile_id IS NULL AND NOT profiles.bundled THEN profiles.content END AS content
         FROM profiles
         JOIN profile_locations AS here ON here.profile_id = profiles.id AND here.location_id = ${locationId}::uuid AND here.shown
         LEFT JOIN tablet_profiles AS held ON held.profile_id = profiles.id AND held.tablet_id = ${tablet.tabletId}::uuid
         WHERE NOT profiles.archived
         ORDER BY profiles.created_at, profiles.id`;
+      // Each with when the Location last decided whether it shows it: a write hiding it carries that decision.
       const heldProfiles = await tx.$queryRaw<HeldRecord[]>`
-        SELECT profile_id AS "itemId", profile_id AS "localId", jsonb_build_object('visibility', record -> 'visibility') AS record
-        FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid ORDER BY profile_id`;
+        SELECT held.profile_id AS "itemId", held.profile_id AS "localId", jsonb_build_object('visibility', held.record -> 'visibility') AS record,
+          here.decided_at AS "decidedAt"
+        FROM tablet_profiles AS held
+        LEFT JOIN profile_locations AS here ON here.profile_id = held.profile_id AND here.location_id = ${locationId}::uuid
+        WHERE held.tablet_id = ${tablet.tabletId}::uuid ORDER BY held.profile_id`;
       const offer = {
         beans,
         batches: batches.map(({ entered, remainingWeight, ...batch }) => ({ ...batch, remainingWeight: entered ? remainingWeight : undefined })),
         profiles,
       };
-      return { locationId, writes: plannedWrites(offer, { beans: heldBeans, batches: heldBatches, profiles: heldProfiles }, skipped), plannedAt };
+      return { locationId, writes: plannedWrites(offer, { beans: heldBeans, batches: heldBatches, profiles: heldProfiles }, skipped) };
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   );

@@ -450,9 +450,9 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * write timed out or one the plugin's outbox held across a reconnect, is
    * recorded too, so the server's own write is not later read as the
    * tablet's change: the outbox sends one delivery at a time, and every
-   * report read after the write waits behind the answer. When its write
-   * was planned is not known, so its record says nothing new of what the
-   * tablet had seen of its Location's state. An answer is
+   * report read after the write waits behind the answer. What its write
+   * carried is not known, so its record says nothing new of what the tablet
+   * had seen of its Location's state. An answer is
    * recorded only while its connection holds the Machine, so one an
    * instance records late, after a newer connection has taken the Machine,
    * never lands after that connection's reports. Nothing is recorded from a
@@ -473,9 +473,9 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       }
     } else if (write) {
       // The write it answers names the item, whatever the answer says: its record must carry that item's global id.
-      if (await this.recordAnswer(session, write.kind, write.globalId, answer, awaited.plannedAt)) outcome = "written";
+      if (await this.recordAnswer(session, write.kind, write.globalId, answer, true, awaited.decidedAt)) outcome = "written";
     } else if (session.writer && isLibraryKind(answer.kind)) {
-      await this.recordAnswer(session, answer.kind, answer.globalId, answer, null);
+      await this.recordAnswer(session, answer.kind, answer.globalId, answer, false, null);
     }
     this.acknowledge(session, answer.id, null);
     session.writer?.answered(answer.id, outcome);
@@ -484,22 +484,22 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   /**
    * Records the record a write's answer holds as the tablet's record of the
    * item, and says whether it did. A record that is not the item's is logged
-   * when its write was awaited: when the server planned it (`plannedAt`), by
-   * PostgreSQL's clock, by which the record shows what the tablet had seen of
-   * its Location's state. An answer to a write no longer awaited has none.
+   * when its write was `awaited`. The record has seen the Location's decision
+   * its write carried (`seenAt`), by PostgreSQL's clock; one of a write no
+   * longer awaited says nothing new of that.
    */
-  private async recordAnswer(session: Session, kind: string, globalId: string, answer: ItemWritten, plannedAt: Date | null): Promise<boolean> {
+  private async recordAnswer(session: Session, kind: string, globalId: string, answer: ItemWritten, awaited: boolean, seenAt: Date | null): Promise<boolean> {
     const name = isLibraryKind(kind) ? KIND_NAMES[kind] : kind;
     try {
       const tablet = { sessionId: session.id, machineId: session.machine!.id, tabletId: session.live!.tabletId };
       const written = new Set(answer.writtenFields);
       const recorded =
         kind === "profile"
-          ? await recordProfileWritten(this.prisma, tablet, globalId, answer.record, answer.updatedAt, plannedAt)
+          ? await recordProfileWritten(this.prisma, tablet, globalId, answer.record, answer.updatedAt, seenAt)
           : kind === "bean"
             ? await recordBeanWritten(this.prisma, tablet, globalId, written, answer.record, answer.updatedAt)
-            : await recordBatchWritten(this.prisma, tablet, globalId, written, answer.record, answer.updatedAt, plannedAt);
-      if (recorded === "notTheItem" && plannedAt !== null) {
+            : await recordBatchWritten(this.prisma, tablet, globalId, written, answer.record, answer.updatedAt, seenAt);
+      if (recorded === "notTheItem" && awaited) {
         this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);
       }
       return recorded === "recorded";
