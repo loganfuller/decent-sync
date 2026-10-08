@@ -61,11 +61,15 @@ order reported (`planIntake`):
    before the plugin's own write, changes nothing. But a record that no
    longer carries the Bean's global id, while the one known does, replaces it
    whatever its time, as after the tablet's clock went back, so the id is
-   written back; at worst a report read just before the plugin's own write of
-   the id has it written once more.
+   written back. At worst a report read just before the plugin's own write of
+   the id, arriving after it, has the id written once more; or, if the writer
+   looks again before it, the Bean is skipped for that connection as still
+   due, until the plugin's next report, which carries the id, puts the record
+   right.
 2. Otherwise a record carrying a Library Bean's global id in `extras` is that
    Bean, as on a tablet whose answer to a write was lost, or one restored from
-   a Decaid backup.
+   a Decaid backup, unless another record the tablet reports is that Bean
+   already: it is then matched as a new record.
 
 Records whose Bean these settle come first, so a record matched by roaster
 and name, though listed before them, cannot take their Bean. Then, in the
