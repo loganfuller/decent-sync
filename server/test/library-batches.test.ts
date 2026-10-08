@@ -77,9 +77,13 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
       apiDelayMs?: (method: string, path: string) => number;
       answerOnArrival?: boolean;
       pollSeconds?: number;
+      decaidClockOffsetMs?: number;
+      stallUpload?: (frame: unknown) => boolean;
     } = {},
   ): SimulatedTablet {
     const tablet = SimulatedTablet.load({
+      decaidClockOffsetMs: options.decaidClockOffsetMs,
+      stallUpload: options.stallUpload,
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
       api: { ...derivedDe1Pro({ serial }), "/beans": options.beans ?? [], "/bean-batches": options.batches ?? [] },
       storage: options.storage,
@@ -186,11 +190,20 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
   });
 
   it("keeps a batch at the lab when a tablet that archived it while offline reconnects after another lab tablet added it back", async () => {
-    const { one, two } = await lab("Offline", 16201);
+    const location = await api.createLocation("Offline lab", "America/Chicago");
+    const first = await api.createMachine("Offline lab 1", location.id);
+    const second = await api.createMachine("Offline lab 2", location.id);
+    const one = load(first, "16201");
+    // Its answer to the write of the batch waits in its outbox until it reconnects: an answer to no write awaited then,
+    // which shows nothing of what it had seen at the lab.
+    let holdingAnswers = true;
+    const two = load(second, "16202", { instance: other, stallUpload: (frame) => holdingAnswers && (frame as { type?: unknown; kind?: unknown }).type === "written" && (frame as { kind?: unknown }).kind === "beanBatch" });
+    await online(first, second);
     const { record, batch } = await enterBatch(one, "Offline Natural");
     const held = await holds(() => heldBatch(two, batch.id), { archived: false });
 
     two.loseNetwork();
+    holdingAnswers = false;
     await two.editBatch(held.id, { archived: true });
     // Later, the lab's other tablet finishes it there and adds it back.
     await one.editBatch(record.id, { archived: true });
@@ -203,6 +216,24 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     await holds(() => heldBatch(two, batch.id), { archived: false });
     expect(await whereAt(batch.id)).toEqual([["Offline lab", 250]]);
     expect(await offeredAt("Offline Natural")).toEqual(["Offline lab"]);
+  });
+
+  it("applies an archiving made on a lab tablet after it was written a batch a fast-clocked lab tablet added", async () => {
+    const location = await api.createLocation("Fast lab", "America/Chicago");
+    const first = await api.createMachine("Fast lab 1", location.id);
+    const second = await api.createMachine("Fast lab 2", location.id);
+    // Its Decaid's clock runs 5 minutes fast, so the batch it adds is added at a time after the other tablet's edits.
+    const fast = load(first, "16211", { decaidClockOffsetMs: 5 * 60_000 });
+    const steady = load(second, "16212", { instance: other });
+    await online(first, second);
+    const { batch } = await enterBatch(fast, "Fast Natural");
+    const held = await holds(() => heldBatch(steady, batch.id), { archived: false });
+
+    // Written the batch, the other tablet's barista archives it: an edit made after seeing it added, timed earlier.
+    await steady.editBatch(held.id, { archived: true });
+    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([]);
+    await holds(() => heldBatch(fast, batch.id), { archived: true });
+    expect(heldBatch(steady, batch.id)).toMatchObject([{ archived: true }]);
   });
 
   it("archives a batch deleted on one tablet on the Location's other tablet, not deleting it there", async () => {

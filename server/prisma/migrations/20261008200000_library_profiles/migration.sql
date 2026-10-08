@@ -19,6 +19,7 @@ CREATE TABLE "profile_locations" (
     "location_id" UUID NOT NULL,
     "shown" BOOLEAN NOT NULL,
     "changed_at" TIMESTAMPTZ(3) NOT NULL,
+    "decided_at" TIMESTAMPTZ(3) NOT NULL DEFAULT transaction_timestamp(),
 
     CONSTRAINT "profile_locations_pkey" PRIMARY KEY ("profile_id","location_id")
 );
@@ -29,6 +30,7 @@ CREATE TABLE "tablet_profiles" (
     "profile_id" TEXT NOT NULL,
     "record" JSONB NOT NULL,
     "record_updated_at" TIMESTAMPTZ(3),
+    "seen_at" TIMESTAMPTZ(3),
 
     CONSTRAINT "tablet_profiles_pkey" PRIMARY KEY ("tablet_id","profile_id")
 );

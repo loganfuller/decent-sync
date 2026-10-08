@@ -59,8 +59,9 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
    * polling every 5 s (0.1 s here) unless given otherwise, its Decaid holding
    * its bundled Profiles and no others, as on a fresh install.
    */
-  function load(machine: CreatedMachine, serial: string, instance: TestServer = server, pollSeconds = 5): SimulatedTablet {
+  function load(machine: CreatedMachine, serial: string, instance: TestServer = server, pollSeconds = 5, decaidClockOffsetMs = 0): SimulatedTablet {
     const tablet = SimulatedTablet.load({
+      decaidClockOffsetMs,
       settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: pollSeconds },
       api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/profiles": bundled() },
       timeScale: 50,
@@ -275,6 +276,36 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     await holds(two, record.id, "visible");
     expect(await shownAt("Offline", record.id)).toEqual(["Offline lab"]);
     expect(visibilityOn(one, record.id)).toBe("visible");
+  });
+
+  it("applies a lab tablet's edits made after it was written a fast-clocked lab tablet's: showing a Profile that one hid, then replacing it", async () => {
+    const location = await api.createLocation("Fast lab", "America/Chicago");
+    const first = await api.createMachine("Fast 1", location.id);
+    const second = await api.createMachine("Fast 2", location.id);
+    // Its Decaid's clock runs 5 minutes fast, so every edit it makes is timed after the other tablet's.
+    const fast = load(first, "17101", server, 5, 5 * 60_000);
+    const steady = load(second, "17102", other);
+    await online(first, second);
+    const record = await save("Fast", fast, derivedProfile("Fast Bloom", 2.5), ["lab"]);
+    await holds(steady, record.id, "visible");
+    await fast.setProfileVisibility(record.id, "hidden");
+    await expect.poll(() => shownAt("Fast", record.id), { timeout: 10_000 }).toEqual([]);
+    await holds(steady, record.id, "hidden");
+
+    // Written the hide, the other tablet's barista shows it again: an edit made after seeing that one, timed earlier.
+    await steady.setProfileVisibility(record.id, "visible");
+    await expect.poll(() => shownAt("Fast", record.id), { timeout: 10_000 }).toEqual(["Fast lab"]);
+    await holds(fast, record.id, "visible");
+    expect(visibilityOn(steady, record.id)).toBe("visible");
+
+    // Its steps changed there, it is hidden at the lab, and not written back to the tablet that replaced it.
+    const replacement = await steady.editProfile(record.id, derivedProfile("Fast Bloom", 2.75));
+    await expect.poll(() => shownAt("Fast", record.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => shownAt("Fast", replacement.id), { timeout: 10_000 }).toEqual(["Fast lab"]);
+    await holds(fast, record.id, "hidden");
+    await holds(fast, replacement.id, "visible");
+    expect(visibilityOn(steady, record.id)).toBeUndefined();
+    expect(profileWrites(steady).filter((write) => write.startsWith("POST"))).toEqual(["POST /profiles"]);
   });
 
   it("keeps Decaid's bundled Profiles as a moved tablet had them at a Location that has decided nothing of them, and hides the Profiles of its old Location there", async () => {

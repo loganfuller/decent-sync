@@ -76,7 +76,7 @@ export async function takeInBeans(
   for (const step of steps) {
     if (step.kind === "delete") {
       await tx.$executeRaw`DELETE FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid AND bean_id = ${step.beanId}::uuid`;
-      await takeBeanFrom(tx, step.beanId, locationId, deletedAt(await transactionTime(tx), step.updatedAt));
+      await takeBeanFrom(tx, step.beanId, locationId, tablet.tabletId, deletedAt(await transactionTime(tx), step.updatedAt));
       writesDue = true;
       continue;
     }
@@ -100,7 +100,7 @@ export async function takeInBeans(
       // The tablet holds it as the Location has it, or is written so.
       writesDue = true;
     } else if (step.archived === true) {
-      writesDue = (await takeBeanFrom(tx, beanId, locationId, bean.updatedAt)) || writesDue;
+      writesDue = (await takeBeanFrom(tx, beanId, locationId, tablet.tabletId, bean.updatedAt)) || writesDue;
     } else if (step.archived === false) {
       writesDue = (await offerBeanAt(tx, beanId, locationId)) || writesDue;
     }
@@ -148,7 +148,7 @@ export async function recordBeanWritten(
     if (locationId !== null) {
       await lockLocation(tx, locationId);
       const changed = archived
-        ? await takeBeanFrom(tx, beanId, locationId, at ?? (await transactionTime(tx)))
+        ? await takeBeanFrom(tx, beanId, locationId, tablet.tabletId, at ?? (await transactionTime(tx)))
         : await offerBeanAt(tx, beanId, locationId);
       if (changed) await notify(tx, "library_changes", locationId);
     }

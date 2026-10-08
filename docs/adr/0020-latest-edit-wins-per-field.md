@@ -1,5 +1,5 @@
 ---
-status: accepted (amended in place on 2026-10-08, while building milestone 2: how deletes are timed, and edits judged by their times)
+status: accepted (amended in place on 2026-10-08, while building milestone 2: how deletes are timed, and how what a tablet saw is judged)
 ---
 
 # The latest edit wins per field, not per record
@@ -12,4 +12,4 @@ This amends ADR-0003 and ADR-0014.
 
 - **Each item keeps its versions.** The server stores every accepted edit with the Machine or account that made it and when, which also gives each item a change history in the management interface.
 - **Edit times are unchanged.** A tablet edit is timed by the record's `updatedAt` (ADR-0003), a management-interface edit by PostgreSQL's clock (ADR-0016). A delete on a tablet, which Decaid does not time, is timed by PostgreSQL's clock when the server learns of it, but never before the record that tablet last had.
-- **What a tablet saw is judged by times where nothing else tells.** For whether a Bean Batch is at a Location or a Profile is shown there, an edit timed before the one that set the field loses to it, as one made without seeing it. A tablet whose clock runs behind can therefore lose an edit it made after seeing the other, a tablet clock error ADR-0003 accepts.
+- **What a tablet saw is judged by its record.** An edit from a tablet whose record of the item had seen the field's last change, by PostgreSQL's clock (a report of it taken in, or the write it answers planned, after that change), was made after seeing it, and applies whatever its time. Otherwise, as from a tablet that was offline, edit times decide: for whether a Bean Batch is at a Location or a Profile is shown there, an edit timed before the one that set the field loses to it. A record the server never took in, such as a Profile a barista re-creates, is judged by its time alone, so a tablet whose clock runs behind can lose such an edit, a tablet clock error ADR-0003 accepts.

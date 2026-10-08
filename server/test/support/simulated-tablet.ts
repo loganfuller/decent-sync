@@ -6,7 +6,7 @@ import { PROTOCOL_VERSION, SYNC_PATH } from "@decent-sync/protocol";
 import WebSocket from "ws";
 import { assertBuilt } from "./builds.js";
 import { batchesOf, createBatch, deleteBatch, deleteBean, listedBatches, updateBatch } from "./decaid-batches.js";
-import { type DecaidAnswer, createBean, listedBeans, updateBean } from "./decaid-beans.js";
+import { type DecaidAnswer, createBean, listedBeans, updateBean, withDecaidClock } from "./decaid-beans.js";
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
 import { rememberSecret, watchLog } from "./secrets.js";
 
@@ -436,6 +436,13 @@ export interface SimulatedTabletOptions {
    */
   answerOnArrival?: boolean;
   /**
+   * How far ahead of the test's clock the tablet's Decaid reads its own, in
+   * milliseconds, or behind it if negative: the times it writes into the
+   * records it creates and changes, as on a tablet whose clock is wrong. The
+   * plugin's own clock is the test's.
+   */
+  decaidClockOffsetMs?: number;
+  /**
    * The largest `GET /steams/ids` response the plugin's fetch answers: a
    * longer list fails the fetch, as Decaid's 10 MiB limit, the default, fails
    * it on a tablet holding about 268,900 Steam Records.
@@ -536,6 +543,7 @@ export class SimulatedTablet {
   private readonly timeScale: number;
   private readonly apiDelayMs: (method: string, path: string) => number;
   private readonly answerOnArrival: boolean;
+  private readonly decaidClockOffsetMs: number;
   private readonly steamIdsLimitBytes: number;
   private readonly uploadBytesPerSecond: number | undefined;
   private readonly stallUpload: ((frame: unknown) => boolean) | undefined;
@@ -571,6 +579,7 @@ export class SimulatedTablet {
     const apiDelayMs = options.apiDelayMs ?? 0;
     this.apiDelayMs = typeof apiDelayMs === "number" ? () => apiDelayMs : apiDelayMs;
     this.answerOnArrival = options.answerOnArrival ?? false;
+    this.decaidClockOffsetMs = options.decaidClockOffsetMs ?? 0;
     this.steamIdsLimitBytes = options.steamIdsLimitBytes ?? MAX_FETCH_RESPONSE_BYTES;
     this.uploadBytesPerSecond = options.uploadBytesPerSecond;
     this.stallUpload = options.stallUpload;
@@ -888,7 +897,7 @@ export class SimulatedTablet {
       this.apiFailures.set(route, failures - 1);
       return response(503, JSON.stringify({ error: "Local API temporarily unavailable" }));
     }
-    const written = this.writeLibrary(method, route, new URL(url).searchParams, requestBody);
+    const written = withDecaidClock(this.decaidClockOffsetMs, () => this.writeLibrary(method, route, new URL(url).searchParams, requestBody));
     if (written) {
       return written.etag && written.status === 200 ? conditional(JSON.stringify(written.body), headers) : response(written.status, JSON.stringify(written.body));
     }

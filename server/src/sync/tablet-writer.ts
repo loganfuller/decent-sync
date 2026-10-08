@@ -65,7 +65,7 @@ export class TabletWriter {
   private again = false;
   private stopped = false;
   /** The write awaiting its answer. */
-  private waiting: { write: LibraryWrite; settle: (outcome: WriteOutcome | "stopped" | "timedOut") => void } | undefined;
+  private waiting: { write: LibraryWrite; plannedAt: Date; settle: (outcome: WriteOutcome | "stopped" | "timedOut") => void } | undefined;
   /** Items whose write was refused, or not answered, on this connection, or that writing did not change, by `writeKey`. */
   private readonly skipped = new Set<string>();
   /**
@@ -142,9 +142,9 @@ export class TabletWriter {
     this.wake();
   }
 
-  /** The write with this id, if it awaits its answer. */
-  awaited(id: string): LibraryWrite | undefined {
-    return this.waiting?.write.id === id ? this.waiting.write : undefined;
+  /** The write with this id, if it awaits its answer, and when it was planned, by PostgreSQL's clock. */
+  awaited(id: string): { write: LibraryWrite; plannedAt: Date } | undefined {
+    return this.waiting?.write.id === id ? { write: this.waiting.write, plannedAt: this.waiting.plannedAt } : undefined;
   }
 
   /** The plugin answered a write, and its answer is recorded. Answers to other writes, such as late ones, are ignored. */
@@ -190,7 +190,7 @@ export class TabletWriter {
         continue;
       }
       const write: LibraryWrite = { type: "write", id: randomUUID(), kind: due.kind, globalId: due.globalId, localId: due.localId, fields: due.fields };
-      const outcome = await this.ask(write);
+      const outcome = await this.ask(write, found!.plannedAt);
       if (outcome === "stopped") return;
       if (outcome === "timedOut") {
         this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the write of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once the tablet reconnects`);
@@ -201,7 +201,7 @@ export class TabletWriter {
   }
 
   /** Sends a write and resolves with what became of it. */
-  private ask(write: LibraryWrite): Promise<WriteOutcome | "stopped" | "timedOut"> {
+  private ask(write: LibraryWrite, plannedAt: Date): Promise<WriteOutcome | "stopped" | "timedOut"> {
     return new Promise((resolve) => {
       const timer = setTimeout(() => settle("timedOut"), ANSWER_TIMEOUT_MS);
       const settle = (outcome: WriteOutcome | "stopped" | "timedOut") => {
@@ -209,7 +209,7 @@ export class TabletWriter {
         if (this.waiting?.write.id === write.id) this.waiting = undefined;
         resolve(outcome);
       };
-      this.waiting = { write, settle };
+      this.waiting = { write, plannedAt, settle };
       this.send(write);
     });
   }

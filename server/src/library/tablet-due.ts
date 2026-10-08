@@ -19,6 +19,8 @@ export interface TabletDue {
   locationId: string | null;
   /** The next write, or null if none is due. */
   write: PlannedWrite | null;
+  /** When it was read, by PostgreSQL's clock: the write's answer shows what the tablet had seen of its Location's state by then. */
+  plannedAt: Date;
 }
 
 /**
@@ -39,14 +41,14 @@ export async function tabletDue(
 ): Promise<TabletDue | null> {
   return prisma.$transaction(
     async (tx) => {
-      const [holder] = await tx.$queryRaw<{ locationId: string | null }[]>`
+      const [holder] = await tx.$queryRaw<{ locationId: string | null; plannedAt: Date }[]>`
         SELECT (
           SELECT location_id FROM location_assignments WHERE machine_id = machines.id ORDER BY effective_from DESC LIMIT 1
-        ) AS "locationId"
+        ) AS "locationId", now() AS "plannedAt"
         FROM machines WHERE id = ${tablet.machineId}::uuid AND connected_session_id = ${tablet.sessionId}::uuid`;
       if (!holder) return null;
-      const { locationId } = holder;
-      if (locationId === null || locationId !== reportedAt) return { locationId, write: null };
+      const { locationId, plannedAt } = holder;
+      if (locationId === null || locationId !== reportedAt) return { locationId, write: null, plannedAt };
       const beans = await tx.$queryRaw<OfferedBean[]>`
         SELECT beans.id, beans.content FROM beans
         WHERE NOT beans.archived AND (
@@ -91,7 +93,7 @@ export async function tabletDue(
         profiles,
       };
       const [write] = plannedWrites(offer, { beans: heldBeans, batches: heldBatches, profiles: heldProfiles }, skipped);
-      return { locationId, write: write ?? null };
+      return { locationId, write: write ?? null, plannedAt };
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   );

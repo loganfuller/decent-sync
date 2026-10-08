@@ -459,7 +459,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    */
   private async answered(session: Session, answer: ItemWritten | WriteRefused): Promise<void> {
     let outcome: "written" | "refused" = "refused";
-    const write = session.writer?.awaited(answer.id);
+    const awaited = session.writer?.awaited(answer.id);
+    const write = awaited?.write;
     if (answer.type === "writeRefused") {
       if (write) {
         this.logger.warn(
@@ -468,9 +469,9 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       }
     } else if (write) {
       // The write it answers names the item, whatever the answer says: its record must carry that item's global id.
-      if (await this.recordAnswer(session, write.kind, write.globalId, write.fields, answer, true)) outcome = "written";
+      if (await this.recordAnswer(session, write.kind, write.globalId, write.fields, answer, awaited.plannedAt)) outcome = "written";
     } else if (session.writer && isLibraryKind(answer.kind)) {
-      await this.recordAnswer(session, answer.kind, answer.globalId, UNKNOWN_WRITE, answer, false);
+      await this.recordAnswer(session, answer.kind, answer.globalId, UNKNOWN_WRITE, answer, null);
     }
     this.acknowledge(session, answer.id, null);
     session.writer?.answered(answer.id, outcome);
@@ -479,7 +480,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   /**
    * Records the record a write's answer holds as the tablet's record of the
    * item (`written`, the fields the write set), and says whether it could. A
-   * record that is not the item's is logged when its write was `awaited`.
+   * record that is not the item's is logged when its write was awaited: when
+   * the server planned it (`plannedAt`), by PostgreSQL's clock, by which the
+   * record shows what the tablet had seen of its Location's state. An answer
+   * to a write no longer awaited has none.
    */
   private async recordAnswer(
     session: Session,
@@ -487,17 +491,19 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     globalId: string,
     written: Readonly<Record<string, unknown>>,
     answer: ItemWritten,
-    awaited: boolean,
+    plannedAt: Date | null,
   ): Promise<boolean> {
     const name = isLibraryKind(kind) ? KIND_NAMES[kind] : kind;
     try {
       const tablet = { machineId: session.machine!.id, tabletId: session.live!.tabletId };
       const recorded =
         kind === "profile"
-          ? await recordProfileWritten(this.prisma, tablet, globalId, answer.record, answer.updatedAt)
-          : await (kind === "bean" ? recordBeanWritten : recordBatchWritten)(this.prisma, tablet, globalId, written, answer.record, answer.updatedAt);
+          ? await recordProfileWritten(this.prisma, tablet, globalId, answer.record, answer.updatedAt, plannedAt)
+          : kind === "bean"
+            ? await recordBeanWritten(this.prisma, tablet, globalId, written, answer.record, answer.updatedAt)
+            : await recordBatchWritten(this.prisma, tablet, globalId, written, answer.record, answer.updatedAt, plannedAt);
       if (recorded) return true;
-      if (awaited) this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);
+      if (plannedAt !== null) this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);
     } catch (error) {
       const failure = repeatingFailure(error);
       if (!failure) throw error;

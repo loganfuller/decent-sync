@@ -74,10 +74,14 @@ it (Writing to tablets, below).
   there since, if it was, and the remaining weight entered there last, in
   grams, with that edit's time. A batch is at a Location while it was added
   there and not finished since. Whether it is there is a field whose latest
-  edit wins (ADR-0020): adding it there loses to a finish timed later, and
-  finishing it there to an add timed later, edits their tablets had not seen,
-  as from a tablet that was offline; the Location's state is then written
-  back to that tablet. Times are each edit's: a tablet's by the
+  edit wins (ADR-0020), with when that was last decided by PostgreSQL's
+  clock. An edit from a tablet whose record of the batch had seen that (its
+  `seen_at`, below, is later) applies. Otherwise, as from a tablet that was
+  offline, adding it there loses to a finish timed later, and finishing it
+  there to an add timed later; the Location's state is then written back to
+  that tablet. It is never finished before it was added, nor added again
+  before it was finished, whatever the clock that timed the edit. Times are
+  each edit's: a tablet's by the
   record's `updatedAt` in UTC; a delete, which Decaid does not time, by
   PostgreSQL's clock, but never earlier than the record the tablet was last
   known to have.
@@ -88,16 +92,22 @@ it (Writing to tablets, below).
   Archived, the Location of the tablet that created it, and when it joined
   the Library.
 - `profile_locations`: whether each Profile is shown at a Location, a field of
-  its own (ADR-0020), with the time of the edit that decided it: a tablet's
-  by its record's `updatedAt` in UTC; a delete, which Decaid does not time,
-  by PostgreSQL's clock, but never earlier than the record the tablet was last
-  known to have. A Location with no row for a Profile has decided nothing of
-  it, and does not show it.
+  its own (ADR-0020), with the time of the edit that decided it, never earlier
+  than the one before: a tablet's by its record's `updatedAt` in UTC; a
+  delete, which Decaid does not time, by PostgreSQL's clock, but never earlier
+  than the record the tablet was last known to have. And when it was decided,
+  by PostgreSQL's clock. A Location with no row for a Profile has decided
+  nothing of it, and does not show it.
 - `tablet_beans`, `tablet_bean_batches` and `tablet_profiles`: the map, per
   tablet id (ticket #79): each item's local id on that tablet, which is a
   Profile's own, and the record as the tablet last had it, as it reported it
   or as Decaid returned the plugin's write, with that record's `updatedAt`
-  placed in UTC by the plugin. A reset tablet has a new tablet id, so it
+  placed in UTC by the plugin, and, for a batch or Profile, by when it shows
+  what the tablet had seen of its Location's state (`seen_at`, by
+  PostgreSQL's clock): when a report holding it was taken in, or when the
+  server planned the write it answers. An answer to a write no longer
+  awaited, such as one arriving after a reconnect, keeps the time known
+  before, as its write's is not. A reset tablet has a new tablet id, so it
   starts with nothing here.
 
 ## Taking in a tablet's beans
@@ -187,7 +197,7 @@ beans, and taken in the same way, under the same locks (`takeInBatches` in
   archived, it is finished there; a changed `weightRemaining`, cleared
   included, is its remaining weight there. Adding or finishing it there is an
   edit timed by the record, which loses to a later one the tablet had not
-  seen (ADR-0020). A remaining weight replaces the
+  seen (`batch_locations`, above; ADR-0020). A remaining weight replaces the
   one known when the tablet had that value, none was ever entered there, or
   it was entered later than the value known, which the tablet had not seen;
   Conflicts come with ticket #84.
@@ -231,10 +241,12 @@ Decaid's delete marks a user's Profile with, and hides a bundled one.
   but of another visibility. Made visible since, the Profile is shown at the
   tablet's Location; hidden or deleted since, it is hidden there (ADR-0019).
   Only a Profile the tablet held can be hidden this way. Each is an edit timed
-  by the record: one older than the edit that decided the Location's state,
-  which the tablet had not seen, as from a tablet that was offline, loses to
-  it (ADR-0020), and the Location's state is written back to that tablet.
-  Conflicts, which will keep the losing edit, come with ticket #84.
+  by the record. One from a tablet whose record had seen the Location's state
+  last decided (`seen_at`, above) applies. Otherwise, as from
+  a tablet that was offline, one timed before the edit that decided the
+  Location's state loses to it (ADR-0020), and the Location's state is
+  written back to that tablet. Conflicts, which will keep the losing edit,
+  come with ticket #84.
 - Any other record is one the map does not hold yet: the tablet created it,
   held it before it joined the Location, or was written it by a write whose
   answer was lost. If the Library has its id, it is that Profile; otherwise it
@@ -245,7 +257,8 @@ Decaid's delete marks a user's Profile with, and hides a bundled one.
   Location's state stands, and is written to the tablet: a new tablet's
   bundled Profiles do not show those its Location hid. But a user's Profile
   the tablet made visible after both it joined the Location and the Location
-  last decided the Profile is an edit made there, and shows it, as when a
+  last decided the Profile, by their times, is an edit made there, and shows
+  it, as when a
   barista changes a Profile's steps back, which Decaid's `PUT` makes a record
   under the old id again, or re-creates one purged. A tablet joined its
   Location at the later of when its Machine arrived there, by its Location
