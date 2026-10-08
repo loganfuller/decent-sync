@@ -4,15 +4,18 @@ import {
   type LibraryBean,
   type MappedBean,
   type ReportedBean,
+  archivingInAnswer,
   beanContent,
   planIntake,
   readReportedBeans,
 } from "../src/library/bean-intake.js";
 
 // Taking a tablet's report of its beans into the Library, through the pure
-// module's interface: Bean matching (ADR-0018), and which records are new,
+// module's interface: Bean matching (ADR-0018), which records are new,
 // linked, mapped by the global id they carry, or kept by the tablet's map
-// (ADR-0006). Records are shaped as Decaid v0.8.7 serves beans
+// (ADR-0006), and what archiving, un-archiving and deleting one on the
+// tablet means at its Location (ADR-0008, ADR-0019). Records are shaped as
+// Decaid v0.8.7 serves beans
 // (fixtures/decaid/simulated-devices-v0.8.7/beans.json), with made-up ids.
 
 const LOCAL = ["79699013-0984-4a1a-842a-5b84f36e612d", "877a2e9d-8016-43f0-9c43-c0f8866c0a6d", "8ac511b9-81a6-4066-9a5e-5b67da092efc"] as const;
@@ -38,11 +41,18 @@ function reported(localId: string, fields: Record<string, unknown> = {}, updated
 
 const library = (id: string, roaster: string, name: string, archived = false): LibraryBean => ({ id, matchKey: beanMatchKey(roaster, name), archived });
 /** A record the tablet's map holds, known at a time and, as when its global id was written, carrying one. */
-const mapped = (beanId: string, localId: string, updatedAt: string | null = "2026-10-05T19:03:13.044Z", globalId: string | null = null): MappedBean => ({
+const mapped = (
+  beanId: string,
+  localId: string,
+  updatedAt: string | null = "2026-10-05T19:03:13.044Z",
+  globalId: string | null = null,
+  archived = false,
+): MappedBean => ({
   beanId,
   localId,
   updatedAt: updatedAt === null ? null : new Date(updatedAt),
   globalId,
+  archived,
 });
 const withId = (id: string) => ({ extras: { [GLOBAL_ID_KEY]: id } });
 
@@ -176,9 +186,66 @@ describe("planIntake", () => {
     expect(planIntake([intact], [known], [])).toEqual([]);
   });
 
-  it("leaves a new bean archived on the tablet out, and reads a record repeated in one report once", () => {
+  it("takes a new bean archived on the tablet in, linking it as any other, and reads a record repeated in one report once", () => {
     const archived = reported(LOCAL[0], { archived: true });
-    const bean = reported(LOCAL[1]);
-    expect(planIntake([archived, bean, bean], [], [])).toEqual([{ kind: "add", bean }]);
+    const bean = reported(LOCAL[1], { name: "Another Bean" });
+    expect(planIntake([archived, bean, bean], [], [])).toEqual([
+      { kind: "add", bean: archived },
+      { kind: "add", bean },
+    ]);
+    expect(planIntake([archived], [], [library(GLOBAL[0], "Fixture Roaster", "Fixture Bean")])).toEqual([{ kind: "link", beanId: GLOBAL[0], bean: archived }]);
+  });
+
+  it("says a known record archived on the tablet since takes its Bean away from the Location, and one un-archived offers it there again", () => {
+    const archived = reported(LOCAL[0], { archived: true }, "2026-10-06T00:00:00.000Z");
+    const restored = reported(LOCAL[0], {}, "2026-10-06T00:00:00.000Z");
+    expect(planIntake([archived], [mapped(GLOBAL[0], LOCAL[0])], [])).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: archived, archived: true }]);
+    expect(planIntake([restored], [mapped(GLOBAL[0], LOCAL[0], undefined, null, true)], [])).toEqual([
+      { kind: "update", beanId: GLOBAL[0], bean: restored, archived: false },
+    ]);
+    // A record changed otherwise changes nothing at the Location.
+    const edited = reported(LOCAL[0], { notes: "Edited" }, "2026-10-06T00:00:00.000Z");
+    expect(planIntake([edited], [mapped(GLOBAL[0], LOCAL[0])], [])).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: edited }]);
+    // Archived within the millisecond times are read to, as old as the record known.
+    const quick = reported(LOCAL[0], { archived: true }, "2026-10-05T19:03:13.044Z");
+    expect(planIntake([quick], [mapped(GLOBAL[0], LOCAL[0])], [])).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: quick, archived: true }]);
+  });
+
+  it("reads a record the map holds that the list no longer holds as deleted on the tablet", () => {
+    const kept = reported(LOCAL[1]);
+    const known = mapped(GLOBAL[0], LOCAL[0], "2026-10-05T19:03:13.044Z");
+    expect(planIntake([kept], [known, mapped(GLOBAL[1], LOCAL[1])], [], new Set([LOCAL[1]]))).toEqual([
+      { kind: "delete", beanId: GLOBAL[0], localId: LOCAL[0], updatedAt: new Date("2026-10-05T19:03:13.044Z") },
+    ]);
+    // Still listed, though no longer a record Decent Sync can read, it was not deleted.
+    expect(planIntake([kept], [known, mapped(GLOBAL[1], LOCAL[1])], [], new Set([LOCAL[0], LOCAL[1]]))).toEqual([]);
+  });
+
+  it("deletes no Bean another record the tablet reports now is, as one made again under another id", () => {
+    const again = reported(LOCAL[1], withId(GLOBAL[0]));
+    expect(planIntake([again], [mapped(GLOBAL[0], LOCAL[0])], [library(GLOBAL[0], "Fixture Roaster", "Fixture Bean")], new Set([LOCAL[1]]))).toEqual([
+      { kind: "map", beanId: GLOBAL[0], bean: again },
+    ]);
+  });
+
+  it("deletes nothing for a tablet whose map holds nothing, as a new or reset tablet's, whatever it reports", () => {
+    expect(planIntake([], [], [], new Set())).toEqual([]);
+    const bean = reported(LOCAL[0]);
+    expect(planIntake([bean], [], [library(GLOBAL[0], "Fixture Roaster", "Fixture Bean")], new Set([LOCAL[0]]))).toEqual([
+      { kind: "link", beanId: GLOBAL[0], bean },
+    ]);
+  });
+});
+
+describe("archivingInAnswer", () => {
+  it("says the record Decaid returned for a write shows the tablet archived or un-archived the Bean since its last report", () => {
+    expect(archivingInAnswer(false, record(LOCAL[0], { archived: true }), new Set())).toBe(true);
+    expect(archivingInAnswer(true, record(LOCAL[0]), new Set())).toBe(false);
+  });
+
+  it("says nothing when the write set archived itself, the record known agrees, or none is known", () => {
+    expect(archivingInAnswer(false, record(LOCAL[0], { archived: true }), new Set(["archived"]))).toBeUndefined();
+    expect(archivingInAnswer(false, record(LOCAL[0]), new Set())).toBeUndefined();
+    expect(archivingInAnswer(null, record(LOCAL[0], { archived: true }), new Set())).toBeUndefined();
   });
 });

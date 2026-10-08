@@ -1,4 +1,6 @@
 import { Module } from "@nestjs/common";
+import { BeanBatchesController } from "./bean-batches.controller.js";
+import { BeanBatchesService } from "./bean-batches.service.js";
 import { BeansController } from "./beans.controller.js";
 import { BeansService } from "./beans.service.js";
 
@@ -7,5 +9,5 @@ import { BeansService } from "./beans.service.js";
  * they are stored (`CollectionsService`), and it is written to tablets by
  * the sync gateway's writers (`TabletWriter`).
  */
-@Module({ controllers: [BeansController], providers: [BeansService] })
+@Module({ controllers: [BeansController, BeanBatchesController], providers: [BeansService, BeanBatchesService] })
 export class LibraryModule {}

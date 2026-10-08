@@ -74,6 +74,10 @@ tests (`plugin/test/change-detection.test.ts`):
   changed. That also covers whatever changed while it was disconnected. It
   does the same when the server sends `requestCollections`, as it does when
   the Machine's Location changes (`LIBRARY.md`).
+- Whenever it sends the beans, it sends the bean batches in full after them,
+  changed or not, as the server takes in a batch only once it knows the
+  batch's bean (`LIBRARY.md`). The library's lists are read, and queued,
+  between the server's writes to the tablet, never during one.
 - A newer delivery of a collection drops an older one still queued, unless
   the older one was ever handed to a connection. Such a delivery may still be
   being stored by the instance that received it, so it is sent again, under
@@ -92,9 +96,9 @@ Bluetooth or USB connection (`UnifiedDe1`), fifteen reads per poll.
 
 `server/src/collections/collections.service.ts` stores the latest value of
 each collection in `reported_collections`, one row per Machine (or Pending
-Machine) and name. A `beans` collection from a connection that is not
-mismatched, whose Machine is at a Location, is also taken into the Library in
-the same transaction (`LIBRARY.md`):
+Machine) and name. A `beans` or `beanBatches` collection from a connection
+that is not mismatched, whose Machine is at a Location, is also taken into
+the Library in the same transaction (`LIBRARY.md`):
 
 - `available` and `reported_at`: whether the latest report had a value, and
   when it arrived, by PostgreSQL's clock.

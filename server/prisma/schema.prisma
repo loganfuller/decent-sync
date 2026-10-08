@@ -159,13 +159,15 @@ model Location {
   createdAt DateTime @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  assignments  LocationAssignment[]
-  shots        Shot[]
-  steamRecords SteamRecord[]
-  staff        StaffLocation[]
-  invites      InviteLocation[]
-  beansCreated Bean[]          @relation("BeansCreated")
-  beanOrigins  BeanOrigin[]
+  assignments    LocationAssignment[]
+  shots          Shot[]
+  steamRecords   SteamRecord[]
+  staff          StaffLocation[]
+  invites        InviteLocation[]
+  beansCreated   Bean[]          @relation("BeansCreated")
+  beanOrigins    BeanOrigin[]
+  batchesCreated BeanBatch[]     @relation("BeanBatchesCreated")
+  batches        BatchLocation[]
 
   @@map("locations")
 }
@@ -323,8 +325,9 @@ model Tablet {
   /// When a `hello` with it was first accepted, by PostgreSQL's clock.
   firstSeenAt DateTime @map("first_seen_at") @db.Timestamptz(3)
 
-  machines MachineTablet[]
-  beans    TabletBean[]
+  machines    MachineTablet[]
+  beans       TabletBean[]
+  beanBatches TabletBeanBatch[]
 
   @@map("tablets")
 }
@@ -645,20 +648,24 @@ model Bean {
 
   origins BeanOrigin[]
   tablets TabletBean[]
+  batches BeanBatch[]
 
   @@index([matchKey])
   @@map("beans")
 }
 
-/// A Location where a tablet created the Bean, or linked a Bean of its own to
-/// it by roaster and name (ADR-0018). While it has no batches, a Bean is
-/// offered at each (ADR-0008).
+/// A Location offering a Bean that has no batch there yet (ADR-0008): one
+/// where a tablet created the Bean, linked a bean of its own to it by roaster
+/// and name (ADR-0018), or un-archived its record, while none of its batches
+/// was there. A batch of it added there ends it, as does archiving or
+/// deleting the Bean on a tablet there (ADR-0019); from then on the Bean is
+/// offered there only while one of its batches is.
 model BeanOrigin {
   beanId     String   @map("bean_id") @db.Uuid
   bean       Bean     @relation(fields: [beanId], references: [id], onDelete: Cascade)
   locationId String   @map("location_id") @db.Uuid
   location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
-  /// When it was first created or linked there, by PostgreSQL's clock.
+  /// When it was created, linked or un-archived there, by PostgreSQL's clock.
   since      DateTime @default(dbgenerated("transaction_timestamp()")) @db.Timestamptz(3)
 
   @@id([beanId, locationId])
@@ -686,4 +693,76 @@ model TabletBean {
   @@unique([tabletId, localId])
   @@index([beanId])
   @@map("tablet_beans")
+}
+
+/// One roast of a Bean (ADR-0008), by its global id (ADR-0006). Its content
+/// is the same everywhere; whether it is at each Location, and its remaining
+/// weight there, are each Location's own (`BatchLocation`).
+model BeanBatch {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  beanId            String    @map("bean_id") @db.Uuid
+  bean              Bean      @relation(fields: [beanId], references: [id], onDelete: Cascade)
+  /// Decaid's record fields, those it does not know included, as the tablet
+  /// that created it sent them: all but its id, its Bean's id on that tablet,
+  /// its times, `archived`, `weightRemaining` and `extras`, which belong to
+  /// each tablet's record or to each Location.
+  content           Json      @db.JsonB
+  /// Retired everywhere: offered nowhere, but kept so past Shots still name it.
+  archived          Boolean   @default(false)
+  /// The Location of the tablet that created it.
+  createdLocationId String?   @map("created_location_id") @db.Uuid
+  createdLocation   Location? @relation("BeanBatchesCreated", fields: [createdLocationId], references: [id], onDelete: SetNull)
+  /// When it joined the Library, by PostgreSQL's clock.
+  createdAt         DateTime  @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+
+  locations BatchLocation[]
+  tablets   TabletBeanBatch[]
+
+  @@index([beanId])
+  @@map("bean_batches")
+}
+
+/// A Bean Batch's state at one Location (ADR-0008), each part a field of its
+/// own (ADR-0020): whether it is there, from when it was added until it is
+/// finished, and its remaining weight there, the latest value entered. Each
+/// part keeps the time of the edit that set it, a tablet's edits by the
+/// record's `updatedAt` in UTC (ADR-0003).
+model BatchLocation {
+  batchId           String    @map("batch_id") @db.Uuid
+  batch             BeanBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  locationId        String    @map("location_id") @db.Uuid
+  location          Location  @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  /// When it was last added there; null if it never was, as for a batch whose
+  /// remaining weight was entered there while it was elsewhere.
+  addedAt           DateTime? @map("added_at") @db.Timestamptz(3)
+  /// When it was finished there after it was last added; null while it is there.
+  finishedAt        DateTime? @map("finished_at") @db.Timestamptz(3)
+  /// The remaining weight entered there last, in grams; null if it was cleared.
+  remainingWeight   Float?    @map("remaining_weight")
+  /// When that weight was entered; null if none ever was there.
+  remainingWeightAt DateTime? @map("remaining_weight_at") @db.Timestamptz(3)
+
+  @@id([batchId, locationId])
+  @@index([locationId])
+  @@map("batch_locations")
+}
+
+/// A Library Bean Batch's record on one tablet (ADR-0006), as `TabletBean`
+/// keeps a Bean's: its id there, and the record as that tablet last had it.
+model TabletBeanBatch {
+  tabletId        String    @map("tablet_id") @db.Uuid
+  tablet          Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  batchId         String    @map("batch_id") @db.Uuid
+  batch           BeanBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  /// Decaid's id for the record on that tablet.
+  localId         String    @map("local_id")
+  /// The record, as Decaid sent it.
+  record          Json      @db.JsonB
+  /// The record's updatedAt, placed in UTC by the plugin; null if it could not be.
+  recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
+
+  @@id([tabletId, batchId])
+  @@unique([tabletId, localId])
+  @@index([batchId])
+  @@map("tablet_bean_batches")
 }

@@ -48,6 +48,22 @@ same network,
 curl -o tablet-backup.json http://<tablet>:8080/api/v1/data/export
 ```
 
+### Tablets at a Location now share their bean batches
+
+Once a tablet's Machine is at a Location, its bean batches join the
+server's Library too, at that Location, and the Location's other tablets are
+written them, with their beans. A batch archived on a tablet is finished at
+that tablet's Location and archived on its other tablets; un-archived, it is
+added back; and the remaining weight entered on a tablet is that Location's,
+written to its other tablets. A bean archived or deleted on a tablet finishes
+its batches at that Location, and is archived on the Location's other tablets
+once none of its batches is there. Beans archived on a tablet now join the
+Library as well, though not offered at its Location; one that becomes a Bean
+its Location offers is un-archived there.
+Nothing is deleted from a tablet: what its Location stops offering, such as
+the beans and batches of a Location a Machine was moved away from, is archived
+on it. Export each tablet's data first if you may want to undo this, as above.
+
 ### Reload the plugin after restoring the server's database
 
 The plugin now tells the server which Shots and Steam Records its tablet

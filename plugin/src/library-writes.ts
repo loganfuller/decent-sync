@@ -9,6 +9,7 @@ import {
 } from "@decent-sync/protocol";
 import { type Answer, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
+import type { Outbox } from "./outbox.js";
 
 // The Library items the server shares, written to this tablet through
 // Decaid's API (ADR-0006), one at a time, in the order the server asks.
@@ -19,11 +20,15 @@ import { utcTime } from "./local-time.js";
 interface Route {
   /** The kind's records, archived ones included. */
   list: string;
-  /** Where its records are created, and each is found under its id. */
+  /** Where each record is found under its id. */
   records: string;
+  /** Where a record with these fields is created, or null if they do not say. */
+  create(fields: Record<string, unknown>): string | null;
+  /** Fields Decaid's create does not take, written after it when they differ from what it made. */
+  deferred: readonly string[];
   /**
    * Whether a record without a global id is the item a write would create:
-   * a bean with the same roaster and name (ADR-0018).
+   * a bean with the same roaster and name (ADR-0018). Bean Batches never are.
    */
   sameItem(record: Record<string, unknown>, fields: Record<string, unknown>): boolean;
 }
@@ -33,6 +38,8 @@ const ROUTES: Readonly<Record<string, Route>> = {
   bean: {
     list: "/beans?includeArchived=true",
     records: "/beans",
+    create: () => "/beans",
+    deferred: ["archived"],
     sameItem: (record, fields) =>
       typeof record.roaster === "string" &&
       typeof record.name === "string" &&
@@ -40,28 +47,60 @@ const ROUTES: Readonly<Record<string, Route>> = {
       typeof fields.name === "string" &&
       beanMatchKey(record.roaster, record.name) === beanMatchKey(fields.roaster, fields.name),
   },
+  beanBatch: {
+    list: "/bean-batches?includeArchived=true",
+    records: "/bean-batches",
+    // Under the tablet's record of its bean, which `beanId` names; the path decides it, and Decaid ignores the field.
+    create: (fields) => (typeof fields.beanId === "string" && fields.beanId !== "" ? `/beans/${encodeURIComponent(fields.beanId)}/batches` : null),
+    deferred: ["archived", "weightRemaining"],
+    sameItem: () => false,
+  },
 };
 
 /** What becomes of a write: the record Decaid returned, or why it did not write one. */
 export type WriteAnswer = ItemWritten | WriteRefused;
 
-/** Carries out the server's writes in the order they arrive, one at a time. */
-export class LibraryWrites {
+/**
+ * Reads of the tablet's Library lists and writes to them, one at a time, in
+ * the order they are asked for. A report of a list then either holds a
+ * write's record or was read, and queued to be sent, before the write began
+ * (`LibraryWrites`).
+ */
+export class LibraryAccess {
   private queue: Promise<unknown> = Promise.resolve();
 
-  /** Carries out a write once those before it are done, and resolves with its answer. It never rejects. */
-  apply(write: LibraryWrite): Promise<WriteAnswer> {
-    const answer = this.queue.then(() => carryOut(write));
-    this.queue = answer;
-    return answer;
+  /** Runs `work` once everything asked for before it is done, and resolves or rejects as it does. */
+  run<T>(work: () => Promise<T>): Promise<T> {
+    const done = this.queue.then(work);
+    this.queue = done.catch(() => {});
+    return done;
+  }
+}
+
+/**
+ * Carries out the server's writes in the order they arrive, one at a time,
+ * between reads of the lists it writes to, and queues each answer in the
+ * outbox, behind the reports read before it. So the server takes in each
+ * report read before a write before that write's answer, and never reads an
+ * item the plugin wrote as deleted from a report that predates it (ADR-0019).
+ */
+export class LibraryWrites {
+  constructor(
+    private readonly library: LibraryAccess,
+    private readonly outbox: Outbox,
+  ) {}
+
+  /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
+  apply(write: LibraryWrite): Promise<void> {
+    return this.library.run(async () => this.outbox.enqueue(await carryOut(write)));
   }
 }
 
 async function carryOut(write: LibraryWrite): Promise<WriteAnswer> {
-  const route = ROUTES[write.kind];
+  const route = Object.prototype.hasOwnProperty.call(ROUTES, write.kind) ? ROUTES[write.kind] : undefined;
   if (!route) return refused(write, null, `This plugin cannot write a ${write.kind}`);
   try {
-    return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId));
+    return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId), Object.keys(write.fields));
   } catch (error) {
     return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -75,18 +114,35 @@ async function carryOut(write: LibraryWrite): Promise<WriteAnswer> {
  * bean a barista entered with the same roaster and name before the tablet
  * reported it, becomes the item: only the global id is written to it, as the
  * server writes it to a record it links (ADR-0018). Otherwise the record is
- * created, with the global id in its `extras`.
+ * created, with the global id in its `extras`, and the fields Decaid's
+ * create does not take, such as a batch's remaining weight, are written to
+ * it after, where they differ from what Decaid made. Should that second
+ * write fail or go unanswered, the record as created is the answer, and the
+ * server asks for those fields again.
  */
 async function create(route: Route, write: LibraryWrite): Promise<WriteAnswer> {
   const listed = await request("GET", route.list);
   if (!listed.ok) return refused(write, listed.status, listed.text);
   const parsedList = parsed(listed.text);
   const records = Array.isArray(parsedList) ? parsedList.filter(isObject) : [];
+  // Nothing is written to a record the tablet holds already, but the global id.
   const held = records.find((record) => globalIdOf(record) === write.globalId.toLowerCase());
-  if (held) return written(write, held);
+  if (held) return written(write, held, []);
   const same = records.find((record) => globalIdOf(record) === null && record.archived !== true && route.sameItem(record, write.fields));
-  if (same && typeof same.id === "string") return answerTo(write, await update(route, { ...write, fields: {} }, same.id));
-  return answerTo(write, await request("POST", route.records, { ...write.fields, extras: { [GLOBAL_ID_KEY]: write.globalId } }));
+  if (same && typeof same.id === "string") return answerTo(write, await update(route, { ...write, fields: {} }, same.id), []);
+  const path = route.create(write.fields);
+  if (path === null) return refused(write, null, `A ${write.kind} to create must name what it belongs to`);
+  const body: Record<string, unknown> = { ...write.fields, extras: { [GLOBAL_ID_KEY]: write.globalId } };
+  for (const field of route.deferred) delete body[field];
+  const made = await request("POST", path, body);
+  const record = made.ok ? parsed(made.text) : undefined;
+  if (!isObject(record) || typeof record.id !== "string") return refused(write, made.status, made.text);
+  const later = Object.fromEntries(route.deferred.flatMap((field) => (field in write.fields && write.fields[field] !== (record[field] ?? null) ? [[field, write.fields[field]]] : [])));
+  const writtenFields = Object.keys(write.fields);
+  if (Object.keys(later).length === 0) return written(write, record, writtenFields);
+  const again = await request("PUT", `${route.records}/${encodeURIComponent(record.id)}`, later).catch(() => undefined);
+  const updated = again?.ok ? parsed(again.text) : undefined;
+  return written(write, isObject(updated) && typeof updated.id === "string" ? updated : record, writtenFields);
 }
 
 /** Updates the record's fields, and writes the global id beside the other keys in its `extras`, which Decaid replaces whole. */
@@ -99,15 +155,16 @@ async function update(route: Route, write: LibraryWrite, localId: string): Promi
   return request("PUT", path, { ...write.fields, extras: { ...extras, [GLOBAL_ID_KEY]: write.globalId } });
 }
 
-/** The answer to a write from what Decaid answered last: the record it holds now, or its refusal. */
-function answerTo(write: LibraryWrite, answer: Answer): WriteAnswer {
+/** The answer to a write that set `writtenFields`, from what Decaid answered last: the record it holds now, or its refusal. */
+function answerTo(write: LibraryWrite, answer: Answer, writtenFields: string[]): WriteAnswer {
   const record = answer.ok ? parsed(answer.text) : undefined;
-  if (isObject(record) && typeof record.id === "string") return written(write, record);
+  if (isObject(record) && typeof record.id === "string") return written(write, record, writtenFields);
   return refused(write, answer.status, answer.text);
 }
 
-function written(write: LibraryWrite, record: Record<string, unknown>): ItemWritten {
-  return { type: "written", id: write.id, kind: write.kind, globalId: write.globalId, record, updatedAt: utcTime(record.updatedAt) };
+/** A write's answer: the record Decaid holds now, and the fields the write set, beside its global id in `extras`. */
+function written(write: LibraryWrite, record: Record<string, unknown>, writtenFields: string[]): ItemWritten {
+  return { type: "written", id: write.id, kind: write.kind, globalId: write.globalId, record, updatedAt: utcTime(record.updatedAt), writtenFields };
 }
 
 function refused(write: LibraryWrite, status: number | null, error: string): WriteRefused {

@@ -1,7 +1,9 @@
 import { beanMatchKey, globalIdOf, isRecordId } from "@decent-sync/protocol";
+import { isObject } from "./listed.js";
 
 // How a tablet's report of its beans is taken into the Library (ADR-0006,
-// ADR-0018), decided from the report, the tablet's map and the Library Beans
+// ADR-0018), and what it means at the tablet's Location (ADR-0008,
+// ADR-0019), decided from the report, the tablet's map and the Library Beans
 // the report may name. Pure, so module tests can drive it; beans.ts reads
 // what it needs and carries the plan out.
 
@@ -29,6 +31,8 @@ export interface MappedBean {
   updatedAt: Date | null;
   /** The global id the record known carries, if any. */
   globalId: string | null;
+  /** Whether the record known is archived on the tablet. */
+  archived: boolean;
 }
 
 /** A Library Bean the report may name, by the global id a record carries or by roaster and name. */
@@ -40,14 +44,24 @@ export interface LibraryBean {
 
 /** One thing a report changes. */
 export type IntakeStep =
-  /** The tablet's record of a Bean the map holds is newer than the one known, which it replaces. */
-  | { kind: "update"; beanId: string; bean: ReportedBean }
+  /**
+   * The tablet's record of a Bean the map holds is newer than the one known,
+   * which it replaces. With `archived`, the tablet archived the record since
+   * (true), so the Bean leaves its Location, or un-archived it (false), so it
+   * is offered there again.
+   */
+  | { kind: "update"; beanId: string; bean: ReportedBean; archived?: boolean }
   /** The tablet holds a Library Bean the map did not know it held, by the global id its record carries. */
   | { kind: "map"; beanId: string; bean: ReportedBean }
   /** A bean new to the Library whose roaster and name match a Library Bean's: it is that Bean. */
   | { kind: "link"; beanId: string; bean: ReportedBean }
   /** A bean new to the Library, which joins it. */
-  | { kind: "add"; bean: ReportedBean };
+  | { kind: "add"; bean: ReportedBean }
+  /**
+   * A record the map holds is gone from the tablet's list: the tablet deleted
+   * the Bean, which leaves its Location (ADR-0019), and holds it no more.
+   */
+  | { kind: "delete"; beanId: string; localId: string; updatedAt: Date | null };
 
 /**
  * The beans of a reported `beans` list that Decent Sync can take in, each
@@ -91,19 +105,33 @@ export function beanContent(record: Record<string, unknown>): Record<string, unk
  * wiped is not taken for a new one (ADR-0006). Its record replaces the one
  * known when it is newer, or when it no longer carries the Bean's global id
  * while the one known does, whatever its time: a tablet's clock can go back,
- * and the id is still to be written back. Otherwise a record carrying a
- * Library Bean's global id is that Bean, as on a tablet whose answer to the
- * write was lost, or that was restored from a backup.
+ * and the id is still to be written back. One as old as the record known
+ * replaces it too when it was archived or un-archived since, within the
+ * millisecond the plugin reads times to. A record replacing one known with
+ * another archived flag was archived or un-archived on the tablet since.
+ * Otherwise a record carrying a Library Bean's global id is that Bean, as on
+ * a tablet whose answer to the write was lost, or that was restored from a
+ * backup.
  *
  * Every other record is new, and comes next, in the order reported: it is
  * linked to a Library Bean with the same roaster and name, the oldest first,
- * or joins the Library (ADR-0018). A Bean already held by another record the
- * tablet still reports is neither mapped nor linked again, so it never gets
- * two records on one tablet. A new record archived on the tablet is left
- * until archiving has its meaning at a Location (ADR-0008), and so is not
- * matched against Archived Beans, which are offered nowhere.
+ * or joins the Library (ADR-0018), archived on the tablet or not. Archived
+ * Beans, which are offered nowhere, are never matched. A Bean already held by
+ * another record the tablet still reports is neither mapped nor linked
+ * again, so it never gets two records on one tablet.
+ *
+ * Last, each record the map holds whose id the list no longer holds
+ * (`listed`, every id the reported list holds, read or not) was deleted on
+ * the tablet, unless another record it reports is that Bean now. A tablet's
+ * map holds only what it was known to hold, so a new or reset tablet deletes
+ * nothing (ADR-0019).
  */
-export function planIntake(reported: readonly ReportedBean[], mapped: readonly MappedBean[], library: readonly LibraryBean[]): IntakeStep[] {
+export function planIntake(
+  reported: readonly ReportedBean[],
+  mapped: readonly MappedBean[],
+  library: readonly LibraryBean[],
+  listed: ReadonlySet<string> = new Set(reported.map((bean) => bean.localId)),
+): IntakeStep[] {
   const byLocalId = new Map(mapped.map((bean) => [bean.localId, bean]));
   const reportedIds = new Set(reported.map((bean) => bean.localId));
   /** Library Beans one of the tablet's reported records is, or is about to be. */
@@ -118,8 +146,12 @@ export function planIntake(reported: readonly ReportedBean[], mapped: readonly M
     const mine = byLocalId.get(bean.localId);
     if (mine) {
       const newer = mine.updatedAt === null || bean.updatedAt.getTime() > mine.updatedAt.getTime();
+      // Times are read to the millisecond, so one as old that was archived or un-archived since was changed within it.
+      const sameTime = mine.updatedAt !== null && bean.updatedAt.getTime() === mine.updatedAt.getTime() && bean.archived !== mine.archived;
       const lostId = bean.globalId !== mine.beanId && mine.globalId === mine.beanId;
-      if (newer || lostId) steps.push({ kind: "update", beanId: mine.beanId, bean });
+      if (newer || sameTime || lostId) {
+        steps.push({ kind: "update", beanId: mine.beanId, bean, ...(bean.archived === mine.archived ? {} : { archived: bean.archived }) });
+      }
       continue;
     }
     const named = bean.globalId === null ? undefined : known.get(bean.globalId);
@@ -131,7 +163,6 @@ export function planIntake(reported: readonly ReportedBean[], mapped: readonly M
     unknown.push(bean);
   }
   for (const bean of unknown) {
-    if (bean.archived) continue;
     const match = library.find((candidate) => candidate.matchKey === bean.matchKey && !candidate.archived && !held.has(candidate.id));
     if (match) {
       held.add(match.id);
@@ -140,9 +171,21 @@ export function planIntake(reported: readonly ReportedBean[], mapped: readonly M
       steps.push({ kind: "add", bean });
     }
   }
+  for (const bean of mapped) {
+    // A Bean another of its records is now, as one made again under another id, is still held.
+    if (!listed.has(bean.localId) && !held.has(bean.beanId)) steps.push({ kind: "delete", beanId: bean.beanId, localId: bean.localId, updatedAt: bean.updatedAt });
+  }
   return steps;
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+/**
+ * Whether the record Decaid returned for one of the server's writes shows
+ * the tablet archived the Bean since its last report (true) or un-archived
+ * it (false), as `editsInAnswer` reads a batch's: undefined if the write set
+ * `archived` itself, the record known agrees, or none is known.
+ */
+export function archivingInAnswer(knownArchived: boolean | null, record: Record<string, unknown>, written: ReadonlySet<string>): boolean | undefined {
+  if (knownArchived === null || written.has("archived")) return undefined;
+  const archived = record.archived === true;
+  return archived === knownArchived ? undefined : archived;
 }

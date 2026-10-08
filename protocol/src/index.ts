@@ -428,8 +428,8 @@ export interface CollectionDelivery {
   updatedAt?: (string | null)[];
 }
 
-/** The kinds of Library item the server writes to tablets. */
-export const LIBRARY_KINDS = ["bean"] as const;
+/** The kinds of Library item the server writes to tablets: Beans and Bean Batches. */
+export const LIBRARY_KINDS = ["bean", "beanBatch"] as const;
 
 export type LibraryKind = (typeof LIBRARY_KINDS)[number];
 
@@ -444,10 +444,16 @@ export type LibraryKind = (typeof LIBRARY_KINDS)[number];
  * was lost: it answers with that one instead. Nor does it create one when an
  * unarchived record without a global id is the same item, such as a bean with
  * the same roaster and name (`beanMatchKey`) entered before the tablet
- * reported it: it writes only the global id to that record. With a
- * `localId`, it updates that record. Either way it sets only `fields`, and
- * writes the global id into the record's `extras`, keeping the other keys
- * there.
+ * reported it: it writes only the global id to that record. Bean Batches are
+ * never the same item (ADR-0018). With a `localId`, it updates that record.
+ * Either way it sets only `fields`, and writes the global id into the
+ * record's `extras`, keeping the other keys there.
+ *
+ * A Bean Batch is created under its Bean: `fields.beanId` is the tablet's id
+ * for the Bean's record, which the server writes first. Decaid's create
+ * takes neither `archived` nor `weightRemaining`, setting the remaining
+ * weight to `weight`, so the plugin writes those it is given in a second
+ * request when they differ from what Decaid made.
  */
 export interface LibraryWrite {
   type: "write";
@@ -467,6 +473,16 @@ export interface LibraryWrite {
  * The plugin's answer to a `write` Decaid carried out: the record as Decaid
  * returned it, which the server records as the tablet's version of the item.
  * The server acknowledges it with `ack` once recorded.
+ *
+ * The plugin reads the tablet's lists of the kinds it writes and carries
+ * out writes one at a time, and sends answers through its outbox, behind
+ * every report it read before the write. So the server takes in a report
+ * read before a write before that write's answer, and never reads an item it
+ * wrote as deleted from a report that predates it. An answer the
+ * connection's drop held back is sent on the next connection, ahead of every
+ * report read after the write, and the server records it there too, as it
+ * does one arriving after its write timed out, though not as the answer to
+ * a write that connection asked for.
  */
 export interface ItemWritten {
   type: "written";
@@ -478,12 +494,20 @@ export interface ItemWritten {
   record: Record<string, unknown>;
   /** The record's `updatedAt`, read as the tablet's local time and placed in UTC; null if it cannot be read. */
   updatedAt: string | null;
+  /**
+   * The names of the fields the write set, as it named them. The plugin reads
+   * a record before it updates it, and Decaid keeps the fields it is not sent,
+   * so every other field the record holds is as the tablet had it, a change
+   * made there since its last report included. The server reads such changes
+   * from the answer, whether or not it still awaits it.
+   */
+  writtenFields: string[];
 }
 
 /**
  * The plugin's answer to a `write` Decaid refused, or could not be asked to
- * carry out. The server acknowledges it with `ack` and goes on to its next
- * write.
+ * carry out, sent as `written` is. The server acknowledges it with `ack` and
+ * goes on to its next write.
  */
 export interface WriteRefused {
   type: "writeRefused";
@@ -499,6 +523,9 @@ export interface WriteRefused {
 
 /** The most of Decaid's answer a `writeRefused` repeats, in UTF-16 code units. */
 export const MAX_REFUSAL_LENGTH = 1000;
+
+/** The most field names a `written` may list; a Library record has a few dozen fields. */
+export const MAX_WRITTEN_FIELDS = 1000;
 
 /** A logical delivery acknowledged only after its transaction commits. */
 export interface Ack {
@@ -698,6 +725,7 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         fields.uuid("globalId");
         fields.objectField("record");
         if (object.updatedAt !== null) fields.instant("updatedAt");
+        fields.array("writtenFields", (value) => typeof value === "string", MAX_WRITTEN_FIELDS);
       });
     case "writeRefused":
       return check<WriteRefused>(object, "writeRefused", (fields) => {

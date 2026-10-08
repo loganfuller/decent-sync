@@ -15,7 +15,7 @@ import {
 import { CollectionCapture } from "./collections.js";
 import { readMachineHardware, readTabletIdentity } from "./decaid.js";
 import type { PluginHost, TransportEvent } from "./host.js";
-import { LibraryWrites } from "./library-writes.js";
+import { LibraryAccess, LibraryWrites } from "./library-writes.js";
 import { MachineEvents } from "./machine-events.js";
 import { Outbox } from "./outbox.js";
 import { Sender } from "./sender.js";
@@ -51,6 +51,14 @@ const HARDWARE_CHECK_COOLDOWN_MS = 5_000;
  * hello, which the server refuses while that tablet stays connected.
  */
 const YIELD_MS = 5 * 60_000;
+/**
+ * How long a connection whose send failed waits for its transport's own
+ * events before it is dropped. A send can fail as soon as its transport
+ * ends, before the events received ahead of the end are handled, as the
+ * simulated host delivers them, such as the server's error saying another
+ * tablet took over; those then decide what follows.
+ */
+const SEND_FAILURE_GRACE_MS = 2_000;
 
 /** Close codes after which retrying cannot help until someone changes something. */
 const FINAL_CLOSES = new Map<number, string>([
@@ -68,7 +76,7 @@ const YIELDING_CLOSES = new Map<number, string>([
   [CLOSE_CODES.machine_held, `Another tablet is still connected with this Machine's token. Trying again in ${YIELD_MS / 1000} s.`],
 ]);
 
-type TimerName = "reconnect" | "heartbeat" | "silence" | "connect" | "hardwarePoll" | "hardwareCooldown";
+type TimerName = "reconnect" | "heartbeat" | "silence" | "connect" | "hardwarePoll" | "hardwareCooldown" | "sendFailed";
 
 /**
  * The plugin's one connection to the sync server: `hello` on every connect,
@@ -96,8 +104,8 @@ type TimerName = "reconnect" | "heartbeat" | "silence" | "connect" | "hardwarePo
  *
  * The server writes the Library items its Location shares to the tablet: it
  * asks for one write at a time, and the plugin carries each out through
- * Decaid's API and answers it on the connection that asked
- * (library-writes.ts).
+ * Decaid's API, between its reads of the lists it writes to, and answers it
+ * through the outbox (library-writes.ts).
  */
 export class SyncConnection {
   /** The open handle, or undefined while disconnected. */
@@ -129,8 +137,8 @@ export class SyncConnection {
   private readonly steams: SteamCapture;
   private readonly machineEvents: MachineEvents;
   private readonly collections: CollectionCapture;
-  /** Carries out the Library writes the server asks for, one at a time. */
-  private readonly writes = new LibraryWrites();
+  /** Carries out the Library writes the server asks for, one at a time, between reads of the lists it writes to. */
+  private readonly writes: LibraryWrites;
   /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
   private readonly tabletId: TabletId;
   private checkingHardware = false;
@@ -148,7 +156,9 @@ export class SyncConnection {
     this.shots = new ShotCapture(this.outbox, log);
     this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1000, log);
     this.machineEvents = new MachineEvents(this.outbox);
-    this.collections = new CollectionCapture(this.outbox, settings.pollSeconds * 1000);
+    const library = new LibraryAccess();
+    this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1000);
+    this.writes = new LibraryWrites(library, this.outbox);
     this.tabletId = new TabletId(host, log);
   }
 
@@ -335,7 +345,7 @@ export class SyncConnection {
         this.outbox.welcome(async (delivery) => {
           try { await this.send(handle, delivery); }
           catch (error) {
-            if (handle === this.handle) this.drop("could not send a delivery");
+            this.sendFailed(handle, "could not send a delivery");
             throw error;
           }
         });
@@ -361,12 +371,9 @@ export class SyncConnection {
         this.collections.sendAll();
         break;
       case "write":
-        // Answered on the connection that asked, which waits for the answer before asking for another write. If
-        // that connection dropped meanwhile, the answer is lost, and the tablet's next report of its Library
-        // shows the server what was written.
-        void this.writes.apply(message).then((answer) => {
-          if (handle === this.handle) this.send(handle, answer).catch(() => {});
-        });
+        // The connection that asked waits for the answer, which the outbox sends behind the reports read before the
+        // write. If that connection drops meanwhile, the next one records the answer, though not as one it awaits.
+        void this.writes.apply(message);
         break;
       case "heartbeat":
         // Its arrival is what counts.
@@ -388,7 +395,7 @@ export class SyncConnection {
       this.send(handle, { type: "heartbeat" }).then(
         () => this.scheduleHeartbeat(handle, intervalMs),
         (error: unknown) => {
-          if (handle === this.handle) this.drop(`could not send a heartbeat: ${describe(error)}`);
+          this.sendFailed(handle, `could not send a heartbeat: ${describe(error)}`);
         },
       );
     });
@@ -398,6 +405,18 @@ export class SyncConnection {
   private awaitServer(handle: string): void {
     this.setTimer("silence", this.silenceMs, () => {
       if (handle === this.handle) this.drop(`heard nothing from the server for ${this.silenceMs / 1000} s`);
+    });
+  }
+
+  /**
+   * A send on the handle failed. Its transport's events, the server's last
+   * messages among them, are handled first, and decide what happens next; if
+   * none ends the connection in time, it is dropped for `reason`.
+   */
+  private sendFailed(handle: string, reason: string): void {
+    if (handle !== this.handle) return;
+    this.setTimer("sendFailed", SEND_FAILURE_GRACE_MS, () => {
+      if (handle === this.handle) this.drop(reason);
     });
   }
 
@@ -494,6 +513,7 @@ export class SyncConnection {
     this.clearTimer("heartbeat");
     this.clearTimer("silence");
     this.clearTimer("connect");
+    this.clearTimer("sendFailed");
     if (handle !== undefined) this.closeTransport(handle);
   }
 

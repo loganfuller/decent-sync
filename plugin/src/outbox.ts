@@ -1,5 +1,6 @@
 import type {
   CollectionDelivery,
+  ItemWritten,
   MachineStateDelivery,
   PluginMessage,
   ShotDelivery,
@@ -7,13 +8,24 @@ import type {
   SteamDelivery,
   SteamIndex,
   WorkflowDelivery,
+  WriteRefused,
 } from "@decent-sync/protocol";
 
 /**
  * A logical delivery, acknowledged once the server has stored it: a record,
- * a page of an index, a Workflow or machine state event, or a collection.
+ * a page of an index, a Workflow or machine state event, a collection, or
+ * the answer to one of the server's Library writes.
  */
-export type Delivery = ShotDelivery | ShotIndex | SteamDelivery | SteamIndex | WorkflowDelivery | MachineStateDelivery | CollectionDelivery;
+export type Delivery =
+  | ShotDelivery
+  | ShotIndex
+  | SteamDelivery
+  | SteamIndex
+  | WorkflowDelivery
+  | MachineStateDelivery
+  | CollectionDelivery
+  | ItemWritten
+  | WriteRefused;
 
 /** The kinds of record the server can request by their ids. */
 export type RecordKind = "shot" | "steam";
@@ -32,8 +44,8 @@ const SHORT_OUTBOX = 4;
 
 /**
  * The plugin's one at-least-once outbox, for Shots, Steam Records and their
- * indices, Workflow and machine state events, and collections, in memory for
- * one runtime:
+ * indices, Workflow and machine state events, collections, and the answers
+ * to the server's Library writes, in memory for one runtime:
  * a reload loses what it holds, and the indices sent after the reload
  * recover the records. A delivery stays until the server acknowledges it.
  * One logical delivery awaits acknowledgment at a time; the connection's

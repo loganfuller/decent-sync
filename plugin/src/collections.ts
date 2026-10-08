@@ -1,6 +1,7 @@
 import { type CollectionDelivery, type CollectionName, isLibraryList } from "@decent-sync/protocol";
 import { type Fingerprint, type Reading, decide, ifNoneMatch, pairedDevices } from "./change-detection.js";
 import { readCollection } from "./decaid.js";
+import type { LibraryAccess } from "./library-writes.js";
 import { utcTime } from "./local-time.js";
 import type { Outbox } from "./outbox.js";
 
@@ -35,6 +36,13 @@ const SOURCES: readonly Source[] = [
 ];
 
 /**
+ * The Library lists the server writes to, read only between its writes
+ * (`LibraryAccess`): a report of one of them must hold each write that began
+ * before it.
+ */
+const WRITTEN_LISTS: ReadonlySet<CollectionName> = new Set(["beans", "beanBatches"]);
+
+/**
  * The tablet's library, settings and paired devices, through the outbox.
  * Decaid has no event for them, so while connected the plugin reads each one
  * every poll interval and sends it, whole, when it changed
@@ -42,6 +50,13 @@ const SOURCES: readonly Source[] = [
  * sends it whatever it is, which also covers whatever changed while the
  * plugin was disconnected. Reads run one at a time, one collection after
  * another, and a read asked for while one runs waits for it.
+ *
+ * A Library list the server writes to is read, and its report queued,
+ * between the server's writes to the tablet (`LibraryAccess`), so a report
+ * holds each write that began before it. And whenever the beans were sent, the bean batches are
+ * sent in full after them, changed or not: the server takes in a batch only
+ * once it knows its bean, which may have been added since the batches were
+ * last sent.
  */
 export class CollectionCapture {
   /** What was last queued for each collection. */
@@ -55,6 +70,7 @@ export class CollectionCapture {
 
   constructor(
     private readonly outbox: Outbox,
+    private readonly library: LibraryAccess,
     private readonly pollMs: number,
   ) {}
 
@@ -94,9 +110,13 @@ export class CollectionCapture {
       while (this.wanted !== undefined && !this.stopped) {
         const full = this.wanted === "full";
         this.wanted = undefined;
+        let beansSent = false;
         for (const source of SOURCES) {
           if (this.stopped) return;
-          await this.capture(source, full);
+          const sent = await (WRITTEN_LISTS.has(source.name)
+            ? this.library.run(() => this.capture(source, full || (source.name === "beanBatches" && beansSent)))
+            : this.capture(source, full));
+          if (source.name === "beans") beansSent = sent;
         }
       }
     } finally {
@@ -104,13 +124,14 @@ export class CollectionCapture {
     }
   }
 
-  private async capture(source: Source, full: boolean): Promise<void> {
+  /** Reads a collection, and queues it if it is to be sent. Says whether a value was queued. */
+  private async capture(source: Source, full: boolean): Promise<boolean> {
     const last = this.last.get(source.name);
     const reading = selected(source, await readCollection(source.path, full ? null : ifNoneMatch(last)));
-    if (this.stopped) return;
+    if (this.stopped) return false;
     const decision = decide(last, reading, full);
     if (decision.next) this.last.set(source.name, decision.next);
-    if (!decision.send || reading.kind === "notModified") return;
+    if (!decision.send || reading.kind === "notModified") return false;
 
     const id = this.outbox.nextId();
     const delivery: CollectionDelivery =
@@ -127,6 +148,7 @@ export class CollectionCapture {
     }
     this.queued.set(source.name, { latest: id, value: delivery.available ? id : earlier?.value });
     this.outbox.enqueue(delivery);
+    return delivery.available;
   }
 }
 

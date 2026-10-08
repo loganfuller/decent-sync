@@ -4,7 +4,12 @@ import type { TestServer } from "./test-server.js";
 export interface LockWaits {
   /** How many queries must be waiting. Defaults to 1. */
   count?: number;
-  /** Counts only queries waiting for a lock on this table, such as one a test holds with LOCK TABLE. */
+  /**
+   * Counts only queries waiting for a lock on this table, such as one a test
+   * holds with LOCK TABLE. Not for a row a test holds with SELECT ... FOR
+   * UPDATE: the first query to wait for such a row waits for its holder's
+   * transaction id, not the table, so count those without `relation`.
+   */
   relation?: string;
   /** Counts only queries waiting for an advisory lock. */
   advisory?: boolean;

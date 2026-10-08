@@ -587,9 +587,11 @@ var __decentSync = (() => {
     { name: "scaleInfo", path: "/scale/info" },
     { name: "sensors", path: "/sensors" }
   ];
+  var WRITTEN_LISTS = /* @__PURE__ */ new Set(["beans", "beanBatches"]);
   var CollectionCapture = class {
-    constructor(outbox, pollMs) {
+    constructor(outbox, library, pollMs) {
       __publicField(this, "outbox", outbox);
+      __publicField(this, "library", library);
       __publicField(this, "pollMs", pollMs);
       /** What was last queued for each collection. */
       __publicField(this, "last", /* @__PURE__ */ new Map());
@@ -630,22 +632,25 @@ var __decentSync = (() => {
         while (this.wanted !== void 0 && !this.stopped) {
           const full = this.wanted === "full";
           this.wanted = void 0;
+          let beansSent = false;
           for (const source of SOURCES) {
             if (this.stopped) return;
-            await this.capture(source, full);
+            const sent = await (WRITTEN_LISTS.has(source.name) ? this.library.run(() => this.capture(source, full || source.name === "beanBatches" && beansSent)) : this.capture(source, full));
+            if (source.name === "beans") beansSent = sent;
           }
         }
       } finally {
         this.reading = false;
       }
     }
+    /** Reads a collection, and queues it if it is to be sent. Says whether a value was queued. */
     async capture(source, full) {
       const last = this.last.get(source.name);
       const reading = selected(source, await readCollection(source.path, full ? null : ifNoneMatch(last)));
-      if (this.stopped) return;
+      if (this.stopped) return false;
       const decision = decide(last, reading, full);
       if (decision.next) this.last.set(source.name, decision.next);
-      if (!decision.send || reading.kind === "notModified") return;
+      if (!decision.send || reading.kind === "notModified") return false;
       const id = this.outbox.nextId();
       const delivery = reading.kind === "value" ? { type: "collection", id, name: source.name, available: true, value: reading.value, ...placedInTime(source.name, reading.value) } : { type: "collection", id, name: source.name, available: false };
       const earlier = this.queued.get(source.name);
@@ -655,6 +660,7 @@ var __decentSync = (() => {
       }
       this.queued.set(source.name, { latest: id, value: delivery.available ? id : earlier?.value });
       this.outbox.enqueue(delivery);
+      return delivery.available;
     }
   };
   function placedInTime(name, value) {
@@ -672,25 +678,46 @@ var __decentSync = (() => {
     bean: {
       list: "/beans?includeArchived=true",
       records: "/beans",
+      create: () => "/beans",
+      deferred: ["archived"],
       sameItem: (record, fields) => typeof record.roaster === "string" && typeof record.name === "string" && typeof fields.roaster === "string" && typeof fields.name === "string" && beanMatchKey(record.roaster, record.name) === beanMatchKey(fields.roaster, fields.name)
+    },
+    beanBatch: {
+      list: "/bean-batches?includeArchived=true",
+      records: "/bean-batches",
+      // Under the tablet's record of its bean, which `beanId` names; the path decides it, and Decaid ignores the field.
+      create: (fields) => typeof fields.beanId === "string" && fields.beanId !== "" ? `/beans/${encodeURIComponent(fields.beanId)}/batches` : null,
+      deferred: ["archived", "weightRemaining"],
+      sameItem: () => false
     }
   };
-  var LibraryWrites = class {
+  var LibraryAccess = class {
     constructor() {
       __publicField(this, "queue", Promise.resolve());
     }
-    /** Carries out a write once those before it are done, and resolves with its answer. It never rejects. */
+    /** Runs `work` once everything asked for before it is done, and resolves or rejects as it does. */
+    run(work) {
+      const done = this.queue.then(work);
+      this.queue = done.catch(() => {
+      });
+      return done;
+    }
+  };
+  var LibraryWrites = class {
+    constructor(library, outbox) {
+      __publicField(this, "library", library);
+      __publicField(this, "outbox", outbox);
+    }
+    /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
     apply(write) {
-      const answer = this.queue.then(() => carryOut(write));
-      this.queue = answer;
-      return answer;
+      return this.library.run(async () => this.outbox.enqueue(await carryOut(write)));
     }
   };
   async function carryOut(write) {
-    const route = ROUTES[write.kind];
+    const route = Object.prototype.hasOwnProperty.call(ROUTES, write.kind) ? ROUTES[write.kind] : void 0;
     if (!route) return refused(write, null, `This plugin cannot write a ${write.kind}`);
     try {
-      return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId));
+      return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId), Object.keys(write.fields));
     } catch (error) {
       return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -700,11 +727,23 @@ var __decentSync = (() => {
     if (!listed.ok) return refused(write, listed.status, listed.text);
     const parsedList = parsed(listed.text);
     const records = Array.isArray(parsedList) ? parsedList.filter(isObject2) : [];
-    const held = records.find((record) => globalIdOf(record) === write.globalId.toLowerCase());
-    if (held) return written(write, held);
-    const same = records.find((record) => globalIdOf(record) === null && record.archived !== true && route.sameItem(record, write.fields));
-    if (same && typeof same.id === "string") return answerTo(write, await update(route, { ...write, fields: {} }, same.id));
-    return answerTo(write, await request("POST", route.records, { ...write.fields, extras: { [GLOBAL_ID_KEY]: write.globalId } }));
+    const held = records.find((record2) => globalIdOf(record2) === write.globalId.toLowerCase());
+    if (held) return written(write, held, []);
+    const same = records.find((record2) => globalIdOf(record2) === null && record2.archived !== true && route.sameItem(record2, write.fields));
+    if (same && typeof same.id === "string") return answerTo(write, await update(route, { ...write, fields: {} }, same.id), []);
+    const path = route.create(write.fields);
+    if (path === null) return refused(write, null, `A ${write.kind} to create must name what it belongs to`);
+    const body = { ...write.fields, extras: { [GLOBAL_ID_KEY]: write.globalId } };
+    for (const field of route.deferred) delete body[field];
+    const made = await request("POST", path, body);
+    const record = made.ok ? parsed(made.text) : void 0;
+    if (!isObject2(record) || typeof record.id !== "string") return refused(write, made.status, made.text);
+    const later = Object.fromEntries(route.deferred.flatMap((field) => field in write.fields && write.fields[field] !== (record[field] ?? null) ? [[field, write.fields[field]]] : []));
+    const writtenFields = Object.keys(write.fields);
+    if (Object.keys(later).length === 0) return written(write, record, writtenFields);
+    const again = await request("PUT", `${route.records}/${encodeURIComponent(record.id)}`, later).catch(() => void 0);
+    const updated = again?.ok ? parsed(again.text) : void 0;
+    return written(write, isObject2(updated) && typeof updated.id === "string" ? updated : record, writtenFields);
   }
   async function update(route, write, localId) {
     const path = `${route.records}/${encodeURIComponent(localId)}`;
@@ -714,13 +753,13 @@ var __decentSync = (() => {
     const extras = isObject2(record) && isObject2(record.extras) ? record.extras : {};
     return request("PUT", path, { ...write.fields, extras: { ...extras, [GLOBAL_ID_KEY]: write.globalId } });
   }
-  function answerTo(write, answer) {
+  function answerTo(write, answer, writtenFields) {
     const record = answer.ok ? parsed(answer.text) : void 0;
-    if (isObject2(record) && typeof record.id === "string") return written(write, record);
+    if (isObject2(record) && typeof record.id === "string") return written(write, record, writtenFields);
     return refused(write, answer.status, answer.text);
   }
-  function written(write, record) {
-    return { type: "written", id: write.id, kind: write.kind, globalId: write.globalId, record, updatedAt: utcTime(record.updatedAt) };
+  function written(write, record, writtenFields) {
+    return { type: "written", id: write.id, kind: write.kind, globalId: write.globalId, record, updatedAt: utcTime(record.updatedAt), writtenFields };
   }
   function refused(write, status, error) {
     return { type: "writeRefused", id: write.id, kind: write.kind, globalId: write.globalId, status, error: error.slice(0, MAX_REFUSAL_LENGTH) };
@@ -1379,6 +1418,7 @@ var __decentSync = (() => {
   var MAX_TRANSPORTS = 8;
   var HARDWARE_CHECK_COOLDOWN_MS = 5e3;
   var YIELD_MS = 5 * 6e4;
+  var SEND_FAILURE_GRACE_MS = 2e3;
   var FINAL_CLOSES = /* @__PURE__ */ new Map([
     [CLOSE_CODES.bad_token, "The server refused the token. Enter the token shown when the machine entry was created, or a newly issued one."],
     [CLOSE_CODES.plugin_too_old, "The server needs a newer version of this plugin. Update the plugin."],
@@ -1425,8 +1465,8 @@ var __decentSync = (() => {
       __publicField(this, "steams");
       __publicField(this, "machineEvents");
       __publicField(this, "collections");
-      /** Carries out the Library writes the server asks for, one at a time. */
-      __publicField(this, "writes", new LibraryWrites());
+      /** Carries out the Library writes the server asks for, one at a time, between reads of the lists it writes to. */
+      __publicField(this, "writes");
       /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
       __publicField(this, "tabletId");
       __publicField(this, "checkingHardware", false);
@@ -1438,7 +1478,9 @@ var __decentSync = (() => {
       this.shots = new ShotCapture(this.outbox, log);
       this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1e3, log);
       this.machineEvents = new MachineEvents(this.outbox);
-      this.collections = new CollectionCapture(this.outbox, settings.pollSeconds * 1e3);
+      const library = new LibraryAccess();
+      this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1e3);
+      this.writes = new LibraryWrites(library, this.outbox);
       this.tabletId = new TabletId(host, log);
     }
     /** Connects from a timer, so the caller (onLoad) returns at once. */
@@ -1608,7 +1650,7 @@ var __decentSync = (() => {
             try {
               await this.send(handle, delivery);
             } catch (error) {
-              if (handle === this.handle) this.drop("could not send a delivery");
+              this.sendFailed(handle, "could not send a delivery");
               throw error;
             }
           });
@@ -1633,10 +1675,7 @@ var __decentSync = (() => {
           this.collections.sendAll();
           break;
         case "write":
-          void this.writes.apply(message).then((answer) => {
-            if (handle === this.handle) this.send(handle, answer).catch(() => {
-            });
-          });
+          void this.writes.apply(message);
           break;
         case "heartbeat":
           break;
@@ -1654,7 +1693,7 @@ var __decentSync = (() => {
         this.send(handle, { type: "heartbeat" }).then(
           () => this.scheduleHeartbeat(handle, intervalMs),
           (error) => {
-            if (handle === this.handle) this.drop(`could not send a heartbeat: ${describe(error)}`);
+            this.sendFailed(handle, `could not send a heartbeat: ${describe(error)}`);
           }
         );
       });
@@ -1663,6 +1702,17 @@ var __decentSync = (() => {
     awaitServer(handle) {
       this.setTimer("silence", this.silenceMs, () => {
         if (handle === this.handle) this.drop(`heard nothing from the server for ${this.silenceMs / 1e3} s`);
+      });
+    }
+    /**
+     * A send on the handle failed. Its transport's events, the server's last
+     * messages among them, are handled first, and decide what happens next; if
+     * none ends the connection in time, it is dropped for `reason`.
+     */
+    sendFailed(handle, reason) {
+      if (handle !== this.handle) return;
+      this.setTimer("sendFailed", SEND_FAILURE_GRACE_MS, () => {
+        if (handle === this.handle) this.drop(reason);
       });
     }
     /** Sends on the handle, in chunks if the message is too large for a frame, unless the handle was dropped. */
@@ -1747,6 +1797,7 @@ var __decentSync = (() => {
       this.clearTimer("heartbeat");
       this.clearTimer("silence");
       this.clearTimer("connect");
+      this.clearTimer("sendFailed");
       if (handle !== void 0) this.closeTransport(handle);
     }
     async openTransport() {

@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
+import { type BeanBatchSummary, BeanBatchesService } from "./bean-batches.service.js";
+import { offeringLocations } from "./location-state.js";
 
 /** A Bean as the REST API lists it. */
 export interface BeanSummary {
@@ -12,9 +14,10 @@ export interface BeanSummary {
   name: string | null;
   archived: boolean;
   /**
-   * The Locations offering it, by name: while it has no batches, those where
-   * a tablet created it or linked a bean of its own to it (ADR-0008). None
-   * while it is Archived.
+   * The Locations offering it, by name (ADR-0008): each where one of its
+   * batches is, and each where it has no batch yet but a tablet created it,
+   * linked a bean of its own to it, or un-archived its record. None while it
+   * is Archived.
    */
   offeredAt: LocationView[];
   /** When it joined the Library, by PostgreSQL's clock. */
@@ -33,19 +36,21 @@ export interface BeanSummary {
 export interface BeanView extends BeanSummary {
   /** Decaid's record fields, as the tablet that created it sent them, those this server does not know included. */
   content: Record<string, unknown>;
+  /** Its batches, the latest roasted first. */
+  batches: BeanBatchSummary[];
 }
 
-const withPlaces = {
-  origins: { include: { location: true } },
-  createdLocation: true,
-} as const satisfies Prisma.BeanInclude;
+const withPlaces = { createdLocation: true } as const satisfies Prisma.BeanInclude;
 
 type ListedBean = Prisma.BeanGetPayload<{ include: typeof withPlaces }>;
 
 /** The Library's Beans, which Staff read as Admins do. Beans join it from tablets (`library/beans.ts`). */
 @Injectable()
 export class BeansService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly batches: BeanBatchesService,
+  ) {}
 
   /** Every Bean, by name, then roaster, ignoring case. */
   async list(): Promise<BeanSummary[]> {
@@ -57,7 +62,7 @@ export class BeansService {
   async get(id: string): Promise<BeanView> {
     const bean = await this.prisma.bean.findUnique({ where: { id }, include: withPlaces });
     if (!bean) throw beanNotFound();
-    return { ...(await this.views([bean]))[0]!, content: content(bean) };
+    return { ...(await this.views([bean]))[0]!, content: content(bean), batches: await this.batches.ofBean(bean.id) };
   }
 
   private async views(beans: ListedBean[]): Promise<BeanSummary[]> {
@@ -66,13 +71,14 @@ export class BeansService {
       keys.length === 0
         ? []
         : await this.prisma.bean.findMany({ where: { matchKey: { in: keys } }, select: { id: true, matchKey: true, content: true }, orderBy: { createdAt: "asc" } });
+    const offering = await offeringLocations(this.prisma, beans.map((bean) => bean.id));
+    const locationIds = [...new Set([...offering.values()].flat())];
+    const locations = new Map((await this.prisma.location.findMany({ where: { id: { in: locationIds } } })).map((location) => [location.id, viewLocation(location)]));
     return beans.map((bean) => ({
       id: bean.id,
       ...names(bean.content),
       archived: bean.archived,
-      offeredAt: bean.archived
-        ? []
-        : bean.origins.map((origin) => viewLocation(origin.location)).sort((a, b) => a.name.localeCompare(b.name)),
+      offeredAt: (offering.get(bean.id) ?? []).flatMap((id) => locations.get(id) ?? []).sort((a, b) => a.name.localeCompare(b.name)),
       createdAt: bean.createdAt.toISOString(),
       createdLocation: bean.createdLocation ? viewLocation(bean.createdLocation) : null,
       likelyDuplicates: sharingKeys
