@@ -276,7 +276,8 @@ describe("Workflow changes and machine state transitions", () => {
     const dialledIn = derivedWorkflow({ targetYield: 45 });
     moved.setWorkflow(dialledIn);
     // Acknowledged in order, so once the dialled-in Workflow is, the state is too.
-    await expect.poll(() => moved.sent.some((frame) => frameType(frame) === "workflow" && isEqual((frame as { workflow: unknown }).workflow, dialledIn))).toBe(true);
+    // Sent behind everything a welcome queues first, each acknowledged in turn.
+    await expect.poll(() => moved.sent.some((frame) => frameType(frame) === "workflow" && isEqual((frame as { workflow: unknown }).workflow, dialledIn)), { timeout: 10_000 }).toBe(true);
     await acknowledged(moved, "workflow");
     expect(await stateEvents(machine)).toMatchObject({ total: 0 });
     expect((await workflowEvents(machine)).total).toBe(1);

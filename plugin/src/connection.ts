@@ -53,9 +53,10 @@ const HARDWARE_CHECK_COOLDOWN_MS = 5_000;
 const YIELD_MS = 5 * 60_000;
 /**
  * How long a connection whose send failed waits for its transport's own
- * events before it is dropped. A send fails as soon as its transport ends,
- * ahead of the events received before the end, such as the server's error
- * saying another tablet took over, which then decide what follows.
+ * events before it is dropped. A send can fail as soon as its transport
+ * ends, before the events received ahead of the end are handled, as the
+ * simulated host delivers them, such as the server's error saying another
+ * tablet took over; those then decide what follows.
  */
 const SEND_FAILURE_GRACE_MS = 2_000;
 
