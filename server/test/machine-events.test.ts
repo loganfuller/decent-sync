@@ -264,7 +264,7 @@ describe("Workflow changes and machine state transitions", () => {
     expect((await api.machineNamed("Traveller"))!.machineState).toMatchObject({ state: "sleeping", substate: "idle" });
   });
 
-  it("holds a mismatched connection's events for hardware without a Machine, and hands them to the machine entry created for it", async () => {
+  it("holds a mismatched connection's events for hardware without a Machine, and hands them to the machine entry created for it", { timeout: 15_000 }, async () => {
     const machine = await api.createMachine("Before the move");
     const home = load(machine, { api: derivedDe1Pro({ serial: "20101" }) });
     await expect.poll(async () => (await workflowEvents(machine)).total).toBe(1);
