@@ -12,6 +12,7 @@ import {
   MAX_ID_LENGTH,
   MAX_RECORD_ID_LENGTH,
   MAX_REFUSAL_LENGTH,
+  MAX_WRITTEN_FIELDS,
   PROTOCOL_VERSION,
   type WriteRefused,
   decodePluginMessage,
@@ -441,6 +442,7 @@ describe("Library writes", () => {
     globalId,
     record: { id: "8ac511b9-81a6-4066-9a5e-5b67da092efc", name: "Fixture Bean", extras: { [GLOBAL_ID_KEY]: globalId } },
     updatedAt: "2026-10-08T03:16:48.842Z",
+    writtenFields: ["archived"],
   };
   const refused: WriteRefused = { type: "writeRefused", id: "write-1", kind: "bean", globalId, status: 404, error: '{"error":"Bean not found"}' };
 
@@ -481,6 +483,9 @@ describe("Library writes", () => {
     }
     expect(decodePluginMessage(frame({ ...written, updatedAt: undefined }))).toMatchObject({ ok: false, problem: "written.updatedAt must be a UTC time such as 2026-10-05T14:07:03.341Z" });
     expect(decodePluginMessage(frame({ ...written, record: "record" }))).toMatchObject({ ok: false, problem: "written.record must be an object" });
+    for (const writtenFields of [undefined, "archived", [7], Array.from({ length: MAX_WRITTEN_FIELDS + 1 }, () => "notes")]) {
+      expect(decodePluginMessage(frame({ ...written, writtenFields }))).toMatchObject({ ok: false, problem: `written.writtenFields must be an array of at most ${MAX_WRITTEN_FIELDS} valid entries` });
+    }
     expect(decodePluginMessage(frame({ ...refused, status: undefined }))).toMatchObject({ ok: false, problem: "writeRefused.status must be a whole number" });
     expect(decodePluginMessage(frame({ ...refused, error: "e".repeat(MAX_REFUSAL_LENGTH) })).ok).toBe(true);
     expect(decodePluginMessage(frame({ ...refused, error: "e".repeat(MAX_REFUSAL_LENGTH + 1) }))).toMatchObject({
@@ -511,7 +516,7 @@ describe("Delivery ids", () => {
     { type: "workflow", observedAt, workflow: {} },
     { type: "machineState", observedAt, state: "idle", substate: "idle" },
     { type: "collection", name: "scaleInfo", available: false },
-    { type: "written", kind: "bean", globalId: "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d", record: {}, updatedAt: null },
+    { type: "written", kind: "bean", globalId: "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d", record: {}, updatedAt: null, writtenFields: [] },
     { type: "writeRefused", kind: "bean", globalId: "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d", status: 400, error: "" },
   ];
 

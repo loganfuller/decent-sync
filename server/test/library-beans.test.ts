@@ -250,7 +250,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
       error: JSON.stringify({ error: "type 'Null' is not a subtype of type 'String' in type cast" }),
     });
     const [, wrong] = await writesTo(raw, 2);
-    await raw.deliver({ type: "written", id: wrong!.id, kind: "bean", globalId: wrong!.globalId, record: { id: randomUUID(), name: "Other" }, updatedAt: null });
+    await raw.deliver({ type: "written", id: wrong!.id, kind: "bean", globalId: wrong!.globalId, record: { id: randomUUID(), name: "Other" }, updatedAt: null, writtenFields: [] });
     // Both are skipped: a Bean created later is the next write.
     await one.addBean({ roaster: "Roux", name: "Written Next" });
     const next = await libraryBean("Written Next");
@@ -479,6 +479,42 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     await holds(unidentifiedTablet, "Identity Later", (await libraryBean("Identity Later")).id);
     expect(await beansNamed("Mismatched Bean")).toEqual([]);
     expect(raw.messages.filter((message) => (message as { type?: unknown }).type === "write")).toEqual([]);
+  });
+
+  it("records no answer to a write from a mismatched connection, which is never written to", async () => {
+    const cafe = await api.createLocation("Unasked cafe", "UTC");
+    const holder = await api.createMachine("Unasked holder", cafe.id);
+    const holderTablet = load(holder, "14161");
+    await online(holder);
+    await holderTablet.addBean({ roaster: "Roux", name: "Unasked Bean" });
+    const bean = await libraryBean("Unasked Bean");
+
+    const machine = await api.createMachine("Unasked group", cafe.id);
+    const binding = await RawConnection.welcomed(server.url, helloWith(machine.token, { machine: { model: "DE1Pro", serial: "14162" } }));
+    await binding.close();
+    // A tablet on other hardware with the group's token is a mismatch; it answers a write nobody asked of it.
+    const tabletId = randomUUID();
+    const mismatched = await RawConnection.welcomed(server.url, helloWith(machine.token, { tabletId, machine: { model: "DE1Pro", serial: "14163" } }));
+    raws.push(mismatched);
+    await mismatched.deliver({
+      type: "written",
+      id: randomUUID(),
+      kind: "bean",
+      globalId: bean.id,
+      record: { ...mismatchedBean, id: randomUUID(), roaster: "Roux", name: "Unasked Bean", extras: { [GLOBAL_ID_KEY]: bean.id } },
+      updatedAt: "2026-10-07T15:00:00.000Z",
+      writtenFields: [],
+    });
+    await mismatched.close();
+
+    // On its token's own hardware, the same tablet holds no beans: it is written the Bean, not read as having deleted it.
+    const back = await RawConnection.welcomed(server.url, helloWith(machine.token, { tabletId, machine: { model: "DE1Pro", serial: "14162" } }));
+    raws.push(back);
+    await back.deliver(emptyBeans());
+    await back.deliver(emptyBatches());
+    const [write] = await writesTo(back, 1);
+    expect(write).toMatchObject({ globalId: bean.id, localId: null });
+    expect(locations(await libraryBean("Unasked Bean"))).toEqual(["Unasked cafe"]);
   });
 
   it("writes a Bean too large for one frame in chunks", async () => {

@@ -49,10 +49,11 @@ export type TakenInList = "beans" | "beanBatches";
  * connection awaits is answered, so a tablet is written one item at a
  * time. A write Decaid refuses, or the plugin does not answer in time, is
  * skipped for the rest of the connection, and tried again when the tablet
- * reconnects; the other writes go on. So is one due again, with the same
- * fields, right after it was written, which writing again would not change;
- * an item due again with other fields, as when a second request of its
- * write failed or the Location changed it meanwhile, is written again.
+ * reconnects; the other writes go on. So is one due again with the same
+ * fields it was last written, having stayed due since, which writing again
+ * would not change; an item due again with other fields, as when a second
+ * request of its write failed or the Location changed it meanwhile, is
+ * written again.
  */
 export class TabletWriter {
   private running = false;
@@ -63,6 +64,12 @@ export class TabletWriter {
   private waiting: { write: LibraryWrite; settle: (outcome: WriteOutcome | "stopped" | "timedOut") => void } | undefined;
   /** Items whose write was refused, or not answered, on this connection, or that writing did not change, by `writeKey`. */
   private readonly skipped = new Set<string>();
+  /**
+   * The fields last written to each item on this connection, by `writeKey`,
+   * kept while the item has stayed due since, whatever was written between:
+   * due again with those fields, writing it changed nothing.
+   */
+  private readonly lastWritten = new Map<string, string>();
   /**
    * The Location the connection's latest report of each list was taken in
    * at: null while the Machine was at none, and absent until one is.
@@ -153,8 +160,6 @@ export class TabletWriter {
   }
 
   private async run(): Promise<void> {
-    /** The item written last, by `writeKey`, with the fields written, if its answer said it was written. */
-    let written: { key: string; fields: string } | undefined;
     for (;;) {
       this.again = false;
       // Until the connection's first reports are taken in, which its welcome brings, nothing is due.
@@ -171,7 +176,13 @@ export class TabletWriter {
         this.requestCollections();
       }
       // A report of the tablet's beans may have been taken in while this was read: what is due waits for its batches.
-      const due = this.awaitingBatches ? undefined : found?.write;
+      const planned = this.awaitingBatches ? null : (found?.writes ?? null);
+      if (planned) {
+        // An item no longer due has not stayed due since it was written.
+        const stillDue = new Set(planned.map((write) => writeKey(write.kind, write.globalId)));
+        for (const key of this.lastWritten.keys()) if (!stillDue.has(key)) this.lastWritten.delete(key);
+      }
+      const due = planned?.[0];
       if (!due) {
         if (this.again) continue;
         return;
@@ -179,7 +190,7 @@ export class TabletWriter {
       const key = writeKey(due.kind, due.globalId);
       const item = `${due.kind === "bean" ? "Bean" : "Bean Batch"} ${due.globalId}`;
       const fields = JSON.stringify(due.fields);
-      if (written?.key === key && written.fields === fields) {
+      if (this.lastWritten.get(key) === fields) {
         this.log.warn(`Tablet ${this.tablet.tabletId} is still due ${item} once written; it is tried again once the tablet reconnects`);
         this.skipped.add(key);
         continue;
@@ -190,8 +201,8 @@ export class TabletWriter {
       if (outcome === "timedOut") {
         this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the write of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once the tablet reconnects`);
       }
-      written = outcome === "written" ? { key, fields } : undefined;
-      if (outcome !== "written") this.skipped.add(key);
+      if (outcome === "written") this.lastWritten.set(key, fields);
+      else this.skipped.add(key);
     }
   }
 

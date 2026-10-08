@@ -494,6 +494,14 @@ export interface ItemWritten {
   record: Record<string, unknown>;
   /** The record's `updatedAt`, read as the tablet's local time and placed in UTC; null if it cannot be read. */
   updatedAt: string | null;
+  /**
+   * The names of the fields the write set, as it named them. The plugin reads
+   * a record before it updates it, and Decaid keeps the fields it is not sent,
+   * so every other field the record holds is as the tablet had it, a change
+   * made there since its last report included. The server reads such changes
+   * from the answer, whether or not it still awaits it.
+   */
+  writtenFields: string[];
 }
 
 /**
@@ -515,6 +523,9 @@ export interface WriteRefused {
 
 /** The most of Decaid's answer a `writeRefused` repeats, in UTF-16 code units. */
 export const MAX_REFUSAL_LENGTH = 1000;
+
+/** The most field names a `written` may list; a Library record has a few dozen fields. */
+export const MAX_WRITTEN_FIELDS = 1000;
 
 /** A logical delivery acknowledged only after its transaction commits. */
 export interface Ack {
@@ -714,6 +725,7 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         fields.uuid("globalId");
         fields.objectField("record");
         if (object.updatedAt !== null) fields.instant("updatedAt");
+        fields.array("writtenFields", (value) => typeof value === "string", MAX_WRITTEN_FIELDS);
       });
     case "writeRefused":
       return check<WriteRefused>(object, "writeRefused", (fields) => {

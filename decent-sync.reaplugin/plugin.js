@@ -717,7 +717,7 @@ var __decentSync = (() => {
     const route = Object.prototype.hasOwnProperty.call(ROUTES, write.kind) ? ROUTES[write.kind] : void 0;
     if (!route) return refused(write, null, `This plugin cannot write a ${write.kind}`);
     try {
-      return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId));
+      return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId), Object.keys(write.fields));
     } catch (error) {
       return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -728,9 +728,9 @@ var __decentSync = (() => {
     const parsedList = parsed(listed.text);
     const records = Array.isArray(parsedList) ? parsedList.filter(isObject2) : [];
     const held = records.find((record2) => globalIdOf(record2) === write.globalId.toLowerCase());
-    if (held) return written(write, held);
+    if (held) return written(write, held, []);
     const same = records.find((record2) => globalIdOf(record2) === null && record2.archived !== true && route.sameItem(record2, write.fields));
-    if (same && typeof same.id === "string") return answerTo(write, await update(route, { ...write, fields: {} }, same.id));
+    if (same && typeof same.id === "string") return answerTo(write, await update(route, { ...write, fields: {} }, same.id), []);
     const path = route.create(write.fields);
     if (path === null) return refused(write, null, `A ${write.kind} to create must name what it belongs to`);
     const body = { ...write.fields, extras: { [GLOBAL_ID_KEY]: write.globalId } };
@@ -739,10 +739,11 @@ var __decentSync = (() => {
     const record = made.ok ? parsed(made.text) : void 0;
     if (!isObject2(record) || typeof record.id !== "string") return refused(write, made.status, made.text);
     const later = Object.fromEntries(route.deferred.flatMap((field) => field in write.fields && write.fields[field] !== (record[field] ?? null) ? [[field, write.fields[field]]] : []));
-    if (Object.keys(later).length === 0) return written(write, record);
+    const writtenFields = Object.keys(write.fields);
+    if (Object.keys(later).length === 0) return written(write, record, writtenFields);
     const again = await request("PUT", `${route.records}/${encodeURIComponent(record.id)}`, later).catch(() => void 0);
     const updated = again?.ok ? parsed(again.text) : void 0;
-    return written(write, isObject2(updated) && typeof updated.id === "string" ? updated : record);
+    return written(write, isObject2(updated) && typeof updated.id === "string" ? updated : record, writtenFields);
   }
   async function update(route, write, localId) {
     const path = `${route.records}/${encodeURIComponent(localId)}`;
@@ -752,13 +753,13 @@ var __decentSync = (() => {
     const extras = isObject2(record) && isObject2(record.extras) ? record.extras : {};
     return request("PUT", path, { ...write.fields, extras: { ...extras, [GLOBAL_ID_KEY]: write.globalId } });
   }
-  function answerTo(write, answer) {
+  function answerTo(write, answer, writtenFields) {
     const record = answer.ok ? parsed(answer.text) : void 0;
-    if (isObject2(record) && typeof record.id === "string") return written(write, record);
+    if (isObject2(record) && typeof record.id === "string") return written(write, record, writtenFields);
     return refused(write, answer.status, answer.text);
   }
-  function written(write, record) {
-    return { type: "written", id: write.id, kind: write.kind, globalId: write.globalId, record, updatedAt: utcTime(record.updatedAt) };
+  function written(write, record, writtenFields) {
+    return { type: "written", id: write.id, kind: write.kind, globalId: write.globalId, record, updatedAt: utcTime(record.updatedAt), writtenFields };
   }
   function refused(write, status, error) {
     return { type: "writeRefused", id: write.id, kind: write.kind, globalId: write.globalId, status, error: error.slice(0, MAX_REFUSAL_LENGTH) };

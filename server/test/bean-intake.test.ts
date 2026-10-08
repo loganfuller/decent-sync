@@ -239,13 +239,13 @@ describe("planIntake", () => {
 
 describe("archivingInAnswer", () => {
   it("says the record Decaid returned for a write shows the tablet archived or un-archived the Bean since its last report", () => {
-    expect(archivingInAnswer(false, record(LOCAL[0], { archived: true }), { extras: {} })).toBe(true);
-    expect(archivingInAnswer(true, record(LOCAL[0]), {})).toBe(false);
+    expect(archivingInAnswer(false, record(LOCAL[0], { archived: true }), new Set())).toBe(true);
+    expect(archivingInAnswer(true, record(LOCAL[0]), new Set())).toBe(false);
   });
 
   it("says nothing when the write set archived itself, the record known agrees, or none is known", () => {
-    expect(archivingInAnswer(false, record(LOCAL[0], { archived: true }), { archived: true })).toBeUndefined();
-    expect(archivingInAnswer(false, record(LOCAL[0]), {})).toBeUndefined();
-    expect(archivingInAnswer(null, record(LOCAL[0], { archived: true }), {})).toBeUndefined();
+    expect(archivingInAnswer(false, record(LOCAL[0], { archived: true }), new Set(["archived"]))).toBeUndefined();
+    expect(archivingInAnswer(false, record(LOCAL[0]), new Set())).toBeUndefined();
+    expect(archivingInAnswer(null, record(LOCAL[0], { archived: true }), new Set())).toBeUndefined();
   });
 });

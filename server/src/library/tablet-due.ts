@@ -13,17 +13,17 @@ export interface WrittenTablet {
   tabletId: string;
 }
 
-/** What a connection's tablet is due: where its Machine is now, and the next write, if any. */
+/** What a connection's tablet is due: where its Machine is now, and the writes due there. */
 export interface TabletDue {
   /** The Location its Machine is at now, or null if none. */
   locationId: string | null;
-  /** The next write, or null if none is due. */
-  write: PlannedWrite | null;
+  /** The writes due, in the order they are made; null while none is planned, as the Machine is not where they were reported. */
+  writes: PlannedWrite[] | null;
 }
 
 /**
- * Where the connection's Machine is now, and the next write its tablet is
- * due, leaving out the items in `skipped` (`writeKey`). No write is due while
+ * Where the connection's Machine is now, and the writes its tablet is due,
+ * leaving out the items in `skipped` (`writeKey`). No write is due while
  * the Machine is not at the Location its tablet's latest reports of its
  * beans and bean batches were both taken in at (`reportedAt`), so a tablet
  * is written only what the Library knows it lacks once what it holds is
@@ -46,7 +46,7 @@ export async function tabletDue(
         FROM machines WHERE id = ${tablet.machineId}::uuid AND connected_session_id = ${tablet.sessionId}::uuid`;
       if (!holder) return null;
       const { locationId } = holder;
-      if (locationId === null || locationId !== reportedAt) return { locationId, write: null };
+      if (locationId === null || locationId !== reportedAt) return { locationId, writes: null };
       const beans = await tx.$queryRaw<OfferedBean[]>`
         SELECT beans.id, beans.content FROM beans
         WHERE NOT beans.archived AND (
@@ -77,8 +77,7 @@ export async function tabletDue(
         beans,
         batches: batches.map(({ entered, remainingWeight, ...batch }) => ({ ...batch, remainingWeight: entered ? remainingWeight : undefined })),
       };
-      const [write] = plannedWrites(offer, { beans: heldBeans, batches: heldBatches }, skipped);
-      return { locationId, write: write ?? null };
+      return { locationId, writes: plannedWrites(offer, { beans: heldBeans, batches: heldBatches }, skipped) };
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   );

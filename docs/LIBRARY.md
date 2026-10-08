@@ -243,24 +243,29 @@ plugin reads a record before it updates it, and Decaid keeps the fields it is
 not sent, so a change the tablet made at its Location since its last report,
 such as archiving a batch just before the server wrote its global id, comes
 back in the answer, and the next report, holding the record as answered,
-shows none. So the answer's `archived` and `weightRemaining`, where the write
-did not set them and they differ from the record known, are taken in as a
-report's would be (`editsInAnswer`, `archivingInAnswer`), under the Machine's,
-the tablet's and the Location's locks, rather than written back over. A record
-that does not carry the item's global id, or whose local id the map holds as
-another item, is not recorded. A refusal, an answer that cannot be recorded,
-no answer within 300 s, or an item due again with the same fields right after
-it was written, which writing again would not change, skips that item for the
-rest of the connection; the other writes go on, and the tablet's next
-connection tries it again. An item due again with other fields, as when the
-second request of a batch's create failed or the Location changed the item
-meanwhile, is written again. An answer to no write its connection awaits, such
-as one arriving after its write timed out, or one the plugin's outbox held
-across a reconnect, is recorded too, so the server's own write is not read
-back from the next report as the tablet's change: its record is the tablet's
-latest, since the outbox sends one delivery at a time and every report read
-after the write waits behind its answer. What that write set is not known
-then, so nothing in its record is taken as a change the tablet made.
+shows none. So the answer names the fields the write set (`writtenFields`),
+and its `archived` and `weightRemaining`, where the write did not set them and
+they differ from the record known, are taken in as a report's would be
+(`editsInAnswer`, `archivingInAnswer`), under the Machine's, the tablet's and
+the Location's locks, rather than written back over. An answer is recorded
+only while its connection holds the Machine, decided under the Machine's row
+lock, which a newer connection's hello takes too, so one an instance records
+late, after another connection has taken the Machine, never lands after that
+connection's reports. A record that does not carry the item's global id, or
+whose local id the map holds as another item, is not recorded.
+
+A refusal, an answer that cannot be recorded, no answer within 300 s, or an
+item due again with the same fields it was last written, having stayed due
+since, which writing again would not change, skips that item for the rest of
+the connection; the other writes go on, and the tablet's next connection
+tries it again. An item due again with other fields, as when the second
+request of a batch's create failed or the Location changed the item
+meanwhile, is written again. An answer to no write its connection awaits,
+such as one arriving after its write timed out, or one the plugin's outbox
+held across a reconnect, is recorded too, so the server's own write is not
+read back from the next report as the tablet's change: its record is the
+tablet's latest, since the outbox sends one delivery at a time and every
+report read after the write waits behind its answer.
 
 ### How the plugin writes
 

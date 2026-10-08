@@ -100,7 +100,7 @@ async function carryOut(write: LibraryWrite): Promise<WriteAnswer> {
   const route = Object.prototype.hasOwnProperty.call(ROUTES, write.kind) ? ROUTES[write.kind] : undefined;
   if (!route) return refused(write, null, `This plugin cannot write a ${write.kind}`);
   try {
-    return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId));
+    return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId), Object.keys(write.fields));
   } catch (error) {
     return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -125,10 +125,11 @@ async function create(route: Route, write: LibraryWrite): Promise<WriteAnswer> {
   if (!listed.ok) return refused(write, listed.status, listed.text);
   const parsedList = parsed(listed.text);
   const records = Array.isArray(parsedList) ? parsedList.filter(isObject) : [];
+  // Nothing is written to a record the tablet holds already, but the global id.
   const held = records.find((record) => globalIdOf(record) === write.globalId.toLowerCase());
-  if (held) return written(write, held);
+  if (held) return written(write, held, []);
   const same = records.find((record) => globalIdOf(record) === null && record.archived !== true && route.sameItem(record, write.fields));
-  if (same && typeof same.id === "string") return answerTo(write, await update(route, { ...write, fields: {} }, same.id));
+  if (same && typeof same.id === "string") return answerTo(write, await update(route, { ...write, fields: {} }, same.id), []);
   const path = route.create(write.fields);
   if (path === null) return refused(write, null, `A ${write.kind} to create must name what it belongs to`);
   const body: Record<string, unknown> = { ...write.fields, extras: { [GLOBAL_ID_KEY]: write.globalId } };
@@ -137,10 +138,11 @@ async function create(route: Route, write: LibraryWrite): Promise<WriteAnswer> {
   const record = made.ok ? parsed(made.text) : undefined;
   if (!isObject(record) || typeof record.id !== "string") return refused(write, made.status, made.text);
   const later = Object.fromEntries(route.deferred.flatMap((field) => (field in write.fields && write.fields[field] !== (record[field] ?? null) ? [[field, write.fields[field]]] : [])));
-  if (Object.keys(later).length === 0) return written(write, record);
+  const writtenFields = Object.keys(write.fields);
+  if (Object.keys(later).length === 0) return written(write, record, writtenFields);
   const again = await request("PUT", `${route.records}/${encodeURIComponent(record.id)}`, later).catch(() => undefined);
   const updated = again?.ok ? parsed(again.text) : undefined;
-  return written(write, isObject(updated) && typeof updated.id === "string" ? updated : record);
+  return written(write, isObject(updated) && typeof updated.id === "string" ? updated : record, writtenFields);
 }
 
 /** Updates the record's fields, and writes the global id beside the other keys in its `extras`, which Decaid replaces whole. */
@@ -153,15 +155,16 @@ async function update(route: Route, write: LibraryWrite, localId: string): Promi
   return request("PUT", path, { ...write.fields, extras: { ...extras, [GLOBAL_ID_KEY]: write.globalId } });
 }
 
-/** The answer to a write from what Decaid answered last: the record it holds now, or its refusal. */
-function answerTo(write: LibraryWrite, answer: Answer): WriteAnswer {
+/** The answer to a write that set `writtenFields`, from what Decaid answered last: the record it holds now, or its refusal. */
+function answerTo(write: LibraryWrite, answer: Answer, writtenFields: string[]): WriteAnswer {
   const record = answer.ok ? parsed(answer.text) : undefined;
-  if (isObject(record) && typeof record.id === "string") return written(write, record);
+  if (isObject(record) && typeof record.id === "string") return written(write, record, writtenFields);
   return refused(write, answer.status, answer.text);
 }
 
-function written(write: LibraryWrite, record: Record<string, unknown>): ItemWritten {
-  return { type: "written", id: write.id, kind: write.kind, globalId: write.globalId, record, updatedAt: utcTime(record.updatedAt) };
+/** A write's answer: the record Decaid holds now, and the fields the write set, beside its global id in `extras`. */
+function written(write: LibraryWrite, record: Record<string, unknown>, writtenFields: string[]): ItemWritten {
+  return { type: "written", id: write.id, kind: write.kind, globalId: write.globalId, record, updatedAt: utcTime(record.updatedAt), writtenFields };
 }
 
 function refused(write: LibraryWrite, status: number | null, error: string): WriteRefused {
