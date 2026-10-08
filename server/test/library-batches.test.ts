@@ -265,7 +265,8 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     const second = await api.createMachine("Gone lab 2", labLocation.id);
     /** Set once the bean and its batch are to be deleted, as a poll reads the batches after the beans. */
     let deleting: { bean: string; batch: string } | undefined;
-    let deleted = false;
+    /** The bean deleted, once it is. */
+    let gone: string | undefined;
     const one: SimulatedTablet = load(first, "16131", {
       apiDelayMs: (method, path) => {
         if (method !== "GET") return 0;
@@ -273,12 +274,13 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
           // As DYE2 deletes a bean, its batch first: the poll then reads the batches without them.
           void one.callApi("DELETE", `/bean-batches/${deleting.batch}`);
           void one.callApi("DELETE", `/beans/${deleting.bean}`);
+          gone = deleting.bean;
           deleting = undefined;
-          deleted = true;
           return 0;
         }
-        // The next poll's read of the beans, which holds the delete, is slow to arrive, so the batches report comes first.
-        return deleted && path.startsWith("/beans?") ? 25_000 : 0;
+        // Until the plugin has carried out the server's write to the bean, which reads it first, every read of the
+        // beans times out, so the report of the delete cannot come before that write, however slow the server.
+        return gone !== undefined && path.startsWith("/beans?") && !one.requests.includes(`/beans/${gone}`) ? 30_000 : 0;
       },
     });
     const two = load(second, "16132");

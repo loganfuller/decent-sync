@@ -33,6 +33,16 @@ const env = { SYNC_HELLO_TIMEOUT_SECONDS: "1", SYNC_HEARTBEAT_SECONDS: String(HE
 const TIME_SCALE = 100;
 const de1Pro = (serial: string) => ({ model: "DE1Pro", serial, firmware: "1333" });
 
+/** The ids of the deliveries the tablet sent that the server has not acknowledged. */
+function unacknowledged(tablet: SimulatedTablet): string[] {
+  const acked = new Set(tablet.received.flatMap((frame) => ((frame as { type?: unknown }).type === "ack" ? [(frame as { id: string }).id] : [])));
+  const sent = tablet.sent.flatMap((frame) => {
+    const { type, id } = frame as { type?: unknown; id?: unknown };
+    return typeof id === "string" && type !== "hello" && type !== "heartbeat" ? [id] : [];
+  });
+  return [...new Set(sent)].filter((id) => !acked.has(id));
+}
+
 describe("Takeovers", { timeout: 30_000 }, () => {
   let server: TestServer;
   let other: TestServer;
@@ -189,6 +199,32 @@ describe("Takeovers", { timeout: 30_000 }, () => {
     await first.waitForLog(/^Another tablet is still connected with this Machine's token\./, 20_000);
     expect(hellos(first).slice(1).every((hello) => hello.yielding === true)).toBe(true);
     expect(second.logs.filter((log) => log.startsWith("Disconnected"))).toEqual([]);
+    expect(await machine(created.machine.id)).toMatchObject({ online: true, tablet: { id: second.storage.read("tabletId") } });
+    await first.unload();
+    await second.unload();
+  });
+
+  it("yields to the tablet that took over though a send fails as its connection ends, before the server's error is handled", async () => {
+    const created = await api.createMachine("Cut off sending");
+    // Polling once an hour, its outbox is idle once what it sent on connecting is acknowledged.
+    const first = loadTablet({ settings: { ...settingsFor(created), PollSeconds: 3600 }, timeScale: TIME_SCALE, api: derivedDe1Pro({ serial: "16311" }) });
+    await first.waitForLog(/^Connected to /);
+    await expect.poll(() => unacknowledged(first), { timeout: 10_000 }).toEqual([]);
+    // Its network fails as the server tells it another tablet took over, and before it handles that, the machine's
+    // state changes, which it sends at once, on the transport that has just ended.
+    first.cutConnectionAfter((frame) => {
+      const { type, code } = frame as { type?: unknown; code?: unknown };
+      const matches = type === "error" && code === "replaced";
+      if (matches) queueMicrotask(() => first.reportState("espresso", "preinfusion"));
+      return matches;
+    });
+    const second = loadTablet({ settings: settingsFor(created), machineConnected: false });
+    await second.waitForLog(/^Connected to /);
+
+    await first.waitForLog(/^Another tablet connected with this Machine's token and took over\./);
+    expect(first.logs.filter((log) => log.startsWith("Disconnected"))).toEqual([]);
+    await first.waitForLog(/^Another tablet is still connected with this Machine's token\./, 20_000);
+    expect(hellos(first).slice(1).every((hello) => hello.yielding === true)).toBe(true);
     expect(await machine(created.machine.id)).toMatchObject({ online: true, tablet: { id: second.storage.read("tabletId") } });
     await first.unload();
     await second.unload();

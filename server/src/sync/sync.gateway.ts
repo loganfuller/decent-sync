@@ -459,8 +459,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     const write = session.writer?.awaited(answer.id);
     if (answer.type === "writeRefused") {
       if (write && write.localId !== null && answer.status === 404) {
-        // The record is gone from the tablet, deleted there just as it was written, which its next report shows.
-        this.logger.log(`The tablet of ${this.describe(session)} no longer holds ${quoted(answer.kind)} ${answer.globalId}, deleted there as it was written`);
+        // The record is gone from the tablet, as when it was deleted there just as it was written: its next report shows it.
+        this.logger.log(`The tablet of ${this.describe(session)} no longer holds ${quoted(answer.kind)} ${answer.globalId}; its next report shows it gone`);
       } else if (write) {
         this.logger.warn(
           `The tablet of ${this.describe(session)} did not write ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? "Decaid did not answer" : `Decaid answered ${answer.status}`}, ${quoted(answer.error.slice(0, 200))}`,

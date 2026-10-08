@@ -51,6 +51,13 @@ const HARDWARE_CHECK_COOLDOWN_MS = 5_000;
  * hello, which the server refuses while that tablet stays connected.
  */
 const YIELD_MS = 5 * 60_000;
+/**
+ * How long a connection whose send failed waits for its transport's own
+ * events before it is dropped. A send fails as soon as its transport ends,
+ * ahead of the events received before the end, such as the server's error
+ * saying another tablet took over, which then decide what follows.
+ */
+const SEND_FAILURE_GRACE_MS = 2_000;
 
 /** Close codes after which retrying cannot help until someone changes something. */
 const FINAL_CLOSES = new Map<number, string>([
@@ -68,7 +75,7 @@ const YIELDING_CLOSES = new Map<number, string>([
   [CLOSE_CODES.machine_held, `Another tablet is still connected with this Machine's token. Trying again in ${YIELD_MS / 1000} s.`],
 ]);
 
-type TimerName = "reconnect" | "heartbeat" | "silence" | "connect" | "hardwarePoll" | "hardwareCooldown";
+type TimerName = "reconnect" | "heartbeat" | "silence" | "connect" | "hardwarePoll" | "hardwareCooldown" | "sendFailed";
 
 /**
  * The plugin's one connection to the sync server: `hello` on every connect,
@@ -337,7 +344,7 @@ export class SyncConnection {
         this.outbox.welcome(async (delivery) => {
           try { await this.send(handle, delivery); }
           catch (error) {
-            if (handle === this.handle) this.drop("could not send a delivery");
+            this.sendFailed(handle, "could not send a delivery");
             throw error;
           }
         });
@@ -387,7 +394,7 @@ export class SyncConnection {
       this.send(handle, { type: "heartbeat" }).then(
         () => this.scheduleHeartbeat(handle, intervalMs),
         (error: unknown) => {
-          if (handle === this.handle) this.drop(`could not send a heartbeat: ${describe(error)}`);
+          this.sendFailed(handle, `could not send a heartbeat: ${describe(error)}`);
         },
       );
     });
@@ -397,6 +404,18 @@ export class SyncConnection {
   private awaitServer(handle: string): void {
     this.setTimer("silence", this.silenceMs, () => {
       if (handle === this.handle) this.drop(`heard nothing from the server for ${this.silenceMs / 1000} s`);
+    });
+  }
+
+  /**
+   * A send on the handle failed. Its transport's events, the server's last
+   * messages among them, are handled first, and decide what happens next; if
+   * none ends the connection in time, it is dropped for `reason`.
+   */
+  private sendFailed(handle: string, reason: string): void {
+    if (handle !== this.handle) return;
+    this.setTimer("sendFailed", SEND_FAILURE_GRACE_MS, () => {
+      if (handle === this.handle) this.drop(reason);
     });
   }
 
@@ -493,6 +512,7 @@ export class SyncConnection {
     this.clearTimer("heartbeat");
     this.clearTimer("silence");
     this.clearTimer("connect");
+    this.clearTimer("sendFailed");
     if (handle !== undefined) this.closeTransport(handle);
   }
 
