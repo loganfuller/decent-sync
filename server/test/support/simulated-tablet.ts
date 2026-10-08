@@ -55,7 +55,8 @@ import { rememberSecret, watchLog } from "./secrets.js";
 //   A send resolves once its frame is queued. Frames are written in order,
 //   one at a time, and stay pending until written; `uploadBytesPerSecond`
 //   slows the writing, so pending bytes build up as on a slow network, and
-//   `stallUpload` stops it at a chosen frame. Closing a transport first
+//   `stallUpload` stops it at a chosen frame, until the next send, or
+//   `resumeUpload` once it lets the frame pass. Closing a transport first
 //   waits for its queued frames to be written. `loseNetwork` ends every
 //   connection and fails every open until `restoreNetwork`, while Decaid's
 //   own API keeps answering.
@@ -720,6 +721,15 @@ export class SimulatedTablet {
    */
   cutConnectionAfter(matches: (frame: unknown) => boolean): void {
     this.cutAfter = matches;
+  }
+
+  /**
+   * Writes the frames `stallUpload` held on each connection, once it lets
+   * them pass, without waiting for the plugin's next send, as a network
+   * that recovers before it drops does.
+   */
+  resumeUpload(): void {
+    for (const record of this.transports.values()) void this.write(record);
   }
 
   /**

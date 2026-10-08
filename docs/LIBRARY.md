@@ -104,13 +104,15 @@ it (Writing to tablets, below).
   Profile's own, and the record as the tablet last had it, as it reported it
   or as Decaid returned the plugin's write, with that record's `updatedAt`
   placed in UTC by the plugin, and, for a batch or Profile, the Location's
-  last decision of it that the record has seen (`seen_at`, its time by
-  PostgreSQL's clock): the one the server's write it answers carried, or one
-  its own edit made. A report shows nothing of what the tablet saw of other
-  tablets' decisions, as the plugin may have read it before them and sent it
-  after, as across a reconnect; nor does an answer to a write no longer
-  awaited, whose write is not known. Either keeps the decision known seen
-  before. A reset tablet has a new tablet id, so it starts with nothing here.
+  latest decision of it that the record has seen (`seen_at`, its time by
+  PostgreSQL's clock): the one the server's write it answers carried, which
+  Decaid answered after, or one its own edit made, whichever is later, as a
+  write planned before the tablet's own decision may be answered after it. A
+  report shows nothing of what the tablet saw of other tablets' decisions, as
+  the plugin may have read it before them and sent it after, as across a
+  reconnect; nor does an answer to a write no longer awaited, whose write is
+  not known. Either keeps the decision known seen before. A reset tablet has a
+  new tablet id, so it starts with nothing here.
 
 ## Taking in a tablet's beans
 
@@ -383,9 +385,9 @@ write timed out, or one the plugin's outbox held across a reconnect, is
 recorded too, so the server's own write is not read back from the next report
 as the tablet's change: its record is the tablet's latest, since the outbox
 sends one delivery at a time and every report read after the write waits
-behind its answer. When its write was planned is not known, so it says
-nothing new of what the tablet had seen of its Location's state (`seen_at`,
-above).
+behind its answer. Which decision its write carried is not known, so it
+says nothing new of what the tablet had seen of its Location's state
+(`seen_at`, above).
 
 ### How the plugin writes
 

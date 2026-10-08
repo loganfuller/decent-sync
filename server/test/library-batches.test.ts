@@ -267,6 +267,53 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     expect(second_.id).not.toBe(record.id);
   });
 
+  it("applies a lab tablet's adding back a batch it finished there after a fast-clocked lab tablet added it, though a weight written meanwhile was answered after", async () => {
+    const location = await api.createLocation("Crossed lab", "America/Chicago");
+    const first = await api.createMachine("Crossed lab 1", location.id);
+    const second = await api.createMachine("Crossed lab 2", location.id);
+    const fast = load(first, "16231", { decaidClockOffsetMs: 5 * 60_000 });
+    // Its reports of its batches wait unsent while this holds them, as on a network that stalls and recovers.
+    let holdingReports = false;
+    const steady = load(second, "16232", {
+      instance: other,
+      stallUpload: (frame) => holdingReports && (frame as { type?: unknown; name?: unknown }).type === "collection" && (frame as { name?: unknown }).name === "beanBatches",
+    });
+    await online(first, second);
+    const { record, batch } = await enterBatch(fast, "Crossed Natural");
+    const held = await holds(() => heldBatch(steady, batch.id), { archived: false });
+    // Its reports since it was written the batch are taken in, so none of its beans awaits the report held below.
+    type Delivery = { type?: unknown; name?: unknown; id?: unknown; value?: unknown };
+    const deliveries = () => (steady.sent as Delivery[]).filter((frame) => frame.type === "collection");
+    const acked = (id: unknown) => (steady.received as Delivery[]).some((reply) => reply.type === "ack" && reply.id === id);
+    await expect
+      .poll(() => {
+        const batches = deliveries().filter((frame) => frame.name === "beanBatches").at(-1)?.value;
+        const reported = Array.isArray(batches) && batches.some((candidate: Record_) => globalIdOf(candidate) === batch.id);
+        return reported && deliveries().every((frame) => acked(frame.id));
+      }, { timeout: 10_000 })
+      .toBe(true);
+
+    // Written the batch, the other tablet's barista archives it; its report is sent but held.
+    holdingReports = true;
+    const reportsBefore = steady.sent.length;
+    await steady.editBatch(held.id, { archived: true });
+    await expect
+      .poll(() => steady.sent.slice(reportsBefore).some((frame) => (frame as { name?: unknown }).name === "beanBatches"), { timeout: 10_000 })
+      .toBe(true);
+    // Meanwhile the fast tablet enters a remaining weight, which is written to the other tablet, its answer queued behind that report.
+    await fast.editBatch(record.id, { weightRemaining: 200 });
+    await holds(() => heldBatch(steady, batch.id), { archived: true, weightRemaining: 200 });
+    holdingReports = false;
+    steady.resumeUpload();
+    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([]);
+
+    // The barista adds it back: an edit made after seeing every decision there, timed before the fast tablet's add.
+    await steady.editBatch(held.id, { archived: false });
+    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([["Crossed lab", 200]]);
+    await holds(() => heldBatch(fast, batch.id), { archived: false });
+    expect(heldBatch(steady, batch.id)).toMatchObject([{ archived: false }]);
+  });
+
   it("archives a batch deleted on one tablet on the Location's other tablet, not deleting it there", async () => {
     const { one, two } = await lab("Deleted", 16021);
     const { record, batch } = await enterBatch(one, "Deleted Washed");

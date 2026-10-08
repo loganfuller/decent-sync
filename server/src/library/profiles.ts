@@ -82,7 +82,7 @@ export async function takeInProfiles(
       if (decided !== null) {
         writesDue = true;
         // The tablet's record decided it, so it has seen that.
-        await tx.$executeRaw`UPDATE tablet_profiles SET seen_at = ${decided}::timestamptz WHERE tablet_id = ${tablet.tabletId}::uuid AND profile_id = ${step.profileId}`;
+        await tx.$executeRaw`UPDATE tablet_profiles SET seen_at = GREATEST(seen_at, ${decided}::timestamptz) WHERE tablet_id = ${tablet.tabletId}::uuid AND profile_id = ${step.profileId}`;
       }
       continue;
     }
@@ -162,7 +162,8 @@ async function joinedAt(tx: Prisma.TransactionClient, tablet: ReportingTablet): 
  * Saves the tablet's record of a Profile as the one it holds, as `saveRecord`
  * in beans.ts does a Bean's, with the Location's decision of the Profile it
  * has now seen (`seenAt`): one the server's write carried, or one its own
- * edit made. Null keeps the decision known seen before, if any.
+ * edit made. It keeps the latest it has seen, as a batch's record does; null
+ * keeps the one known.
  */
 async function saveRecord(
   tx: Prisma.TransactionClient,
@@ -176,5 +177,5 @@ async function saveRecord(
     INSERT INTO tablet_profiles (tablet_id, profile_id, record, record_updated_at, seen_at)
     VALUES (${tabletId}::uuid, ${profileId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz, ${seenAt}::timestamptz)
     ON CONFLICT (tablet_id, profile_id) DO UPDATE SET
-      record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at, seen_at = COALESCE(EXCLUDED.seen_at, tablet_profiles.seen_at)`;
+      record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at, seen_at = GREATEST(EXCLUDED.seen_at, tablet_profiles.seen_at)`;
 }

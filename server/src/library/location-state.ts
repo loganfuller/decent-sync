@@ -14,8 +14,8 @@ import type { Prisma } from "../generated/prisma/client.js";
 // of one is stamped with PostgreSQL's clock (`decided_at`,
 // `presence_decided_at`). An edit made after its tablet saw the field's
 // current value applies: the tablet's record of the item had seen that
-// decision (`seenAt`, the decision its record last saw: one the server wrote
-// it, or one its own edit made). Otherwise, as from a tablet that was
+// decision (`seenAt`, the latest its record has seen: one the server wrote
+// it after, or one its own edit made). Otherwise, as from a tablet that was
 // offline, it applies only if it is timed no earlier than the edit that set
 // the field, and else loses to it, and the Location's state is written back
 // to that tablet. Conflicts, which will keep the losing edit, come with
@@ -41,8 +41,8 @@ export async function lockLocation(tx: Prisma.TransactionClient, locationId: str
 /**
  * Adds the batch at the Location, if it is not there, timed by the edit,
  * unless it was finished there by an edit its tablet had not seen (as of
- * `seenAt`, the decision its record of the batch last saw, or none) and
- * timed later; and, unless the batch is Archived, ends its Bean's origin
+ * `seenAt`, the latest decision its record of the batch has seen, or none)
+ * and timed later; and, unless the batch is Archived, ends its Bean's origin
  * there while the batch is there: from then on the Bean is offered there
  * while one of its batches is. It is never added before it was finished,
  * whatever the clock that timed the edit. Says when it added it, or null if
@@ -173,8 +173,8 @@ export async function offeringLocations(db: Prisma.TransactionClient, beanIds: r
  * Shows or hides the Profile at the Location, as a tablet there showing,
  * hiding, deleting or replacing it does, timed by the edit (ADR-0020),
  * unless the Location's state was decided by an edit the tablet had not seen
- * (as of `seenAt`, the decision its record of the Profile last saw, or
- * none) and timed later: that wins, and is written back to the tablet.
+ * (as of `seenAt`, the latest decision its record of the Profile has seen,
+ * or none) and timed later: that wins, and is written back to the tablet.
  * Conflicts, which will keep the losing edit, come with ticket #84. Says
  * when it decided it, or null if that changed nothing or the edit lost.
  */

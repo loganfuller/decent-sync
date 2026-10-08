@@ -118,8 +118,8 @@ async function applyEdits(
  * such as archiving the batch just before the server wrote its global id, is
  * taken in as a report would take it (`editsInAnswer`). The record has seen
  * the Location's decision of the batch's presence that the write carried
- * (`seenAt`), or, deciding it itself, its own; null says nothing new, as for
- * an answer to a write no longer awaited.
+ * (`seenAt`), as Decaid answered after it, or, deciding it itself, its own;
+ * null says nothing new, as for an answer to a write no longer awaited.
  */
 export async function recordBatchWritten(
   prisma: PrismaService,
@@ -161,8 +161,10 @@ export async function recordBatchWritten(
  * Saves the tablet's record of a batch as the one it holds, under its local
  * id, as `saveRecord` in beans.ts does a Bean's, with the Location's decision
  * of the batch's presence it has now seen (`seenAt`): one the server's write
- * carried, or one its own edit made. Null keeps the decision known seen
- * before, if any.
+ * carried, or one its own edit made. It keeps the latest it has seen: a write
+ * planned before the tablet's own later decision, such as one of a remaining
+ * weight answered after a report that archived the batch, shows that decision
+ * no less. Null keeps the one known.
  */
 async function saveRecord(
   tx: Prisma.TransactionClient,
@@ -178,5 +180,5 @@ async function saveRecord(
     VALUES (${tabletId}::uuid, ${batchId}::uuid, ${localId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz, ${seenAt}::timestamptz)
     ON CONFLICT (tablet_id, batch_id) DO UPDATE SET
       local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at,
-      seen_at = COALESCE(EXCLUDED.seen_at, tablet_bean_batches.seen_at)`;
+      seen_at = GREATEST(EXCLUDED.seen_at, tablet_bean_batches.seen_at)`;
 }
