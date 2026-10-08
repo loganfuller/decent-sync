@@ -1,3 +1,7 @@
+---
+status: accepted (amended by ADR-0008, which clears a joining machine's Workflow grinder and batch, and ADR-0020, under which each setting is a field of its own)
+---
+
 # Steam, hot water and rinse settings are shared per location; steam on/off is not
 
 A machine's Workflow stays its own (profile, dose, yield, batch, grinder), except for its steam, hot water and rinse settings. Those are shared by machines of the same model at a location, the way every steam wand on one commercial machine runs the same settings. A change on any tablet or in the management interface applies to the location's other machines of that model, last-writer-wins. Settings are shared only within a model because a Bengle and a DE1 can read the same values differently.

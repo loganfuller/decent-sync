@@ -9,8 +9,8 @@ protocol version 1 with one delivery, defined and validated in `protocol/`:
 
 It is acknowledged with `ack` once stored, or set aside because storing it
 fails in a way that would repeat, as Shots are (`AI_PROTOCOL_NOTES.md`,
-Deliveries set aside). Older plugins never
-send it, so the protocol version stays 1. A name the server does not know, as
+Deliveries set aside). The protocol version stays 1, as it does for any
+change until v1 (ADR-0017). A name the server does not know, as
 a newer plugin might send, is acknowledged and ignored. While `available` is
 true, `value` is any JSON but null; while false, it is absent.
 

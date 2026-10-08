@@ -9,9 +9,9 @@ protocol version 1 with these messages, defined and validated in `protocol/`:
 | Plugin to server | `steamIndex` | `id`, `steams: [{ id }]`, at most 100 entries |
 | Server to plugin | `requestSteams` | `steamIds`, at most 100 ids |
 
-`ack` acknowledges both, as it does Shots (`SHOTS.md`). Plugins that predate
-these messages never send them, and the server sends `requestSteams` only in
-answer to a `steamIndex`, so the protocol version stays 1.
+`ack` acknowledges both, as it does Shots (`SHOTS.md`). The server sends
+`requestSteams` only in answer to a `steamIndex`. The protocol version stays
+1, as it does for any change until v1 (ADR-0017).
 
 ## Time
 

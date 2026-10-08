@@ -10,8 +10,8 @@ protocol version 1 with two deliveries, defined and validated in `protocol/`:
 
 Both are acknowledged with `ack` once stored, or set aside because storing
 them fails in a way that would repeat, as Shots are (`AI_PROTOCOL_NOTES.md`,
-Deliveries set aside). Older plugins never
-send them, so the protocol version stays 1.
+Deliveries set aside). The protocol version stays 1, as it does for any
+change until v1 (ADR-0017).
 
 ## Plugin
 

@@ -185,6 +185,26 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     expect(await offeredAt("Archived Natural")).toEqual(["Archived lab"]);
   });
 
+  it("keeps a batch at the lab when a tablet that archived it while offline reconnects after another lab tablet added it back", async () => {
+    const { one, two } = await lab("Offline", 16201);
+    const { record, batch } = await enterBatch(one, "Offline Natural");
+    const held = await holds(() => heldBatch(two, batch.id), { archived: false });
+
+    two.loseNetwork();
+    await two.editBatch(held.id, { archived: true });
+    // Later, the lab's other tablet finishes it there and adds it back.
+    await one.editBatch(record.id, { archived: true });
+    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([]);
+    await one.editBatch(record.id, { archived: false });
+    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([["Offline lab", 250]]);
+
+    // The earlier archiving, made without seeing those, loses to them (ADR-0020), and the lab's state is written back.
+    two.restoreNetwork();
+    await holds(() => heldBatch(two, batch.id), { archived: false });
+    expect(await whereAt(batch.id)).toEqual([["Offline lab", 250]]);
+    expect(await offeredAt("Offline Natural")).toEqual(["Offline lab"]);
+  });
+
   it("archives a batch deleted on one tablet on the Location's other tablet, not deleting it there", async () => {
     const { one, two } = await lab("Deleted", 16021);
     const { record, batch } = await enterBatch(one, "Deleted Washed");

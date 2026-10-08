@@ -35,9 +35,9 @@ disconnected, and its Machine offline.
 ### Tablets at a Location now share their beans
 
 The plugin now writes to Decaid. Once a tablet's Machine is at a Location,
-every bean on that tablet that is not archived joins the server's Library, or
-becomes the Bean already there with the same roaster and name, and the
-Location's other tablets are written it. Each tablet's records get their
+every bean on that tablet joins the server's Library, or becomes the Bean
+already there with the same roaster and name, and the Location's other
+tablets are written those not archived on it. Each tablet's records get their
 Library id in `extras`, beside what other plugins keep there. A Machine with
 no Location is written nothing, and its beans stay out of the Library; a
 switch to keep a Machine at a Location out comes later. Export each tablet's
@@ -57,9 +57,9 @@ that tablet's Location and archived on its other tablets; un-archived, it is
 added back; and the remaining weight entered on a tablet is that Location's,
 written to its other tablets. A bean archived or deleted on a tablet finishes
 its batches at that Location, and is archived on the Location's other tablets
-once none of its batches is there. Beans archived on a tablet now join the
-Library as well, though not offered at its Location; one that becomes a Bean
-its Location offers is un-archived there.
+once none of its batches is there. A bean archived on a tablet is not offered
+at its Location; one that becomes a Bean its Location offers is un-archived
+there.
 Nothing is deleted from a tablet: what its Location stops offering, such as
 the beans and batches of a Location a Machine was moved away from, is archived
 on it. Export each tablet's data first if you may want to undo this, as above.

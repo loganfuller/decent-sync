@@ -1,10 +1,10 @@
 ---
-status: accepted (amended in place on 2026-10-06, while scoping milestone 2)
+status: accepted (amended in place on 2026-10-06, while scoping milestone 2, and on 2026-10-08, while building it)
 ---
 
 # Library items have per-location state
 
-A library item's content (a profile's steps, a batch's roast date) is the same everywhere. Some of its state differs by location: whether a profile is shown there, whether a batch is at that location, and the batch's stock there. A bean is offered at a location while one of its batches is there, and a bean with no batch yet only where it was created or linked (ADR-0018). The server keeps this state per location.
+A library item's content (a profile's steps, a batch's roast date) is the same everywhere. Some of its state differs by location: whether a profile is shown there, whether a batch is at that location, and the batch's stock there. A bean is offered at a location while one of its batches is there, and, until one of its batches is added there, where a tablet there created it, linked a bean of its own to it (ADR-0018) or un-archived it. The server keeps this state per location.
 
 A tablet holds only what its machine's location offers. An item is written to it when the location starts offering it, and hidden or archived on it, never deleted, when the location stops, so the tablet's shots still find it. On a tablet, a batch's `archived` flag is true when the batch isn't at that location, and its `weightRemaining` is that location's stock. Editing those fields on a tablet changes them only for that location: un-archiving a batch adds it there, archiving it finishes it there, and a corrected `weightRemaining` is recorded as a count there.
 

@@ -1,3 +1,7 @@
+---
+status: accepted (extended by ADR-0015)
+---
+
 # Machine identity is the hardware: model plus serial
 
 A machine is identified by its model and serial number, not by the tablet attached to it or the connection id Decaid uses for it. Replacing a tablet doesn't create a new machine, and moving a tablet to another machine doesn't move its shot history with it. Each shot is credited to the machine whose model and serial it recorded at the time, and shots are stored once by shot id, not under the machine whose tablet happened to report them.

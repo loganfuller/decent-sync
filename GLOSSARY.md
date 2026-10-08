@@ -67,7 +67,7 @@ _Avoid_: User (when the role matters), barista (a barista may not have an accoun
 ## Coffee
 
 **Bean**:
-A coffee as sold by a roaster, identified by roaster and name. It is offered at each location where one of its batches is.
+A coffee as sold by a roaster, identified by roaster and name. It is offered at each location where one of its batches is, and, until one of its batches is added there, where it was entered on a tablet.
 _Avoid_: Coffee (when the product is meant), blend
 
 **Bean Batch**:

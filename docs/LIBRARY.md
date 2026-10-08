@@ -9,9 +9,9 @@ each at the Locations it was added to and not yet finished at, with its
 remaining weight at each, and offers each Bean where its batches are. Ticket
 [#82](https://github.com/loganfuller/decent-sync/issues/82) adds Profiles,
 each shown or hidden at each Location. It follows ADR-0003, ADR-0006,
-ADR-0008, ADR-0016, ADR-0018 and ADR-0019. Grinders, edits, joining a
-Location and the management interface's changes build on it in later tickets
-(Not yet, below).
+ADR-0008, ADR-0016, ADR-0018, ADR-0019 and ADR-0020. Grinders, edits,
+joining a Location and the management interface's changes build on it in
+later tickets (Not yet, below).
 
 ## Who takes part
 
@@ -41,7 +41,7 @@ A tablet holds only what its Machine's Location offers (ADR-0008):
 
 So a Bean with batches is offered only where they are: once its last batch
 at a Location is finished, it is no longer offered there. Archived items,
-which only the management interface will Archive (ticket #87), are offered
+which only the management interface will Archive (tickets #87 and #88), are offered
 nowhere. What the Location offers is written to each of its tablets, with each
 batch's remaining weight there and each Profile visible, and what it does not
 offer is archived or hidden on them, never deleted, so their Shots still find
@@ -73,9 +73,11 @@ it (Writing to tablets, below).
   its own (ADR-0020): when it was last added there and when it was finished
   there since, if it was, and the remaining weight entered there last, in
   grams, with that edit's time. A batch is at a Location while it was added
-  there and not finished since. It is never finished before it was added,
-  nor added again before it was finished, whatever the clock that timed the
-  edit. Times are each edit's: a tablet's by the
+  there and not finished since. Whether it is there is a field whose latest
+  edit wins (ADR-0020): adding it there loses to a finish timed later, and
+  finishing it there to an add timed later, edits their tablets had not seen,
+  as from a tablet that was offline; the Location's state is then written
+  back to that tablet. Times are each edit's: a tablet's by the
   record's `updatedAt` in UTC; a delete, which Decaid does not time, by
   PostgreSQL's clock, but never earlier than the record the tablet was last
   known to have.
@@ -126,11 +128,11 @@ order reported (`planIntake` in `bean-intake.ts`):
    whatever its time, as after the tablet's clock went back, so the id is
    written back. A record replacing one that was not
    archived, now archived, takes the Bean away from the tablet's Location
-   (ADR-0019): its batches there are finished, since Decaid deletes a bean
-   only with its batches, and its origin there ends, so the Bean is no longer
-   offered there. Each batch the tablet held there, not archived, is
-   finished; one it did not hold, added there after the archiving, which the
-   tablet had not seen, stays. Un-archived, the Bean is offered there again,
+   (ADR-0019): its batches there are finished, as a bean is deleted only with
+   its batches (DYE2 deletes them first, since Decaid refuses to delete a bean
+   that has any), and its origin there ends, so the Bean is no longer offered
+   there. A batch added there later than the archiving, which the tablet had
+   not seen, stays (ADR-0020). Un-archived, the Bean is offered there again,
    as an origin, while none of its batches is there.
 2. Otherwise a record carrying a Library Bean's global id is that Bean, as on
    a tablet whose answer to a write was lost, or one restored from a Decaid
@@ -183,7 +185,9 @@ beans, and taken in the same way, under the same locks (`takeInBatches` in
   as a bean's does, and also when, as old, it differs at the Location. What changed since the record known is what the tablet did
   at its Location (ADR-0008): un-archived, the batch is added there;
   archived, it is finished there; a changed `weightRemaining`, cleared
-  included, is its remaining weight there. A remaining weight replaces the
+  included, is its remaining weight there. Adding or finishing it there is an
+  edit timed by the record, which loses to a later one the tablet had not
+  seen (ADR-0020). A remaining weight replaces the
   one known when the tablet had that value, none was ever entered there, or
   it was entered later than the value known, which the tablet had not seen;
   Conflicts come with ticket #84.
@@ -291,7 +295,9 @@ Beans are written before their batches, and batches are archived before
 their Beans. Within each, items that joined the Library first are written
 first. Every update sets only the fields that differ, and writes the global
 id with them to a record that lost it; a Profile's record carries none.
-Nothing is ever deleted from a tablet.
+Nothing is deleted from a tablet; an Admin's hard delete, which will delete
+an item no Shot names from every tablet that holds it (ticket #87), is the
+one exception.
 
 It writes nothing until that connection's reports of the tablet's beans, bean
 batches and profiles, which the plugin sends on every welcome, have been taken
@@ -480,6 +486,9 @@ its steps and the Profile it was saved from.
   items the tablet's map does not hold yet, such as those of a Machine given
   its first Location: what it held at its old Location stays offered only
   there, though a batch un-archived on it is added at its new one.
+- Grinders, each belonging to one Location: ticket #83. Each Location's
+  steam, hot water and rinse settings: ticket #86. Conflicts and each item's
+  history in the management interface: ticket #85.
 - The capture-only switch: ticket #90. Recording refused writes, and each
   Machine's sharing status: ticket #91.
 - Linking Shots to the Library's batches: ticket #92.
