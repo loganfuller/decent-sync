@@ -62,7 +62,8 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
   ): SimulatedTablet {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": options.beans ?? [] },
+      // No profiles, so only Beans are written to it: library-profiles.test.ts writes Profiles.
+      api: { ...derivedDe1Pro({ serial }), "/beans": options.beans ?? [], "/profiles": [] },
       storage: options.storage,
       timeScale: 50,
     });
@@ -128,8 +129,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const record = two.beans().find((candidate) => candidate.name === "Echo Natural");
 
     // Both tablets report their beans again, now holding the Bean as written, and are written nothing more.
-    const reportsBefore = beanReports(two);
-    await expect.poll(() => beanReports(two), { timeout: 10_000 }).toBeGreaterThan(reportsBefore);
+    await expect.poll(() => reportedHolding(two, bean.id), { timeout: 10_000 }).toBe(true);
     await one.addBean({ roaster: "Roux", name: "Echo Washed" });
     const washed = await libraryBean("Echo Washed");
     await holds(two, "Echo Washed", washed.id);
@@ -237,6 +237,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     raws.push(raw);
     await raw.deliver(emptyBeans());
     await raw.deliver(emptyBatches());
+    await raw.deliver(emptyProfiles());
     const [refused] = await writesTo(raw, 1);
     // An answer to no write it was asked for, as one arriving after its write timed out, is acknowledged and leaves the
     // write it awaits waiting.
@@ -265,6 +266,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     raws.push(back);
     await back.deliver(emptyBeans());
     await back.deliver(emptyBatches());
+    await back.deliver(emptyProfiles());
     for (let count = 1; count <= 3; count++) {
       const write = (await writesTo(back, count))[count - 1]!;
       await back.deliver({ type: "writeRefused", id: write.id, kind: "bean", globalId: write.globalId, status: null, error: "Decaid did not answer: Fetch timed out" });
@@ -553,9 +555,14 @@ function emptyBeans() {
   return { type: "collection", id: randomUUID(), name: "beans", available: true, value: [], updatedAt: [] };
 }
 
-/** A report that the tablet holds no bean batches, which, with its beans, is taken in before anything is written to it. */
+/** A report that the tablet holds no bean batches, which, with its beans and profiles, is taken in before anything is written to it. */
 function emptyBatches() {
   return { type: "collection", id: randomUUID(), name: "beanBatches", available: true, value: [], updatedAt: [] };
+}
+
+/** A report that the tablet holds no profiles. */
+function emptyProfiles() {
+  return { type: "collection", id: randomUUID(), name: "profiles", available: true, value: [], updatedAt: [] };
 }
 
 /** Resolves with the first `count` writes the server sent on the raw connection, once it has sent that many. */
@@ -563,6 +570,14 @@ async function writesTo(raw: RawConnection, count: number): Promise<{ id: string
   const writes = () => raw.messages.filter((message) => (message as { type?: unknown }).type === "write") as { id: string; globalId: string; localId: string | null }[];
   await expect.poll(() => writes().length, { timeout: 10_000 }).toBeGreaterThanOrEqual(count);
   return writes().slice(0, count);
+}
+
+/** Whether the plugin has sent a report of its beans holding a record of the Bean, carrying its global id. */
+function reportedHolding(tablet: SimulatedTablet, beanId: string): boolean {
+  return tablet.sent.some((frame) => {
+    const { type, name, value } = frame as { type?: unknown; name?: unknown; value?: unknown };
+    return type === "collection" && name === "beans" && Array.isArray(value) && value.some((record) => globalIdOf(record) === beanId);
+  });
 }
 
 /** How many reports of its beans the plugin has sent. */

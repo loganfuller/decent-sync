@@ -164,10 +164,12 @@ model Location {
   steamRecords   SteamRecord[]
   staff          StaffLocation[]
   invites        InviteLocation[]
-  beansCreated   Bean[]          @relation("BeansCreated")
-  beanOrigins    BeanOrigin[]
-  batchesCreated BeanBatch[]     @relation("BeanBatchesCreated")
-  batches        BatchLocation[]
+  beansCreated    Bean[]            @relation("BeansCreated")
+  beanOrigins     BeanOrigin[]
+  batchesCreated  BeanBatch[]       @relation("BeanBatchesCreated")
+  batches         BatchLocation[]
+  profilesCreated Profile[]         @relation("ProfilesCreated")
+  profiles        ProfileLocation[]
 
   @@map("locations")
 }
@@ -328,6 +330,7 @@ model Tablet {
   machines    MachineTablet[]
   beans       TabletBean[]
   beanBatches TabletBeanBatch[]
+  profiles    TabletProfile[]
 
   @@map("tablets")
 }
@@ -765,4 +768,70 @@ model TabletBeanBatch {
   @@unique([tabletId, localId])
   @@index([batchId])
   @@map("tablet_bean_batches")
+}
+
+/// A Profile in the Library (ADR-0003): a program the machine follows while
+/// pulling a shot, shown or hidden at each Location (ADR-0008). It keeps
+/// Decaid's id, a hash of what the machine executes, which is the same on
+/// every tablet, so its records carry no global id (ADR-0006). See
+/// server/src/library/profiles.ts.
+model Profile {
+  /// Decaid's id, such as profile:3c5e9f0a1b2c4d6e8f70.
+  id                String            @id
+  /// Decaid's record fields, those it does not know included, as the tablet
+  /// that created it sent them: all but its id, times and visibility, which
+  /// belong to each tablet's record.
+  content           Json              @db.JsonB
+  /// One of Decaid's bundled Profiles, which every tablet has already and so
+  /// is never written to one; whether it is shown is per Location all the same.
+  bundled           Boolean           @default(false)
+  /// Retired everywhere: shown nowhere, but kept so past Shots still name it.
+  archived          Boolean           @default(false)
+  /// The Location of the tablet that created it.
+  createdLocationId String?           @map("created_location_id") @db.Uuid
+  createdLocation   Location?         @relation("ProfilesCreated", fields: [createdLocationId], references: [id], onDelete: SetNull)
+  /// When it joined the Library, by PostgreSQL's clock.
+  createdAt         DateTime          @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+
+  locations ProfileLocation[]
+  tablets   TabletProfile[]
+
+  @@map("profiles")
+}
+
+/// Whether a Profile is shown at one Location (ADR-0008), a field of its own
+/// (ADR-0020), with the time of the edit that set it: a tablet's by its
+/// record's `updatedAt` in UTC (ADR-0003). A Location with no row for a
+/// Profile hides it: a Profile is shown only where it was created until
+/// someone shows it elsewhere.
+model ProfileLocation {
+  profileId  String   @map("profile_id")
+  profile    Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  locationId String   @map("location_id") @db.Uuid
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  shown      Boolean
+  /// When it was last shown or hidden there.
+  changedAt  DateTime @map("changed_at") @db.Timestamptz(3)
+
+  @@id([profileId, locationId])
+  @@index([locationId])
+  @@map("profile_locations")
+}
+
+/// A Library Profile's record on one tablet (ADR-0006), as `TabletBean`
+/// keeps a Bean's: the record as that tablet last had it. Its id there is the
+/// Profile's.
+model TabletProfile {
+  tabletId        String    @map("tablet_id") @db.Uuid
+  tablet          Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  profileId       String    @map("profile_id")
+  profile         Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  /// The record, as Decaid sent it.
+  record          Json      @db.JsonB
+  /// The record's updatedAt, placed in UTC by the plugin; null if it could not be.
+  recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
+
+  @@id([tabletId, profileId])
+  @@index([profileId])
+  @@map("tablet_profiles")
 }

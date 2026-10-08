@@ -64,6 +64,20 @@ Nothing is deleted from a tablet: what its Location stops offering, such as
 the beans and batches of a Location a Machine was moved away from, is archived
 on it. Export each tablet's data first if you may want to undo this, as above.
 
+### Tablets at a Location now share their profiles
+
+Once a tablet's Machine is at a Location, its profiles join the server's
+Library too, Decaid's bundled ones included, and each is shown or hidden per
+Location. A profile created on a tablet is written to the Location's other
+tablets, and shown there only. Hiding, deleting or changing a profile's steps
+on a tablet hides it at that tablet's Location, on all of its tablets, and
+only there; changed steps make a new profile, shown there. The first tablet
+at a Location to report a profile decides whether it is shown there, so a
+bundled profile hidden on one tablet of a Location that has several, before
+the upgrade, may be shown on all of them, or hidden on all of them. Nothing
+is deleted from a tablet: what its Location stops showing is hidden on it.
+Export each tablet's data first if you may want to undo this, as above.
+
 ### Reload the plugin after restoring the server's database
 
 The plugin now tells the server which Shots and Steam Records its tablet

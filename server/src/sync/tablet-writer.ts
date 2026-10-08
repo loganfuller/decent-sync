@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { LibraryWrite } from "@decent-sync/protocol";
+import type { LibraryKind, LibraryWrite } from "@decent-sync/protocol";
 import { writeKey } from "../library/holdings.js";
 import { type WrittenTablet, tabletDue } from "../library/tablet-due.js";
 import type { PrismaService } from "../prisma.service.js";
@@ -17,27 +17,32 @@ const ANSWER_TIMEOUT_MS = 300_000;
 export type WriteOutcome = "written" | "refused";
 
 /** The Library lists whose reports are taken in before anything is written: what the tablet holds. */
-export type TakenInList = "beans" | "beanBatches";
+export type TakenInList = "beans" | "beanBatches" | "profiles";
+
+const TAKEN_IN: readonly TakenInList[] = ["beans", "beanBatches", "profiles"];
+
+/** What each kind of Library item is called in the server's log. */
+export const KIND_NAMES: Readonly<Record<LibraryKind, string>> = { bean: "Bean", beanBatch: "Bean Batch", profile: "Profile" };
 
 /**
  * Writes the Library to the tablet of one connection this instance holds:
  * one write at a time, each once the plugin has answered the one before it
  * and its answer is recorded, until the tablet holds what its Machine's
  * Location offers (`tabletDue`): its Beans and Bean Batches, with their
- * global ids and the Location's remaining weights, and nothing else
- * unarchived. What is due is read from the database each time, so it
- * reflects changes made through any instance; the instance is woken to look
- * again when one is notified, when the connection's report of the tablet's
- * beans or bean batches is taken in, and when its notifications may have
- * been missed.
+ * global ids and the Location's remaining weights, and its Profiles,
+ * visible, and nothing else unarchived or visible. What is due is read from
+ * the database each time, so it reflects changes made through any instance;
+ * the instance is woken to look again when one is notified, when the
+ * connection's report of the tablet's beans, bean batches or profiles is
+ * taken in, and when its notifications may have been missed.
  *
- * Nothing is written until the connection's reports of the tablet's beans
- * and bean batches are taken in, which the plugin sends on every welcome,
- * nor between a report of its beans and the report of its batches the
- * plugin sends after it, and only while the Machine is at the Location both
- * latest reports were taken in at. A bean the tablet already holds, entered
- * there or before it joined, is then linked to the Library's Bean rather
- * than written to it again. When it finds the Machine at another Location
+ * Nothing is written until the connection's reports of the tablet's beans,
+ * bean batches and profiles are taken in, which the plugin sends on every
+ * welcome, nor between a report of its beans and the report of its batches
+ * the plugin sends after it, and only while the Machine is at the Location
+ * the latest reports were all taken in at. A bean the tablet already holds,
+ * entered there or before it joined, is then linked to the Library's Bean
+ * rather than written to it again. When it finds the Machine at another Location
  * than that, as once it has moved, it asks the plugin for its collections
  * afresh (`requestCollections`), once for each Location it finds, and writes
  * once those reports are taken in there. A move is notified to every instance,
@@ -125,10 +130,11 @@ export class TabletWriter {
   }
 
   /**
-   * A report of the tablet's beans or bean batches from this connection was
-   * stored, and taken in with its Machine at that Location, or at none; or,
-   * undefined, not taken in, as when it was unavailable or set aside. One of
-   * its bean batches ends the wait a report of its beans began.
+   * A report of the tablet's beans, bean batches or profiles from this
+   * connection was stored, and taken in with its Machine at that Location,
+   * or at none; or, undefined, not taken in, as when it was unavailable or
+   * set aside. One of its bean batches ends the wait a report of its beans
+   * began.
    */
   reported(list: TakenInList, locationId: string | null | undefined): void {
     if (locationId !== undefined) this.reportedAt.set(list, locationId);
@@ -158,12 +164,11 @@ export class TabletWriter {
     for (;;) {
       this.again = false;
       // Until the connection's first reports are taken in, which its welcome brings, nothing is due.
-      const beans = this.reportedAt.get("beans");
-      const batches = this.reportedAt.get("beanBatches");
-      /** Where both were taken in, or undefined while they were not, or were at different Locations, as across a move. */
-      const reportedAt = beans !== undefined && beans === batches ? beans : undefined;
+      const reports = TAKEN_IN.map((list) => this.reportedAt.get(list));
+      /** Where all were taken in, or undefined while they were not, or were at different Locations, as across a move. */
+      const reportedAt = reports.every((at) => at === reports[0]) ? reports[0] : undefined;
       const found =
-        beans === undefined || batches === undefined || this.awaitingBatches ? null : await tabletDue(this.prisma, this.tablet, reportedAt ?? null, this.skipped);
+        reports.includes(undefined) || this.awaitingBatches ? null : await tabletDue(this.prisma, this.tablet, reportedAt ?? null, this.skipped);
       if (this.stopped) return;
       if (found && found.locationId === reportedAt) this.requestedFor = undefined;
       else if (found && found.locationId !== null && found.locationId !== this.requestedFor) {
@@ -177,7 +182,7 @@ export class TabletWriter {
         return;
       }
       const key = writeKey(due.kind, due.globalId);
-      const item = `${due.kind === "bean" ? "Bean" : "Bean Batch"} ${due.globalId}`;
+      const item = `${KIND_NAMES[due.kind]} ${due.globalId}`;
       const fields = JSON.stringify(due.fields);
       if (written?.key === key && written.fields === fields) {
         this.log.warn(`Tablet ${this.tablet.tabletId} is still due ${item} once written; it is tried again once the tablet reconnects`);

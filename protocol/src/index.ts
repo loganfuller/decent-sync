@@ -428,10 +428,23 @@ export interface CollectionDelivery {
   updatedAt?: (string | null)[];
 }
 
-/** The kinds of Library item the server writes to tablets: Beans and Bean Batches. */
-export const LIBRARY_KINDS = ["bean", "beanBatch"] as const;
+/** The kinds of Library item the server writes to tablets: Beans, Bean Batches and Profiles. */
+export const LIBRARY_KINDS = ["bean", "beanBatch", "profile"] as const;
 
 export type LibraryKind = (typeof LIBRARY_KINDS)[number];
+
+export function isLibraryKind(kind: string): kind is LibraryKind {
+  return (LIBRARY_KINDS as readonly string[]).includes(kind);
+}
+
+/**
+ * Whether a value is the id of a Library item of that kind: a Profile's is
+ * Decaid's own (`isRecordId`), a hash of what the machine executes that is
+ * the same on every tablet (ADR-0006); every other kind's is its global id.
+ */
+export function isItemId(kind: string, value: unknown): value is string {
+  return kind === "profile" ? isRecordId(value) : isGlobalId(value);
+}
 
 /**
  * Asks the plugin to write one Library item to its tablet through Decaid's
@@ -454,6 +467,17 @@ export type LibraryKind = (typeof LIBRARY_KINDS)[number];
  * takes neither `archived` nor `weightRemaining`, setting the remaining
  * weight to `weight`, so the plugin writes those it is given in a second
  * request when they differ from what Decaid made.
+ *
+ * A Profile keeps Decaid's id, which is its `globalId` and, on every tablet,
+ * its `localId` (ADR-0006), and its record carries no global id. To create
+ * one, the plugin posts `fields.profile`, with `fields.metadata` and with
+ * `fields.parentId` if the tablet holds that Profile, as Decaid refuses a
+ * parent it lacks. Decaid derives the record's id from the profile, and
+ * answers with the record it holds already if it has one with that id,
+ * hidden or deleted as it may be. So the plugin then sets
+ * `fields.visibility` where the record has another (`PUT
+ * /profiles/{id}/visibility`). To update one, it sets `fields.visibility`
+ * alone.
  */
 export interface LibraryWrite {
   type: "write";
@@ -461,7 +485,7 @@ export interface LibraryWrite {
   id: string;
   /** One of LIBRARY_KINDS. A plugin answers a kind it does not know with `writeRefused`. */
   kind: string;
-  /** The item's global id. */
+  /** The item's global id, or a Profile's id (`isItemId`). */
   globalId: string;
   /** The tablet's record to update, or null to create one. */
   localId: string | null;
@@ -489,8 +513,9 @@ export interface ItemWritten {
   /** The write's id. */
   id: string;
   kind: string;
+  /** The write's `globalId`. */
   globalId: string;
-  /** The record as Decaid returned it, its global id in `extras`. */
+  /** The record as Decaid returned it, its global id in `extras` but for a Profile's. */
   record: Record<string, unknown>;
   /** The record's `updatedAt`, read as the tablet's local time and placed in UTC; null if it cannot be read. */
   updatedAt: string | null;
@@ -711,7 +736,7 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
       return check<ItemWritten>(object, "written", (fields) => {
         fields.id();
         fields.string("kind", { nonEmpty: true });
-        fields.uuid("globalId");
+        fields.itemId("globalId", object.kind);
         fields.objectField("record");
         if (object.updatedAt !== null) fields.instant("updatedAt");
       });
@@ -719,7 +744,7 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
       return check<WriteRefused>(object, "writeRefused", (fields) => {
         fields.id();
         fields.string("kind", { nonEmpty: true });
-        fields.uuid("globalId");
+        fields.itemId("globalId", object.kind);
         if (object.status !== null) fields.integer("status", { nonNegative: true });
         fields.string("error", { maxLength: MAX_REFUSAL_LENGTH });
       });
@@ -789,7 +814,7 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
       return check<LibraryWrite>(object, "write", (fields) => {
         fields.id();
         fields.string("kind", { nonEmpty: true });
-        fields.uuid("globalId");
+        fields.itemId("globalId", object.kind);
         if (object.localId !== null) fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
         fields.objectField("fields");
       });
@@ -849,6 +874,13 @@ class FieldChecker {
   /** A UUID, in either case, as a tablet id is. */
   uuid(key: string): void {
     if (!isTabletId(this.object[key])) this.problem(key, "must be a UUID");
+  }
+
+  /** The id of a Library item of the kind given (`isItemId`): a Profile's id, or another kind's global id, a UUID. */
+  itemId(key: string, kind: unknown): void {
+    if (kind === "profile" ? !isRecordId(this.object[key]) : !isGlobalId(this.object[key])) {
+      this.problem(key, kind === "profile" ? `must be a Profile's id of 1 to ${MAX_RECORD_ID_LENGTH} characters without NUL` : "must be a UUID");
+    }
   }
 
   optionalString(key: string, options: { maxLength?: number } = {}): void {

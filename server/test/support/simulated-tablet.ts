@@ -7,6 +7,7 @@ import WebSocket from "ws";
 import { assertBuilt } from "./builds.js";
 import { batchesOf, createBatch, deleteBatch, deleteBean, listedBatches, updateBatch } from "./decaid-batches.js";
 import { type DecaidAnswer, createBean, listedBeans, updateBean } from "./decaid-beans.js";
+import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
 import { rememberSecret, watchLog } from "./secrets.js";
 
 // Seam 1's simulated tablet: runs the built decent-sync.reaplugin/plugin.js
@@ -31,11 +32,15 @@ import { rememberSecret, watchLog } from "./secrets.js";
 //   plugin storage never written answers `null`. The machine's settings, like
 //   its info, fail while no machine is connected.
 // - Of Decaid's writes, it carries out only those to beans (`POST /beans`,
-//   `PUT /beans/{id}` and `DELETE /beans/{id}`) and their batches (`POST
-//   /beans/{beanId}/batches`, `PUT` and `DELETE /bean-batches/{id}`) as
-//   Decaid does (decaid-beans.ts, decaid-batches.ts), and serves each bean
-//   at `/beans/{id}`, its batches at `/beans/{id}/batches`, and each batch at
-//   `/bean-batches/{id}`; it refuses every other request but a `GET`.
+//   `PUT /beans/{id}` and `DELETE /beans/{id}`), their batches (`POST
+//   /beans/{beanId}/batches`, `PUT` and `DELETE /bean-batches/{id}`) and
+//   profiles (`POST /profiles`, `PUT` and `DELETE /profiles/{id}`, `PUT
+//   /profiles/{id}/visibility` and `DELETE /profiles/{id}/purge`), as
+//   Decaid does (decaid-beans.ts, decaid-batches.ts, decaid-profiles.ts),
+//   and serves each bean at `/beans/{id}`, its batches at
+//   `/beans/{id}/batches`, each batch at `/bean-batches/{id}`, and each
+//   profile at `/profiles/{id}`, whose id it derives from the profile's
+//   content as Decaid does; it refuses every other request but a `GET`.
 // - The plugin's local time, as JavaScript reads it, is this process's time
 //   zone: set `process.env.TZ` to put the tablet in another one.
 // - `host.transport` opens real WebSockets with only a URL and subprotocols
@@ -209,6 +214,19 @@ export function manyProfiles(minBytes = 1.25 * 1024 * 1024): Record<string, unkn
   ).flat();
 }
 
+/**
+ * Derived from the first profile posted in profile-writes-v0.8.7: the same
+ * profile, to post as a barista saves one, under another title and with its
+ * pouring step's pressure changed. Decaid derives a profile's id from its
+ * steps, not its title, so each pressure is a Profile of its own.
+ */
+export function derivedProfile(title: string, pressure: number): Record<string, unknown> {
+  const [, , created] = readFixture<{ request: { body: { profile: Record<string, unknown> } } }[]>("profile-writes.json", "profile-writes-v0.8.7");
+  const profile = created!.request.body.profile;
+  const steps = profile.steps as Record<string, unknown>[];
+  return { ...profile, title, steps: steps.map((step, index) => (index === 1 ? { ...step, pressure } : step)) };
+}
+
 function readFixture<T = Record<string, unknown>>(file: string, folder = "de1pro-v0.8.7"): T {
   return JSON.parse(fs.readFileSync(path.join(fixturesDir, folder, file), "utf8"));
 }
@@ -218,12 +236,11 @@ function machineNotConnected(): Refusal {
   return new Refusal(500, readFixture("machine-not-connected.json", "simulated-devices-v0.8.7"));
 }
 
-/** Routes Decaid answers with ETags (jsonOkConditional in json_response.dart), and the query that includes archived or hidden records. */
+/** Routes Decaid answers with ETags (jsonOkConditional in json_response.dart), and the query that includes archived records, but for the profiles (decaid-profiles.ts). */
 const LIBRARY_LISTS: Readonly<Record<string, { include: string; hidden(record: Record<string, unknown>): boolean }>> = {
   "/beans": { include: "includeArchived", hidden: (record) => record.archived === true },
   "/bean-batches": { include: "includeArchived", hidden: (record) => record.archived === true },
   "/grinders": { include: "includeArchived", hidden: (record) => record.archived === true },
-  "/profiles": { include: "includeHidden", hidden: (record) => record.visibility !== "visible" },
 };
 
 /** The test tablet's Workflow: what `GET /workflow` answers and `workflowUpdated` carries. */
@@ -756,6 +773,12 @@ export class SimulatedTablet {
     return structuredClone((this.api["/bean-batches"] as Record<string, unknown>[] | undefined) ?? []);
   }
 
+  /** The tablet's profiles, hidden and deleted ones included, as `GET /profiles?includeHidden=true` lists them: the most recently updated first. */
+  profiles(): Record<string, unknown>[] {
+    const profiles = this.api["/profiles"];
+    return Array.isArray(profiles) ? (listProfiles(structuredClone(profiles as Record<string, unknown>[]), new URLSearchParams("includeHidden=true")).body as Record<string, unknown>[]) : [];
+  }
+
   /**
    * Calls Decaid's API as something else on the tablet does, such as a
    * barista adding a bean in Decaid or another plugin: the plugin is not
@@ -788,6 +811,33 @@ export class SimulatedTablet {
   /** Changes the tablet's batch with that id in Decaid, as a barista does, and resolves with the record Decaid returned. */
   async editBatch(id: unknown, fields: Record<string, unknown>): Promise<Record<string, unknown>> {
     const { status, body } = await this.callApi("PUT", `/bean-batches/${encodeURIComponent(String(id))}`, fields);
+    if (status !== 200) throw new Error(`Decaid refused the change with ${status}: ${JSON.stringify(body)}`);
+    return body as Record<string, unknown>;
+  }
+
+  /**
+   * Saves a profile in Decaid, as a barista does in Streamline: with the
+   * Profile it was made from as its parent, if given, which is then hidden,
+   * as Streamline hides the Profile it saved a new one from. Resolves with the
+   * record Decaid made, or held already.
+   */
+  async addProfile(profile: Record<string, unknown>, options: { parentId?: unknown } = {}): Promise<Record<string, unknown>> {
+    const { status, body } = await this.callApi("POST", "/profiles", { profile, ...(options.parentId === undefined ? {} : { parentId: options.parentId }) });
+    if (status !== 201) throw new Error(`Decaid refused the profile with ${status}: ${JSON.stringify(body)}`);
+    if (options.parentId !== undefined) await this.setProfileVisibility(options.parentId, "hidden");
+    return body as Record<string, unknown>;
+  }
+
+  /** Shows, hides or deletes the tablet's profile with that id in Decaid, as a barista does, and resolves with the record Decaid returned. */
+  async setProfileVisibility(id: unknown, visibility: "visible" | "hidden" | "deleted"): Promise<Record<string, unknown>> {
+    const { status, body } = await this.callApi("PUT", `/profiles/${encodeURIComponent(String(id))}/visibility`, { visibility });
+    if (status !== 200) throw new Error(`Decaid refused the visibility with ${status}: ${JSON.stringify(body)}`);
+    return body as Record<string, unknown>;
+  }
+
+  /** Changes the tablet's profile with that id in Decaid, as `PUT /profiles/{id}` does, and resolves with the record Decaid returned, under a new id if its steps changed. */
+  async editProfile(id: unknown, profile: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { status, body } = await this.callApi("PUT", `/profiles/${encodeURIComponent(String(id))}`, { profile });
     if (status !== 200) throw new Error(`Decaid refused the change with ${status}: ${JSON.stringify(body)}`);
     return body as Record<string, unknown>;
   }
@@ -833,14 +883,16 @@ export class SimulatedTablet {
   /** What Decaid's API answers a request, as its plugin fetch gives it. */
   private async answer(url: string, method: string, headers: Record<string, string>, requestBody: unknown): Promise<unknown> {
     const route = url.slice(`${API_ORIGIN}/api/v1`.length).split("?")[0]!;
-    const written = this.writeLibrary(method, route, new URL(url).searchParams, requestBody);
-    if (written) return written.etag ? conditional(JSON.stringify(written.body), headers) : response(written.status, JSON.stringify(written.body));
-    if (method !== "GET") throw new Error(`The simulated tablet's API carries out no ${method} ${route}`);
-    const failures = this.apiFailures.get(route) ?? 0;
+    const failures = method === "GET" ? (this.apiFailures.get(route) ?? 0) : 0;
     if (failures > 0) {
       this.apiFailures.set(route, failures - 1);
       return response(503, JSON.stringify({ error: "Local API temporarily unavailable" }));
     }
+    const written = this.writeLibrary(method, route, new URL(url).searchParams, requestBody);
+    if (written) {
+      return written.etag && written.status === 200 ? conditional(JSON.stringify(written.body), headers) : response(written.status, JSON.stringify(written.body));
+    }
+    if (method !== "GET") throw new Error(`The simulated tablet's API carries out no ${method} ${route}`);
     if (["/machine/info", "/machine/settings", "/machine/settings/advanced"].includes(route) && !this.machineConnected) {
       // de1handler.dart answers a DeviceNotConnectedException with a 500.
       const refusal = machineNotConnected();
@@ -901,6 +953,8 @@ export class SimulatedTablet {
    * other request.
    */
   private writeLibrary(method: string, route: string, query: URLSearchParams, body: unknown): (DecaidAnswer & { etag?: true }) | undefined {
+    const profiles = this.writeProfiles(method, route, query, body);
+    if (profiles) return profiles;
     const bean = /^\/beans\/([^/]+)$/.exec(route)?.[1];
     const ofBean = /^\/beans\/([^/]+)\/batches$/.exec(route)?.[1];
     const batch = /^\/bean-batches\/([^/]+)$/.exec(route)?.[1];
@@ -940,6 +994,37 @@ export class SimulatedTablet {
       if (method === "PUT") return keep(updateBatch(batches, id, json()));
       if (method === "DELETE") return keep(deleteBatch(batches, id));
     }
+    return undefined;
+  }
+
+  /**
+   * Carries out a write to the tablet's profiles as Decaid does, or reads
+   * them or one of them, and gives Decaid's answer, with `etag` for the list;
+   * undefined for any other request, and for a read of the list while the
+   * tablet serves no list of them, as when a test has it fail.
+   */
+  private writeProfiles(method: string, route: string, query: URLSearchParams, body: unknown): (DecaidAnswer & { etag?: true }) | undefined {
+    const [, , encoded, action, ...rest] = route.split("/");
+    if (!route.startsWith("/profiles") || rest.length > 0 || (action !== undefined && action !== "visibility" && action !== "purge")) return undefined;
+    const id = encoded === undefined ? undefined : decodeURIComponent(encoded);
+    const profiles = this.profiles();
+    const json = () => {
+      if (typeof body !== "string") throw new Error("The plugin sent a write without a JSON body");
+      return JSON.parse(body) as unknown;
+    };
+    const keep = (result: { answer: DecaidAnswer; profiles: Record<string, unknown>[] }) => {
+      this.api = { ...this.api, "/profiles": result.profiles };
+      return result.answer;
+    };
+    if (id === undefined) {
+      if (method === "GET") return Array.isArray(this.api["/profiles"]) ? { ...listProfiles(profiles, query), etag: true } : undefined;
+      return method === "POST" ? keep(createProfile(profiles, json())) : undefined;
+    }
+    if (action === "visibility") return method === "PUT" ? keep(setProfileVisibility(profiles, id, json())) : undefined;
+    if (action === "purge") return method === "DELETE" ? keep(purgeProfile(profiles, id)) : undefined;
+    if (method === "GET") return getProfile(profiles, id);
+    if (method === "PUT") return keep(updateProfile(profiles, id, json()));
+    if (method === "DELETE") return keep(deleteProfile(profiles, id));
     return undefined;
   }
 

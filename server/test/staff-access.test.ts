@@ -117,11 +117,13 @@ describe("Staff access", () => {
       await tablet.unload();
     }
     expect(((await read(api, `${lab1Path}/collections`))[1] as { collections: unknown[] }).collections.length).toBeGreaterThan(1);
-    // Lab 1 is at a Location, so the beans and bean batches its tablet reported joined the Library.
+    // Lab 1 is at a Location, so the beans, bean batches and profiles its tablet reported joined the Library.
     const libraryBeans = ((await read(api, "/beans"))[1] as { beans: { id: string }[] }).beans;
     expect(libraryBeans.length).toBeGreaterThan(0);
     const libraryBatches = ((await read(api, "/bean-batches"))[1] as { batches: { id: string }[] }).batches;
     expect(libraryBatches.length).toBeGreaterThan(0);
+    const libraryProfiles = ((await read(api, "/profiles"))[1] as { profiles: { id: string }[] }).profiles;
+    expect(libraryProfiles.length).toBeGreaterThan(0);
 
     expect(names(await staff.machines())).toEqual(["Belmont 1", "Lab 1", "Spare", "Uptown 1"]);
     const paths = [
@@ -131,6 +133,8 @@ describe("Staff access", () => {
       `/beans/${libraryBeans[0]!.id}`,
       "/bean-batches",
       `/bean-batches/${libraryBatches[0]!.id}`,
+      "/profiles",
+      `/profiles/${encodeURIComponent(libraryProfiles[0]!.id)}`,
       "/shots",
       `/shots?machineId=${uptown1.machine.id}`,
       `/shots?locationId=${uptown.id}&from=2026-03-15&to=2026-03-15&barista=Fixture%20Barista&profileTitle=Londonium`,

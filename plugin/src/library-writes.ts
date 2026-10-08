@@ -16,6 +16,8 @@ import type { Outbox } from "./outbox.js";
 // Decaid replaces a record's `extras` whole when it updates one, so the
 // plugin reads the record first and keeps the keys other plugins wrote there
 // beside the item's global id. Decaid assigns new records their ids itself.
+// A Profile keeps Decaid's id, which Decaid derives from what the machine
+// executes, so it is the same on every tablet, and carries no global id.
 
 interface Route {
   /** The kind's records, archived ones included. */
@@ -98,12 +100,57 @@ export class LibraryWrites {
 
 async function carryOut(write: LibraryWrite): Promise<WriteAnswer> {
   const route = Object.prototype.hasOwnProperty.call(ROUTES, write.kind) ? ROUTES[write.kind] : undefined;
-  if (!route) return refused(write, null, `This plugin cannot write a ${write.kind}`);
+  if (!route && write.kind !== "profile") return refused(write, null, `This plugin cannot write a ${write.kind}`);
   try {
+    if (!route) return await writeProfile(write);
     return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId));
   } catch (error) {
     return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+/**
+ * Writes a Profile. To create one, it first reads the tablet's profiles,
+ * hidden and deleted ones included. Unless the tablet holds the Profile
+ * already, as when an earlier write's answer was lost, it posts the profile
+ * with its metadata, and with its parent if the tablet holds that, since
+ * Decaid refuses a parent it lacks. Decaid derives the record's id from the
+ * profile, and answers a post of one it holds with that record, unchanged.
+ * Either way, it then sets the record's visibility where it differs, as an
+ * update of a Profile does alone. Should that fail, the record as it was is
+ * the answer, and the server asks for the visibility again. A record Decaid
+ * made under another id, as a Decaid hashing profiles otherwise would, is
+ * the answer as made: it is not the Profile, and the server records nothing.
+ */
+async function writeProfile(write: LibraryWrite): Promise<WriteAnswer> {
+  const visibility = write.fields.visibility;
+  if (write.localId !== null) return answerTo(write, await setVisibility(write.localId, visibility));
+  const listed = await request("GET", "/profiles?includeHidden=true");
+  if (!listed.ok) return refused(write, listed.status, listed.text);
+  const parsedList = parsed(listed.text);
+  const records = Array.isArray(parsedList) ? parsedList.filter(isObject) : [];
+  let record = records.find((candidate) => candidate.id === write.globalId);
+  if (!record) {
+    const { parentId, metadata } = write.fields;
+    const body = {
+      profile: write.fields.profile,
+      ...(typeof parentId === "string" && records.some((candidate) => candidate.id === parentId) ? { parentId } : {}),
+      ...(isObject(metadata) ? { metadata } : {}),
+    };
+    const made = await request("POST", "/profiles", body);
+    const created = made.ok ? parsed(made.text) : undefined;
+    if (!isObject(created) || typeof created.id !== "string") return refused(write, made.status, made.text);
+    record = created;
+  }
+  if (record.id !== write.globalId || typeof visibility !== "string" || record.visibility === visibility) return written(write, record);
+  const again = await setVisibility(write.globalId, visibility).catch(() => undefined);
+  const updated = again?.ok ? parsed(again.text) : undefined;
+  return written(write, isObject(updated) && updated.id === write.globalId ? updated : record);
+}
+
+/** Shows or hides a Profile on the tablet, as Decaid's `PUT /profiles/{id}/visibility` does. */
+function setVisibility(id: string, visibility: unknown): Promise<Answer> {
+  return request("PUT", `/profiles/${encodeURIComponent(id)}/visibility`, { visibility });
 }
 
 /**

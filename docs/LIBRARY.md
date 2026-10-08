@@ -6,16 +6,18 @@ with Beans: a Bean entered on a tablet joins the Library and is written to the
 other tablets at that tablet's Location. Ticket
 [#81](https://github.com/loganfuller/decent-sync/issues/81) adds Bean Batches,
 each at the Locations it was added to and not yet finished at, with its
-remaining weight at each, and offers each Bean where its batches are. It
-follows ADR-0003, ADR-0006, ADR-0008, ADR-0016, ADR-0018 and ADR-0019.
-Grinders, Profiles, edits, joining a Location and the management interface's
-changes build on it in later tickets (Not yet, below).
+remaining weight at each, and offers each Bean where its batches are. Ticket
+[#82](https://github.com/loganfuller/decent-sync/issues/82) adds Profiles,
+each shown or hidden at each Location. It follows ADR-0003, ADR-0006,
+ADR-0008, ADR-0016, ADR-0018 and ADR-0019. Grinders, edits, joining a
+Location and the management interface's changes build on it in later tickets
+(Not yet, below).
 
 ## Who takes part
 
 A Machine takes part while it is at a Location: the Location of the latest
 entry of its Location History. A Machine with no Location is capture-only: its
-tablet's beans and bean batches are captured as collections
+tablet's beans, bean batches and profiles are captured as collections
 (`COLLECTIONS.md`), but not taken into the Library, and nothing is written to
 it. A mismatched connection, whose tablet is not its token's Machine's, takes
 no part either, and neither does a Pending Machine (ADR-0004). Unidentified
@@ -31,14 +33,19 @@ A tablet holds only what its Machine's Location offers (ADR-0008):
 - a **Bean** while one of its batches is there, and, while none of its
   batches is there yet, where a tablet created it, linked a bean of its own
   to it, or un-archived its record (its origins, below), unless it is
-  Archived.
+  Archived;
+- a **Profile** while it is shown there, unless it is Archived. A Profile is
+  shown only where a tablet created it, or held it visible when nothing had
+  decided it there yet, until it is hidden there or shown elsewhere; Decaid's
+  bundled Profiles too (Taking in a tablet's profiles, below).
 
 So a Bean with batches is offered only where they are: once its last batch
 at a Location is finished, it is no longer offered there. Archived items,
 which only the management interface will Archive (ticket #87), are offered
 nowhere. What the Location offers is written to each of its tablets, with each
-batch's remaining weight there, and what it does not offer is archived on
-them, never deleted, so their Shots still find it (Writing to tablets, below).
+batch's remaining weight there and each Profile visible, and what it does not
+offer is archived or hidden on them, never deleted, so their Shots still find
+it (Writing to tablets, below).
 
 ## Storage
 
@@ -72,11 +79,22 @@ them, never deleted, so their Shots still find it (Writing to tablets, below).
   record's `updatedAt` in UTC; a delete, which Decaid does not time, by
   PostgreSQL's clock, but never earlier than the record the tablet was last
   known to have.
-- `tablet_beans` and `tablet_bean_batches`: the map, per tablet id (ticket
-  #79): each item's local id on that tablet and the record as the tablet last
-  had it, as it reported it or as Decaid returned the plugin's write, with
-  that record's `updatedAt` placed in UTC by the plugin. A reset tablet has a
-  new tablet id, so it starts with nothing here.
+- `profiles`: each Profile, by Decaid's id (ADR-0006), with its content,
+  Decaid's record fields as the tablet that created it sent them, but its id,
+  times and `visibility`, which are that record's or each Location's. Also
+  whether it is one of Decaid's bundled Profiles (`isDefault`), whether it is
+  Archived, the Location of the tablet that created it, and when it joined
+  the Library.
+- `profile_locations`: whether each Profile is shown at a Location, a field of
+  its own (ADR-0020), with the time of the edit that set it, never earlier
+  than the one before. A Location with no row for a Profile has decided
+  nothing of it, and does not show it.
+- `tablet_beans`, `tablet_bean_batches` and `tablet_profiles`: the map, per
+  tablet id (ticket #79): each item's local id on that tablet, which is a
+  Profile's own, and the record as the tablet last had it, as it reported it
+  or as Decaid returned the plugin's write, with that record's `updatedAt`
+  placed in UTC by the plugin. A reset tablet has a new tablet id, so it
+  starts with nothing here.
 
 ## Taking in a tablet's beans
 
@@ -181,6 +199,53 @@ beans, and taken in the same way, under the same locks (`takeInBatches` in
   held it there, not archived, it is finished there, and the map holds the
   record no more.
 
+## Taking in a tablet's profiles
+
+A Profile keeps Decaid's id, `profile:` and the start of a hash of what the
+machine executes (its steps, targets and tank temperature, not its title,
+author or notes), so a record's id is its Profile's on every tablet, and its
+records carry no global id (ADR-0006). An identical Profile created on two
+tablets is one Profile, and changing a Profile's steps makes a new one:
+Decaid's `PUT /profiles/{id}` with new steps replaces the record under the
+new id, and Streamline saves the changed profile as a new record, with the old
+one as its parent, and hides the old one.
+
+The plugin reports its profiles, hidden and deleted ones included, as the
+`profiles` collection, and they are taken in as beans are, under the same
+locks (`takeInProfiles` in `profiles.ts`, planned by the pure
+`planProfileIntake` in `profile-intake.ts`); a report with profiles new to the
+tablet's map takes one advisory lock, so two tablets reporting the same new
+Profile at once make one. On a tablet, a Profile's `visibility` says whether it
+is shown at the tablet's Location: `visible`, or `hidden` or `deleted`, which
+Decaid's delete marks a user's Profile with, and hides a bundled one.
+
+- A record without what every supported Decaid sends (its id, its `profile`,
+  its `visibility` and an `updatedAt` the plugin could place) is ignored.
+- A record the map holds replaces the one known when it is newer, or as old
+  but of another visibility. Made visible since, the Profile is shown at the
+  tablet's Location; hidden or deleted since, it is hidden there (ADR-0019).
+  Only a Profile the tablet held can be hidden this way.
+- Any other record is one the map does not hold yet: the tablet created it,
+  held it before its Machine was at the Location, or was written it by a
+  write whose answer was lost. If the Library has its id, it is that Profile;
+  otherwise it joins the Library, created at the tablet's Location. Where the
+  Location has decided nothing of the Profile yet, the record's visibility
+  decides it, so a Profile new to the Library is shown where it was created
+  only, and an identical Profile created at two Locations is shown at both.
+  Otherwise the Location's state stands, and is written to the tablet: a new
+  tablet's bundled Profiles do not show those its Location hid. Decaid's
+  bundled Profiles join the Library this way like any other, so whether each
+  is shown is per Location.
+- A record the map holds whose id the list no longer holds, as when Decaid
+  replaced it or a purge removed it, is gone: if the tablet held it visible,
+  it is hidden at its Location, and the map holds it no more. A new or reset
+  tablet's map holds nothing, so it hides nothing.
+
+So hiding, deleting or replacing a Profile on a tablet hides it at that
+tablet's Location only, and a Profile whose steps changed is a new Profile,
+shown where it was changed only, while the old one is hidden there and still
+shown wherever else it was.
+
 ## Writing to tablets
 
 Each welcomed connection that is not mismatched has a writer
@@ -199,19 +264,25 @@ planning the writes with the pure `plannedWrites` (`holdings.ts`), in order:
    Location's, where one was entered there, set to it; then each batch the
    tablet holds that the Location does not offer, archived.
 3. Each Bean the tablet holds that the Location does not offer, archived.
+4. Each Profile the Location shows that the tablet lacks, created, unless it
+   is one of Decaid's bundled Profiles, which a tablet has already or lacks
+   for its Decaid's version; or that it holds hidden or deleted, made visible.
+   Then each Profile the tablet holds visible that the Location does not
+   show, hidden, never deleted.
 
 Beans are written before their batches, and batches are archived before
 their Beans. Within each, items that joined the Library first are written
 first. Every update sets only the fields that differ, and writes the global
-id with them to a record that lost it. Nothing is ever deleted from a tablet.
+id with them to a record that lost it; a Profile's record carries none.
+Nothing is ever deleted from a tablet.
 
-It writes nothing until that connection's reports of the tablet's beans and
-bean batches, which the plugin sends on every welcome, have been taken in, nor
-between a report of its beans and the report of its batches the plugin sends
-after it, so a change the tablet made to both, such as deleting a bean with
-its batches, is taken in whole first. It then writes only while the
-connection still holds the Machine and the Machine is at the Location both
-latest reports were taken in at. So a bean the tablet holds
+It writes nothing until that connection's reports of the tablet's beans, bean
+batches and profiles, which the plugin sends on every welcome, have been taken
+in, nor between a report of its beans and the report of its batches the plugin
+sends after it, so a change the tablet made to both, such as deleting a bean
+with its batches, is taken in whole first. It then writes only while the
+connection still holds the Machine and the Machine is at the Location the
+latest reports were all taken in at. So a bean the tablet holds
 already, entered there or before it joined, is linked to the Library's Bean
 before anything is written, rather than written to it again. A tablet that
 was offline catches up once its reports on reconnecting are taken in. The
@@ -266,8 +337,8 @@ then, so nothing in its record is taken as a change the tablet made.
 
 The plugin (`plugin/src/library-writes.ts`) carries writes out through
 Decaid's API, one at a time, between its reads of the lists it writes to (the
-beans and bean batches), never during one (`LibraryAccess`), and queues each
-answer in its outbox, behind
+beans, bean batches and profiles), never during one (`LibraryAccess`), and
+queues each answer in its outbox, behind
 every report read before the write. So the server takes in each report read
 before a write before that write's answer, and never reads a record the
 plugin wrote as deleted from a report that predates it. A read of the list
@@ -297,6 +368,20 @@ tablet's list of batches to show it does not.
   or `PUT /bean-batches/{id}`) with the fields the server sent and `extras`
   holding its other keys beside the global id, since Decaid replaces `extras`
   whole.
+
+- To create a Profile, it reads the tablet's profiles, hidden and deleted ones
+  included. Unless the tablet holds one with the Profile's id already, as
+  when the answer to an earlier write was lost, it posts the profile
+  (`POST /profiles`) with its metadata, and with its parent if the tablet
+  holds that Profile, since Decaid refuses a parent it lacks. Decaid derives
+  the record's id from the profile, and answers a post of a profile it holds,
+  hidden or deleted as it may be, with that record, unchanged. So the plugin
+  then sets the record's visibility where it differs (`PUT
+  /profiles/{id}/visibility`); should that fail, it answers with the record as
+  it was, and the server writes the visibility again. A record Decaid made
+  under another id, as a Decaid hashing profiles otherwise would, is not the
+  Profile: the server records nothing, and skips it for the connection.
+- To show or hide a Profile, it sets the record's visibility alone.
 
 The plugin's next report then holds the record as written, which changes
 nothing (ADR-0003). If the connection drops before the answer arrives, the
@@ -331,17 +416,30 @@ Every endpoint requires the account session; Staff read them as Admins do.
 - `GET /api/bean-batches/:id` returns `{ batch }`, the same with its
   `content` and `finished`, the Locations it was at and has been finished at
   since, each `{ location, remainingWeight, finishedAt }`; or 404.
+- `GET /api/profiles` returns `{ profiles }`, each `{ id, title, author,
+  beverageType, bundled, archived, shownAt, createdAt, createdLocation }`, by
+  title, ignoring case. `id` is Decaid's, such as
+  `profile:bf1ca48b9c7389c7d146`; `title`, `author` and `beverageType` are its
+  content's. `shownAt` lists the Locations showing it, by name, each `{
+  location, since }`, since it was last shown there; none while it is
+  Archived.
+- `GET /api/profiles/:id` returns `{ profile }`, the same with its `content`
+  and `parent`, `{ id, title }` of the Profile it was saved from if the
+  Library has it, or null; or 404. The id goes in the path as it is or
+  percent-encoded.
 
 The management interface's Library section lists the Beans and where each is
-offered, and the Bean Batches, the Locations each is at and its remaining
-weight at each. Each Bean's page shows its content, where it is offered, its
-batches and its likely duplicates, and each batch's page its roast, the
-Locations it is at with its remaining weight at each, and where it was
-finished.
+offered, the Bean Batches, the Locations each is at and its remaining weight
+at each, and the Profiles and where each is shown. Each Bean's page shows its
+content, where it is offered, its batches and its likely duplicates, each
+batch's page its roast, the Locations it is at with its remaining weight at
+each, and where it was finished, and each Profile's page where it is shown,
+its steps and the Profile it was saved from.
 
 ## Not yet
 
-- Edits, merged per field with Conflicts (ADR-0020): ticket #84. Until then a
+- Edits, merged per field with Conflicts (ADR-0020), Profiles' titles,
+  authors and notes included: ticket #84. Until then a
   record's content stays as the tablet that created or linked it sent it, and
   only per-Location state is taken from tablets: a linked bean keeps its own
   content, and only its global id is written; linking will then write the
@@ -349,7 +447,8 @@ finished.
   (ADR-0018). Two remaining weights entered without seeing each other keep
   the later; the other will be kept as a Conflict.
 - Archive, restore, creating and editing items, and adding and finishing
-  batches at Locations in the management interface: ticket #87.
+  batches at Locations in the management interface: ticket #87; showing and
+  hiding Profiles at Locations there, and Archiving them: ticket #88.
 - Joining a Location, including what a moved Machine brings and clearing its
   Workflow's batch: ticket #89. Until then a moved Machine's tablet is written
   its new Location's items once its fresh reports are taken in there, and has
@@ -361,13 +460,15 @@ finished.
   Machine's sharing status: ticket #91.
 - Linking Shots to the Library's batches: ticket #92.
 
-`server/test/library-beans.test.ts` and `server/test/library-batches.test.ts`
-cover this through Seam 1, with the built plugin and raw frames on two
-instances sharing PostgreSQL; `server/test/bean-intake.test.ts`,
-`server/test/batch-intake.test.ts` and `server/test/holdings.test.ts` the pure
-modules; `server/test/simulated-bean-writes.test.ts` and
-`server/test/simulated-batch-writes.test.ts` the simulated tablet's writes
+`server/test/library-beans.test.ts`, `server/test/library-batches.test.ts`
+and `server/test/library-profiles.test.ts` cover this through Seam 1, with the
+built plugin and raw frames on two instances sharing PostgreSQL;
+`server/test/bean-intake.test.ts`, `server/test/batch-intake.test.ts`,
+`server/test/profile-intake.test.ts` and `server/test/holdings.test.ts` the
+pure modules; `server/test/simulated-bean-writes.test.ts`,
+`server/test/simulated-batch-writes.test.ts` and
+`server/test/simulated-profile-writes.test.ts` the simulated tablet's writes
 against those recorded on Decaid's Linux release
-(`server/test/fixtures/decaid/bean-writes-v0.8.7/` and
-`bean-batch-writes-v0.8.7/`); and `e2e/library.spec.ts` the management
-interface.
+(`server/test/fixtures/decaid/bean-writes-v0.8.7/`,
+`bean-batch-writes-v0.8.7/` and `profile-writes-v0.8.7/`); and
+`e2e/library.spec.ts` the management interface.

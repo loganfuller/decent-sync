@@ -4,10 +4,11 @@ import { weightOf } from "./batch-intake.js";
 
 // What a tablet should hold for its Location (ADR-0008), and the writes that
 // bring it there. A tablet holds only what its Location offers: each Bean
-// and Bean Batch offered there, not archived, and each batch with the
-// remaining weight entered there. What it holds that the Location does not
-// offer is archived on it, never deleted, so its Shots still find it. Pure,
-// so module tests can drive it; tablet-due.ts reads what it needs.
+// and Bean Batch offered there, not archived, each batch with the remaining
+// weight entered there, and each Profile shown there, visible. What it holds
+// that the Location does not offer is archived or hidden on it, never
+// deleted, so its Shots still find it. Pure, so module tests can drive it;
+// tablet-due.ts reads what it needs.
 
 /** A Bean a Location offers, with its content. */
 export interface OfferedBean {
@@ -26,11 +27,23 @@ export interface LocationBatch {
   remainingWeight: number | null | undefined;
 }
 
+/** A Profile a Location shows (ADR-0008). */
+export interface ShownProfile {
+  /** Decaid's id, the same on every tablet. */
+  id: string;
+  /** One of Decaid's bundled Profiles, which a tablet has already or lacks for its Decaid's version: never written. */
+  bundled: boolean;
+  /** Its content, to create its record with; null where the tablet holds it already. */
+  content: Record<string, unknown> | null;
+}
+
 /** What a Location offers, and its state of each batch the tablet holds. Each list is in the order to write it: oldest first. */
 export interface LocationOffer {
   beans: readonly OfferedBean[];
   /** The batches it offers, then the other batches the tablet holds. */
   batches: readonly LocationBatch[];
+  /** The Profiles it shows. */
+  profiles: readonly ShownProfile[];
 }
 
 /** A Library item's record on the tablet, as its map holds it. */
@@ -40,10 +53,11 @@ export interface HeldRecord {
   record: Record<string, unknown>;
 }
 
-/** What the tablet holds, by its map. */
+/** What the tablet holds, by its map. A Profile's local id is its id. */
 export interface TabletHoldings {
   beans: readonly HeldRecord[];
   batches: readonly HeldRecord[];
+  profiles: readonly HeldRecord[];
 }
 
 /** A write that brings the tablet closer to what its Location offers. */
@@ -68,10 +82,14 @@ export function writeKey(kind: LibraryKind, globalId: string): string {
  * global id or with another remaining weight than the Location's; then
  * each batch the tablet holds that the Location does not offer, archived,
  * and each Bean the same way. Beans so come before their batches, and
- * batches are archived before their Beans. Items in `skipped`
+ * batches are archived before their Beans. Last, each Profile the Location
+ * shows that the tablet lacks, created, unless it is one of Decaid's bundled
+ * Profiles, or holds hidden or deleted, made visible; then each the tablet
+ * holds visible that the Location does not show, hidden. Items in `skipped`
  * (`writeKey`) are left out, and so is a batch whose Bean the tablet holds
  * no record of yet: its Bean is written first. Every update sets only the
- * fields that differ, writing the global id beside them.
+ * fields that differ, writing the global id beside them; a Profile's records
+ * carry none.
  */
 export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skipped: ReadonlySet<string> = new Set()): PlannedWrite[] {
   const beans = new Map(held.beans.map((record) => [record.itemId, record]));
@@ -105,7 +123,28 @@ export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skippe
   for (const record of held.beans) {
     if (!offeredBeans.has(record.itemId)) pushUpdate(writes, "bean", record.itemId, record, record.record.archived === true ? {} : { archived: true });
   }
+  const profiles = new Map(held.profiles.map((record) => [record.itemId, record]));
+  const shownProfiles = new Set(offer.profiles.map((profile) => profile.id));
+  for (const profile of offer.profiles) {
+    const record = profiles.get(profile.id);
+    if (record) {
+      if (record.record.visibility !== "visible") writes.push({ kind: "profile", globalId: profile.id, localId: record.localId, fields: { visibility: "visible" } });
+    } else if (!profile.bundled && profile.content !== null) {
+      writes.push({ kind: "profile", globalId: profile.id, localId: null, fields: { ...profileToCreate(profile.content), visibility: "visible" } });
+    }
+  }
+  for (const record of held.profiles) {
+    // One hidden or deleted on the tablet is not shown there already.
+    if (!shownProfiles.has(record.itemId) && record.record.visibility === "visible") {
+      writes.push({ kind: "profile", globalId: record.itemId, localId: record.localId, fields: { visibility: "hidden" } });
+    }
+  }
   return writes.filter((write) => !skipped.has(writeKey(write.kind, write.globalId)));
+}
+
+/** What Decaid's `POST /profiles` takes to create a Profile's record, from its content: the profile, its parent and its metadata. */
+function profileToCreate(content: Record<string, unknown>): Record<string, unknown> {
+  return { profile: content.profile, parentId: content.parentId ?? null, metadata: content.metadata ?? null };
 }
 
 /** Adds an update of the tablet's record, if it lacks its global id or any of `fields`. */

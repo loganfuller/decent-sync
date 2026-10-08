@@ -26,6 +26,7 @@ import {
   decodePluginMessage,
   encode,
   frames,
+  isLibraryKind,
 } from "@decent-sync/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { CollectionsService } from "../collections/collections.service.js";
@@ -33,6 +34,7 @@ import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { recordBatchWritten } from "../library/bean-batches.js";
 import { recordBeanWritten } from "../library/beans.js";
+import { recordProfileWritten } from "../library/profiles.js";
 import { MachineEventsService } from "../machine-events/machine-events.service.js";
 import { type LiveConnection, LiveConnections } from "../machines/connections.js";
 import { MachinesService, type Refusal } from "../machines/machines.service.js";
@@ -46,14 +48,14 @@ import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { hashSecret } from "../secrets.js";
 import { HandledDeliveries, type IndexRequest } from "./handled-deliveries.js";
 import type { Hardware, Identity, Reporter } from "./identity.js";
-import { TabletWriter } from "./tablet-writer.js";
+import { KIND_NAMES, TabletWriter } from "./tablet-writer.js";
 
 /**
  * What a write the connection no longer awaits may have set, as far as the
  * Library goes: every field a report would take as a change the tablet made
  * at its Location.
  */
-const UNKNOWN_WRITE: Readonly<Record<string, unknown>> = { archived: undefined, weightRemaining: undefined };
+const UNKNOWN_WRITE: Readonly<Record<string, unknown>> = { archived: undefined, weightRemaining: undefined, visibility: undefined };
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
 const MAX_PAYLOAD_BYTES = 1 << 20;
@@ -134,11 +136,11 @@ interface Session {
  * Record no supported Decaid sends is acknowledged and ignored, and logged
  * by its id with what it lacks.
  *
- * Once its reports of the tablet's beans and bean batches are taken in, a
- * connection that is not mismatched writes the Library its Machine's
- * Location offers to its tablet (`TabletWriter`), one write at a time, each
- * answered by the plugin, which the server acknowledges once it has recorded
- * the answer. A write too large for one frame goes in chunks. When the
+ * Once its reports of the tablet's beans, bean batches and profiles are
+ * taken in, a connection that is not mismatched writes the Library its
+ * Machine's Location offers to its tablet (`TabletWriter`), one write at a
+ * time, each answered by the plugin, which the server acknowledges once it
+ * has recorded the answer. A write too large for one frame goes in chunks. When the
  * Machine's Location changes, the writer asks the plugin for its
  * collections afresh.
  *
@@ -467,7 +469,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     } else if (write) {
       // The write it answers names the item, whatever the answer says: its record must carry that item's global id.
       if (await this.recordAnswer(session, write.kind, write.globalId, write.fields, answer, true)) outcome = "written";
-    } else if (session.writer && (answer.kind === "bean" || answer.kind === "beanBatch")) {
+    } else if (session.writer && isLibraryKind(answer.kind)) {
       await this.recordAnswer(session, answer.kind, answer.globalId, UNKNOWN_WRITE, answer, false);
     }
     this.acknowledge(session, answer.id, null);
@@ -487,11 +489,14 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     answer: ItemWritten,
     awaited: boolean,
   ): Promise<boolean> {
-    const name = kind === "bean" ? "Bean" : "Bean Batch";
-    const record = kind === "bean" ? recordBeanWritten : recordBatchWritten;
+    const name = isLibraryKind(kind) ? KIND_NAMES[kind] : kind;
     try {
       const tablet = { machineId: session.machine!.id, tabletId: session.live!.tabletId };
-      if (await record(this.prisma, tablet, globalId, written, answer.record, answer.updatedAt)) return true;
+      const recorded =
+        kind === "profile"
+          ? await recordProfileWritten(this.prisma, tablet, globalId, answer.record, answer.updatedAt)
+          : await (kind === "bean" ? recordBeanWritten : recordBatchWritten)(this.prisma, tablet, globalId, written, answer.record, answer.updatedAt);
+      if (recorded) return true;
       if (awaited) this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);
     } catch (error) {
       const failure = repeatingFailure(error);
@@ -552,7 +557,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     session.welcomed = true;
     this.resetIdleTimer(session);
     // A mismatched connection's tablet is not its token's Machine's, so nothing is written to it (ADR-0004). The
-    // writer starts once the connection's report of the tablet's beans, sent on every welcome, is taken in.
+    // writer starts once the connection's reports of the tablet's Library lists, sent on every welcome, are taken in.
     if (identity.kind !== "mismatch") {
       session.writer = new TabletWriter(
         { sessionId: session.id, machineId: machine.id, tabletId: live.tabletId },

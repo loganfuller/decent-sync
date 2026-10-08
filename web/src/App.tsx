@@ -10,6 +10,8 @@ import { InvitePage } from "@/pages/InvitePage";
 import { LocationsPage } from "@/pages/LocationsPage";
 import { MachinePage } from "@/pages/MachinePage";
 import { MachinesPage } from "@/pages/MachinesPage";
+import { ProfilePage } from "@/pages/ProfilePage";
+import { ProfilesPage } from "@/pages/ProfilesPage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { SetupPage } from "@/pages/SetupPage";
 import { HomePage, Shell } from "@/pages/Shell";
@@ -45,6 +47,8 @@ export function App() {
             <Route path="/library/beans/:id" element={<BeanPage />} />
             <Route path="/library/bean-batches" element={<BeanBatchesPage />} />
             <Route path="/library/bean-batches/:id" element={<BeanBatchPage />} />
+            <Route path="/library/profiles" element={<ProfilesPage />} />
+            <Route path="/library/profiles/:id" element={<ProfilePage />} />
             <Route path="/locations" element={<LocationsPage />} />
             <Route path="/machines" element={<MachinesPage />} />
             <Route path="/machines/:id" element={<MachinePage />} />

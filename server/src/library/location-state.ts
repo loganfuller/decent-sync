@@ -1,11 +1,13 @@
 import type { Prisma } from "../generated/prisma/client.js";
 
-// Each Location's state of the Library's Beans and Bean Batches (ADR-0008):
-// whether a batch is at the Location and its remaining weight there
-// (`batch_locations`), and the Locations offering a Bean that has no batch
-// there yet (`bean_origins`). A Location offers a Bean while one of its
-// batches is there, or while it has an origin there, and offers a batch
-// while it is there; nothing Archived is offered anywhere.
+// Each Location's state of the Library's Beans, Bean Batches and Profiles
+// (ADR-0008): whether a batch is at the Location and its remaining weight
+// there (`batch_locations`), the Locations offering a Bean that has no batch
+// there yet (`bean_origins`), and whether a Profile is shown there
+// (`profile_locations`). A Location offers a Bean while one of its batches
+// is there, or while it has an origin there, offers a batch while it is
+// there, and shows a Profile while it is shown there; nothing Archived is
+// offered or shown anywhere.
 //
 // A batch is never finished before it was added, nor added again before it
 // was finished, whatever the clock of the tablet that timed the edit.
@@ -139,6 +141,31 @@ export async function offeringLocations(db: Prisma.TransactionClient, beanIds: r
   const offering = new Map<string, string[]>();
   for (const row of rows) offering.set(row.beanId, [...(offering.get(row.beanId) ?? []), row.locationId]);
   return offering;
+}
+
+/**
+ * Shows or hides the Profile at the Location, as a tablet there showing,
+ * hiding, deleting or replacing it does, timed by the edit, though never
+ * before the change it replaces. Says whether that changed it.
+ */
+export async function showProfileAt(tx: Prisma.TransactionClient, profileId: string, locationId: string, shown: boolean, at: Date): Promise<boolean> {
+  const changed = await tx.$executeRaw`
+    INSERT INTO profile_locations (profile_id, location_id, shown, changed_at) VALUES (${profileId}, ${locationId}::uuid, ${shown}, ${at}::timestamptz)
+    ON CONFLICT (profile_id, location_id) DO UPDATE SET shown = EXCLUDED.shown, changed_at = GREATEST(EXCLUDED.changed_at, profile_locations.changed_at)
+      WHERE profile_locations.shown <> EXCLUDED.shown`;
+  return changed > 0;
+}
+
+/**
+ * Decides whether the Profile is shown at the Location where nothing has
+ * decided it there yet, as a tablet there that holds it but was not known
+ * to does, timed by its record. Says whether it did.
+ */
+export async function decideProfileAt(tx: Prisma.TransactionClient, profileId: string, locationId: string, shown: boolean, at: Date): Promise<boolean> {
+  const decided = await tx.$executeRaw`
+    INSERT INTO profile_locations (profile_id, location_id, shown, changed_at) VALUES (${profileId}, ${locationId}::uuid, ${shown}, ${at}::timestamptz)
+    ON CONFLICT (profile_id, location_id) DO NOTHING`;
+  return decided > 0;
 }
 
 /**

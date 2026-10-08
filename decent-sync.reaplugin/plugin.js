@@ -283,7 +283,7 @@ var __decentSync = (() => {
         return check(object3, "write", (fields) => {
           fields.id();
           fields.string("kind", { nonEmpty: true });
-          fields.uuid("globalId");
+          fields.itemId("globalId", object3.kind);
           if (object3.localId !== null) fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
           fields.objectField("fields");
         });
@@ -312,6 +312,12 @@ var __decentSync = (() => {
     /** A UUID, in either case, as a tablet id is. */
     uuid(key) {
       if (!isTabletId(this.object[key])) this.problem(key, "must be a UUID");
+    }
+    /** The id of a Library item of the kind given (`isItemId`): a Profile's id, or another kind's global id, a UUID. */
+    itemId(key, kind) {
+      if (kind === "profile" ? !isRecordId(this.object[key]) : !isGlobalId(this.object[key])) {
+        this.problem(key, kind === "profile" ? `must be a Profile's id of 1 to ${MAX_RECORD_ID_LENGTH} characters without NUL` : "must be a UUID");
+      }
     }
     optionalString(key, options = {}) {
       const value = this.object[key];
@@ -587,7 +593,7 @@ var __decentSync = (() => {
     { name: "scaleInfo", path: "/scale/info" },
     { name: "sensors", path: "/sensors" }
   ];
-  var WRITTEN_LISTS = /* @__PURE__ */ new Set(["beans", "beanBatches"]);
+  var WRITTEN_LISTS = /* @__PURE__ */ new Set(["beans", "beanBatches", "profiles"]);
   var CollectionCapture = class {
     constructor(outbox, library, pollMs) {
       __publicField(this, "outbox", outbox);
@@ -715,12 +721,41 @@ var __decentSync = (() => {
   };
   async function carryOut(write) {
     const route = Object.prototype.hasOwnProperty.call(ROUTES, write.kind) ? ROUTES[write.kind] : void 0;
-    if (!route) return refused(write, null, `This plugin cannot write a ${write.kind}`);
+    if (!route && write.kind !== "profile") return refused(write, null, `This plugin cannot write a ${write.kind}`);
     try {
+      if (!route) return await writeProfile(write);
       return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId));
     } catch (error) {
       return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+  async function writeProfile(write) {
+    const visibility = write.fields.visibility;
+    if (write.localId !== null) return answerTo(write, await setVisibility(write.localId, visibility));
+    const listed = await request("GET", "/profiles?includeHidden=true");
+    if (!listed.ok) return refused(write, listed.status, listed.text);
+    const parsedList = parsed(listed.text);
+    const records = Array.isArray(parsedList) ? parsedList.filter(isObject2) : [];
+    let record = records.find((candidate) => candidate.id === write.globalId);
+    if (!record) {
+      const { parentId, metadata } = write.fields;
+      const body = {
+        profile: write.fields.profile,
+        ...typeof parentId === "string" && records.some((candidate) => candidate.id === parentId) ? { parentId } : {},
+        ...isObject2(metadata) ? { metadata } : {}
+      };
+      const made = await request("POST", "/profiles", body);
+      const created = made.ok ? parsed(made.text) : void 0;
+      if (!isObject2(created) || typeof created.id !== "string") return refused(write, made.status, made.text);
+      record = created;
+    }
+    if (record.id !== write.globalId || typeof visibility !== "string" || record.visibility === visibility) return written(write, record);
+    const again = await setVisibility(write.globalId, visibility).catch(() => void 0);
+    const updated = again?.ok ? parsed(again.text) : void 0;
+    return written(write, isObject2(updated) && updated.id === write.globalId ? updated : record);
+  }
+  function setVisibility(id, visibility) {
+    return request("PUT", `/profiles/${encodeURIComponent(id)}/visibility`, { visibility });
   }
   async function create(route, write) {
     const listed = await request("GET", route.list);

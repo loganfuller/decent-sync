@@ -6,6 +6,7 @@ import {
   GLOBAL_ID_KEY,
   type Hello,
   type ItemWritten,
+  LIBRARY_KINDS,
   LIBRARY_LISTS,
   type LibraryWrite,
   MAX_HARDWARE_LENGTH,
@@ -22,6 +23,8 @@ import {
   globalIdOf,
   isCollectionName,
   isGlobalId,
+  isItemId,
+  isLibraryKind,
   isLibraryList,
   isRecordId,
 } from "@decent-sync/protocol";
@@ -487,6 +490,27 @@ describe("Library writes", () => {
       ok: false,
       problem: `writeRefused.error must be at most ${MAX_REFUSAL_LENGTH} characters`,
     });
+  });
+
+  it("names a Profile by Decaid's id, which is the same on every tablet, and every other kind by a global id", () => {
+    const profileId = "profile:bf1ca48b9c7389c7d146";
+    const profile: LibraryWrite = { type: "write", id: "write-2", kind: "profile", globalId: profileId, localId: profileId, fields: { visibility: "hidden" } };
+    expect(decodeServerMessage(frame(profile))).toEqual({ ok: true, message: profile });
+    expect(decodePluginMessage(frame({ ...written, kind: "profile", globalId: profileId, record: { id: profileId } }))).toMatchObject({ ok: true });
+    expect(decodePluginMessage(frame({ ...refused, kind: "profile", globalId: profileId }))).toMatchObject({ ok: true });
+    for (const globalId of ["", "p".repeat(MAX_RECORD_ID_LENGTH + 1), "profile:\u0000", 7]) {
+      expect(decodeServerMessage(frame({ ...profile, globalId }))).toMatchObject({
+        ok: false,
+        problem: `write.globalId must be a Profile's id of 1 to ${MAX_RECORD_ID_LENGTH} characters without NUL`,
+      });
+    }
+    // Another kind's is a global id, whatever a Profile's may be.
+    expect(decodeServerMessage(frame({ ...create, globalId: profileId }))).toMatchObject({ ok: false, problem: "write.globalId must be a UUID" });
+    expect(isItemId("profile", profileId)).toBe(true);
+    expect(isItemId("bean", profileId)).toBe(false);
+    expect(isItemId("beanBatch", globalId)).toBe(true);
+    expect(LIBRARY_KINDS.every(isLibraryKind)).toBe(true);
+    expect(isLibraryKind("grinder")).toBe(false);
   });
 
   it("finds the global id a record carries in its extras, in lower case", () => {
