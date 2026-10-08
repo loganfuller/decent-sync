@@ -236,7 +236,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     expect(heldBatch(steady, batch.id)).toMatchObject([{ archived: true }]);
   });
 
-  it("applies a lab tablet's adding back a batch a fast-clocked lab tablet finished, and its archiving a Bean whose batch that one added, once it was written them", async () => {
+  it("applies a lab tablet's adding back a batch a fast-clocked lab tablet finished, once it was written that", async () => {
     const location = await api.createLocation("Fast back lab", "America/Chicago");
     const first = await api.createMachine("Fast back 1", location.id);
     const second = await api.createMachine("Fast back 2", location.id);
@@ -252,19 +252,70 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     await steady.editBatch(held.id, { archived: false });
     await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([["Fast back lab", 250]]);
     await holds(() => heldBatch(fast, batch.id), { archived: false });
+  });
 
-    // A second batch the fast tablet adds goes with its Bean when the other tablet's barista archives the Bean.
-    const second_ = await fast.addBatch(record.beanId, { roastDate: "2026-10-02", roastLevel: "medium", weight: 250 });
-    await expect.poll(async () => (await batchesOf("Fast Back Natural")).length, { timeout: 10_000 }).toBe(2);
-    const secondBatch = (await batchesOf("Fast Back Natural")).find((candidate) => candidate.roastDate?.startsWith("2026-10-02"))!;
-    await holds(() => heldBatch(steady, secondBatch.id), { archived: false });
-    const bean = heldBean(steady, batch.bean.id)[0]!;
+  it("applies a lab tablet's archiving a Bean whose batch a fast-clocked lab tablet added back, once it was written the Bean after that", async () => {
+    const location = await api.createLocation("Fast Bean lab", "America/Chicago");
+    const first = await api.createMachine("Fast Bean 1", location.id);
+    const second = await api.createMachine("Fast Bean 2", location.id);
+    const fast = load(first, "16241", { decaidClockOffsetMs: 5 * 60_000 });
+    const steady = load(second, "16242", { instance: other });
+    await online(first, second);
+    const { record, batch } = await enterBatch(fast, "Fast Bean Natural");
+    await holds(() => heldBatch(steady, batch.id), { archived: false });
+
+    // The fast tablet finishes its only batch there, so the Bean stops being offered there, then adds it back:
+    // the other tablet is written the Bean again after that, then the batch.
+    await fast.editBatch(record.id, { archived: true });
+    await holds(() => heldBean(steady, batch.bean.id), { archived: true });
+    await fast.editBatch(record.id, { archived: false });
+    await holds(() => heldBatch(steady, batch.id), { archived: false });
+    const bean = await holds(() => heldBean(steady, batch.bean.id), { archived: false });
+
+    // Its barista archives the Bean: an edit made after seeing the batch added back, timed earlier.
     await steady.callApi("PUT", `/beans/${encodeURIComponent(String(bean.id))}`, { archived: true });
-    await expect.poll(() => whereAt(secondBatch.id), { timeout: 10_000 }).toEqual([]);
     await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([]);
-    expect(await offeredAt("Fast Back Natural")).toEqual([]);
-    await holds(() => heldBatch(fast, secondBatch.id), { archived: true });
-    expect(second_.id).not.toBe(record.id);
+    expect(await offeredAt("Fast Bean Natural")).toEqual([]);
+    await holds(() => heldBatch(fast, batch.id), { archived: true });
+  });
+
+  it("keeps a batch another lab tablet added back after a tablet archived its Bean, though that tablet was written the batch before reporting it", async () => {
+    const location = await api.createLocation("Late Bean lab", "America/Chicago");
+    const first = await api.createMachine("Late Bean 1", location.id);
+    const second = await api.createMachine("Late Bean 2", location.id);
+    const adding = load(first, "16251");
+    // It reads its library only when it connects, and is written what the lab offers meanwhile.
+    const archiving = load(second, "16252", { instance: other, pollSeconds: 3600 });
+    await online(first, second);
+    const { record: kept, batch: first_ } = await enterBatch(adding, "Late Bean Natural");
+    const added = await adding.addBatch(kept.beanId, { roastDate: "2026-10-02", roastLevel: "medium", weight: 250 });
+    await expect.poll(async () => (await batchesOf("Late Bean Natural")).length, { timeout: 10_000 }).toBe(2);
+    const second_ = (await batchesOf("Late Bean Natural")).find((candidate) => candidate.roastDate?.startsWith("2026-10-02"))!;
+    await adding.editBatch(added.id, { archived: true });
+    await holds(() => heldBatch(archiving, second_.id), { archived: true });
+    await holds(() => heldBatch(archiving, first_.id), { archived: false });
+
+    // Its barista archives the Bean; just after, the other tablet's adds the second batch back, which is written to it.
+    const bean = await holds(() => heldBean(archiving, first_.bean.id), { archived: false });
+    await archiving.callApi("PUT", `/beans/${encodeURIComponent(String(bean.id))}`, { archived: true });
+    const archivedBy = Date.now();
+    await expect.poll(() => Date.now()).toBeGreaterThan(archivedBy);
+    await adding.editBatch(added.id, { archived: false });
+    await expect.poll(() => whereAt(second_.id), { timeout: 10_000 }).toEqual([["Late Bean lab", 250]]);
+    await holds(() => heldBatch(archiving, second_.id), { archived: false });
+    const acked = (id: unknown) => (archiving.received as { type?: unknown; id?: unknown }[]).some((reply) => reply.type === "ack" && reply.id === id);
+    await expect
+      .poll(() => (archiving.sent as { type?: unknown; id?: unknown }[]).filter((frame) => frame.type === "written").every((frame) => acked(frame.id)), { timeout: 10_000 })
+      .toBe(true);
+
+    // Reconnecting, it reports the Bean archived: the earlier edit takes the first batch, not the one added back since (ADR-0020).
+    archiving.dropConnections();
+    await expect.poll(() => whereAt(first_.id), { timeout: 10_000 }).toEqual([]);
+    expect(await whereAt(second_.id)).toEqual([["Late Bean lab", 250]]);
+    expect(await offeredAt("Late Bean Natural")).toEqual(["Late Bean lab"]);
+    await holds(() => heldBean(archiving, first_.bean.id), { archived: false });
+    await holds(() => heldBatch(adding, first_.id), { archived: true });
+    expect(heldBatch(adding, second_.id)).toMatchObject([{ archived: false }]);
   });
 
   it("applies a lab tablet's adding back a batch it finished there after a fast-clocked lab tablet added it, though a weight written meanwhile was answered after", async () => {
@@ -312,6 +363,8 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([["Crossed lab", 200]]);
     await holds(() => heldBatch(fast, batch.id), { archived: false });
     expect(heldBatch(steady, batch.id)).toMatchObject([{ archived: false }]);
+    // All on one connection: an answer arriving after a reconnect would say nothing of what the tablet had seen.
+    expect(steady.sent.filter((frame) => (frame as { type?: unknown }).type === "hello")).toHaveLength(1);
   });
 
   it("archives a batch deleted on one tablet on the Location's other tablet, not deleting it there", async () => {
@@ -370,7 +423,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
   it("finishes a Bean's batches at the Location of the tablet that deletes it, and only there, where the Bean stops being offered", async () => {
     const { one, two, three, cafe, batch } = await atTwoLocations("Removed", 16041);
     const logged = [server.output().length, other.output().length] as const;
-    const bean = heldBean(one, batch.bean.id)[0]!;
+    const bean = await holds(() => heldBean(one, batch.bean.id), { archived: false });
     // As DYE2 deletes a bean: its batches first, since Decaid refuses to delete a bean that has any.
     await one.deleteBean(bean.id);
     expect(one.beans()).toEqual([]);
@@ -435,7 +488,8 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     const { one, two } = await lab("Shelved", 16051);
     const { batch } = await enterBatch(one, "Shelved Honey");
     await holds(() => heldBatch(two, batch.id), { archived: false });
-    const bean = heldBean(one, batch.bean.id)[0]!;
+    // Its own record carries the Bean's global id once the server has written it back.
+    const bean = await holds(() => heldBean(one, batch.bean.id), { archived: false });
     expect((await one.callApi("PUT", `/beans/${String(bean.id)}`, { archived: true })).status).toBe(200);
 
     await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([]);

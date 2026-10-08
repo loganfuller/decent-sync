@@ -13,14 +13,15 @@ import type { Prisma } from "../generated/prisma/client.js";
 // each a field of its own (ADR-0020), whose latest edit wins. Each decision
 // of one is stamped with PostgreSQL's clock (`decided_at`,
 // `presence_decided_at`). An edit made after its tablet saw the field's
-// current value applies: the tablet's record of the item had seen that
-// decision (`seenAt`, the latest its record has seen: one the server wrote
-// it after, or one its own edit made). Otherwise, as from a tablet that was
-// offline, it applies only if it is timed no earlier than the edit that set
-// the field, and else loses to it, and the Location's state is written back
-// to that tablet. Conflicts, which will keep the losing edit, come with
-// ticket #84. Each change says when it decided the field, or null if it did
-// not, so the tablet's record can be known to have seen that.
+// current value applies: the tablet's record of the item, or for taking a
+// Bean away its record of the Bean, had seen that decision (`seenAt`, the
+// latest it has seen: one the server wrote it after, or one its own edit
+// made). Otherwise, as from a tablet that was offline, it applies only if it
+// is timed no earlier than the edit that set the field, and else loses to it,
+// and the Location's state is written back to that tablet. Conflicts, which
+// will keep the losing edit, come with ticket #84. Each change says when it
+// decided the field, or null if it did not, so the tablet's record can be
+// known to have seen that.
 //
 // Every change to a Location's state runs under that Location's advisory
 // lock, taken after the reporting tablet's row lock, so origins are kept to
@@ -113,20 +114,30 @@ export async function enterRemainingWeight(
  * tablet there does (ADR-0019): ends its origin there, and finishes its
  * batches there, as a bean is deleted only with its batches (DYE2 deletes
  * them first, since Decaid refuses to delete a bean that has any). A batch
- * added there by an edit the tablet had not seen, as `finishBatchAt` judges
- * it from the tablet's record of that batch, and timed later, stays. Says
- * whether anything changed.
+ * added there by an edit the tablet had not seen, as of `seenAt`, the latest
+ * decision of its batches' presence there that the tablet's record of the
+ * Bean has seen, and timed later, stays. What its records of the batches
+ * have seen says nothing of when the Bean was archived. Says whether
+ * anything changed, and when it finished a batch there, or null if it did
+ * not.
  */
-export async function takeBeanFrom(tx: Prisma.TransactionClient, beanId: string, locationId: string, tabletId: string, at: Date): Promise<boolean> {
+export async function takeBeanFrom(
+  tx: Prisma.TransactionClient,
+  beanId: string,
+  locationId: string,
+  at: Date,
+  seenAt: Date | null,
+): Promise<{ changed: boolean; decidedAt: Date | null }> {
   const origins = await tx.$executeRaw`DELETE FROM bean_origins WHERE bean_id = ${beanId}::uuid AND location_id = ${locationId}::uuid`;
-  const finished = await tx.$executeRaw`
+  const finished = await tx.$queryRaw<{ decidedAt: Date }[]>`
     UPDATE batch_locations AS here SET finished_at = GREATEST(here.added_at, ${at}::timestamptz), presence_decided_at = clock_timestamp()
     FROM bean_batches AS batch
-    LEFT JOIN tablet_bean_batches AS held ON held.batch_id = batch.id AND held.tablet_id = ${tabletId}::uuid
     WHERE here.batch_id = batch.id AND batch.bean_id = ${beanId}::uuid AND here.location_id = ${locationId}::uuid
       AND here.added_at IS NOT NULL AND here.finished_at IS NULL
-      AND (here.added_at <= ${at}::timestamptz OR here.presence_decided_at <= held.seen_at)`;
-  return origins + finished > 0;
+      AND (here.added_at <= ${at}::timestamptz OR here.presence_decided_at <= ${seenAt}::timestamptz)
+    RETURNING here.presence_decided_at AS "decidedAt"`;
+  const decidedAt = finished.reduce<Date | null>((latest, { decidedAt }) => (latest === null || decidedAt > latest ? decidedAt : latest), null);
+  return { changed: origins + finished.length > 0, decidedAt };
 }
 
 /**

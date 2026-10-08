@@ -39,7 +39,7 @@ const profileContent = {
 };
 const batchContent = { roastDate: "2026-10-01T00:00:00.000", roastLevel: "medium", weight: 250, frozen: false };
 
-/** When the Location last decided each batch's presence and each Profile's showing, by PostgreSQL's clock: what a write's record then holds. */
+/** When the Location last decided each batch's presence, any of a Bean's batches' and each Profile's showing, by PostgreSQL's clock: what a write's record then holds. */
 const DECIDED = new Date("2026-10-08T12:00:00.000Z");
 
 /** A batch as the Location has it: offered there with 180.5 g left, unless given otherwise. */
@@ -53,7 +53,7 @@ const batch = (id: string, state: Partial<LocationBatch> = {}): LocationBatch =>
   ...state,
 });
 const offer = (beans: string[], batches: LocationBatch[] = [], profiles: ShownProfile[] = []): LocationOffer => ({
-  beans: beans.map((id) => ({ id, content: beanContent })),
+  beans: beans.map((id) => ({ id, content: beanContent, decidedAt: DECIDED })),
   batches,
   profiles,
 });
@@ -89,7 +89,7 @@ describe("plannedWrites", () => {
 
   it("writes a Bean the tablet lacks before its batch, which waits for the tablet's record of it", () => {
     expect(plannedWrites(offer([BEANS[0]], [batch(BATCHES[0])]), holding([], []))).toEqual([
-      { kind: "bean", globalId: BEANS[0], localId: null, fields: beanContent, decidedAt: null },
+      { kind: "bean", globalId: BEANS[0], localId: null, fields: beanContent, decidedAt: DECIDED },
     ]);
   });
 
@@ -106,7 +106,7 @@ describe("plannedWrites", () => {
   it("un-archives a Bean and a batch the Location offers that the tablet holds archived, and writes the Location's remaining weight", () => {
     const held = holding([heldBean(BEANS[0], { archived: true })], [heldBatch(BATCHES[0], { archived: true, weightRemaining: 250 })]);
     expect(plannedWrites(offer([BEANS[0]], [batch(BATCHES[0])]), held)).toEqual([
-      { kind: "bean", globalId: BEANS[0], localId: LOCAL_BEAN, fields: { archived: false }, decidedAt: null },
+      { kind: "bean", globalId: BEANS[0], localId: LOCAL_BEAN, fields: { archived: false }, decidedAt: DECIDED },
       { kind: "beanBatch", globalId: BATCHES[0], localId: LOCAL_BATCH, fields: { archived: false, weightRemaining: 180.5 }, decidedAt: DECIDED },
     ]);
   });
@@ -121,10 +121,10 @@ describe("plannedWrites", () => {
   });
 
   it("archives, never deletes, what the tablet holds that its Location no longer offers: batches before their Beans", () => {
-    const held = holding([heldBean(BEANS[0])], [heldBatch(BATCHES[0])]);
+    const held = holding([{ ...heldBean(BEANS[0]), decidedAt: DECIDED }], [heldBatch(BATCHES[0])]);
     expect(plannedWrites(offer([], [batch(BATCHES[0], { offered: false })]), held)).toEqual([
       { kind: "beanBatch", globalId: BATCHES[0], localId: LOCAL_BATCH, fields: { archived: true }, decidedAt: DECIDED },
-      { kind: "bean", globalId: BEANS[0], localId: LOCAL_BEAN, fields: { archived: true }, decidedAt: null },
+      { kind: "bean", globalId: BEANS[0], localId: LOCAL_BEAN, fields: { archived: true }, decidedAt: DECIDED },
     ]);
     // Already archived, they are left as they are.
     expect(
@@ -139,7 +139,7 @@ describe("plannedWrites", () => {
   it("writes the global id back to a record that lost it, beside any other field due, keeping it offered or not", () => {
     const wiped = { extras: { otherPlugin: true } };
     expect(plannedWrites(offer([BEANS[0]], [batch(BATCHES[0])]), holding([heldBean(BEANS[0], wiped)], [heldBatch(BATCHES[0], wiped)]))).toEqual([
-      { kind: "bean", globalId: BEANS[0], localId: LOCAL_BEAN, fields: {}, decidedAt: null },
+      { kind: "bean", globalId: BEANS[0], localId: LOCAL_BEAN, fields: {}, decidedAt: DECIDED },
       { kind: "beanBatch", globalId: BATCHES[0], localId: LOCAL_BATCH, fields: {}, decidedAt: DECIDED },
     ]);
     expect(plannedWrites(offer([]), holding([heldBean(BEANS[1], { ...wiped, archived: true })], []))).toEqual([
@@ -209,7 +209,7 @@ describe("plannedWrites", () => {
   it("leaves out the items skipped for the connection", () => {
     const skipped = new Set([writeKey("bean", BEANS[0])]);
     expect(plannedWrites(offer([BEANS[0], BEANS[1]]), holding([], []), skipped)).toEqual([
-      { kind: "bean", globalId: BEANS[1], localId: null, fields: beanContent, decidedAt: null },
+      { kind: "bean", globalId: BEANS[1], localId: null, fields: beanContent, decidedAt: DECIDED },
     ]);
   });
 });

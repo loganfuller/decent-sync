@@ -497,7 +497,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         kind === "profile"
           ? await recordProfileWritten(this.prisma, tablet, globalId, answer.record, answer.updatedAt, seenAt)
           : kind === "bean"
-            ? await recordBeanWritten(this.prisma, tablet, globalId, written, answer.record, answer.updatedAt)
+            ? await recordBeanWritten(this.prisma, tablet, globalId, written, answer.record, answer.updatedAt, seenAt)
             : await recordBatchWritten(this.prisma, tablet, globalId, written, answer.record, answer.updatedAt, seenAt);
       if (recorded === "notTheItem" && awaited) {
         this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);

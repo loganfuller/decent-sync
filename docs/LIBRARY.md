@@ -75,15 +75,15 @@ it (Writing to tablets, below).
   there since, if it was, and the remaining weight entered there last, in
   grams, with that edit's time. A batch is at a Location while it was added
   there and not finished since. Whether it is there is a field whose latest
-  edit wins (ADR-0020), with when that was last decided by PostgreSQL's
-  clock. An edit from a tablet whose record of the batch had seen that
-  decision (`seen_at`, below) applies. Otherwise, as from a tablet that was
-  offline, adding it there loses to a finish timed later, and finishing it
-  there to an add timed later; the Location's state is then written back to
-  that tablet. It is never finished before it was added, nor added again
-  before it was finished, whatever the clock that timed the edit. Times are
-  each edit's: a tablet's by the
-  record's `updatedAt` in UTC; a delete, which Decaid does not time, by
+  edit wins (ADR-0020), with when that was last decided by PostgreSQL's clock.
+  An edit from a tablet whose record of the batch had seen that decision
+  (`seen_at`, below), or, archiving or deleting its Bean, whose record of the
+  Bean had, applies. Otherwise, as from a tablet that was offline, adding it
+  there loses to a finish timed later, and finishing it there to an add timed
+  later; the Location's state is then written back to that tablet. It is never
+  finished before it was added, nor added again before it was finished,
+  whatever the clock that timed the edit. Times are each edit's: a tablet's by
+  the record's `updatedAt` in UTC; a delete, which Decaid does not time, by
   PostgreSQL's clock, but never earlier than the record the tablet was last
   known to have.
 - `profiles`: each Profile, by Decaid's id (ADR-0006), with its content,
@@ -103,13 +103,14 @@ it (Writing to tablets, below).
   tablet id (ticket #79): each item's local id on that tablet, which is a
   Profile's own, and the record as the tablet last had it, as it reported it
   or as Decaid returned the plugin's write, with that record's `updatedAt`
-  placed in UTC by the plugin, and, for a batch or Profile, the Location's
-  latest decision of it that the record has seen (`seen_at`, its time by
-  PostgreSQL's clock): the one the server's write it answers carried, which
-  Decaid answered after, or one its own edit made, whichever is later, as a
-  write planned before the tablet's own decision may be answered after it. A
-  report shows nothing of what the tablet saw of other tablets' decisions, as
-  the plugin may have read it before them and sent it after, as across a
+  placed in UTC by the plugin, and the Location's latest decision that the
+  record has seen (`seen_at`, its time by PostgreSQL's clock) of the batch's
+  presence, of the Profile's showing, or of the presence of any of the Bean's
+  batches: the one the server's write it answers carried, which Decaid
+  answered after, or one its own edit made, whichever is later, as a write
+  planned before the tablet's own decision may be answered after it. A report
+  shows nothing of what the tablet saw of other tablets' decisions, as the
+  plugin may have read it before them and sent it after, as across a
   reconnect; nor does an answer to a write no longer awaited, whose write is
   not known. Either keeps the decision known seen before. A reset tablet has a
   new tablet id, so it starts with nothing here.
@@ -135,19 +136,23 @@ order reported (`planIntake` in `bean-intake.ts`):
 1. A record the tablet's map holds by its local id stays that Bean, whatever
    global id it carries, so a global id another plugin wiped is written back
    rather than the record taken for a new Bean. Its record replaces the one
-   known if its time is later; one as old or older changes nothing, unless,
-   as old, it was archived or un-archived since: the plugin reads times to
-   the millisecond, within which it was changed. But a record that no longer
+   known if its time is later; one as old or older changes nothing, unless, as
+   old, it was archived or un-archived since: the plugin reads times to the
+   millisecond, within which it was changed. But a record that no longer
    carries the Bean's global id, while the one known does, replaces it
    whatever its time, as after the tablet's clock went back, so the id is
-   written back. A record replacing one that was not
-   archived, now archived, takes the Bean away from the tablet's Location
-   (ADR-0019): its batches there are finished, as a bean is deleted only with
-   its batches (DYE2 deletes them first, since Decaid refuses to delete a bean
-   that has any), and its origin there ends, so the Bean is no longer offered
-   there. A batch added there later than the archiving, which the tablet had
-   not seen, stays (ADR-0020). Un-archived, the Bean is offered there again,
-   as an origin, while none of its batches is there.
+   written back. A record replacing one that was not archived, now archived,
+   takes the Bean away from the tablet's Location (ADR-0019): its batches
+   there are finished, as a bean is deleted only with its batches (DYE2
+   deletes them first, since Decaid refuses to delete a bean that has any),
+   and its origin there ends, so the Bean is no longer offered there. A batch
+   added there later than the archiving stays, unless the tablet's record of
+   the Bean had seen that: it answered a write to the Bean after it
+   (`seen_at`, above). What its records of the batches have seen does not
+   count, as the plugin may read the Bean archived after it answered a write
+   to a batch, though the barista archived it before (ADR-0020). Un-archived,
+   the Bean is offered there again, as an origin, while none of its batches is
+   there.
 2. Otherwise a record carrying a Library Bean's global id is that Bean, as on
    a tablet whose answer to a write was lost, or one restored from a Decaid
    backup, unless another record the tablet reports is that Bean already: it

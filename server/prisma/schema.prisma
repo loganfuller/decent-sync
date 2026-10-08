@@ -691,6 +691,12 @@ model TabletBean {
   record          Json      @db.JsonB
   /// The record's updatedAt, placed in UTC by the plugin; null if it could not be.
   recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
+  /// The latest decision of whether any of the Bean's batches is at the
+  /// Location that the record has seen (`BatchLocation.presenceDecidedAt`):
+  /// one the server's write to it carried, or one its own archiving or
+  /// deleting made; null if none. Archiving or deleting the Bean is judged
+  /// by it (ADR-0020).
+  seenAt          DateTime? @map("seen_at") @db.Timestamptz(3)
 
   @@id([tabletId, beanId])
   @@unique([tabletId, localId])
@@ -741,7 +747,9 @@ model BatchLocation {
   /// When it was finished there after it was last added; null while it is there.
   finishedAt        DateTime? @map("finished_at") @db.Timestamptz(3)
   /// When it was last added or finished there, by PostgreSQL's clock: a
-  /// tablet whose record has seen it since had seen it (`TabletBeanBatch.seenAt`).
+  /// tablet whose record of the batch, or for archiving or deleting its Bean
+  /// of the Bean, has seen it had seen it (`TabletBeanBatch.seenAt`,
+  /// `TabletBean.seenAt`).
   presenceDecidedAt DateTime? @map("presence_decided_at") @db.Timestamptz(3)
   /// The remaining weight entered there last, in grams; null if it was cleared.
   remainingWeight   Float?    @map("remaining_weight")
@@ -766,10 +774,9 @@ model TabletBeanBatch {
   record          Json      @db.JsonB
   /// The record's updatedAt, placed in UTC by the plugin; null if it could not be.
   recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
-  /// By when, in PostgreSQL's clock, the record shows what the tablet had
-  /// seen of its Location's state: when a report holding it was taken in, or
-  /// when the server planned the write it answers; null if not known, as for
-  /// an answer arriving after its write was given up on.
+  /// The latest decision of whether the batch is at the Location that the
+  /// record has seen (`BatchLocation.presenceDecidedAt`): one the server's
+  /// write to it carried, or one its own edit made; null if none (ADR-0020).
   seenAt          DateTime? @map("seen_at") @db.Timestamptz(3)
 
   @@id([tabletId, batchId])
@@ -820,7 +827,7 @@ model ProfileLocation {
   shown      Boolean
   /// The time of the edit that last showed or hid it there: a tablet's by its record's clock.
   changedAt  DateTime @map("changed_at") @db.Timestamptz(3)
-  /// When that was decided, by PostgreSQL's clock: a tablet whose record has seen it since had seen it (`TabletProfile.seenAt`).
+  /// When that was decided, by PostgreSQL's clock: a tablet whose record has seen it had seen it (`TabletProfile.seenAt`).
   decidedAt  DateTime @default(dbgenerated("transaction_timestamp()")) @map("decided_at") @db.Timestamptz(3)
 
   @@id([profileId, locationId])
@@ -840,10 +847,9 @@ model TabletProfile {
   record          Json      @db.JsonB
   /// The record's updatedAt, placed in UTC by the plugin; null if it could not be.
   recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
-  /// By when, in PostgreSQL's clock, the record shows what the tablet had
-  /// seen of its Location's state: when a report holding it was taken in, or
-  /// when the server planned the write it answers; null if not known, as for
-  /// an answer arriving after its write was given up on.
+  /// The latest decision of whether the Location shows the Profile that the
+  /// record has seen (`ProfileLocation.decidedAt`): one the server's write to
+  /// it carried, or one its own edit made; null if none (ADR-0020).
   seenAt          DateTime? @map("seen_at") @db.Timestamptz(3)
 
   @@id([tabletId, profileId])

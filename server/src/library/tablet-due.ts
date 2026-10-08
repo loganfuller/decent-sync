@@ -47,8 +47,9 @@ export async function tabletDue(
       if (!holder) return null;
       const { locationId } = holder;
       if (locationId === null || locationId !== reportedAt) return { locationId, writes: null };
+      // Each with the latest decision of whether any of its batches is there: a write to the Bean carries it.
       const beans = await tx.$queryRaw<OfferedBean[]>`
-        SELECT beans.id, beans.content FROM beans
+        SELECT beans.id, beans.content, ${presenceDecidedSql(Prisma.raw("beans.id"), locationId)} AS "decidedAt" FROM beans
         WHERE NOT beans.archived AND (
           EXISTS (SELECT 1 FROM bean_origins AS origin WHERE origin.bean_id = beans.id AND origin.location_id = ${locationId}::uuid)
           OR EXISTS (
@@ -70,7 +71,8 @@ export async function tabletDue(
           OR EXISTS (SELECT 1 FROM tablet_bean_batches AS held WHERE held.batch_id = batch.id AND held.tablet_id = ${tablet.tabletId}::uuid)
         ORDER BY 4 DESC, batch.created_at, batch.id`;
       const heldBeans = await tx.$queryRaw<HeldRecord[]>`
-        SELECT bean_id AS "itemId", local_id AS "localId", record FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid ORDER BY bean_id`;
+        SELECT bean_id AS "itemId", local_id AS "localId", record, ${presenceDecidedSql(Prisma.raw("tablet_beans.bean_id"), locationId)} AS "decidedAt"
+        FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid ORDER BY bean_id`;
       const heldBatches = await tx.$queryRaw<HeldRecord[]>`
         SELECT batch_id AS "itemId", local_id AS "localId", record FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid ORDER BY batch_id`;
       // Each Profile's content only where the tablet lacks it, to create its record with: what a Location shows is many and large.
@@ -98,4 +100,12 @@ export async function tabletDue(
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   );
+}
+
+/** The latest decision of whether any of a Bean's batches is at the Location, by PostgreSQL's clock; null if none was ever decided. */
+function presenceDecidedSql(beanId: Prisma.Sql, locationId: string): Prisma.Sql {
+  return Prisma.sql`(
+    SELECT max(here.presence_decided_at) FROM batch_locations AS here JOIN bean_batches AS batch ON batch.id = here.batch_id
+    WHERE batch.bean_id = ${beanId} AND here.location_id = ${locationId}::uuid
+  )`;
 }

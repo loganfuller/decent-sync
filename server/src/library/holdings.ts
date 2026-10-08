@@ -14,6 +14,8 @@ import { weightOf } from "./batch-intake.js";
 export interface OfferedBean {
   id: string;
   content: Record<string, unknown>;
+  /** When the Location last decided whether any of its batches is there, by PostgreSQL's clock; null if it never did. */
+  decidedAt: Date | null;
 }
 
 /** A Bean Batch, as the Location has it: offered there or not, and its remaining weight there. */
@@ -55,7 +57,11 @@ export interface HeldRecord {
   itemId: string;
   localId: string;
   record: Record<string, unknown>;
-  /** For a Profile, when the tablet's Location last decided whether it shows it, by PostgreSQL's clock; null if it never did. */
+  /**
+   * For a Bean, when the tablet's Location last decided whether any of its
+   * batches is there; for a Profile, whether it shows it. By PostgreSQL's
+   * clock; null if it never did.
+   */
   decidedAt?: Date | null;
 }
 
@@ -75,9 +81,10 @@ export interface PlannedWrite {
   /** The fields to set, as Decaid names them: on creating, the item's content; otherwise only those that differ. */
   fields: Record<string, unknown>;
   /**
-   * The Location's decision of the batch's presence or the Profile's showing
-   * that the tablet's record holds once written, by PostgreSQL's clock: its
-   * answer has seen it. Null for a Bean, and where the Location never decided it.
+   * The Location's latest decision of the batch's presence, of the presence
+   * of any of the Bean's batches, or of the Profile's showing, by
+   * PostgreSQL's clock, as the write was planned: Decaid answers it after
+   * that, so its answer has seen it. Null where the Location never decided it.
    */
   decidedAt: Date | null;
 }
@@ -112,8 +119,8 @@ export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skippe
   const writes: PlannedWrite[] = [];
   for (const bean of offer.beans) {
     const record = beans.get(bean.id);
-    if (!record) writes.push({ kind: "bean", globalId: bean.id, localId: null, fields: bean.content, decidedAt: null });
-    else pushUpdate(writes, "bean", bean.id, record, record.record.archived === true ? { archived: false } : {}, null);
+    if (!record) writes.push({ kind: "bean", globalId: bean.id, localId: null, fields: bean.content, decidedAt: bean.decidedAt });
+    else pushUpdate(writes, "bean", bean.id, record, record.record.archived === true ? { archived: false } : {}, bean.decidedAt);
   }
   for (const batch of offer.batches) {
     const record = batches.get(batch.id);
@@ -136,7 +143,7 @@ export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skippe
     pushUpdate(writes, "beanBatch", batch.id, record, fields, batch.decidedAt);
   }
   for (const record of held.beans) {
-    if (!offeredBeans.has(record.itemId)) pushUpdate(writes, "bean", record.itemId, record, record.record.archived === true ? {} : { archived: true }, null);
+    if (!offeredBeans.has(record.itemId)) pushUpdate(writes, "bean", record.itemId, record, record.record.archived === true ? {} : { archived: true }, record.decidedAt ?? null);
   }
   const profiles = new Map(held.profiles.map((record) => [record.itemId, record]));
   const shownProfiles = new Set(offer.profiles.map((profile) => profile.id));
