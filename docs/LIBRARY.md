@@ -8,16 +8,17 @@ other tablets at that tablet's Location. Ticket
 each at the Locations it was added to and not yet finished at, with its
 remaining weight at each, and offers each Bean where its batches are. Ticket
 [#82](https://github.com/loganfuller/decent-sync/issues/82) adds Profiles,
-each shown or hidden at each Location. It follows ADR-0003, ADR-0006,
-ADR-0008, ADR-0016, ADR-0018, ADR-0019 and ADR-0020. Grinders, edits,
-joining a Location and the management interface's changes build on it in
-later tickets (Not yet, below).
+each shown or hidden at each Location, and ticket
+[#83](https://github.com/loganfuller/decent-sync/issues/83) Grinders, each
+belonging to one Location. It follows ADR-0003, ADR-0006, ADR-0008, ADR-0016,
+ADR-0018, ADR-0019 and ADR-0020. Edits, joining a Location and the management
+interface's changes build on it in later tickets (Not yet, below).
 
 ## Who takes part
 
 A Machine takes part while it is at a Location: the Location of the latest
 entry of its Location History. A Machine with no Location is capture-only: its
-tablet's beans, bean batches and profiles are captured as collections
+tablet's beans, bean batches, grinders and profiles are captured as collections
 (`COLLECTIONS.md`), but not taken into the Library, and nothing is written to
 it. A mismatched connection, whose tablet is not its token's Machine's, takes
 no part either, and neither does a Pending Machine (ADR-0004). Unidentified
@@ -35,18 +36,22 @@ A tablet holds only what its Machine's Location offers (ADR-0008):
   to it, or un-archived its record, unless it is Archived. This document and
   the code call each such Location one of the Bean's origins (`bean_origins`,
   below); it is a name for how the server keeps this, not a glossary term;
+- a **Grinder** that belongs to it, unless it is Archived: a Grinder belongs
+  to the Location of the tablet that created it (Taking in a tablet's
+  grinders, below);
 - a **Profile** while it is shown there, unless it is Archived. A Profile is
   shown only where a tablet created it, or held it visible when nothing had
   decided it there yet, until it is hidden there or shown elsewhere; Decaid's
   bundled Profiles too (Taking in a tablet's profiles, below).
 
 So a Bean with batches is offered only where they are: once its last batch
-at a Location is finished, it is no longer offered there. Archived items,
-which only the management interface will Archive (tickets #87 and #88), are offered
-nowhere. What the Location offers is written to each of its tablets, with each
-batch's remaining weight there and each Profile visible, and what it does not
-offer is archived or hidden on them, never deleted, so their Shots still find
-it (Writing to tablets, below).
+at a Location is finished, it is no longer offered there. Archived items are
+offered nowhere. Only the management interface will Archive a Bean, Bean
+Batch or Profile (tickets #87 and #88); a Grinder is Archived by archiving or
+deleting it on a tablet at its Location. What the Location offers is written
+to each of its tablets, with each batch's remaining weight there and each
+Profile visible, and what it does not offer is archived or hidden on them,
+never deleted, so their Shots still find it (Writing to tablets, below).
 
 ## Storage
 
@@ -91,6 +96,13 @@ it (Writing to tablets, below).
   the record's `updatedAt` in UTC; a delete, which Decaid does not time, by
   PostgreSQL's clock, but never earlier than the record the tablet was last
   known to have.
+- `grinders`: each Grinder, by its global id, with its content, Decaid's
+  record fields as the tablet that created it sent them, but the record's id,
+  times, `archived` and `extras`, which belong to each tablet's record. Also
+  whether it is Archived, the Location it belongs to, which is that of the
+  tablet that created it, and when it joined the Library. Its Location and
+  whether it is Archived change only under that Location's lock
+  (`location-state.ts`).
 - `profiles`: each Profile, by Decaid's id (ADR-0006), with its content,
   Decaid's record fields as the tablet that created it sent them, but its id,
   times and `visibility`, which are that record's or each Location's. Also
@@ -105,12 +117,13 @@ it (Writing to tablets, below).
   by PostgreSQL's clock, as again by an edit that applied but left it shown or
   hidden as it was, and the tablet whose edit decided it. A Location with no
   row for a Profile has decided nothing of it, and does not show it.
-- `tablet_beans`, `tablet_bean_batches` and `tablet_profiles`: the map, per
-  tablet id (ticket #79): each item's local id on that tablet, which is a
-  Profile's own, and the record as the tablet last had it, as it reported it
-  or as Decaid returned the plugin's write, with that record's `updatedAt`
-  placed in UTC by the plugin, and the Location's latest decision that the
-  record has seen (`seen_at`, its time by PostgreSQL's clock) of the batch's
+- `tablet_beans`, `tablet_bean_batches`, `tablet_grinders` and
+  `tablet_profiles`: the map, per tablet id (ticket #79): each item's local
+  id on that tablet, which is a Profile's own, and the record as the tablet
+  last had it, as it reported it or as Decaid returned the plugin's write,
+  with that record's `updatedAt` placed in UTC by the plugin. All but
+  `tablet_grinders` keep the Location's latest decision that the record has
+  seen (`seen_at`, its time by PostgreSQL's clock) of the batch's
   presence, of the Profile's showing, or of the presence of any of the Bean's
   batches, with that decision's Location, as it says nothing of another's: the
   one the server's write it answers carried, which Decaid answered after, if
@@ -237,6 +250,40 @@ beans, and taken in the same way, under the same locks (`takeInBatches` in
   held it there, not archived, it is finished there, and the map holds the
   record no more.
 
+## Taking in a tablet's grinders
+
+A Grinder is equipment, and belongs to one Location (glossary, ADR-0008): the
+Location of the tablet that created it. Only that Location's tablets hold it
+unarchived. The plugin reports its grinders, archived ones included, as the
+`grinders` collection, and they are taken in as beans are, under the same
+locks but for the matching lock, as Grinders are never matched (ADR-0018)
+(`takeInGrinders` in `grinders.ts`, planned by the pure `planGrinderIntake`
+in `grinder-intake.ts`). Two grinders of one model, at one Location or two,
+are two Grinders.
+
+- A record without what every supported Decaid sends (its id, its `model`
+  and an `updatedAt` the plugin could place) is ignored.
+- A record the map holds stays that Grinder, its record replacing the one
+  known as a bean's does. Archived since, the Grinder is Archived; un-archived
+  since, it is restored (ADR-0019). Either only if it belongs to the tablet's
+  Location: a tablet whose Machine moved still holds its old Location's
+  Grinders, archived, and un-archiving or archiving one there changes nothing
+  but what is written to it.
+- A record carrying a Library Grinder's global id is that Grinder, as a
+  bean's is, changing nothing: the Library's state is written to it.
+- Any other record is new, and joins the Library belonging to the tablet's
+  Location, Archived if it is archived on the tablet.
+- A record the map holds whose id the list no longer holds was deleted on the
+  tablet (Decaid's delete removes the record), unless another record it
+  reports is that Grinder now: if the tablet held it unarchived, and it
+  belongs to the tablet's Location, it is Archived, and the map holds the
+  record no more. Only a Grinder the tablet held can be Archived this way: a
+  new or reset tablet's map holds nothing, so it Archives nothing.
+
+So archiving or deleting a Grinder on a tablet Archives it, and it is archived
+on its Location's other tablets, never deleted; un-archiving it on a tablet
+there restores it, and it is written to them again.
+
 ## Taking in a tablet's profiles
 
 A Profile keeps Decaid's id, `profile:` and the start of a hash of what the
@@ -330,7 +377,12 @@ planning the writes with the pure `plannedWrites` (`holdings.ts`), in order:
    Location's, where one was entered there, set to it; then each batch the
    tablet holds that the Location does not offer, archived.
 3. Each Bean the tablet holds that the Location does not offer, archived.
-4. Each Profile the Location shows that the tablet lacks, created, unless it
+4. Each Grinder the Location offers that the tablet lacks, created with the
+   Grinder's content; or that it holds archived, un-archived; or whose record
+   lacks its global id, which is written. Then each Grinder the tablet holds
+   that the Location does not offer, as an Archived Grinder or one of another
+   Location, archived.
+5. Each Profile the Location shows that the tablet lacks, created, unless it
    is one of Decaid's bundled Profiles, which a tablet has already or lacks
    for its Decaid's version; or that it holds hidden or deleted, made visible.
    Then each Profile the tablet holds visible that the Location does not
@@ -345,8 +397,8 @@ an item no Shot names from every tablet that holds it (ticket #87), is the
 one exception.
 
 It writes nothing until that connection's reports of the tablet's beans, bean
-batches and profiles, which the plugin sends on every welcome, have been taken
-in, nor between a report of its beans and the report of its batches the plugin
+batches, grinders and profiles, which the plugin sends on every welcome, have
+been taken in, nor between a report of its beans and the report of its batches the plugin
 sends after it, so a change the tablet made to both, such as deleting a bean
 with its batches, is taken in whole first. It then writes only while the
 connection still holds the Machine and the Machine is at the Location the
@@ -420,7 +472,8 @@ says nothing new of what the tablet had seen of its Location's state
 
 The plugin (`plugin/src/library-writes.ts`) carries writes out through
 Decaid's API, one at a time, between its reads of the lists it writes to (the
-beans, bean batches and profiles), never during one (`LibraryAccess`), and
+beans, bean batches, grinders and profiles), never during one
+(`LibraryAccess`), and
 queues each answer in its outbox, behind
 every report read before the write. So the server takes in each report read
 before a write before that write's answer, and never reads a record the
@@ -437,18 +490,19 @@ tablet's list of batches to show it does not.
   barista entered before the tablet reported it, as when two tablets at a
   Location enter the same coffee within a poll interval: it becomes the Bean,
   and only the global id is written to it, as to a record the server links.
-  Bean Batches are never the same item. Otherwise it creates the record
-  (`POST /beans`, or `POST /beans/{beanId}/batches` under the tablet's
-  record of the batch's Bean, which the write's `beanId` names) with the
-  item's content and the global id in `extras`. Decaid assigns the record its
+  Bean Batches and Grinders are never the same item. Otherwise it creates
+  the record (`POST /beans`, `POST /grinders`, or `POST
+  /beans/{beanId}/batches` under the tablet's record of the batch's Bean,
+  which the write's `beanId` names) with the item's content and the global
+  id in `extras`. Decaid assigns the record its
   id. A batch's create takes neither `archived` nor `weightRemaining`, which
   it sets to `weight`, so where the Location's remaining weight differs, the
   plugin writes it in a second request (`PUT /bean-batches/{id}`); should
   that fail or go unanswered, it answers with the record as created, and the
   server writes the weight again on the same connection. Each create reads the whole list once, which a tablet joining
   a Location with many items does once per item.
-- To update a record, it reads the record and updates it (`PUT /beans/{id}`
-  or `PUT /bean-batches/{id}`) with the fields the server sent and `extras`
+- To update a record, it reads the record and updates it (`PUT /beans/{id}`,
+  `PUT /bean-batches/{id}` or `PUT /grinders/{id}`) with the fields the server sent and `extras`
   holding its other keys beside the global id, since Decaid replaces `extras`
   whole.
 
@@ -503,6 +557,13 @@ Every endpoint requires the account session; Staff read them as Admins do.
 - `GET /api/bean-batches/:id` returns `{ batch }`, the same with its
   `content` and `finished`, the Locations it was at and has been finished at
   since, each `{ location, remainingWeight, finishedAt }`; or 404.
+- `GET /api/grinders` returns `{ grinders }`, each `{ id, model, burrs,
+  burrType, archived, location, createdAt }`, by model, ignoring case, then
+  by their Location's name. `model`, `burrs` and `burrType` are its
+  content's. `location` is the Location it belongs to, the only one offering
+  it unless it is Archived, or null if that Location no longer exists.
+- `GET /api/grinders/:id` returns `{ grinder }`, the same with its `content`;
+  or 404.
 - `GET /api/profiles` returns `{ profiles }`, each `{ id, title, author,
   beverageType, bundled, archived, shownAt, createdAt, createdLocation }`, by
   title, ignoring case. `id` is Decaid's, such as
@@ -518,11 +579,13 @@ Every endpoint requires the account session; Staff read them as Admins do.
 
 The management interface's Library section lists the Beans and where each is
 offered, the Bean Batches, the Locations each is at and its remaining weight
-at each, and the Profiles and where each is shown. Each Bean's page shows its
-content, where it is offered, its batches and its likely duplicates, each
-batch's page its roast, the Locations it is at with its remaining weight at
-each, and where it was finished, and each Profile's page where it is shown,
-its steps and the Profile it was saved from.
+at each, the Grinders and the Location each belongs to, and the Profiles and
+where each is shown. Each Bean's page shows its content, where it is
+offered, its batches and its likely duplicates, each batch's page its roast,
+the Locations it is at with its remaining weight at each, and where it was
+finished, each Grinder's page its Location and what it is, and each
+Profile's page where it is shown, its steps and the Profile it was saved
+from.
 
 ## Not yet
 
@@ -534,8 +597,9 @@ its steps and the Profile it was saved from.
   Library's content to it, keeping each field it differed in as a Conflict
   (ADR-0018). Two remaining weights entered without seeing each other keep
   the later; the other will be kept as a Conflict.
-- Archive, restore, creating and editing items, and adding and finishing
-  batches at Locations in the management interface: ticket #87; showing and
+- Archive, restore, creating and editing items, Grinders included, and
+  adding and finishing batches at Locations in the management interface:
+  ticket #87; showing and
   hiding Profiles at Locations there, and Archiving them: ticket #88.
 - Joining a Location, including what a moved Machine brings and clearing its
   Workflow's batch: ticket #89. Until then a moved Machine's tablet is written
@@ -548,13 +612,14 @@ its steps and the Profile it was saved from.
   there, though a batch un-archived on it is added at its new one. A change
   made on the tablet just before a move, which a report or an answer brings
   after it, means what it would at the Machine's new Location, as the
-  server reads it where the Machine is when it is taken in.
-- Grinders, each belonging to one Location: ticket #83. Each Location's
+  server reads it where the Machine is when it is taken in. The old
+  Location's Grinders stay there, archived on the moved tablet.
+- Each Location's
   steam, hot water and rinse settings: ticket #86. Conflicts and each item's
   history in the management interface: ticket #85.
 - The capture-only switch: ticket #90. Recording refused writes, and each
   Machine's sharing status: ticket #91.
-- Linking Shots to the Library's batches: ticket #92.
+- Linking Shots to the Library's batches and Grinders: ticket #92.
 
 Decaid hides a bundled Profile a release no longer bundles, or bundles anew
 under another id (`_retireStaleDefaults` in
@@ -564,15 +629,19 @@ upgrade hides the old one at the Location, on the others too, which lack the
 new one: bundled Profiles are never written. v0.8.7 and v0.8.8 bundle the same
 Profiles.
 
-`server/test/library-beans.test.ts`, `server/test/library-batches.test.ts`
-and `server/test/library-profiles.test.ts` cover this through Seam 1, with the
+`server/test/library-beans.test.ts`, `server/test/library-batches.test.ts`,
+`server/test/library-grinders.test.ts` and
+`server/test/library-profiles.test.ts` cover this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL;
 `server/test/bean-intake.test.ts`, `server/test/batch-intake.test.ts`,
-`server/test/profile-intake.test.ts` and `server/test/holdings.test.ts` the
-pure modules; `server/test/simulated-bean-writes.test.ts`,
-`server/test/simulated-batch-writes.test.ts` and
+`server/test/grinder-intake.test.ts`, `server/test/profile-intake.test.ts`
+and `server/test/holdings.test.ts` the pure modules;
+`server/test/simulated-bean-writes.test.ts`,
+`server/test/simulated-batch-writes.test.ts`,
+`server/test/simulated-grinder-writes.test.ts` and
 `server/test/simulated-profile-writes.test.ts` the simulated tablet's writes
 against those recorded on Decaid's Linux release
 (`server/test/fixtures/decaid/bean-writes-v0.8.7/`,
-`bean-batch-writes-v0.8.7/` and `profile-writes-v0.8.7/`); and
+`bean-batch-writes-v0.8.7/`, `grinder-writes-v0.8.7/` and
+`profile-writes-v0.8.7/`); and
 `e2e/library.spec.ts` the management interface.

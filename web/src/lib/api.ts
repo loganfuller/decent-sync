@@ -454,6 +454,25 @@ export interface ProfileAtLocation {
   since: string;
 }
 
+/** A Grinder in the Library, as the Grinders list shows it. */
+export interface GrinderSummary {
+  /** Its global id, which its record on each tablet carries. */
+  id: string;
+  model: string | null;
+  burrs: string | null;
+  burrType: string | null;
+  archived: boolean;
+  /** The Location it belongs to, the one where it was created and the only one offering it; null if that Location no longer exists. */
+  location: Location | null;
+  /** When it joined the Library. */
+  createdAt: string;
+}
+
+/** A Grinder with its content: Decaid's record fields, as the tablet that created it sent them. */
+export interface Grinder extends GrinderSummary {
+  content: Record<string, unknown>;
+}
+
 /** A Profile in the Library, as the Profiles list shows it. */
 export interface ProfileSummary {
   /** Decaid's id, such as profile:bf1ca48b9c7389c7d146: a hash of what the machine executes, the same on every tablet. */

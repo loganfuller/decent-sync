@@ -428,8 +428,8 @@ export interface CollectionDelivery {
   updatedAt?: (string | null)[];
 }
 
-/** The kinds of Library item the server writes to tablets: Beans, Bean Batches and Profiles. */
-export const LIBRARY_KINDS = ["bean", "beanBatch", "profile"] as const;
+/** The kinds of Library item the server writes to tablets: Beans, Bean Batches, Grinders and Profiles. */
+export const LIBRARY_KINDS = ["bean", "beanBatch", "grinder", "profile"] as const;
 
 export type LibraryKind = (typeof LIBRARY_KINDS)[number];
 
@@ -457,8 +457,9 @@ export function isItemId(kind: string, value: unknown): value is string {
  * was lost: it answers with that one instead. Nor does it create one when an
  * unarchived record without a global id is the same item, such as a bean with
  * the same roaster and name (`beanMatchKey`) entered before the tablet
- * reported it: it writes only the global id to that record. Bean Batches are
- * never the same item (ADR-0018). With a `localId`, it updates that record.
+ * reported it: it writes only the global id to that record. Bean Batches and
+ * Grinders are never the same item (ADR-0018). With a `localId`, it updates
+ * that record.
  * Either way it sets only `fields`, and writes the global id into the
  * record's `extras`, keeping the other keys there.
  *
@@ -466,7 +467,8 @@ export function isItemId(kind: string, value: unknown): value is string {
  * for the Bean's record, which the server writes first. Decaid's create
  * takes neither `archived` nor `weightRemaining`, setting the remaining
  * weight to `weight`, so the plugin writes those it is given in a second
- * request when they differ from what Decaid made.
+ * request when they differ from what Decaid made. A Grinder's create takes no
+ * `archived` either.
  *
  * A Profile keeps Decaid's id, which is its `globalId` and, on every tablet,
  * its `localId` (ADR-0006), and its record carries no global id. To create

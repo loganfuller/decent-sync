@@ -170,6 +170,7 @@ model Location {
   batches         BatchLocation[]
   profilesCreated Profile[]         @relation("ProfilesCreated")
   profiles        ProfileLocation[]
+  grinders        Grinder[]
 
   @@map("locations")
 }
@@ -330,6 +331,7 @@ model Tablet {
   machines    MachineTablet[]
   beans       TabletBean[]
   beanBatches TabletBeanBatch[]
+  grinders    TabletGrinder[]
   profiles    TabletProfile[]
 
   @@map("tablets")
@@ -789,6 +791,50 @@ model TabletBeanBatch {
   @@unique([tabletId, localId])
   @@index([batchId])
   @@map("tablet_bean_batches")
+}
+
+/// A Grinder in the Library (ADR-0003), by its global id (ADR-0006): equipment
+/// that belongs to one Location, the one where it was created, and is offered
+/// only there (ADR-0008). Archiving or deleting it on a tablet there Archives
+/// it (ADR-0019). See server/src/library/grinders.ts.
+model Grinder {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  /// Decaid's record fields, those it does not know included, as the tablet
+  /// that created it sent them: all but its id, times, archived flag and
+  /// extras, which belong to each tablet's record.
+  content    Json      @db.JsonB
+  /// Retired everywhere: offered nowhere, but kept so past Shots still name it.
+  archived   Boolean   @default(false)
+  /// The Location it belongs to: that of the tablet that created it.
+  locationId String?   @map("location_id") @db.Uuid
+  location   Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  /// When it joined the Library, by PostgreSQL's clock.
+  createdAt  DateTime  @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+
+  tablets TabletGrinder[]
+
+  @@index([locationId])
+  @@map("grinders")
+}
+
+/// A Library Grinder's record on one tablet (ADR-0006), as `TabletBean`
+/// keeps a Bean's: its id there, and the record as that tablet last had it.
+model TabletGrinder {
+  tabletId        String    @map("tablet_id") @db.Uuid
+  tablet          Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  grinderId       String    @map("grinder_id") @db.Uuid
+  grinder         Grinder   @relation(fields: [grinderId], references: [id], onDelete: Cascade)
+  /// Decaid's id for the record on that tablet.
+  localId         String    @map("local_id")
+  /// The record, as Decaid sent it.
+  record          Json      @db.JsonB
+  /// The record's updatedAt, placed in UTC by the plugin; null if it could not be.
+  recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
+
+  @@id([tabletId, grinderId])
+  @@unique([tabletId, localId])
+  @@index([grinderId])
+  @@map("tablet_grinders")
 }
 
 /// A Profile in the Library (ADR-0003): a program the machine follows while

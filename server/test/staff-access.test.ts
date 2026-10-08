@@ -117,11 +117,13 @@ describe("Staff access", () => {
       await tablet.unload();
     }
     expect(((await read(api, `${lab1Path}/collections`))[1] as { collections: unknown[] }).collections.length).toBeGreaterThan(1);
-    // Lab 1 is at a Location, so the beans, bean batches and profiles its tablet reported joined the Library.
+    // Lab 1 is at a Location, so the beans, bean batches, grinders and profiles its tablet reported joined the Library.
     const libraryBeans = ((await read(api, "/beans"))[1] as { beans: { id: string }[] }).beans;
     expect(libraryBeans.length).toBeGreaterThan(0);
     const libraryBatches = ((await read(api, "/bean-batches"))[1] as { batches: { id: string }[] }).batches;
     expect(libraryBatches.length).toBeGreaterThan(0);
+    const libraryGrinders = ((await read(api, "/grinders"))[1] as { grinders: { id: string }[] }).grinders;
+    expect(libraryGrinders.length).toBeGreaterThan(0);
     const libraryProfiles = ((await read(api, "/profiles"))[1] as { profiles: { id: string }[] }).profiles;
     expect(libraryProfiles.length).toBeGreaterThan(0);
 
@@ -133,6 +135,8 @@ describe("Staff access", () => {
       `/beans/${libraryBeans[0]!.id}`,
       "/bean-batches",
       `/bean-batches/${libraryBatches[0]!.id}`,
+      "/grinders",
+      `/grinders/${libraryGrinders[0]!.id}`,
       "/profiles",
       `/profiles/${encodeURIComponent(libraryProfiles[0]!.id)}`,
       "/shots",

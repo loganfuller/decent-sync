@@ -18,27 +18,27 @@ const ANSWER_TIMEOUT_MS = 300_000;
 export type WriteOutcome = "written" | "refused";
 
 /** The Library lists whose reports are taken in before anything is written: what the tablet holds. */
-export type TakenInList = "beans" | "beanBatches" | "profiles";
+export type TakenInList = "beans" | "beanBatches" | "grinders" | "profiles";
 
-const TAKEN_IN: readonly TakenInList[] = ["beans", "beanBatches", "profiles"];
+const TAKEN_IN: readonly TakenInList[] = ["beans", "beanBatches", "grinders", "profiles"];
 
 /** What each kind of Library item is called in the server's log. */
-export const KIND_NAMES: Readonly<Record<LibraryKind, string>> = { bean: "Bean", beanBatch: "Bean Batch", profile: "Profile" };
+export const KIND_NAMES: Readonly<Record<LibraryKind, string>> = { bean: "Bean", beanBatch: "Bean Batch", grinder: "Grinder", profile: "Profile" };
 
 /**
  * Writes the Library to the tablet of one connection this instance holds:
  * one write at a time, each once the plugin has answered the one before it
  * and its answer is recorded, until the tablet holds what its Machine's
- * Location offers (`tabletDue`): its Beans and Bean Batches, with their
- * global ids and the Location's remaining weights, and its Profiles,
+ * Location offers (`tabletDue`): its Beans, Bean Batches and Grinders, with
+ * their global ids and the Location's remaining weights, and its Profiles,
  * visible, and nothing else unarchived or visible. What is due is read from
  * the database each time, so it reflects changes made through any instance;
  * the instance is woken to look again when one is notified, when the
- * connection's report of the tablet's beans, bean batches or profiles is
- * taken in, and when its notifications may have been missed.
+ * connection's report of the tablet's beans, bean batches, grinders or
+ * profiles is taken in, and when its notifications may have been missed.
  *
  * Nothing is written until the connection's reports of the tablet's beans,
- * bean batches and profiles are taken in, which the plugin sends on every
+ * bean batches, grinders and profiles are taken in, which the plugin sends on every
  * welcome, nor between a report of its beans and the report of its batches
  * the plugin sends after it, and only while the Machine is at the Location
  * the latest reports were all taken in at. A bean the tablet already holds,
@@ -140,7 +140,7 @@ export class TabletWriter {
   }
 
   /**
-   * A report of the tablet's beans, bean batches or profiles from this
+   * A report of the tablet's beans, bean batches, grinders or profiles from this
    * connection was stored, and taken in with its Machine at that Location,
    * or at none; or, undefined, not taken in, as when it was unavailable or
    * set aside. One of its bean batches ends the wait a report of its beans

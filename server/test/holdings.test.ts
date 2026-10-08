@@ -4,14 +4,17 @@ import { type HeldRecord, type LocationBatch, type LocationOffer, type ShownProf
 
 // What a tablet should hold for its Location (ADR-0008), through the pure
 // module's interface: the writes, in order, that bring a tablet's Beans,
-// Bean Batches and Profiles to what the Location offers. Records are shaped
-// as Decaid v0.8.7 serves them (fixtures/decaid/bean-batch-writes-v0.8.7/
-// and profile-writes-v0.8.7/), with made-up ids.
+// Bean Batches, Grinders and Profiles to what the Location offers. Records
+// are shaped as Decaid v0.8.7 serves them (fixtures/decaid/
+// bean-batch-writes-v0.8.7/, grinder-writes-v0.8.7/ and
+// profile-writes-v0.8.7/), with made-up ids.
 
 const BEANS = ["6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d", "7b2d4e3f-5c6a-4b8f-8d9e-1f2a3b4c5d6e"] as const;
 const BATCHES = ["3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c", "5a7c9e1b-2d3f-4a5b-8c6d-9e0f1a2b3c4d"] as const;
 const LOCAL_BEAN = "1ebec875-1533-46d3-bc5f-9de5c85d9c2b";
 const LOCAL_BATCH = "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca";
+const GRINDERS = ["7b2d4e6f-8a1c-4d3e-9f5a-6b7c8d9e0f1a", "0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f"] as const;
+const LOCAL_GRINDER = "4d09e759-76b3-4e91-a095-cb9887e8f9db";
 
 const PROFILES = ["profile:bf1ca48b9c7389c7d146", "profile:e8ec02bda185095cd94f"] as const;
 const BUNDLED = "profile:ca3086783cd9569e128c";
@@ -37,6 +40,7 @@ const profileContent = {
   isDefault: false,
   metadata: { fixture: "lab" },
 };
+const grinderContent = { model: "Fixture Grinder", burrs: "Fixture 63mm", notes: "Lab", settingType: "numeric" };
 const batchContent = { roastDate: "2026-10-01T00:00:00.000", roastLevel: "medium", weight: 250, frozen: false };
 
 /** When the Location last decided each batch's presence, any of a Bean's batches' and each Profile's showing, by PostgreSQL's clock: what a write's record then holds. */
@@ -52,13 +56,19 @@ const batch = (id: string, state: Partial<LocationBatch> = {}): LocationBatch =>
   decidedAt: DECIDED,
   ...state,
 });
-const offer = (beans: string[], batches: LocationBatch[] = [], profiles: ShownProfile[] = []): LocationOffer => ({
+const offer = (beans: string[], batches: LocationBatch[] = [], profiles: ShownProfile[] = [], grinders: string[] = []): LocationOffer => ({
   beans: beans.map((id) => ({ id, content: beanContent, decidedAt: DECIDED })),
   batches,
+  grinders: grinders.map((id) => ({ id, content: grinderContent })),
   profiles,
 });
-/** What the tablet holds: no Profiles unless given. */
-const holding = (beans: HeldRecord[], batches: HeldRecord[], profiles: HeldRecord[] = []): TabletHoldings => ({ beans, batches, profiles });
+/** What the tablet holds: no Profiles or Grinders unless given. */
+const holding = (beans: HeldRecord[], batches: HeldRecord[], profiles: HeldRecord[] = [], grinders: HeldRecord[] = []): TabletHoldings => ({
+  beans,
+  batches,
+  grinders,
+  profiles,
+});
 
 /** A Profile the Location shows, with its content, as one the tablet lacks has it, unless given otherwise. */
 const shown = (id: string, fields: Partial<ShownProfile> = {}): ShownProfile => ({ id, bundled: false, content: profileContent, decidedAt: DECIDED, ...fields });
@@ -71,6 +81,14 @@ function heldBean(beanId: string, fields: Record<string, unknown> = {}): HeldRec
     itemId: beanId,
     localId: LOCAL_BEAN,
     record: { id: LOCAL_BEAN, ...beanContent, archived: false, extras: { [GLOBAL_ID_KEY]: beanId }, ...fields },
+  };
+}
+/** The tablet's record of a Grinder, carrying its global id, not archived, unless given otherwise. */
+function heldGrinder(grinderId: string, fields: Record<string, unknown> = {}): HeldRecord {
+  return {
+    itemId: grinderId,
+    localId: LOCAL_GRINDER,
+    record: { id: LOCAL_GRINDER, ...grinderContent, archived: false, extras: { [GLOBAL_ID_KEY]: grinderId }, ...fields },
   };
 }
 /** The tablet's record of a batch, carrying its global id, at the Location with 180.5 g left, unless given otherwise. */
@@ -201,6 +219,37 @@ describe("plannedWrites", () => {
     const writes = plannedWrites(offer([], [], [shown(PROFILES[0])]), held);
     expect(writes.map((write) => [write.kind, write.globalId, write.localId ?? "create"])).toEqual([
       ["bean", BEANS[0], LOCAL_BEAN],
+      ["profile", PROFILES[0], "create"],
+      ["profile", PROFILES[1], PROFILES[1]],
+    ]);
+  });
+
+  it("creates a Grinder its Location offers that the tablet lacks, un-archives one it holds archived, and archives, never deletes, one it does not offer", () => {
+    expect(plannedWrites(offer([], [], [], [GRINDERS[0]]), holding([], []))).toEqual([
+      { kind: "grinder", globalId: GRINDERS[0], localId: null, fields: grinderContent, decidedAt: null },
+    ]);
+    expect(plannedWrites(offer([], [], [], [GRINDERS[0]]), holding([], [], [], [heldGrinder(GRINDERS[0], { archived: true })]))).toEqual([
+      { kind: "grinder", globalId: GRINDERS[0], localId: LOCAL_GRINDER, fields: { archived: false }, decidedAt: null },
+    ]);
+    expect(plannedWrites(offer([]), holding([], [], [], [heldGrinder(GRINDERS[1])]))).toEqual([
+      { kind: "grinder", globalId: GRINDERS[1], localId: LOCAL_GRINDER, fields: { archived: true }, decidedAt: null },
+    ]);
+    // Held as the Location has it, archived or not, nothing is written; a lost global id is written back.
+    expect(plannedWrites(offer([], [], [], [GRINDERS[0]]), holding([], [], [], [heldGrinder(GRINDERS[0])]))).toEqual([]);
+    expect(plannedWrites(offer([]), holding([], [], [], [heldGrinder(GRINDERS[1], { archived: true })]))).toEqual([]);
+    expect(plannedWrites(offer([], [], [], [GRINDERS[0]]), holding([], [], [], [heldGrinder(GRINDERS[0], { extras: { otherPlugin: true } })]))).toEqual([
+      { kind: "grinder", globalId: GRINDERS[0], localId: LOCAL_GRINDER, fields: {}, decidedAt: null },
+    ]);
+  });
+
+  it("writes Grinders after Beans and Bean Batches and before Profiles, those the Location offers first", () => {
+    const other = "6c9d1e2f-3a4b-4c5d-8e6f-7a8b9c0d1e2f";
+    const held = holding([heldBean(BEANS[0], { archived: true })], [], [heldProfile(PROFILES[1], "visible")], [{ ...heldGrinder(GRINDERS[1]), localId: other }]);
+    const writes = plannedWrites(offer([BEANS[0]], [], [shown(PROFILES[0])], [GRINDERS[0]]), held);
+    expect(writes.map((write) => [write.kind, write.globalId, write.localId ?? "create"])).toEqual([
+      ["bean", BEANS[0], LOCAL_BEAN],
+      ["grinder", GRINDERS[0], "create"],
+      ["grinder", GRINDERS[1], other],
       ["profile", PROFILES[0], "create"],
       ["profile", PROFILES[1], PROFILES[1]],
     ]);

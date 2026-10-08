@@ -7,6 +7,7 @@ import WebSocket from "ws";
 import { assertBuilt } from "./builds.js";
 import { batchesOf, createBatch, deleteBatch, deleteBean, listedBatches, updateBatch } from "./decaid-batches.js";
 import { type DecaidAnswer, createBean, listedBeans, updateBean, withDecaidClock } from "./decaid-beans.js";
+import { createGrinder, deleteGrinder, listedGrinders, updateGrinder } from "./decaid-grinders.js";
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
 import { rememberSecret, watchLog } from "./secrets.js";
 
@@ -33,14 +34,16 @@ import { rememberSecret, watchLog } from "./secrets.js";
 //   its info, fail while no machine is connected.
 // - Of Decaid's writes, it carries out only those to beans (`POST /beans`,
 //   `PUT /beans/{id}` and `DELETE /beans/{id}`), their batches (`POST
-//   /beans/{beanId}/batches`, `PUT` and `DELETE /bean-batches/{id}`) and
+//   /beans/{beanId}/batches`, `PUT` and `DELETE /bean-batches/{id}`),
+//   grinders (`POST /grinders`, `PUT` and `DELETE /grinders/{id}`) and
 //   profiles (`POST /profiles`, `PUT` and `DELETE /profiles/{id}`, `PUT
 //   /profiles/{id}/visibility` and `DELETE /profiles/{id}/purge`), as
-//   Decaid does (decaid-beans.ts, decaid-batches.ts, decaid-profiles.ts),
-//   and serves each bean at `/beans/{id}`, its batches at
-//   `/beans/{id}/batches`, each batch at `/bean-batches/{id}`, and each
-//   profile at `/profiles/{id}`, whose id it derives from the profile's
-//   content as Decaid does; it refuses every other request but a `GET`.
+//   Decaid does (decaid-beans.ts, decaid-batches.ts, decaid-grinders.ts,
+//   decaid-profiles.ts), and serves each bean at `/beans/{id}`, its batches
+//   at `/beans/{id}/batches`, each batch at `/bean-batches/{id}`, each
+//   grinder at `/grinders/{id}`, and each profile at `/profiles/{id}`, whose
+//   id it derives from the profile's content as Decaid does; it refuses
+//   every other request but a `GET`.
 // - The plugin's local time, as JavaScript reads it, is this process's time
 //   zone: set `process.env.TZ` to put the tablet in another one.
 // - `host.transport` opens real WebSockets with only a URL and subprotocols
@@ -792,6 +795,11 @@ export class SimulatedTablet {
     return structuredClone((this.api["/bean-batches"] as Record<string, unknown>[] | undefined) ?? []);
   }
 
+  /** The tablet's grinders, archived ones included, as `GET /grinders?includeArchived=true` lists them. */
+  grinders(): Record<string, unknown>[] {
+    return structuredClone((this.api["/grinders"] as Record<string, unknown>[] | undefined) ?? []);
+  }
+
   /** The tablet's profiles, hidden and deleted ones included, as `GET /profiles?includeHidden=true` lists them: the most recently updated first. */
   profiles(): Record<string, unknown>[] {
     const profiles = this.api["/profiles"];
@@ -832,6 +840,26 @@ export class SimulatedTablet {
     const { status, body } = await this.callApi("PUT", `/bean-batches/${encodeURIComponent(String(id))}`, fields);
     if (status !== 200) throw new Error(`Decaid refused the change with ${status}: ${JSON.stringify(body)}`);
     return body as Record<string, unknown>;
+  }
+
+  /** Adds a grinder in Decaid, as a barista does, and resolves with the record Decaid made. */
+  async addGrinder(fields: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { status, body } = await this.callApi("POST", "/grinders", fields);
+    if (status !== 201) throw new Error(`Decaid refused the grinder with ${status}: ${JSON.stringify(body)}`);
+    return body as Record<string, unknown>;
+  }
+
+  /** Changes the tablet's grinder with that id in Decaid, as a barista does, archiving it included, and resolves with the record Decaid returned. */
+  async editGrinder(id: unknown, fields: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { status, body } = await this.callApi("PUT", `/grinders/${encodeURIComponent(String(id))}`, fields);
+    if (status !== 200) throw new Error(`Decaid refused the change with ${status}: ${JSON.stringify(body)}`);
+    return body as Record<string, unknown>;
+  }
+
+  /** Deletes the tablet's grinder with that id in Decaid, as a barista does. */
+  async deleteGrinder(id: unknown): Promise<void> {
+    const { status, body } = await this.callApi("DELETE", `/grinders/${encodeURIComponent(String(id))}`);
+    if (status !== 200) throw new Error(`Decaid refused to delete the grinder with ${status}: ${JSON.stringify(body)}`);
   }
 
   /**
@@ -974,6 +1002,8 @@ export class SimulatedTablet {
   private writeLibrary(method: string, route: string, query: URLSearchParams, body: unknown): (DecaidAnswer & { etag?: true }) | undefined {
     const profiles = this.writeProfiles(method, route, query, body);
     if (profiles) return profiles;
+    const grinders = this.writeGrinders(method, route, body);
+    if (grinders) return grinders;
     const bean = /^\/beans\/([^/]+)$/.exec(route)?.[1];
     const ofBean = /^\/beans\/([^/]+)\/batches$/.exec(route)?.[1];
     const batch = /^\/bean-batches\/([^/]+)$/.exec(route)?.[1];
@@ -1013,6 +1043,34 @@ export class SimulatedTablet {
       if (method === "PUT") return keep(updateBatch(batches, id, json()));
       if (method === "DELETE") return keep(deleteBatch(batches, id));
     }
+    return undefined;
+  }
+
+  /**
+   * Carries out a write to the tablet's grinders as Decaid does, or reads one
+   * of them, and gives Decaid's answer; undefined for any other request,
+   * the list of them included, which is served as the other lists are.
+   */
+  private writeGrinders(method: string, route: string, body: unknown): DecaidAnswer | undefined {
+    const encoded = /^\/grinders(?:\/([^/]+))?$/.exec(route);
+    if (!encoded) return undefined;
+    const id = encoded[1] === undefined ? undefined : decodeURIComponent(encoded[1]);
+    const grinders = this.grinders();
+    const json = () => {
+      if (typeof body !== "string") throw new Error("The plugin sent a write without a JSON body");
+      return JSON.parse(body) as unknown;
+    };
+    const keep = (result: { answer: DecaidAnswer; grinders: Record<string, unknown>[] }) => {
+      this.api = { ...this.api, "/grinders": listedGrinders(result.grinders) };
+      return result.answer;
+    };
+    if (id === undefined) return method === "POST" ? keep(createGrinder(grinders, json())) : undefined;
+    if (method === "GET") {
+      const found = grinders.find((candidate) => candidate.id === id);
+      return found ? { status: 200, body: found } : { status: 404, body: { error: "Grinder not found" } };
+    }
+    if (method === "PUT") return keep(updateGrinder(grinders, id, json()));
+    if (method === "DELETE") return keep(deleteGrinder(grinders, id));
     return undefined;
   }
 

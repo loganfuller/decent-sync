@@ -454,7 +454,7 @@ describe("Library writes", () => {
   });
 
   it("reads a write, creating or updating a record, accepting fields and kinds it does not know", () => {
-    for (const message of [create, update, { ...create, kind: "grinder", priority: 1 }]) {
+    for (const message of [create, update, { ...create, kind: "recipe", priority: 1 }]) {
       expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
     }
   });
@@ -514,8 +514,10 @@ describe("Library writes", () => {
     expect(isItemId("profile", profileId)).toBe(true);
     expect(isItemId("bean", profileId)).toBe(false);
     expect(isItemId("beanBatch", globalId)).toBe(true);
+    expect(isItemId("grinder", globalId)).toBe(true);
+    expect(isItemId("grinder", profileId)).toBe(false);
     expect(LIBRARY_KINDS.every(isLibraryKind)).toBe(true);
-    expect(isLibraryKind("grinder")).toBe(false);
+    expect(isLibraryKind("recipe")).toBe(false);
   });
 
   it("finds the global id a record carries in its extras, in lower case", () => {

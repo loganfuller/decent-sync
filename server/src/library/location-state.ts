@@ -1,13 +1,14 @@
 import type { Prisma } from "../generated/prisma/client.js";
 
-// Each Location's state of the Library's Beans, Bean Batches and Profiles
-// (ADR-0008): whether a batch is at the Location and its remaining weight
-// there (`batch_locations`), the Locations offering a Bean that has no batch
-// there yet (`bean_origins`), and whether a Profile is shown there
+// Each Location's state of the Library's Beans, Bean Batches, Grinders and
+// Profiles (ADR-0008): whether a batch is at the Location and its remaining
+// weight there (`batch_locations`), the Locations offering a Bean that has no
+// batch there yet (`bean_origins`), the Grinders belonging to it
+// (`grinders.location_id`), and whether a Profile is shown there
 // (`profile_locations`). A Location offers a Bean while one of its batches
 // is there, or while it has an origin there, offers a batch while it is
-// there, and shows a Profile while it is shown there; nothing Archived is
-// offered or shown anywhere.
+// there, offers the Grinders that belong to it, and shows a Profile while it
+// is shown there; nothing Archived is offered or shown anywhere.
 //
 // Whether a batch is at a Location, and whether a Profile is shown there, are
 // each a field of its own (ADR-0020), whose latest edit wins. Each decision
@@ -176,6 +177,21 @@ export async function offeringLocations(db: Prisma.TransactionClient, beanIds: r
   const offering = new Map<string, string[]>();
   for (const row of rows) offering.set(row.beanId, [...(offering.get(row.beanId) ?? []), row.locationId]);
   return offering;
+}
+
+/**
+ * Archives a Grinder belonging to the Location, as archiving or deleting it on
+ * a tablet there does (true), or restores it, as un-archiving it there does
+ * (false) (ADR-0019). A Grinder belongs to that one Location, so this is
+ * its Location's change, made under its lock; one belonging to another
+ * Location, as for a tablet whose Machine has moved, is left as it is. Says
+ * whether that changed it.
+ */
+export async function archiveGrinderAt(tx: Prisma.TransactionClient, grinderId: string, locationId: string, archived: boolean): Promise<boolean> {
+  const changed = await tx.$executeRaw`
+    UPDATE grinders SET archived = ${archived}
+    WHERE id = ${grinderId}::uuid AND location_id = ${locationId}::uuid AND archived <> ${archived}`;
+  return changed > 0;
 }
 
 /**

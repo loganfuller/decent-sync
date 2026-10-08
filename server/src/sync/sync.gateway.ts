@@ -11,6 +11,7 @@ import {
   type ErrorCode,
   type Hello,
   type ItemWritten,
+  type LibraryKind,
   type LibraryWrite,
   MISSED_HEARTBEATS,
   PROTOCOL_VERSION,
@@ -34,6 +35,7 @@ import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { recordBatchWritten } from "../library/bean-batches.js";
 import { recordBeanWritten } from "../library/beans.js";
+import { recordGrinderWritten } from "../library/grinders.js";
 import type { SeenDecision } from "../library/intake.js";
 import { recordProfileWritten } from "../library/profiles.js";
 import { MachineEventsService } from "../machine-events/machine-events.service.js";
@@ -50,6 +52,12 @@ import { hashSecret } from "../secrets.js";
 import { HandledDeliveries, type IndexRequest } from "./handled-deliveries.js";
 import type { Hardware, Identity, Reporter } from "./identity.js";
 import { KIND_NAMES, TabletWriter } from "./tablet-writer.js";
+
+/** How the record a write's answer holds is recorded as the tablet's record of each kind of item but a Profile. */
+const RECORD_WRITTEN = { bean: recordBeanWritten, beanBatch: recordBatchWritten, grinder: recordGrinderWritten } as const satisfies Record<
+  Exclude<LibraryKind, "profile">,
+  unknown
+>;
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
 const MAX_PAYLOAD_BYTES = 1 << 20;
@@ -130,7 +138,7 @@ interface Session {
  * Record no supported Decaid sends is acknowledged and ignored, and logged
  * by its id with what it lacks.
  *
- * Once its reports of the tablet's beans, bean batches and profiles are
+ * Once its reports of the tablet's beans, bean batches, grinders and profiles are
  * taken in, a connection that is not mismatched writes the Library its
  * Machine's Location offers to its tablet (`TabletWriter`), one write at a
  * time, each answered by the plugin, which the server acknowledges once it
@@ -490,16 +498,16 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * longer awaited says nothing new of that.
    */
   private async recordAnswer(session: Session, kind: string, globalId: string, answer: ItemWritten, awaited: boolean, seen: SeenDecision | null): Promise<boolean> {
-    const name = isLibraryKind(kind) ? KIND_NAMES[kind] : kind;
+    // Only a kind the server writes is ever answered for.
+    if (!isLibraryKind(kind)) return false;
+    const name = KIND_NAMES[kind];
     try {
       const tablet = { sessionId: session.id, machineId: session.machine!.id, tabletId: session.live!.tabletId };
       const written = new Set(answer.writtenFields);
       const recorded =
         kind === "profile"
           ? await recordProfileWritten(this.prisma, tablet, globalId, answer.record, answer.updatedAt, seen)
-          : kind === "bean"
-            ? await recordBeanWritten(this.prisma, tablet, globalId, written, answer.record, answer.updatedAt, seen)
-            : await recordBatchWritten(this.prisma, tablet, globalId, written, answer.record, answer.updatedAt, seen);
+          : await RECORD_WRITTEN[kind](this.prisma, tablet, globalId, written, answer.record, answer.updatedAt, seen);
       if (recorded === "notTheItem" && awaited) {
         this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);
       }

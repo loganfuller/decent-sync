@@ -29,6 +29,8 @@ const STAFF = [
   "GET /api/beans/:id",
   "GET /api/bean-batches",
   "GET /api/bean-batches/:id",
+  "GET /api/grinders",
+  "GET /api/grinders/:id",
   "GET /api/profiles",
   "GET /api/profiles/:id",
   "GET /api/locations",
