@@ -259,6 +259,44 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     expect(server.output().slice(logged[0]) + other.output().slice(logged[1])).not.toContain("did not write");
   });
 
+  it("counts no write refused when a Bean is deleted on a tablet as the server archives it there, its batches reported gone first", async () => {
+    const labLocation = await api.createLocation("Gone lab", "UTC");
+    const first = await api.createMachine("Gone lab 1", labLocation.id);
+    const second = await api.createMachine("Gone lab 2", labLocation.id);
+    /** Set once the bean and its batch are to be deleted, as a poll reads the batches after the beans. */
+    let deleting: { bean: string; batch: string } | undefined;
+    let deleted = false;
+    const one: SimulatedTablet = load(first, "16131", {
+      apiDelayMs: (method, path) => {
+        if (method !== "GET") return 0;
+        if (deleting && path.startsWith("/bean-batches?")) {
+          // As DYE2 deletes a bean, its batch first: the poll then reads the batches without them.
+          void one.callApi("DELETE", `/bean-batches/${deleting.batch}`);
+          void one.callApi("DELETE", `/beans/${deleting.bean}`);
+          deleting = undefined;
+          deleted = true;
+          return 0;
+        }
+        // The next poll's read of the beans, which holds the delete, is slow to arrive, so the batches report comes first.
+        return deleted && path.startsWith("/beans?") ? 25_000 : 0;
+      },
+    });
+    const two = load(second, "16132");
+    await online(first, second);
+    const { record, batch } = await enterBatch(one, "Gone Typica");
+    await holds(() => heldBatch(two, batch.id), { archived: false });
+    await holds(() => heldBean(one, batch.bean.id), { extras: { [GLOBAL_ID_KEY]: batch.bean.id } });
+    const logged = server.output().length;
+    deleting = { bean: String(record.beanId), batch: String(record.id) };
+
+    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([]);
+    await holds(() => heldBean(two, batch.bean.id), { archived: true });
+    expect(one.beans()).toEqual([]);
+    // The server archived the Bean on the tablet that had deleted it, which Decaid answered with 404: no refusal.
+    await expect.poll(() => server.output().slice(logged), { timeout: 10_000 }).toContain(`no longer holds "bean" ${batch.bean.id}`);
+    expect(server.output().slice(logged)).not.toContain("did not write");
+  });
+
   it("takes a Bean archived on a tablet away from its Location with its batches there, and offers it again, without them, once un-archived", async () => {
     const { one, two } = await lab("Shelved", 16051);
     const { batch } = await enterBatch(one, "Shelved Honey");

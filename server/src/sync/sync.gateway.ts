@@ -435,7 +435,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * record of the item from now on, with any change the tablet made at its
    * Location that it shows besides the fields the write set, which the
    * answer names. A refusal is logged, escaped, as it repeats what Decaid
-   * answered; the writer skips that item. A record that fails to store in a
+   * answered; the writer skips that item. An update Decaid answers with 404
+   * found the record gone, deleted on the tablet as it was written, which
+   * the tablet's next report shows: it is skipped the same way, but not
+   * logged as a refusal. A record that fails to store in a
    * way that would repeat is logged and skipped the same way, so it cannot
    * stop the tablet's other writes. Any other failure closes the connection
    * with 1011, and the tablet's next connection is written the item again,
@@ -455,7 +458,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     let outcome: "written" | "refused" = "refused";
     const write = session.writer?.awaited(answer.id);
     if (answer.type === "writeRefused") {
-      if (write) {
+      if (write && write.localId !== null && answer.status === 404) {
+        // The record is gone from the tablet, deleted there just as it was written, which its next report shows.
+        this.logger.log(`The tablet of ${this.describe(session)} no longer holds ${quoted(answer.kind)} ${answer.globalId}, deleted there as it was written`);
+      } else if (write) {
         this.logger.warn(
           `The tablet of ${this.describe(session)} did not write ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? "Decaid did not answer" : `Decaid answered ${answer.status}`}, ${quoted(answer.error.slice(0, 200))}`,
         );
