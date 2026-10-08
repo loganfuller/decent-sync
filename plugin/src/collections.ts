@@ -36,6 +36,13 @@ const SOURCES: readonly Source[] = [
 ];
 
 /**
+ * The Library lists the server writes to, read only between its writes
+ * (`LibraryAccess`): a report of one of them must hold each write that began
+ * before it.
+ */
+const WRITTEN_LISTS: ReadonlySet<CollectionName> = new Set(["beans", "beanBatches"]);
+
+/**
  * The tablet's library, settings and paired devices, through the outbox.
  * Decaid has no event for them, so while connected the plugin reads each one
  * every poll interval and sends it, whole, when it changed
@@ -44,9 +51,9 @@ const SOURCES: readonly Source[] = [
  * plugin was disconnected. Reads run one at a time, one collection after
  * another, and a read asked for while one runs waits for it.
  *
- * A Library list is read, and its report queued, between the server's
- * writes to the tablet (`LibraryAccess`), so a report holds each write that
- * began before it. And whenever the beans were sent, the bean batches are
+ * A Library list the server writes to is read, and its report queued,
+ * between the server's writes to the tablet (`LibraryAccess`), so a report
+ * holds each write that began before it. And whenever the beans were sent, the bean batches are
  * sent in full after them, changed or not: the server takes in a batch only
  * once it knows its bean, which may have been added since the batches were
  * last sent.
@@ -106,7 +113,7 @@ export class CollectionCapture {
         let beansSent = false;
         for (const source of SOURCES) {
           if (this.stopped) return;
-          const sent = await (isLibraryList(source.name)
+          const sent = await (WRITTEN_LISTS.has(source.name)
             ? this.library.run(() => this.capture(source, full || (source.name === "beanBatches" && beansSent)))
             : this.capture(source, full));
           if (source.name === "beans") beansSent = sent;

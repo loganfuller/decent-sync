@@ -474,13 +474,15 @@ export interface LibraryWrite {
  * returned it, which the server records as the tablet's version of the item.
  * The server acknowledges it with `ack` once recorded.
  *
- * The plugin reads the tablet's Library lists and carries out writes one at
- * a time, and sends answers through its outbox, behind every report it read
- * before the write. So the server takes in a report read before a write
- * before that write's answer, and never reads an item it wrote as deleted
- * from a report that predates it. An answer the connection's drop held back
- * is sent on the next connection, which answers it with `ack` and nothing
- * more, as for any answer to a write that connection did not ask for.
+ * The plugin reads the tablet's lists of the kinds it writes and carries
+ * out writes one at a time, and sends answers through its outbox, behind
+ * every report it read before the write. So the server takes in a report
+ * read before a write before that write's answer, and never reads an item it
+ * wrote as deleted from a report that predates it. An answer the
+ * connection's drop held back is sent on the next connection, ahead of every
+ * report read after the write, and the server records it there too, as it
+ * does one arriving after its write timed out, though not as the answer to
+ * a write that connection asked for.
  */
 export interface ItemWritten {
   type: "written";

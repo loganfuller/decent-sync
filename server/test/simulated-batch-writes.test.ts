@@ -9,8 +9,9 @@ import { SimulatedTablet } from "./support/simulated-tablet.js";
 // recorded request is sent to a simulated tablet whose Decaid starts with no
 // beans or batches, as that one did, and must be answered the same, field for
 // field and in the same order, but for the ids Decaid assigns and the times
-// it reads from its clock, inside its error messages too. Those are compared
-// by which are the same as which.
+// it reads from its clock (`createdAt`, `updatedAt`, and those its error
+// messages name), which are compared by which are the same as which. The
+// dates Decaid parses from a request are compared as written.
 
 interface Exchange {
   request: { method: "GET" | "POST" | "PUT" | "DELETE"; path: string; body?: unknown };
@@ -22,9 +23,12 @@ const exchanges = JSON.parse(fs.readFileSync(fixture, "utf8")) as Exchange[];
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-/** A time as Dart's toIso8601String writes a local one, and as SQLite's errors print it, with its offset after a space. */
-const LOCAL_TIME = /\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}(\d{3})?(?: [+-]\d\d:\d\d)?(?!\d|Z)/g;
+/** A local time as SQLite's errors print one Decaid read from its clock: Dart's toIso8601String, then its offset after a space. */
+const OFFSET_TIME = /\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}(\d{3})? [+-]\d\d:\d\d/g;
+/** A time as Dart's toIso8601String writes a local one. */
 const WHOLE_LOCAL_TIME = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}(\d{3})?$/;
+/** The fields a record holds Decaid's clock in. */
+const CLOCK_FIELDS = new Set(["createdAt", "updatedAt"]);
 
 /** The UUIDs a value holds anywhere, inside strings too. */
 function uuidsIn(value: unknown): string[] {
@@ -41,12 +45,13 @@ class Names {
 
   constructor(private readonly assigned: ReadonlySet<string>) {}
 
-  of(value: unknown): unknown {
+  of(value: unknown, key?: string): unknown {
     if (typeof value === "string") {
-      return value.replace(UUID, (id) => (this.assigned.has(id) ? this.name(id, "id") : id)).replace(LOCAL_TIME, (time) => this.name(time, "time"));
+      if (key !== undefined && CLOCK_FIELDS.has(key) && WHOLE_LOCAL_TIME.test(value)) return this.name(value, "time");
+      return value.replace(UUID, (id) => (this.assigned.has(id) ? this.name(id, "id") : id)).replace(OFFSET_TIME, (time) => this.name(time, "time"));
     }
     if (Array.isArray(value)) return value.map((item) => this.of(item));
-    if (typeof value === "object" && value !== null) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, this.of(item)]));
+    if (typeof value === "object" && value !== null) return Object.fromEntries(Object.entries(value).map(([field, item]) => [field, this.of(item, field)]));
     return value;
   }
 

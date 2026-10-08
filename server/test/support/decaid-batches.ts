@@ -30,8 +30,8 @@ import { type DecaidAnswer, castError, decaidNow } from "./decaid-beans.js";
 // - A record lists its fields in BeanBatch.toJson's order, leaving out
 //   optional ones that are null.
 // - `GET /bean-batches` lists the most recently updated first, without
-//   archived batches or the batches of archived beans unless asked for
-//   archived ones; `GET /beans/{beanId}/batches` lists one bean's, leaving
+//   archived batches or the batches of beans archived or gone unless asked
+//   for archived ones; `GET /beans/{beanId}/batches` lists one bean's, leaving
 //   out only archived batches.
 
 type Batch = Record<string, unknown>;
@@ -169,8 +169,9 @@ export function deleteBean(beans: Bean[], batches: readonly Batch[], id: string)
 
 /** The batches as `GET /bean-batches` lists them: the most recently updated first, archived ones and an archived bean's only if asked for. */
 export function listedBatches(beans: readonly Bean[], batches: readonly Batch[], includeArchived: boolean): Batch[] {
-  const archivedBeans = new Set(beans.filter((bean) => bean.archived === true).map((bean) => bean.id));
-  return byUpdate(includeArchived ? batches : batches.filter((batch) => batch.archived !== true && !archivedBeans.has(batch.beanId)));
+  // Without archived ones, only the batches of beans held and not archived (getAllBatches in bean_dao.dart).
+  const activeBeans = new Set(beans.filter((bean) => bean.archived !== true).map((bean) => bean.id));
+  return byUpdate(includeArchived ? batches : batches.filter((batch) => batch.archived !== true && activeBeans.has(batch.beanId)));
 }
 
 /** A bean's batches as `GET /beans/{beanId}/batches` lists them. */
@@ -242,11 +243,17 @@ function parseDate(text: string): string {
   const fraction = (match[7] ?? "").padEnd(6, "0").slice(0, 6);
   const [ms, us] = [Number(fraction.slice(0, 3)), Number(fraction.slice(3))];
   if (match[8] === undefined) {
-    const local = new Date(year, month - 1, day, hour, minute, second, ms);
+    // Set by its parts, as Date's constructor reads a year below 100 as 1900 and more.
+    const local = new Date(0);
+    local.setFullYear(year, month - 1, day);
+    local.setHours(hour, minute, second, ms);
     return iso([local.getFullYear(), local.getMonth() + 1, local.getDate(), local.getHours(), local.getMinutes(), local.getSeconds(), local.getMilliseconds()], us, false);
   }
   const offset = match[9] === undefined ? 0 : (match[9] === "-" ? -1 : 1) * (Number(match[10]) * 60 + Number(match[11] ?? 0));
-  const utc = new Date(Date.UTC(year, month - 1, day, hour, minute, second, ms) - offset * 60_000);
+  const utc = new Date(0);
+  utc.setUTCFullYear(year, month - 1, day);
+  utc.setUTCHours(hour, minute, second, ms);
+  utc.setTime(utc.getTime() - offset * 60_000);
   return iso([utc.getUTCFullYear(), utc.getUTCMonth() + 1, utc.getUTCDate(), utc.getUTCHours(), utc.getUTCMinutes(), utc.getUTCSeconds(), utc.getUTCMilliseconds()], us, true);
 }
 

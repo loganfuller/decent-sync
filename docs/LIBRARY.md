@@ -66,7 +66,9 @@ them, never deleted, so their Shots still find it (Writing to tablets, below).
   its own (ADR-0020): when it was last added there and when it was finished
   there since, if it was, and the remaining weight entered there last, in
   grams, with that edit's time. A batch is at a Location while it was added
-  there and not finished since. Times are each edit's: a tablet's by the
+  there and not finished since. It is never finished before it was added,
+  nor added again before it was finished, whatever the clock that timed the
+  edit. Times are each edit's: a tablet's by the
   record's `updatedAt` in UTC; a delete, which Decaid does not time, by
   PostgreSQL's clock, but never earlier than the record the tablet was last
   known to have.
@@ -247,19 +249,25 @@ report's would be (`editsInAnswer`, `archivingInAnswer`), under the Machine's,
 the tablet's and the Location's locks, rather than written back over. A record
 that does not carry the item's global id, or whose local id the map holds as
 another item, is not recorded. A refusal, an answer that cannot be recorded,
-no answer within 120 s, or an item still due right after it was written skips
-that item for the rest of the connection; the other writes go on, and the
-tablet's next connection tries it again. An answer to no write its connection
-awaits, such as one arriving after its write timed out, or one the plugin's
-outbox held across a reconnect, is acknowledged and not recorded: its record
-may be older than one reported since, and the tablet's next report shows what
-it holds.
+no answer within 300 s, or an item due again with the same fields right after
+it was written, which writing again would not change, skips that item for the
+rest of the connection; the other writes go on, and the tablet's next
+connection tries it again. An item due again with other fields, as when the
+second request of a batch's create failed or the Location changed the item
+meanwhile, is written again. An answer to no write its connection awaits, such
+as one arriving after its write timed out, or one the plugin's outbox held
+across a reconnect, is recorded too, so the server's own write is not read
+back from the next report as the tablet's change: its record is the tablet's
+latest, since the outbox sends one delivery at a time and every report read
+after the write waits behind its answer. What that write set is not known
+then, so nothing in its record is taken as a change the tablet made.
 
 ### How the plugin writes
 
 The plugin (`plugin/src/library-writes.ts`) carries writes out through
-Decaid's API, one at a time, between its reads of the Library's lists, never
-during one (`LibraryAccess`), and queues each answer in its outbox, behind
+Decaid's API, one at a time, between its reads of the lists it writes to (the
+beans and bean batches), never during one (`LibraryAccess`), and queues each
+answer in its outbox, behind
 every report read before the write. So the server takes in each report read
 before a write before that write's answer, and never reads a record the
 plugin wrote as deleted from a report that predates it. A read of the list
@@ -282,8 +290,8 @@ tablet's list of batches to show it does not.
   id. A batch's create takes neither `archived` nor `weightRemaining`, which
   it sets to `weight`, so where the Location's remaining weight differs, the
   plugin writes it in a second request (`PUT /bean-batches/{id}`); should
-  that fail, it answers with the record as created, and the server writes the
-  weight again. Each create reads the whole list once, which a tablet joining
+  that fail or go unanswered, it answers with the record as created, and the
+  server writes the weight again on the same connection. Each create reads the whole list once, which a tablet joining
   a Location with many items does once per item.
 - To update a record, it reads the record and updates it (`PUT /beans/{id}`
   or `PUT /bean-batches/{id}`) with the fields the server sent and `extras`

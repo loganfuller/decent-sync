@@ -96,7 +96,7 @@ type TimerName = "reconnect" | "heartbeat" | "silence" | "connect" | "hardwarePo
  *
  * The server writes the Library items its Location shares to the tablet: it
  * asks for one write at a time, and the plugin carries each out through
- * Decaid's API, between its reads of the Library's lists, and answers it
+ * Decaid's API, between its reads of the lists it writes to, and answers it
  * through the outbox (library-writes.ts).
  */
 export class SyncConnection {
@@ -129,7 +129,7 @@ export class SyncConnection {
   private readonly steams: SteamCapture;
   private readonly machineEvents: MachineEvents;
   private readonly collections: CollectionCapture;
-  /** Carries out the Library writes the server asks for, one at a time, between reads of the Library's lists. */
+  /** Carries out the Library writes the server asks for, one at a time, between reads of the lists it writes to. */
   private readonly writes: LibraryWrites;
   /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
   private readonly tabletId: TabletId;
@@ -364,8 +364,7 @@ export class SyncConnection {
         break;
       case "write":
         // The connection that asked waits for the answer, which the outbox sends behind the reports read before the
-        // write. If that connection drops meanwhile, the next one acknowledges the answer and goes no further with it,
-        // and the tablet's next report of its Library shows the server what was written.
+        // write. If that connection drops meanwhile, the next one records the answer, though not as one it awaits.
         void this.writes.apply(message);
         break;
       case "heartbeat":

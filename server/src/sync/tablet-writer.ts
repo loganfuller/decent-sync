@@ -6,9 +6,12 @@ import type { PrismaService } from "../prisma.service.js";
 
 /**
  * How long the plugin has to answer a write. It makes up to three requests
- * of Decaid for one, each of which Decaid's fetch gives up on after 30 s.
+ * of Decaid for one, each of which Decaid's fetch gives up on after 30 s,
+ * once a read of one of the Library's lists it may be waiting for (another
+ * 30 s) is done, and its answer then waits in the outbox behind whatever
+ * was queued before it.
  */
-const ANSWER_TIMEOUT_MS = 120_000;
+const ANSWER_TIMEOUT_MS = 300_000;
 
 /** What a write's answer said. */
 export type WriteOutcome = "written" | "refused";
@@ -34,10 +37,10 @@ export type TakenInList = "beans" | "beanBatches";
  * plugin sends after it, and only while the Machine is at the Location both
  * latest reports were taken in at. A bean the tablet already holds, entered
  * there or before it joined, is then linked to the Library's Bean rather
- * than written to it again. When it finds the Machine at another Location than that, as once it
- * has moved, it asks the plugin for its collections afresh
- * (`requestCollections`), once for each Location it finds, and writes once
- * those reports are taken in there. A move is notified to every instance,
+ * than written to it again. When it finds the Machine at another Location
+ * than that, as once it has moved, it asks the plugin for its collections
+ * afresh (`requestCollections`), once for each Location it finds, and writes
+ * once those reports are taken in there. A move is notified to every instance,
  * which wakes the writers of the Machine's connections, and every writer
  * looks again after its instance listens anew, so a move missed meanwhile is
  * found too.
@@ -46,8 +49,10 @@ export type TakenInList = "beans" | "beanBatches";
  * connection awaits is answered, so a tablet is written one item at a
  * time. A write Decaid refuses, or the plugin does not answer in time, is
  * skipped for the rest of the connection, and tried again when the tablet
- * reconnects; the other writes go on. So is one still due right after it
- * was written, which writing again would not change.
+ * reconnects; the other writes go on. So is one due again, with the same
+ * fields, right after it was written, which writing again would not change;
+ * an item due again with other fields, as when a second request of its
+ * write failed or the Location changed it meanwhile, is written again.
  */
 export class TabletWriter {
   private running = false;
@@ -148,8 +153,8 @@ export class TabletWriter {
   }
 
   private async run(): Promise<void> {
-    /** The item written last, by `writeKey`, if its write changed what the tablet was due. */
-    let written: string | undefined;
+    /** The item written last, by `writeKey`, with the fields written, if its answer said it was written. */
+    let written: { key: string; fields: string } | undefined;
     for (;;) {
       this.again = false;
       // Until the connection's first reports are taken in, which its welcome brings, nothing is due.
@@ -173,7 +178,8 @@ export class TabletWriter {
       }
       const key = writeKey(due.kind, due.globalId);
       const item = `${due.kind === "bean" ? "Bean" : "Bean Batch"} ${due.globalId}`;
-      if (key === written) {
+      const fields = JSON.stringify(due.fields);
+      if (written?.key === key && written.fields === fields) {
         this.log.warn(`Tablet ${this.tablet.tabletId} is still due ${item} once written; it is tried again once the tablet reconnects`);
         this.skipped.add(key);
         continue;
@@ -184,7 +190,7 @@ export class TabletWriter {
       if (outcome === "timedOut") {
         this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the write of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once the tablet reconnects`);
       }
-      written = outcome === "written" ? key : undefined;
+      written = outcome === "written" ? { key, fields } : undefined;
       if (outcome !== "written") this.skipped.add(key);
     }
   }

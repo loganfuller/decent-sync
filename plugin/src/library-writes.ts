@@ -79,7 +79,7 @@ export class LibraryAccess {
 
 /**
  * Carries out the server's writes in the order they arrive, one at a time,
- * between reads of the Library's lists, and queues each answer in the
+ * between reads of the lists it writes to, and queues each answer in the
  * outbox, behind the reports read before it. So the server takes in each
  * report read before a write before that write's answer, and never reads an
  * item the plugin wrote as deleted from a report that predates it (ADR-0019).
@@ -97,7 +97,7 @@ export class LibraryWrites {
 }
 
 async function carryOut(write: LibraryWrite): Promise<WriteAnswer> {
-  const route = ROUTES[write.kind];
+  const route = Object.prototype.hasOwnProperty.call(ROUTES, write.kind) ? ROUTES[write.kind] : undefined;
   if (!route) return refused(write, null, `This plugin cannot write a ${write.kind}`);
   try {
     return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId));
@@ -117,8 +117,8 @@ async function carryOut(write: LibraryWrite): Promise<WriteAnswer> {
  * created, with the global id in its `extras`, and the fields Decaid's
  * create does not take, such as a batch's remaining weight, are written to
  * it after, where they differ from what Decaid made. Should that second
- * write fail, the record as created is the answer, and the server asks for
- * those fields again.
+ * write fail or go unanswered, the record as created is the answer, and the
+ * server asks for those fields again.
  */
 async function create(route: Route, write: LibraryWrite): Promise<WriteAnswer> {
   const listed = await request("GET", route.list);
@@ -138,8 +138,8 @@ async function create(route: Route, write: LibraryWrite): Promise<WriteAnswer> {
   if (!isObject(record) || typeof record.id !== "string") return refused(write, made.status, made.text);
   const later = Object.fromEntries(route.deferred.flatMap((field) => (field in write.fields && write.fields[field] !== (record[field] ?? null) ? [[field, write.fields[field]]] : [])));
   if (Object.keys(later).length === 0) return written(write, record);
-  const again = await request("PUT", `${route.records}/${encodeURIComponent(record.id)}`, later);
-  const updated = again.ok ? parsed(again.text) : undefined;
+  const again = await request("PUT", `${route.records}/${encodeURIComponent(record.id)}`, later).catch(() => undefined);
+  const updated = again?.ok ? parsed(again.text) : undefined;
   return written(write, isObject(updated) && typeof updated.id === "string" ? updated : record);
 }
 

@@ -7,6 +7,9 @@ import type { Prisma } from "../generated/prisma/client.js";
 // batches is there, or while it has an origin there, and offers a batch
 // while it is there; nothing Archived is offered anywhere.
 //
+// A batch is never finished before it was added, nor added again before it
+// was finished, whatever the clock of the tablet that timed the edit.
+//
 // Every change to a Location's state runs under that Location's advisory
 // lock, taken after the reporting tablet's row lock, so origins are kept to
 // Beans with no batch at the Location, and one tablet's change is decided
@@ -32,7 +35,7 @@ export async function lockLocation(tx: Prisma.TransactionClient, locationId: str
 export async function addBatchAt(tx: Prisma.TransactionClient, batchId: string, locationId: string, at: Date): Promise<boolean> {
   const added = await tx.$executeRaw`
     INSERT INTO batch_locations (batch_id, location_id, added_at) VALUES (${batchId}::uuid, ${locationId}::uuid, ${at}::timestamptz)
-    ON CONFLICT (batch_id, location_id) DO UPDATE SET added_at = EXCLUDED.added_at, finished_at = NULL
+    ON CONFLICT (batch_id, location_id) DO UPDATE SET added_at = GREATEST(EXCLUDED.added_at, batch_locations.finished_at), finished_at = NULL
       WHERE batch_locations.added_at IS NULL OR batch_locations.finished_at IS NOT NULL`;
   await tx.$executeRaw`
     DELETE FROM bean_origins
@@ -43,7 +46,7 @@ export async function addBatchAt(tx: Prisma.TransactionClient, batchId: string, 
 /** Finishes the batch at the Location, if it is there, timed by the edit. Says whether it was there. */
 export async function finishBatchAt(tx: Prisma.TransactionClient, batchId: string, locationId: string, at: Date): Promise<boolean> {
   const finished = await tx.$executeRaw`
-    UPDATE batch_locations SET finished_at = ${at}::timestamptz
+    UPDATE batch_locations SET finished_at = GREATEST(added_at, ${at}::timestamptz)
     WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid AND added_at IS NOT NULL AND finished_at IS NULL`;
   return finished > 0;
 }
@@ -89,7 +92,7 @@ export async function takeBeanFrom(
 ): Promise<boolean> {
   const origins = await tx.$executeRaw`DELETE FROM bean_origins WHERE bean_id = ${beanId}::uuid AND location_id = ${locationId}::uuid`;
   const finished = await tx.$executeRaw`
-    UPDATE batch_locations AS here SET finished_at = ${at}::timestamptz
+    UPDATE batch_locations AS here SET finished_at = GREATEST(here.added_at, ${at}::timestamptz)
     FROM bean_batches AS batch
     LEFT JOIN tablet_bean_batches AS held ON held.batch_id = batch.id AND held.tablet_id = ${tabletId}::uuid
     WHERE here.batch_id = batch.id AND batch.bean_id = ${beanId}::uuid AND here.location_id = ${locationId}::uuid

@@ -587,6 +587,7 @@ var __decentSync = (() => {
     { name: "scaleInfo", path: "/scale/info" },
     { name: "sensors", path: "/sensors" }
   ];
+  var WRITTEN_LISTS = /* @__PURE__ */ new Set(["beans", "beanBatches"]);
   var CollectionCapture = class {
     constructor(outbox, library, pollMs) {
       __publicField(this, "outbox", outbox);
@@ -634,7 +635,7 @@ var __decentSync = (() => {
           let beansSent = false;
           for (const source of SOURCES) {
             if (this.stopped) return;
-            const sent = await (isLibraryList(source.name) ? this.library.run(() => this.capture(source, full || source.name === "beanBatches" && beansSent)) : this.capture(source, full));
+            const sent = await (WRITTEN_LISTS.has(source.name) ? this.library.run(() => this.capture(source, full || source.name === "beanBatches" && beansSent)) : this.capture(source, full));
             if (source.name === "beans") beansSent = sent;
           }
         }
@@ -713,7 +714,7 @@ var __decentSync = (() => {
     }
   };
   async function carryOut(write) {
-    const route = ROUTES[write.kind];
+    const route = Object.prototype.hasOwnProperty.call(ROUTES, write.kind) ? ROUTES[write.kind] : void 0;
     if (!route) return refused(write, null, `This plugin cannot write a ${write.kind}`);
     try {
       return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId));
@@ -739,8 +740,8 @@ var __decentSync = (() => {
     if (!isObject2(record) || typeof record.id !== "string") return refused(write, made.status, made.text);
     const later = Object.fromEntries(route.deferred.flatMap((field) => field in write.fields && write.fields[field] !== (record[field] ?? null) ? [[field, write.fields[field]]] : []));
     if (Object.keys(later).length === 0) return written(write, record);
-    const again = await request("PUT", `${route.records}/${encodeURIComponent(record.id)}`, later);
-    const updated = again.ok ? parsed(again.text) : void 0;
+    const again = await request("PUT", `${route.records}/${encodeURIComponent(record.id)}`, later).catch(() => void 0);
+    const updated = again?.ok ? parsed(again.text) : void 0;
     return written(write, isObject2(updated) && typeof updated.id === "string" ? updated : record);
   }
   async function update(route, write, localId) {
@@ -1462,7 +1463,7 @@ var __decentSync = (() => {
       __publicField(this, "steams");
       __publicField(this, "machineEvents");
       __publicField(this, "collections");
-      /** Carries out the Library writes the server asks for, one at a time, between reads of the Library's lists. */
+      /** Carries out the Library writes the server asks for, one at a time, between reads of the lists it writes to. */
       __publicField(this, "writes");
       /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
       __publicField(this, "tabletId");

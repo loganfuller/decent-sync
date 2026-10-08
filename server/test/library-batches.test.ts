@@ -76,10 +76,11 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
       batches?: Record_[];
       apiDelayMs?: (method: string, path: string) => number;
       answerOnArrival?: boolean;
+      pollSeconds?: number;
     } = {},
   ): SimulatedTablet {
     const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
+      settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
       api: { ...derivedDe1Pro({ serial }), "/beans": options.beans ?? [], "/bean-batches": options.batches ?? [] },
       storage: options.storage,
       apiDelayMs: options.apiDelayMs,
@@ -303,6 +304,61 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     await expect.poll(() => heldBatch(two, batch.id).filter((record) => record.archived !== true), { timeout: 10_000 }).toEqual([]);
     expect(await whereAt(batch.id)).toEqual([]);
     expect(heldBatch(one, batch.id)).toMatchObject([{ archived: true }]);
+  });
+
+  it("writes the Location's remaining weight again on the same connection when the request after a batch's create fails", async () => {
+    const lab_ = await api.createLocation("Retried lab", "UTC");
+    const first = await api.createMachine("Retried lab 1", lab_.id);
+    const second = await api.createMachine("Retried lab 2", lab_.id);
+    const one = load(first, "16111");
+    await online(first);
+    const { record, batch } = await enterBatch(one, "Retried Gesha");
+    await one.editBatch(record.id, { weightRemaining: 120 });
+    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([["Retried lab", 120]]);
+
+    // The other tablet's first update of a batch, the one after its create, times out. It polls once an hour (every
+    // 72 s here), so no report of its own comes between the writes.
+    let timedOut = false;
+    const two = load(second, "16112", {
+      pollSeconds: 3600,
+      apiDelayMs: (method, path) => {
+        if (timedOut || method !== "PUT" || !path.startsWith("/bean-batches/")) return 0;
+        timedOut = true;
+        return 30_000;
+      },
+    });
+    const logged = server.output().length;
+    await holds(() => heldBatch(two, batch.id), { weightRemaining: 120, archived: false });
+    expect(timedOut).toBe(true);
+    const created = heldBatch(two, batch.id)[0]!;
+    expect(two.writes.filter((write) => write.includes("batch"))).toEqual([`POST /beans/${String(created.beanId)}/batches`, `PUT /bean-batches/${String(created.id)}`]);
+    expect(server.output().slice(logged)).not.toMatch(/did not write|still due/);
+  });
+
+  it("records the answer to a write that reached the tablet as its connection dropped, so the server's own write is not read back as the tablet's", async () => {
+    const { one, two } = await lab("Replayed", 16121);
+    const { record, batch } = await enterBatch(one, "Replayed Pacamara");
+    const own = await holds(() => heldBatch(two, batch.id), { archived: false });
+    await two.editBatch(own.id, { archived: true });
+    await holds(() => heldBatch(one, batch.id), { archived: true });
+
+    // Added back at the lab, the batch is un-archived on the first tablet, whose network goes as that write arrives.
+    one.cutConnectionAfter((frame) => {
+      const write = frame as { type?: unknown; globalId?: unknown; fields?: { archived?: unknown } };
+      const matches = write.type === "write" && write.globalId === batch.id && write.fields?.archived === false;
+      if (matches) queueMicrotask(() => one.loseNetwork());
+      return matches;
+    });
+    await two.editBatch(own.id, { archived: false });
+    await holds(() => heldBatch(one, batch.id), { id: record.id, archived: false });
+    // While it is away, the batch is finished at the lab again.
+    await two.editBatch(own.id, { archived: true });
+    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([]);
+
+    // Back, its outbox sends the answer, then its reports, which hold the batch as the server wrote it: no change.
+    one.restoreNetwork();
+    await holds(() => heldBatch(one, batch.id), { archived: true });
+    expect(await whereAt(batch.id)).toEqual([]);
   });
 
   it("finishes and Archives nothing for a tablet whose Decaid data was reset, and writes it what its Location offers, its remaining weight included", async () => {
