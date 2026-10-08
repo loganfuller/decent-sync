@@ -50,8 +50,8 @@ export type TakenInList = "beans" | "beanBatches";
  * time. A write Decaid refuses, or the plugin does not answer in time, is
  * skipped for the rest of the connection, and tried again when the tablet
  * reconnects; the other writes go on. So is one due again with the same
- * fields it was last written, having stayed due since, which writing again
- * would not change; an item due again with other fields, as when a second
+ * fields it was last written, found due at every look since, which writing
+ * again would not change; an item due again with other fields, as when a second
  * request of its write failed or the Location changed it meanwhile, is
  * written again.
  */
@@ -66,8 +66,10 @@ export class TabletWriter {
   private readonly skipped = new Set<string>();
   /**
    * The fields last written to each item on this connection, by `writeKey`,
-   * kept while the item has stayed due since, whatever was written between:
-   * due again with those fields, writing it changed nothing.
+   * kept while every look since has found the item due, whatever was written
+   * between: due again with those fields, writing it changed nothing. A look
+   * the writer skips while it waits for a report of the batches cannot tell,
+   * so it keeps them.
    */
   private readonly lastWritten = new Map<string, string>();
   /**

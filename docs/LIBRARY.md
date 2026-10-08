@@ -255,8 +255,8 @@ connection's reports. A record that does not carry the item's global id, or
 whose local id the map holds as another item, is not recorded.
 
 A refusal, an answer that cannot be recorded, no answer within 300 s, or an
-item due again with the same fields it was last written, having stayed due
-since, which writing again would not change, skips that item for the rest of
+item due again with the same fields it was last written, found due at every
+look since, which writing again would not change, skips that item for the rest of
 the connection; the other writes go on, and the tablet's next connection
 tries it again. An item due again with other fields, as when the second
 request of a batch's create failed or the Location changed the item
