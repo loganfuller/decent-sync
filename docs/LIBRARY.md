@@ -32,8 +32,9 @@ A tablet holds only what its Machine's Location offers (ADR-0008):
   until it is finished there, unless it or its Bean is Archived;
 - a **Bean** while one of its batches is there, and, while none of its
   batches is there yet, where a tablet created it, linked a bean of its own
-  to it, or un-archived its record (its origins, below), unless it is
-  Archived;
+  to it, or un-archived its record, unless it is Archived. This document and
+  the code call each such Location one of the Bean's origins (`bean_origins`,
+  below); it is a name for how the server keeps this, not a glossary term;
 - a **Profile** while it is shown there, unless it is Archived. A Profile is
   shown only where a tablet created it, or held it visible when nothing had
   decided it there yet, until it is hidden there or shown elsewhere; Decaid's
@@ -148,7 +149,10 @@ order reported (`planIntake` in `bean-intake.ts`):
    a tablet whose answer to a write was lost, or one restored from a Decaid
    backup, unless another record the tablet reports is that Bean already: it
    is then matched as a new record. Such a record changes nothing at the
-   Location; the Location's state is written to it.
+   Location; the Location's state is written to it, over any change the
+   tablet made to it before it was mapped, as when the plugin reloaded
+   between a write whose answer was lost and a barista's edit, so no outbox
+   held the answer any more.
 
 Records whose Bean these settle come first, so a record matched by roaster
 and name, though listed before them, cannot take their Bean. Then, in the
@@ -202,7 +206,8 @@ beans, and taken in the same way, under the same locks (`takeInBatches` in
   it was entered later than the value known, which the tablet had not seen;
   Conflicts come with ticket #84.
 - A record carrying a Library batch's global id is that batch, changing
-  nothing at the Location, as a bean's.
+  nothing at the Location, as a bean's, and so written the Location's state
+  over any change the tablet made to it before it was mapped.
 - Any other record is new: Bean Batches are never matched (ADR-0018). It
   joins the Library as a batch of the Bean that the tablet's map holds its
   bean's record as. Unless it is archived on the tablet, it is at the
@@ -350,24 +355,36 @@ plugin reads a record before it updates it, and Decaid keeps the fields it is
 not sent, so a change the tablet made at its Location since its last report,
 such as archiving a batch just before the server wrote its global id, comes
 back in the answer, and the next report, holding the record as answered,
-shows none. So the answer's `archived` and `weightRemaining`, where the write
-did not set them and they differ from the record known, are taken in as a
-report's would be (`editsInAnswer`, `archivingInAnswer`), under the Machine's,
-the tablet's and the Location's locks, rather than written back over. A record
-that does not carry the item's global id, or whose local id the map holds as
-another item, is not recorded. A refusal, an answer that cannot be recorded,
-no answer within 300 s, or an item due again with the same fields right after
-it was written, which writing again would not change, skips that item for the
+shows none. So the answer names the fields the write set (`writtenFields`),
+and its `archived` and `weightRemaining`, where the write did not set them and
+they differ from the record known, are taken in as a report's would be
+(`editsInAnswer`, `archivingInAnswer`), under the Machine's, the tablet's and
+the Location's locks, rather than written back over. An answer is recorded
+only while its connection holds the Machine, decided under the Machine's row
+lock, which a newer connection's hello takes too, so one an instance records
+late, after another connection has taken the Machine, never lands after that
+connection's reports. A record that does not carry the item's global id, or
+whose local id the map holds as another item, is not recorded.
+
+A refusal, an answer that cannot be recorded, no answer within 300 s, or an
+item due again with the same fields it was last written, found due at every
+look since, which writing again would not change, skips that item for the
 rest of the connection; the other writes go on, and the tablet's next
-connection tries it again. An item due again with other fields, as when the
-second request of a batch's create failed or the Location changed the item
-meanwhile, is written again. An answer to no write its connection awaits, such
-as one arriving after its write timed out, or one the plugin's outbox held
-across a reconnect, is recorded too, so the server's own write is not read
-back from the next report as the tablet's change: its record is the tablet's
-latest, since the outbox sends one delivery at a time and every report read
-after the write waits behind its answer. What that write set is not known
-then, so nothing in its record is taken as a change the tablet made.
+connection tries it again. An update Decaid answers with 404 found the record
+gone, deleted on the tablet just as the server wrote it, as when a barista
+deletes a bean with its batches and a report of the batches, read after the
+delete, comes before one of the beans: it is skipped the same way, but not
+taken for a refusal, as the tablet's next report shows the delete. An item due
+again with other fields, as when the second request of a batch's create
+failed or the Location changed the item meanwhile, is written again. An
+answer to no write its connection awaits, such as one arriving after its
+write timed out, or one the plugin's outbox held across a reconnect, is
+recorded too, so the server's own write is not read back from the next report
+as the tablet's change: its record is the tablet's latest, since the outbox
+sends one delivery at a time and every report read after the write waits
+behind its answer. When its write was planned is not known, so it says
+nothing new of what the tablet had seen of its Location's state (`seen_at`,
+above).
 
 ### How the plugin writes
 
@@ -498,7 +515,10 @@ its steps and the Profile it was saved from.
   Location has decided nothing of them. Those reports link or add only the
   items the tablet's map does not hold yet, such as those of a Machine given
   its first Location: what it held at its old Location stays offered only
-  there, though a batch un-archived on it is added at its new one.
+  there, though a batch un-archived on it is added at its new one. A change
+  made on the tablet just before a move, which a report or an answer brings
+  after it, means what it would at the Machine's new Location, as the
+  server reads it where the Machine is when it is taken in.
 - Grinders, each belonging to one Location: ticket #83. Each Location's
   steam, hot water and rinse settings: ticket #86. Conflicts and each item's
   history in the management interface: ticket #85.

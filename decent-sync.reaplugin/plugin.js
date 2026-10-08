@@ -727,17 +727,18 @@ var __decentSync = (() => {
     if (!route && write.kind !== "profile") return refused(write, null, `This plugin cannot write a ${write.kind}`);
     try {
       if (!route) return await writeProfile(write);
-      return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId));
+      return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId), Object.keys(write.fields));
     } catch (error) {
       return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   async function writeProfile(write) {
     const visibility = write.fields.visibility;
-    if (write.localId !== null) return answerTo(write, await setVisibility(write.localId, visibility));
+    if (write.localId !== null) return answerTo(write, await setVisibility(write.localId, visibility), ["visibility"]);
     const held = await heldProfile(write.globalId);
     if ("refused" in held) return refused(write, held.refused.status, held.refused.text);
     let record = held.record;
+    const writtenFields = [];
     if (!record) {
       const { parentId, metadata } = write.fields;
       const parent = typeof parentId === "string" ? await heldProfile(parentId) : void 0;
@@ -747,11 +748,13 @@ var __decentSync = (() => {
       const created = made.ok ? parsed(made.text) : void 0;
       if (!isObject2(created) || typeof created.id !== "string") return refused(write, made.status, made.text);
       record = created;
+      writtenFields.push(...Object.keys(body));
     }
-    if (record.id !== write.globalId || typeof visibility !== "string" || record.visibility === visibility) return written(write, record);
+    if (record.id !== write.globalId || typeof visibility !== "string" || record.visibility === visibility) return written(write, record, writtenFields);
     const again = await setVisibility(write.globalId, visibility).catch(() => void 0);
     const updated = again?.ok ? parsed(again.text) : void 0;
-    return written(write, isObject2(updated) && updated.id === write.globalId ? updated : record);
+    if (!isObject2(updated) || updated.id !== write.globalId) return written(write, record, writtenFields);
+    return written(write, updated, [...writtenFields, "visibility"]);
   }
   async function heldProfile(id) {
     const answer = await request("GET", `/profiles/${encodeURIComponent(id)}`);
@@ -768,9 +771,9 @@ var __decentSync = (() => {
     const parsedList = parsed(listed.text);
     const records = Array.isArray(parsedList) ? parsedList.filter(isObject2) : [];
     const held = records.find((record2) => globalIdOf(record2) === write.globalId.toLowerCase());
-    if (held) return written(write, held);
+    if (held) return written(write, held, []);
     const same = records.find((record2) => globalIdOf(record2) === null && record2.archived !== true && route.sameItem(record2, write.fields));
-    if (same && typeof same.id === "string") return answerTo(write, await update(route, { ...write, fields: {} }, same.id));
+    if (same && typeof same.id === "string") return answerTo(write, await update(route, { ...write, fields: {} }, same.id), []);
     const path = route.create(write.fields);
     if (path === null) return refused(write, null, `A ${write.kind} to create must name what it belongs to`);
     const body = { ...write.fields, extras: { [GLOBAL_ID_KEY]: write.globalId } };
@@ -779,10 +782,11 @@ var __decentSync = (() => {
     const record = made.ok ? parsed(made.text) : void 0;
     if (!isObject2(record) || typeof record.id !== "string") return refused(write, made.status, made.text);
     const later = Object.fromEntries(route.deferred.flatMap((field) => field in write.fields && write.fields[field] !== (record[field] ?? null) ? [[field, write.fields[field]]] : []));
-    if (Object.keys(later).length === 0) return written(write, record);
+    const writtenFields = Object.keys(write.fields);
+    if (Object.keys(later).length === 0) return written(write, record, writtenFields);
     const again = await request("PUT", `${route.records}/${encodeURIComponent(record.id)}`, later).catch(() => void 0);
     const updated = again?.ok ? parsed(again.text) : void 0;
-    return written(write, isObject2(updated) && typeof updated.id === "string" ? updated : record);
+    return written(write, isObject2(updated) && typeof updated.id === "string" ? updated : record, writtenFields);
   }
   async function update(route, write, localId) {
     const path = `${route.records}/${encodeURIComponent(localId)}`;
@@ -792,13 +796,13 @@ var __decentSync = (() => {
     const extras = isObject2(record) && isObject2(record.extras) ? record.extras : {};
     return request("PUT", path, { ...write.fields, extras: { ...extras, [GLOBAL_ID_KEY]: write.globalId } });
   }
-  function answerTo(write, answer) {
+  function answerTo(write, answer, writtenFields) {
     const record = answer.ok ? parsed(answer.text) : void 0;
-    if (isObject2(record) && typeof record.id === "string") return written(write, record);
+    if (isObject2(record) && typeof record.id === "string") return written(write, record, writtenFields);
     return refused(write, answer.status, answer.text);
   }
-  function written(write, record) {
-    return { type: "written", id: write.id, kind: write.kind, globalId: write.globalId, record, updatedAt: utcTime(record.updatedAt) };
+  function written(write, record, writtenFields) {
+    return { type: "written", id: write.id, kind: write.kind, globalId: write.globalId, record, updatedAt: utcTime(record.updatedAt), writtenFields };
   }
   function refused(write, status, error) {
     return { type: "writeRefused", id: write.id, kind: write.kind, globalId: write.globalId, status, error: error.slice(0, MAX_REFUSAL_LENGTH) };
@@ -1457,6 +1461,7 @@ var __decentSync = (() => {
   var MAX_TRANSPORTS = 8;
   var HARDWARE_CHECK_COOLDOWN_MS = 5e3;
   var YIELD_MS = 5 * 6e4;
+  var SEND_FAILURE_GRACE_MS = 2e3;
   var FINAL_CLOSES = /* @__PURE__ */ new Map([
     [CLOSE_CODES.bad_token, "The server refused the token. Enter the token shown when the machine entry was created, or a newly issued one."],
     [CLOSE_CODES.plugin_too_old, "The server needs a newer version of this plugin. Update the plugin."],
@@ -1688,7 +1693,7 @@ var __decentSync = (() => {
             try {
               await this.send(handle, delivery);
             } catch (error) {
-              if (handle === this.handle) this.drop("could not send a delivery");
+              this.sendFailed(handle, "could not send a delivery");
               throw error;
             }
           });
@@ -1731,7 +1736,7 @@ var __decentSync = (() => {
         this.send(handle, { type: "heartbeat" }).then(
           () => this.scheduleHeartbeat(handle, intervalMs),
           (error) => {
-            if (handle === this.handle) this.drop(`could not send a heartbeat: ${describe(error)}`);
+            this.sendFailed(handle, `could not send a heartbeat: ${describe(error)}`);
           }
         );
       });
@@ -1740,6 +1745,17 @@ var __decentSync = (() => {
     awaitServer(handle) {
       this.setTimer("silence", this.silenceMs, () => {
         if (handle === this.handle) this.drop(`heard nothing from the server for ${this.silenceMs / 1e3} s`);
+      });
+    }
+    /**
+     * A send on the handle failed. Its transport's events, the server's last
+     * messages among them, are handled first, and decide what happens next; if
+     * none ends the connection in time, it is dropped for `reason`.
+     */
+    sendFailed(handle, reason) {
+      if (handle !== this.handle) return;
+      this.setTimer("sendFailed", SEND_FAILURE_GRACE_MS, () => {
+        if (handle === this.handle) this.drop(reason);
       });
     }
     /** Sends on the handle, in chunks if the message is too large for a frame, unless the handle was dropped. */
@@ -1824,6 +1840,7 @@ var __decentSync = (() => {
       this.clearTimer("heartbeat");
       this.clearTimer("silence");
       this.clearTimer("connect");
+      this.clearTimer("sendFailed");
       if (handle !== void 0) this.closeTransport(handle);
     }
     async openTransport() {

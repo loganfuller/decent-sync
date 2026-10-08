@@ -184,8 +184,8 @@ export function planIntake(
  * it (false), as `editsInAnswer` reads a batch's: undefined if the write set
  * `archived` itself, the record known agrees, or none is known.
  */
-export function archivingInAnswer(knownArchived: boolean | null, record: Record<string, unknown>, written: Readonly<Record<string, unknown>>): boolean | undefined {
-  if (knownArchived === null || "archived" in written) return undefined;
+export function archivingInAnswer(knownArchived: boolean | null, record: Record<string, unknown>, written: ReadonlySet<string>): boolean | undefined {
+  if (knownArchived === null || written.has("archived")) return undefined;
   const archived = record.archived === true;
   return archived === knownArchived ? undefined : archived;
 }

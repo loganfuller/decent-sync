@@ -193,7 +193,7 @@ export function planBatchIntake(
 /**
  * What a tablet changed at its Location that the record Decaid returned for
  * one of the server's writes shows: each field the write did not set
- * (`written`, as the write named them) that differs from the record known.
+ * (`written`, the names the answer lists) that differs from the record known.
  * The plugin reads a record before it updates it, and Decaid keeps the
  * fields it is not sent, so a change made on the tablet since its last
  * report reaches the server in the answer, not in a later report, which
@@ -203,11 +203,11 @@ export function planBatchIntake(
 export function editsInAnswer(
   known: Pick<MappedBatch, "archived" | "weightRemaining"> | null,
   record: Record<string, unknown>,
-  written: Readonly<Record<string, unknown>>,
+  written: ReadonlySet<string>,
 ): LocationEdit[] {
   if (known === null) return [];
   return editsSince(known, { archived: record.archived === true, weightRemaining: weightOf(record) }).filter((edit) =>
-    edit.field === "at" ? !("archived" in written) : !("weightRemaining" in written),
+    edit.field === "at" ? !written.has("archived") : !written.has("weightRemaining"),
   );
 }
 

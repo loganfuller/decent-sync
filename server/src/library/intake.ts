@@ -19,6 +19,33 @@ export interface ReportingTablet {
   tabletId: string;
 }
 
+/** A connection whose tablet's answers to writes are recorded: its session, the Machine whose token it used, and its tablet. */
+export interface AnsweringTablet extends ReportingTablet {
+  sessionId: string;
+}
+
+/** What became of an answer to a write. */
+export type AnswerRecorded =
+  /** The record is the tablet's record of the item now. */
+  | "recorded"
+  /** The record is not the item's, or the Library no longer has the item: nothing changed. */
+  | "notTheItem"
+  /** The connection no longer holds its Machine: another one does, which hears from the tablet now. */
+  | "released";
+
+/**
+ * Holds the Machine's row lock until the transaction ends, if the
+ * connection still holds the Machine, and says whether it does. A newer
+ * connection's hello takes the same lock, so an answer recorded through an
+ * instance slow to see its connection close cannot land after the newer
+ * connection's reports.
+ */
+export async function lockHeldMachine(tx: Prisma.TransactionClient, tablet: AnsweringTablet): Promise<boolean> {
+  const rows = await tx.$queryRaw<unknown[]>`
+    SELECT 1 FROM machines WHERE id = ${tablet.machineId}::uuid AND connected_session_id = ${tablet.sessionId}::uuid FOR NO KEY UPDATE`;
+  return rows.length > 0;
+}
+
 /** Holds the tablet's row lock until the transaction ends, so its map changes one report or write at a time. */
 export async function lockTablet(tx: Prisma.TransactionClient, tabletId: string): Promise<void> {
   await tx.$queryRaw`SELECT 1 FROM tablets WHERE id = ${tabletId}::uuid FOR NO KEY UPDATE`;

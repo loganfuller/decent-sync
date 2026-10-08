@@ -50,13 +50,6 @@ import { HandledDeliveries, type IndexRequest } from "./handled-deliveries.js";
 import type { Hardware, Identity, Reporter } from "./identity.js";
 import { KIND_NAMES, TabletWriter } from "./tablet-writer.js";
 
-/**
- * What a write the connection no longer awaits may have set, as far as the
- * Library goes: every field a report would take as a change the tablet made
- * at its Location.
- */
-const UNKNOWN_WRITE: Readonly<Record<string, unknown>> = { archived: undefined, weightRemaining: undefined, visibility: undefined };
-
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
 const MAX_PAYLOAD_BYTES = 1 << 20;
 /**
@@ -441,37 +434,48 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   /**
    * Records the plugin's answer to a write, then acknowledges it, and lets
    * the connection's writer go on. A record Decaid returned is the tablet's
-   * record of the item from now on. A refusal is logged, escaped, as it
-   * repeats what Decaid answered; the writer skips that item. A record that
-   * fails to store in a way that would repeat is logged and skipped the same
-   * way, so it cannot stop the tablet's other writes. Any other failure
-   * closes the connection with 1011, and the tablet's next connection is
-   * written the item again, which the plugin then finds it holds.
+   * record of the item from now on, with any change the tablet made at its
+   * Location that it shows besides the fields the write set, which the
+   * answer names. A refusal is logged, escaped, as it repeats what Decaid
+   * answered; the writer skips that item. An update Decaid answers with 404
+   * found the record gone, deleted on the tablet as it was written, which
+   * the tablet's next report shows: it is skipped the same way, but not
+   * logged as a refusal. A record that fails to store in a
+   * way that would repeat is logged and skipped the same way, so it cannot
+   * stop the tablet's other writes. Any other failure closes the connection
+   * with 1011, and the tablet's next connection is written the item again,
+   * which the plugin then finds it holds.
    *
    * An answer to no write its connection awaits, one arriving after its
    * write timed out or one the plugin's outbox held across a reconnect, is
    * recorded too, so the server's own write is not later read as the
-   * tablet's change. Its record is the tablet's latest: the outbox sends one
-   * delivery at a time, and every report read after the write waits behind
-   * the answer. What that write set is not known here, so nothing in its
-   * record is taken as a change the tablet made at its Location. Nothing is
-   * recorded from a mismatched connection, which is never written to.
+   * tablet's change: the outbox sends one delivery at a time, and every
+   * report read after the write waits behind the answer. When its write
+   * was planned is not known, so its record says nothing new of what the
+   * tablet had seen of its Location's state. An answer is
+   * recorded only while its connection holds the Machine, so one an
+   * instance records late, after a newer connection has taken the Machine,
+   * never lands after that connection's reports. Nothing is recorded from a
+   * mismatched connection, which is never written to.
    */
   private async answered(session: Session, answer: ItemWritten | WriteRefused): Promise<void> {
     let outcome: "written" | "refused" = "refused";
     const awaited = session.writer?.awaited(answer.id);
     const write = awaited?.write;
     if (answer.type === "writeRefused") {
-      if (write) {
+      if (write && write.localId !== null && answer.status === 404) {
+        // The record is gone from the tablet, as when it was deleted there just as it was written: its next report shows it.
+        this.logger.log(`The tablet of ${this.describe(session)} no longer holds ${quoted(answer.kind)} ${answer.globalId}; its next report shows it gone`);
+      } else if (write) {
         this.logger.warn(
           `The tablet of ${this.describe(session)} did not write ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? "Decaid did not answer" : `Decaid answered ${answer.status}`}, ${quoted(answer.error.slice(0, 200))}`,
         );
       }
     } else if (write) {
       // The write it answers names the item, whatever the answer says: its record must carry that item's global id.
-      if (await this.recordAnswer(session, write.kind, write.globalId, write.fields, answer, awaited.plannedAt)) outcome = "written";
+      if (await this.recordAnswer(session, write.kind, write.globalId, answer, awaited.plannedAt)) outcome = "written";
     } else if (session.writer && isLibraryKind(answer.kind)) {
-      await this.recordAnswer(session, answer.kind, answer.globalId, UNKNOWN_WRITE, answer, null);
+      await this.recordAnswer(session, answer.kind, answer.globalId, answer, null);
     }
     this.acknowledge(session, answer.id, null);
     session.writer?.answered(answer.id, outcome);
@@ -479,37 +483,32 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
 
   /**
    * Records the record a write's answer holds as the tablet's record of the
-   * item (`written`, the fields the write set), and says whether it could. A
-   * record that is not the item's is logged when its write was awaited: when
-   * the server planned it (`plannedAt`), by PostgreSQL's clock, by which the
-   * record shows what the tablet had seen of its Location's state. An answer
-   * to a write no longer awaited has none.
+   * item, and says whether it did. A record that is not the item's is logged
+   * when its write was awaited: when the server planned it (`plannedAt`), by
+   * PostgreSQL's clock, by which the record shows what the tablet had seen of
+   * its Location's state. An answer to a write no longer awaited has none.
    */
-  private async recordAnswer(
-    session: Session,
-    kind: string,
-    globalId: string,
-    written: Readonly<Record<string, unknown>>,
-    answer: ItemWritten,
-    plannedAt: Date | null,
-  ): Promise<boolean> {
+  private async recordAnswer(session: Session, kind: string, globalId: string, answer: ItemWritten, plannedAt: Date | null): Promise<boolean> {
     const name = isLibraryKind(kind) ? KIND_NAMES[kind] : kind;
     try {
-      const tablet = { machineId: session.machine!.id, tabletId: session.live!.tabletId };
+      const tablet = { sessionId: session.id, machineId: session.machine!.id, tabletId: session.live!.tabletId };
+      const written = new Set(answer.writtenFields);
       const recorded =
         kind === "profile"
           ? await recordProfileWritten(this.prisma, tablet, globalId, answer.record, answer.updatedAt, plannedAt)
           : kind === "bean"
             ? await recordBeanWritten(this.prisma, tablet, globalId, written, answer.record, answer.updatedAt)
             : await recordBatchWritten(this.prisma, tablet, globalId, written, answer.record, answer.updatedAt, plannedAt);
-      if (recorded) return true;
-      if (plannedAt !== null) this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);
+      if (recorded === "notTheItem" && plannedAt !== null) {
+        this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);
+      }
+      return recorded === "recorded";
     } catch (error) {
       const failure = repeatingFailure(error);
       if (!failure) throw error;
       this.logger.warn(`Could not record the ${name} ${globalId} written to the tablet of ${this.describe(session)}: ${failure.message} (${failure.sqlState})`);
+      return false;
     }
-    return false;
   }
 
   /** Sends a write on the connection, in chunks if it is too large for one frame. */

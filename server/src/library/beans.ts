@@ -2,9 +2,8 @@ import { GLOBAL_ID_KEY, globalIdOf, isRecordId } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
-import { lockMachine } from "../machines/machines.service.js";
 import { archivingInAnswer, beanContent, planIntake, readReportedBeans } from "./bean-intake.js";
-import { INTAKE_TRANSACTION, type ReportingTablet, currentLocation, lockTablet } from "./intake.js";
+import { type AnswerRecorded, type AnsweringTablet, INTAKE_TRANSACTION, type ReportingTablet, currentLocation, lockHeldMachine, lockTablet } from "./intake.js";
 import { listedIds } from "./listed.js";
 import { deletedAt, lockLocation, offerBeanAt, takeBeanFrom, transactionTime } from "./location-state.js";
 
@@ -116,29 +115,30 @@ export async function takeInBeans(
  * fields were `written`): the tablet's record of that Bean from now on,
  * whatever the time of the record known, since Decaid has just returned it.
  * A record archived or un-archived on the tablet since its last report, which
- * the write kept, means at the tablet's Location what it would in a report.
- * Holds the Machine's, the tablet's and the Location's locks, in the order a
- * report takes them. Says whether the tablet holds the Bean now. It does not
- * when the record does not carry the Bean's global id, when the map holds the
- * record as another Bean's, or when the Library no longer has the Bean;
- * nothing is recorded then, and writing the Bean again would change nothing.
+ * the write kept (`written`, the fields it set), means at the tablet's
+ * Location what it would in a report. Recorded only while the answering
+ * connection holds its Machine, under the Machine's, the tablet's and the
+ * Location's locks, in the order a report takes them. Nothing is recorded
+ * when the record does not carry the Bean's global id, when the map holds
+ * the record as another Bean's, or when the Library no longer has the Bean,
+ * and writing the Bean again would change nothing.
  */
 export async function recordBeanWritten(
   prisma: PrismaService,
-  tablet: ReportingTablet,
+  tablet: AnsweringTablet,
   beanId: string,
-  written: Readonly<Record<string, unknown>>,
+  written: ReadonlySet<string>,
   record: Record<string, unknown>,
   updatedAt: string | null,
-): Promise<boolean> {
-  if (!isRecordId(record.id) || globalIdOf(record) !== beanId.toLowerCase()) return false;
+): Promise<AnswerRecorded> {
+  if (!isRecordId(record.id) || globalIdOf(record) !== beanId.toLowerCase()) return "notTheItem";
   const localId = record.id;
-  return prisma.$transaction(async (tx) => {
-    await lockMachine(tx, tablet.machineId);
+  return prisma.$transaction(async (tx): Promise<AnswerRecorded> => {
+    if (!(await lockHeldMachine(tx, tablet))) return "released";
     await lockTablet(tx, tablet.tabletId);
-    if ((await tx.bean.count({ where: { id: beanId } })) === 0) return false;
+    if ((await tx.bean.count({ where: { id: beanId } })) === 0) return "notTheItem";
     const other = await tx.tabletBean.findUnique({ where: { tabletId_localId: { tabletId: tablet.tabletId, localId } }, select: { beanId: true } });
-    if (other && other.beanId !== beanId) return false;
+    if (other && other.beanId !== beanId) return "notTheItem";
     const [known] = await tx.$queryRaw<{ archived: boolean }[]>`
       SELECT (record ->> 'archived') = 'true' AS archived FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid AND bean_id = ${beanId}::uuid`;
     const at = updatedAt === null ? null : new Date(updatedAt);
@@ -152,7 +152,7 @@ export async function recordBeanWritten(
         : await offerBeanAt(tx, beanId, locationId);
       if (changed) await notify(tx, "library_changes", locationId);
     }
-    return true;
+    return "recorded";
   }, INTAKE_TRANSACTION);
 }
 

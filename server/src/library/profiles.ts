@@ -1,8 +1,7 @@
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
-import { lockMachine } from "../machines/machines.service.js";
-import { INTAKE_TRANSACTION, type ReportingTablet, currentLocation, lockTablet } from "./intake.js";
+import { type AnswerRecorded, type AnsweringTablet, INTAKE_TRANSACTION, type ReportingTablet, currentLocation, lockHeldMachine, lockTablet } from "./intake.js";
 import { listedIds } from "./listed.js";
 import { decideProfileAt, deletedAt, lockLocation, showProfileAt, transactionTime } from "./location-state.js";
 import { planProfileIntake, profileContent, readReportedProfiles } from "./profile-intake.js";
@@ -112,30 +111,29 @@ export async function takeInProfiles(
  * `recordBeanWritten` does a Bean's: the tablet's record of that Profile from
  * now on, whatever the time of the record known. Every write of a Profile
  * sets its visibility, so its answer shows no change the tablet made at its
- * Location. Holds the Machine's and the tablet's locks, in the order a report
- * takes them. The record shows what the tablet had seen of its Location's
- * state when the server planned the write (`plannedAt`), or null for an
- * answer to a write no longer awaited, whose time is not known. Says whether
- * the tablet holds the Profile now. It does not when
- * the record is another Profile's, as one a Decaid hashing profiles otherwise
- * would make, or when the Library no longer has the Profile; nothing is
- * recorded then.
+ * Location. Recorded only while the answering connection holds its Machine,
+ * under the Machine's and the tablet's locks, in the order a report takes
+ * them. The record shows what the tablet had seen of its Location's state
+ * when the server planned the write (`plannedAt`), or null for an answer to
+ * a write no longer awaited, whose time is not known. Nothing is recorded
+ * when the record is another Profile's, as one a Decaid hashing profiles
+ * otherwise would make, or when the Library no longer has the Profile.
  */
 export async function recordProfileWritten(
   prisma: PrismaService,
-  tablet: ReportingTablet,
+  tablet: AnsweringTablet,
   profileId: string,
   record: Record<string, unknown>,
   updatedAt: string | null,
   plannedAt: Date | null,
-): Promise<boolean> {
-  if (record.id !== profileId) return false;
-  return prisma.$transaction(async (tx) => {
-    await lockMachine(tx, tablet.machineId);
+): Promise<AnswerRecorded> {
+  if (record.id !== profileId) return "notTheItem";
+  return prisma.$transaction(async (tx): Promise<AnswerRecorded> => {
+    if (!(await lockHeldMachine(tx, tablet))) return "released";
     await lockTablet(tx, tablet.tabletId);
-    if ((await tx.profile.count({ where: { id: profileId } })) === 0) return false;
+    if ((await tx.profile.count({ where: { id: profileId } })) === 0) return "notTheItem";
     await saveRecord(tx, tablet.tabletId, profileId, record, updatedAt === null ? null : new Date(updatedAt), plannedAt);
-    return true;
+    return "recorded";
   }, INTAKE_TRANSACTION);
 }
 

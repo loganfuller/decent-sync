@@ -2,9 +2,8 @@ import { GLOBAL_ID_KEY, globalIdOf, isRecordId } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
-import { lockMachine } from "../machines/machines.service.js";
 import { type LocationEdit, batchContent, editsInAnswer, planBatchIntake, readReportedBatches } from "./batch-intake.js";
-import { INTAKE_TRANSACTION, type ReportingTablet, currentLocation, lockTablet } from "./intake.js";
+import { type AnswerRecorded, type AnsweringTablet, INTAKE_TRANSACTION, type ReportingTablet, currentLocation, lockHeldMachine, lockTablet } from "./intake.js";
 import { listedIds } from "./listed.js";
 import { addBatchAt, deletedAt, enterRemainingWeight, finishBatchAt, lockLocation, transactionTime } from "./location-state.js";
 
@@ -115,26 +114,25 @@ async function applyEdits(
  * taken in as a report would take it (`editsInAnswer`). The record shows
  * what the tablet had seen of its Location's state when the server planned
  * the write (`plannedAt`), or null for an answer to a write no longer
- * awaited, whose time is not known. Says whether the tablet holds the batch
- * now.
+ * awaited, whose time is not known.
  */
 export async function recordBatchWritten(
   prisma: PrismaService,
-  tablet: ReportingTablet,
+  tablet: AnsweringTablet,
   batchId: string,
-  written: Readonly<Record<string, unknown>>,
+  written: ReadonlySet<string>,
   record: Record<string, unknown>,
   updatedAt: string | null,
   plannedAt: Date | null,
-): Promise<boolean> {
-  if (!isRecordId(record.id) || globalIdOf(record) !== batchId.toLowerCase()) return false;
+): Promise<AnswerRecorded> {
+  if (!isRecordId(record.id) || globalIdOf(record) !== batchId.toLowerCase()) return "notTheItem";
   const localId = record.id;
-  return prisma.$transaction(async (tx) => {
-    await lockMachine(tx, tablet.machineId);
+  return prisma.$transaction(async (tx): Promise<AnswerRecorded> => {
+    if (!(await lockHeldMachine(tx, tablet))) return "released";
     await lockTablet(tx, tablet.tabletId);
-    if ((await tx.beanBatch.count({ where: { id: batchId } })) === 0) return false;
+    if ((await tx.beanBatch.count({ where: { id: batchId } })) === 0) return "notTheItem";
     const other = await tx.tabletBeanBatch.findUnique({ where: { tabletId_localId: { tabletId: tablet.tabletId, localId } }, select: { batchId: true } });
-    if (other && other.batchId !== batchId) return false;
+    if (other && other.batchId !== batchId) return "notTheItem";
     const [known] = await tx.$queryRaw<{ archived: boolean; weightRemaining: number | null; seenAt: Date | null }[]>`
       SELECT (record ->> 'archived') = 'true' AS archived, seen_at AS "seenAt",
         CASE WHEN jsonb_typeof(record -> 'weightRemaining') = 'number' THEN (record ->> 'weightRemaining')::double precision END AS "weightRemaining"
@@ -150,7 +148,7 @@ export async function recordBatchWritten(
     }
     // Saved after what it changed at the Location, which it has seen.
     await saveRecord(tx, tablet.tabletId, batchId, localId, record, at, changed ? "now" : plannedAt);
-    return true;
+    return "recorded";
   }, INTAKE_TRANSACTION);
 }
 

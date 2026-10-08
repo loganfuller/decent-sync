@@ -186,13 +186,13 @@ describe("editsInAnswer", () => {
 
   it("finds what the tablet changed at its Location since its last report in the record Decaid returned for a write", () => {
     // Archived on the tablet just before the server wrote its global id, which kept it archived.
-    expect(editsInAnswer(known, record(LOCAL[0], { archived: true, ...withId(GLOBAL[0]) }), { extras: {} })).toEqual([{ field: "at", value: false }]);
-    expect(editsInAnswer(known, record(LOCAL[0], { weightRemaining: 180.5 }), {})).toEqual([{ field: "remainingWeight", value: 180.5, had: 250 }]);
+    expect(editsInAnswer(known, record(LOCAL[0], { archived: true, ...withId(GLOBAL[0]) }), new Set())).toEqual([{ field: "at", value: false }]);
+    expect(editsInAnswer(known, record(LOCAL[0], { weightRemaining: 180.5 }), new Set())).toEqual([{ field: "remainingWeight", value: 180.5, had: 250 }]);
   });
 
   it("takes no field the write set for the tablet's change, and finds none in a record the write created", () => {
-    expect(editsInAnswer(known, record(LOCAL[0], { archived: true, weightRemaining: 120 }), { archived: true, weightRemaining: 120 })).toEqual([]);
-    expect(editsInAnswer(known, record(LOCAL[0]), {})).toEqual([]);
-    expect(editsInAnswer(null, record(LOCAL[0], { archived: true }), { roastDate: "2026-10-01" })).toEqual([]);
+    expect(editsInAnswer(known, record(LOCAL[0], { archived: true, weightRemaining: 120 }), new Set(["archived", "weightRemaining"]))).toEqual([]);
+    expect(editsInAnswer(known, record(LOCAL[0]), new Set())).toEqual([]);
+    expect(editsInAnswer(null, record(LOCAL[0], { archived: true }), new Set(["roastDate"]))).toEqual([]);
   });
 });
