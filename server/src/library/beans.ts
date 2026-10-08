@@ -16,8 +16,8 @@ import { deletedAt, lockLocation, offerBeanAt, takeBeanFrom, transactionTime } f
 // Location's tablets' connections writes it what the Location offers
 // (server/src/sync/tablet-writer.ts). The server keeps, per tablet, each
 // Bean's local id there, the record as the tablet last had it, and the
-// latest decision of its batches' presence at the Location that the record
-// has seen, by which taking the Bean away is judged (ADR-0020).
+// latest decision of its batches' presence at the Location that a write to
+// the record carried, by which taking the Bean away is judged (ADR-0020).
 //
 // Everything that changes a tablet's map holds its tablet's row lock, so
 // reports and the answers to writes are decided one at a time, on any
@@ -94,8 +94,6 @@ export async function takeInBeans(
     } else {
       beanId = step.beanId;
     }
-    /** When the record's own archiving decided its batches' presence at the Location, which it has seen then; null if it did not. */
-    let decided: Date | null = null;
     if (step.kind === "add" || step.kind === "link") {
       // One archived on the tablet joins the Library, but is not offered at its Location.
       if (!bean.archived) await offerBeanAt(tx, beanId, locationId);
@@ -104,14 +102,13 @@ export async function takeInBeans(
       // The tablet holds it as the Location has it, or is written so.
       writesDue = true;
     } else if (step.archived === true) {
-      const taken = await takeBeanFrom(tx, beanId, locationId, bean.updatedAt, seenAt.get(beanId) ?? null);
-      writesDue = taken.changed || writesDue;
-      decided = taken.decidedAt;
+      writesDue = (await takeBeanFrom(tx, beanId, locationId, bean.updatedAt, seenAt.get(beanId) ?? null)) || writesDue;
     } else if (step.archived === false) {
       writesDue = (await offerBeanAt(tx, beanId, locationId)) || writesDue;
     }
-    // A report shows nothing of what the tablet saw of others' decisions, only of the one its own archiving made.
-    await saveRecord(tx, tablet.tabletId, beanId, bean.localId, bean.record, bean.updatedAt, decided);
+    // A report shows nothing of what the tablet saw of others' decisions. Nor does its own archiving, which may
+    // leave batches added since in place: one time of the record's could not say which it saw.
+    await saveRecord(tx, tablet.tabletId, beanId, bean.localId, bean.record, bean.updatedAt, null);
     // A record whose global id is lost has it written back.
     if (bean.globalId !== beanId) writesDue = true;
   }
@@ -129,9 +126,8 @@ export async function takeInBeans(
  * connection holds its Machine, under the Machine's, the tablet's and the
  * Location's locks, in the order a report takes them. The record has seen
  * the latest decision of the Bean's batches' presence at the Location that
- * the write carried (`seenAt`), as Decaid answered after it, or one its own
- * archiving made; null says nothing new, as for an answer to a write no
- * longer awaited. Nothing is recorded when the record does not carry the
+ * the write carried (`seenAt`), as Decaid answered after it; null says
+ * nothing new, as for an answer to a write no longer awaited. Nothing is recorded when the record does not carry the
  * Bean's global id, when the map holds the record as another Bean's, or
  * when the Library no longer has the Bean, and writing the Bean again would
  * change nothing.
@@ -159,16 +155,15 @@ export async function recordBeanWritten(
     const at = updatedAt === null ? null : new Date(updatedAt);
     const archived = archivingInAnswer(known?.archived ?? null, record, written);
     const locationId = archived === undefined ? null : await currentLocation(tx, tablet.machineId);
-    let decidedAt: Date | null = null;
     if (locationId !== null) {
       await lockLocation(tx, locationId);
       // The tablet archived it before Decaid answered: judged by what the record had seen before.
-      const taken = archived ? await takeBeanFrom(tx, beanId, locationId, at ?? (await transactionTime(tx)), known?.seenAt ?? null) : null;
-      const changed = taken ? taken.changed : await offerBeanAt(tx, beanId, locationId);
-      decidedAt = taken?.decidedAt ?? null;
+      const changed = archived
+        ? await takeBeanFrom(tx, beanId, locationId, at ?? (await transactionTime(tx)), known?.seenAt ?? null)
+        : await offerBeanAt(tx, beanId, locationId);
       if (changed) await notify(tx, "library_changes", locationId);
     }
-    await saveRecord(tx, tablet.tabletId, beanId, localId, record, at, decidedAt ?? seenAt);
+    await saveRecord(tx, tablet.tabletId, beanId, localId, record, at, seenAt);
     return "recorded";
   }, INTAKE_TRANSACTION);
 }
@@ -176,9 +171,10 @@ export async function recordBeanWritten(
 /**
  * Saves the tablet's record of a Bean as the one it holds, under its local
  * id, with the latest decision of its batches' presence at the Location it
- * has now seen (`seenAt`), as a batch's record keeps its own: one the
- * server's write carried, or one its own archiving made. It keeps the latest
- * it has seen; null keeps the one known. Whether a reported record replaces
+ * has now seen (`seenAt`): one the server's write carried. Its own
+ * archiving does not count, as it may leave batches added since in place,
+ * which one time could not tell apart. It keeps the latest it has seen; null
+ * keeps the one known. Whether a reported record replaces
  * the one known is decided by `planIntake`, under the tablet's row lock; a
  * record Decaid has just returned for a write always does.
  */

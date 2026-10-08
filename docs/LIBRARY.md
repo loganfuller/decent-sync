@@ -108,9 +108,10 @@ it (Writing to tablets, below).
   presence, of the Profile's showing, or of the presence of any of the Bean's
   batches: the one the server's write it answers carried, which Decaid
   answered after, or one its own edit made, whichever is later, as a write
-  planned before the tablet's own decision may be answered after it. A report
-  shows nothing of what the tablet saw of other tablets' decisions, as the
-  plugin may have read it before them and sent it after, as across a
+  planned before the tablet's own decision may be answered after it. A Bean's
+  own archiving does not count, as it may leave batches added since in place.
+  A report shows nothing of what the tablet saw of other tablets' decisions,
+  as the plugin may have read it before them and sent it after, as across a
   reconnect; nor does an answer to a write no longer awaited, whose write is
   not known. Either keeps the decision known seen before. A reset tablet has a
   new tablet id, so it starts with nothing here.

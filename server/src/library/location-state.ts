@@ -118,26 +118,17 @@ export async function enterRemainingWeight(
  * decision of its batches' presence there that the tablet's record of the
  * Bean has seen, and timed later, stays. What its records of the batches
  * have seen says nothing of when the Bean was archived. Says whether
- * anything changed, and when it finished a batch there, or null if it did
- * not.
+ * anything changed.
  */
-export async function takeBeanFrom(
-  tx: Prisma.TransactionClient,
-  beanId: string,
-  locationId: string,
-  at: Date,
-  seenAt: Date | null,
-): Promise<{ changed: boolean; decidedAt: Date | null }> {
+export async function takeBeanFrom(tx: Prisma.TransactionClient, beanId: string, locationId: string, at: Date, seenAt: Date | null): Promise<boolean> {
   const origins = await tx.$executeRaw`DELETE FROM bean_origins WHERE bean_id = ${beanId}::uuid AND location_id = ${locationId}::uuid`;
-  const finished = await tx.$queryRaw<{ decidedAt: Date }[]>`
+  const finished = await tx.$executeRaw`
     UPDATE batch_locations AS here SET finished_at = GREATEST(here.added_at, ${at}::timestamptz), presence_decided_at = clock_timestamp()
     FROM bean_batches AS batch
     WHERE here.batch_id = batch.id AND batch.bean_id = ${beanId}::uuid AND here.location_id = ${locationId}::uuid
       AND here.added_at IS NOT NULL AND here.finished_at IS NULL
-      AND (here.added_at <= ${at}::timestamptz OR here.presence_decided_at <= ${seenAt}::timestamptz)
-    RETURNING here.presence_decided_at AS "decidedAt"`;
-  const decidedAt = finished.reduce<Date | null>((latest, { decidedAt }) => (latest === null || decidedAt > latest ? decidedAt : latest), null);
-  return { changed: origins + finished.length > 0, decidedAt };
+      AND (here.added_at <= ${at}::timestamptz OR here.presence_decided_at <= ${seenAt}::timestamptz)`;
+  return origins + finished > 0;
 }
 
 /**

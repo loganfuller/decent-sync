@@ -693,9 +693,9 @@ model TabletBean {
   recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
   /// The latest decision of whether any of the Bean's batches is at the
   /// Location that the record has seen (`BatchLocation.presenceDecidedAt`):
-  /// one the server's write to it carried, or one its own archiving or
-  /// deleting made; null if none. Archiving or deleting the Bean is judged
-  /// by it (ADR-0020).
+  /// one the server's write to it carried; null if none. Its own archiving
+  /// does not count, as it may leave batches added since in place.
+  /// Archiving or deleting the Bean is judged by it (ADR-0020).
   seenAt          DateTime? @map("seen_at") @db.Timestamptz(3)
 
   @@id([tabletId, beanId])

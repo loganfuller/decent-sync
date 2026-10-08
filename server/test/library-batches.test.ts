@@ -1,14 +1,16 @@
+import { randomUUID } from "node:crypto";
 import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { PluginStorage, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
+import { PluginStorage, RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #81: Bean Batches at Locations. A batch entered on a
 // tablet joins the Library at that tablet's Location and is written, with its
 // Bean, to the Location's other tablets; what a tablet does to a batch or
 // Bean acts at its Location (ADR-0008, ADR-0019). Through the built plugin in
-// simulated tablets, on two server instances sharing one database, with
+// simulated tablets, and raw frames where a test sets when a tablet's edits
+// are reported, on two server instances sharing one database, with
 // assertions through the REST API and what each simulated tablet's Decaid
 // holds. Serials are made up, from 16001.
 
@@ -49,6 +51,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
   let other: TestServer;
   let api: AdminApi;
   const tablets: SimulatedTablet[] = [];
+  const raws: RawConnection[] = [];
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -57,6 +60,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
   }, 60_000);
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await Promise.all(raws.map((raw) => raw.terminate()));
     await other?.stop();
     await server?.stop();
   });
@@ -365,6 +369,58 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     expect(heldBatch(steady, batch.id)).toMatchObject([{ archived: false }]);
     // All on one connection: an answer arriving after a reconnect would say nothing of what the tablet had seen.
     expect(steady.sent.filter((frame) => (frame as { type?: unknown }).type === "hello")).toHaveLength(1);
+  });
+
+  it("keeps a batch added at the lab after a tablet's archiving, un-archiving and archiving again of its Bean, all reported after it", async () => {
+    const location = await api.createLocation("Rearchived lab", "America/Chicago");
+    const first = await api.createMachine("Rearchived lab 1", location.id);
+    const second = await api.createMachine("Rearchived lab 2", location.id);
+    const adding = load(first, "16261");
+    await online(first);
+    const { record: kept, batch: first_ } = await enterBatch(adding, "Rearchived Natural");
+    const bean = await holds(() => heldBean(adding, first_.bean.id), { archived: false });
+    const batch = await holds(() => heldBatch(adding, first_.id), { archived: false });
+
+    // The other lab tablet sends raw frames: it holds the Bean and its batch under its own local ids, and reports its
+    // edits, timed as it made them, only once the lab has changed since.
+    const raw = await RawConnection.welcomed(other.url, helloWith(second.token, { machine: { model: "DE1Pro", serial: "16262" } }));
+    raws.push(raw);
+    const held = { ...bean, id: randomUUID() };
+    const heldFirst = { ...batch, id: randomUUID(), beanId: held.id };
+    const report = (name: string, records: [Record_, string][]) => ({
+      type: "collection",
+      id: randomUUID(),
+      name,
+      available: true,
+      value: records.map(([record, at]) => ({ ...record, updatedAt: at })),
+      updatedAt: records.map(([, at]) => at),
+    });
+    const start = new Date(Date.now() - 60_000);
+    /** Its beans, then its batches, as the plugin sends them, the Bean archived or not as of that time. */
+    const reportBean = async (archived: boolean, at: Date) => {
+      await raw.deliver(report("beans", [[{ ...held, archived }, at.toISOString()]]));
+      await raw.deliver(report("beanBatches", [[heldFirst, start.toISOString()]]));
+    };
+    await reportBean(false, start);
+
+    // Its barista archives the Bean, un-archives it and archives it again; after that, the first tablet adds a batch.
+    const archivedAt = new Date();
+    await expect.poll(() => Date.now()).toBeGreaterThan(archivedAt.getTime() + 2);
+    const added = await adding.addBatch(kept.beanId, { roastDate: "2026-10-02", roastLevel: "medium", weight: 250 });
+    await expect.poll(async () => (await batchesOf("Rearchived Natural")).length, { timeout: 10_000 }).toBe(2);
+    const second_ = (await batchesOf("Rearchived Natural")).find((candidate) => candidate.roastDate?.startsWith("2026-10-02"))!;
+    await expect.poll(() => whereAt(second_.id), { timeout: 10_000 }).toEqual([["Rearchived lab", 250]]);
+
+    // Its reports come after: the first archiving takes the first batch, and neither it nor the second, made
+    // before the batch was added, takes that (ADR-0020).
+    await reportBean(true, archivedAt);
+    expect(await whereAt(first_.id)).toEqual([]);
+    expect(await whereAt(second_.id)).toEqual([["Rearchived lab", 250]]);
+    await reportBean(false, new Date(archivedAt.getTime() + 1));
+    await reportBean(true, new Date(archivedAt.getTime() + 2));
+    expect(await whereAt(second_.id)).toEqual([["Rearchived lab", 250]]);
+    expect(await offeredAt("Rearchived Natural")).toEqual(["Rearchived lab"]);
+    expect(added.id).not.toBe(kept.id);
   });
 
   it("archives a batch deleted on one tablet on the Location's other tablet, not deleting it there", async () => {
