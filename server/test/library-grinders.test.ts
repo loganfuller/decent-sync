@@ -1,7 +1,7 @@
 import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { PluginStorage, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
+import { PluginStorage, SimulatedTablet, derivedDe1Pro, settingsFor, simulatedLibrary } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #83: Grinders belong to a Location. A Grinder created on
@@ -177,12 +177,13 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
     expect(two.grinders()).toHaveLength(1);
   });
 
-  it("adds the grinders a tablet held before its Machine had a Location, belonging to the Location it joins, and writes them to its other tablets", async () => {
+  it("adds the grinders a tablet held before its Machine had a Location, belonging to the Location it joins, Archived if archived there, and writes it the others", async () => {
     const location = await api.createLocation("Joined lab", "UTC");
     const first = await api.createMachine("Joined lab 1", location.id);
     const second = await api.createMachine("Joined lab 2", location.id);
     const own = derivedDe1Pro({ serial: "18041" })["/grinders"] as Record_[];
-    const one = load(first, "18041", { grinders: own });
+    const [archived] = simulatedLibrary()["/grinders"] as Record_[];
+    const one = load(first, "18041", { grinders: [...own, archived!] });
     const two = load(second, "18042", { instance: other });
     await online(first, second);
     for (const record of own) {
@@ -190,6 +191,12 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
       expect(grinder.location).toEqual(location);
       await holds(two, grinder.id, { model: record.model, archived: false });
     }
+    const retired = await libraryGrinder(String(archived!.model));
+    expect(retired).toMatchObject({ archived: true, location });
+    // It keeps its global id on the tablet that brought it, and no other tablet is written it.
+    await holds(one, retired.id, { id: archived!.id, archived: true });
+    expect(heldGrinder(two, retired.id)).toEqual([]);
+    expect(grinderWrites(two)).toEqual(["POST /grinders", "POST /grinders"]);
   });
 
   it("Archives nothing for a tablet whose Decaid data was reset, and writes it its Location's Grinders", async () => {
