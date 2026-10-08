@@ -128,8 +128,13 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const record = two.beans().find((candidate) => candidate.name === "Echo Natural");
 
     // Both tablets report their beans again, now holding the Bean as written, and are written nothing more.
-    const reportsBefore = beanReports(two);
-    await expect.poll(() => beanReports(two), { timeout: 10_000 }).toBeGreaterThan(reportsBefore);
+    const reportsHolding = (tablet: SimulatedTablet) =>
+      tablet.sent.filter((frame) => {
+        const report = frame as { type?: unknown; name?: unknown; value?: unknown };
+        return report.type === "collection" && report.name === "beans" && Array.isArray(report.value) && report.value.some((entry) => globalIdOf(entry) === bean.id);
+      }).length;
+    await expect.poll(() => reportsHolding(two), { timeout: 10_000 }).toBeGreaterThan(0);
+    await expect.poll(() => reportsHolding(one), { timeout: 10_000 }).toBeGreaterThan(0);
     await one.addBean({ roaster: "Roux", name: "Echo Washed" });
     const washed = await libraryBean("Echo Washed");
     await holds(two, "Echo Washed", washed.id);
