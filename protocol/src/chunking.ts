@@ -1,15 +1,17 @@
-// Messages too large for one frame. The plugin sends such a message as
-// ordered chunks, each a frame of its own, and the server puts it back
-// together before handling it like any other message.
+// Messages too large for one frame. Either end sends such a message as
+// ordered chunks, each a frame of its own, and the other puts it back
+// together before handling it like any other message: the plugin its
+// deliveries, and the server a Library item it writes to the tablet.
 //
 // Decaid's transport holds at most 1 MiB of a plugin's frames awaiting the
 // network, one frame or all those queued together (`_reserveOutbound` in
-// decaid:lib/src/plugins/plugin_transport_service.dart), so frames stay well
-// below that. Sizes are UTF-8 bytes of a whole frame, as Decaid counts them,
-// with its envelope and JSON escaping.
+// decaid:lib/src/plugins/plugin_transport_service.dart), and refuses an
+// inbound frame that would take what it holds for the plugin past 1 MiB
+// (`_enqueue`), so frames stay well below that. Sizes are UTF-8 bytes of a
+// whole frame, as Decaid counts them, with its envelope and JSON escaping.
 
 /**
- * The largest frame the plugin sends, in UTF-8 bytes. A message whose
+ * The largest frame either end sends, in UTF-8 bytes. A message whose
  * encoding is larger goes as chunks, each a frame of at most this size.
  */
 export const MAX_FRAME_BYTES = 256 * 1024;

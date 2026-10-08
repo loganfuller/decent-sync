@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { PROTOCOL_VERSION, SYNC_PATH } from "@decent-sync/protocol";
 import WebSocket from "ws";
 import { assertBuilt } from "./builds.js";
+import { type DecaidAnswer, createBean, listedBeans, updateBean } from "./decaid-beans.js";
 import { rememberSecret, watchLog } from "./secrets.js";
 
 // Seam 1's simulated tablet: runs the built decent-sync.reaplugin/plugin.js
@@ -27,6 +28,9 @@ import { rememberSecret, watchLog } from "./secrets.js";
 //   them, and send an ETag, answering 304 to it in If-None-Match. A key of
 //   plugin storage never written answers `null`. The machine's settings, like
 //   its info, fail while no machine is connected.
+// - Of Decaid's writes, it carries out only those to beans (`POST /beans`
+//   and `PUT /beans/{id}`) as Decaid does (decaid-beans.ts), and serves each
+//   bean at `/beans/{id}`; it refuses every other request but a `GET`.
 // - The plugin's local time, as JavaScript reads it, is this process's time
 //   zone: set `process.env.TZ` to put the tablet in another one.
 // - `host.transport` opens real WebSockets with only a URL and subprotocols
@@ -471,7 +475,7 @@ export class SimulatedTablet {
   readonly storage: PluginStorage;
   /** The Decaid API routes the plugin requested, in order, such as "/machine/info". */
   readonly requests: string[] = [];
-  /** Requests that could change the tablet's data (any method but GET), such as "POST /store/dye2.reaplugin/recipes". */
+  /** The plugin's requests that could change the tablet's data (any method but GET), such as "POST /beans". */
   readonly writes: string[] = [];
   readonly plugin: BuiltPlugin;
   machineConnected: boolean;
@@ -722,6 +726,33 @@ export class SimulatedTablet {
     }
   }
 
+  /** The tablet's beans, archived ones included, as `GET /beans?includeArchived=true` lists them. */
+  beans(): Record<string, unknown>[] {
+    return structuredClone((this.api["/beans"] as Record<string, unknown>[] | undefined) ?? []);
+  }
+
+  /**
+   * Calls Decaid's API as something else on the tablet does, such as a
+   * barista adding a bean in Decaid or another plugin: the plugin is not
+   * told, and it is not listed in `requests` or `writes`. Resolves with what
+   * Decaid answers, its body read as JSON.
+   */
+  async callApi(method: "GET" | "POST" | "PUT", path: string, body?: unknown): Promise<DecaidAnswer> {
+    const answered = (await this.answer(`${API_ORIGIN}/api/v1${path}`, method, {}, body === undefined ? undefined : JSON.stringify(body))) as {
+      status: number;
+      text(): Promise<string>;
+    };
+    const text = await answered.text();
+    return { status: answered.status, body: text === "" ? null : JSON.parse(text) };
+  }
+
+  /** Adds a bean in Decaid, as a barista does, and resolves with the record Decaid made. */
+  async addBean(fields: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { status, body } = await this.callApi("POST", "/beans", fields);
+    if (status !== 201) throw new Error(`Decaid refused the bean with ${status}: ${JSON.stringify(body)}`);
+    return body as Record<string, unknown>;
+  }
+
   // Decaid's plugin fetch, limited to its own API.
   private async fetch(input: unknown, init: unknown): Promise<unknown> {
     await new Promise<void>((resolve) => this.setTimer(resolve, Math.min(this.apiDelayMs, FETCH_TIMEOUT_MS)));
@@ -730,12 +761,18 @@ export class SimulatedTablet {
     if (!url.startsWith(`${API_ORIGIN}/api/v1/`)) throw new Error(`The simulated tablet has no network for ${url}`);
     const route = url.slice(`${API_ORIGIN}/api/v1`.length).split("?")[0]!;
     this.requests.push(route);
-    // Decaid's fetch sends a request's headers, with any case, as given (plugin_manager.dart).
-    const { method = "GET", headers = {} } = (init ?? {}) as { method?: string; headers?: Record<string, string> };
-    if (method.toUpperCase() !== "GET") {
-      this.writes.push(`${method.toUpperCase()} ${route}`);
-      throw new Error("The simulated tablet's API is read only");
-    }
+    // Decaid's fetch sends a request's method, headers and body as given (plugin_manager.dart).
+    const { method = "GET", headers = {}, body } = (init ?? {}) as { method?: string; headers?: Record<string, string>; body?: unknown };
+    if (method.toUpperCase() !== "GET") this.writes.push(`${method.toUpperCase()} ${route}`);
+    return this.answer(url, method.toUpperCase(), headers, body);
+  }
+
+  /** What Decaid's API answers a request, as its plugin fetch gives it. */
+  private async answer(url: string, method: string, headers: Record<string, string>, requestBody: unknown): Promise<unknown> {
+    const route = url.slice(`${API_ORIGIN}/api/v1`.length).split("?")[0]!;
+    const written = this.writeBeans(method, route, requestBody);
+    if (written) return response(written.status, JSON.stringify(written.body));
+    if (method !== "GET") throw new Error(`The simulated tablet's API carries out no ${method} ${route}`);
     const failures = this.apiFailures.get(route) ?? 0;
     if (failures > 0) {
       this.apiFailures.set(route, failures - 1);
@@ -794,6 +831,24 @@ export class SimulatedTablet {
     if (!(route in this.api) && route.startsWith("/store/") && route.split("/").length === 4) return response(200, "null");
     if (!(route in this.api)) return response(404, "");
     return response(200, JSON.stringify(answer));
+  }
+
+  /**
+   * Carries out a write to the tablet's beans as Decaid does, or reads one
+   * bean, and gives Decaid's answer; undefined for any other request.
+   */
+  private writeBeans(method: string, route: string, body: unknown): DecaidAnswer | undefined {
+    const one = /^\/beans\/([^/]+)$/.exec(route);
+    if (!(method === "POST" && route === "/beans") && !(one && (method === "PUT" || method === "GET"))) return undefined;
+    const beans = this.beans();
+    if (method === "GET") {
+      const bean = beans.find((candidate) => candidate.id === decodeURIComponent(one![1]!));
+      return bean ? { status: 200, body: bean } : { status: 404, body: { error: "Bean not found" } };
+    }
+    if (typeof body !== "string") throw new Error("The plugin sent a write without a JSON body");
+    const result = method === "POST" ? createBean(beans, JSON.parse(body)) : updateBean(beans, decodeURIComponent(one![1]!), JSON.parse(body));
+    this.api = { ...this.api, "/beans": listedBeans(result.beans) };
+    return result.answer;
   }
 
   private setTimer(callback: () => void, delayMs: number): number {

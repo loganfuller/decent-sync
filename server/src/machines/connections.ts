@@ -21,7 +21,7 @@ export interface LiveConnection {
  * The connections this server instance holds. Other instances hold others:
  * whether a Machine is online, and which connection holds it, is stored on
  * its row, and changes that may end a connection reach every instance as
- * notifications (AccessChanges).
+ * notifications (`machine_access`, in Notifications).
  */
 @Injectable()
 export class LiveConnections {

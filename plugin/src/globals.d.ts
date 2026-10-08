@@ -7,8 +7,11 @@ declare const __PLUGIN_VERSION__: string;
 declare function setTimeout(callback: () => void, delay: number): number;
 declare function clearTimeout(id: number): void;
 
-/** Plugin-scoped fetch, with `api`. Responses are capped at 10 MiB and time out after 30 s. */
-declare function fetch(url: string, init?: { headers?: Record<string, string> }): Promise<DecaidResponse>;
+/**
+ * Plugin-scoped fetch, with `api`. Responses are capped at 10 MiB and time
+ * out after 30 s. A body is sent as given, a string as its UTF-8.
+ */
+declare function fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<DecaidResponse>;
 
 interface DecaidResponse {
   status: number;

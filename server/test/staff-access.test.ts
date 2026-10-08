@@ -75,7 +75,7 @@ describe("Staff access", () => {
     expect(account).toMatchObject({ role: "staff", locations: [belmont, uptown] });
   });
 
-  it("shows Staff everything an Admin reads, about every Machine, Location, Shot and Steam Record", async () => {
+  it("shows Staff everything an Admin reads, about every Machine, Location, Bean, Shot and Steam Record", async () => {
     // Uptown 1's tablet sends a Shot recorded on its hardware and a Steam Record.
     const raw = await connect(uptown1, { model: "DE1Pro", serial: "10001" });
     const { machine: recorded, ...workflow } = shotFixture().workflow as Record<string, unknown>;
@@ -117,11 +117,16 @@ describe("Staff access", () => {
       await tablet.unload();
     }
     expect(((await read(api, `${lab1Path}/collections`))[1] as { collections: unknown[] }).collections.length).toBeGreaterThan(1);
+    // Lab 1 is at a Location, so the beans its tablet reported joined the Library.
+    const libraryBeans = ((await read(api, "/beans"))[1] as { beans: { id: string }[] }).beans;
+    expect(libraryBeans.length).toBeGreaterThan(0);
 
     expect(names(await staff.machines())).toEqual(["Belmont 1", "Lab 1", "Spare", "Uptown 1"]);
     const paths = [
       "/locations",
       "/time-zones",
+      "/beans",
+      `/beans/${libraryBeans[0]!.id}`,
       "/shots",
       `/shots?machineId=${uptown1.machine.id}`,
       `/shots?locationId=${uptown.id}&from=2026-03-15&to=2026-03-15&barista=Fixture%20Barista&profileTitle=Londonium`,

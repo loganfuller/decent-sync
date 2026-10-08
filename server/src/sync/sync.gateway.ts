@@ -10,6 +10,8 @@ import {
   type Decoded,
   type ErrorCode,
   type Hello,
+  type ItemWritten,
+  type LibraryWrite,
   MISSED_HEARTBEATS,
   PROTOCOL_VERSION,
   type PluginMessage,
@@ -19,19 +21,23 @@ import {
   type ServerMessage,
   type ShotDelivery,
   type SteamDelivery,
+  type WriteRefused,
   decodePluginFrame,
   decodePluginMessage,
   encode,
+  frames,
 } from "@decent-sync/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { CollectionsService } from "../collections/collections.service.js";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
+import { recordBeanWritten } from "../library/beans.js";
 import { MachineEventsService } from "../machine-events/machine-events.service.js";
-import { AccessChanges } from "../machines/access-changes.js";
 import { type LiveConnection, LiveConnections } from "../machines/connections.js";
 import { MachinesService, type Refusal } from "../machines/machines.service.js";
 import type { TakeoverConnectionView } from "../machines/takeovers.js";
+import { Notifications } from "../notifications.js";
+import { PrismaService } from "../prisma.service.js";
 import { repeatingFailure } from "../set-aside-deliveries/repeating-failures.js";
 import { type CaptureDelivery, SetAsideDeliveriesService } from "../set-aside-deliveries/set-aside-deliveries.service.js";
 import { ShotsService } from "../shots/shots.service.js";
@@ -39,6 +45,7 @@ import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { hashSecret } from "../secrets.js";
 import { HandledDeliveries, type IndexRequest } from "./handled-deliveries.js";
 import type { Hardware, Identity, Reporter } from "./identity.js";
+import { TabletWriter } from "./tablet-writer.js";
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
 const MAX_PAYLOAD_BYTES = 1 << 20;
@@ -79,6 +86,8 @@ interface Session {
   identity?: Identity;
   /** Set once its hello is accepted and the session holds its Machine. */
   live?: LiveConnection;
+  /** Writes the Library to its tablet, once welcomed, unless it is mismatched. */
+  writer?: TabletWriter;
   /** Frames are handled one at a time, in the order they arrived. */
   queue: Promise<void>;
   /**
@@ -117,11 +126,20 @@ interface Session {
  * Record no supported Decaid sends is acknowledged and ignored, and logged
  * by its id with what it lacks.
  *
+ * Once its report of the tablet's beans is taken in, a connection that is
+ * not mismatched writes the Library its Machine's Location offers to its
+ * tablet (`TabletWriter`), one write at a time, each answered by the plugin,
+ * which the server acknowledges once it has recorded the answer. A write too
+ * large for one frame goes in chunks. When the Machine's Location changes,
+ * the writer asks the plugin for its collections afresh.
+ *
  * Any number of server instances may run. Which connection holds a Machine is
  * stored on its row; a change that may end a connection (another accepted
  * hello, a reissued token, dismissed hardware) is notified to every
  * instance, which checks its connections to that Machine against the
- * database. Heartbeats check too, in case a notification was missed.
+ * database. Heartbeats check too, in case a notification was missed. A
+ * change to the Library is notified too, and every instance then has its
+ * connections' writers look for writes due.
  *
  * Each instance holds at most `MAX_AWAITING_HELLO` connections whose hello
  * has not been accepted, and refuses further upgrades with 503 until one is
@@ -154,9 +172,19 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly machineEvents: MachineEventsService,
     private readonly collections: CollectionsService,
     private readonly setAside: SetAsideDeliveriesService,
-    accessChanges: AccessChanges,
+    private readonly prisma: PrismaService,
+    notifications: Notifications,
   ) {
-    accessChanges.subscribe((machineId) => void this.check(this.live.of(machineId)));
+    notifications.subscribe("machine_access", (machineId) => void this.check(this.live.of(machineId)));
+    // Each writer reads what its tablet is due, so every one looks, whichever Location changed.
+    notifications.subscribe("library_changes", () => {
+      for (const session of this.connections) session.writer?.wake();
+    });
+    // A moved Machine's writers find it at another Location than its tablet's report, and ask for the tablet's
+    // collections afresh. After listening anew, every writer looks, through the Library changes listener.
+    notifications.subscribe("machine_locations", (machineId) => {
+      for (const session of this.connections) if (machineId !== null && session.machine?.id === machineId) session.writer?.wake();
+    });
   }
 
   onApplicationBootstrap(): void {
@@ -173,6 +201,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     const sessions = [...this.connections];
     const closed = sessions.map((session) => new Promise((resolve) => session.socket.once("close", resolve)));
     for (const session of sessions) {
+      // A write awaiting its answer is abandoned; the tablet's next connection is written what it lacks.
+      session.writer?.stop();
       this.clearTimers(session);
       session.closing = true;
       session.socket.close(GOING_AWAY, "Server shutting down");
@@ -317,7 +347,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       this.send(session, { type: "ack", id: message.id });
       return;
     }
-    const reporter: Reporter = { machineId: session.machine.id, identity: session.identity! };
+    const reporter: Reporter = { machineId: session.machine.id, identity: session.identity!, tabletId: session.live!.tabletId };
     switch (message.type) {
       case "hello":
         return this.refuse(session, "protocol_error", "hello was already sent on this connection");
@@ -331,7 +361,13 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       case "machineState":
         return this.capture(session, message, text, () => this.machineEvents.storeMachineState(message, reporter));
       case "collection":
-        return this.capture(session, message, text, () => this.collections.store(message, reporter));
+        return this.capture(session, message, text, async () => {
+          const intake = await this.collections.store(message, reporter);
+          if (intake) session.writer?.reported(intake.takenInAt);
+        });
+      case "written":
+      case "writeRefused":
+        return this.answered(session, message);
       case "shotIndex": {
         const shotIds = await this.shots.requested(message, session.machine.id);
         return this.acknowledge(session, message.id, { type: "requestShots", shotIds });
@@ -387,6 +423,50 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
+   * Records the plugin's answer to a write, then acknowledges it, and lets
+   * the connection's writer go on. A record Decaid returned is the tablet's
+   * record of the item from now on. A refusal is logged, escaped, as it
+   * repeats what Decaid answered; the writer skips that item. A record that
+   * fails to store in a way that would repeat is logged and skipped the same
+   * way, so it cannot stop the tablet's other writes. Any other failure
+   * closes the connection with 1011, and the tablet's next connection is
+   * written the item again, which the plugin then finds it holds. An answer
+   * to no write its connection awaits, as on a mismatched connection, which
+   * is never written to, or one arriving after its write timed out, is
+   * acknowledged and nothing more: its record may be older than one
+   * reported since.
+   */
+  private async answered(session: Session, answer: ItemWritten | WriteRefused): Promise<void> {
+    let outcome: "written" | "refused" = "refused";
+    if (!session.writer?.awaits(answer.id)) {
+      // Nothing was asked of it, or the write timed out and its writer went on: the tablet's next report shows what it holds.
+    } else if (answer.type === "writeRefused") {
+      this.logger.warn(
+        `The tablet of ${this.describe(session)} did not write ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? "Decaid did not answer" : `Decaid answered ${answer.status}`}, ${quoted(answer.error.slice(0, 200))}`,
+      );
+    } else if (answer.kind !== "bean") {
+      this.logger.warn(`The tablet of ${this.describe(session)} answered a write of a ${quoted(answer.kind)}, which this server never asks for`);
+    } else {
+      try {
+        if (await recordBeanWritten(this.prisma, session.live!.tabletId, answer.globalId, answer.record, answer.updatedAt)) outcome = "written";
+        else this.logger.warn(`The tablet of ${this.describe(session)} answered the write of Bean ${answer.globalId} with a record that is not that Bean's`);
+      } catch (error) {
+        const failure = repeatingFailure(error);
+        if (!failure) throw error;
+        this.logger.warn(`Could not record the Bean ${answer.globalId} written to the tablet of ${this.describe(session)}: ${failure.message} (${failure.sqlState})`);
+      }
+    }
+    this.acknowledge(session, answer.id, null);
+    session.writer?.answered(answer.id, outcome);
+  }
+
+  /** Sends a write on the connection, in chunks if it is too large for one frame. */
+  private sendWrite(session: Session, write: LibraryWrite): void {
+    if (session.closing) return;
+    for (const frame of frames(encode(write), write.id)) session.socket.send(frame.text);
+  }
+
+  /**
    * Acknowledges a delivery once stored, after the request answering it if it
    * is an index. Both are remembered with the connection's recent deliveries:
    * replaying an index after losing its request must still let the tablet
@@ -430,6 +510,20 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     this.send(session, { type: "welcome", protocolVersion: PROTOCOL_VERSION, heartbeatIntervalMs: this.config.heartbeatIntervalMs });
     session.welcomed = true;
     this.resetIdleTimer(session);
+    // A mismatched connection's tablet is not its token's Machine's, so nothing is written to it (ADR-0004). The
+    // writer starts once the connection's report of the tablet's beans, sent on every welcome, is taken in.
+    if (identity.kind !== "mismatch") {
+      session.writer = new TabletWriter(
+        { sessionId: session.id, machineId: machine.id, tabletId: live.tabletId },
+        this.prisma,
+        (write) => this.sendWrite(session, write),
+        () => {
+          if (!session.closing) this.send(session, { type: "requestCollections" });
+        },
+        this.logger,
+        (work) => this.track(work),
+      );
+    }
     this.logger.log(
       `Machine ${machine.name} connected from ${session.remote}: ${describeVersions(hello)}, ${describeIdentity(identity, hardware)}`,
     );
@@ -481,6 +575,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     this.awaitingHello.delete(session);
     this.clearTimers(session);
     session.closing = true;
+    session.writer?.stop();
     if (!session.live) return;
     this.live.delete(session.live);
     // Released together on shutdown.

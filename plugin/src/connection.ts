@@ -1,17 +1,21 @@
 import {
+  CHUNK_LIMITS,
   CLOSE_CODES,
   type ErrorCode,
   MISSED_HEARTBEATS,
   type MachineHardware,
   PROTOCOL_VERSION,
   type PluginMessage,
+  Reassembly,
   type ServerMessage,
+  decodeServerFrame,
   decodeServerMessage,
   sameHardware,
 } from "@decent-sync/protocol";
 import { CollectionCapture } from "./collections.js";
 import { readMachineHardware, readTabletIdentity } from "./decaid.js";
 import type { PluginHost, TransportEvent } from "./host.js";
+import { LibraryWrites } from "./library-writes.js";
 import { MachineEvents } from "./machine-events.js";
 import { Outbox } from "./outbox.js";
 import { Sender } from "./sender.js";
@@ -89,12 +93,19 @@ type TimerName = "reconnect" | "heartbeat" | "silence" | "connect" | "hardwarePo
  * updates and every poll interval. After the server refuses the reported
  * hardware for this token, it connects again only once the machine reports
  * other hardware.
+ *
+ * The server writes the Library items its Location shares to the tablet: it
+ * asks for one write at a time, and the plugin carries each out through
+ * Decaid's API and answers it on the connection that asked
+ * (library-writes.ts).
  */
 export class SyncConnection {
   /** The open handle, or undefined while disconnected. */
   private handle: string | undefined;
   /** Sends every message on the open handle. */
   private sender: Sender | undefined;
+  /** Puts the open handle's chunked messages from the server back together. */
+  private chunks = new Reassembly();
   /** Bumped by every attempt and drop, so late results of an older one are ignored. */
   private attempt = 0;
   private connecting = false;
@@ -118,6 +129,8 @@ export class SyncConnection {
   private readonly steams: SteamCapture;
   private readonly machineEvents: MachineEvents;
   private readonly collections: CollectionCapture;
+  /** Carries out the Library writes the server asks for, one at a time. */
+  private readonly writes = new LibraryWrites();
   /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
   private readonly tabletId: TabletId;
   private checkingHardware = false;
@@ -226,6 +239,7 @@ export class SyncConnection {
       }
       this.handle = handle;
       this.sender = new Sender((frame) => this.host.transport.send(handle, { type: "text", data: frame }));
+      this.chunks = new Reassembly();
       this.welcomed = false;
       this.sentHardware = identity.machine;
       this.host.transport.onEvent(handle, (event) => this.onTransportEvent(handle, event));
@@ -285,13 +299,20 @@ export class SyncConnection {
   }
 
   private onFrame(handle: string, frame: string): void {
-    const decoded = decodeServerMessage(frame);
+    const decoded = decodeServerFrame(frame);
     if (!decoded.ok) {
       // A newer server may send messages this plugin does not know yet.
       this.log(`Ignoring a message from the server: ${decoded.problem}`);
       return;
     }
-    this.onMessage(handle, decoded.message);
+    if (decoded.message.type !== "chunk") return this.onMessage(handle, decoded.message);
+    // A message too large for one frame, such as a large Library item to write.
+    const added = this.chunks.add(decoded.message, CHUNK_LIMITS);
+    if (added.status === "invalid") return this.drop(`the server sent chunks that do not fit together: ${added.problem}`);
+    if (added.status === "incomplete") return;
+    const whole = decodeServerMessage(added.text);
+    if (!whole.ok) return this.log(`Ignoring a message from the server: ${whole.problem}`);
+    this.onMessage(handle, whole.message);
   }
 
   private onMessage(handle: string, message: ServerMessage): void {
@@ -318,7 +339,7 @@ export class SyncConnection {
             throw error;
           }
         });
-        this.collections.welcome();
+        this.collections.sendAll();
         this.shots.welcome();
         this.steams.welcome();
         break;
@@ -334,6 +355,18 @@ export class SyncConnection {
         break;
       case "requestSteams":
         this.outbox.request("steam", message.steamIds);
+        break;
+      case "requestCollections":
+        // As when the Machine's Location changed: its Library is taken in there before anything is written to it.
+        this.collections.sendAll();
+        break;
+      case "write":
+        // Answered on the connection that asked, which waits for the answer before asking for another write. If
+        // that connection dropped meanwhile, the answer is lost, and the tablet's next report of its Library
+        // shows the server what was written.
+        void this.writes.apply(message).then((answer) => {
+          if (handle === this.handle) this.send(handle, answer).catch(() => {});
+        });
         break;
       case "heartbeat":
         // Its arrival is what counts.

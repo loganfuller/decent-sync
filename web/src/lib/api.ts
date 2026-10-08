@@ -387,3 +387,25 @@ export interface SteamRecordPage {
 export interface SteamRecord extends SteamRecordSummary {
   record: Record<string, unknown>;
 }
+
+/** A Bean in the Library, as the Beans list shows it. */
+export interface BeanSummary {
+  /** Its global id, which its record on each tablet carries. */
+  id: string;
+  roaster: string | null;
+  name: string | null;
+  archived: boolean;
+  /** The Locations offering it: while it has no batches, those where a tablet created it or linked a bean of its own to it. */
+  offeredAt: Location[];
+  /** When it joined the Library. */
+  createdAt: string;
+  /** The Location of the tablet that created it. */
+  createdLocation: Location | null;
+  /** Other Beans with the same roaster and name, ignoring case and spaces at either end. */
+  likelyDuplicates: { id: string; roaster: string | null; name: string | null }[];
+}
+
+/** A Bean with its content: Decaid's record fields, as the tablet that created it sent them. */
+export interface Bean extends BeanSummary {
+  content: Record<string, unknown>;
+}

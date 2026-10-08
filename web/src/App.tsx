@@ -2,6 +2,8 @@ import { type ReactNode, Suspense, lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import { AuthProvider, useAuth, useIsAdmin } from "@/auth";
 import { AccountsPage } from "@/pages/AccountsPage";
+import { BeanPage } from "@/pages/BeanPage";
+import { BeansPage } from "@/pages/BeansPage";
 import { InvitePage } from "@/pages/InvitePage";
 import { LocationsPage } from "@/pages/LocationsPage";
 import { MachinePage } from "@/pages/MachinePage";
@@ -36,6 +38,9 @@ export function App() {
                 </AdminOnly>
               }
             />
+            <Route path="/library" element={<Navigate to="/library/beans" replace />} />
+            <Route path="/library/beans" element={<BeansPage />} />
+            <Route path="/library/beans/:id" element={<BeanPage />} />
             <Route path="/locations" element={<LocationsPage />} />
             <Route path="/machines" element={<MachinesPage />} />
             <Route path="/machines/:id" element={<MachinePage />} />

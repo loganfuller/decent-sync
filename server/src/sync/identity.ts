@@ -46,10 +46,14 @@ export type Identity =
   /** Hardware an Admin dismissed for the token's Machine. */
   | { kind: "rejected"; hardware: Hardware };
 
-/** Who reported a record: the Machine whose token its connection used, and the identity that connection was given at hello. */
+/**
+ * Who reported a record: the Machine whose token its connection used, the
+ * identity that connection was given at hello, and the tablet it came from.
+ */
 export interface Reporter {
   machineId: string;
   identity: Identity;
+  tabletId: string;
 }
 
 export interface Reported {

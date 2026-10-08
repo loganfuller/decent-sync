@@ -32,6 +32,22 @@ This release's server refuses the plugin before it, whose `hello` has no
 tablet id. Until a tablet's update is approved, that tablet stays
 disconnected, and its Machine offline.
 
+### Tablets at a Location now share their beans
+
+The plugin now writes to Decaid. Once a tablet's Machine is at a Location,
+every bean on that tablet that is not archived joins the server's Library, or
+becomes the Bean already there with the same roaster and name, and the
+Location's other tablets are written it. Each tablet's records get their
+Library id in `extras`, beside what other plugins keep there. A Machine with
+no Location is written nothing, and its beans stay out of the Library; a
+switch to keep a Machine at a Location out comes later. Export each tablet's
+data before upgrading if you may want to undo this: from a computer on the
+same network,
+
+```bash
+curl -o tablet-backup.json http://<tablet>:8080/api/v1/data/export
+```
+
 ### Reload the plugin after restoring the server's database
 
 The plugin now tells the server which Shots and Steam Records its tablet

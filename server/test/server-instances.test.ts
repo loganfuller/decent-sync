@@ -198,7 +198,7 @@ describe("several server instances", { timeout: 30_000 }, () => {
 
       // Every instance loses its listening connection, then a token is revoked with no notification.
       await database.query(
-        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND query = 'LISTEN machine_access'",
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND query LIKE 'LISTEN %'",
       );
       await database.query("UPDATE machine_tokens SET revoked_at = now() WHERE machine_id = $1", [revoked.machine.id]);
 

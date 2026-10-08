@@ -30,6 +30,7 @@ var __decentSync = (() => {
   // ../protocol/src/chunking.ts
   var MAX_FRAME_BYTES = 256 * 1024;
   var MAX_CHUNKED_LENGTH = 16 * 1024 * 1024;
+  var MAX_CHUNKS = 1024;
   var ASCII_RUN = /[\x00-\x7f]*/y;
   var ASCII_STEPS = 32;
   function utf8Length(text) {
@@ -102,6 +103,61 @@ var __decentSync = (() => {
   function isLowSurrogate(unit) {
     return unit >= 56320 && unit <= 57343;
   }
+  var CHUNK_LIMITS = { maxLength: MAX_CHUNKED_LENGTH, maxChunks: MAX_CHUNKS };
+  var Reassembly = class {
+    constructor() {
+      __publicField(this, "messages", /* @__PURE__ */ new Map());
+      /** Code units held: the messages' ids and their chunks' data. */
+      __publicField(this, "heldLength", 0);
+      /** Chunks the messages have between them, counting those yet to arrive. */
+      __publicField(this, "heldChunks", 0);
+      __publicField(this, "problem");
+    }
+    add(chunk, limits) {
+      if (this.problem === void 0) this.problem = this.problemWith(chunk, limits);
+      if (this.problem !== void 0) {
+        this.messages.clear();
+        this.heldLength = 0;
+        this.heldChunks = 0;
+        return { status: "invalid", problem: this.problem };
+      }
+      let message = this.messages.get(chunk.id);
+      if (message?.parts[chunk.index] !== void 0) return { status: "incomplete" };
+      if (!message) {
+        message = { count: chunk.count, parts: new Array(chunk.count), received: 0, length: chunk.id.length };
+        this.messages.set(chunk.id, message);
+        this.heldLength += chunk.id.length;
+        this.heldChunks += chunk.count;
+      }
+      message.parts[chunk.index] = chunk.data;
+      message.received++;
+      message.length += chunk.data.length;
+      this.heldLength += chunk.data.length;
+      if (message.received < message.count) return { status: "incomplete" };
+      this.messages.delete(chunk.id);
+      this.heldLength -= message.length;
+      this.heldChunks -= message.count;
+      return { status: "complete", text: message.parts.join("") };
+    }
+    /** Why the chunk cannot be added, by field and never by value, or undefined if it can. */
+    problemWith(chunk, limits) {
+      const { index, count, data } = chunk;
+      if (!Number.isInteger(count) || count < 1 || count > limits.maxChunks) {
+        return `chunk.count must be a whole number from 1 to ${limits.maxChunks}`;
+      }
+      if (!Number.isInteger(index) || index < 0 || index >= count) return "chunk.index must be a whole number below chunk.count";
+      const message = this.messages.get(chunk.id);
+      if (message && message.count !== count) return "chunk.count differs from an earlier chunk of the same message";
+      const held = message?.parts[index];
+      if (held !== void 0) return held === data ? void 0 : "chunk.data differs from an earlier copy of the same chunk";
+      const length = data.length + (message ? 0 : chunk.id.length);
+      const chunks = message ? 0 : count;
+      if (this.heldLength + length > limits.maxLength || this.heldChunks + chunks > limits.maxChunks) {
+        return `Chunked messages still incomplete may hold at most ${limits.maxLength} characters, ids included, and ${limits.maxChunks} chunks between them`;
+      }
+      return void 0;
+    }
+  };
 
   // ../protocol/src/index.ts
   var PROTOCOL_VERSION = 1;
@@ -147,15 +203,50 @@ var __decentSync = (() => {
     if (a === null || b === null) return a === b;
     return a.model.trim() === b.model.trim() && a.serial.trim() === b.serial.trim();
   }
-  function isTabletId(value) {
+  function isUuid(value) {
     return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
   }
+  function isTabletId(value) {
+    return isUuid(value);
+  }
+  function isGlobalId(value) {
+    return isUuid(value);
+  }
+  var GLOBAL_ID_KEY = "decentSyncId";
+  function beanMatchKey(roaster, name) {
+    return JSON.stringify([roaster.trim().toLowerCase(), name.trim().toLowerCase()]);
+  }
+  function globalIdOf(record) {
+    const extras = isObject(record) ? record.extras : void 0;
+    const id = isObject(extras) ? extras[GLOBAL_ID_KEY] : void 0;
+    return isGlobalId(id) ? id.toLowerCase() : null;
+  }
+  var LIBRARY_LISTS = ["beans", "beanBatches", "grinders", "profiles"];
+  function isLibraryList(name) {
+    return LIBRARY_LISTS.includes(name);
+  }
+  var MAX_REFUSAL_LENGTH = 1e3;
   function encode(message) {
     return JSON.stringify(message);
   }
-  function decodeServerMessage(frame) {
+  function decodeServerFrame(frame) {
     const object3 = parseObject(frame);
     if (typeof object3 === "string") return invalid(object3);
+    if (object3.type !== "chunk") return decodeServerObject(object3);
+    return check(object3, "chunk", (fields) => {
+      fields.id();
+      fields.integer("index", { nonNegative: true });
+      fields.integer("count", { positive: true });
+      fields.string("data");
+    });
+  }
+  function decodeServerMessage(text) {
+    const object3 = parseObject(text);
+    if (typeof object3 === "string") return invalid(object3);
+    if (object3.type === "chunk") return invalid("A chunked message must not be a chunk itself");
+    return decodeServerObject(object3);
+  }
+  function decodeServerObject(object3) {
     switch (object3.type) {
       case "welcome":
         return check(object3, "welcome", (fields) => {
@@ -177,6 +268,9 @@ var __decentSync = (() => {
         return check(object3, "requestSteams", (fields) => {
           fields.array("steamIds", (value) => typeof value === "string" && value !== "", 100);
         });
+      case "requestCollections":
+        return check(object3, "requestCollections", () => {
+        });
       case "heartbeat":
         return check(object3, "heartbeat", () => {
         });
@@ -184,6 +278,14 @@ var __decentSync = (() => {
         return check(object3, "error", (fields) => {
           fields.string("code");
           fields.string("message");
+        });
+      case "write":
+        return check(object3, "write", (fields) => {
+          fields.id();
+          fields.string("kind", { nonEmpty: true });
+          fields.uuid("globalId");
+          if (object3.localId !== null) fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+          fields.objectField("fields");
         });
       default:
         return invalid("Unknown message type");
@@ -245,9 +347,18 @@ var __decentSync = (() => {
     }
     /** A UTC instant as `Date.prototype.toISOString` writes it. Read back, it must be written the same, so times that do not exist, which Date rolls over, are refused. */
     instant(key) {
+      if (!isInstant(this.object[key])) this.problem(key, "must be a UTC time such as 2026-10-05T14:07:03.341Z");
+    }
+    /**
+     * An array of `length` UTC instants, as `instant` reads one, or nulls. A
+     * `length` below zero says there is nothing for it to go beside.
+     */
+    instants(key, length) {
       const value = this.object[key];
-      const ms = typeof value === "string" ? Date.parse(value) : NaN;
-      if (!Number.isFinite(ms) || new Date(ms).toISOString() !== value) this.problem(key, "must be a UTC time such as 2026-10-05T14:07:03.341Z");
+      if (length < 0) this.problem(key, "must be absent unless value is a list");
+      else if (!Array.isArray(value) || value.length !== length || !value.every((entry) => entry === null || isInstant(entry))) {
+        this.problem(key, "must be an array as long as value, of UTC times such as 2026-10-05T14:07:03.341Z or nulls");
+      }
     }
     array(key, valid, max) {
       const value = this.object[key];
@@ -287,6 +398,10 @@ var __decentSync = (() => {
   }
   function isObject(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+  function isInstant(value) {
+    const ms = typeof value === "string" ? Date.parse(value) : NaN;
+    return Number.isFinite(ms) && new Date(ms).toISOString() === value;
   }
   function invalid(problem) {
     return { ok: false, error: "protocol_error", problem };
@@ -420,6 +535,41 @@ var __decentSync = (() => {
       return { kind: "unavailable" };
     }
   }
+  async function request(method, path, body) {
+    const response = await fetch(
+      API + path,
+      body === void 0 ? { method } : { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    );
+    return { status: response.status, ok: response.ok, text: await response.text() };
+  }
+
+  // src/local-time.ts
+  var ISO_TIME = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d)?$/;
+  function utcTime(timestamp) {
+    const match = typeof timestamp === "string" ? ISO_TIME.exec(timestamp) : null;
+    if (!match) return null;
+    const parts = match.slice(1, 7).map(Number);
+    const [year, month, day, hour, minute, second] = parts;
+    const ms = Number((match[7] ?? "").padEnd(3, "0").slice(0, 3));
+    const offset = match[8];
+    if (offset === void 0) {
+      const local = new Date(year, month - 1, day, hour, minute, second, ms);
+      const readBack2 = [local.getFullYear(), local.getMonth() + 1, local.getDate(), local.getHours(), local.getMinutes(), local.getSeconds()];
+      return readBack2.every((part, index) => part === parts[index]) ? local.toISOString() : null;
+    }
+    const minutes = offsetMinutes(offset);
+    const utc = new Date(Date.UTC(year, month - 1, day, hour, minute, second, ms));
+    const readBack = [utc.getUTCFullYear(), utc.getUTCMonth() + 1, utc.getUTCDate(), utc.getUTCHours(), utc.getUTCMinutes(), utc.getUTCSeconds()];
+    if (minutes === null || !readBack.every((part, index) => part === parts[index])) return null;
+    return new Date(utc.getTime() - minutes * 6e4).toISOString();
+  }
+  function offsetMinutes(offset) {
+    if (offset === "Z") return 0;
+    const hours = Number(offset.slice(1, 3));
+    const minutes = Number(offset.slice(4, 6));
+    if (hours > 23 || minutes > 59) return null;
+    return (offset.startsWith("-") ? -1 : 1) * (hours * 60 + minutes);
+  }
 
   // src/collections.ts
   var SOURCES = [
@@ -457,8 +607,8 @@ var __decentSync = (() => {
       this.stopped = true;
       if (this.pollTimer !== void 0) clearTimeout(this.pollTimer);
     }
-    /** Every collection, read again and sent in full. */
-    welcome() {
+    /** Every collection, read again and sent in full, as on every welcome and whenever the server asks. */
+    sendAll() {
       this.read("full");
     }
     schedulePoll() {
@@ -497,7 +647,7 @@ var __decentSync = (() => {
       if (decision.next) this.last.set(source.name, decision.next);
       if (!decision.send || reading.kind === "notModified") return;
       const id = this.outbox.nextId();
-      const delivery = reading.kind === "value" ? { type: "collection", id, name: source.name, available: true, value: reading.value } : { type: "collection", id, name: source.name, available: false };
+      const delivery = reading.kind === "value" ? { type: "collection", id, name: source.name, available: true, value: reading.value, ...placedInTime(source.name, reading.value) } : { type: "collection", id, name: source.name, available: false };
       const earlier = this.queued.get(source.name);
       if (earlier) {
         if (delivery.available || earlier.latest !== earlier.value) this.outbox.supersede(earlier.latest);
@@ -507,10 +657,83 @@ var __decentSync = (() => {
       this.outbox.enqueue(delivery);
     }
   };
+  function placedInTime(name, value) {
+    if (!isLibraryList(name) || !Array.isArray(value)) return {};
+    return { updatedAt: value.map((record) => utcTime(record?.updatedAt)) };
+  }
   function selected(source, reading) {
     if (reading.kind !== "value" || !source.select) return reading;
     const value = source.select(reading.value);
     return value === null ? { kind: "unavailable" } : { ...reading, value };
+  }
+
+  // src/library-writes.ts
+  var ROUTES = {
+    bean: {
+      list: "/beans?includeArchived=true",
+      records: "/beans",
+      sameItem: (record, fields) => typeof record.roaster === "string" && typeof record.name === "string" && typeof fields.roaster === "string" && typeof fields.name === "string" && beanMatchKey(record.roaster, record.name) === beanMatchKey(fields.roaster, fields.name)
+    }
+  };
+  var LibraryWrites = class {
+    constructor() {
+      __publicField(this, "queue", Promise.resolve());
+    }
+    /** Carries out a write once those before it are done, and resolves with its answer. It never rejects. */
+    apply(write) {
+      const answer = this.queue.then(() => carryOut(write));
+      this.queue = answer;
+      return answer;
+    }
+  };
+  async function carryOut(write) {
+    const route = ROUTES[write.kind];
+    if (!route) return refused(write, null, `This plugin cannot write a ${write.kind}`);
+    try {
+      return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId));
+    } catch (error) {
+      return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  async function create(route, write) {
+    const listed = await request("GET", route.list);
+    if (!listed.ok) return refused(write, listed.status, listed.text);
+    const parsedList = parsed(listed.text);
+    const records = Array.isArray(parsedList) ? parsedList.filter(isObject2) : [];
+    const held = records.find((record) => globalIdOf(record) === write.globalId.toLowerCase());
+    if (held) return written(write, held);
+    const same = records.find((record) => globalIdOf(record) === null && record.archived !== true && route.sameItem(record, write.fields));
+    if (same && typeof same.id === "string") return answerTo(write, await update(route, { ...write, fields: {} }, same.id));
+    return answerTo(write, await request("POST", route.records, { ...write.fields, extras: { [GLOBAL_ID_KEY]: write.globalId } }));
+  }
+  async function update(route, write, localId) {
+    const path = `${route.records}/${encodeURIComponent(localId)}`;
+    const current = await request("GET", path);
+    if (!current.ok) return current;
+    const record = parsed(current.text);
+    const extras = isObject2(record) && isObject2(record.extras) ? record.extras : {};
+    return request("PUT", path, { ...write.fields, extras: { ...extras, [GLOBAL_ID_KEY]: write.globalId } });
+  }
+  function answerTo(write, answer) {
+    const record = answer.ok ? parsed(answer.text) : void 0;
+    if (isObject2(record) && typeof record.id === "string") return written(write, record);
+    return refused(write, answer.status, answer.text);
+  }
+  function written(write, record) {
+    return { type: "written", id: write.id, kind: write.kind, globalId: write.globalId, record, updatedAt: utcTime(record.updatedAt) };
+  }
+  function refused(write, status, error) {
+    return { type: "writeRefused", id: write.id, kind: write.kind, globalId: write.globalId, status, error: error.slice(0, MAX_REFUSAL_LENGTH) };
+  }
+  function parsed(text) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return void 0;
+    }
+  }
+  function isObject2(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
   // src/machine-events.ts
@@ -1041,32 +1264,6 @@ var __decentSync = (() => {
       }
     }
   };
-  var ISO_TIME = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d)?$/;
-  function utcTime(timestamp) {
-    const match = typeof timestamp === "string" ? ISO_TIME.exec(timestamp) : null;
-    if (!match) return null;
-    const parts = match.slice(1, 7).map(Number);
-    const [year, month, day, hour, minute, second] = parts;
-    const ms = Number((match[7] ?? "").padEnd(3, "0").slice(0, 3));
-    const offset = match[8];
-    if (offset === void 0) {
-      const local = new Date(year, month - 1, day, hour, minute, second, ms);
-      const readBack2 = [local.getFullYear(), local.getMonth() + 1, local.getDate(), local.getHours(), local.getMinutes(), local.getSeconds()];
-      return readBack2.every((part, index) => part === parts[index]) ? local.toISOString() : null;
-    }
-    const minutes = offsetMinutes(offset);
-    const utc = new Date(Date.UTC(year, month - 1, day, hour, minute, second, ms));
-    const readBack = [utc.getUTCFullYear(), utc.getUTCMonth() + 1, utc.getUTCDate(), utc.getUTCHours(), utc.getUTCMinutes(), utc.getUTCSeconds()];
-    if (minutes === null || !readBack.every((part, index) => part === parts[index])) return null;
-    return new Date(utc.getTime() - minutes * 6e4).toISOString();
-  }
-  function offsetMinutes(offset) {
-    if (offset === "Z") return 0;
-    const hours = Number(offset.slice(1, 3));
-    const minutes = Number(offset.slice(4, 6));
-    if (hours > 23 || minutes > 59) return null;
-    return (offset.startsWith("-") ? -1 : 1) * (hours * 60 + minutes);
-  }
 
   // src/tablet-id.ts
   var KEY = "tabletId";
@@ -1203,6 +1400,8 @@ var __decentSync = (() => {
       __publicField(this, "handle");
       /** Sends every message on the open handle. */
       __publicField(this, "sender");
+      /** Puts the open handle's chunked messages from the server back together. */
+      __publicField(this, "chunks", new Reassembly());
       /** Bumped by every attempt and drop, so late results of an older one are ignored. */
       __publicField(this, "attempt", 0);
       __publicField(this, "connecting", false);
@@ -1226,6 +1425,8 @@ var __decentSync = (() => {
       __publicField(this, "steams");
       __publicField(this, "machineEvents");
       __publicField(this, "collections");
+      /** Carries out the Library writes the server asks for, one at a time. */
+      __publicField(this, "writes", new LibraryWrites());
       /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
       __publicField(this, "tabletId");
       __publicField(this, "checkingHardware", false);
@@ -1323,6 +1524,7 @@ var __decentSync = (() => {
         }
         this.handle = handle;
         this.sender = new Sender((frame) => this.host.transport.send(handle, { type: "text", data: frame }));
+        this.chunks = new Reassembly();
         this.welcomed = false;
         this.sentHardware = identity.machine;
         this.host.transport.onEvent(handle, (event) => this.onTransportEvent(handle, event));
@@ -1377,12 +1579,18 @@ var __decentSync = (() => {
       }
     }
     onFrame(handle, frame) {
-      const decoded = decodeServerMessage(frame);
+      const decoded = decodeServerFrame(frame);
       if (!decoded.ok) {
         this.log(`Ignoring a message from the server: ${decoded.problem}`);
         return;
       }
-      this.onMessage(handle, decoded.message);
+      if (decoded.message.type !== "chunk") return this.onMessage(handle, decoded.message);
+      const added = this.chunks.add(decoded.message, CHUNK_LIMITS);
+      if (added.status === "invalid") return this.drop(`the server sent chunks that do not fit together: ${added.problem}`);
+      if (added.status === "incomplete") return;
+      const whole = decodeServerMessage(added.text);
+      if (!whole.ok) return this.log(`Ignoring a message from the server: ${whole.problem}`);
+      this.onMessage(handle, whole.message);
     }
     onMessage(handle, message) {
       switch (message.type) {
@@ -1404,7 +1612,7 @@ var __decentSync = (() => {
               throw error;
             }
           });
-          this.collections.welcome();
+          this.collections.sendAll();
           this.shots.welcome();
           this.steams.welcome();
           break;
@@ -1420,6 +1628,15 @@ var __decentSync = (() => {
           break;
         case "requestSteams":
           this.outbox.request("steam", message.steamIds);
+          break;
+        case "requestCollections":
+          this.collections.sendAll();
+          break;
+        case "write":
+          void this.writes.apply(message).then((answer) => {
+            if (handle === this.handle) this.send(handle, answer).catch(() => {
+            });
+          });
           break;
         case "heartbeat":
           break;
