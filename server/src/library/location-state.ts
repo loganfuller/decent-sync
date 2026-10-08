@@ -145,14 +145,17 @@ export async function offeringLocations(db: Prisma.TransactionClient, beanIds: r
 
 /**
  * Shows or hides the Profile at the Location, as a tablet there showing,
- * hiding, deleting or replacing it does, timed by the edit, though never
- * before the change it replaces. Says whether that changed it.
+ * hiding, deleting or replacing it does, timed by the edit (ADR-0020): an
+ * edit older than the one that decided the Location's state, which its
+ * tablet had not seen, loses to it, and the Location's state is written back
+ * to that tablet. Conflicts, which will keep it, come with ticket #84. Says
+ * whether that changed it.
  */
 export async function showProfileAt(tx: Prisma.TransactionClient, profileId: string, locationId: string, shown: boolean, at: Date): Promise<boolean> {
   const changed = await tx.$executeRaw`
     INSERT INTO profile_locations (profile_id, location_id, shown, changed_at) VALUES (${profileId}, ${locationId}::uuid, ${shown}, ${at}::timestamptz)
-    ON CONFLICT (profile_id, location_id) DO UPDATE SET shown = EXCLUDED.shown, changed_at = GREATEST(EXCLUDED.changed_at, profile_locations.changed_at)
-      WHERE profile_locations.shown <> EXCLUDED.shown`;
+    ON CONFLICT (profile_id, location_id) DO UPDATE SET shown = EXCLUDED.shown, changed_at = EXCLUDED.changed_at
+      WHERE profile_locations.shown <> EXCLUDED.shown AND profile_locations.changed_at <= EXCLUDED.changed_at`;
   return changed > 0;
 }
 

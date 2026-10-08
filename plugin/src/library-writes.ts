@@ -110,33 +110,30 @@ async function carryOut(write: LibraryWrite): Promise<WriteAnswer> {
 }
 
 /**
- * Writes a Profile. To create one, it first reads the tablet's profiles,
- * hidden and deleted ones included. Unless the tablet holds the Profile
- * already, as when an earlier write's answer was lost, it posts the profile
- * with its metadata, and with its parent if the tablet holds that, since
- * Decaid refuses a parent it lacks. Decaid derives the record's id from the
+ * Writes a Profile. To create one, it first reads the tablet's record of it,
+ * hidden or deleted as it may be. Unless the tablet holds one already, as
+ * when an earlier write's answer was lost, it posts the profile with its
+ * metadata, and with its parent if the tablet holds that, since Decaid
+ * refuses a parent it lacks. Decaid derives the record's id from the
  * profile, and answers a post of one it holds with that record, unchanged.
  * Either way, it then sets the record's visibility where it differs, as an
  * update of a Profile does alone. Should that fail, the record as it was is
  * the answer, and the server asks for the visibility again. A record Decaid
  * made under another id, as a Decaid hashing profiles otherwise would, is
- * the answer as made: it is not the Profile, and the server records nothing.
+ * the answer as made: it is not the Profile, and the server does not record
+ * it as one, so the tablet's next report adds it to the Library as a new one.
  */
 async function writeProfile(write: LibraryWrite): Promise<WriteAnswer> {
   const visibility = write.fields.visibility;
   if (write.localId !== null) return answerTo(write, await setVisibility(write.localId, visibility));
-  const listed = await request("GET", "/profiles?includeHidden=true");
-  if (!listed.ok) return refused(write, listed.status, listed.text);
-  const parsedList = parsed(listed.text);
-  const records = Array.isArray(parsedList) ? parsedList.filter(isObject) : [];
-  let record = records.find((candidate) => candidate.id === write.globalId);
+  const held = await heldProfile(write.globalId);
+  if ("refused" in held) return refused(write, held.refused.status, held.refused.text);
+  let record = held.record;
   if (!record) {
     const { parentId, metadata } = write.fields;
-    const body = {
-      profile: write.fields.profile,
-      ...(typeof parentId === "string" && records.some((candidate) => candidate.id === parentId) ? { parentId } : {}),
-      ...(isObject(metadata) ? { metadata } : {}),
-    };
+    const parent = typeof parentId === "string" ? await heldProfile(parentId) : undefined;
+    if (parent && "refused" in parent) return refused(write, parent.refused.status, parent.refused.text);
+    const body = { profile: write.fields.profile, ...(parent?.record ? { parentId } : {}), ...(isObject(metadata) ? { metadata } : {}) };
     const made = await request("POST", "/profiles", body);
     const created = made.ok ? parsed(made.text) : undefined;
     if (!isObject(created) || typeof created.id !== "string") return refused(write, made.status, made.text);
@@ -146,6 +143,14 @@ async function writeProfile(write: LibraryWrite): Promise<WriteAnswer> {
   const again = await setVisibility(write.globalId, visibility).catch(() => undefined);
   const updated = again?.ok ? parsed(again.text) : undefined;
   return written(write, isObject(updated) && updated.id === write.globalId ? updated : record);
+}
+
+/** The tablet's record of the Profile with that id, none if Decaid answers 404, or Decaid's refusal to read it. */
+async function heldProfile(id: string): Promise<{ record: Record<string, unknown> | undefined } | { refused: Answer }> {
+  const answer = await request("GET", `/profiles/${encodeURIComponent(id)}`);
+  if (answer.status === 404) return { record: undefined };
+  const record = answer.ok ? parsed(answer.text) : undefined;
+  return isObject(record) && record.id === id ? { record } : { refused: answer };
 }
 
 /** Shows or hides a Profile on the tablet, as Decaid's `PUT /profiles/{id}/visibility` does. */

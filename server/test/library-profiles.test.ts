@@ -35,6 +35,7 @@ const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 /** Decaid's bundled Profiles on the test tablet: every tablet on Decaid v0.8.7 has them. */
 const bundled = () => (de1ProOnDecaid087()["/profiles"] as Record_[]).filter((record) => record.isDefault === true);
 const BUNDLED = "profile:990c28a4ecac8e5bf6ba";
+const BUNDLED_HIDDEN = "profile:729d284747718d27c93a";
 
 describe("Profiles shown per Location", { timeout: 60_000 }, () => {
   let server: TestServer;
@@ -236,6 +237,60 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     await save("Held", one, derivedProfile("Held Bloom", 9.25), ["lab"]);
     await holds(slow, entered.id, "visible");
     expect(profileWrites(slow)).toEqual([`PUT /profiles/${encodeURIComponent(String(entered.id))}/visibility`]);
+  });
+
+  it("shows a Profile again at the lab once a tablet there gets it back by changing its steps back, as an edit made after the lab hid it", async () => {
+    const { one, two } = await lab("Reverted", 17071);
+    const first = await save("Reverted", one, derivedProfile("Reverted Bloom", 3), ["lab"]);
+    // Decaid's PUT with new steps replaces the record, then puts the old steps back under their old id.
+    const changed = await one.editProfile(first.id, derivedProfile("Reverted Bloom", 3.25));
+    await expect.poll(() => shownAt("Reverted", first.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => shownAt("Reverted", changed.id), { timeout: 10_000 }).toEqual(["Reverted lab"]);
+    await holds(two, first.id, "hidden");
+
+    const back = await one.editProfile(changed.id, derivedProfile("Reverted Bloom", 3));
+    expect(back.id).toBe(first.id);
+    await expect.poll(() => shownAt("Reverted", first.id), { timeout: 10_000 }).toEqual(["Reverted lab"]);
+    await expect.poll(() => shownAt("Reverted", changed.id), { timeout: 10_000 }).toEqual([]);
+    await holds(two, first.id, "visible");
+    await holds(two, changed.id, "hidden");
+    expect(visibilityOn(one, first.id)).toBe("visible");
+  });
+
+  it("keeps a lab Profile shown when a tablet that hid it while offline reconnects after another lab tablet showed it again", async () => {
+    const { one, two } = await lab("Offline", 17081);
+    const record = await save("Offline", one, derivedProfile("Offline Bloom", 3.5), ["lab"]);
+    await holds(two, record.id, "visible");
+
+    two.loseNetwork();
+    await two.setProfileVisibility(record.id, "hidden");
+    // Later, the lab's other tablet hides it and shows it again.
+    await one.setProfileVisibility(record.id, "hidden");
+    await expect.poll(() => shownAt("Offline", record.id), { timeout: 10_000 }).toEqual([]);
+    await one.setProfileVisibility(record.id, "visible");
+    await expect.poll(() => shownAt("Offline", record.id), { timeout: 10_000 }).toEqual(["Offline lab"]);
+
+    // The earlier hide, made without seeing those, loses to them (ADR-0020), and the lab's state is written back.
+    two.restoreNetwork();
+    await holds(two, record.id, "visible");
+    expect(await shownAt("Offline", record.id)).toEqual(["Offline lab"]);
+    expect(visibilityOn(one, record.id)).toBe("visible");
+  });
+
+  it("keeps Decaid's bundled Profiles as a moved tablet had them at a Location that has decided nothing of them, and hides the Profiles of its old Location there", async () => {
+    const { machines, one } = await lab("Moved", 17091);
+    const user = await save("Moved", one, derivedProfile("Moved Bloom", 3.75), ["lab"]);
+    await one.setProfileVisibility(BUNDLED_HIDDEN, "hidden");
+    await expect.poll(() => shownAt("Moved", BUNDLED_HIDDEN), { timeout: 10_000 }).toEqual(["Moved cafe"]);
+
+    const elsewhere = await api.createLocation("Moved elsewhere", "America/Chicago");
+    expect((await api.call("POST", `/machines/${machines[0].machine.id}/location-history`, { locationId: elsewhere.id })).status).toBe(201);
+    await expect.poll(() => shownAt("Moved", BUNDLED), { timeout: 10_000 }).toEqual(["Moved cafe", "Moved elsewhere", "Moved lab"]);
+    await holds(one, user.id, "hidden");
+    expect(await shownAt("Moved", user.id)).toEqual(["Moved lab"]);
+    expect(await shownAt("Moved", BUNDLED_HIDDEN)).toEqual(["Moved cafe"]);
+    expect(visibilityOn(one, BUNDLED)).toBe("visible");
+    expect(visibilityOn(one, BUNDLED_HIDDEN)).toBe("hidden");
   });
 
   it("writes a new tablet at the lab what the lab shows, keeping hidden there what the lab hid, without a parent the tablet lacks", async () => {

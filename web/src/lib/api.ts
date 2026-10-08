@@ -450,7 +450,7 @@ export interface BeanBatch extends BeanBatchSummary {
 /** A Location showing a Profile. */
 export interface ProfileAtLocation {
   location: Location;
-  /** When it was last shown there. */
+  /** The time of the edit that showed it there, by the clock of the tablet that made it, if a tablet did. */
   since: string;
 }
 

@@ -878,7 +878,7 @@ class FieldChecker {
 
   /** The id of a Library item of the kind given (`isItemId`): a Profile's id, or another kind's global id, a UUID. */
   itemId(key: string, kind: unknown): void {
-    if (kind === "profile" ? !isRecordId(this.object[key]) : !isGlobalId(this.object[key])) {
+    if (!isItemId(String(kind), this.object[key])) {
       this.problem(key, kind === "profile" ? `must be a Profile's id of 1 to ${MAX_RECORD_ID_LENGTH} characters without NUL` : "must be a UUID");
     }
   }

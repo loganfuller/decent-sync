@@ -225,6 +225,9 @@ var __decentSync = (() => {
   function isLibraryList(name) {
     return LIBRARY_LISTS.includes(name);
   }
+  function isItemId(kind, value) {
+    return kind === "profile" ? isRecordId(value) : isGlobalId(value);
+  }
   var MAX_REFUSAL_LENGTH = 1e3;
   function encode(message) {
     return JSON.stringify(message);
@@ -315,7 +318,7 @@ var __decentSync = (() => {
     }
     /** The id of a Library item of the kind given (`isItemId`): a Profile's id, or another kind's global id, a UUID. */
     itemId(key, kind) {
-      if (kind === "profile" ? !isRecordId(this.object[key]) : !isGlobalId(this.object[key])) {
+      if (!isItemId(String(kind), this.object[key])) {
         this.problem(key, kind === "profile" ? `must be a Profile's id of 1 to ${MAX_RECORD_ID_LENGTH} characters without NUL` : "must be a UUID");
       }
     }
@@ -732,18 +735,14 @@ var __decentSync = (() => {
   async function writeProfile(write) {
     const visibility = write.fields.visibility;
     if (write.localId !== null) return answerTo(write, await setVisibility(write.localId, visibility));
-    const listed = await request("GET", "/profiles?includeHidden=true");
-    if (!listed.ok) return refused(write, listed.status, listed.text);
-    const parsedList = parsed(listed.text);
-    const records = Array.isArray(parsedList) ? parsedList.filter(isObject2) : [];
-    let record = records.find((candidate) => candidate.id === write.globalId);
+    const held = await heldProfile(write.globalId);
+    if ("refused" in held) return refused(write, held.refused.status, held.refused.text);
+    let record = held.record;
     if (!record) {
       const { parentId, metadata } = write.fields;
-      const body = {
-        profile: write.fields.profile,
-        ...typeof parentId === "string" && records.some((candidate) => candidate.id === parentId) ? { parentId } : {},
-        ...isObject2(metadata) ? { metadata } : {}
-      };
+      const parent = typeof parentId === "string" ? await heldProfile(parentId) : void 0;
+      if (parent && "refused" in parent) return refused(write, parent.refused.status, parent.refused.text);
+      const body = { profile: write.fields.profile, ...parent?.record ? { parentId } : {}, ...isObject2(metadata) ? { metadata } : {} };
       const made = await request("POST", "/profiles", body);
       const created = made.ok ? parsed(made.text) : void 0;
       if (!isObject2(created) || typeof created.id !== "string") return refused(write, made.status, made.text);
@@ -753,6 +752,12 @@ var __decentSync = (() => {
     const again = await setVisibility(write.globalId, visibility).catch(() => void 0);
     const updated = again?.ok ? parsed(again.text) : void 0;
     return written(write, isObject2(updated) && updated.id === write.globalId ? updated : record);
+  }
+  async function heldProfile(id) {
+    const answer = await request("GET", `/profiles/${encodeURIComponent(id)}`);
+    if (answer.status === 404) return { record: void 0 };
+    const record = answer.ok ? parsed(answer.text) : void 0;
+    return isObject2(record) && record.id === id ? { record } : { refused: answer };
   }
   function setVisibility(id, visibility) {
     return request("PUT", `/profiles/${encodeURIComponent(id)}/visibility`, { visibility });

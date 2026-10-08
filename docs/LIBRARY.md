@@ -86,9 +86,11 @@ it (Writing to tablets, below).
   Archived, the Location of the tablet that created it, and when it joined
   the Library.
 - `profile_locations`: whether each Profile is shown at a Location, a field of
-  its own (ADR-0020), with the time of the edit that set it, never earlier
-  than the one before. A Location with no row for a Profile has decided
-  nothing of it, and does not show it.
+  its own (ADR-0020), with the time of the edit that decided it: a tablet's
+  by its record's `updatedAt` in UTC; a delete, which Decaid does not time,
+  by PostgreSQL's clock, but never earlier than the record the tablet was last
+  known to have. A Location with no row for a Profile has decided nothing of
+  it, and does not show it.
 - `tablet_beans`, `tablet_bean_batches` and `tablet_profiles`: the map, per
   tablet id (ticket #79): each item's local id on that tablet, which is a
   Profile's own, and the record as the tablet last had it, as it reported it
@@ -224,18 +226,33 @@ Decaid's delete marks a user's Profile with, and hides a bundled one.
 - A record the map holds replaces the one known when it is newer, or as old
   but of another visibility. Made visible since, the Profile is shown at the
   tablet's Location; hidden or deleted since, it is hidden there (ADR-0019).
-  Only a Profile the tablet held can be hidden this way.
+  Only a Profile the tablet held can be hidden this way. Each is an edit timed
+  by the record: one older than the edit that decided the Location's state,
+  which the tablet had not seen, as from a tablet that was offline, loses to
+  it (ADR-0020), and the Location's state is written back to that tablet.
+  Conflicts, which will keep the losing edit, come with ticket #84.
 - Any other record is one the map does not hold yet: the tablet created it,
-  held it before its Machine was at the Location, or was written it by a
-  write whose answer was lost. If the Library has its id, it is that Profile;
-  otherwise it joins the Library, created at the tablet's Location. Where the
-  Location has decided nothing of the Profile yet, the record's visibility
-  decides it, so a Profile new to the Library is shown where it was created
-  only, and an identical Profile created at two Locations is shown at both.
-  Otherwise the Location's state stands, and is written to the tablet: a new
-  tablet's bundled Profiles do not show those its Location hid. Decaid's
-  bundled Profiles join the Library this way like any other, so whether each
-  is shown is per Location.
+  held it before it joined the Location, or was written it by a write whose
+  answer was lost. If the Library has its id, it is that Profile; otherwise it
+  joins the Library, created at the tablet's Location. Where the Location has
+  decided nothing of the Profile yet, the record's visibility decides it, so a
+  Profile new to the Library is shown where it was created only, and an
+  identical Profile created at two Locations is shown at both. Otherwise the
+  Location's state stands, and is written to the tablet: a new tablet's
+  bundled Profiles do not show those its Location hid. But a user's Profile
+  the tablet made visible after both it joined the Location and the Location
+  last decided the Profile is an edit made there, and shows it, as when a
+  barista changes a Profile's steps back, which Decaid's `PUT` makes a record
+  under the old id again, or re-creates one purged. A tablet joined its
+  Location at the later of when its Machine arrived there, by its Location
+  History, and when the tablet first connected as that Machine. Decaid's
+  bundled Profiles join the Library like any other, so whether each is shown
+  is per Location.
+- A bundled Profile the map holds that the tablet's Location has decided
+  nothing of, as after its Machine moved there, is decided by its record, as
+  on a first report there. A user's Profile the map holds stays as the
+  Location has it: hidden there, as it belonged to the Location the tablet
+  held it at (ADR-0008), until it is shown there.
 - A record the map holds whose id the list no longer holds, as when Decaid
   replaced it or a purge removed it, is gone: if the tablet held it visible,
   it is hidden at its Location, and the map holds it no more. A new or reset
@@ -369,18 +386,21 @@ tablet's list of batches to show it does not.
   holding its other keys beside the global id, since Decaid replaces `extras`
   whole.
 
-- To create a Profile, it reads the tablet's profiles, hidden and deleted ones
-  included. Unless the tablet holds one with the Profile's id already, as
-  when the answer to an earlier write was lost, it posts the profile
-  (`POST /profiles`) with its metadata, and with its parent if the tablet
-  holds that Profile, since Decaid refuses a parent it lacks. Decaid derives
-  the record's id from the profile, and answers a post of a profile it holds,
+- To create a Profile, it reads the tablet's record of it (`GET
+  /profiles/{id}`), hidden or deleted as it may be. Unless the tablet holds
+  one already, as when the answer to an earlier write was lost, it posts the
+  profile (`POST /profiles`) with its metadata, and with its parent if the
+  tablet holds that Profile, since Decaid refuses a parent it lacks; the
+  server writes a parent to be created before its child. Decaid derives the
+  record's id from the profile, and answers a post of a profile it holds,
   hidden or deleted as it may be, with that record, unchanged. So the plugin
   then sets the record's visibility where it differs (`PUT
   /profiles/{id}/visibility`); should that fail, it answers with the record as
   it was, and the server writes the visibility again. A record Decaid made
   under another id, as a Decaid hashing profiles otherwise would, is not the
-  Profile: the server records nothing, and skips it for the connection.
+  Profile: the server does not record it as one, and skips the write for the
+  connection, and the tablet's next report adds the record to the Library as
+  a Profile of its own.
 - To show or hide a Profile, it sets the record's visibility alone.
 
 The plugin's next report then holds the record as written, which changes
@@ -421,7 +441,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   title, ignoring case. `id` is Decaid's, such as
   `profile:bf1ca48b9c7389c7d146`; `title`, `author` and `beverageType` are its
   content's. `shownAt` lists the Locations showing it, by name, each `{
-  location, since }`, since it was last shown there; none while it is
+  location, since }`, the time of the edit that showed it there: a tablet's
+  by its record's time, which for a Profile a tablet brought, such as a
+  bundled one, can be before the Location existed. None while it is
   Archived.
 - `GET /api/profiles/:id` returns `{ profile }`, the same with its `content`
   and `parent`, `{ id, title }` of the Profile it was saved from if the
@@ -452,13 +474,23 @@ its steps and the Profile it was saved from.
 - Joining a Location, including what a moved Machine brings and clearing its
   Workflow's batch: ticket #89. Until then a moved Machine's tablet is written
   its new Location's items once its fresh reports are taken in there, and has
-  what only its old one offered archived. Those reports link or add only the
+  what only its old one offered archived or hidden, its old Location's user
+  Profiles included; its bundled Profiles keep their visibility where the new
+  Location has decided nothing of them. Those reports link or add only the
   items the tablet's map does not hold yet, such as those of a Machine given
   its first Location: what it held at its old Location stays offered only
   there, though a batch un-archived on it is added at its new one.
 - The capture-only switch: ticket #90. Recording refused writes, and each
   Machine's sharing status: ticket #91.
 - Linking Shots to the Library's batches: ticket #92.
+
+Decaid hides a bundled Profile a release no longer bundles, or bundles anew
+under another id (`_retireStaleDefaults` in
+`decaid:lib/src/controllers/profile_controller.dart`). So once tablets at one
+Location run Decaid releases that bundle different Profiles, the first to
+upgrade hides the old one at the Location, on the others too, which lack the
+new one: bundled Profiles are never written. v0.8.7 and v0.8.8 bundle the same
+Profiles.
 
 `server/test/library-beans.test.ts`, `server/test/library-batches.test.ts`
 and `server/test/library-profiles.test.ts` cover this through Seam 1, with the

@@ -178,6 +178,20 @@ describe("plannedWrites", () => {
     expect(plannedWrites(offer([], [], [shown(PROFILES[0], { content: null })]), holding([], [], [heldProfile(PROFILES[0], "visible")]))).toEqual([]);
   });
 
+  it("creates a Profile after the one it was saved from where both are to be created, so the tablet keeps its parent", () => {
+    const child = { ...profileContent, parentId: PROFILES[1] };
+    const parent = { ...profileContent, parentId: null };
+    const writes = plannedWrites(offer([], [], [shown(PROFILES[0], { content: child }), shown(BUNDLED, { bundled: true, content: null }), shown(PROFILES[1], { content: parent })]), holding([], []));
+    expect(writes.map((write) => [write.globalId, write.fields.parentId])).toEqual([
+      [PROFILES[1], null],
+      [PROFILES[0], PROFILES[1]],
+    ]);
+    // A parent the tablet holds already, or that is not to be created, changes nothing.
+    expect(plannedWrites(offer([], [], [shown(PROFILES[0], { content: child }), shown(PROFILES[1], { content: null })]), holding([], [], [heldProfile(PROFILES[1], "visible")])).map((write) => write.globalId)).toEqual([
+      PROFILES[0],
+    ]);
+  });
+
   it("writes Profiles after Beans and Bean Batches, those the Location shows first", () => {
     const held = holding([heldBean(BEANS[0])], [], [heldProfile(PROFILES[1], "visible")]);
     const writes = plannedWrites(offer([], [], [shown(PROFILES[0])]), held);

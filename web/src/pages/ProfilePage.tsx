@@ -79,8 +79,8 @@ function ProfileDetails({ id }: { id: string }) {
             <h2>Locations</h2>
           </CardTitle>
           <CardDescription>
-            Where it is shown. Each Location's tablets hold it visible there, and hidden, never deleted, everywhere else
-            they hold it.
+            Where it is shown, each since the edit that showed it there, by the clock of the tablet that made it. Each
+            Location's tablets hold it visible there, and hidden, never deleted, everywhere else they hold it.
           </CardDescription>
         </CardHeader>
         <CardContent>

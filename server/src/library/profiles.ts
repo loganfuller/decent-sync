@@ -47,16 +47,20 @@ export async function takeInProfiles(
   const mappedIds = new Set(mapped.map((profile) => profile.profileId));
   const unmapped = reported.flatMap((profile) => (mappedIds.has(profile.id) ? [] : [profile.id]));
   if (unmapped.length > 0) await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PROFILE_JOINING_LOCK}::bigint)`;
-  // The Library Profiles the new records are, and whether the Location shows each it has decided.
-  const library =
-    unmapped.length === 0
-      ? []
-      : await tx.$queryRaw<{ id: string; shown: boolean | null }[]>`
-          SELECT profiles.id, here.shown FROM profiles
-          LEFT JOIN profile_locations AS here ON here.profile_id = profiles.id AND here.location_id = ${locationId}::uuid
-          WHERE profiles.id = ANY(${unmapped}::text[])`;
-  const located = new Map(library.flatMap((profile) => (profile.shown === null ? [] : [[profile.id, profile.shown] as const])));
-  const steps = planProfileIntake(reported, mapped, new Set(library.map((profile) => profile.id)), located, listedIds(value));
+  // The Library Profiles the new records are.
+  const library = unmapped.length === 0 ? [] : await tx.$queryRaw<{ id: string }[]>`SELECT id FROM profiles WHERE id = ANY(${unmapped}::text[])`;
+  // Whether the Location shows each Profile reported that it has decided, and when that was decided.
+  const located = await tx.$queryRaw<{ profileId: string; shown: boolean; changedAt: Date }[]>`
+    SELECT profile_id AS "profileId", shown, changed_at AS "changedAt" FROM profile_locations
+    WHERE location_id = ${locationId}::uuid AND profile_id = ANY(${reported.map((profile) => profile.id)}::text[])`;
+  const steps = planProfileIntake(
+    reported,
+    mapped,
+    new Set(library.map((profile) => profile.id)),
+    new Map(located.map(({ profileId, ...state }) => [profileId, state])),
+    unmapped.length === 0 ? null : await joinedAt(tx, tablet),
+    listedIds(value),
+  );
   if (steps.length === 0) return locationId;
   await lockLocation(tx, locationId);
 
@@ -67,6 +71,10 @@ export async function takeInProfiles(
       await tx.$executeRaw`DELETE FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid AND profile_id = ${step.profileId}`;
       if (step.shown === false) await showProfileAt(tx, step.profileId, locationId, false, deletedAt(await transactionTime(tx), step.updatedAt));
       writesDue = true;
+      continue;
+    }
+    if (step.kind === "decide") {
+      writesDue = (await decideProfileAt(tx, step.profileId, locationId, step.shown, step.at)) || writesDue;
       continue;
     }
     const { profile } = step;
@@ -82,7 +90,8 @@ export async function takeInProfiles(
       continue;
     }
     // The tablet holds it as the Location has it, or is written so; the Location's other tablets may lack it.
-    if (step.shown !== undefined) await decideProfileAt(tx, profile.id, locationId, step.shown, profile.updatedAt);
+    if (step.decide !== undefined) await decideProfileAt(tx, profile.id, locationId, step.decide, profile.updatedAt);
+    if (step.kind === "map" && step.shown) await showProfileAt(tx, profile.id, locationId, true, profile.updatedAt);
     writesDue = true;
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
@@ -109,6 +118,21 @@ export async function recordProfileWritten(prisma: PrismaService, tablet: Report
     await saveRecord(tx, tablet.tabletId, profileId, record, updatedAt === null ? null : new Date(updatedAt));
     return true;
   }, INTAKE_TRANSACTION);
+}
+
+/**
+ * When the tablet joined its Machine's Location: the later of when the
+ * Machine arrived there, by its Location History, and when the tablet first
+ * connected as that Machine. What the tablet changed after that it changed
+ * there; what it holds from before, it brought.
+ */
+async function joinedAt(tx: Prisma.TransactionClient, tablet: ReportingTablet): Promise<Date | null> {
+  const [row] = await tx.$queryRaw<{ joinedAt: Date | null }[]>`
+    SELECT GREATEST(
+      (SELECT first_seen_at FROM machine_tablets WHERE tablet_id = ${tablet.tabletId}::uuid AND machine_id = ${tablet.machineId}::uuid),
+      (SELECT effective_from FROM location_assignments WHERE machine_id = ${tablet.machineId}::uuid ORDER BY effective_from DESC LIMIT 1)
+    ) AS "joinedAt"`;
+  return row?.joinedAt ?? null;
 }
 
 /** Saves the tablet's record of a Profile as the one it holds, as `saveRecord` in beans.ts does a Bean's. */

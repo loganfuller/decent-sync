@@ -84,8 +84,10 @@ export function writeKey(kind: LibraryKind, globalId: string): string {
  * and each Bean the same way. Beans so come before their batches, and
  * batches are archived before their Beans. Last, each Profile the Location
  * shows that the tablet lacks, created, unless it is one of Decaid's bundled
- * Profiles, or holds hidden or deleted, made visible; then each the tablet
- * holds visible that the Location does not show, hidden. Items in `skipped`
+ * Profiles, after the Profile it was saved from if that is created too, so
+ * the tablet keeps its parent; or that the tablet holds hidden or deleted,
+ * made visible. Then each the tablet holds visible that the Location does
+ * not show, hidden. Items in `skipped`
  * (`writeKey`) are left out, and so is a batch whose Bean the tablet holds
  * no record of yet: its Bean is written first. Every update sets only the
  * fields that differ, writing the global id beside them; a Profile's records
@@ -125,7 +127,7 @@ export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skippe
   }
   const profiles = new Map(held.profiles.map((record) => [record.itemId, record]));
   const shownProfiles = new Set(offer.profiles.map((profile) => profile.id));
-  for (const profile of offer.profiles) {
+  for (const profile of parentsFirst(offer.profiles)) {
     const record = profiles.get(profile.id);
     if (record) {
       if (record.record.visibility !== "visible") writes.push({ kind: "profile", globalId: profile.id, localId: record.localId, fields: { visibility: "visible" } });
@@ -140,6 +142,29 @@ export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skippe
     }
   }
   return writes.filter((write) => !skipped.has(writeKey(write.kind, write.globalId)));
+}
+
+/**
+ * The Profiles in the order given, but each to be created after the Profile
+ * it was saved from where that is to be created too: Decaid refuses a parent
+ * it lacks, so the plugin would create it without one. Only Profiles to be
+ * created carry their content, and so their parent.
+ */
+function parentsFirst(profiles: readonly ShownProfile[]): ShownProfile[] {
+  const byId = new Map(profiles.map((profile) => [profile.id, profile]));
+  const ordered: ShownProfile[] = [];
+  const placed = new Set<string>();
+  const place = (profile: ShownProfile) => {
+    if (placed.has(profile.id)) return;
+    // Marked before its parent is placed, so a lineage that loops, which Decaid's hashes make unlikely, still ends.
+    placed.add(profile.id);
+    const parentId = profile.content?.parentId;
+    const parent = typeof parentId === "string" ? byId.get(parentId) : undefined;
+    if (parent?.content) place(parent);
+    ordered.push(profile);
+  };
+  for (const profile of profiles) place(profile);
+  return ordered;
 }
 
 /** What Decaid's `POST /profiles` takes to create a Profile's record, from its content: the profile, its parent and its metadata. */

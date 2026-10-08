@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { type MappedProfile, type ReportedProfile, planProfileIntake, profileContent, readReportedProfiles } from "../src/library/profile-intake.js";
+import { type LocationProfile, type MappedProfile, type ReportedProfile, planProfileIntake, profileContent, readReportedProfiles } from "../src/library/profile-intake.js";
 
 // Taking a tablet's report of its profiles into the Library, through the pure
 // module's interface: which records are new to the Library, which are a
 // Library Profile the tablet's map did not hold, and the mapping from what
 // changed in the records it held to whether the Profile is shown at the
-// tablet's Location (ADR-0008, ADR-0019). A Profile keeps Decaid's id, so a
-// record's id is its Profile's (ADR-0006). Records are shaped as Decaid
-// v0.8.7 serves profiles (fixtures/decaid/profile-writes-v0.8.7/).
+// tablet's Location (ADR-0008, ADR-0019, ADR-0020). A Profile keeps Decaid's
+// id, so a record's id is its Profile's (ADR-0006). Records are shaped as
+// Decaid v0.8.7 serves profiles (fixtures/decaid/profile-writes-v0.8.7/).
 
 const IDS = ["profile:bf1ca48b9c7389c7d146", "profile:e8ec02bda185095cd94f", "profile:b314408be6113ebbcb25"] as const;
 const BUNDLED = "profile:ca3086783cd9569e128c";
@@ -38,9 +38,30 @@ function reported(id: string, fields: Record<string, unknown> = {}, updatedAt = 
 /** A record the tablet's map holds, as it was known: visible, unless given otherwise. */
 const mapped = (profileId: string, known: Partial<MappedProfile> = {}): MappedProfile => ({ profileId, updatedAt: new Date(KNOWN_AT), visible: true, ...known });
 
-/** The steps a report makes, by what each changes at the Location. */
-const plan = (...args: Parameters<typeof planProfileIntake>) =>
-  planProfileIntake(...args).map((step) => [step.kind, step.kind === "add" ? step.profile.id : step.profileId, step.shown ?? "unchanged"]);
+/** When the tablet joined its Location, before the records reported: what it holds, it brought. */
+const JOINED = new Date("2026-10-08T12:00:00.000Z");
+/** The Location's state of a Profile, decided by an edit at that time. */
+const at = (shown: boolean, changedAt = "2026-10-08T12:30:00.000Z"): LocationProfile => ({ shown, changedAt: new Date(changedAt) });
+
+/**
+ * The steps a report makes, each with what it does at the Location: an edit
+ * showing or hiding the Profile, deciding it where the Location had not, or
+ * nothing.
+ */
+function plan(
+  reported: readonly ReportedProfile[],
+  mapped: readonly MappedProfile[],
+  library: ReadonlySet<string> = new Set(),
+  located: ReadonlyMap<string, LocationProfile> = new Map(),
+  listed?: ReadonlySet<string>,
+) {
+  return planProfileIntake(reported, mapped, library, located, JOINED, listed).map((step) => {
+    const id = step.kind === "add" ? step.profile.id : step.profileId;
+    if (step.kind === "decide") return [step.kind, id, `decides ${step.shown ? "shown" : "hidden"}`];
+    if ((step.kind === "add" || step.kind === "map") && step.decide !== undefined) return [step.kind, id, `decides ${step.decide ? "shown" : "hidden"}`];
+    return [step.kind, id, step.shown === undefined ? "unchanged" : step.shown ? "shows" : "hides"];
+  });
+}
 
 describe("readReportedProfiles", () => {
   it("reads each profile with whether it is visible, whether it is bundled and its UTC time", () => {
@@ -75,78 +96,113 @@ describe("readReportedProfiles", () => {
 
 describe("planProfileIntake", () => {
   it("adds a Profile new to the Library, shown at the tablet's Location if visible there, and hidden there if not", () => {
-    expect(plan([reported(IDS[0]), reported(IDS[1], { visibility: "hidden" })], [], new Set(), new Map())).toEqual([
-      ["add", IDS[0], true],
-      ["add", IDS[1], false],
+    expect(plan([reported(IDS[0]), reported(IDS[1], { visibility: "hidden" })], [])).toEqual([
+      ["add", IDS[0], "decides shown"],
+      ["add", IDS[1], "decides hidden"],
     ]);
   });
 
   it("takes a Library Profile the map did not hold as that Profile: its visibility decides it where the Location has decided nothing, as for an identical Profile created at two Locations", () => {
     const library = new Set([IDS[0], BUNDLED]);
-    expect(plan([reported(IDS[0]), reported(BUNDLED, { isDefault: true, visibility: "hidden" })], [], library, new Map())).toEqual([
-      ["map", IDS[0], true],
-      ["map", BUNDLED, false],
+    expect(plan([reported(IDS[0]), reported(BUNDLED, { isDefault: true, visibility: "hidden" })], [], library)).toEqual([
+      ["map", IDS[0], "decides shown"],
+      ["map", BUNDLED, "decides hidden"],
     ]);
   });
 
-  it("keeps the Location's state of a Library Profile the map did not hold, so a new tablet's bundled Profiles do not show those its Location hid", () => {
-    const library = new Set([IDS[0], BUNDLED]);
+  it("keeps the Location's state of a Library Profile the map did not hold and the tablet brought, so a new tablet's Profiles do not show those its Location hid", () => {
+    const library = new Set([IDS[0], IDS[1], BUNDLED]);
     const located = new Map([
-      [BUNDLED, false],
-      [IDS[0], true],
+      [BUNDLED, at(false)],
+      [IDS[0], at(true)],
+      [IDS[1], at(false)],
     ]);
-    expect(plan([reported(BUNDLED, { isDefault: true }), reported(IDS[0], { visibility: "hidden" })], [], library, located)).toEqual([
+    // A bundled one, whenever its record changed, and a user's from before the tablet joined.
+    const report = [reported(BUNDLED, { isDefault: true }, LATER), reported(IDS[0], { visibility: "hidden" }, LATER), reported(IDS[1], {}, "2026-10-08T11:00:00.000Z")];
+    expect(plan(report, [], library, located)).toEqual([
       ["map", BUNDLED, "unchanged"],
       ["map", IDS[0], "unchanged"],
+      ["map", IDS[1], "unchanged"],
     ]);
+  });
+
+  it("shows a user's Profile the Location hid that the tablet made visible after it joined and after the Location hid it, as when a barista re-creates it", () => {
+    const library = new Set([IDS[0]]);
+    expect(plan([reported(IDS[0], {}, LATER)], [], library, new Map([[IDS[0], at(false)]]))).toEqual([["map", IDS[0], "shows"]]);
+    // Made visible before the Location hid it, the tablet had not seen that.
+    expect(plan([reported(IDS[0], {}, "2026-10-08T12:20:00.000Z")], [], library, new Map([[IDS[0], at(false)]]))).toEqual([["map", IDS[0], "unchanged"]]);
+    // Without a known joining time, nothing is taken as made there.
+    expect(planProfileIntake([reported(IDS[0], {}, LATER)], [], library, new Map([[IDS[0], at(false)]]), null).map((step) => step.kind === "map" && step.shown === true)).toEqual([false]);
   });
 
   it("hides at the tablet's Location a Profile it held visible that it hid or deleted since, and shows one it made visible", () => {
     const known = [mapped(IDS[0]), mapped(IDS[1]), mapped(BUNDLED, { visible: false })];
     const report = [reported(IDS[0], { visibility: "hidden" }, LATER), reported(IDS[1], { visibility: "deleted" }, LATER), reported(BUNDLED, { isDefault: true }, LATER)];
-    expect(plan(report, known, new Set(), new Map())).toEqual([
-      ["update", IDS[0], false],
-      ["update", IDS[1], false],
-      ["update", BUNDLED, true],
+    const located = new Map([
+      [IDS[0], at(true)],
+      [IDS[1], at(true)],
+      [BUNDLED, at(false)],
+    ]);
+    expect(plan(report, known, new Set(), located)).toEqual([
+      ["update", IDS[0], "hides"],
+      ["update", IDS[1], "hides"],
+      ["update", BUNDLED, "shows"],
     ]);
   });
 
   it("changes nothing at the Location for a record that only changed otherwise, or went from hidden to deleted", () => {
     const known = [mapped(IDS[0]), mapped(IDS[1], { visible: false })];
     const report = [reported(IDS[0], { profile: { title: "Renamed" } }, LATER), reported(IDS[1], { visibility: "deleted" }, LATER)];
-    expect(plan(report, known, new Set(), new Map())).toEqual([
+    const located = new Map([
+      [IDS[0], at(true)],
+      [IDS[1], at(false)],
+    ]);
+    expect(plan(report, known, new Set(), located)).toEqual([
       ["update", IDS[0], "unchanged"],
       ["update", IDS[1], "unchanged"],
     ]);
   });
 
   it("takes a record as old as the one known only if it was shown or hidden since, within the millisecond the plugin reads times to, and an older one not at all", () => {
-    expect(plan([reported(IDS[0], { visibility: "hidden" })], [mapped(IDS[0])], new Set(), new Map())).toEqual([["update", IDS[0], false]]);
-    expect(plan([reported(IDS[0])], [mapped(IDS[0])], new Set(), new Map())).toEqual([]);
-    expect(plan([reported(IDS[0], { visibility: "hidden" }, "2026-10-08T12:00:00.000Z")], [mapped(IDS[0])], new Set(), new Map())).toEqual([]);
+    const located = new Map([[IDS[0], at(true)]]);
+    expect(plan([reported(IDS[0], { visibility: "hidden" })], [mapped(IDS[0])], new Set(), located)).toEqual([["update", IDS[0], "hides"]]);
+    expect(plan([reported(IDS[0])], [mapped(IDS[0])], new Set(), located)).toEqual([]);
+    expect(plan([reported(IDS[0], { visibility: "hidden" }, "2026-10-08T12:00:00.000Z")], [mapped(IDS[0])], new Set(), located)).toEqual([]);
     // One known without a time is replaced by any.
-    expect(plan([reported(IDS[0], { visibility: "hidden" }, "2026-10-08T12:00:00.000Z")], [mapped(IDS[0], { updatedAt: null })], new Set(), new Map())).toEqual([
-      ["update", IDS[0], false],
+    expect(plan([reported(IDS[0], { visibility: "hidden" }, "2026-10-08T12:00:00.000Z")], [mapped(IDS[0], { updatedAt: null })], new Set(), located)).toEqual([
+      ["update", IDS[0], "hides"],
     ]);
+  });
+
+  it("lets a bundled Profile the tablet held decide where its Location has decided nothing, as after its Machine moved there, but not a user's, which belonged to its old Location", () => {
+    const known = [mapped(BUNDLED, { visible: false }), mapped(IDS[0])];
+    expect(plan([reported(BUNDLED, { isDefault: true, visibility: "hidden" }), reported(IDS[0])], known)).toEqual([["decide", BUNDLED, "decides hidden"]]);
+    // Changed since, it is updated, and decides too, with its edit.
+    expect(plan([reported(BUNDLED, { isDefault: true }, LATER)], [mapped(BUNDLED, { visible: false })])).toEqual([
+      ["update", BUNDLED, "shows"],
+      ["decide", BUNDLED, "decides shown"],
+    ]);
+    // A Location that has decided it keeps its state.
+    expect(plan([reported(BUNDLED, { isDefault: true })], [mapped(BUNDLED)], new Set(), new Map([[BUNDLED, at(false)]]))).toEqual([]);
   });
 
   it("hides at the Location a Profile gone from the tablet that it held visible, as when its steps changed and Decaid replaced it under a new id, which is a new Profile shown there", () => {
     // Decaid's PUT with new steps: the old id is gone, and the new one is new to the Library.
-    expect(plan([reported(IDS[2], {}, LATER)], [mapped(IDS[0])], new Set(), new Map())).toEqual([
-      ["add", IDS[2], true],
-      ["delete", IDS[0], false],
+    expect(plan([reported(IDS[2], {}, LATER)], [mapped(IDS[0])])).toEqual([
+      ["add", IDS[2], "decides shown"],
+      ["delete", IDS[0], "hides"],
     ]);
     // Purged while hidden there, it was not shown there already.
-    expect(plan([], [mapped(IDS[1], { visible: false })], new Set(), new Map())).toEqual([["delete", IDS[1], "unchanged"]]);
+    expect(plan([], [mapped(IDS[1], { visible: false })])).toEqual([["delete", IDS[1], "unchanged"]]);
   });
 
   it("deletes only what the tablet's map held, and nothing whose id the list still holds, readable or not", () => {
     // A new or reset tablet lacking the Location's Profiles hides none of them (ADR-0019).
-    expect(plan([], [], new Set([IDS[0]]), new Map([[IDS[0], true]]))).toEqual([]);
+    expect(plan([], [], new Set([IDS[0]]), new Map([[IDS[0], at(true)]]))).toEqual([]);
     expect(plan([], [mapped(IDS[0])], new Set(), new Map(), new Set([IDS[0]]))).toEqual([]);
   });
 
   it("reads a record listed twice once", () => {
-    expect(plan([reported(IDS[0]), reported(IDS[0], { visibility: "hidden" })], [], new Set(), new Map())).toEqual([["add", IDS[0], true]]);
+    expect(plan([reported(IDS[0]), reported(IDS[0], { visibility: "hidden" })], [])).toEqual([["add", IDS[0], "decides shown"]]);
   });
 });

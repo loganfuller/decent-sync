@@ -73,9 +73,10 @@ tablets, and shown there only. Hiding, deleting or changing a profile's steps
 on a tablet hides it at that tablet's Location, on all of its tablets, and
 only there; changed steps make a new profile, shown there. The first tablet
 at a Location to report a profile decides whether it is shown there, so a
-bundled profile hidden on one tablet of a Location that has several, before
-the upgrade, may be shown on all of them, or hidden on all of them. Nothing
-is deleted from a tablet: what its Location stops showing is hidden on it.
+profile hidden or deleted on one tablet of a Location that has several, before
+the upgrade, may be shown on all of them, or hidden on all of them, even one
+the other tablets use. Show it again on any tablet there. Nothing is deleted
+from a tablet: what its Location stops showing is hidden on it.
 Export each tablet's data first if you may want to undo this, as above.
 
 ### Reload the plugin after restoring the server's database
