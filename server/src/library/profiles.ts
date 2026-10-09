@@ -202,9 +202,9 @@ export async function takeInProfiles(
  * says nothing new, as for an answer to a write no longer awaited. Nothing
  * is recorded
  * when the record is another Profile's, as one a Decaid hashing profiles
- * otherwise would make, or when the Library no longer has the Profile: an
+ * otherwise would make, nor when the Library no longer has the Profile: an
  * Admin hard-deleted it since, so the record is due to be deleted there too
- * (hard-deletes.ts).
+ * (hard-deletes.ts), which it answers with `deleted`.
  */
 export async function recordProfileWritten(
   prisma: PrismaService,
@@ -227,7 +227,7 @@ export async function recordProfileWritten(
         INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id, profile_steps)
         VALUES (${tablet.tabletId}::uuid, 'profile', ${profileId}, ${profileId}, ${JSON.stringify(stepsOf(record))}::jsonb)
         ON CONFLICT DO NOTHING`;
-      return "notTheItem";
+      return "deleted";
     }
     const here = await currentLocation(tx, tablet.machineId);
     const at = updatedAt === null ? null : new Date(updatedAt);
