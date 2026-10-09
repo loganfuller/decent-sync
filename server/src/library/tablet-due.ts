@@ -8,12 +8,14 @@ import {
   type OfferedGrinder,
   type PlannedChange,
   type PlannedDelete,
+  type PlannedWrite,
   type ShownProfile,
   deleteKey,
   plannedWrites,
   writeKey,
 } from "./holdings.js";
 import { shotNamesProfileSql } from "./hard-deletes.js";
+import { workflowClearDue } from "./joining.js";
 import { settingsDue } from "./location-settings.js";
 import { latestDecision, readFieldEdits } from "./merge.js";
 import { profileText } from "./profile-intake.js";
@@ -21,7 +23,9 @@ import { profileText } from "./profile-intake.js";
 // What a connection's tablet is due: the next write that brings it to what
 // its Machine's Location offers, and each record it holds to its item's
 // content (holdings.ts), its Workflow to the Location's steam, hot water
-// and rinse settings (location-settings.ts), and the deletes of its records
+// and rinse settings (location-settings.ts), its Workflow's grinder and
+// batch cleared as it joined a Location that does not offer them
+// (joining.ts), and the deletes of its records
 // of items an Admin hard-deleted (hard-deletes.ts), read from the database
 // each time, so it reflects changes made through any instance.
 
@@ -135,9 +139,10 @@ export async function tabletDue(
         grinders: heldGrinders.map((row) => heldRecord(row)),
         profiles: heldProfiles.map((row) => heldRecord(row, (content) => profileText(content))),
       };
-      // The Location's settings first: they need no item written before them.
-      const settings = await settingsDue(tx, tablet, locationId);
-      const writes = settings && !skipped.has(writeKey(settings.kind, settings.globalId)) ? [settings] : [];
+      // The Location's settings first, then the clearing of the Workflow's grinder and batch as the tablet joined it: they
+      // need no item written before them.
+      const workflow = [await settingsDue(tx, tablet, locationId), await workflowClearDue(tx, tablet.tabletId, locationId)];
+      const writes = workflow.filter((write): write is PlannedWrite => write !== null && !skipped.has(writeKey(write.kind, write.globalId)));
       return { locationId, writes: [...writes, ...(await deletesDue(tx, tablet.tabletId, skipped)), ...plannedWrites(offer, held, skipped)] };
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },

@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import type { WrittenKind } from "@decent-sync/protocol";
+import type { VersionedKind } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
 import type { BatchLocation, ConflictState, Prisma, ProfileLocation } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
@@ -45,7 +45,7 @@ export interface VersionView {
 
 /** A Library item a Conflict is about, or a Location's steam, hot water and rinse settings (`settings`), whose Location the Conflict names. */
 export interface ConflictItemView {
-  kind: WrittenKind;
+  kind: VersionedKind;
   /** Its global id, a Profile's id, or the settings' id. */
   id: string;
   /**
@@ -98,7 +98,7 @@ const withSource = { machine: { select: { id: true, name: true } }, account: { s
 
 /** The column each kind of item is named by in a version or Conflict. */
 const ITEM_WHERE: Readonly<
-  Record<WrittenKind, (id: string) => { beanId?: string; batchId?: string; grinderId?: string; profileId?: string; settingsId?: string }>
+  Record<VersionedKind, (id: string) => { beanId?: string; batchId?: string; grinderId?: string; profileId?: string; settingsId?: string }>
 > = {
   bean: (id) => ({ beanId: id }),
   beanBatch: (id) => ({ batchId: id }),
@@ -107,7 +107,7 @@ const ITEM_WHERE: Readonly<
   settings: (id) => ({ settingsId: id }),
 };
 
-const KIND_NAMES: Readonly<Record<WrittenKind, string>> = {
+const KIND_NAMES: Readonly<Record<VersionedKind, string>> = {
   bean: "Bean",
   beanBatch: "Bean Batch",
   grinder: "Grinder",
@@ -179,7 +179,7 @@ export class HistoryService {
       const version = versionId === null ? undefined : versions.get(versionId);
       return {
         id: conflict.id,
-        item: conflictItem(conflict),
+        item: itemView(conflict),
         field: conflict.field,
         value: conflict.value,
         location: conflict.location ? viewLocation(conflict.location) : null,
@@ -292,7 +292,8 @@ function viewSource(
 
 type ItemContent = { content: Prisma.JsonValue } | null;
 
-function conflictItem(conflict: {
+/** A Library item, or a Location's settings, as a Conflict names it, and as a Machine's page lists what it brought. */
+export function itemView(conflict: {
   beanId: string | null;
   batchId: string | null;
   grinderId: string | null;

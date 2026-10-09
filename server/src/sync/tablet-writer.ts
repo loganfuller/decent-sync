@@ -45,6 +45,7 @@ export const KIND_NAMES: Readonly<Record<WrittenKind, string>> = {
   grinder: "Grinder",
   profile: "Profile",
   settings: "Location settings",
+  workflow: "Workflow",
 };
 
 /**

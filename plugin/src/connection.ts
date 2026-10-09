@@ -378,7 +378,8 @@ export class SyncConnection {
         this.outbox.request("steam", message.steamIds);
         break;
       case "requestCollections":
-        // As when the Machine's Location changed: its Library is taken in there before anything is written to it.
+        // As when the Machine's Location changed: its Workflow and Library are taken in there before anything is written to it.
+        this.machineEvents.resend();
         this.collections.sendAll();
         break;
       case "write":

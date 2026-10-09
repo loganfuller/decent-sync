@@ -3,8 +3,9 @@
 // decaid:lib/src/services/webserver/workflow_handler.dart), learned from
 // fixtures/decaid/workflow-writes-v0.8.7/: the body is deep-merged into the
 // Workflow, which is rebuilt from the result, dropping fields Decaid does not
-// know, and its steam, hot water and rinse settings, where they changed, are
-// written to the machine, which refuses them while none is connected.
+// know, and fields of its `context` merged in as null, and its steam, hot
+// water and rinse settings, where they changed, are written to the machine,
+// which refuses them while none is connected.
 
 /** What Decaid answers a request: its status and its body, as JSON. */
 export interface WorkflowAnswer {
@@ -25,6 +26,28 @@ const PARTS: Readonly<Record<string, Readonly<Record<string, "int" | "double">>>
 const DEFAULTS: Readonly<Record<string, Json>> = {
   hotWaterData: { targetTemperature: 75, duration: 30, volume: 50, flow: 10 },
   rinseData: { targetTemperature: 90, duration: 10, flow: 6 },
+};
+
+/**
+ * The fields of a Workflow's `context` Decaid knows, as `WorkflowContext`
+ * reads them: numbers (`parseOptionalDouble`), strings
+ * (`parseOptionalString`), and its `extras`. It drops any other, and any
+ * that reads as null.
+ */
+const CONTEXT: Readonly<Record<string, "double" | "string" | "object">> = {
+  targetDoseWeight: "double",
+  targetYield: "double",
+  targetWaterVolume: "double",
+  grinderId: "string",
+  grinderModel: "string",
+  grinderSetting: "string",
+  beanBatchId: "string",
+  coffeeName: "string",
+  coffeeRoaster: "string",
+  finalBeverageType: "string",
+  baristaName: "string",
+  drinkerName: "string",
+  extras: "object",
 };
 
 /** The Workflow's fields Decaid knows; it drops any other top-level key. */
@@ -81,6 +104,8 @@ function partOf(workflow: Json, part: string): Json {
 function rebuilt(merged: Json): Json {
   const workflow: Json = {};
   for (const field of WORKFLOW_FIELDS) if (field in merged) workflow[field] = merged[field];
+  if (isObject(merged.context)) workflow.context = rebuiltContext(merged.context);
+  else delete workflow.context;
   for (const [part, fields] of Object.entries(PARTS)) {
     const value = merged[part];
     const source = value === null || value === undefined ? DEFAULTS[part] : value;
@@ -88,6 +113,32 @@ function rebuilt(merged: Json): Json {
     workflow[part] = Object.fromEntries(Object.entries(fields).map(([field, type]) => [field, read(source[field], type)]));
   }
   return workflow;
+}
+
+/** A Workflow's `context` as `WorkflowContext.fromJson` reads it and `toJson` writes it back. */
+function rebuiltContext(merged: Json): Json {
+  const context: Json = {};
+  for (const [field, type] of Object.entries(CONTEXT)) {
+    const value = merged[field];
+    const read =
+      type === "double" ? optionalDouble(value) : type === "string" ? optionalString(value) : isObject(value) ? value : null;
+    if (read !== null) context[field] = read;
+  }
+  return context;
+}
+
+/** `parseOptionalDouble` in utils.dart: a number, or a string that reads as one; otherwise null. */
+function optionalDouble(value: unknown): number | null {
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && /^[+-]?\d+(\.\d+)?$/.test(value.trim())) return Number(value);
+  return null;
+}
+
+/** `parseOptionalString` in utils.dart: a string, a number or a boolean as text; otherwise null. */
+function optionalString(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return null;
 }
 
 /** A number as Dart's `parseInt` or `parseDouble` in json_utils.dart reads one: a fraction for an int is cut toward zero. */

@@ -17,6 +17,7 @@ import {
   useLocations,
 } from "@/components/machines";
 import { TokenNotice } from "@/components/TokenNotice";
+import { BroughtItemsCard } from "@/components/brought-items";
 import { Field, Fields } from "@/components/fields";
 import { LibraryCard, PairedDevicesCard, SETTINGS, SettingsCard } from "@/components/machine-collections";
 import { SetAsideDeliveriesCard } from "@/components/set-aside-deliveries";
@@ -310,6 +311,7 @@ function MachineDetails({ id }: { id: string }) {
             </>
           )}
           <MachineLocation machine={machine} isAdmin={isAdmin} onChanged={reload} />
+          <BroughtItemsCard machineId={machine.id} />
         </>
       )}
     </section>

@@ -164,6 +164,7 @@ describe("Staff access", () => {
         `/machines/${id}/machine-state-events`,
         `/machines/${id}/collections`,
         `/machines/${id}/collections/appSettings`,
+        `/machines/${id}/brought`,
         `/machines/${id}/paired-devices`,
       ]),
     ];

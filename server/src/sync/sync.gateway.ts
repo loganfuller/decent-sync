@@ -41,6 +41,7 @@ import { recordBatchWritten } from "../library/bean-batches.js";
 import { recordBeanWritten } from "../library/beans.js";
 import { recordGrinderWritten } from "../library/grinders.js";
 import { recordDeleted } from "../library/hard-deletes.js";
+import { recordWorkflowCleared } from "../library/joining.js";
 import { recordSettingsWritten } from "../library/location-settings.js";
 import type { SeenDecision } from "../library/intake.js";
 import { recordProfileWritten } from "../library/profiles.js";
@@ -540,15 +541,17 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       const written = new Set(answer.writtenFields);
       const { record, updatedAt } = answer;
       const recorded =
-        kind === "settings"
-          ? await recordSettingsWritten(this.prisma, tablet, globalId, written, record, updatedAt, contentSeen)
-          : kind === "profile"
-            ? await recordProfileWritten(this.prisma, tablet, globalId, written, record, updatedAt, seen, contentSeen)
-            : kind === "bean"
-              ? await recordBeanWritten(this.prisma, tablet, globalId, written, record, updatedAt, seen, contentSeen, answer.linked === true)
-              : kind === "beanBatch"
-                ? await recordBatchWritten(this.prisma, tablet, globalId, written, record, updatedAt, seen, contentSeen)
-                : await recordGrinderWritten(this.prisma, tablet, globalId, written, record, updatedAt, contentSeen);
+        kind === "workflow"
+          ? await recordWorkflowCleared(this.prisma, tablet, globalId, record)
+          : kind === "settings"
+            ? await recordSettingsWritten(this.prisma, tablet, globalId, written, record, updatedAt, contentSeen)
+            : kind === "profile"
+              ? await recordProfileWritten(this.prisma, tablet, globalId, written, record, updatedAt, seen, contentSeen)
+              : kind === "bean"
+                ? await recordBeanWritten(this.prisma, tablet, globalId, written, record, updatedAt, seen, contentSeen, answer.linked === true)
+                : kind === "beanBatch"
+                  ? await recordBatchWritten(this.prisma, tablet, globalId, written, record, updatedAt, seen, contentSeen)
+                  : await recordGrinderWritten(this.prisma, tablet, globalId, written, record, updatedAt, contentSeen);
       if (recorded === "notTheItem" && awaited) {
         this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);
       }

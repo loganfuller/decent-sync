@@ -355,7 +355,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     // Asked again for its collections there, unless its own reports were taken in there first: at most once per Location.
     expect(tablet.received.filter((frame) => (frame as { type?: unknown }).type === "requestCollections").length).toBeLessThanOrEqual(2);
     await expect.poll(() => tablet.beans().filter((bean) => bean.archived === true).map((bean) => bean.name).sort(), { timeout: 10_000 }).toEqual(["Lab Second", "Moved Into"]);
-    // The Beans it held keep being offered where they were: taking in what a joining Machine brings is ticket #89.
+    // The Beans it held at the lab stay offered there only, as Uptown's state wins (ADR-0008).
     expect(locations(await libraryBean("Moved Into"))).toEqual(["Moving lab"]);
   });
 
@@ -367,7 +367,12 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const tablet = load(traveller, "14151");
     const uptownTablet = load(uptownMachine, "14152");
     await online(traveller, uptownMachine);
-    await expect.poll(() => beanReports(tablet), { timeout: 10_000 }).toBeGreaterThan(0);
+    // Its reports of its Library are taken in at the lab, each as it is stored.
+    const stored = async () =>
+      ((await (await api.call("GET", `/machines/${traveller.machine.id}/collections`)).json()) as { collections: { name: string }[] }).collections.map(
+        (collection) => collection.name,
+      );
+    await expect.poll(stored, { timeout: 10_000 }).toEqual(expect.arrayContaining(["beans", "beanBatches", "grinders", "profiles"]));
 
     // The traveller moves to Uptown with no notification, then a Bean joins Uptown, which every writer looks at.
     const database = await server.connectDatabase();

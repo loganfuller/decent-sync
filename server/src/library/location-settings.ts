@@ -5,7 +5,8 @@ import type { PrismaService } from "../prisma.service.js";
 import { type EditOutcome, type ItemEdit, decisionTime } from "./content-edits.js";
 import { type EditSource, type ItemRef, recordConflict, recordReplaced, recordVersion, tabletSource } from "./history.js";
 import type { PlannedWrite } from "./holdings.js";
-import { type AnswerRecorded, type AnsweringTablet, INTAKE_TRANSACTION, type ReportingTablet, currentLocation, lockHeldMachine, lockTablet } from "./intake.js";
+import { type AnswerRecorded, type AnsweringTablet, INTAKE_TRANSACTION, type ReportingTablet, lockHeldMachine, lockTablet } from "./intake.js";
+import { currentEntry, takeInWorkflowContext, takenIn } from "./joining.js";
 import { transactionTime } from "./location-state.js";
 import { type FieldEdits, editsAfter, latestDecision, mergeEdit, readFieldEdits } from "./merge.js";
 import { type LocationValues, readLocationValues, settingsEdits, settingsToWrite } from "./settings-intake.js";
@@ -141,18 +142,27 @@ export async function editSettings(tx: Prisma.TransactionClient, settingsId: str
  * none, nor does a Workflow lacking what every supported Decaid sends. One whose
  * sharing is turned off changes nothing, but its settings are kept as the
  * tablet's, so once its sharing is turned back on its own changes since are told
- * from the Location's, which are written to it. Tells every instance when
- * the Location's tablets, this one included, are to be written.
+ * from the Location's, which are written to it. A Workflow reported as the
+ * tablet joins the Location (joining.ts) has had none of its settings yet,
+ * whatever it held there before, so the Location's state wins (ADR-0008),
+ * and its grinder and batch are cleared if the Location does not offer them
+ * (`takeInWorkflowContext`), whether or not its Machine shares the settings.
+ * Tells every instance when the Location's tablets, this one included, are
+ * to be written.
  */
 export async function takeInWorkflow(tx: Prisma.TransactionClient, tablet: ReportingTablet, workflow: unknown, observedAt: string): Promise<void> {
   const reported = sharedSettingsOf(workflow);
   if (reported === null) return;
-  const locationId = await currentLocation(tx, tablet.machineId);
-  if (locationId === null) return;
+  const entry = await currentEntry(tx, tablet.machineId);
+  if (entry === null) return;
+  const { locationId } = entry;
   await lockTablet(tx, tablet.tabletId);
+  const joining = await takenIn(tx, tablet.tabletId, "workflow", entry);
+  // Before the settings' row lock: it may take the Location's lock, which comes first.
+  await takeInWorkflowContext(tx, tablet, workflow, locationId, joining);
   const settings = await lockSettingsAt(tx, locationId);
   const held = await heldSettings(tx, tablet.tabletId);
-  const known = held?.settingsId === settings.id ? held : null;
+  const known = !joining && held?.settingsId === settings.id ? held : null;
   const { shares, sharedThen } = await sharing(tx, tablet.machineId, new Date(observedAt));
   if (!sharedThen) {
     await saveHeld(tx, tablet.tabletId, settings.id, reported, null);

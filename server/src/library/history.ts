@@ -1,4 +1,4 @@
-import type { LibraryKind, WrittenKind } from "@decent-sync/protocol";
+import type { LibraryKind, VersionedKind } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import type { ReportingTablet } from "./intake.js";
 
@@ -16,7 +16,7 @@ import type { ReportingTablet } from "./intake.js";
  * Conflicts as items do (ADR-0020), always of their Location.
  */
 export interface ItemRef {
-  kind: WrittenKind;
+  kind: VersionedKind;
   id: string;
 }
 
@@ -49,7 +49,7 @@ const ITEM_FIELDS = {
   grinder: "grinderId",
   profile: "profileId",
   settings: "settingsId",
-} as const satisfies Record<WrittenKind, string>;
+} as const satisfies Record<VersionedKind, string>;
 
 /** The item's field of a version or Conflict, set to its id. */
 function itemField(item: ItemRef): { beanId: string } | { batchId: string } | { grinderId: string } | { profileId: string } | { settingsId: string } {

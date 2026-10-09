@@ -19,6 +19,8 @@ import {
   seenAtSql,
 } from "./intake.js";
 import { setAsideDeleted } from "./hard-deletes.js";
+import { brought } from "./join-plan.js";
+import { currentEntry, recordBrought, takenIn } from "./joining.js";
 import { listedIds } from "./listed.js";
 import { deletedAt, lockLocation, offerBeanAt, takeBeanFrom, transactionTime } from "./location-state.js";
 import { changedFields } from "./merge.js";
@@ -67,10 +69,13 @@ export async function takeInBeans(
   value: unknown,
   updatedAt: readonly (string | null)[] | undefined,
 ): Promise<string | null> {
-  const locationId = await currentLocation(tx, tablet.machineId);
-  if (locationId === null) return null;
+  const entry = await currentEntry(tx, tablet.machineId);
+  if (entry === null) return null;
+  const { locationId } = entry;
   const read = readReportedBeans(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
+  /** Whether the report is part of the tablet joining the Location: what it brings is listed on its Machine's page. */
+  const joining = await takenIn(tx, tablet.tabletId, "beans", entry);
   const mapped = await tx.$queryRaw<
     {
       beanId: string;
@@ -145,6 +150,9 @@ export async function takeInBeans(
       await recordJoined(tx, { kind: "bean", id: beanId }, beanContent(bean.record), bean.updatedAt, source);
     } else {
       beanId = step.beanId;
+    }
+    if (brought(joining, step.kind === "add" ? "joined" : step.kind === "link" ? "matched" : "known")) {
+      await recordBrought(tx, tablet, locationId, { kind: "bean", id: beanId }, step.kind === "link");
     }
     // A linked record takes the Bean's content: each field it held otherwise is kept as a Conflict (ADR-0018).
     if (step.kind === "link") await recordLinked(tx, { kind: "bean", id: beanId }, beanContent(bean.record), bean.updatedAt, source);

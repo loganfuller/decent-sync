@@ -237,6 +237,9 @@ var __decentSync = (() => {
     return LIBRARY_LISTS.includes(name);
   }
   var SETTINGS_KIND = "settings";
+  var WORKFLOW_KIND = "workflow";
+  var WORKFLOW_GRINDER = ["context.grinderId", "context.grinderModel"];
+  var WORKFLOW_BATCH = ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"];
   function isItemId(kind, value) {
     return kind === "profile" ? isRecordId(value) : isGlobalId(value);
   }
@@ -827,7 +830,7 @@ var __decentSync = (() => {
     }
     /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
     apply(write) {
-      if (write.kind !== SETTINGS_KIND) return this.library.run(async () => this.outbox.enqueue(await carryOut(write)));
+      if (write.kind !== SETTINGS_KIND && write.kind !== WORKFLOW_KIND) return this.library.run(async () => this.outbox.enqueue(await carryOut(write)));
       return this.library.run(async () => {
         this.workflow.hold();
         try {
@@ -906,9 +909,12 @@ var __decentSync = (() => {
   }
   async function carryOut(write) {
     const route = Object.prototype.hasOwnProperty.call(ROUTES, write.kind) ? ROUTES[write.kind] : void 0;
-    if (!route && write.kind !== "profile" && write.kind !== SETTINGS_KIND) return refused(write, null, `This plugin cannot write a ${write.kind}`);
+    if (!route && write.kind !== "profile" && write.kind !== SETTINGS_KIND && write.kind !== WORKFLOW_KIND) {
+      return refused(write, null, `This plugin cannot write a ${write.kind}`);
+    }
     try {
       if (write.kind === SETTINGS_KIND) return await writeSettings(write);
+      if (write.kind === WORKFLOW_KIND) return await clearWorkflow(write);
       if (!route) return await writeProfile(write);
       if (write.localId === null) return await create(route, write);
       const updated = await update(route, write, write.localId);
@@ -959,6 +965,29 @@ var __decentSync = (() => {
     const updated = answer.ok ? parsed(answer.text) : void 0;
     if (!isObject2(updated)) return refused(write, answer.status, answer.text);
     return written(write, workflowSettings(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
+  }
+  async function clearWorkflow(write) {
+    const current = await request("GET", "/workflow");
+    const workflow = current.ok ? parsed(current.text) : void 0;
+    if (!isObject2(workflow)) return refused(write, current.status, current.text);
+    const context = isObject2(workflow.context) ? workflow.context : {};
+    const fields = Object.fromEntries(
+      [WORKFLOW_GRINDER, WORKFLOW_BATCH].flatMap((group) => {
+        const [id] = group;
+        const named = group.filter((field) => field in write.fields);
+        const expected = write.expected?.[id];
+        const holds = named.includes(id) && expected !== void 0 && expected !== null && sameValue(context[id.slice("context.".length)], expected);
+        return holds ? named.map((field) => [field, null]) : [];
+      })
+    );
+    if (Object.keys(fields).length === 0) return written(write, workflowContext(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
+    const answer = await request("PUT", "/workflow", settingsParts(fields));
+    const updated = answer.ok ? parsed(answer.text) : void 0;
+    if (!isObject2(updated)) return refused(write, answer.status, answer.text);
+    return written(write, workflowContext(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
+  }
+  function workflowContext(workflow) {
+    return { context: isObject2(workflow.context) ? workflow.context : {} };
   }
   function workflowSettings(workflow) {
     return Object.fromEntries(SETTINGS_PARTS.flatMap((part) => part in workflow ? [[part, workflow[part]]] : []));
@@ -1150,6 +1179,16 @@ var __decentSync = (() => {
      */
     welcome() {
       this.state = void 0;
+      this.resend();
+    }
+    /**
+     * Sends the latest Workflow again, observed now, as on a welcome: the
+     * server asks for it with every collection when the Machine's Location
+     * changes (`requestCollections`), so the tablet takes the new Location's
+     * settings, or sets them, and its Workflow's grinder and batch are judged
+     * there (ADR-0008).
+     */
+    resend() {
       if (!this.workflow) return;
       if (this.resent !== void 0) this.outbox.discard(this.resent);
       this.resent = void 0;
@@ -2029,6 +2068,7 @@ var __decentSync = (() => {
           this.outbox.request("steam", message.steamIds);
           break;
         case "requestCollections":
+          this.machineEvents.resend();
           this.collections.sendAll();
           break;
         case "write":
