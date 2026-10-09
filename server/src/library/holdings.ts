@@ -1,5 +1,5 @@
 import { globalIdOf, sameValue } from "@decent-sync/protocol";
-import type { LibraryKind, WrittenKind } from "@decent-sync/protocol";
+import type { DeletedKind, LibraryKind, WrittenKind } from "@decent-sync/protocol";
 import { batchContent, weightOf } from "./batch-intake.js";
 import { beanContent } from "./bean-intake.js";
 import { grinderContent } from "./grinder-intake.js";
@@ -126,6 +126,25 @@ export interface PlannedWrite {
    * its answer shows. Null if none was.
    */
   contentDecidedAt: Date | null;
+}
+
+/**
+ * A tablet's record of an item an Admin hard-deleted, to be deleted there
+ * (hard-deletes.ts): its global id, and its id on the tablet.
+ */
+export interface PlannedDelete {
+  delete: true;
+  kind: DeletedKind;
+  globalId: string;
+  localId: string;
+}
+
+/** What the writer does next to a tablet: a write, or a delete. */
+export type PlannedChange = PlannedWrite | PlannedDelete;
+
+/** The key a planned delete is skipped under, for the rest of a connection. */
+export function deleteKey(kind: DeletedKind, localId: string): string {
+  return `delete:${kind}:${localId}`;
 }
 
 /** The key a write's item is skipped under, for the rest of a connection. */

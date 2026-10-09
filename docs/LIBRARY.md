@@ -20,9 +20,14 @@ Conflicts and each item's history in the management interface, where a
 Conflict's value is used or the Conflict dismissed (Resolving Conflicts,
 below). Ticket [#86](https://github.com/loganfuller/decent-sync/issues/86)
 shares each Location's steam, hot water and rinse settings between its
-Machines (Steam, hot water and rinse settings, below). It follows ADR-0003,
+Machines (Steam, hot water and rinse settings, below). Ticket
+[#87](https://github.com/loganfuller/decent-sync/issues/87) creates and edits
+Beans, Bean Batches and Grinders in the management interface, Archives and
+restores them, adds and finishes batches at Locations there, and lets an
+Admin hard-delete an item no Shot names (Editing in the management
+interface, below). It follows ADR-0003,
 ADR-0006, ADR-0008, ADR-0014, ADR-0016, ADR-0018, ADR-0019 and ADR-0020. Joining a
-Location and the management interface's changes build on it in later tickets
+Location and the management interface's Profiles build on it in later tickets
 (Not yet, below).
 
 ## Who takes part
@@ -57,9 +62,9 @@ A tablet holds only what its Machine's Location offers (ADR-0008):
 
 So a Bean with batches is offered only where they are: once its last batch
 at a Location is finished, it is no longer offered there. Archived items are
-offered nowhere. Only the management interface will Archive a Bean, Bean
-Batch or Profile (tickets #87 and #88); a Grinder is Archived by archiving or
-deleting it on a tablet at its Location. What the Location offers is written
+offered nowhere. Only the management interface Archives a Bean or Bean
+Batch (and, with ticket #88, a Profile); a Grinder is Archived there too, or
+by archiving or deleting it on a tablet at its Location. What the Location offers is written
 to each of its tablets, with each batch's remaining weight there and each
 Profile visible, and what it does not offer is archived or hidden on them,
 never deleted, so their Shots still find it (Writing to tablets, below).
@@ -186,6 +191,9 @@ never deleted, so their Shots still find it (Writing to tablets, below).
 - `location_settings` and `tablet_settings`: each Location's steam, hot water
   and rinse settings, and each tablet's as it last had them
   (Steam, hot water and rinse settings, below).
+- `deleted_items` and `tablet_deletions`: the global id of each item an
+  Admin hard-deleted, and each tablet's records of it still to be deleted
+  there, by their ids there (Hard deletes, below).
 - `conflicts`: each edit of a field that lost to another made without seeing
   it (ADR-0020): the item, the field, the losing value (null where it cleared
   the field), where it came from and when it was made, as a version keeps
@@ -293,6 +301,119 @@ a Conflict, so neither waits on the other in turn.
 - **Dismissing it** closes it with nothing else changed: no version, and
   nothing written.
 
+## Editing in the management interface
+
+Admins and Staff create and edit Beans, Bean Batches and Grinders in the
+management interface, Archive and restore them, and add and finish batches at
+Locations, setting their remaining weight at each
+(`library-edits.service.ts`). Each change is an edit by the account, timed by
+PostgreSQL's clock (ADR-0016), and made over the item as it stands, as using
+a Conflict's value is (Resolving Conflicts, above): it decides each field it
+sets whatever the times of the edits before it, and keeps nothing it
+replaces as a Conflict, while a tablet's edit made before it that arrives
+later loses to it, and is kept as one. Each is a version from the account,
+and commits with a `NOTIFY` on `library_changes`, so every tablet that holds
+the item, or whose Location offers it now, is written it (Writing to
+tablets, below).
+
+- **Content.** A Bean's, a batch's or a Grinder's fields are Decaid's, each of
+  the type Decaid takes, so no tablet refuses a write of them
+  (`item-input.ts`): an empty value clears a field, but a Bean's roaster and
+  name, a Grinder's model and a Bean's `decaf` and a batch's `frozen` flags,
+  which Decaid refuses to clear. A date is entered as a day and kept as
+  Decaid returns one sent so, such as `2026-10-01T00:00:00.000`, and a new
+  item holds what Decaid makes a record hold where it is not sent a value (a
+  Bean not decaf, a batch not frozen, a Grinder's numbered dial), so what
+  every tablet then holds is the item's content, and is not written again.
+  An edit is merged under the item's row lock, after its Location's lock for
+  a Grinder (`editContent`).
+- **Beans.** A Bean created here belongs to no Location, and is offered
+  nowhere until one of its batches is added somewhere. One whose roaster and
+  name, ignoring case and white space at either end, are a Library Bean's,
+  Archived or not, is refused, naming that Bean: a Bean is identified by its
+  roaster and name. It is decided under the lock new beans are matched under
+  (`lockBeanMatching`), so two are never created at once, through any
+  instance, nor one beside a tablet's new bean. An edit that gives a Bean
+  another's roaster and name is not refused: it is a likely duplicate, as a
+  tablet's rename makes one (ADR-0018).
+- **Bean Batches.** A batch is created of a Bean, not Archived, at the
+  Locations chosen, each with its remaining weight there if one is entered,
+  as edits of each Location's state of it (`addBatchAt`,
+  `enterRemainingWeight`), under those Locations' locks, taken in id order.
+  Adding it at a Location, finishing it there and setting its remaining
+  weight there are each such an edit; a remaining weight is set only where
+  the batch is, or is added. Its details are its content.
+- **Grinders.** A Grinder is created belonging to a Location, which never
+  changes; its Archived state and its content are edited under that
+  Location's lock, as a tablet's are.
+- **Archive and restore.** An Archived Bean or batch is offered nowhere, with
+  the Bean's batches, and is archived on every tablet that holds it, but kept,
+  with each Location's state of it, so restoring it offers it again where it
+  was. A Bean is Archived or restored under the lock new beans are matched
+  under, so a tablet never links a new bean to a Bean Archived at once. Each
+  is a version of the item (`archived`). A Grinder's Archived state is a field
+  of its content, merged as a tablet's archiving is.
+- **Who.** An Admin does everything. Staff edit the Library's shared content
+  anywhere (a Bean, a batch's details) and Archive and restore items, but add
+  and finish batches, set their remaining weight, and create and edit
+  Grinders only at the Locations they work at, as a Grinder belongs to one
+  (ADR-0008), and never hard-delete.
+
+### Hard deletes
+
+An Admin hard-deletes a Bean, Bean Batch or Grinder no Shot names
+(ADR-0003, `hard-deletes.ts`): it is gone from the Library at once, with its
+versions, Conflicts and each Location's state of it, and from every tablet
+that holds it, the one thing the server deletes from tablets. A Bean goes
+with its batches, as Decaid refuses to delete a bean that has any.
+
+- **Named by a Shot.** A Shot names its batch and Grinder by their ids on the
+  tablet that pulled it (`shots.bean_batch_id` and `shots.grinder_id`, from
+  its Workflow's context). An item whose record has such an id on any
+  tablet's map is named, and a Bean is named when one of its batches is: its
+  delete is refused, and it can be Archived instead. A record a tablet
+  deleted itself has left its map, so a Shot naming only that record does not
+  count. A Shot the server takes in after the delete, as one an offline
+  tablet pulled, that names a record still to be deleted keeps that record
+  on its tablet, out of the Library, and so does the record of that batch's
+  Bean there, which the plugin would delete with its batches. The plugin
+  also refuses to delete a record a Shot it queued since it loaded, or has
+  yet to read and send, names, as the server may have planned the delete
+  before it had that Shot; the server keeps the record once it has it. It
+  reads at most 20 Shots still to be read for this, and refuses any delete
+  while more are, as during a backfill (`SHOTS_STILL_TO_READ`): the
+  writer then leaves that delete out for two heartbeat intervals and asks
+  again on the same connection, until the Shots have been sent. A
+  Shot the plugin finds only later, from its index once it has reloaded, can
+  come too late to keep it.
+- **Tablets.** Each tablet's record of the item, read from its map, is kept
+  as a delete due there (`tablet_deletions`), and the item's global id is
+  kept (`deleted_items`). Each tablet's writer deletes its records, a bean's
+  batches before the bean, ahead of any write but the shared settings, now
+  or once the tablet connects again. Its next report no longer lists the
+  record, or the plugin answers that it deleted it or found it gone, and the
+  delete is no longer due. A record a tablet reports carrying a deleted
+  item's global id that its map does not hold, as from one that was offline,
+  written the item by a write whose answer was lost, or restored from a
+  Decaid backup, is not taken in as new: it is deleted there too. A record
+  the map held that carries no global id, as one whose global id was still
+  to be written, is deleted too; one that now carries another item's is not
+  the deleted item's, and is taken in again from the tablet's next report.
+  The plugin deletes a bean's batches with it, those the Library never knew
+  included, such as one a barista made of it offline; such a batch's Shots,
+  which the server could not see when the Bean was deleted, then name a
+  batch the tablet no longer holds.
+- **Locks.** It takes the item's open Conflicts' row locks, then the row
+  locks of the tablets that hold it, then the locks of the Locations whose
+  state of it changes, then the items' rows, the order every other change
+  takes them in, and decides whether a Shot names it under them. A tablet or
+  Location that came to hold the item while those were taken is found once
+  the items' rows are locked, as nothing else can come to hold them then,
+  and the delete starts again, at most three times. A batch created of the
+  Bean, or a batch placed at a Location, meanwhile waits for the items'
+  locks and then finds them gone (404); a tablet's report mapping one fails
+  on its foreign key, and is taken in when the plugin sends it again.
+
 ## Taking in a tablet's beans
 
 The plugin reports its beans as milestone 1's `beans` collection, now with
@@ -365,7 +486,9 @@ Last:
    map holds nothing, so its report deletes nothing (ADR-0019).
 
 A record carrying a global id the Library does not know is new, and gets the
-new Bean's id. Beans are matched only when a tablet first reports them
+new Bean's id, unless an Admin hard-deleted that Bean: it is then deleted
+from the tablet (Hard deletes, above). So, for each kind, a record the tablet
+is due to delete is not taken in at all. Beans are matched only when a tablet first reports them
 (ADR-0018), so two Beans with the same roaster and name, as when one tablet
 holds two such records, stay apart, and each lists the other as a likely
 duplicate.
@@ -573,9 +696,10 @@ none. Each update names the value the record held for each field it sets,
 as the tablet last reported it (`expected`), and the plugin sets a field only
 while the record still holds that, so a barista's edit the tablet has not
 reported yet is kept, and reaches the server in the answer.
-Nothing is deleted from a tablet; an Admin's hard delete, which will delete
-an item no Shot names from every tablet that holds it (ticket #87), is the
-one exception.
+Nothing is deleted from a tablet; an Admin's hard delete, which deletes an
+item no Shot names from every tablet that holds it, is the one exception
+(Hard deletes, above): its deletes are due before the writes above, after
+the shared settings.
 
 It writes nothing until that connection's reports of the tablet's beans, bean
 batches, grinders and profiles, which the plugin sends on every welcome, have
@@ -728,6 +852,17 @@ tablet's list of batches to show it does not.
   is is the answer, and the server writes the visibility again. Decaid
   refuses to change a bundled Profile's content, which the server never
   writes.
+
+- To delete a record of a hard-deleted item (`delete`), it reads the record,
+  and deletes it (`DELETE /beans/{id}`, `/bean-batches/{id}` or
+  `/grinders/{id}`) unless it carries another item's global id, which it
+  refuses (`ANOTHER_ITEMS_RECORD`), or a Shot it queued since it loaded, or
+  has yet to read and send, names it, or, for a bean, one of its batches; a
+  bean's
+  batches, archived ones included, first (`GET /beans/{id}/batches`), as DYE2
+  does, since Decaid refuses to delete a bean that has any. A record already
+  gone is deleted. It answers `deleted`, or `writeRefused`, through its
+  outbox as it answers a write.
 
 The plugin's next report then holds the record as written, which changes
 nothing (ADR-0003). If the connection drops before the answer arrives, the
@@ -895,6 +1030,32 @@ Every endpoint requires the account session; Staff read them as Admins do.
   and `parent`, `{ id, title }` of the Profile it was saved from if the
   Library has it, or null; or 404. The id goes in the path as it is or
   percent-encoded.
+- `POST /api/beans`, with `{ content }`, creates a Bean, its roaster and name
+  required, and returns `{ bean }` with 201; 409 with `{ existing: { id,
+  roaster, name } }` if the Library has a Bean of that roaster and name.
+  `PATCH /api/beans/:id`, with `{ content }`, each field to change, null to
+  clear it, edits one; `PUT /api/beans/:id/archived`, with `{ archived }`,
+  Archives or restores one; each returns `{ bean }`. 400 for a field that is
+  not Decaid's or a value Decaid would refuse.
+- `POST /api/bean-batches`, with `{ beanId, content, locations }`, each
+  Location `{ locationId, remainingWeight }`, the weight optional, creates a
+  batch at them, and returns `{ batch }` with 201; 409 if its Bean is
+  Archived. `PATCH /api/bean-batches/:id` and `PUT
+  /api/bean-batches/:id/archived` edit its details and Archive or restore it.
+  `PUT /api/bean-batches/:id/locations/:locationId`, with `{ atLocation,
+  remainingWeight }`, either or both, adds it at the Location (true) or
+  finishes it there (false), and sets its remaining weight there, null to
+  clear it; 409 for a weight where it is not and is not added. Each returns
+  `{ batch }`. 403 for Staff at a Location they do not work at.
+- `POST /api/grinders`, with `{ locationId, content }`, its model required,
+  creates a Grinder belonging to that Location, and returns `{ grinder }`
+  with 201. `PATCH /api/grinders/:id` and `PUT /api/grinders/:id/archived` edit
+  it and Archive or restore it, each returning `{ grinder }`. 403 for Staff
+  creating or editing one at a Location they do not work at; they Archive
+  and restore any.
+- `DELETE /api/beans/:id`, `DELETE /api/bean-batches/:id` and `DELETE
+  /api/grinders/:id` hard-delete one, a Bean with its batches, and answer
+  204: Admins only. 409 if a Shot names it, or one of a Bean's batches.
 - `GET /api/beans/:id/history`, `GET /api/bean-batches/:id/history`,
   `GET /api/grinders/:id/history` and `GET /api/profiles/:id/history` return
   `{ versions }`, the item's versions (ADR-0020), the latest taken in first,
@@ -982,14 +1143,17 @@ that may (`web/src/components/conflicts.tsx`). Each Location's page
 (`/locations/:id`) shows its steam, hot water and rinse settings, which an
 Admin, or Staff working there, changes, with their Conflicts and history,
 and its Machines, each with a switch for sharing them
-(`web/src/components/location-settings.tsx`).
+(`web/src/components/location-settings.tsx`). The Beans, Bean Batches and
+Grinders lists create them, and each item's page edits it, Archives or
+restores it, and, for an Admin, deletes it; a batch's page adds it at each
+Location and finishes it there, and sets its remaining weight there
+(`web/src/components/library-forms.tsx`). A Bean refused as one the Library
+has links to that Bean.
 
 ## Not yet
 
-- Archive, restore, creating and editing items, Grinders included, and
-  adding and finishing batches at Locations in the management interface:
-  ticket #87; showing and
-  hiding Profiles at Locations there, and Archiving them: ticket #88.
+- Showing and hiding Profiles at Locations in the management interface, and
+  Archiving them: ticket #88.
 - Joining a Location, including what a moved Machine brings and clearing its
   Workflow's batch: ticket #89. A moved Machine's tablet already takes its
   new Location's settings, or sets them if the Location has none, once it reports its Workflow there, which it does on every welcome
@@ -1005,9 +1169,7 @@ and its Machines, each with a switch for sharing them
   after it, means what it would at the Machine's new Location, as the
   server reads it where the Machine is when it is taken in. The old
   Location's Grinders stay there, archived on the moved tablet.
-- Editing items in the
-  management interface, which, as using a Conflict's value does, are versions
-  from an account timed by PostgreSQL's clock: tickets #87 and #88.
+- Editing Profiles in the management interface: ticket #88.
 - The capture-only switch: ticket #90. Recording refused writes, and each
   Machine's sharing status: ticket #91.
 - Linking Shots to the Library's batches and Grinders: ticket #92.
@@ -1024,7 +1186,8 @@ Profiles.
 `server/test/library-grinders.test.ts`,
 `server/test/library-profiles.test.ts`,
 `server/test/library-edits.test.ts`,
-`server/test/library-conflicts.test.ts` and
+`server/test/library-conflicts.test.ts`,
+`server/test/library-management.test.ts` and
 `server/test/location-settings.test.ts` cover this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL;
 `server/test/bean-intake.test.ts`, `server/test/batch-intake.test.ts`,
@@ -1040,5 +1203,5 @@ against those recorded on Decaid's Linux release
 (`server/test/fixtures/decaid/bean-writes-v0.8.7/`,
 `bean-batch-writes-v0.8.7/`, `grinder-writes-v0.8.7/`,
 `profile-writes-v0.8.7/` and `workflow-writes-v0.8.7/`); and
-`e2e/library.spec.ts`, `e2e/conflicts.spec.ts` and
+`e2e/library.spec.ts`, `e2e/library-management.spec.ts`, `e2e/conflicts.spec.ts` and
 `e2e/location-settings.spec.ts` the management interface.

@@ -1,6 +1,10 @@
 import {
+  ANOTHER_ITEMS_RECORD,
+  SHOTS_STILL_TO_READ,
   GLOBAL_ID_KEY,
+  type ItemDeleted,
   type ItemWritten,
+  type LibraryDelete,
   type LibraryWrite,
   MAX_REFUSAL_LENGTH,
   SETTINGS_KIND,
@@ -13,7 +17,7 @@ import {
   settingsParts,
   steamIsOn,
 } from "@decent-sync/protocol";
-import { type Answer, request } from "./decaid.js";
+import { type Answer, readShot, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
 import type { Outbox } from "./outbox.js";
 
@@ -28,7 +32,9 @@ import type { Outbox } from "./outbox.js";
 // it to (`LibraryWrite.expected`), so a barista's change the tablet has not
 // reported yet is kept, and reaches the server in the answer (ADR-0020).
 // A Location's steam, hot water and rinse settings are written into the
-// tablet's Workflow the same way (ADR-0014).
+// tablet's Workflow the same way (ADR-0014). A record of an item an Admin
+// hard-deleted is deleted the same way too, the one thing the plugin
+// deletes (ADR-0003).
 
 interface Route {
   /** The kind's records, archived ones included. */
@@ -81,6 +87,9 @@ const ROUTES: Readonly<Record<string, Route>> = {
 /** What becomes of a write: the record Decaid returned, or why it did not write one. */
 export type WriteAnswer = ItemWritten | WriteRefused;
 
+/** What becomes of a delete: the record is gone, or why it is not. */
+export type DeleteAnswer = ItemDeleted | WriteRefused;
+
 /**
  * Reads of the tablet's Library lists and writes to them, one at a time, in
  * the order they are asked for. A report of a list then either holds a
@@ -130,7 +139,49 @@ export class LibraryWrites {
     private readonly workflow: WorkflowChanges,
     /** Told when Decaid refuses a write of the shared settings as no machine is connected. */
     private readonly machineMissing: () => void,
-  ) {}
+  ) {
+    outbox.watch((delivery) => {
+      if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shot);
+    });
+  }
+
+  /** The batch and Grinder records the Shots this plugin queued since it loaded name, as `kind:id`: a few per batch and Grinder used. */
+  private readonly shotsName = new Set<string>();
+  /** The Shots still to be sent that `namedByShot` read. */
+  private readonly shotsRead = new Set<string>();
+
+  /** Deletes a record of a hard-deleted item once the reads and writes before it are done, and queues its answer. It never rejects. */
+  remove(remove: LibraryDelete): Promise<void> {
+    return this.library.run(async () => this.outbox.enqueue(await carryOutDelete(remove, (kind, ids) => this.namedByShot(kind, ids))));
+  }
+
+  /**
+   * Whether a Shot this plugin queued since it loaded, or has yet to read and
+   * send, names one of the records, as one pulled while the tablet was
+   * offline: the server may have planned the delete before it had the Shot,
+   * and so could not keep the record for it. A Shot still to be read, as the
+   * outbox reads a new Shot only as it sends it, is read here once.
+   */
+  private async namedByShot(kind: "beanBatch" | "grinder", ids: ReadonlySet<string>): Promise<boolean | "tooMany"> {
+    const unread = this.outbox.requestedIds("shot").filter((id) => !this.shotsRead.has(id));
+    // As during a backfill: reading them all would hold up every write behind this one, so the server asks again later.
+    if (unread.length > MAX_SHOTS_READ) return "tooMany";
+    for (const id of unread) {
+      const shot = await readShot(id);
+      this.shotsRead.add(id);
+      if (shot) this.noteShot(shot);
+    }
+    return [...ids].some((id) => this.shotsName.has(`${kind}:${id}`));
+  }
+
+  /** Notes the batch and Grinder records a Shot names. */
+  private noteShot(shot: Record<string, unknown>): void {
+    const workflow = shot.workflow;
+    const context = isObject(workflow) ? workflow.context : undefined;
+    if (!isObject(context)) return;
+    if (typeof context.beanBatchId === "string") this.shotsName.add(`beanBatch:${context.beanBatchId}`);
+    if (typeof context.grinderId === "string") this.shotsName.add(`grinder:${context.grinderId}`);
+  }
 
   /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
   apply(write: LibraryWrite): Promise<void> {
@@ -146,6 +197,69 @@ export class LibraryWrites {
       }
     });
   }
+}
+
+/**
+ * Deletes the tablet's record of a hard-deleted item (`LibraryDelete`),
+ * unless it carries another item's global id: one the server mapped may
+ * carry none yet, as when the write of its global id was still due. A record
+ * already gone is deleted. A bean's batches, archived ones included, are
+ * deleted first, as DYE2 does (dye2:dye2-plugin/src/utils/bean-delete.ts),
+ * since Decaid refuses to delete a bean that has any. A batch or Grinder
+ * record, or a bean one of whose batches is, that a Shot this plugin queued
+ * since it loaded, or has yet to read and send, names (`namedByShot`) is not
+ * deleted: the server keeps such a record once it has the Shot, and
+ * otherwise asks again on the tablet's next connection. Nor is anything while
+ * more Shots than MAX_SHOTS_READ are still to be read (SHOTS_STILL_TO_READ),
+ * as during a backfill, which the server asks again for soon, on the same
+ * connection.
+ */
+async function carryOutDelete(
+  remove: LibraryDelete,
+  namedByShot: (kind: "beanBatch" | "grinder", ids: ReadonlySet<string>) => Promise<boolean | "tooMany">,
+): Promise<DeleteAnswer> {
+  const route = remove.kind === "profile" || !Object.prototype.hasOwnProperty.call(ROUTES, remove.kind) ? undefined : ROUTES[remove.kind];
+  if (!route) return refused(remove, null, `This plugin cannot delete a ${remove.kind}`);
+  try {
+    const path = `${route.records}/${encodeURIComponent(remove.localId)}`;
+    const current = await request("GET", path);
+    if (current.status === 404) return deleted(remove);
+    const record = current.ok ? parsed(current.text) : undefined;
+    if (!isObject(record)) return refused(remove, current.status, current.text);
+    const carried = globalIdOf(record);
+    if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
+    if (remove.kind === "beanBatch" || remove.kind === "grinder") {
+      const named = await namedByShot(remove.kind, new Set([remove.localId]));
+      if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
+    }
+    if (remove.kind === "bean") {
+      const listed = await request("GET", `${path}/batches?includeArchived=true`);
+      const batches = listed.ok ? parsed(listed.text) : undefined;
+      if (!Array.isArray(batches)) return refused(remove, listed.status, listed.text);
+      const ids = new Set(batches.filter(isObject).flatMap((batch) => (typeof batch.id === "string" ? [batch.id] : [])));
+      const named = await namedByShot("beanBatch", ids);
+      if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
+      for (const batch of batches.filter(isObject)) {
+        if (typeof batch.id !== "string") continue;
+        const gone = await request("DELETE", `/bean-batches/${encodeURIComponent(batch.id)}`);
+        if (!gone.ok && gone.status !== 404) return refused(remove, gone.status, gone.text);
+      }
+    }
+    const answer = await request("DELETE", path);
+    return answer.ok || answer.status === 404 ? deleted(remove) : refused(remove, answer.status, answer.text);
+  } catch (error) {
+    return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/** Why a delete is refused while a Shot this plugin queued, or has yet to send, may name its record or one of its batches. */
+const SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches";
+
+/** The most Shots still to be read that a delete reads to see whether they name its record. */
+const MAX_SHOTS_READ = 20;
+
+function deleted(remove: LibraryDelete): ItemDeleted {
+  return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
 }
 
 async function carryOut(write: LibraryWrite): Promise<WriteAnswer> {
@@ -399,7 +513,7 @@ function written(write: LibraryWrite, record: Record<string, unknown>, writtenFi
   };
 }
 
-function refused(write: LibraryWrite, status: number | null, error: string): WriteRefused {
+function refused(write: LibraryWrite | LibraryDelete, status: number | null, error: string): WriteRefused {
   return { type: "writeRefused", id: write.id, kind: write.kind, globalId: write.globalId, status, error: error.slice(0, MAX_REFUSAL_LENGTH) };
 }
 

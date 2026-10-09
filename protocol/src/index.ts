@@ -703,6 +703,68 @@ export interface WriteRefused {
   error: string;
 }
 
+/**
+ * Asks the plugin to delete a tablet's record of a Library item an Admin
+ * hard-deleted (ADR-0003): a Bean, Bean Batch or Grinder no Shot names. The
+ * server sends it as it sends a `write`, one at a time with them, and it is
+ * answered with `deleted` or `writeRefused`. The plugin deletes the record
+ * unless it carries another item's global id (ANOTHER_ITEMS_RECORD), as one
+ * the server mapped may not carry one yet, or a Shot the plugin queued since
+ * it loaded, or has yet to send, names it, or one of a bean's batches; and a bean only once its
+ * batches are deleted, as Decaid refuses to delete a bean that has any: so
+ * it deletes the bean's batches first, as DYE2 does. A record already gone
+ * is deleted.
+ */
+export interface LibraryDelete {
+  type: "delete";
+  /** Names this delete, which its answer repeats. */
+  id: string;
+  /** One of DELETED_KINDS. A plugin answers a kind it does not know with `writeRefused`. */
+  kind: string;
+  /** The deleted item's global id, which the record carries. */
+  globalId: string;
+  /** The tablet's record to delete. */
+  localId: string;
+}
+
+/**
+ * The error of a `writeRefused` answering a `delete` whose record carries
+ * another item's global id: it is not the deleted item's, so the server takes
+ * it in again rather than asking for its delete.
+ */
+export const ANOTHER_ITEMS_RECORD = "The record carries another item's global id";
+
+/**
+ * The error of a `writeRefused` answering a `delete` the plugin cannot judge
+ * yet: more Shots are still to be read and sent than it reads to see whether
+ * one names the record, as during a backfill. The server asks again on the
+ * same connection a little later, rather than skipping it until the next.
+ */
+export const SHOTS_STILL_TO_READ = "More Shots are still to be sent than a delete reads; ask again once they are";
+
+/** The kinds of Library item an Admin hard-deletes from tablets. Profiles are hidden, never deleted (ADR-0019). */
+export const DELETED_KINDS = ["bean", "beanBatch", "grinder"] as const;
+
+export type DeletedKind = (typeof DELETED_KINDS)[number];
+
+export function isDeletedKind(kind: string): kind is DeletedKind {
+  return (DELETED_KINDS as readonly string[]).includes(kind);
+}
+
+/**
+ * The plugin's answer to a `delete` Decaid carried out, or that found the
+ * record gone: the tablet holds the record no more. Sent as `written` is,
+ * through the outbox, behind every report read before it.
+ */
+export interface ItemDeleted {
+  type: "deleted";
+  /** The delete's id. */
+  id: string;
+  kind: string;
+  globalId: string;
+  localId: string;
+}
+
 /** The most of Decaid's answer a `writeRefused` repeats, in UTF-16 code units. */
 export const MAX_REFUSAL_LENGTH = 1000;
 
@@ -740,6 +802,7 @@ export type PluginMessage =
   | MachineStateDelivery
   | CollectionDelivery
   | ItemWritten
+  | ItemDeleted
   | WriteRefused;
 /** Messages the server sends, each in a frame of its own or, a `write` too large for one, in chunks. */
 export type ServerMessage =
@@ -751,7 +814,8 @@ export type ServerMessage =
   | RequestCollections
   | Ack
   | ChunkReceived
-  | LibraryWrite;
+  | LibraryWrite
+  | LibraryDelete;
 
 export type Decoded<T> =
   | { ok: true; message: T }
@@ -911,6 +975,13 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         fields.optionalBoolean("linked");
         if (object.contentDecidedAt !== undefined) fields.instant("contentDecidedAt");
       });
+    case "deleted":
+      return check<ItemDeleted>(object, "deleted", (fields) => {
+        fields.id();
+        fields.string("kind", { nonEmpty: true });
+        fields.itemId("globalId", object.kind);
+        fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+      });
     case "writeRefused":
       return check<WriteRefused>(object, "writeRefused", (fields) => {
         fields.id();
@@ -990,6 +1061,13 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
         fields.objectField("fields");
         if (object.expected !== undefined) fields.objectField("expected");
         if (object.contentDecidedAt !== undefined) fields.instant("contentDecidedAt");
+      });
+    case "delete":
+      return check<LibraryDelete>(object, "delete", (fields) => {
+        fields.id();
+        fields.string("kind", { nonEmpty: true });
+        fields.itemId("globalId", object.kind);
+        fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
       });
     default:
       return invalid("Unknown message type");

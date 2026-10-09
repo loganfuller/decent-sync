@@ -7,6 +7,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** The refusal's body as the server sent it, such as the existing Bean a new one duplicates. */
+    readonly data?: unknown,
   ) {
     super(message);
   }
@@ -41,7 +43,7 @@ export async function api<T>(method: string, path: string, body?: unknown, { rep
     if (reportRefusal && (response.status === 401 || response.status === 403)) {
       await Promise.allSettled([...refusalListeners].map((listener) => listener()));
     }
-    throw new ApiError(response.status, errorMessage(data) ?? response.statusText);
+    throw new ApiError(response.status, errorMessage(data) ?? response.statusText, data);
   }
   return data as T;
 }

@@ -18,6 +18,7 @@ import {
   lockTablet,
   seenAtSql,
 } from "./intake.js";
+import { setAsideDeleted } from "./hard-deletes.js";
 import { listedIds } from "./listed.js";
 import { deletedAt, lockLocation, offerBeanAt, takeBeanFrom, transactionTime } from "./location-state.js";
 import { changedFields } from "./merge.js";
@@ -43,8 +44,14 @@ import { changedFields } from "./merge.js";
 // Bean the report edits at once (content-edits.ts). Locks are taken in that
 // order, after the reporting Machine's.
 
-// Every report with beans new to the tablet's map takes this advisory lock before it matches them.
+// Every report with beans new to the tablet's map takes this advisory lock before it matches them, and so does
+// creating a Bean or Archiving or restoring one in the management interface.
 const BEAN_MATCHING_LOCK = 4_000_006;
+
+/** Holds the lock new beans are matched under until the transaction ends, so Beans are matched, created and Archived one at a time. */
+export async function lockBeanMatching(tx: Prisma.TransactionClient): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${BEAN_MATCHING_LOCK}::bigint)`;
+}
 
 /**
  * Takes a tablet's report of its beans into the Library, if its Machine is
@@ -62,7 +69,7 @@ export async function takeInBeans(
 ): Promise<string | null> {
   const locationId = await currentLocation(tx, tablet.machineId);
   if (locationId === null) return null;
-  const reported = readReportedBeans(value, updatedAt);
+  const read = readReportedBeans(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
   const mapped = await tx.$queryRaw<
     {
@@ -85,8 +92,11 @@ export async function takeInBeans(
   /** The latest edit of its content that each record the map holds has seen. */
   const contentSeenAt = new Map(mapped.map((bean) => [bean.beanId, bean.contentSeenAt]));
   const mappedIds = new Set(mapped.map((bean) => bean.localId));
+  // Records of items an Admin hard-deleted are deleted on the tablet rather than taken in.
+  const screened = await setAsideDeleted(tx, tablet.tabletId, "bean", read, listedIds(value), mappedIds);
+  const reported = screened.kept;
   const unmapped = reported.filter((bean) => !mappedIds.has(bean.localId));
-  if (unmapped.length > 0) await tx.$executeRaw`SELECT pg_advisory_xact_lock(${BEAN_MATCHING_LOCK}::bigint)`;
+  if (unmapped.length > 0) await lockBeanMatching(tx);
   // The Beans the new records may name: by their global ids, or by roaster and name, the oldest first.
   const library =
     unmapped.length === 0
@@ -102,7 +112,10 @@ export async function takeInBeans(
           select: { id: true, matchKey: true, archived: true },
         });
   const steps = planIntake(reported, mapped, library, listedIds(value));
-  if (steps.length === 0) return locationId;
+  if (steps.length === 0) {
+    if (screened.due) await notify(tx, "library_changes", locationId);
+    return locationId;
+  }
   await lockLocation(tx, locationId);
   // The Beans whose content the report edits, or that records link to, compared with their content.
   await lockItems(
@@ -113,7 +126,7 @@ export async function takeInBeans(
   const source = tabletSource(tablet);
 
   /** Whether the Location's tablets, this one included, may have something to be written. */
-  let writesDue = false;
+  let writesDue = screened.due;
   for (const step of steps) {
     if (step.kind === "delete") {
       await tx.$executeRaw`DELETE FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid AND bean_id = ${step.beanId}::uuid`;

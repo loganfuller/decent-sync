@@ -106,6 +106,16 @@ turned off keeps it off, and takes the Location's steam settings once it is
 turned on again. Note each machine's settings before upgrading if you may
 want them back.
 
+### The management interface now edits the Library
+
+Admins and Staff can create and edit Beans, Bean Batches and Grinders in the
+management interface, Archive and restore them, and add a batch at a
+Location or finish it there, with its remaining weight at each; every tablet
+that should hold the change is written it. An Admin can delete a Bean, Bean
+Batch or Grinder no Shot names, which also deletes it from every tablet that
+holds it, a Bean with its batches, once each tablet connects. Nothing else is
+ever deleted from a tablet.
+
 ### Reload the plugin after restoring the server's database
 
 The plugin now tells the server which Shots and Steam Records its tablet

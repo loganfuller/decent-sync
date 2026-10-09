@@ -159,7 +159,7 @@ export interface Answer {
  * resolves with its answer whatever its status. Throws if Decaid does not
  * answer, as when its fetch times out after 30 s.
  */
-export async function request(method: "GET" | "POST" | "PUT", path: string, body?: unknown): Promise<Answer> {
+export async function request(method: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown): Promise<Answer> {
   const response = await fetch(
     API + path,
     body === undefined ? { method } : { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },

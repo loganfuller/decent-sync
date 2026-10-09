@@ -3,9 +3,11 @@ import { Link, useParams } from "react-router";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
 import { GrinderBadges, grinderLocationText, grinderName } from "@/components/grinders";
+import { ArchiveButton, ContentForm, DeleteButton, GRINDER_FIELDS, useMayChangeAt } from "@/components/library-forms";
 import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, api, type Grinder } from "@/lib/api";
 
@@ -35,8 +37,11 @@ function GrinderDetails({ id }: { id: string }) {
   const [grinder, setGrinder] = useState<Grinder>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
-  // Using a Conflict\'s value changes the item, so it is loaded again, with its history.
+  // Using a Conflict\'s value, or an edit here, changes the item, so it is loaded again, with its history.
   const [changes, setChanges] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const changed = () => setChanges((count) => count + 1);
+  const mayChangeAt = useMayChangeAt();
 
   useEffect(() => {
     let current = true;
@@ -88,8 +93,12 @@ function GrinderDetails({ id }: { id: string }) {
         </h1>
         <p className="text-muted-foreground">{grinderLocationText(grinder)}</p>
       </div>
+      <div className="flex flex-wrap items-start gap-2">
+        <ArchiveButton path={`/grinders/${id}`} name={grinderName(grinder)} archived={grinder.archived} onDone={changed} />
+        <DeleteButton path={`/grinders/${id}`} name={grinderName(grinder)} back="/library/grinders" />
+      </div>
 
-      <ItemConflictsCard kind="grinder" id={id} onResolved={() => setChanges((count) => count + 1)} />
+      <ItemConflictsCard kind="grinder" id={id} onResolved={changed} />
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
@@ -115,9 +124,23 @@ function GrinderDetails({ id }: { id: string }) {
             <CardTitle>
               <h2>Grinder</h2>
             </CardTitle>
-            <CardDescription>As the tablet that created it recorded it, with the edits made since.</CardDescription>
+            <CardDescription>As it was created, with the edits made since, on its Location's tablets or here.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="grid gap-4">
+            {editing ? (
+              <ContentForm
+                label="Edit the Grinder"
+                fields={GRINDER_FIELDS}
+                content={grinder.content}
+                path={`/grinders/${id}`}
+                onCancel={() => setEditing(false)}
+                onSaved={() => {
+                  setEditing(false);
+                  changed();
+                }}
+              />
+            ) : (
+            <>
             <Fields label="Grinder">
               <Field term="Model">
                 <OrNone>{grinder.model ?? undefined}</OrNone>
@@ -134,6 +157,15 @@ function GrinderDetails({ id }: { id: string }) {
                 </Field>
               ))}
             </Fields>
+            {mayChangeAt(grinder.location?.id ?? null) && (
+              <div>
+                <Button variant="outline" aria-label="Edit the Grinder" onClick={() => setEditing(true)}>
+                  Edit
+                </Button>
+              </div>
+            )}
+            </>
+            )}
           </CardContent>
         </Card>
       </div>

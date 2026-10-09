@@ -269,6 +269,8 @@ var __decentSync = (() => {
     }
     return parts;
   }
+  var ANOTHER_ITEMS_RECORD = "The record carries another item's global id";
+  var SHOTS_STILL_TO_READ = "More Shots are still to be sent than a delete reads; ask again once they are";
   var MAX_REFUSAL_LENGTH = 1e3;
   function encode(message) {
     return JSON.stringify(message);
@@ -332,6 +334,13 @@ var __decentSync = (() => {
           fields.objectField("fields");
           if (object3.expected !== void 0) fields.objectField("expected");
           if (object3.contentDecidedAt !== void 0) fields.instant("contentDecidedAt");
+        });
+      case "delete":
+        return check(object3, "delete", (fields) => {
+          fields.id();
+          fields.string("kind", { nonEmpty: true });
+          fields.itemId("globalId", object3.kind);
+          fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
         });
       default:
         return invalid("Unknown message type");
@@ -768,6 +777,42 @@ var __decentSync = (() => {
       __publicField(this, "outbox", outbox);
       __publicField(this, "workflow", workflow);
       __publicField(this, "machineMissing", machineMissing);
+      /** The batch and Grinder records the Shots this plugin queued since it loaded name, as `kind:id`: a few per batch and Grinder used. */
+      __publicField(this, "shotsName", /* @__PURE__ */ new Set());
+      /** The Shots still to be sent that `namedByShot` read. */
+      __publicField(this, "shotsRead", /* @__PURE__ */ new Set());
+      outbox.watch((delivery) => {
+        if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shot);
+      });
+    }
+    /** Deletes a record of a hard-deleted item once the reads and writes before it are done, and queues its answer. It never rejects. */
+    remove(remove) {
+      return this.library.run(async () => this.outbox.enqueue(await carryOutDelete(remove, (kind, ids) => this.namedByShot(kind, ids))));
+    }
+    /**
+     * Whether a Shot this plugin queued since it loaded, or has yet to read and
+     * send, names one of the records, as one pulled while the tablet was
+     * offline: the server may have planned the delete before it had the Shot,
+     * and so could not keep the record for it. A Shot still to be read, as the
+     * outbox reads a new Shot only as it sends it, is read here once.
+     */
+    async namedByShot(kind, ids) {
+      const unread = this.outbox.requestedIds("shot").filter((id) => !this.shotsRead.has(id));
+      if (unread.length > MAX_SHOTS_READ) return "tooMany";
+      for (const id of unread) {
+        const shot = await readShot(id);
+        this.shotsRead.add(id);
+        if (shot) this.noteShot(shot);
+      }
+      return [...ids].some((id) => this.shotsName.has(`${kind}:${id}`));
+    }
+    /** Notes the batch and Grinder records a Shot names. */
+    noteShot(shot) {
+      const workflow = shot.workflow;
+      const context = isObject2(workflow) ? workflow.context : void 0;
+      if (!isObject2(context)) return;
+      if (typeof context.beanBatchId === "string") this.shotsName.add(`beanBatch:${context.beanBatchId}`);
+      if (typeof context.grinderId === "string") this.shotsName.add(`grinder:${context.grinderId}`);
     }
     /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
     apply(write) {
@@ -784,6 +829,45 @@ var __decentSync = (() => {
       });
     }
   };
+  async function carryOutDelete(remove, namedByShot) {
+    const route = remove.kind === "profile" || !Object.prototype.hasOwnProperty.call(ROUTES, remove.kind) ? void 0 : ROUTES[remove.kind];
+    if (!route) return refused(remove, null, `This plugin cannot delete a ${remove.kind}`);
+    try {
+      const path = `${route.records}/${encodeURIComponent(remove.localId)}`;
+      const current = await request("GET", path);
+      if (current.status === 404) return deleted(remove);
+      const record = current.ok ? parsed(current.text) : void 0;
+      if (!isObject2(record)) return refused(remove, current.status, current.text);
+      const carried = globalIdOf(record);
+      if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
+      if (remove.kind === "beanBatch" || remove.kind === "grinder") {
+        const named = await namedByShot(remove.kind, /* @__PURE__ */ new Set([remove.localId]));
+        if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
+      }
+      if (remove.kind === "bean") {
+        const listed = await request("GET", `${path}/batches?includeArchived=true`);
+        const batches = listed.ok ? parsed(listed.text) : void 0;
+        if (!Array.isArray(batches)) return refused(remove, listed.status, listed.text);
+        const ids = new Set(batches.filter(isObject2).flatMap((batch) => typeof batch.id === "string" ? [batch.id] : []));
+        const named = await namedByShot("beanBatch", ids);
+        if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
+        for (const batch of batches.filter(isObject2)) {
+          if (typeof batch.id !== "string") continue;
+          const gone = await request("DELETE", `/bean-batches/${encodeURIComponent(batch.id)}`);
+          if (!gone.ok && gone.status !== 404) return refused(remove, gone.status, gone.text);
+        }
+      }
+      const answer = await request("DELETE", path);
+      return answer.ok || answer.status === 404 ? deleted(remove) : refused(remove, answer.status, answer.text);
+    } catch (error) {
+      return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  var SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches";
+  var MAX_SHOTS_READ = 20;
+  function deleted(remove) {
+    return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
+  }
   async function carryOut(write) {
     const route = Object.prototype.hasOwnProperty.call(ROUTES, write.kind) ? ROUTES[write.kind] : void 0;
     if (!route && write.kind !== "profile" && write.kind !== SETTINGS_KIND) return refused(write, null, `This plugin cannot write a ${write.kind}`);
@@ -1058,6 +1142,7 @@ var __decentSync = (() => {
       __publicField(this, "log", log);
       __publicField(this, "readers", readers);
       __publicField(this, "queued", /* @__PURE__ */ new Map());
+      __publicField(this, "watchers", []);
       __publicField(this, "requested", /* @__PURE__ */ new Map());
       __publicField(this, "runtimeId", `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
       __publicField(this, "sequence", 0);
@@ -1094,6 +1179,7 @@ var __decentSync = (() => {
     }
     enqueue(delivery) {
       this.queued.set(delivery.id, delivery);
+      for (const watcher of this.watchers) watcher(delivery);
       this.pump();
     }
     acknowledge(id) {
@@ -1101,6 +1187,14 @@ var __decentSync = (() => {
       this.handed.delete(id);
       if (this.sent === id) this.sent = void 0;
       this.pump();
+    }
+    /** The ids of the records of that kind still to be read and sent. */
+    requestedIds(kind) {
+      return [...this.requested.values()].filter((record) => record.kind === kind).map((record) => record.id);
+    }
+    /** Calls `watcher` with every delivery queued from now on, those read for the server's requests included. */
+    watch(watcher) {
+      this.watchers.push(watcher);
     }
     /** Drops a queued delivery that a newer one makes unnecessary; one being sent now stays, to be acknowledged. */
     discard(id) {
@@ -1169,7 +1263,10 @@ var __decentSync = (() => {
         }
         if (this.stopped) return;
         this.requested.delete(key);
-        if (delivery) this.queued.set(delivery.id, delivery);
+        if (delivery) {
+          this.queued.set(delivery.id, delivery);
+          for (const watcher of this.watchers) watcher(delivery);
+        }
       }
       if (generation !== this.connections || !this.sendMessage) return;
       const next = this.queued.entries().next().value;
@@ -1900,6 +1997,9 @@ var __decentSync = (() => {
           break;
         case "write":
           void this.writes.apply(message);
+          break;
+        case "delete":
+          void this.writes.remove(message);
           break;
         case "heartbeat":
           break;

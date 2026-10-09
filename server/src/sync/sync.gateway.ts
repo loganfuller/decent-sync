@@ -4,13 +4,17 @@ import type { Duplex } from "node:stream";
 import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
 import { HttpAdapterHost } from "@nestjs/core";
 import {
+  ANOTHER_ITEMS_RECORD,
+  SHOTS_STILL_TO_READ,
   CHUNK_LIMITS,
   CLOSE_CODES,
   type Chunk,
   type Decoded,
   type ErrorCode,
   type Hello,
+  type ItemDeleted,
   type ItemWritten,
+  type LibraryDelete,
   type LibraryWrite,
   MISSED_HEARTBEATS,
   PROTOCOL_VERSION,
@@ -26,6 +30,7 @@ import {
   decodePluginMessage,
   encode,
   frames,
+  isDeletedKind,
   isWrittenKind,
 } from "@decent-sync/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
@@ -35,6 +40,7 @@ import type { Config } from "../config.js";
 import { recordBatchWritten } from "../library/bean-batches.js";
 import { recordBeanWritten } from "../library/beans.js";
 import { recordGrinderWritten } from "../library/grinders.js";
+import { recordDeleted } from "../library/hard-deletes.js";
 import { recordSettingsWritten } from "../library/location-settings.js";
 import type { SeenDecision } from "../library/intake.js";
 import { recordProfileWritten } from "../library/profiles.js";
@@ -51,7 +57,7 @@ import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { hashSecret } from "../secrets.js";
 import { HandledDeliveries, type IndexRequest } from "./handled-deliveries.js";
 import type { Hardware, Identity, Reporter } from "./identity.js";
-import { KIND_NAMES, TabletWriter } from "./tablet-writer.js";
+import { KIND_NAMES, TabletWriter, type WriteOutcome } from "./tablet-writer.js";
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
 const MAX_PAYLOAD_BYTES = 1 << 20;
@@ -378,6 +384,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         if (message.name === "beanBatches") session.writer?.reported("beanBatches", undefined);
         return;
       case "written":
+      case "deleted":
       case "writeRefused":
         return this.answered(session, message);
       case "shotIndex": {
@@ -463,11 +470,31 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * never lands after that connection's reports. Nothing is recorded from a
    * mismatched connection, which is never written to.
    */
-  private async answered(session: Session, answer: ItemWritten | WriteRefused): Promise<void> {
-    let outcome: "written" | "refused" = "refused";
+  private async answered(session: Session, answer: ItemWritten | ItemDeleted | WriteRefused): Promise<void> {
+    let outcome: WriteOutcome = "refused";
     const awaited = session.writer?.awaited(answer.id);
     const write = awaited?.write;
-    if (answer.type === "writeRefused") {
+    if (answer.type === "deleted") {
+      // The tablet holds the record no more, whether or not its delete is still awaited.
+      if (session.writer && isDeletedKind(answer.kind)) {
+        await recordDeleted(this.prisma, session.live!.tabletId, answer.kind, answer.localId);
+        if (write) outcome = "written";
+      }
+    } else if (write?.type === "delete") {
+      if (answer.type === "writeRefused" && answer.status === null && answer.error === ANOTHER_ITEMS_RECORD && isDeletedKind(write.kind)) {
+        // Not the deleted item's record after all: the tablet's next report takes it in as any record carrying that id.
+        await recordDeleted(this.prisma, session.live!.tabletId, write.kind, write.localId);
+        this.logger.log(`The tablet of ${this.describe(session)} holds ${quoted(write.kind)} ${write.localId} as another item's; it is not deleted`);
+      } else if (answer.type === "writeRefused" && answer.status === null && answer.error === SHOTS_STILL_TO_READ) {
+        // As during a backfill: asked again on this connection once its Shots have been sent.
+        outcome = "deferred";
+        this.logger.log(`The tablet of ${this.describe(session)} has Shots still to send; the delete of ${quoted(write.kind)} ${write.localId} is asked again later`);
+      } else if (answer.type === "writeRefused") {
+        this.logger.warn(
+          `The tablet of ${this.describe(session)} did not delete ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? quoted(answer.error.slice(0, 200)) : `Decaid answered ${answer.status}, ${quoted(answer.error.slice(0, 200))}`}`,
+        );
+      }
+    } else if (answer.type === "writeRefused") {
       if (write && write.localId !== null && answer.status === 404) {
         // The record is gone from the tablet, as when it was deleted there just as it was written: its next report shows it.
         this.logger.log(`The tablet of ${this.describe(session)} no longer holds ${quoted(answer.kind)} ${answer.globalId}; its next report shows it gone`);
@@ -534,8 +561,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     }
   }
 
-  /** Sends a write on the connection, in chunks if it is too large for one frame. */
-  private sendWrite(session: Session, write: LibraryWrite): void {
+  /** Sends a write or delete on the connection, in chunks if it is too large for one frame. */
+  private sendWrite(session: Session, write: LibraryWrite | LibraryDelete): void {
     if (session.closing) return;
     for (const frame of frames(encode(write), write.id)) session.socket.send(frame.text);
   }
@@ -596,6 +623,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         },
         this.logger,
         (work) => this.track(work),
+        // A delete the plugin could not judge yet is asked again after two heartbeat intervals.
+        2 * this.config.heartbeatIntervalMs,
       );
     }
     this.logger.log(

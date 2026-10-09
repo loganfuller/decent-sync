@@ -352,6 +352,7 @@ model Tablet {
   settings     TabletSettings?
   itemVersions ItemVersion[]
   conflicts    Conflict[]
+  deletions    TabletDeletion[]
 
   @@map("tablets")
 }
@@ -443,7 +444,11 @@ model Shot {
   locationId       String?           @map("location_id") @db.Uuid
   location         Location?         @relation(fields: [locationId], references: [id])
   pulledAt         DateTime?         @map("pulled_at") @db.Timestamptz(3)
+  /// The batch and Grinder its Workflow names, by their ids on the tablet
+  /// that pulled it: an item whose record has such an id on any tablet is
+  /// named by the Shot, and is never hard-deleted.
   beanBatchId      String?           @map("bean_batch_id")
+  grinderId        String?           @map("grinder_id")
   coffeeName       String?           @map("coffee_name")
   coffeeRoaster    String?           @map("coffee_roaster")
   profileTitle     String?           @map("profile_title")
@@ -463,6 +468,8 @@ model Shot {
   @@index([pulledAt(sort: Desc), id])
   @@index([machineId, pulledAt(sort: Desc), id])
   @@index([pendingMachineId])
+  @@index([beanBatchId])
+  @@index([grinderId])
   @@map("shots")
 }
 
@@ -1151,4 +1158,40 @@ model TabletSettings {
 
   @@index([settingsId])
   @@map("tablet_settings")
+}
+
+/// A Bean, Bean Batch or Grinder an Admin hard-deleted, by its global id,
+/// kept so a record carrying that id that a tablet reports later, as one
+/// that was offline, is deleted there too rather than taken in as new
+/// (server/src/library/hard-deletes.ts).
+model DeletedItem {
+  /// `bean`, `beanBatch` or `grinder`.
+  kind      String
+  itemId    String   @map("item_id") @db.Uuid
+  /// When it was deleted, by PostgreSQL's clock.
+  deletedAt DateTime @default(dbgenerated("transaction_timestamp()")) @map("deleted_at") @db.Timestamptz(3)
+
+  @@id([kind, itemId])
+  @@map("deleted_items")
+}
+
+/// A record of a hard-deleted item that a tablet still holds, by its id
+/// there, which that tablet's writer deletes. Gone once the plugin answers
+/// the delete, or once a report no longer lists the record.
+model TabletDeletion {
+  tabletId String @map("tablet_id") @db.Uuid
+  tablet   Tablet @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  /// `bean`, `beanBatch` or `grinder`.
+  kind     String
+  /// Decaid's id for the record on that tablet.
+  localId  String @map("local_id")
+  /// The deleted item's global id, which the record carries.
+  itemId   String @map("item_id") @db.Uuid
+  /// For a batch's record, the id there of its bean's record, which is
+  /// deleted only once the batch's is, as the plugin deletes a bean's
+  /// batches with it.
+  beanLocalId String? @map("bean_local_id")
+
+  @@id([tabletId, kind, localId])
+  @@map("tablet_deletions")
 }

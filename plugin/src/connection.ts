@@ -386,6 +386,10 @@ export class SyncConnection {
         // write. If that connection drops meanwhile, the next one records the answer, though not as one it awaits.
         void this.writes.apply(message);
         break;
+      case "delete":
+        // Answered as a write is, through the outbox.
+        void this.writes.remove(message);
+        break;
       case "heartbeat":
         // Its arrival is what counts.
         break;
