@@ -28,10 +28,13 @@ Admin hard-delete an item no Shot names (Editing in the management
 interface, below), and ticket
 [#88](https://github.com/loganfuller/decent-sync/issues/88) shows and hides
 Profiles at Locations there, which is how a lab Profile reaches a cafe,
-Archives and restores them, and lets an Admin hard-delete one. It follows
-ADR-0003, ADR-0006, ADR-0008, ADR-0014, ADR-0016, ADR-0018, ADR-0019 and
-ADR-0020. Joining a Location builds on it in a later ticket (Not yet,
-below).
+Archives and restores them, and lets an Admin hard-delete one. Ticket
+[#89](https://github.com/loganfuller/decent-sync/issues/89) has a Machine
+joining a Location take on its state, clearing its Workflow's grinder and
+batch where the Location does not offer them, while what its tablet brings
+joins the Library there and is listed on its page (Joining a Location,
+below). It follows ADR-0003, ADR-0006, ADR-0008, ADR-0014, ADR-0016,
+ADR-0018, ADR-0019 and ADR-0020.
 
 ## Who takes part
 
@@ -198,6 +201,10 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   Admin hard-deleted, and each tablet's records of it still to be deleted
   there, by their ids there, a Profile's by Decaid's id, with its steps,
   and never in `deleted_items` (Hard deletes, below).
+- `tablet_reports`, `workflow_clears` and `brought_items`: where each of a
+  tablet's reports was last taken in, the Workflow grinder and batch still to
+  be cleared on a joining tablet, and what each Machine brought to the
+  Library as it joined a Location (Joining a Location, below).
 - `conflicts`: each edit of a field that lost to another made without seeing
   it (ADR-0020): the item, the field, the losing value (null where it cleared
   the field), where it came from and when it was made, as a version keeps
@@ -760,10 +767,11 @@ connection.
 When the writer finds the Machine at another Location than the one its
 tablet's latest reports were taken in at, as once it has moved, it sends the
 plugin `requestCollections`, once for each Location it finds it at, and the
-plugin reads every collection again and sends each in full, as on a welcome.
-Once those reports are taken in at the new Location, the tablet is written
-what that Location offers, and what only the old one offered is archived on
-it. A change to a Machine's Location History that changes the Location it is
+plugin sends its latest Workflow again, then reads every collection again
+and sends each in full, as on a welcome. Once those reports are taken in at
+the new Location, the tablet is written what that Location offers, and what
+only the old one offered is archived or hidden on it (Joining a Location,
+below). A change to a Machine's Location History that changes the Location it is
 at now (a move, or correcting or removing its latest entry) commits with a
 `NOTIFY` on `machine_locations` naming the Machine, which wakes the writers of
 its connections, on any instance. A move an instance missed while not
@@ -947,8 +955,9 @@ later is not shared.
   its Workflow or as Decaid returned the plugin's write of them, of its
   Machine's Location's settings then, with the latest edit of them they have
   seen (`content_seen_at`), as `content_seen_at` keeps an item's. A tablet
-  whose Machine moved, or that moved to a Machine at another Location, has
-  had none of the new settings yet.
+  joining a Location, as when its Machine moved there, or it moved to a
+  Machine there, has had none of its settings yet, whatever it had there
+  before (Joining a Location, below).
 - `machines.shares_settings`: whether a Machine's tablet shares its
   Location's settings, on unless an account switched it off, and
   `shares_settings_since`, when one last switched it on.
@@ -960,8 +969,8 @@ it:
 
 - **The first Machine** at a Location to report its Workflow sets the
   Location's settings: a setting nobody has set is set by the first report
-  holding it. A tablet new to the settings, as a new tablet, one whose
-  Machine joined the Location, or one moved to a Machine at another
+  holding it. So a Machine joining a Location with no settings yet brings
+  its own. A tablet new to the settings, as a new tablet, or one joining the
   Location, sets only those; the Location's state wins (ADR-0008), and is
   written to it.
 - **Edits.** Otherwise each setting that differs from what the tablet last
@@ -1034,6 +1043,78 @@ read of its hardware, or by such a refusal; once the same machine is back,
 the plugin reconnects too. Either way the tablet is written the settings
 then. Decaid answers a change of `stopAtTemperature` alone without a
 machine, as it is not written to it.
+
+## Joining a Location
+
+A Machine joins a Location when it is adopted there, as a machine entry
+created at the Location or an unassigned Machine given its first, or moved
+there: when the Location of its Location History's latest entry changes
+(ADR-0008). Turning sharing back on is ticket #90. Its tablet joins with it,
+and so does a new tablet on a Machine there already, as one whose Decaid
+data was reset. Correcting when a past move happened credits records again
+as milestone 1 does, but changes nothing on the tablet, as the Location it
+is at now is the same; correcting the latest entry's Location, or removing
+the latest entry, changes it, and is a move.
+
+Each of a tablet's reports, of its beans, bean batches, grinders and
+profiles and of its Workflow, records the Location History entry it was
+taken in under, and that entry's Location (`tablet_reports`, in the
+transaction taking it in, under the Machine's and the tablet's row locks;
+`joining.ts`). The tablet's first report of each kind, and its first under
+another entry or Location, is part of joining (`joins` in the pure
+`join-plan.ts`).
+
+- **The Location's state wins.** The writer finds the Machine at another
+  Location than its tablet's latest reports, and asks the plugin for them
+  afresh, its Workflow first (Writing to tablets, above). Once they are
+  taken in there, the tablet is written what the Location offers, its shown
+  Profiles, the batches at it and their Beans, and its Grinders, and what it
+  does not offer is archived or hidden on the tablet, never deleted. The
+  Workflow taken in as the tablet joins has had none of the Location's
+  steam, hot water and rinse settings, so it sets only those the Location
+  has not set yet, and is written the others, unless the Machine's sharing
+  of them is turned off (Steam, hot water and rinse settings, below).
+- **Its Workflow's grinder and batch.** The Workflow taken in as the tablet
+  joins is judged against the tablet's map, which still holds what the
+  tablet held before (`takeInWorkflowContext`), under the Location's lock:
+  the Grinder its `context.grinderId` names there is cleared if the
+  Location does not offer it, as one belonging to another Location or
+  Archived, and so is the batch its `context.beanBatchId` names if it is not
+  at the Location, or is Archived, or its Bean is. Cleared are
+  `grinderId` and `grinderModel`, and `beanBatchId`, `coffeeName` and
+  `coffeeRoaster`, as Decaid's `clearGrinder` and `clearBeanBatch` clear
+  them (`WORKFLOW_GRINDER`, `WORKFLOW_BATCH` in `protocol/`); the profile,
+  dose, yield and grinder setting stay. A grinder or batch the map does not
+  hold, as one of the tablet's own that joins the Library at the Location
+  with its reports there, stays. The clear is kept (`workflow_clears`) and
+  written whether or not the Machine shares the settings, as a `write` of
+  the `workflow` kind, after the settings and before anything else: the
+  plugin clears the grinder, and the batch, only while the Workflow still
+  holds every field of it as the tablet reported it, and a Workflow naming
+  another since, reported or in the write's answer, drops that part of the
+  clear (`clearStillDue`). It is due only as the tablet joins: a batch
+  finished at the Location later leaves the Workflow as it is (ADR-0014).
+- **What it brings** (ADR-0018). The tablet's records its map does not hold
+  join the Library at the Location, or are matched to an item the Library
+  has, as any tablet's are (Taking in a tablet's beans, and those after it):
+  a Bean by roaster and name, a user's Profile by its id. Each that joins
+  or is matched in a report that is part of joining is listed for its
+  Machine (`brought_items`, once per Machine and item), so an Admin can
+  Archive duplicates from its page; but not Decaid's bundled Profiles, which
+  every tablet has, nor a record carrying a Library item's global id, as one
+  the server wrote, nor what a barista enters once the tablet has joined.
+  What the tablet held at its old Location its map holds, so it stays
+  offered only there, and is archived or hidden on it, though a batch
+  un-archived on it is added at its new Location. Its old Location's
+  Grinders stay there, archived on it.
+- **Leaving.** A Machine at no Location, as when its only Location History
+  entry is removed, is capture-only (Who takes part, above): nothing more is
+  written to its tablet, which keeps what it has, and its reports are
+  captured but not taken in. Given a Location again, it joins it.
+
+A change made on the tablet just before a move, which a report or an answer
+brings after it, means what it would at the Machine's new Location, as the
+server reads it where the Machine is when it is taken in.
 
 ## REST API
 
@@ -1178,6 +1259,14 @@ Every endpoint requires the account session; Staff read them as Admins do.
   /api/location-settings/:id/conflicts` return their `{ versions }` and open
   `{ conflicts }`, as an item's do, each version naming their Location; the
   first is the first Machine there setting them.
+- `GET /api/machines/:id/brought` returns `{ brought }`, what the Machine's
+  tablet brought to the Library as it joined a Location (Joining a
+  Location, above), the latest taken in first, each `{ item, matched,
+  archived, location, tabletId, broughtAt }`: the item `{ kind, id, name }`,
+  as a Conflict names it; whether it was matched to an item the Library had
+  rather than joining it; whether it is Archived now; the Location it
+  joined; the tablet that brought it; and when it was taken in, by
+  PostgreSQL's clock. 404 for no such Machine.
 - `PUT /api/machines/:id/settings-sharing`, with `{ sharesSettings }`,
   switches whether the Machine shares its Location's settings, and returns
   the same. 400 without a boolean, 404 for no such Machine, 403 for Staff
@@ -1199,7 +1288,9 @@ that may (`web/src/components/conflicts.tsx`). Each Location's page
 (`/locations/:id`) shows its steam, hot water and rinse settings, which an
 Admin, or Staff working there, changes, with their Conflicts and history,
 and its Machines, each with a switch for sharing them
-(`web/src/components/location-settings.tsx`). The Beans, Bean Batches and
+(`web/src/components/location-settings.tsx`). A Machine's page lists what
+its tablet brought to the Library as it joined a Location, each linking to
+the item's page (`web/src/components/brought-items.tsx`). The Beans, Bean Batches and
 Grinders lists create them, and each item's page edits it, Archives or
 restores it, and, for an Admin, deletes it; a batch's page adds it at each
 Location and finishes it there, and sets its remaining weight there
@@ -1212,22 +1303,8 @@ with Decaid.
 
 ## Not yet
 
-- Joining a Location, including what a moved Machine brings and clearing its
-  Workflow's batch: ticket #89. A moved Machine's tablet already takes its
-  new Location's settings, or sets them if the Location has none, once it reports its Workflow there, which it does on every welcome
-  and change: the move itself does not ask for it yet. Until then a moved Machine's tablet is written
-  its new Location's items once its fresh reports are taken in there, and has
-  what only its old one offered archived or hidden, its old Location's user
-  Profiles included; its bundled Profiles keep their visibility where the new
-  Location has decided nothing of them. Those reports link or add only the
-  items the tablet's map does not hold yet, such as those of a Machine given
-  its first Location: what it held at its old Location stays offered only
-  there, though a batch un-archived on it is added at its new one. A change
-  made on the tablet just before a move, which a report or an answer brings
-  after it, means what it would at the Machine's new Location, as the
-  server reads it where the Machine is when it is taken in. The old
-  Location's Grinders stay there, archived on the moved tablet.
-- The capture-only switch: ticket #90. Recording refused writes, and each
+- The capture-only switch, and turning sharing back on, which joins a
+  Location: ticket #90. Recording refused writes, and each
   Machine's sharing status: ticket #91.
 - Linking Shots to the Library's batches and Grinders: ticket #92.
 
@@ -1245,13 +1322,15 @@ Profiles.
 `server/test/library-edits.test.ts`,
 `server/test/library-conflicts.test.ts`,
 `server/test/library-management.test.ts`,
-`server/test/library-profile-management.test.ts` and
-`server/test/location-settings.test.ts` cover this through Seam 1, with the
+`server/test/library-profile-management.test.ts`,
+`server/test/location-settings.test.ts` and `server/test/joining.test.ts`
+cover this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL;
 `server/test/bean-intake.test.ts`, `server/test/batch-intake.test.ts`,
 `server/test/grinder-intake.test.ts`, `server/test/profile-intake.test.ts`,
-`server/test/holdings.test.ts`, `server/test/merge.test.ts` and
-`server/test/settings-intake.test.ts` the pure modules;
+`server/test/holdings.test.ts`, `server/test/merge.test.ts`,
+`server/test/settings-intake.test.ts` and `server/test/join-plan.test.ts`
+the pure modules;
 `server/test/simulated-bean-writes.test.ts`,
 `server/test/simulated-batch-writes.test.ts`,
 `server/test/simulated-grinder-writes.test.ts`,
@@ -1263,4 +1342,5 @@ against those recorded on Decaid's Linux release
 `profile-writes-v0.8.7/` and `workflow-writes-v0.8.7/`); and
 `e2e/library.spec.ts`, `e2e/library-management.spec.ts`,
 `e2e/profile-management.spec.ts`, `e2e/conflicts.spec.ts` and
-`e2e/location-settings.spec.ts` the management interface.
+`e2e/location-settings.spec.ts` and `e2e/joining.spec.ts` the management
+interface.

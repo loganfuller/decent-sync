@@ -17,6 +17,8 @@ import {
   seenAtSql,
 } from "./intake.js";
 import { setAsideDeleted } from "./hard-deletes.js";
+import { brought } from "./join-plan.js";
+import { currentEntry, recordBrought, takenIn } from "./joining.js";
 import { listedIds } from "./listed.js";
 import { decideProfileAt, deletedAt, lockLocation, showProfileAt, transactionTime } from "./location-state.js";
 import { changedFields } from "./merge.js";
@@ -55,10 +57,13 @@ export async function takeInProfiles(
   value: unknown,
   updatedAt: readonly (string | null)[] | undefined,
 ): Promise<string | null> {
-  const locationId = await currentLocation(tx, tablet.machineId);
-  if (locationId === null) return null;
+  const entry = await currentEntry(tx, tablet.machineId);
+  if (entry === null) return null;
+  const { locationId } = entry;
   const read = readReportedProfiles(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
+  /** Whether the report is part of the tablet joining the Location: what it brings is listed on its Machine's page. */
+  const joining = await takenIn(tx, tablet.tabletId, "profiles", entry);
   // A record of a Profile an Admin hard-deleted is deleted on the tablet rather than taken in again, while the Library lacks
   // it: once the Profile joins the Library again, as when a barista saves the same profile, the record is that Profile's.
   await tx.$executeRaw`
@@ -158,9 +163,14 @@ export async function takeInProfiles(
         VALUES (${profile.id}, ${JSON.stringify(profileContent(profile.record))}::jsonb, ${profile.bundled}, ${locationId}::uuid)
         ON CONFLICT (id) DO NOTHING`;
       if (added > 0) await recordJoined(tx, { kind: "profile", id: profile.id }, profileText(profile.record), profile.updatedAt, source);
+      // Added at once by another report, as from another tablet, it was matched to the Profile that report added.
+      if (brought(joining, "joined", profile.bundled)) await recordBrought(tx, tablet, locationId, { kind: "profile", id: profile.id }, added === 0);
     }
     // A user's Profile the Library has takes its title, author and notes: each the record held otherwise is kept as a Conflict (ADR-0018).
-    if (linking(step)) await recordLinked(tx, { kind: "profile", id: profile.id }, profileText(profile.record), profile.updatedAt, source);
+    if (linking(step)) {
+      await recordLinked(tx, { kind: "profile", id: profile.id }, profileText(profile.record), profile.updatedAt, source);
+      if (brought(joining, "matched")) await recordBrought(tx, tablet, locationId, { kind: "profile", id: profile.id }, true);
+    }
     /** When the record's own edit decided the Profile's state at the Location, which it has seen then; null if it did not. */
     let decided: Date | null = null;
     if (step.kind === "update") {

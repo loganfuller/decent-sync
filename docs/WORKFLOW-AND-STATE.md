@@ -32,6 +32,11 @@ the plugin's one outbox (`plugin/src/outbox.ts`), which Shots share:
   stored for the last hardware, and its resend then changes nothing, so the
   new hardware gets the Workflow only from this new delivery. The server
   records nothing for either if it is unchanged.
+- When the server sends `requestCollections`, as when the Machine's Location
+  changes, the latest Workflow is sent again the same way, before the
+  collections, so it is taken in at the new Location: its settings give way
+  to the Location's, and its grinder and batch are cleared if the Location
+  does not offer them (`LIBRARY.md`, Joining a Location).
 
 `observedAt` is when the plugin observed the event, from its own clock in UTC
 (`new Date().toISOString()`), because the outbox may deliver it minutes later.

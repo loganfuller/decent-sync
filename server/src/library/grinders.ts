@@ -17,6 +17,8 @@ import {
   lockTablet,
 } from "./intake.js";
 import { setAsideDeleted } from "./hard-deletes.js";
+import { brought } from "./join-plan.js";
+import { currentEntry, recordBrought, takenIn } from "./joining.js";
 import { listedIds } from "./listed.js";
 import { deletedAt, lockLocation, transactionTime } from "./location-state.js";
 import { changedFields } from "./merge.js";
@@ -47,10 +49,13 @@ export async function takeInGrinders(
   value: unknown,
   updatedAt: readonly (string | null)[] | undefined,
 ): Promise<string | null> {
-  const locationId = await currentLocation(tx, tablet.machineId);
-  if (locationId === null) return null;
+  const entry = await currentEntry(tx, tablet.machineId);
+  if (entry === null) return null;
+  const { locationId } = entry;
   const read = readReportedGrinders(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
+  /** Whether the report is part of the tablet joining the Location: what it brings is listed on its Machine's page. */
+  const joining = await takenIn(tx, tablet.tabletId, "grinders", entry);
   const mapped = await tx.$queryRaw<
     {
       grinderId: string;
@@ -110,6 +115,7 @@ export async function takeInGrinders(
       });
       grinderId = created.id;
       await recordJoined(tx, { kind: "grinder", id: grinderId }, { ...grinderContent(grinder.record), archived: grinder.archived }, grinder.updatedAt, source);
+      if (brought(joining, "joined")) await recordBrought(tx, tablet, locationId, { kind: "grinder", id: grinderId }, false);
       writesDue = true;
     } else {
       grinderId = step.grinderId;

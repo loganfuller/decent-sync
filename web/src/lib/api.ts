@@ -512,6 +512,19 @@ export type LibraryKind = "bean" | "beanBatch" | "grinder" | "profile";
 /** What has versions and Conflicts: Library items, and each Location's steam, hot water and rinse settings (`settings`). */
 export type ItemKind = LibraryKind | "settings";
 
+/** An item a Machine's tablet brought to the Library as the Machine joined a Location. */
+export interface BroughtItem {
+  /** The item, named as a Conflict names it: a Bean's roaster and name, a batch's Bean and roast date, a Grinder's model or a Profile's title. */
+  item: { kind: LibraryKind; id: string; name: string | null };
+  /** Matched to an item the Library had (a Bean by roaster and name, a Profile by its id), rather than joining it. */
+  matched: boolean;
+  archived: boolean;
+  /** The Location the Machine joined, or null if it no longer exists. */
+  location: Location | null;
+  tabletId: string;
+  broughtAt: string;
+}
+
 /** A Location's steam, hot water and rinse settings, shared by its Machines whatever their model. */
 export interface LocationSettings {
   /** Null while no Machine there sharing them has reported its Workflow, so none is set. */

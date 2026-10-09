@@ -19,6 +19,8 @@ import {
   seenAtSql,
 } from "./intake.js";
 import { setAsideDeleted } from "./hard-deletes.js";
+import { brought } from "./join-plan.js";
+import { currentEntry, recordBrought, takenIn } from "./joining.js";
 import { listedIds } from "./listed.js";
 import { addBatchAt, deletedAt, enterRemainingWeight, finishBatchAt, lockLocation, transactionTime } from "./location-state.js";
 import { changedFields } from "./merge.js";
@@ -46,10 +48,13 @@ export async function takeInBatches(
   value: unknown,
   updatedAt: readonly (string | null)[] | undefined,
 ): Promise<string | null> {
-  const locationId = await currentLocation(tx, tablet.machineId);
-  if (locationId === null) return null;
+  const entry = await currentEntry(tx, tablet.machineId);
+  if (entry === null) return null;
+  const { locationId } = entry;
   const read = readReportedBatches(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
+  /** Whether the report is part of the tablet joining the Location: what it brings is listed on its Machine's page. */
+  const joining = await takenIn(tx, tablet.tabletId, "beanBatches", entry);
   const mapped = await tx.$queryRaw<
     {
       batchId: string;
@@ -108,6 +113,7 @@ export async function takeInBatches(
       });
       batchId = created.id;
       await recordJoined(tx, { kind: "beanBatch", id: batchId }, batchContent(batch.record), batch.updatedAt, source);
+      if (brought(joining, "joined")) await recordBrought(tx, tablet, locationId, { kind: "beanBatch", id: batchId }, false);
     } else {
       batchId = step.batchId;
     }

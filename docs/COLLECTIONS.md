@@ -73,7 +73,8 @@ tests (`plugin/test/change-detection.test.ts`):
   `If-None-Match`, and sends each, unavailable ones included, whether or not it
   changed. That also covers whatever changed while it was disconnected. It
   does the same when the server sends `requestCollections`, as it does when
-  the Machine's Location changes (`LIBRARY.md`).
+  the Machine's Location changes, after sending its latest Workflow again
+  (`LIBRARY.md`, Joining a Location).
 - Whenever it sends the beans, it sends the bean batches in full after them,
   changed or not, as the server takes in a batch only once it knows the
   batch's bean (`LIBRARY.md`). The library's lists the server writes to (the

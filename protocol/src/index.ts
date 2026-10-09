@@ -336,10 +336,11 @@ export interface RequestSteams {
 }
 
 /**
- * Asks the plugin to read every collection again and send each in full, as
- * it does on every `welcome`. The server sends it when the Machine's Location
- * changes, so the tablet's beans are taken in at its new Location before
- * anything is written to it there.
+ * Asks the plugin to send its latest Workflow again, then read every
+ * collection again and send each in full, as it does on every `welcome`.
+ * The server sends it when the Machine's Location changes, so the tablet's
+ * Workflow and Library are taken in at its new Location before anything is
+ * written to it there (ADR-0008).
  */
 export interface RequestCollections {
   type: "requestCollections";
@@ -464,18 +465,39 @@ export function isLibraryKind(kind: string): kind is LibraryKind {
  */
 export const SETTINGS_KIND = "settings";
 
-/** What a `write` writes: a Library item of one of LIBRARY_KINDS, or the shared settings. */
-export type WrittenKind = LibraryKind | typeof SETTINGS_KIND;
+/**
+ * What the server writes to a tablet as its Machine joins a Location that
+ * does not offer the grinder or batch its Workflow names: that Workflow's
+ * grinder and batch, cleared (ADR-0008). A `write` of this kind carries them.
+ */
+export const WORKFLOW_KIND = "workflow";
+
+/**
+ * The fields of a Workflow's `context` naming its grinder, and its batch,
+ * which a write of WORKFLOW_KIND clears together, as Decaid's
+ * `WorkflowContext.clearGrinder` and `clearBeanBatch` do
+ * (decaid:lib/src/models/data/workflow_context.dart), and as DYE2 sets them:
+ * the grinder's setting stays, and so do the profile, dose and yield.
+ */
+export const WORKFLOW_GRINDER = ["context.grinderId", "context.grinderModel"] as const;
+export const WORKFLOW_BATCH = ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"] as const;
+
+/** What has versions and Conflicts (ADR-0020): a Library item of one of LIBRARY_KINDS, or a Location's shared settings. */
+export type VersionedKind = LibraryKind | typeof SETTINGS_KIND;
+
+/** What a `write` writes: a Library item of one of LIBRARY_KINDS, the shared settings, or a Workflow's grinder and batch, cleared. */
+export type WrittenKind = LibraryKind | typeof SETTINGS_KIND | typeof WORKFLOW_KIND;
 
 export function isWrittenKind(kind: string): kind is WrittenKind {
-  return kind === SETTINGS_KIND || isLibraryKind(kind);
+  return kind === SETTINGS_KIND || kind === WORKFLOW_KIND || isLibraryKind(kind);
 }
 
 /**
  * Whether a value is the id of a Library item of that kind: a Profile's is
  * Decaid's own (`isRecordId`), a hash of what the machine executes that is
  * the same on every tablet (ADR-0006); every other kind's is its global id,
- * and the shared settings' is the id the server gives a Location's settings.
+ * the shared settings' is the id the server gives a Location's settings, and
+ * a Workflow's is the tablet's id.
  */
 export function isItemId(kind: string, value: unknown): value is string {
   return kind === "profile" ? isRecordId(value) : isGlobalId(value);
@@ -548,7 +570,7 @@ export function steamIsOn(settings: Readonly<Partial<Record<string, unknown>>>):
   return typeof target === "number" && target >= STEAM_ON_FROM;
 }
 
-/** Settings by field name as the parts of a Workflow hold them, such as `{ steamSettings: { flow: 1.5 } }`. */
+/** Fields of a Workflow's parts by name, as the parts hold them: `{ steamSettings: { flow: 1.5 } }` for `steamSettings.flow`. */
 export function settingsParts(fields: Readonly<Record<string, unknown>>): Record<string, Record<string, unknown>> {
   const parts: Record<string, Record<string, unknown>> = {};
   for (const [field, value] of Object.entries(fields)) {
@@ -612,14 +634,27 @@ export function settingsParts(fields: Readonly<Record<string, unknown>>): Record
  * Workflow carries no time. Decaid refuses to change them while no machine
  * is connected. The plugin's own write is not sent back as a change of the
  * tablet's Workflow ahead of its answer, so the server never reads it as one.
+ *
+ * A write of WORKFLOW_KIND clears the grinder and batch of the tablet's
+ * Workflow, as its Machine joins a Location that does not offer them
+ * (ADR-0008): `globalId` is the tablet's id, `localId` null, and `fields`
+ * names WORKFLOW_GRINDER, WORKFLOW_BATCH or both, each null, with `expected`
+ * the values the Workflow held for them as the tablet last reported it. The
+ * plugin reads the tablet's Workflow and clears, through `PUT /workflow`,
+ * the grinder, and the batch, only while it still holds every field of it as
+ * expected: a barista who picked another grinder or batch since keeps it.
+ * Decaid needs no machine for this. Its answer's `record` is the Workflow's
+ * `context` as Decaid returned it, timed as a settings write's is, and the
+ * Workflow change it causes is sent after the answer, as a settings write's
+ * is.
  */
 export interface LibraryWrite {
   type: "write";
   /** Names this write, which its answer repeats. */
   id: string;
-  /** One of LIBRARY_KINDS, or SETTINGS_KIND. A plugin answers a kind it does not know with `writeRefused`. */
+  /** One of LIBRARY_KINDS, SETTINGS_KIND or WORKFLOW_KIND. A plugin answers a kind it does not know with `writeRefused`. */
   kind: string;
-  /** The item's global id, a Profile's id, or the settings' id (`isItemId`). */
+  /** The item's global id, a Profile's id, the settings' id, or the tablet's id for a Workflow (`isItemId`). */
   globalId: string;
   /** The tablet's record to update, or null to create one. */
   localId: string | null;

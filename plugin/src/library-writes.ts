@@ -10,6 +10,9 @@ import {
   SETTINGS_KIND,
   SETTINGS_PARTS,
   STEAM_SETTINGS,
+  WORKFLOW_BATCH,
+  WORKFLOW_GRINDER,
+  WORKFLOW_KIND,
   type WriteRefused,
   beanMatchKey,
   globalIdOf,
@@ -32,7 +35,9 @@ import type { Outbox } from "./outbox.js";
 // it to (`LibraryWrite.expected`), so a barista's change the tablet has not
 // reported yet is kept, and reaches the server in the answer (ADR-0020).
 // A Location's steam, hot water and rinse settings are written into the
-// tablet's Workflow the same way (ADR-0014). A record of an item an Admin
+// tablet's Workflow the same way (ADR-0014), and so is the clearing of the
+// Workflow's grinder and batch as its Machine joins a Location that does not
+// offer them (ADR-0008). A record of an item an Admin
 // hard-deleted is deleted the same way too, a Profile's purged, the one
 // thing the plugin deletes (ADR-0003).
 
@@ -196,7 +201,7 @@ export class LibraryWrites {
 
   /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
   apply(write: LibraryWrite): Promise<void> {
-    if (write.kind !== SETTINGS_KIND) return this.library.run(async () => this.outbox.enqueue(await carryOut(write)));
+    if (write.kind !== SETTINGS_KIND && write.kind !== WORKFLOW_KIND) return this.library.run(async () => this.outbox.enqueue(await carryOut(write)));
     return this.library.run(async () => {
       this.workflow.hold();
       try {
@@ -323,9 +328,12 @@ function deleted(remove: LibraryDelete): ItemDeleted {
 
 async function carryOut(write: LibraryWrite): Promise<WriteAnswer> {
   const route = Object.prototype.hasOwnProperty.call(ROUTES, write.kind) ? ROUTES[write.kind] : undefined;
-  if (!route && write.kind !== "profile" && write.kind !== SETTINGS_KIND) return refused(write, null, `This plugin cannot write a ${write.kind}`);
+  if (!route && write.kind !== "profile" && write.kind !== SETTINGS_KIND && write.kind !== WORKFLOW_KIND) {
+    return refused(write, null, `This plugin cannot write a ${write.kind}`);
+  }
   try {
     if (write.kind === SETTINGS_KIND) return await writeSettings(write);
+    if (write.kind === WORKFLOW_KIND) return await clearWorkflow(write);
     if (!route) return await writeProfile(write);
     if (write.localId === null) return await create(route, write);
     const updated = await update(route, write, write.localId);
@@ -407,6 +415,43 @@ async function writeSettings(write: LibraryWrite): Promise<WriteAnswer> {
   const updated = answer.ok ? parsed(answer.text) : undefined;
   if (!isObject(updated)) return refused(write, answer.status, answer.text);
   return written(write, workflowSettings(updated), Object.keys(fields), new Date().toISOString());
+}
+
+/**
+ * Clears the grinder and batch of the tablet's Workflow that the write names
+ * (`WORKFLOW_KIND`), each only while the Workflow still holds every field of
+ * it as expected, through `PUT /workflow`, which Decaid merges into the
+ * Workflow: a field merged in as null is cleared. A grinder or batch a
+ * barista picked since stays whole, though another grinder may be of the
+ * same model. Answers with the Workflow's `context`, timed now, as a
+ * Workflow carries no time.
+ */
+async function clearWorkflow(write: LibraryWrite): Promise<WriteAnswer> {
+  const current = await request("GET", "/workflow");
+  const workflow = current.ok ? parsed(current.text) : undefined;
+  if (!isObject(workflow)) return refused(write, current.status, current.text);
+  const held = (field: string) => {
+    const [part, name] = field.split(".") as [string, string];
+    const values = workflow[part];
+    return isObject(values) ? values[name] : undefined;
+  };
+  const settableNow = settable(write, held);
+  const fields = Object.fromEntries(
+    [WORKFLOW_GRINDER, WORKFLOW_BATCH].flatMap((group) => {
+      const named = group.filter((field) => field in write.fields);
+      return named.every((field) => field in settableNow) ? named.map((field) => [field, settableNow[field]]) : [];
+    }),
+  );
+  if (Object.keys(fields).length === 0) return written(write, workflowContext(workflow), [], new Date().toISOString());
+  const answer = await request("PUT", "/workflow", settingsParts(fields));
+  const updated = answer.ok ? parsed(answer.text) : undefined;
+  if (!isObject(updated)) return refused(write, answer.status, answer.text);
+  return written(write, workflowContext(updated), Object.keys(fields), new Date().toISOString());
+}
+
+/** A Workflow's `context`, as Decaid holds it: none is an empty one. */
+function workflowContext(workflow: Record<string, unknown>): Record<string, unknown> {
+  return { context: isObject(workflow.context) ? workflow.context : {} };
 }
 
 /** The steam, hot water and rinse parts of a Workflow, as Decaid holds them. */
