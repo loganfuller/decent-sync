@@ -105,6 +105,8 @@ export interface ItemEdit {
   values: Readonly<Record<string, unknown>>;
   at: Date;
   seenAt: Date | null;
+  /** The value the tablet's record held for each field before the edit (`ContentEdit.had`). */
+  had: Readonly<Record<string, unknown>>;
 }
 
 /**

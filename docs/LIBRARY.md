@@ -194,12 +194,24 @@ Profile's are never edits, and never written.
   the record known, the version that tablet last had: each field of its
   content that differs, a field the record leaves out being null, as Decaid
   leaves out a field it holds no value for, was edited on the tablet. The edit
-  is timed by the record's `updatedAt`, placed in UTC by the plugin. A record
-  equal to what the server last wrote to that tablet holds no edit (ADR-0003).
+  is timed by the record's `updatedAt`, placed in UTC by the plugin. The
+  answer to every write the server makes is recorded as the record known,
+  even one that comes after its write stopped being awaited, so a record
+  that holds only what the server wrote it holds no edit (ADR-0003). The
+  exception is an answer lost with the plugin's outbox, when the plugin
+  reloads between Decaid carrying out a write and the answer being sent: the
+  tablet's next report then shows what the server wrote as an edit of that
+  tablet's, timed when the plugin wrote it. Its value is the one the server
+  wrote, so it changes nothing unless another tablet's edit, made before the
+  write but taken in after it was planned, set the field since; that edit is
+  then kept as a Conflict.
 - **Merging.** Each field the edit changed is decided against the field's
   latest edit (`field_edits`). An edit decides a field nobody has edited
-  yet, and one whose latest edit its tablet had seen: its own, or one decided
-  by when its record last held what the server wrote it (`content_seen_at`).
+  yet, and one whose latest edit its tablet had seen: its own, one decided
+  by when its record last held what the server wrote it (`content_seen_at`),
+  or one whose value the record held before the edit, however it came to
+  hold it, as when the answer to the write that brought it came late, so the
+  edit replaces nothing its tablet had not seen.
   Otherwise edit times decide: one made no earlier than the field's latest
   edit decides it, and the value it replaces, if another, is kept as a
   Conflict from where and when that edit came, as neither saw the other; one

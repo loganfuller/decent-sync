@@ -21,6 +21,8 @@ const edits: FieldEdits = {
 };
 
 const at = (time: string) => new Date(`2026-10-08T${time}Z`);
+/** What a tablet's record held before its edit, unless given otherwise: the Bean's values before Uptown's notes. */
+const EARLIER = { roaster: "Roux", name: "Guji Hambela", country: "Ethiopia", notes: "Plum", region: null };
 
 describe("changedFields", () => {
   it("is each field that differs between two records, with the newer one's value, a field left out being null", () => {
@@ -40,48 +42,54 @@ describe("changedFields", () => {
 describe("mergeEdit", () => {
   it("decides each field an edit changed that its tablet had seen the latest edit of, whatever its time", () => {
     // Belmont was written the Bean after Uptown's notes were decided, then edited them with a clock behind.
-    const merged = mergeEdit(current, edits, { values: { notes: "Jasmine" }, at: at("09:30:00.000"), tabletId: BELMONT, seenAt: at("10:01:00.000") });
+    const merged = mergeEdit(current, edits, { values: { notes: "Jasmine" }, at: at("09:30:00.000"), tabletId: BELMONT, seenAt: at("10:01:00.000"), had: EARLIER });
     expect(merged).toEqual({ applied: { notes: "Jasmine" }, lost: {}, overwritten: [] });
   });
 
   it("decides a field whose latest edit was its own tablet's, whatever else its record has seen", () => {
-    const merged = mergeEdit(current, edits, { values: { notes: "Apricot" }, at: at("09:30:00.000"), tabletId: UPTOWN, seenAt: null });
+    const merged = mergeEdit(current, edits, { values: { notes: "Apricot" }, at: at("09:30:00.000"), tabletId: UPTOWN, seenAt: null, had: EARLIER });
     expect(merged).toEqual({ applied: { notes: "Apricot" }, lost: {}, overwritten: [] });
   });
 
   it("merges edits of different fields made without seeing each other, with no Conflict", () => {
     // Belmont, offline since it was written the Bean at 09:00:01, edits its country; Uptown's notes stand.
-    const merged = mergeEdit(current, edits, { values: { country: "Kenya" }, at: at("09:45:00.000"), tabletId: BELMONT, seenAt: at("09:00:01.000") });
+    const merged = mergeEdit(current, edits, { values: { country: "Kenya" }, at: at("09:45:00.000"), tabletId: BELMONT, seenAt: at("09:00:01.000"), had: EARLIER });
     expect(merged).toEqual({ applied: { country: "Kenya" }, lost: {}, overwritten: [] });
   });
 
   it("lets a later edit of a field win over one it had not seen, keeping the value it replaced as a Conflict from where that came", () => {
-    const merged = mergeEdit(current, edits, { values: { notes: "Jasmine" }, at: at("10:05:00.000"), tabletId: BELMONT, seenAt: at("09:00:01.000") });
+    const merged = mergeEdit(current, edits, { values: { notes: "Jasmine" }, at: at("10:05:00.000"), tabletId: BELMONT, seenAt: at("09:00:01.000"), had: EARLIER });
     expect(merged).toEqual({ applied: { notes: "Jasmine" }, lost: {}, overwritten: [{ field: "notes", value: "Peach", versionId: edits.notes!.versionId }] });
   });
 
   it("keeps an earlier edit of a field that its tablet had not seen the latest edit of as a Conflict, even when it arrives later", () => {
-    const merged = mergeEdit(current, edits, { values: { notes: "Jasmine", country: "Kenya" }, at: at("09:55:00.000"), tabletId: BELMONT, seenAt: at("09:00:01.000") });
+    const merged = mergeEdit(current, edits, { values: { notes: "Jasmine", country: "Kenya" }, at: at("09:55:00.000"), tabletId: BELMONT, seenAt: at("09:00:01.000"), had: EARLIER });
     expect(merged).toEqual({ applied: { country: "Kenya" }, lost: { notes: "Jasmine" }, overwritten: [] });
   });
 
   it("keeps no Conflict between two edits that set a field to the same value, and the later one still decides it", () => {
-    const later = mergeEdit(current, edits, { values: { notes: "Peach" }, at: at("10:05:00.000"), tabletId: BELMONT, seenAt: null });
+    const later = mergeEdit(current, edits, { values: { notes: "Peach" }, at: at("10:05:00.000"), tabletId: BELMONT, seenAt: null, had: EARLIER });
     expect(later).toEqual({ applied: { notes: "Peach" }, lost: {}, overwritten: [] });
-    const earlier = mergeEdit(current, edits, { values: { notes: "Peach" }, at: at("09:55:00.000"), tabletId: BELMONT, seenAt: null });
+    const earlier = mergeEdit(current, edits, { values: { notes: "Peach" }, at: at("09:55:00.000"), tabletId: BELMONT, seenAt: null, had: EARLIER });
     expect(earlier).toEqual({ applied: {}, lost: {}, overwritten: [] });
   });
 
   it("decides a field nobody has edited yet, and one cleared, as null", () => {
-    expect(mergeEdit(current, edits, { values: { region: "Guji", notes: null }, at: at("10:05:00.000"), tabletId: UPTOWN, seenAt: null })).toEqual({
+    expect(mergeEdit(current, edits, { values: { region: "Guji", notes: null }, at: at("10:05:00.000"), tabletId: UPTOWN, seenAt: null, had: EARLIER })).toEqual({
       applied: { region: "Guji", notes: null },
       lost: {},
       overwritten: [],
     });
   });
 
+  it("decides a field whose value the tablet's record held before its edit is the item's value now, whatever else its record is known to have seen", () => {
+    // Belmont was written Uptown's notes, but its answer came late, so its record is not known to have seen them; it held them.
+    const merged = mergeEdit(current, edits, { values: { notes: "Jasmine" }, at: at("09:30:00.000"), tabletId: BELMONT, seenAt: null, had: { notes: "Peach" } });
+    expect(merged).toEqual({ applied: { notes: "Jasmine" }, lost: {}, overwritten: [] });
+  });
+
   it("lets an edit made at the same time as the field's latest win, as the later to arrive", () => {
-    const merged = mergeEdit(current, edits, { values: { notes: "Jasmine" }, at: at("10:00:00.000"), tabletId: BELMONT, seenAt: null });
+    const merged = mergeEdit(current, edits, { values: { notes: "Jasmine" }, at: at("10:00:00.000"), tabletId: BELMONT, seenAt: null, had: EARLIER });
     expect(merged.applied).toEqual({ notes: "Jasmine" });
     expect(merged.overwritten).toHaveLength(1);
   });
@@ -95,7 +103,7 @@ describe("editsAfter", () => {
     expect(next.region).toEqual({ at: "2026-10-08T09:30:00.000Z", decidedAt: "2026-10-08T10:10:00.000Z", tabletId: BELMONT, versionId: VERSION });
     expect(next.country).toEqual(edits.country);
     // An edit timed between the two, from a tablet that had seen neither, now loses to the one that applied.
-    expect(mergeEdit({ ...current, notes: "Jasmine" }, next, { values: { notes: "Apricot" }, at: at("09:45:00.000"), tabletId: LAB, seenAt: null }).lost).toEqual({
+    expect(mergeEdit({ ...current, notes: "Jasmine" }, next, { values: { notes: "Apricot" }, at: at("09:45:00.000"), tabletId: LAB, seenAt: null, had: EARLIER }).lost).toEqual({
       notes: "Apricot",
     });
   });

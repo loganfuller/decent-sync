@@ -32,6 +32,12 @@ export interface ContentEdit {
   tabletId: string | null;
   /** The latest edit of the item's content that its record had seen, by PostgreSQL's clock; null if none. */
   seenAt: Date | null;
+  /**
+   * The value the tablet's record held for each field before the edit: one
+   * that is the item's value now had seen the field's latest edit, as far as
+   * its value goes, however the record came to hold it.
+   */
+  had: Readonly<Record<string, unknown>>;
 }
 
 /** What an edit decides, field by field. */
@@ -64,9 +70,11 @@ export function changedFields(known: Readonly<Record<string, unknown>>, now: Rea
 /**
  * How an edit merges with an item's content (`current`, its fields' latest
  * edits in `edits`), field by field. An edit decides a field nobody has
- * edited yet, and one whose latest edit its tablet had seen: its own, or one
+ * edited yet, and one whose latest edit its tablet had seen: its own, one
  * decided by when its record last had what the server wrote it
- * (`seenAt`). Otherwise edit times decide (ADR-0003): an edit made no
+ * (`seenAt`), or one whose value its record held before the edit (`had`), as
+ * when the answer to the write that brought it was not awaited any more, so
+ * its edit replaces nothing it had not seen. Otherwise edit times decide (ADR-0003): an edit made no
  * earlier than the field's latest decides it, and the value it replaces, if
  * another, is kept as a Conflict; one made earlier loses, and its value, if
  * another, is kept as a Conflict.
@@ -76,7 +84,7 @@ export function mergeEdit(current: Readonly<Record<string, unknown>>, edits: Fie
   for (const [field, value] of Object.entries(edit.values)) {
     const latest = Object.prototype.hasOwnProperty.call(edits, field) ? edits[field] : undefined;
     const same = sameValue(current[field], value);
-    if (!latest || sawEdit(latest, edit)) {
+    if (!latest || sawEdit(latest, edit) || (Object.prototype.hasOwnProperty.call(edit.had, field) && sameValue(edit.had[field], current[field]))) {
       merged.applied[field] = value;
     } else if (edit.at.getTime() >= new Date(latest.at).getTime()) {
       merged.applied[field] = value;
@@ -124,6 +132,11 @@ export function latestDecision(edits: FieldEdits): Date | null {
     if (latest === null || at > latest) latest = at;
   }
   return latest === null ? null : new Date(latest);
+}
+
+/** The values a tablet's record of an item held before an edit (`known`, as edits merge them) for each field the edit changed. */
+export function heldBefore(known: Readonly<Record<string, unknown>>, changed: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  return Object.fromEntries(Object.keys(changed).map((field) => [field, known[field] ?? null]));
 }
 
 /** An item's field edits as stored, or none if they cannot be read. */

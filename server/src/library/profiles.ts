@@ -18,7 +18,7 @@ import {
 } from "./intake.js";
 import { listedIds } from "./listed.js";
 import { decideProfileAt, deletedAt, lockLocation, showProfileAt, transactionTime } from "./location-state.js";
-import { changedFields } from "./merge.js";
+import { changedFields, heldBefore } from "./merge.js";
 import { type ProfileIntakeStep, planProfileIntake, profileContent, profileText, readReportedProfiles } from "./profile-intake.js";
 
 // The Library's Profiles and the tablets that hold them (ADR-0003, ADR-0006,
@@ -76,6 +76,8 @@ export async function takeInProfiles(
     FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid`;
   /** The latest edit of its title, author and notes that each record the map holds has seen. */
   const contentSeenAt = new Map(mapped.map((profile) => [profile.profileId, profile.contentSeenAt]));
+  /** The title, author and notes of each record the map holds, as the tablet last had them. */
+  const knownText = new Map(mapped.map((profile) => [profile.profileId, profileText(profile.record)]));
   /** The Location's latest decision of each Profile that the tablet's record the map holds has seen there: one decided by then, the tablet had seen. */
   const seenAt = new Map(mapped.map((profile) => [profile.profileId, profile.seenAt]));
   const mappedIds = new Set(mapped.map((profile) => profile.profileId));
@@ -151,7 +153,7 @@ export async function takeInProfiles(
     if (step.kind === "update") {
       if (step.shown !== undefined) decided = await showProfileAt(tx, profile.id, locationId, source, step.shown, profile.updatedAt, seenAt.get(profile.id) ?? null);
       writesDue = decided !== null || writesDue;
-      const edit = { values: step.content, at: profile.updatedAt, seenAt: contentSeenAt.get(profile.id) ?? null };
+      const edit = { values: step.content, at: profile.updatedAt, seenAt: contentSeenAt.get(profile.id) ?? null, had: heldBefore(knownText.get(profile.id) ?? {}, step.content) };
       writesDue = (await editContent(tx, { kind: "profile", id: profile.id }, edit, source)) || writesDue;
     } else {
       // The tablet holds it as the Location has it, or is written so; the Location's other tablets may lack it.
@@ -210,7 +212,7 @@ export async function recordProfileWritten(
     if (known && !library.bundled) {
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
       const values = Object.fromEntries(Object.entries(changedFields(profileText(known.record), profileText(record))).filter(([field]) => !written.has(field)));
-      const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt };
+      const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt, had: heldBefore(profileText(known.record), values) };
       if ((await editContent(tx, { kind: "profile", id: profileId }, edit, tabletSource(tablet))) && here !== null) await notify(tx, "library_changes", here);
     }
     await saveRecord(tx, tablet.tabletId, profileId, record, at, seen?.locationId === here ? seen : null, contentSeen);

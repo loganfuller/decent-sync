@@ -20,7 +20,7 @@ import {
 } from "./intake.js";
 import { listedIds } from "./listed.js";
 import { addBatchAt, deletedAt, enterRemainingWeight, finishBatchAt, lockLocation, transactionTime } from "./location-state.js";
-import { changedFields } from "./merge.js";
+import { changedFields, heldBefore } from "./merge.js";
 
 // The Library's Bean Batches and the tablets that hold them (ADR-0006,
 // ADR-0008, ADR-0018, ADR-0019). A tablet at a Location reports its batches
@@ -71,6 +71,8 @@ export async function takeInBatches(
   const seenAt = new Map(mapped.map((batch) => [batch.batchId, batch.seenAt]));
   /** The latest edit of its content that each record the map holds has seen. */
   const contentSeenAt = new Map(mapped.map((batch) => [batch.batchId, batch.contentSeenAt]));
+  /** The content of each record the map holds, as the tablet last had it. */
+  const knownContent = new Map(mapped.map((batch) => [batch.batchId, batchContent(batch.record)]));
   // The Library Beans the tablet's records of its beans are, by their ids there.
   const beans = await tx.tabletBean.findMany({ where: { tabletId: tablet.tabletId }, select: { localId: true, beanId: true } });
   const mappedIds = new Set(mapped.map((batch) => batch.localId));
@@ -106,7 +108,7 @@ export async function takeInBatches(
     }
     if (step.kind === "add" || step.kind === "map") writesDue = true;
     if (step.kind === "update") {
-      const edit = { values: step.content, at: batch.updatedAt, seenAt: contentSeenAt.get(batchId) ?? null };
+      const edit = { values: step.content, at: batch.updatedAt, seenAt: contentSeenAt.get(batchId) ?? null, had: heldBefore(knownContent.get(batchId) ?? {}, step.content) };
       writesDue = (await editContent(tx, { kind: "beanBatch", id: batchId }, edit, source)) || writesDue;
     }
     const applied = step.kind === "map" ? null : await applyEdits(tx, batchId, locationId, step.edits, batch.updatedAt, seenAt.get(batchId) ?? null, source);
@@ -204,7 +206,7 @@ export async function recordBatchWritten(
     if (known) {
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
       const edited = Object.fromEntries(Object.entries(changedFields(batchContent(known.record), batchContent(record))).filter(([field]) => !written.has(field)));
-      const edit = { values: edited, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt };
+      const edit = { values: edited, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt, had: heldBefore(batchContent(known.record), edited) };
       changed = (await editContent(tx, { kind: "beanBatch", id: batchId }, edit, source)) || changed;
     }
     if (changed && locationId !== null) await notify(tx, "library_changes", locationId);

@@ -67,10 +67,11 @@ describe("Edits of the Library", { timeout: 60_000 }, () => {
   function load(
     machine: CreatedMachine,
     serial: string,
-    options: { instance?: TestServer; pollSeconds?: number; decaidClockOffsetMs?: number } = {},
+    options: { instance?: TestServer; pollSeconds?: number; decaidClockOffsetMs?: number; stallUpload?: (frame: unknown) => boolean } = {},
   ): SimulatedTablet {
     const tablet = SimulatedTablet.load({
       decaidClockOffsetMs: options.decaidClockOffsetMs,
+      stallUpload: options.stallUpload,
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
       api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] },
       timeScale: 50,
@@ -266,6 +267,39 @@ describe("Edits of the Library", { timeout: 60_000 }, () => {
     // The Library's value is then written to group 2, though the write before it named the same fields.
     await holds(two, bean.id, { notes: "Edited on group 1" });
     expect(two.received.filter((frame) => (frame as { type?: unknown }).type === "welcome")).toHaveLength(1);
+  });
+
+  it("applies an edit made over a value written to the tablet whose answer came late, whatever its time", async () => {
+    const lab = await api.createLocation("Late lab", "America/Chicago");
+    const first = await api.createMachine("Late 1", lab.id);
+    const second = await api.createMachine("Late 2", lab.id);
+    const one = load(first, "19101");
+    // Its Decaid's clock runs 10 minutes slow, so its edits are timed before the other tablet's. Its answers to writes
+    // wait in its outbox while held, until it reconnects: answers to no write awaited then.
+    let holding = false;
+    const two = load(second, "19102", {
+      decaidClockOffsetMs: -10 * 60_000,
+      stallUpload: (frame) => holding && (frame as { type?: unknown }).type === "written",
+    });
+    await online(first, second);
+    const record = await one.addBean({ roaster: "Roux", name: "Late Guji", notes: "v1" });
+    const bean = await libraryBean("Late Guji");
+    await holds(two, bean.id, { notes: "v1" });
+
+    holding = true;
+    await one.editBean(record.id, { notes: "v2 from one" });
+    await holds(two, bean.id, { notes: "v2 from one" });
+    two.loseNetwork();
+    holding = false;
+    two.restoreNetwork();
+    await expect.poll(() => two.received.filter((frame) => (frame as { type?: unknown }).type === "welcome").length, { timeout: 10_000 }).toBe(2);
+
+    // Its barista edits what it was written: an edit made over the Library's value, so it applies though timed earlier.
+    await two.editBean(heldBean(two, bean.id)!.id, { notes: "v3 from two" });
+    await holds(one, bean.id, { notes: "v3 from two" });
+    expect(await beanContent(bean.id)).toMatchObject({ notes: "v3 from two" });
+    expect(heldBean(two, bean.id)).toMatchObject({ notes: "v3 from two" });
+    expect(await conflictsOf(bean.id)).toEqual([]);
   });
 
   it("renames a Profile renamed on one tablet on every tablet that holds it", async () => {
