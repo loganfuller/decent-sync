@@ -32,7 +32,7 @@ export interface SharingMachineView {
 
 /** A Location's settings, as the REST API returns them. */
 export interface LocationSettingsView {
-  /** Their id; null while no Machine there has reported its Workflow, so none are set. */
+  /** Their id; null while no Machine there sharing them has reported its Workflow, so none is set. */
   id: string | null;
   /** Each setting, by its name in SHARED_SETTINGS, such as `steamSettings.flow`; null while unset. */
   values: Record<SharedSetting, number | null>;
@@ -64,7 +64,8 @@ export class LocationSettingsService {
     if (!location) throw locationNotFound();
     const values = readLocationValues(row?.values);
     return {
-      id: row?.id ?? null,
+      // A Machine switched out of sharing makes the row, with nothing set, to keep its tablet's settings against.
+      id: row && Object.keys(values).length > 0 ? row.id : null,
       values: Object.fromEntries(SHARED_SETTINGS.map((field) => [field, values[field] ?? null])) as Record<SharedSetting, number | null>,
       machines,
       editable: includesLocation(scope, locationId),
@@ -84,7 +85,11 @@ export class LocationSettingsService {
       if (!(await lockMachine(tx, machineId))) throw machineNotFound();
       const locationId = await currentLocation(tx, machineId);
       if (!includesLocation(scope, locationId)) throw new ForbiddenException("Staff switch settings sharing only for Machines at their own Locations");
-      await tx.$executeRaw`UPDATE machines SET shares_settings = ${sharesSettings} WHERE id = ${machineId}::uuid`;
+      // Switched on, it is timed, so a change its tablet made while it was off and delivers later stays its own.
+      await tx.$executeRaw`
+        UPDATE machines SET shares_settings = ${sharesSettings},
+          shares_settings_since = CASE WHEN ${sharesSettings} AND NOT shares_settings THEN now() ELSE shares_settings_since END
+        WHERE id = ${machineId}::uuid`;
       if (locationId !== null) await notify(tx, "library_changes", locationId);
     });
     return { sharesSettings };

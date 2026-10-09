@@ -39,10 +39,19 @@ interface HeldSettings {
   contentSeenAt: Date | null;
 }
 
-/** Whether a Machine's tablet shares its Location's settings: switched on, as it is unless an account switched it off. */
-async function sharesSettings(tx: Prisma.TransactionClient, machineId: string): Promise<boolean> {
-  const [row] = await tx.$queryRaw<{ shares: boolean }[]>`SELECT shares_settings AS shares FROM machines WHERE id = ${machineId}::uuid`;
-  return row?.shares ?? false;
+/**
+ * Whether a Machine's tablet shares its Location's settings: switched on, as
+ * it is unless an account switched it off. Given when the tablet observed a
+ * change, one observed before the Machine was last switched on was made
+ * while it kept its own settings, and is not shared, though delivered later,
+ * as from a tablet that was offline. Compared with PostgreSQL's clock, which
+ * timed the switch, as other tablet times are (ADR-0003).
+ */
+async function sharesSettings(tx: Prisma.TransactionClient, machineId: string, observedAt?: Date): Promise<boolean> {
+  const [row] = await tx.$queryRaw<{ shares: boolean; since: Date | null }[]>`
+    SELECT shares_settings AS shares, shares_settings_since AS since FROM machines WHERE id = ${machineId}::uuid`;
+  if (!row?.shares) return false;
+  return observedAt === undefined || row.since === null || observedAt.getTime() >= row.since.getTime();
 }
 
 /** The Location's settings, created unset if it has none yet, under their row lock. */
@@ -138,7 +147,7 @@ export async function takeInWorkflow(tx: Prisma.TransactionClient, tablet: Repor
   const settings = await lockSettingsAt(tx, locationId);
   const held = await heldSettings(tx, tablet.tabletId);
   const known = held?.settingsId === settings.id ? held : null;
-  if (!(await sharesSettings(tx, tablet.machineId))) return void (await saveHeld(tx, tablet.tabletId, settings.id, reported, null));
+  if (!(await sharesSettings(tx, tablet.machineId, new Date(observedAt)))) return void (await saveHeld(tx, tablet.tabletId, settings.id, reported, null));
   const values = settingsEdits(known?.values ?? null, reported, settings.fieldEdits);
   const edit = { values, at: new Date(observedAt), seenAt: known?.contentSeenAt ?? null };
   const edited = await editSettings(tx, settings.id, edit, tabletSource(tablet));

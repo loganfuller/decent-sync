@@ -506,7 +506,7 @@ export type ItemKind = LibraryKind | "settings";
 
 /** A Location's steam, hot water and rinse settings, shared by its Machines whatever their model. */
 export interface LocationSettings {
-  /** Null while no Machine there has reported its Workflow, so none are set. */
+  /** Null while no Machine there sharing them has reported its Workflow, so none is set. */
   id: string | null;
   /** Each setting, by its part and name, such as `steamSettings.flow`; null while unset. */
   values: Record<string, number | null>;
@@ -542,7 +542,7 @@ export interface ItemVersion {
 /** An edit of a field of a Library item that lost to another made without seeing it. */
 export interface Conflict {
   id: string;
-  /** The item, or the settings, whose Location is `location`; named by their model. */
+  /** The item, or a Location's steam, hot water and rinse settings, whose Location is `location`. */
   item: { kind: ItemKind; id: string; name: string | null };
   field: string;
   /** The losing value; null where the edit cleared the field. */

@@ -12,8 +12,8 @@ import type { ReportingTablet } from "./intake.js";
 
 /**
  * A Library item: its kind, and its global id, or a Profile's id. Or a
- * Location's steam, hot water and rinse settings for one model, which keep
- * versions and Conflicts as items do (ADR-0020), always of their Location.
+ * Location's steam, hot water and rinse settings, which keep versions and
+ * Conflicts as items do (ADR-0020), always of their Location.
  */
 export interface ItemRef {
   kind: WrittenKind;

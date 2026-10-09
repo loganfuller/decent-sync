@@ -768,7 +768,8 @@ later is not shared.
   whose Machine moved, or that moved to a Machine at another Location, has
   had none of the new settings yet.
 - `machines.shares_settings`: whether a Machine's tablet shares its
-  Location's settings, on unless an account switched it off.
+  Location's settings, on unless an account switched it off, and
+  `shares_settings_since`, when one last switched it on.
 
 Tablets' edits arrive in the Workflow the plugin sends on every change and on
 every welcome (`WORKFLOW-AND-STATE.md`), which the server takes in in the
@@ -800,8 +801,11 @@ it:
   are written to it. Its tablet's settings are still kept as it reports them,
   so once it is switched back in, its changes count from then on, and it
   takes the Location's settings, which are written to it, as when its steam
-  is turned back on. Switching it, under the Machine's row lock, which taking
-  in its Workflow holds too, commits with a `NOTIFY` on `library_changes`.
+  is turned back on. A change its tablet observed before it was switched back
+  on, by PostgreSQL's clock (`shares_settings_since`), stays its own though
+  delivered after, as from a tablet that was offline meanwhile. Switching
+  it, under the Machine's row lock, which taking in its Workflow holds too,
+  commits with a `NOTIFY` on `library_changes`.
 - **The plugin's own writes** are not edits (ADR-0003): the answer to a
   write is recorded as the tablet's settings, and the plugin sends the
   Workflow change its write causes only after the answer (below).
@@ -934,7 +938,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
   the field was decided since the version `seen`.
 - `GET /api/locations/:id/settings` returns `{ settings }`, the Location's
   steam, hot water and rinse settings, `{ id, values, machines, editable }`:
-  their id, null while no Machine there has reported its Workflow; each
+  their id, null while no Machine there sharing them has reported its
+  Workflow, so none is set; each
   setting by its name, such as `steamSettings.flow`, null while unset; the
   Location's Machines now, each `{ id, name, model, sharesSettings }`, by
   name, `model` its hardware's, or an Unidentified Machine's reported one,

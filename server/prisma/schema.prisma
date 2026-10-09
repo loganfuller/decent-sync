@@ -221,6 +221,10 @@ model Machine {
   /// settings (ADR-0014): switched off, nothing of them is taken from it or
   /// written to it, and switched on again it takes the Location's.
   sharesSettings     Boolean               @default(true) @map("shares_settings")
+  /// When an account last switched it on, by PostgreSQL's clock; null if
+  /// never. A change its tablet observed before then, delivered after, was
+  /// made while it kept its own settings, and is not shared.
+  sharesSettingsSince DateTime?            @map("shares_settings_since") @db.Timestamptz(3)
   /// Why a connection with its token was last refused, until one is accepted.
   refusalReason      String?               @map("refusal_reason")
   refusedAt          DateTime?             @map("refused_at") @db.Timestamptz(3)

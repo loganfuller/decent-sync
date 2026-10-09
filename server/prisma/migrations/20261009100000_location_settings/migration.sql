@@ -5,7 +5,8 @@
 -- (server/src/library/location-settings.ts).
 
 -- AlterTable
-ALTER TABLE "machines" ADD COLUMN     "shares_settings" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "machines" ADD COLUMN     "shares_settings" BOOLEAN NOT NULL DEFAULT true,
+ADD COLUMN     "shares_settings_since" TIMESTAMPTZ(3);
 
 -- AlterTable
 ALTER TABLE "item_versions" ADD COLUMN     "settings_id" UUID;

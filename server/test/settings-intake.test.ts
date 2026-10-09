@@ -28,7 +28,7 @@ const ALL_SET: FieldEdits = Object.fromEntries(Object.keys(SETTINGS).map((field)
 const steamOff = { ...SETTINGS, "steamSettings.targetTemperature": 0 };
 
 describe("A tablet's reported settings", () => {
-  it("set every setting a Location has not, as from the first Machine of a model there", () => {
+  it("set every setting a Location has not, as from the first Machine there", () => {
     expect(settingsEdits(null, SETTINGS, {})).toEqual(SETTINGS);
   });
 
