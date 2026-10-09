@@ -171,7 +171,9 @@ export async function recordGrinderWritten(
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
       const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt };
       edited = await editContent(tx, { kind: "grinder", id: grinderId }, edit, tabletSource(tablet));
-      if (edited.writesDue && locationId !== null) await notify(tx, "library_changes", locationId);
+      // Archived or un-archived there though it belongs to another Location, as on a moved tablet, it is written back.
+      const writtenBack = archived !== undefined && !belongs;
+      if ((edited.writesDue || writtenBack) && locationId !== null) await notify(tx, "library_changes", locationId);
     }
     const holds = contentSeen !== null && (await holdsWrittenContent(tx, { kind: "grinder", id: grinderId }, grinderContent(record), edited));
     await saveRecord(tx, tablet.tabletId, grinderId, localId, record, at, holds ? contentSeen : null);
