@@ -10,6 +10,7 @@ import { ConflictsPage } from "@/pages/ConflictsPage";
 import { GrinderPage } from "@/pages/GrinderPage";
 import { GrindersPage } from "@/pages/GrindersPage";
 import { InvitePage } from "@/pages/InvitePage";
+import { LocationPage } from "@/pages/LocationPage";
 import { LocationsPage } from "@/pages/LocationsPage";
 import { MachinePage } from "@/pages/MachinePage";
 import { MachinesPage } from "@/pages/MachinesPage";
@@ -56,6 +57,7 @@ export function App() {
             <Route path="/library/profiles/:id" element={<ProfilePage />} />
             <Route path="/library/conflicts" element={<ConflictsPage />} />
             <Route path="/locations" element={<LocationsPage />} />
+            <Route path="/locations/:id" element={<LocationPage />} />
             <Route path="/machines" element={<MachinesPage />} />
             <Route path="/machines/:id" element={<MachinePage />} />
             <Route

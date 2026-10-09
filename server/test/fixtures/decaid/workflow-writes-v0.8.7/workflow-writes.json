@@ -1,0 +1,1172 @@
+[
+  {
+    "request": {
+      "method": "GET",
+      "path": "/workflow"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "9ba468ab-70e1-4c12-aee5-e1e9ca54f54a",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 50,
+          "flow": 0.8,
+          "stopAtTemperature": 0
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 90,
+          "duration": 10,
+          "flow": 6
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "steamSettings": {
+          "flow": 1.5
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "9ba468ab-70e1-4c12-aee5-e1e9ca54f54a",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 50,
+          "flow": 1.5,
+          "stopAtTemperature": 0
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 90,
+          "duration": 10,
+          "flow": 6
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 45,
+          "flow": 1.8,
+          "stopAtTemperature": 65
+        },
+        "hotWaterData": {
+          "targetTemperature": 80,
+          "duration": 40,
+          "volume": 150,
+          "flow": 8,
+          "fixtureUnknown": "kept?"
+        },
+        "rinseData": {
+          "targetTemperature": 92,
+          "duration": 8,
+          "flow": 5.5
+        },
+        "fixtureUnknownTopLevel": {
+          "note": "kept?"
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "9ba468ab-70e1-4c12-aee5-e1e9ca54f54a",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 45,
+          "flow": 1.8,
+          "stopAtTemperature": 65
+        },
+        "hotWaterData": {
+          "targetTemperature": 80,
+          "duration": 40,
+          "volume": 150,
+          "flow": 8
+        },
+        "rinseData": {
+          "targetTemperature": 92,
+          "duration": 8,
+          "flow": 5.5
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 45,
+          "flow": 1.8,
+          "stopAtTemperature": 65
+        },
+        "hotWaterData": {
+          "targetTemperature": 80,
+          "duration": 40,
+          "volume": 150,
+          "flow": 8,
+          "fixtureUnknown": "kept?"
+        },
+        "rinseData": {
+          "targetTemperature": 92,
+          "duration": 8,
+          "flow": 5.5
+        },
+        "fixtureUnknownTopLevel": {
+          "note": "kept?"
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "9ba468ab-70e1-4c12-aee5-e1e9ca54f54a",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 45,
+          "flow": 1.8,
+          "stopAtTemperature": 65
+        },
+        "hotWaterData": {
+          "targetTemperature": 80,
+          "duration": 40,
+          "volume": 150,
+          "flow": 8
+        },
+        "rinseData": {
+          "targetTemperature": 92,
+          "duration": 8,
+          "flow": 5.5
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "steamSettings": {
+          "targetTemperature": 0
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "9ba468ab-70e1-4c12-aee5-e1e9ca54f54a",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36
+        },
+        "steamSettings": {
+          "targetTemperature": 0,
+          "duration": 45,
+          "flow": 1.8,
+          "stopAtTemperature": 65
+        },
+        "hotWaterData": {
+          "targetTemperature": 80,
+          "duration": 40,
+          "volume": 150,
+          "flow": 8
+        },
+        "rinseData": {
+          "targetTemperature": 92,
+          "duration": 8,
+          "flow": 5.5
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "steamSettings": {
+          "targetTemperature": 135
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "9ba468ab-70e1-4c12-aee5-e1e9ca54f54a",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36
+        },
+        "steamSettings": {
+          "targetTemperature": 135,
+          "duration": 45,
+          "flow": 1.8,
+          "stopAtTemperature": 65
+        },
+        "hotWaterData": {
+          "targetTemperature": 80,
+          "duration": 40,
+          "volume": 150,
+          "flow": 8
+        },
+        "rinseData": {
+          "targetTemperature": 92,
+          "duration": 8,
+          "flow": 5.5
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "steamSettings": {
+          "targetTemperature": 150
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "9ba468ab-70e1-4c12-aee5-e1e9ca54f54a",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 45,
+          "flow": 1.8,
+          "stopAtTemperature": 65
+        },
+        "hotWaterData": {
+          "targetTemperature": 80,
+          "duration": 40,
+          "volume": 150,
+          "flow": 8
+        },
+        "rinseData": {
+          "targetTemperature": 92,
+          "duration": 8,
+          "flow": 5.5
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "steamSettings": {
+          "flow": 2
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "9ba468ab-70e1-4c12-aee5-e1e9ca54f54a",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 45,
+          "flow": 2,
+          "stopAtTemperature": 65
+        },
+        "hotWaterData": {
+          "targetTemperature": 80,
+          "duration": 40,
+          "volume": 150,
+          "flow": 8
+        },
+        "rinseData": {
+          "targetTemperature": 92,
+          "duration": 8,
+          "flow": 5.5
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "hotWaterData": {
+          "duration": 30.7
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "9ba468ab-70e1-4c12-aee5-e1e9ca54f54a",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 45,
+          "flow": 2,
+          "stopAtTemperature": 65
+        },
+        "hotWaterData": {
+          "targetTemperature": 80,
+          "duration": 30,
+          "volume": 150,
+          "flow": 8
+        },
+        "rinseData": {
+          "targetTemperature": 92,
+          "duration": 8,
+          "flow": 5.5
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "steamSettings": null
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "Invalid request",
+        "message": "FormatException: Field \"steamSettings\" cannot be null"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "steamSettings": {
+          "flow": null
+        }
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "Invalid request",
+        "message": "FormatException: Field \"flow\" cannot be null"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "steamSettings": 5
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "Invalid request",
+        "message": "FormatException: Field \"steamSettings\" must be an object"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "hotWaterData": null
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "9ba468ab-70e1-4c12-aee5-e1e9ca54f54a",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 45,
+          "flow": 2,
+          "stopAtTemperature": 65
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 92,
+          "duration": 8,
+          "flow": 5.5
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "hotWaterData": {
+          "volume": "x"
+        }
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "Invalid request",
+        "message": "FormatException: Invalid radix-10 number (at character 1)\nx\n^\n"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": [
+        {
+          "steamSettings": {
+            "flow": 1.5
+          }
+        }
+      ]
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "Request body must be a JSON object"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/workflow"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "9ba468ab-70e1-4c12-aee5-e1e9ca54f54a",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 45,
+          "flow": 2,
+          "stopAtTemperature": 65
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 92,
+          "duration": 8,
+          "flow": 5.5
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/workflow"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "9ba468ab-70e1-4c12-aee5-e1e9ca54f54a",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 45,
+          "flow": 2,
+          "stopAtTemperature": 65
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 92,
+          "duration": 8,
+          "flow": 5.5
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "steamSettings": {
+          "flow": 1.2
+        }
+      }
+    },
+    "response": {
+      "status": 500,
+      "body": {
+        "error": "Internal server error",
+        "message": "DeviceNotConnectedException: machine not connected"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "context": {
+          "targetYield": 40
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "9ba468ab-70e1-4c12-aee5-e1e9ca54f54a",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 40
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 45,
+          "flow": 2,
+          "stopAtTemperature": 65
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 92,
+          "duration": 8,
+          "flow": 5.5
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/workflow"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "9ba468ab-70e1-4c12-aee5-e1e9ca54f54a",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 40
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 45,
+          "flow": 2,
+          "stopAtTemperature": 65
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 92,
+          "duration": 8,
+          "flow": 5.5
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "steamSettings": {
+          "stopAtTemperature": 60
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "9ba468ab-70e1-4c12-aee5-e1e9ca54f54a",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 40
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 45,
+          "flow": 2,
+          "stopAtTemperature": 60
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 92,
+          "duration": 8,
+          "flow": 5.5
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/workflow"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "9ba468ab-70e1-4c12-aee5-e1e9ca54f54a",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 40
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 45,
+          "flow": 2,
+          "stopAtTemperature": 60
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 92,
+          "duration": 8,
+          "flow": 5.5
+        }
+      }
+    }
+  }
+]

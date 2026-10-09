@@ -104,6 +104,15 @@ adds only what changes that Machine's own. Creating a machine entry for a
 Pending Machine's hardware, binding it at `hello` or entering it by hand hands
 its events over with its Shots and Steam Records (`transferPendingRecords`).
 
+A Workflow from a connection that is not mismatched, for its token's
+Machine, is also taken into its Location's steam, hot water and rinse
+settings in the same transaction (ticket #86,
+`LIBRARY.md`, Steam, hot water and rinse settings): only those settings count
+as edits, timed by `observedAt`. While the plugin writes the shared settings
+into the Workflow, it holds back the `workflowUpdated` its write causes until
+the write's answer is queued, then sends the latest Workflow, so the server
+reads its own write as the answer rather than as the tablet's edit.
+
 The current Workflow and machine state are the latest events stored, which
 for one tablet are also the latest observed. `observed_at` keeps the tablet's
 time, which may be wrong or jump; `received_at` is PostgreSQL's.

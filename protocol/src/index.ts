@@ -458,12 +458,105 @@ export function isLibraryKind(kind: string): kind is LibraryKind {
 }
 
 /**
+ * What the server writes to tablets besides Library items: the steam, hot
+ * water and rinse settings of the tablet's Machine's Location (ADR-0014),
+ * which a `write` of this kind carries.
+ */
+export const SETTINGS_KIND = "settings";
+
+/** What a `write` writes: a Library item of one of LIBRARY_KINDS, or the shared settings. */
+export type WrittenKind = LibraryKind | typeof SETTINGS_KIND;
+
+export function isWrittenKind(kind: string): kind is WrittenKind {
+  return kind === SETTINGS_KIND || isLibraryKind(kind);
+}
+
+/**
  * Whether a value is the id of a Library item of that kind: a Profile's is
  * Decaid's own (`isRecordId`), a hash of what the machine executes that is
- * the same on every tablet (ADR-0006); every other kind's is its global id.
+ * the same on every tablet (ADR-0006); every other kind's is its global id,
+ * and the shared settings' is the id the server gives a Location's settings.
  */
 export function isItemId(kind: string, value: unknown): value is string {
   return kind === "profile" ? isRecordId(value) : isGlobalId(value);
+}
+
+/**
+ * The parts of Decaid's Workflow that a Location shares between its
+ * Machines, whatever their model (ADR-0014): the steam, hot water and rinse
+ * settings. The rest
+ * of a Workflow (its profile, dose, yield, batch and grinder) stays each
+ * Machine's own.
+ */
+export const SETTINGS_PARTS = ["steamSettings", "hotWaterData", "rinseData"] as const;
+
+/**
+ * The shared settings, each a field of its own (ADR-0020), named by its part
+ * and Decaid's name for it in that part (`Workflow.toJson` in
+ * decaid:lib/src/models/data/workflow.dart). Decaid sends each of them in
+ * every Workflow. A field it may add to a part later is not shared.
+ */
+export const SHARED_SETTINGS = [
+  "steamSettings.targetTemperature",
+  "steamSettings.duration",
+  "steamSettings.flow",
+  "steamSettings.stopAtTemperature",
+  "hotWaterData.targetTemperature",
+  "hotWaterData.duration",
+  "hotWaterData.volume",
+  "hotWaterData.flow",
+  "rinseData.targetTemperature",
+  "rinseData.duration",
+  "rinseData.flow",
+] as const;
+
+export type SharedSetting = (typeof SHARED_SETTINGS)[number];
+
+/** The steam settings, which a Machine whose steam is off neither shares nor takes (ADR-0014). */
+export const STEAM_SETTINGS: readonly SharedSetting[] = SHARED_SETTINGS.filter((field) => field.startsWith("steamSettings."));
+
+/**
+ * Decaid has no steam on/off flag: a steam target temperature below this, in
+ * °C, means steam is off (`De1Controller.updateWorkflowSettings`).
+ */
+export const STEAM_ON_FROM = 135;
+
+/** The shared settings, by field name. */
+export type SharedSettings = Readonly<Record<SharedSetting, number>>;
+
+/**
+ * The shared settings a Workflow, or an object holding its steam, hot water
+ * and rinse parts, holds, by field name; null if it lacks any of them, or
+ * holds one that is not a number, which no supported Decaid sends.
+ */
+export function sharedSettingsOf(workflow: unknown): SharedSettings | null {
+  if (!isObject(workflow)) return null;
+  const settings: Partial<Record<SharedSetting, number>> = {};
+  for (const field of SHARED_SETTINGS) {
+    const [part, name] = field.split(".") as [string, string];
+    const values = workflow[part];
+    const value = isObject(values) ? values[name] : undefined;
+    if (typeof value !== "number" || !Number.isFinite(value)) return null;
+    settings[field] = value;
+  }
+  return settings as SharedSettings;
+}
+
+/** Whether settings keep steam on: a steam target temperature of STEAM_ON_FROM or more. */
+export function steamIsOn(settings: Readonly<Partial<Record<string, unknown>>>): boolean {
+  const target = settings["steamSettings.targetTemperature"];
+  return typeof target === "number" && target >= STEAM_ON_FROM;
+}
+
+/** Settings by field name as the parts of a Workflow hold them, such as `{ steamSettings: { flow: 1.5 } }`. */
+export function settingsParts(fields: Readonly<Record<string, unknown>>): Record<string, Record<string, unknown>> {
+  const parts: Record<string, Record<string, unknown>> = {};
+  for (const [field, value] of Object.entries(fields)) {
+    const [part, name] = field.split(".");
+    if (part === undefined || name === undefined) continue;
+    (parts[part] ??= {})[name] = value;
+  }
+  return parts;
 }
 
 /**
@@ -506,14 +599,27 @@ export function isItemId(kind: string, value: unknown): value is string {
  * alone, and its title, author and notes, where `fields` holds them, in
  * the record's `profile`, which Decaid's `PUT /profiles/{id}` takes whole:
  * they are outside the hash, so the record keeps its id (ADR-0006).
+ *
+ * A write of SETTINGS_KIND carries the steam, hot water and rinse settings
+ * of the Machine's Location (ADR-0014): `globalId` is the server's id
+ * for them, `localId` null, and `fields` and `expected` are named as
+ * SHARED_SETTINGS names them. The plugin reads the tablet's Workflow and
+ * sets, through `PUT /workflow`, which Decaid merges into the Workflow, the
+ * fields it still holds as expected, the steam settings only while the
+ * Workflow keeps steam on (`steamIsOn`). Its answer's `record` is the Workflow's
+ * steam, hot water and rinse parts as Decaid returned them, and its
+ * `updatedAt` when the plugin had Decaid's answer, by its own clock, as a
+ * Workflow carries no time. Decaid refuses to change them while no machine
+ * is connected. The plugin's own write is not sent back as a change of the
+ * tablet's Workflow ahead of its answer, so the server never reads it as one.
  */
 export interface LibraryWrite {
   type: "write";
   /** Names this write, which its answer repeats. */
   id: string;
-  /** One of LIBRARY_KINDS. A plugin answers a kind it does not know with `writeRefused`. */
+  /** One of LIBRARY_KINDS, or SETTINGS_KIND. A plugin answers a kind it does not know with `writeRefused`. */
   kind: string;
-  /** The item's global id, or a Profile's id (`isItemId`). */
+  /** The item's global id, a Profile's id, or the settings' id (`isItemId`). */
   globalId: string;
   /** The tablet's record to update, or null to create one. */
   localId: string | null;

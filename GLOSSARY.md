@@ -95,7 +95,7 @@ A numbered position for a recipe, shared by every machine at a location, like a 
 _Avoid_: Recipe number, index
 
 **Workflow**:
-What a machine is set up to do next: its current profile, dose, yield, bean batch, grinder and setting, plus its steam, hot water and rinse settings. Each machine has its own profile, dose, yield, batch and grinder, even when machines share recipes. Steam, hot water and rinse settings are shared by machines of the same model at a location.
+What a machine is set up to do next: its current profile, dose, yield, bean batch, grinder and setting, plus its steam, hot water and rinse settings. Each machine has its own profile, dose, yield, batch and grinder, even when machines share recipes. Steam, hot water and rinse settings are shared by the machines at a location, whatever their model, but a machine whose sharing of them is turned off.
 _Avoid_: Recipe (a recipe is saved; a workflow is current)
 
 **Shot**:

@@ -6,8 +6,9 @@ import { PrismaService } from "../prisma.service.js";
 import { mayResolve } from "./conflict-access.js";
 import { ITEM_TABLES, editContent, lockItems } from "./content-edits.js";
 import { type ConflictView, HistoryService } from "./history.service.js";
-import { type EditSource, type ItemRef, accountSource } from "./history.js";
+import { type EditSource, type LibraryItemRef, accountSource } from "./history.js";
 import { INTAKE_TRANSACTION } from "./intake.js";
+import { editSettings, lockSettings } from "./location-settings.js";
 import { addBatchAt, enterRemainingWeight, finishBatchAt, lockLocation, showProfileAt } from "./location-state.js";
 
 // Resolving a Conflict (ADR-0020): using its value, which makes it a new edit
@@ -31,6 +32,7 @@ interface LockedConflict {
   batchId: string | null;
   grinderId: string | null;
   profileId: string | null;
+  settingsId: string | null;
   /** The Location of the Grinder it is about, if it is about one. */
   grinderLocationId: string | null;
 }
@@ -73,7 +75,7 @@ export class ConflictsService {
   private async lockOpen(tx: Prisma.TransactionClient, id: string, scope: Scope): Promise<LockedConflict> {
     const [conflict] = await tx.$queryRaw<LockedConflict[]>`
       SELECT conflict.state::text AS state, conflict.field, conflict.value, conflict.location_id AS "locationId", conflict.bean_id AS "beanId",
-        conflict.batch_id AS "batchId", conflict.grinder_id AS "grinderId", conflict.profile_id AS "profileId", grinder.location_id AS "grinderLocationId"
+        conflict.batch_id AS "batchId", conflict.grinder_id AS "grinderId", conflict.profile_id AS "profileId", conflict.settings_id AS "settingsId", grinder.location_id AS "grinderLocationId"
       FROM conflicts AS conflict LEFT JOIN grinders AS grinder ON grinder.id = conflict.grinder_id
       WHERE conflict.id = ${id}::uuid
       FOR UPDATE OF conflict`;
@@ -93,10 +95,19 @@ export class ConflictsService {
  * written.
  */
 async function useValue(tx: Prisma.TransactionClient, conflict: LockedConflict, seen: string | null, source: EditSource): Promise<void> {
-  const item = itemOf(conflict);
   const { field, value, locationId } = conflict;
   // Timed by PostgreSQL's clock (ADR-0016), as the version's `received_at` is, to the millisecond it keeps.
   const [{ at }] = await tx.$queryRaw<[{ at: Date }]>`SELECT now()::timestamptz(3) AS at`;
+  if (conflict.settingsId !== null) {
+    // A Location's settings are edited under their own row lock, as a tablet's edits of them are.
+    const settings = await lockSettings(tx, conflict.settingsId);
+    if (!settings) throw new NotFoundException("No such Conflict");
+    checkSeen(Object.prototype.hasOwnProperty.call(settings.fieldEdits, field) ? settings.fieldEdits[field]!.versionId : null, seen);
+    const edited = await editSettings(tx, settings.id, { values: { [field]: value ?? null }, at, seenAt: "everything" }, source);
+    if (edited.writesDue) await notify(tx, "library_changes", settings.locationId);
+    return;
+  }
+  const item = itemOf(conflict);
   if (locationId === null) {
     // A Grinder's Archived state changes only under its Location's lock. A Grinder's Location never changes.
     if (conflict.grinderLocationId !== null) await lockLocation(tx, conflict.grinderLocationId);
@@ -130,7 +141,7 @@ async function useValue(tx: Prisma.TransactionClient, conflict: LockedConflict, 
 }
 
 /** The version that set a Location's state of the item that the field is, or null if none is known. */
-async function stateVersion(tx: Prisma.TransactionClient, item: ItemRef, field: string, locationId: string): Promise<string | null> {
+async function stateVersion(tx: Prisma.TransactionClient, item: LibraryItemRef, field: string, locationId: string): Promise<string | null> {
   if (item.kind === "profile") {
     const [here] = await tx.$queryRaw<{ versionId: string | null }[]>`
       SELECT version_id AS "versionId" FROM profile_locations WHERE profile_id = ${item.id} AND location_id = ${locationId}::uuid`;
@@ -160,7 +171,7 @@ export function readSeen(body: unknown): string | null {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function itemOf(conflict: LockedConflict): ItemRef {
+function itemOf(conflict: LockedConflict): LibraryItemRef {
   if (conflict.beanId !== null) return { kind: "bean", id: conflict.beanId };
   if (conflict.batchId !== null) return { kind: "beanBatch", id: conflict.batchId };
   if (conflict.grinderId !== null) return { kind: "grinder", id: conflict.grinderId };

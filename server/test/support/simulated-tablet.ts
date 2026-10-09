@@ -9,6 +9,7 @@ import { batchesOf, createBatch, deleteBatch, deleteBean, listedBatches, updateB
 import { type DecaidAnswer, createBean, listedBeans, updateBean, withDecaidClock } from "./decaid-beans.js";
 import { createGrinder, deleteGrinder, listedGrinders, updateGrinder } from "./decaid-grinders.js";
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
+import { updateWorkflow } from "./decaid-workflow.js";
 import { rememberSecret, watchLog } from "./secrets.js";
 
 // Seam 1's simulated tablet: runs the built decent-sync.reaplugin/plugin.js
@@ -821,6 +822,22 @@ export class SimulatedTablet {
     return { status: answered.status, body: text === "" ? null : JSON.parse(text) };
   }
 
+  /** The tablet's Workflow, as `GET /workflow` answers it. */
+  workflow(): Record<string, unknown> {
+    return this.api["/workflow"] as Record<string, unknown>;
+  }
+
+  /**
+   * Changes the Workflow's steam, hot water or rinse settings in Decaid, as a
+   * barista or a skin does, with `PUT /workflow`, and resolves with the
+   * Workflow Decaid returned.
+   */
+  async changeSettings(parts: Record<string, Record<string, unknown>>): Promise<Record<string, unknown>> {
+    const { status, body } = await this.callApi("PUT", "/workflow", parts);
+    if (status !== 200) throw new Error(`Decaid refused the change with ${status}: ${JSON.stringify(body)}`);
+    return body as Record<string, unknown>;
+  }
+
   /** Adds a bean in Decaid, as a barista does, and resolves with the record Decaid made. */
   async addBean(fields: Record<string, unknown>): Promise<Record<string, unknown>> {
     const { status, body } = await this.callApi("POST", "/beans", fields);
@@ -1007,6 +1024,7 @@ export class SimulatedTablet {
    * other request.
    */
   private writeLibrary(method: string, route: string, query: URLSearchParams, body: unknown): (DecaidAnswer & { etag?: true }) | undefined {
+    if (method === "PUT" && route === "/workflow") return this.writeWorkflow(body);
     const profiles = this.writeProfiles(method, route, query, body);
     if (profiles) return profiles;
     const grinders = this.writeGrinders(method, route, body);
@@ -1051,6 +1069,20 @@ export class SimulatedTablet {
       if (method === "DELETE") return keep(deleteBatch(batches, id));
     }
     return undefined;
+  }
+
+  /**
+   * Carries out `PUT /workflow` as Decaid does (decaid-workflow.ts). One that
+   * takes is sent to the plugin in a `workflowUpdated` event before Decaid
+   * answers, as its PluginManager broadcasts the change as the Workflow is
+   * set, so the plugin hears of its own write while it awaits the answer.
+   */
+  private writeWorkflow(body: unknown): DecaidAnswer {
+    const current = this.api["/workflow"];
+    if (typeof current !== "object" || current === null || Array.isArray(current)) throw new Error("The simulated tablet has no Workflow to write to");
+    const { answer, workflow } = updateWorkflow(current as Record<string, unknown>, typeof body === "string" ? JSON.parse(body) : body, this.machineConnected);
+    if (workflow) this.setWorkflow(workflow);
+    return answer;
   }
 
   /**

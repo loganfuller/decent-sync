@@ -1,5 +1,5 @@
 import { globalIdOf, sameValue } from "@decent-sync/protocol";
-import type { LibraryKind } from "@decent-sync/protocol";
+import type { LibraryKind, WrittenKind } from "@decent-sync/protocol";
 import { batchContent, weightOf } from "./batch-intake.js";
 import { beanContent } from "./bean-intake.js";
 import { grinderContent } from "./grinder-intake.js";
@@ -101,9 +101,9 @@ export interface TabletHoldings {
   profiles: readonly HeldRecord[];
 }
 
-/** A write that brings the tablet closer to what its Location offers. */
+/** A write that brings the tablet closer to what its Location offers, or to its settings (location-settings.ts). */
 export interface PlannedWrite {
-  kind: LibraryKind;
+  kind: WrittenKind;
   globalId: string;
   /** The tablet's record to update, or null to create one. */
   localId: string | null;
@@ -129,7 +129,7 @@ export interface PlannedWrite {
 }
 
 /** The key a write's item is skipped under, for the rest of a connection. */
-export function writeKey(kind: LibraryKind, globalId: string): string {
+export function writeKey(kind: WrittenKind, globalId: string): string {
   return `${kind}:${globalId}`;
 }
 

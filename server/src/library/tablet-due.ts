@@ -1,13 +1,15 @@
 import { Prisma } from "../generated/prisma/client.js";
 import type { PrismaService } from "../prisma.service.js";
-import { type HeldRecord, type LocationBatch, type OfferedBean, type OfferedGrinder, type PlannedWrite, type ShownProfile, plannedWrites } from "./holdings.js";
+import { type HeldRecord, type LocationBatch, type OfferedBean, type OfferedGrinder, type PlannedWrite, type ShownProfile, plannedWrites, writeKey } from "./holdings.js";
+import { settingsDue } from "./location-settings.js";
 import { latestDecision, readFieldEdits } from "./merge.js";
 import { profileText } from "./profile-intake.js";
 
 // What a connection's tablet is due: the next write that brings it to what
 // its Machine's Location offers, and each record it holds to its item's
-// content (holdings.ts), read from the database each time, so it reflects
-// changes made through any instance.
+// content (holdings.ts), and its Workflow to the Location's steam, hot water
+// and rinse settings (location-settings.ts), read from the database each
+// time, so it reflects changes made through any instance.
 
 /** A connection whose tablet is written to: its session, which must still hold its Machine, the Machine and its tablet. */
 export interface WrittenTablet {
@@ -119,7 +121,10 @@ export async function tabletDue(
         grinders: heldGrinders.map((row) => heldRecord(row)),
         profiles: heldProfiles.map((row) => heldRecord(row, (content) => profileText(content))),
       };
-      return { locationId, writes: plannedWrites(offer, held, skipped) };
+      // The Location's settings first: they need no item written before them.
+      const settings = await settingsDue(tx, tablet, locationId);
+      const writes = settings && !skipped.has(writeKey(settings.kind, settings.globalId)) ? [settings] : [];
+      return { locationId, writes: [...writes, ...plannedWrites(offer, held, skipped)] };
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   );

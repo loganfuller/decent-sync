@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import type { LibraryKind } from "@decent-sync/protocol";
+import type { WrittenKind } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
 import type { BatchLocation, ConflictState, Prisma, ProfileLocation } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
@@ -43,12 +43,16 @@ export interface VersionView {
   receivedAt: string;
 }
 
-/** A Library item a Conflict is about. */
+/** A Library item a Conflict is about, or a Location's steam, hot water and rinse settings (`settings`), whose Location the Conflict names. */
 export interface ConflictItemView {
-  kind: LibraryKind;
-  /** Its global id, or a Profile's id. */
+  kind: WrittenKind;
+  /** Its global id, a Profile's id, or the settings' id. */
   id: string;
-  /** What the management interface names it by: a Bean's roaster and name, a batch's Bean and roast date, a Grinder's model, a Profile's title; null where its content has none. */
+  /**
+   * What the management interface names it by: a Bean's roaster and name, a
+   * batch's Bean and roast date, a Grinder's model, a Profile's title, the
+   * settings' "Steam, hot water and rinse"; null where its content has none.
+   */
   name: string | null;
 }
 
@@ -93,14 +97,23 @@ export interface CurrentValueView {
 const withSource = { machine: { select: { id: true, name: true } }, account: { select: { name: true } }, location: true } as const;
 
 /** The column each kind of item is named by in a version or Conflict. */
-const ITEM_WHERE: Readonly<Record<LibraryKind, (id: string) => { beanId?: string; batchId?: string; grinderId?: string; profileId?: string }>> = {
+const ITEM_WHERE: Readonly<
+  Record<WrittenKind, (id: string) => { beanId?: string; batchId?: string; grinderId?: string; profileId?: string; settingsId?: string }>
+> = {
   bean: (id) => ({ beanId: id }),
   beanBatch: (id) => ({ batchId: id }),
   grinder: (id) => ({ grinderId: id }),
   profile: (id) => ({ profileId: id }),
+  settings: (id) => ({ settingsId: id }),
 };
 
-const KIND_NAMES: Readonly<Record<LibraryKind, string>> = { bean: "Bean", beanBatch: "Bean Batch", grinder: "Grinder", profile: "Profile" };
+const KIND_NAMES: Readonly<Record<WrittenKind, string>> = {
+  bean: "Bean",
+  beanBatch: "Bean Batch",
+  grinder: "Grinder",
+  profile: "Profile",
+  settings: "Location settings",
+};
 
 /** Each Library item's history and its Conflicts (ADR-0020), which Staff read as Admins do. */
 @Injectable()
@@ -146,6 +159,7 @@ export class HistoryService {
         batch: { select: { content: true, fieldEdits: true, bean: { select: { content: true } } } },
         grinder: { select: { content: true, fieldEdits: true, archived: true, locationId: true } },
         profile: { select: { content: true, fieldEdits: true } },
+        settings: { select: { values: true, fieldEdits: true } },
       },
       orderBy: [{ createdAt: "desc" }, { seq: "desc" }],
     });
@@ -210,6 +224,8 @@ export class HistoryService {
         return (await this.prisma.grinder.count(where)) > 0;
       case "profile":
         return (await this.prisma.profile.count(where)) > 0;
+      case "settings":
+        return (await this.prisma.locationSettings.count(where)) > 0;
     }
   }
 }
@@ -236,10 +252,16 @@ function currentValue(
     batch: EditedContent;
     grinder: (EditedContent & { archived: boolean }) | null;
     profile: EditedContent;
+    settings: { values: Prisma.JsonValue; fieldEdits: Prisma.JsonValue } | null;
   },
   states: LocationStates,
 ): { value: unknown; versionId: string | null } {
   const { field, locationId } = conflict;
+  if (conflict.settings) {
+    const edits = readFieldEdits(conflict.settings.fieldEdits);
+    const versionId = Object.prototype.hasOwnProperty.call(edits, field) ? edits[field]!.versionId : null;
+    return { value: fields(conflict.settings.values)[field] ?? null, versionId };
+  }
   if (locationId !== null) {
     if (conflict.profileId !== null) {
       const here = states.profiles.get(`${conflict.profileId}/${locationId}`);
@@ -279,7 +301,9 @@ function conflictItem(conflict: {
   batch: { content: Prisma.JsonValue; bean: { content: Prisma.JsonValue } } | null;
   grinder: ItemContent;
   profile: ItemContent;
+  settingsId: string | null;
 }): ConflictItemView {
+  if (conflict.settingsId !== null) return { kind: "settings", id: conflict.settingsId, name: "Steam, hot water and rinse" };
   if (conflict.beanId !== null) {
     const bean = fields(conflict.bean?.content);
     return { kind: "bean", id: conflict.beanId, name: joined([text(bean.roaster), text(bean.name)]) };

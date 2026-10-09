@@ -236,8 +236,38 @@ var __decentSync = (() => {
   function isLibraryList(name) {
     return LIBRARY_LISTS.includes(name);
   }
+  var SETTINGS_KIND = "settings";
   function isItemId(kind, value) {
     return kind === "profile" ? isRecordId(value) : isGlobalId(value);
+  }
+  var SETTINGS_PARTS = ["steamSettings", "hotWaterData", "rinseData"];
+  var SHARED_SETTINGS = [
+    "steamSettings.targetTemperature",
+    "steamSettings.duration",
+    "steamSettings.flow",
+    "steamSettings.stopAtTemperature",
+    "hotWaterData.targetTemperature",
+    "hotWaterData.duration",
+    "hotWaterData.volume",
+    "hotWaterData.flow",
+    "rinseData.targetTemperature",
+    "rinseData.duration",
+    "rinseData.flow"
+  ];
+  var STEAM_SETTINGS = SHARED_SETTINGS.filter((field) => field.startsWith("steamSettings."));
+  var STEAM_ON_FROM = 135;
+  function steamIsOn(settings) {
+    const target = settings["steamSettings.targetTemperature"];
+    return typeof target === "number" && target >= STEAM_ON_FROM;
+  }
+  function settingsParts(fields) {
+    const parts = {};
+    for (const [field, value] of Object.entries(fields)) {
+      const [part, name] = field.split(".");
+      if (part === void 0 || name === void 0) continue;
+      (parts[part] ?? (parts[part] = {}))[name] = value;
+    }
+    return parts;
   }
   var MAX_REFUSAL_LENGTH = 1e3;
   function encode(message) {
@@ -733,19 +763,32 @@ var __decentSync = (() => {
     }
   };
   var LibraryWrites = class {
-    constructor(library, outbox) {
+    constructor(library, outbox, workflow, machineMissing) {
       __publicField(this, "library", library);
       __publicField(this, "outbox", outbox);
+      __publicField(this, "workflow", workflow);
+      __publicField(this, "machineMissing", machineMissing);
     }
     /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
     apply(write) {
-      return this.library.run(async () => this.outbox.enqueue(await carryOut(write)));
+      if (write.kind !== SETTINGS_KIND) return this.library.run(async () => this.outbox.enqueue(await carryOut(write)));
+      return this.library.run(async () => {
+        this.workflow.hold();
+        try {
+          const answer = await carryOut(write);
+          if (answer.type === "writeRefused" && answer.status === 500 && answer.error.includes("DeviceNotConnectedException")) this.machineMissing();
+          this.outbox.enqueue(answer);
+        } finally {
+          this.workflow.release();
+        }
+      });
     }
   };
   async function carryOut(write) {
     const route = Object.prototype.hasOwnProperty.call(ROUTES, write.kind) ? ROUTES[write.kind] : void 0;
-    if (!route && write.kind !== "profile") return refused(write, null, `This plugin cannot write a ${write.kind}`);
+    if (!route && write.kind !== "profile" && write.kind !== SETTINGS_KIND) return refused(write, null, `This plugin cannot write a ${write.kind}`);
     try {
+      if (write.kind === SETTINGS_KIND) return await writeSettings(write);
       if (!route) return await writeProfile(write);
       if (write.localId === null) return await create(route, write);
       const updated = await update(route, write, write.localId);
@@ -777,6 +820,28 @@ var __decentSync = (() => {
     const updated = again?.ok ? parsed(again.text) : void 0;
     if (!isObject2(updated) || updated.id !== write.globalId) return written(write, record, writtenFields);
     return written(write, updated, [...writtenFields, "visibility"]);
+  }
+  async function writeSettings(write) {
+    const current = await request("GET", "/workflow");
+    const workflow = current.ok ? parsed(current.text) : void 0;
+    if (!isObject2(workflow)) return refused(write, current.status, current.text);
+    const held = (field) => {
+      const [part, name] = field.split(".");
+      const values = workflow[part];
+      return isObject2(values) ? values[name] : void 0;
+    };
+    const steamOn = steamIsOn({ "steamSettings.targetTemperature": held("steamSettings.targetTemperature") });
+    const fields = Object.fromEntries(
+      Object.entries(settable(write, held)).filter(([field]) => steamOn || !STEAM_SETTINGS.includes(field))
+    );
+    if (Object.keys(fields).length === 0) return written(write, workflowSettings(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
+    const answer = await request("PUT", "/workflow", settingsParts(fields));
+    const updated = answer.ok ? parsed(answer.text) : void 0;
+    if (!isObject2(updated)) return refused(write, answer.status, answer.text);
+    return written(write, workflowSettings(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
+  }
+  function workflowSettings(workflow) {
+    return Object.fromEntries(SETTINGS_PARTS.flatMap((part) => part in workflow ? [[part, workflow[part]]] : []));
   }
   var PROFILE_TEXT = ["title", "author", "notes"];
   async function updateProfile(write, id) {
@@ -872,14 +937,14 @@ var __decentSync = (() => {
     if (isObject2(record) && typeof record.id === "string") return written(write, record, writtenFields);
     return refused(write, answer.status, answer.text);
   }
-  function written(write, record, writtenFields) {
+  function written(write, record, writtenFields, at) {
     return {
       type: "written",
       id: write.id,
       kind: write.kind,
       globalId: write.globalId,
       record,
-      updatedAt: utcTime(record.updatedAt),
+      updatedAt: at ?? utcTime(record.updatedAt),
       writtenFields,
       ...write.contentDecidedAt === void 0 ? {} : { contentDecidedAt: write.contentDecidedAt }
     };
@@ -904,6 +969,14 @@ var __decentSync = (() => {
       __publicField(this, "outbox", outbox);
       /** The latest Workflow Decaid reported. */
       __publicField(this, "workflow");
+      /**
+       * Set while the plugin writes the shared settings into the Workflow
+       * (`LibraryWrites`): a change Decaid reports meanwhile is sent once the
+       * write's answer is queued, so the server reads the answer first.
+       */
+      __publicField(this, "held", false);
+      /** A change reported while held, which `release` sends. */
+      __publicField(this, "heldChange", false);
       /** The delivery that sent it again on the latest welcome, which the next welcome's replaces. */
       __publicField(this, "resent");
       /** The state and substate last queued, so repeated state updates send nothing. */
@@ -914,7 +987,22 @@ var __decentSync = (() => {
       const workflow = object(payload);
       if (!workflow) return;
       this.workflow = workflow;
-      this.queueWorkflow(workflow);
+      if (this.held) this.heldChange = true;
+      else this.queueWorkflow(workflow);
+    }
+    /** Holds back the Workflow's changes, as a write of the shared settings begins. */
+    hold() {
+      this.held = true;
+    }
+    /**
+     * Sends the latest Workflow, observed now, if it changed while held: that
+     * holds the plugin's own write, and any change a barista made meanwhile.
+     */
+    release() {
+      this.held = false;
+      if (!this.heldChange || !this.workflow) return;
+      this.heldChange = false;
+      this.queueWorkflow(this.workflow);
     }
     /**
      * Decaid's `stateUpdate`, which arrives several times a second while a
@@ -944,7 +1032,9 @@ var __decentSync = (() => {
       this.state = void 0;
       if (!this.workflow) return;
       if (this.resent !== void 0) this.outbox.discard(this.resent);
-      this.resent = this.queueWorkflow(this.workflow);
+      this.resent = void 0;
+      if (this.held) this.heldChange = true;
+      else this.resent = this.queueWorkflow(this.workflow);
     }
     /** Queues the Workflow as observed now, returning its delivery's id. */
     queueWorkflow(workflow) {
@@ -1578,6 +1668,14 @@ var __decentSync = (() => {
       __publicField(this, "timers", /* @__PURE__ */ new Map());
       /** The hardware the latest `hello` reported, null while no machine was connected. */
       __publicField(this, "sentHardware", null);
+      /**
+       * Set once the machine this connection's `hello` reported is seen gone:
+       * no hardware read, or Decaid refusing a write of the shared settings as
+       * no machine is connected. Decaid refuses those while it is gone, and the
+       * server skips such a write for the rest of the connection, so once the
+       * same machine is back the plugin reconnects, and is written it again.
+       */
+      __publicField(this, "machineAway", false);
       /** Hardware the server dismissed for this token; while set, the plugin does not connect. */
       __publicField(this, "dismissedHardware", null);
       /** Set once another tablet replaced this one, until a `yielding` hello is welcomed. */
@@ -1603,7 +1701,9 @@ var __decentSync = (() => {
       this.machineEvents = new MachineEvents(this.outbox);
       const library = new LibraryAccess();
       this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1e3);
-      this.writes = new LibraryWrites(library, this.outbox);
+      this.writes = new LibraryWrites(library, this.outbox, this.machineEvents, () => {
+        if (this.sentHardware !== null) this.machineAway = true;
+      });
       this.tabletId = new TabletId(host, log);
     }
     /** Connects from a timer, so the caller (onLoad) returns at once. */
@@ -1692,6 +1792,7 @@ var __decentSync = (() => {
         this.chunks = new Reassembly();
         this.welcomed = false;
         this.sentHardware = identity.machine;
+        this.machineAway = false;
         this.host.transport.onEvent(handle, (event) => this.onTransportEvent(handle, event));
         await this.send(handle, {
           type: "hello",
@@ -1853,7 +1954,11 @@ var __decentSync = (() => {
       this.checkingHardware = true;
       try {
         const hardware = await readMachineHardware();
-        if (this.stopped || hardware === null) return;
+        if (this.stopped) return;
+        if (hardware === null) {
+          if (this.welcomed && this.sentHardware !== null) this.machineAway = true;
+          return;
+        }
         if (this.dismissedHardware) {
           if (sameHardware(hardware, this.dismissedHardware)) return;
           this.dismissedHardware = null;
@@ -1861,7 +1966,13 @@ var __decentSync = (() => {
           this.reconnectNow();
           return;
         }
-        if (!this.welcomed || sameHardware(hardware, this.sentHardware)) return;
+        if (!this.welcomed) return;
+        if (sameHardware(hardware, this.sentHardware)) {
+          if (!this.machineAway) return;
+          this.log("The machine is connected again. Reconnecting, so the server writes what Decaid refused while it was away.");
+          this.reconnectNow();
+          return;
+        }
         this.log(
           this.sentHardware === null ? "The machine reports its hardware now. Reconnecting to tell the server." : "The machine reports different hardware. Reconnecting to tell the server."
         );
