@@ -52,6 +52,13 @@ function spelled(field: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/** A version's fields, settings in Decaid's order (`SETTING_LABELS`), as a database's own key order reads oddly. */
+function inOrder(fields: Record<string, unknown>): [string, unknown][] {
+  const settings = Object.keys(SETTING_LABELS);
+  const rank = (field: string) => (settings.includes(field) ? settings.indexOf(field) : -1);
+  return Object.entries(fields).sort(([a], [b]) => rank(a) - rank(b));
+}
+
 /** A field's value as text. Null is a field cleared, or one never set. */
 export function valueText(field: string, value: unknown): string {
   if (value === null || value === undefined || value === "") return "None";
@@ -285,7 +292,7 @@ export function ItemHistoryCard({ kind, id }: { kind: ItemKind; id: string }) {
                   </TableCell>
                   <TableCell className="whitespace-normal">
                     <dl className="grid grid-cols-[auto_1fr] gap-x-3 text-sm">
-                      {Object.entries(version.fields).map(([field, value]) => (
+                      {inOrder(version.fields).map(([field, value]) => (
                         <div key={field} className="contents">
                           <dt className="text-muted-foreground">{fieldLabel(field, version.location)}</dt>
                           <dd className="min-w-0 wrap-anywhere">{valueText(field, value)}</dd>
