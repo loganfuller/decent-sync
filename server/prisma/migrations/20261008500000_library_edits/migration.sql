@@ -26,20 +26,16 @@ ALTER TABLE "profile_locations" ADD COLUMN     "version_id" UUID;
 ALTER TABLE "profiles" ADD COLUMN     "field_edits" JSONB NOT NULL DEFAULT '{}';
 
 -- AlterTable
-ALTER TABLE "tablet_bean_batches" ADD COLUMN     "content_seen_at" TIMESTAMPTZ(3),
-ADD COLUMN     "record_saved_at" TIMESTAMPTZ(3);
+ALTER TABLE "tablet_bean_batches" ADD COLUMN     "content_seen_at" TIMESTAMPTZ(3);
 
 -- AlterTable
-ALTER TABLE "tablet_beans" ADD COLUMN     "content_seen_at" TIMESTAMPTZ(3),
-ADD COLUMN     "record_saved_at" TIMESTAMPTZ(3);
+ALTER TABLE "tablet_beans" ADD COLUMN     "content_seen_at" TIMESTAMPTZ(3);
 
 -- AlterTable
-ALTER TABLE "tablet_grinders" ADD COLUMN     "content_seen_at" TIMESTAMPTZ(3),
-ADD COLUMN     "record_saved_at" TIMESTAMPTZ(3);
+ALTER TABLE "tablet_grinders" ADD COLUMN     "content_seen_at" TIMESTAMPTZ(3);
 
 -- AlterTable
-ALTER TABLE "tablet_profiles" ADD COLUMN     "content_seen_at" TIMESTAMPTZ(3),
-ADD COLUMN     "record_saved_at" TIMESTAMPTZ(3);
+ALTER TABLE "tablet_profiles" ADD COLUMN     "content_seen_at" TIMESTAMPTZ(3);
 
 -- CreateTable
 CREATE TABLE "item_versions" (

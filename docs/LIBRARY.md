@@ -153,10 +153,11 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   longer awaited, whose write is not known. Either keeps the decision known
   seen before. Every map also keeps the latest edit of the item's content
   that the record has seen (`content_seen_at`, by PostgreSQL's clock): the
-  latest decided as the server's write it answers was planned, while that
-  write was awaited, whichever is later, and when the record was last saved
-  there (`record_saved_at`, by PostgreSQL's clock). A reset tablet has a new tablet id,
-  so it starts with nothing here.
+  latest decided as the server's write it answers was planned, whichever is
+  later. A write carries that time (`contentDecidedAt`), and its answer
+  repeats it, so an answer that comes after its write stopped being awaited,
+  as across a reconnect, says what its record has seen of the content too. A
+  reset tablet has a new tablet id, so it starts with nothing here.
 - `field_edits` on `beans`, `bean_batches`, `grinders` and `profiles`: the
   latest edit of each field of the item's content, `{ at, decidedAt,
   tabletId, versionId }`: when it was made, never earlier than the edit
@@ -208,15 +209,9 @@ Profile's are never edits, and never written.
   then kept as a Conflict.
 - **Merging.** Each field the edit changed is decided against the field's
   latest edit (`field_edits`). An edit decides a field nobody has edited
-  yet, and one whose latest edit its tablet had seen: its own, one decided
-  by when its record last held what the server wrote it (`content_seen_at`),
-  or one whose value the record held before the edit, when it was saved
-  after the field's latest edit was decided (`record_saved_at`), however it
-  came to hold it, as when the answer to the write that brought it came
-  late, so the edit replaces nothing its tablet had not seen. A value set
-  again since the record was saved, as when one tablet changed it and
-  another changed it back, it had not seen.
-  Otherwise edit times decide: one made no earlier than the field's latest
+  yet, and one whose latest edit its tablet had seen: its own, or one
+  decided by when its record last held what the server wrote it
+  (`content_seen_at`). Otherwise edit times decide: one made no earlier than the field's latest
   edit decides it, and the value it replaces, if another, is kept as a
   Conflict from where and when that edit came, as neither saw the other; one
   made earlier loses, and its value, if another, is kept as a Conflict, and
@@ -571,9 +566,10 @@ not sent, so a change the tablet made at its Location since its last report,
 such as archiving a batch just before the server wrote its global id, comes
 back in the answer, and the next report, holding the record as answered, shows
 none. So the answer names the fields the write set (`writtenFields`), and its
-`archived` and `weightRemaining`, where the write did not set them and they
-differ from the record known, are taken in as a report's would be
-(`editsInAnswer`, `archivingInAnswer`), under the Machine's, the tablet's and
+`archived` and `weightRemaining`, or a Profile's `visibility`, where the write
+did not set them and they differ from the record known, are taken in as a
+report's would be (`editsInAnswer`, `archivingInAnswer`,
+`visibilityInAnswer`), under the Machine's, the tablet's and
 the Location's locks, rather than written back over; and so are the fields of
 its content the write did not set that differ from the record known, merged
 as edits under the item's row lock (Edits, above), judged by what the record

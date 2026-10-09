@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { type LocationProfile, type MappedProfile, type ReportedProfile, planProfileIntake, profileContent, readReportedProfiles } from "../src/library/profile-intake.js";
+import {
+  type LocationProfile,
+  type MappedProfile,
+  type ReportedProfile,
+  planProfileIntake,
+  profileContent,
+  readReportedProfiles,
+  visibilityInAnswer,
+} from "../src/library/profile-intake.js";
 
 // Taking a tablet's report of its profiles into the Library, through the pure
 // module's interface: which records are new to the Library, which are a
@@ -226,5 +234,24 @@ describe("planProfileIntake", () => {
 
   it("reads a record listed twice once", () => {
     expect(plan([reported(IDS[0]), reported(IDS[0], { visibility: "hidden" })], [])).toEqual([["add", IDS[0], "decides shown"]]);
+  });
+});
+
+describe("visibilityInAnswer", () => {
+  const visible = { visible: true, deleted: false };
+  const hidden = { visible: false, deleted: false };
+  const none = new Set<string>();
+  it("reads a visibility the tablet changed since its last report, which the write did not set, as a report would", () => {
+    expect(visibilityInAnswer(visible, { visibility: "hidden" }, new Set(["title"]))).toBe(false);
+    expect(visibilityInAnswer(visible, { visibility: "deleted" }, none)).toBe(false);
+    expect(visibilityInAnswer(hidden, { visibility: "visible" }, none)).toBe(true);
+    // Deleted since it was hidden is hidden again, as another tablet may have shown it meanwhile.
+    expect(visibilityInAnswer(hidden, { visibility: "deleted" }, none)).toBe(false);
+  });
+
+  it("reads nothing where the write set the visibility, the record known agrees, or none is known", () => {
+    expect(visibilityInAnswer(visible, { visibility: "hidden" }, new Set(["visibility"]))).toBeUndefined();
+    expect(visibilityInAnswer(visible, { visibility: "visible" }, none)).toBeUndefined();
+    expect(visibilityInAnswer(null, { visibility: "hidden" }, none)).toBeUndefined();
   });
 });

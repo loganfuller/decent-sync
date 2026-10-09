@@ -226,3 +226,23 @@ function madeThere(profile: ReportedProfile, decided: LocationProfile, joinedAt:
   const at = profile.updatedAt.getTime();
   return joinedAt !== null && at > joinedAt.getTime() && at >= decided.changedAt.getTime();
 }
+
+/**
+ * Whether the record Decaid returned for one of the server's writes shows
+ * the tablet showed the Profile since its last report (true), or hid or
+ * deleted it (false), as a report would (`planProfileIntake`): undefined if
+ * the write set its visibility itself, the record known agrees, or none is
+ * known. A write of a Profile's title, author or notes alone, or one whose
+ * visibility the plugin left as the tablet had changed it, keeps the
+ * tablet's, and the next report holds the record as answered.
+ */
+export function visibilityInAnswer(
+  known: Pick<MappedProfile, "visible" | "deleted"> | null,
+  record: Record<string, unknown>,
+  written: ReadonlySet<string>,
+): boolean | undefined {
+  if (known === null || written.has("visibility")) return undefined;
+  const visible = record.visibility === "visible";
+  const deleted = record.visibility === "deleted";
+  return visible !== known.visible ? visible : deleted !== known.deleted ? false : undefined;
+}

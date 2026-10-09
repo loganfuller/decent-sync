@@ -18,8 +18,8 @@ import {
 } from "./intake.js";
 import { listedIds } from "./listed.js";
 import { decideProfileAt, deletedAt, lockLocation, showProfileAt, transactionTime } from "./location-state.js";
-import { changedFields, heldBefore } from "./merge.js";
-import { type ProfileIntakeStep, planProfileIntake, profileContent, profileText, readReportedProfiles } from "./profile-intake.js";
+import { changedFields } from "./merge.js";
+import { type ProfileIntakeStep, planProfileIntake, profileContent, profileText, readReportedProfiles, visibilityInAnswer } from "./profile-intake.js";
 
 // The Library's Profiles and the tablets that hold them (ADR-0003, ADR-0006,
 // ADR-0008, ADR-0018, ADR-0019). A Profile keeps Decaid's id, a hash of what
@@ -67,20 +67,15 @@ export async function takeInProfiles(
       record: Record<string, unknown>;
       seenAt: Date | null;
       contentSeenAt: Date | null;
-      savedAt: Date | null;
     }[]
   >`
     SELECT profile_id AS "profileId", record_updated_at AS "updatedAt", (record ->> 'visibility') = 'visible' AS visible,
-      (record ->> 'visibility') = 'deleted' AS deleted, ${seenAtSql(locationId)} AS "seenAt", content_seen_at AS "contentSeenAt", record_saved_at AS "savedAt",
+      (record ->> 'visibility') = 'deleted' AS deleted, ${seenAtSql(locationId)} AS "seenAt", content_seen_at AS "contentSeenAt",
       jsonb_build_object('profile', jsonb_build_object('title', record -> 'profile' -> 'title', 'author', record -> 'profile' -> 'author',
         'notes', record -> 'profile' -> 'notes')) AS record
     FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid`;
   /** The latest edit of its title, author and notes that each record the map holds has seen. */
   const contentSeenAt = new Map(mapped.map((profile) => [profile.profileId, profile.contentSeenAt]));
-  /** When each record the map holds was saved, by PostgreSQL's clock. */
-  const savedAt = new Map(mapped.map((profile) => [profile.profileId, profile.savedAt]));
-  /** The title, author and notes of each record the map holds, as the tablet last had them. */
-  const knownText = new Map(mapped.map((profile) => [profile.profileId, profileText(profile.record)]));
   /** The Location's latest decision of each Profile that the tablet's record the map holds has seen there: one decided by then, the tablet had seen. */
   const seenAt = new Map(mapped.map((profile) => [profile.profileId, profile.seenAt]));
   const mappedIds = new Set(mapped.map((profile) => profile.profileId));
@@ -156,7 +151,7 @@ export async function takeInProfiles(
     if (step.kind === "update") {
       if (step.shown !== undefined) decided = await showProfileAt(tx, profile.id, locationId, source, step.shown, profile.updatedAt, seenAt.get(profile.id) ?? null);
       writesDue = decided !== null || writesDue;
-      const edit = { values: step.content, at: profile.updatedAt, seenAt: contentSeenAt.get(profile.id) ?? null, had: heldBefore(knownText.get(profile.id) ?? {}, step.content), heldAt: savedAt.get(profile.id) ?? null };
+      const edit = { values: step.content, at: profile.updatedAt, seenAt: contentSeenAt.get(profile.id) ?? null };
       writesDue = (await editContent(tx, { kind: "profile", id: profile.id }, edit, source)) || writesDue;
     } else {
       // The tablet holds it as the Location has it, or is written so; the Location's other tablets may lack it.
@@ -177,12 +172,13 @@ export async function takeInProfiles(
 /**
  * Records a Profile's record as Decaid returned the plugin's write of it, as
  * `recordBeanWritten` does a Bean's: the tablet's record of that Profile from
- * now on, whatever the time of the record known. Every write of a Profile
- * sets its visibility, so its answer shows no change the tablet made at its
- * Location; but its title, author or notes, where the write did not set them
- * (`written`) and they differ from the record known, were changed on the
- * tablet since its last report, and are merged as a report's edit would be
- * (ADR-0020). The record has seen the latest edit of them the write carried
+ * now on, whatever the time of the record known. Its visibility, and its
+ * title, author or notes, where the write did not set them (`written`) and
+ * they differ from the record known, were changed on the tablet since its
+ * last report, and are taken in as a report's edits would be: showing or
+ * hiding it at the tablet's Location, judged by what the record had seen of
+ * the Location's decisions, under the Location's lock (`visibilityInAnswer`),
+ * and its content merged per field (ADR-0020). The record has seen the latest edit of them the write carried
  * (`contentSeen`). Recorded only while the answering connection holds its Machine,
  * under the Machine's and the tablet's locks, in the order a report takes
  * them. The record has seen the Location's decision of the Profile that the
@@ -210,15 +206,29 @@ export async function recordProfileWritten(
     if (!library) return "notTheItem";
     const here = await currentLocation(tx, tablet.machineId);
     const at = updatedAt === null ? null : new Date(updatedAt);
-    const [known] = await tx.$queryRaw<{ record: Record<string, unknown>; contentSeenAt: Date | null; savedAt: Date | null }[]>`
-      SELECT record, content_seen_at AS "contentSeenAt", record_saved_at AS "savedAt" FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid AND profile_id = ${profileId}`;
+    const [known] = await tx.$queryRaw<{ record: Record<string, unknown>; contentSeenAt: Date | null; seenAt: Date | null }[]>`
+      SELECT record, content_seen_at AS "contentSeenAt", ${seenAtSql(here)} AS "seenAt"
+      FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid AND profile_id = ${profileId}`;
+    const source = tabletSource(tablet);
+    const knownVisibility = known ? { visible: known.record.visibility === "visible", deleted: known.record.visibility === "deleted" } : null;
+    const shown = visibilityInAnswer(knownVisibility, record, written);
+    /** The decision of whether the Location shows it that the tablet's own change made, which its record has seen. */
+    let decided: SeenDecision | null = null;
+    if (here !== null && shown !== undefined) {
+      await lockLocation(tx, here);
+      // Shown or hidden on the tablet before Decaid answered: judged by what the record had seen before.
+      const decidedAt = await showProfileAt(tx, profileId, here, source, shown, at ?? (await transactionTime(tx)), known?.seenAt ?? null);
+      // Lost or not, the Location's state is to be written to the tablet.
+      await notify(tx, "library_changes", here);
+      if (decidedAt !== null) decided = { at: decidedAt, locationId: here };
+    }
     if (known && !library.bundled) {
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
       const values = Object.fromEntries(Object.entries(changedFields(profileText(known.record), profileText(record))).filter(([field]) => !written.has(field)));
-      const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt, had: heldBefore(profileText(known.record), values), heldAt: known.savedAt };
-      if ((await editContent(tx, { kind: "profile", id: profileId }, edit, tabletSource(tablet))) && here !== null) await notify(tx, "library_changes", here);
+      const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt };
+      if ((await editContent(tx, { kind: "profile", id: profileId }, edit, source)) && here !== null) await notify(tx, "library_changes", here);
     }
-    await saveRecord(tx, tablet.tabletId, profileId, record, at, seen?.locationId === here ? seen : null, contentSeen);
+    await saveRecord(tx, tablet.tabletId, profileId, record, at, decided ?? (seen?.locationId === here ? seen : null), contentSeen);
     return "recorded";
   }, INTAKE_TRANSACTION);
 }
@@ -256,9 +266,9 @@ async function saveRecord(
   contentSeen: Date | null,
 ): Promise<void> {
   await tx.$executeRaw`
-    INSERT INTO tablet_profiles (tablet_id, profile_id, record, record_updated_at, seen_at, seen_location_id, content_seen_at, record_saved_at)
+    INSERT INTO tablet_profiles (tablet_id, profile_id, record, record_updated_at, seen_at, seen_location_id, content_seen_at)
     VALUES (${tabletId}::uuid, ${profileId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz, ${seen?.at ?? null}::timestamptz,
-      ${seen?.locationId ?? null}::uuid, ${contentSeen}::timestamptz, clock_timestamp())
+      ${seen?.locationId ?? null}::uuid, ${contentSeen}::timestamptz)
     ON CONFLICT (tablet_id, profile_id) DO UPDATE SET
-      record = EXCLUDED.record, record_saved_at = EXCLUDED.record_saved_at, record_updated_at = EXCLUDED.record_updated_at, ${keepSeenSql("tablet_profiles")}, ${keepContentSeenSql("tablet_profiles")}`;
+      record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at, ${keepSeenSql("tablet_profiles")}, ${keepContentSeenSql("tablet_profiles")}`;
 }

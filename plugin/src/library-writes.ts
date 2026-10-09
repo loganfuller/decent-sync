@@ -307,9 +307,18 @@ function answerTo(write: LibraryWrite, answer: Answer, writtenFields: string[]):
   return refused(write, answer.status, answer.text);
 }
 
-/** A write's answer: the record Decaid holds now, and the fields the write set, beside its global id in `extras`. */
+/** A write's answer: the record Decaid holds now, and the fields the write set, beside its global id in `extras`, repeating what the write carried. */
 function written(write: LibraryWrite, record: Record<string, unknown>, writtenFields: string[]): ItemWritten {
-  return { type: "written", id: write.id, kind: write.kind, globalId: write.globalId, record, updatedAt: utcTime(record.updatedAt), writtenFields };
+  return {
+    type: "written",
+    id: write.id,
+    kind: write.kind,
+    globalId: write.globalId,
+    record,
+    updatedAt: utcTime(record.updatedAt),
+    writtenFields,
+    ...(write.contentDecidedAt === undefined ? {} : { contentDecidedAt: write.contentDecidedAt }),
+  };
 }
 
 function refused(write: LibraryWrite, status: number | null, error: string): WriteRefused {

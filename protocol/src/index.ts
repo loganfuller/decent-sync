@@ -525,6 +525,13 @@ export interface LibraryWrite {
    * while the record still holds it.
    */
   expected?: Record<string, unknown>;
+  /**
+   * When the latest edit of the item's content the write carries was
+   * decided, by the server's database clock: a UTC time the plugin repeats
+   * in its answer, so the server knows what the record it answers with has
+   * seen even when the answer comes after the server stopped awaiting it.
+   */
+  contentDecidedAt?: string;
 }
 
 /**
@@ -569,6 +576,8 @@ export interface ItemWritten {
    * as a Conflict (ADR-0018).
    */
   linked?: boolean;
+  /** The write's `contentDecidedAt`, repeated. */
+  contentDecidedAt?: string;
 }
 
 /**
@@ -794,6 +803,7 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         if (object.updatedAt !== null) fields.instant("updatedAt");
         fields.array("writtenFields", (value) => typeof value === "string", MAX_WRITTEN_FIELDS);
         fields.optionalBoolean("linked");
+        if (object.contentDecidedAt !== undefined) fields.instant("contentDecidedAt");
       });
     case "writeRefused":
       return check<WriteRefused>(object, "writeRefused", (fields) => {
@@ -873,6 +883,7 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
         if (object.localId !== null) fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
         fields.objectField("fields");
         if (object.expected !== undefined) fields.objectField("expected");
+        if (object.contentDecidedAt !== undefined) fields.instant("contentDecidedAt");
       });
     default:
       return invalid("Unknown message type");

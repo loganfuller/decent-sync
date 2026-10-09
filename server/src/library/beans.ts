@@ -20,7 +20,7 @@ import {
 } from "./intake.js";
 import { listedIds } from "./listed.js";
 import { deletedAt, lockLocation, offerBeanAt, takeBeanFrom, transactionTime } from "./location-state.js";
-import { changedFields, heldBefore } from "./merge.js";
+import { changedFields } from "./merge.js";
 
 // The Library's Beans and the tablets that hold them (ADR-0003, ADR-0006,
 // ADR-0008, ADR-0018, ADR-0019). A tablet at a Location reports its beans as
@@ -74,21 +74,16 @@ export async function takeInBeans(
       record: Record<string, unknown>;
       seenAt: Date | null;
       contentSeenAt: Date | null;
-      savedAt: Date | null;
     }[]
   >`
     SELECT bean_id AS "beanId", local_id AS "localId", record_updated_at AS "updatedAt", record,
       lower(record -> 'extras' ->> ${GLOBAL_ID_KEY}::text) AS "globalId", (record ->> 'archived') = 'true' AS archived, ${seenAtSql(locationId)} AS "seenAt",
-      content_seen_at AS "contentSeenAt", record_saved_at AS "savedAt"
+      content_seen_at AS "contentSeenAt"
     FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid`;
   /** The latest decision of its batches' presence at the Location that each record the map holds has seen there. */
   const seenAt = new Map(mapped.map((bean) => [bean.beanId, bean.seenAt]));
   /** The latest edit of its content that each record the map holds has seen. */
   const contentSeenAt = new Map(mapped.map((bean) => [bean.beanId, bean.contentSeenAt]));
-  /** When each record the map holds was saved, by PostgreSQL's clock. */
-  const savedAt = new Map(mapped.map((bean) => [bean.beanId, bean.savedAt]));
-  /** The content of each record the map holds, as the tablet last had it. */
-  const knownContent = new Map(mapped.map((bean) => [bean.beanId, beanContent(bean.record)]));
   const mappedIds = new Set(mapped.map((bean) => bean.localId));
   const unmapped = reported.filter((bean) => !mappedIds.has(bean.localId));
   if (unmapped.length > 0) await tx.$executeRaw`SELECT pg_advisory_xact_lock(${BEAN_MATCHING_LOCK}::bigint)`;
@@ -141,7 +136,7 @@ export async function takeInBeans(
     // A linked record takes the Bean's content: each field it held otherwise is kept as a Conflict (ADR-0018).
     if (step.kind === "link") await recordLinked(tx, { kind: "bean", id: beanId }, beanContent(bean.record), bean.updatedAt, source);
     if (step.kind === "update") {
-      const edit = { values: step.content, at: bean.updatedAt, seenAt: contentSeenAt.get(beanId) ?? null, had: heldBefore(knownContent.get(beanId) ?? {}, step.content), heldAt: savedAt.get(beanId) ?? null };
+      const edit = { values: step.content, at: bean.updatedAt, seenAt: contentSeenAt.get(beanId) ?? null };
       writesDue = (await editContent(tx, { kind: "bean", id: beanId }, edit, source)) || writesDue;
     }
     if (step.kind === "add" || step.kind === "link") {
@@ -210,8 +205,8 @@ export async function recordBeanWritten(
     const other = await tx.tabletBean.findUnique({ where: { tabletId_localId: { tabletId: tablet.tabletId, localId } }, select: { beanId: true } });
     if (other && other.beanId !== beanId) return "notTheItem";
     const locationId = await currentLocation(tx, tablet.machineId);
-    const [known] = await tx.$queryRaw<{ archived: boolean; seenAt: Date | null; record: Record<string, unknown>; contentSeenAt: Date | null; savedAt: Date | null }[]>`
-      SELECT (record ->> 'archived') = 'true' AS archived, ${seenAtSql(locationId)} AS "seenAt", record, content_seen_at AS "contentSeenAt", record_saved_at AS "savedAt"
+    const [known] = await tx.$queryRaw<{ archived: boolean; seenAt: Date | null; record: Record<string, unknown>; contentSeenAt: Date | null }[]>`
+      SELECT (record ->> 'archived') = 'true' AS archived, ${seenAtSql(locationId)} AS "seenAt", record, content_seen_at AS "contentSeenAt"
       FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid AND bean_id = ${beanId}::uuid`;
     const at = updatedAt === null ? null : new Date(updatedAt);
     const archived = archivingInAnswer(known?.archived ?? null, record, written);
@@ -229,8 +224,7 @@ export async function recordBeanWritten(
     if (known) {
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
       const edited = Object.fromEntries(Object.entries(changedFields(beanContent(known.record), beanContent(record))).filter(([field]) => !written.has(field)));
-      const edit = { values: edited, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt, had: heldBefore(beanContent(known.record), edited), heldAt: known.savedAt };
-      contentChanged = await editContent(tx, item, edit, source);
+      contentChanged = await editContent(tx, item, { values: edited, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt }, source);
     } else if (linked) {
       contentChanged = await recordLinked(tx, item, beanContent(record), at ?? (await transactionTime(tx)), source);
     }
@@ -263,10 +257,10 @@ async function saveRecord(
   contentSeen: Date | null,
 ): Promise<void> {
   await tx.$executeRaw`
-    INSERT INTO tablet_beans (tablet_id, bean_id, local_id, record, record_updated_at, seen_at, seen_location_id, content_seen_at, record_saved_at)
+    INSERT INTO tablet_beans (tablet_id, bean_id, local_id, record, record_updated_at, seen_at, seen_location_id, content_seen_at)
     VALUES (${tabletId}::uuid, ${beanId}::uuid, ${localId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz,
-      ${seen?.at ?? null}::timestamptz, ${seen?.locationId ?? null}::uuid, ${contentSeen}::timestamptz, clock_timestamp())
+      ${seen?.at ?? null}::timestamptz, ${seen?.locationId ?? null}::uuid, ${contentSeen}::timestamptz)
     ON CONFLICT (tablet_id, bean_id) DO UPDATE SET
-      local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_saved_at = EXCLUDED.record_saved_at, record_updated_at = EXCLUDED.record_updated_at, ${keepSeenSql("tablet_beans")},
+      local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at, ${keepSeenSql("tablet_beans")},
       ${keepContentSeenSql("tablet_beans")}`;
 }

@@ -301,6 +301,7 @@ var __decentSync = (() => {
           if (object3.localId !== null) fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
           fields.objectField("fields");
           if (object3.expected !== void 0) fields.objectField("expected");
+          if (object3.contentDecidedAt !== void 0) fields.instant("contentDecidedAt");
         });
       default:
         return invalid("Unknown message type");
@@ -872,7 +873,16 @@ var __decentSync = (() => {
     return refused(write, answer.status, answer.text);
   }
   function written(write, record, writtenFields) {
-    return { type: "written", id: write.id, kind: write.kind, globalId: write.globalId, record, updatedAt: utcTime(record.updatedAt), writtenFields };
+    return {
+      type: "written",
+      id: write.id,
+      kind: write.kind,
+      globalId: write.globalId,
+      record,
+      updatedAt: utcTime(record.updatedAt),
+      writtenFields,
+      ...write.contentDecidedAt === void 0 ? {} : { contentDecidedAt: write.contentDecidedAt }
+    };
   }
   function refused(write, status, error) {
     return { type: "writeRefused", id: write.id, kind: write.kind, globalId: write.globalId, status, error: error.slice(0, MAX_REFUSAL_LENGTH) };

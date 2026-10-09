@@ -229,6 +229,7 @@ export class TabletWriter {
         localId: due.localId,
         fields: due.fields,
         ...(due.expected ? { expected: due.expected } : {}),
+        ...(due.contentDecidedAt === null ? {} : { contentDecidedAt: due.contentDecidedAt.toISOString() }),
       };
       // What the write carries was decided at the Location it was planned for.
       const plannedFor = found?.locationId ?? null;

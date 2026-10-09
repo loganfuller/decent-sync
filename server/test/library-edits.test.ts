@@ -302,6 +302,28 @@ describe("Edits of the Library", { timeout: 60_000 }, () => {
     expect(await conflictsOf(bean.id)).toEqual([]);
   });
 
+  it("keeps a Profile a barista hid but the tablet had not reported when the server writes it a new title", async () => {
+    const lab = await api.createLocation("Hide lab", "America/Chicago");
+    const first = await api.createMachine("Hide 1", lab.id);
+    const second = await api.createMachine("Hide 2", lab.id);
+    const one = load(first, "19111");
+    // Polls once an hour (every 72 s here), so what is changed on it is not reported within the test.
+    const two = load(second, "19112", { pollSeconds: 3600 });
+    await online(first, second);
+    const saved = await one.addProfile(derivedProfile("Hide Bloom", 7.25));
+    const on = (tablet: SimulatedTablet) => tablet.profiles().find((record) => record.id === saved.id);
+    await expect.poll(() => on(two)?.visibility, { timeout: 10_000 }).toBe("visible");
+
+    await two.setProfileVisibility(saved.id, "hidden");
+    await one.editProfile(saved.id, { ...(saved.profile as Record_), title: "Hide Bloom v2" });
+    // Written the new title, its answer brings the hide in: the lab hides it, on the other tablet too.
+    await expect.poll(() => (on(two)?.profile as Record_ | undefined)?.title, { timeout: 10_000 }).toBe("Hide Bloom v2");
+    await expect.poll(() => on(one)?.visibility, { timeout: 10_000 }).toBe("hidden");
+    expect(on(two)?.visibility).toBe("hidden");
+    expect((await get<{ profile: { shownAt: unknown[] } }>(`/profiles/${encodeURIComponent(String(saved.id))}`)).profile.shownAt).toEqual([]);
+    expect(await conflictsOf(String(saved.id))).toEqual([]);
+  });
+
   it("renames a Profile renamed on one tablet on every tablet that holds it", async () => {
     const lab = await api.createLocation("Rename lab", "America/Chicago");
     const cafe = await api.createLocation("Rename cafe", "America/Chicago");
