@@ -697,7 +697,8 @@ model TabletBean {
   /// does not count, as it may leave batches added since in place.
   /// Archiving or deleting the Bean is judged by it (ADR-0020).
   seenAt          DateTime? @map("seen_at") @db.Timestamptz(3)
-  /// The Location of that decision: it says nothing of another's.
+  /// The Location of that decision: it says nothing of another's. No foreign
+  /// key: it is only compared with the tablet's Location now.
   seenLocationId  String?   @map("seen_location_id") @db.Uuid
 
   @@id([tabletId, beanId])
@@ -780,7 +781,8 @@ model TabletBeanBatch {
   /// record has seen (`BatchLocation.presenceDecidedAt`): one the server's
   /// write to it carried, or one its own edit made; null if none (ADR-0020).
   seenAt          DateTime? @map("seen_at") @db.Timestamptz(3)
-  /// The Location of that decision: it says nothing of another's.
+  /// The Location of that decision: it says nothing of another's. No foreign
+  /// key: it is only compared with the tablet's Location now.
   seenLocationId  String?   @map("seen_location_id") @db.Uuid
 
   @@id([tabletId, batchId])
@@ -834,7 +836,9 @@ model ProfileLocation {
   /// When that was decided, by PostgreSQL's clock: a tablet whose record has seen it had seen it (`TabletProfile.seenAt`).
   decidedAt  DateTime @default(dbgenerated("transaction_timestamp()")) @map("decided_at") @db.Timestamptz(3)
   /// The tablet whose edit decided that: a record it reports under the id
-  /// afterwards, as after it deleted the Profile, was made after it.
+  /// afterwards, as after it deleted the Profile, was made after it. No
+  /// foreign key: it is only compared with a reporting tablet's id, which a
+  /// tablet gone since never is.
   decidedByTabletId String? @map("decided_by_tablet_id") @db.Uuid
 
   @@id([profileId, locationId])
@@ -858,7 +862,8 @@ model TabletProfile {
   /// record has seen (`ProfileLocation.decidedAt`): one the server's write to
   /// it carried, or one its own edit made; null if none (ADR-0020).
   seenAt          DateTime? @map("seen_at") @db.Timestamptz(3)
-  /// The Location of that decision: it says nothing of another's.
+  /// The Location of that decision: it says nothing of another's. No foreign
+  /// key: it is only compared with the tablet's Location now.
   seenLocationId  String?   @map("seen_location_id") @db.Uuid
 
   @@id([tabletId, profileId])

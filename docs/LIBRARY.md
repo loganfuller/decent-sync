@@ -271,7 +271,10 @@ Decaid's delete marks a user's Profile with, and hides a bundled one.
   and the Location's state is written back to that tablet. One that applies
   decides it again even when it leaves it shown or hidden as it was, so an
   earlier edit that arrives later cannot undo it. Conflicts, which will keep
-  the losing edit, come with ticket #84.
+  the losing edit, come with ticket #84. A Profile the tablet purged and
+  re-created, or deleted and made visible again, between two reports shows no
+  change in them, so it is no edit: where the Location hid it meanwhile, it
+  stays hidden there.
 - Any other record is one the map does not hold yet: the tablet created it,
   held it before it joined the Location, or was written it by a write whose
   answer was lost. If the Library has its id, it is that Profile; otherwise it
@@ -282,16 +285,17 @@ Decaid's delete marks a user's Profile with, and hides a bundled one.
   Location's state stands, and is written to the tablet: a new tablet's
   bundled Profiles do not show those its Location hid. But a user's Profile
   the tablet made visible after both it joined the Location and the Location
-  last decided the Profile, by their times, or whatever its clock where the
-  tablet's own edit decided it last, as when it deleted or replaced the
-  Profile there, is an edit made there, and shows it, as when a barista
-  changes a Profile's steps back, which Decaid's `PUT` makes a record under
-  the old id again, or re-creates one purged. Shown there already, it is the
-  Profile's latest edit there still, so an earlier hide that arrives later
-  cannot undo it (ADR-0020). A tablet joined its Location at the later of when
-  its Machine arrived there, by its Location History, and when the tablet
-  first connected as that Machine. Decaid's bundled Profiles join the Library
-  like any other, so whether each is shown is per Location.
+  last decided the Profile, by their times, is an edit made there, and so,
+  whatever its clock, is one it reports after its own edit decided the Profile
+  there last, as when it deleted or replaced the Profile there, as a tablet
+  reports in order. Either shows it, as when a barista changes a Profile's
+  steps back, which Decaid's `PUT` makes a record under the old id again, or
+  re-creates one purged. Shown there already, it is the Profile's latest edit
+  there still, so an earlier hide that arrives later cannot undo it
+  (ADR-0020). A tablet joined its Location at the later of when its Machine
+  arrived there, by its Location History, and when the tablet first connected
+  as that Machine. Decaid's bundled Profiles join the Library like any other,
+  so whether each is shown is per Location.
 - A bundled Profile the map holds that the tablet's Location has decided
   nothing of, as after its Machine moved there, is decided by its record, as
   on a first report there. A user's Profile the map holds stays as the
