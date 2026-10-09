@@ -92,7 +92,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
   function load(
     machine: CreatedMachine,
     serial: string,
-    options: { instance?: TestServer; fresh?: boolean; parts?: Parts; timeScale?: number; apiDelayMs?: (method: string, path: string) => number } = {},
+    options: { instance?: TestServer; fresh?: boolean; parts?: Parts } = {},
   ): SimulatedTablet {
     const library = options.fresh
       ? { "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": bundledProfiles() }
@@ -101,8 +101,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
       api: { ...derivedDe1Pro({ serial }), ...library, "/workflow": workflowWith(options.parts ?? {}, context) },
-      timeScale: options.timeScale ?? 50,
-      apiDelayMs: options.apiDelayMs,
+      timeScale: 50,
     });
     tablets.push(tablet);
     return tablet;
@@ -396,18 +395,19 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const belmont = await api.createLocation("Picking Belmont", "UTC");
     const labMachine = await api.createMachine("Picking lab 1", lab.id);
     const belmontMachine = await api.createMachine("Picking Belmont 1", belmont.id);
-    // Its reads of the Workflow are slow, so the barista acts while the plugin reads it to clear its grinder and batch.
-    const tablet = load(labMachine, "23071", { timeScale: 10, apiDelayMs: (method, path) => (method === "GET" && path === "/workflow" ? 10_000 : 0) });
+    const tablet = load(labMachine, "23071");
     load(belmontMachine, "23072", { instance: other, fresh: true });
     await online(labMachine, belmontMachine);
     await mapped(tablet);
     const picked = tablet.batches().find((batch) => batch.id !== context(tablet).beanBatchId)!;
 
+    // Decaid is slow to answer the plugin's read of the Workflow, so the barista acts while the plugin reads it to clear them.
+    const release = tablet.holdWorkflowReads();
     expect((await move(labMachine, belmont)).status).toBe(201);
-    // The write that clears them has reached the plugin, which is reading the Workflow.
     await expect.poll(() => tablet.received.some((frame) => (frame as { kind?: unknown }).kind === "workflow"), { timeout: 15_000 }).toBe(true);
     const relabelled: Record_ = { ...context(tablet), grinderModel: "DF64 v2 (bar)", beanBatchId: picked.id, coffeeName: "Picked" };
     tablet.setWorkflow({ ...tablet.workflow(), context: relabelled });
+    release();
     await expect.poll(() => "grinderId" in context(tablet), { timeout: 15_000 }).toBe(false);
     expect(context(tablet)).toMatchObject({ beanBatchId: picked.id, coffeeName: "Picked", coffeeRoaster: relabelled.coffeeRoaster });
     expect("grinderModel" in context(tablet)).toBe(false);
@@ -421,18 +421,22 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const belmont = await api.createLocation("Mistaken Belmont", "UTC");
     const labMachine = await api.createMachine("Mistaken lab 1", lab.id);
     const traveller = await api.createMachine("Mistaken traveller", lab.id);
+    const belmontMachine = await api.createMachine("Mistaken Belmont 1", belmont.id);
     const labTablet = load(labMachine, "23081", { fresh: true, parts: { steamSettings: { flow: 1.4 } } });
-    await online(labMachine);
+    const belmontTablet = load(belmontMachine, "23083", { fresh: true });
+    await online(labMachine, belmontMachine);
     await settingsOf(lab);
+    await belmontTablet.addBean({ roaster: "Roux", name: "Mistaken Belmont Bean" });
     const tablet = load(traveller, "23082", { instance: other, fresh: true, parts: { steamSettings: { flow: 1.4 } } });
     await online(traveller);
     const requests = () => tablet.received.filter((frame) => (frame as { type?: unknown }).type === "requestCollections").length;
+    const held = (archived: boolean) => tablet.beans().filter((bean) => globalIdOf(bean) !== null && (bean.archived === true) === archived).map((bean) => bean.name);
+    // Its reports are taken in at Belmont, which writes it Belmont's coffee, before it moves back.
     expect((await move(traveller, belmont)).status).toBe(201);
-    await expect.poll(requests, { timeout: 10_000 }).toBe(1);
+    await expect.poll(() => held(false), { timeout: 10_000 }).toEqual(["Mistaken Belmont Bean"]);
     expect((await move(traveller, lab)).status).toBe(201);
-    await expect.poll(requests, { timeout: 10_000 }).toBe(2);
-    await labTablet.addBean({ roaster: "Roux", name: "Mistaken Sentinel" });
-    await expect.poll(() => tablet.beans().filter((bean) => globalIdOf(bean) !== null).length, { timeout: 10_000 }).toBe(1);
+    await expect.poll(() => held(true), { timeout: 10_000 }).toEqual(["Mistaken Belmont Bean"]);
+    const asked = requests();
 
     // The move to Belmont was a mistake: removing it removes the move back too, as the Machine never left the lab.
     const [, toBelmont] = (await machineView(traveller)).locationHistory;
@@ -443,9 +447,9 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     await tablet.changeSettings({ steamSettings: { flow: 2.1 } });
     await expect.poll(async () => (await settingsAt(lab)).values["steamSettings.flow"], { timeout: 10_000 }).toBe(2.1);
     await tablet.addBean({ roaster: "Roux", name: "Mistaken Later" });
-    await expect.poll(() => tablet.beans().filter((bean) => globalIdOf(bean) !== null).length, { timeout: 10_000 }).toBe(2);
+    await expect.poll(() => held(false), { timeout: 10_000 }).toEqual(["Mistaken Later"]);
     expect(await brought(traveller)).toEqual([]);
-    expect(requests()).toBe(2);
+    expect(requests()).toBe(asked);
     expect(tabletSettings(tablet)["steamSettings.flow"]).toBe(2.1);
   });
 

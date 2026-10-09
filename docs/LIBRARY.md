@@ -1066,9 +1066,12 @@ another Location, and its first under a newer entry than the one it was
 last taken in under, as after a move away and back, is part of joining
 (`joins` in the pure `join-plan.ts`). A report of its bean batches stays
 part of joining until its beans have been taken in under the entry, as a
-batch whose bean the tablet's map does not hold waits for it. A Machine
-left at no Location forgets where its tablets' reports were taken in, so
-given a Location again, even the one it was at, it joins it.
+batch whose bean the tablet's map does not hold waits for it: so while a
+tablet's beans cannot be read, each batch it reports joining the Library is
+listed as brought. A Machine
+left at no Location forgets where its tablets' reports were taken in, but
+for a tablet that has moved to another Machine since, so given a Location
+again, even the one it was at, it joins it.
 
 - **The Location's state wins.** The writer finds the Machine at another
   Location than its tablet's latest reports, and asks the plugin for them

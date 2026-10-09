@@ -63,11 +63,18 @@ export async function takenIn(tx: Prisma.TransactionClient, tabletId: string, re
 /**
  * Forgets where the reports of the Machine's tablets were taken in, as it
  * is left at no Location: given one again, even the Location it was at, it
- * joins it. Under the Machine's row lock, which every report taken in holds.
+ * joins it. Only of tablets whose latest accepted hello was this Machine's:
+ * one that moved to another Machine since reports as that one. Under the
+ * Machine's row lock, which every report taken in for it holds.
  */
 export async function forgetReports(tx: Prisma.TransactionClient, machineId: string): Promise<void> {
   await tx.$executeRaw`
-    DELETE FROM tablet_reports WHERE tablet_id IN (SELECT tablet_id FROM machine_tablets WHERE machine_id = ${machineId}::uuid)`;
+    DELETE FROM tablet_reports WHERE tablet_id IN (
+      SELECT mine.tablet_id FROM machine_tablets AS mine
+      WHERE mine.machine_id = ${machineId}::uuid AND NOT EXISTS (
+        SELECT 1 FROM machine_tablets AS later WHERE later.tablet_id = mine.tablet_id AND later.last_hello > mine.last_hello
+      )
+    )`;
 }
 
 /**
