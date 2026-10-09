@@ -11,15 +11,17 @@ import { readFieldEdits } from "./merge.js";
 
 /**
  * Where a version or a Conflict came from: a Machine's tablet, or an account
- * in the management interface. An account is named by its id only: other
- * accounts' names are personal information that Staff do not see.
+ * in the management interface. An account is named to Admins; to Staff by
+ * its id only, as other accounts' names are personal information that Staff
+ * do not see.
  */
 export interface SourceView {
   /** The Machine whose tablet made it, if one did and it still exists. */
   machine: { id: string; name: string } | null;
   /** That tablet's id. */
   tabletId: string | null;
-  account: { id: string } | null;
+  /** The account that made it here; its name null but to Admins, and for an account since deleted. */
+  account: { id: string; name: string | null } | null;
 }
 
 /** One accepted edit of a Library item, as the REST API returns it. */
@@ -84,9 +86,11 @@ export interface CurrentValueView {
   source: SourceView | null;
   /** When that edit was made; null if it is not known. */
   editedAt: string | null;
+  /** That edit's version, which using the Conflict's value names as the value it replaces (`seen`); null if it is not known. */
+  versionId: string | null;
 }
 
-const withSource = { machine: { select: { id: true, name: true } }, location: true } as const;
+const withSource = { machine: { select: { id: true, name: true } }, account: { select: { name: true } }, location: true } as const;
 
 /** The column each kind of item is named by in a version or Conflict. */
 const ITEM_WHERE: Readonly<Record<LibraryKind, (id: string) => { beanId?: string; batchId?: string; grinderId?: string; profileId?: string }>> = {
@@ -104,7 +108,7 @@ export class HistoryService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** The item's versions, the latest taken in first; 404 if the Library does not have it. */
-  async versions(item: ItemRef): Promise<VersionView[]> {
+  async versions(item: ItemRef, scope: Scope): Promise<VersionView[]> {
     const [versions, exists] = await Promise.all([
       this.prisma.itemVersion.findMany({ where: ITEM_WHERE[item.kind](item.id), include: withSource, orderBy: [{ receivedAt: "desc" }, { seq: "desc" }] }),
       this.exists(item),
@@ -114,7 +118,7 @@ export class HistoryService {
       id: version.id,
       fields: isObject(version.fields) ? version.fields : {},
       location: version.location ? viewLocation(version.location) : null,
-      source: viewSource(version),
+      source: viewSource(version, scope),
       editedAt: version.editedAt.toISOString(),
       receivedAt: version.receivedAt.toISOString(),
     }));
@@ -152,7 +156,7 @@ export class HistoryService {
       (
         await this.prisma.itemVersion.findMany({
           where: { id: { in: versionIds } },
-          select: { id: true, editedAt: true, tabletId: true, accountId: true, machine: { select: { id: true, name: true } } },
+          select: { id: true, editedAt: true, tabletId: true, accountId: true, machine: { select: { id: true, name: true } }, account: { select: { name: true } } },
         })
       ).map((version) => [version.id, version]),
     );
@@ -165,11 +169,16 @@ export class HistoryService {
         field: conflict.field,
         value: conflict.value,
         location: conflict.location ? viewLocation(conflict.location) : null,
-        source: viewSource(conflict),
+        source: viewSource(conflict, scope),
         editedAt: conflict.editedAt.toISOString(),
         createdAt: conflict.createdAt.toISOString(),
         state: STATES[conflict.state],
-        current: { value, source: version ? viewSource(version) : null, editedAt: version ? version.editedAt.toISOString() : null },
+        current: {
+          value,
+          source: version ? viewSource(version, scope) : null,
+          editedAt: version ? version.editedAt.toISOString() : null,
+          versionId: version ? version.id : null,
+        },
         resolvable: mayResolve(scope, { locationId: conflict.locationId, field: conflict.field, grinderLocationId: conflict.grinder?.locationId }),
       };
     });
@@ -249,8 +258,14 @@ function currentValue(
   return { value: values[field] ?? null, versionId };
 }
 
-function viewSource(row: { machine: { id: string; name: string } | null; tabletId: string | null; accountId: string | null }): SourceView {
-  return { machine: row.machine, tabletId: row.tabletId, account: row.accountId === null ? null : { id: row.accountId } };
+function viewSource(
+  row: { machine: { id: string; name: string } | null; tabletId: string | null; accountId: string | null; account: { name: string } | null },
+  scope: Scope,
+): SourceView {
+  if (row.accountId === null) return { machine: row.machine, tabletId: row.tabletId, account: null };
+  // Other accounts' names are personal information that Staff do not see.
+  const name = scope.kind === "everything" ? (row.account?.name ?? null) : null;
+  return { machine: row.machine, tabletId: row.tabletId, account: { id: row.accountId, name } };
 }
 
 type ItemContent = { content: Prisma.JsonValue } | null;

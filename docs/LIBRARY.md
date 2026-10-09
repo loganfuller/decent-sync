@@ -267,10 +267,15 @@ a Conflict, so neither waits on the other in turn.
 
 - **Using its value** makes it the field's latest edit, a version from the
   account, timed by PostgreSQL's clock (ADR-0016), as its `received_at` is.
-  The account chose it over the field's value now, which the Conflict shows,
-  so the edit decides the field whatever the times of the edits before it,
-  and keeps nothing it replaces as a Conflict: it is no edit made without
-  seeing another. An edit of the item's content is merged under the item's
+  The request names the version that set the field's value now as the
+  Conflict showed it (`seen`), and the value is used only while that version
+  still set it, read under the locks below: an edit decided since, as by a
+  tablet that had seen the value now, which then made no Conflict, is
+  refused with 409 rather than replaced unseen (ADR-0020), and the account
+  looks again. So the account chose it over the field's value now, and the
+  edit decides the field whatever the times of the edits before it, and
+  keeps nothing it replaces as a Conflict: it is no edit made without seeing
+  another. An edit of the item's content is merged under the item's
   row lock, after its Location's lock for a Grinder, whose Archived state
   changes only under it, as a tablet's is (`editContent`, with `seenAt`
   `everything`); one of a Location's state, under the Location's lock, as
@@ -779,9 +784,10 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `location` (`atLocation`, `remainingWeight`, `shown`), null for its
   content; where it came from, `source`, `{ machine, tabletId, account }`,
   the Machine `{ id, name }` whose tablet made it, if one did and it still
-  exists, that tablet's id, and the account `{ id }` that made it in the
-  management interface, named by its id only, as other accounts' names are
-  personal information Staff do not see; when it was made, a tablet's by its
+  exists, that tablet's id, and the account `{ id, name }` that made it in
+  the management interface, its name null to Staff, as other accounts' names
+  are personal information Staff do not see, and for an account since
+  deleted; when it was made, a tablet's by its
   record's `updatedAt` in UTC, a delete on a tablet when the server learned
   of it; and when the server took it in, by PostgreSQL's clock. The first is
   the item joining the Library. 404 if the Library does not have the item.
@@ -795,8 +801,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   losing value, null where the edit cleared it; the Location whose state the
   field is, null for content; where and when the losing edit was made, as a
   version's; when it became a Conflict; `open`, `used` or `dismissed`; the
-  field's value now, `{ value, source, editedAt }`, with where and when the
-  edit that set it was made, each null if that is not known, as for a field
+  field's value now, `{ value, source, editedAt, versionId }`, with where
+  and when the edit that set it was made, and its version, each null if that
+  is not known, as for a field
   nothing set; a batch never added at the Location is not there, and a
   Profile its Location never decided not shown; and whether the signed-in
   account may use its value or dismiss it (Resolving Conflicts, above).
@@ -804,11 +811,13 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `GET /api/grinders/:id/conflicts` and `GET /api/profiles/:id/conflicts`
   return `{ conflicts }`, the item's open Conflicts, as the list shows them;
   or 404.
-- `POST /api/conflicts/:id/use` uses an open Conflict's value, and `POST
+- `POST /api/conflicts/:id/use`, with `{ seen }`, the `current.versionId`
+  the Conflict was shown with, uses an open Conflict's value, and `POST
   /api/conflicts/:id/dismiss` dismisses it (Resolving Conflicts, above). Each
-  returns `{ conflict }`, closed, with the field's value now; 404 if there is
-  no such Conflict, 403 if the account may not resolve it, and 409 if it was
-  used or dismissed already.
+  returns `{ conflict }`, closed, with the field's value now; 400 if `seen`
+  is not a version's id or null, 404 if there is no such Conflict, 403 if the
+  account may not resolve it, and 409 if it was used or dismissed already, or
+  the field was decided since the version `seen`.
 
 The management interface's Library section lists the Beans and where each is
 offered, the Bean Batches, the Locations each is at and its remaining weight

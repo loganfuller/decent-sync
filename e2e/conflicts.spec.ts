@@ -80,6 +80,8 @@ test("dismissing a Conflict closes it and changes nothing else", async ({ page }
   await expect(field(page.getByLabel("Coffee", { exact: true }), "Country")).toHaveText("Kenya");
   await expect(page.getByRole("region", { name: "Open Conflicts" })).toBeHidden();
   await expect(rows(page.getByRole("table", { name: "History" }))).toHaveCount(3);
+  // Nothing is written: after many of the tablets' polls, each still holds the value now.
+  await page.waitForTimeout(1_000);
   for (const tablet of [one, two, cafe]) baseExpect(heldBean(tablet, beanId)?.country).toBe("Kenya");
 });
 

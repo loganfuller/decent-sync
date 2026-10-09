@@ -501,15 +501,13 @@ export interface Profile extends ProfileSummary {
 /** The kinds of Library item that have versions and Conflicts. */
 export type LibraryKind = "bean" | "beanBatch" | "grinder" | "profile";
 
-/**
- * Where a version or a Conflict came from: a Machine's tablet, or an account in the management interface, named by
- * its id only, as other accounts' names are personal information Staff do not see.
- */
+/** Where a version or a Conflict came from: a Machine's tablet, or an account in the management interface. */
 export interface EditSource {
   /** The Machine whose tablet made it, if one did and it still exists. */
   machine: { id: string; name: string } | null;
   tabletId: string | null;
-  account: { id: string } | null;
+  /** The account that made it here, named only to Admins: other accounts' names are personal information Staff do not see. */
+  account: { id: string; name: string | null } | null;
 }
 
 /** One accepted edit of a Library item. */
@@ -541,8 +539,8 @@ export interface Conflict {
   /** When it became a Conflict. */
   createdAt: string;
   state: "open" | "used" | "dismissed";
-  /** The field's value now, and where and when that came from, where known. */
-  current: { value: unknown; source: EditSource | null; editedAt: string | null };
+  /** The field's value now, and where and when that came from and its version, where known. Using the value names that version. */
+  current: { value: unknown; source: EditSource | null; editedAt: string | null; versionId: string | null };
   /** Whether the signed-in account may use its value or dismiss it. */
   resolvable: boolean;
 }

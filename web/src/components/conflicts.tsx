@@ -69,7 +69,10 @@ export function SourceText({ source }: { source: EditSource | null }) {
       </Link>
     );
   }
-  if (source.account) return <>{state.status === "signed-in" && state.account.id === source.account.id ? "You, here" : "An account, here"}</>;
+  if (source.account) {
+    if (state.status === "signed-in" && state.account.id === source.account.id) return <>You, here</>;
+    return <>{source.account.name ?? "An account"}, here</>;
+  }
   return <span className="text-muted-foreground">{source.tabletId ? "A Machine since removed" : "Not known"}</span>;
 }
 
@@ -99,7 +102,8 @@ export function ConflictsTable({ conflicts, showItem, onResolved }: { conflicts:
     setBusy(conflict.id);
     setError(undefined);
     try {
-      await api("POST", `/conflicts/${conflict.id}/${action}`);
+      // Its value replaces only the value now this page showed: one decided since is refused, and shown on reloading.
+      await api("POST", `/conflicts/${conflict.id}/${action}`, action === "use" ? { seen: conflict.current.versionId } : undefined);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The Conflict could not be resolved");
     } finally {
@@ -132,7 +136,7 @@ export function ConflictsTable({ conflicts, showItem, onResolved }: { conflicts:
           {conflicts.map((conflict) => {
             const field = fieldLabel(conflict.field, conflict.location);
             const itemName = conflict.item.name ?? `Unnamed ${KIND_NAMES[conflict.item.kind]}`;
-            const refused = conflict.resolvable ? undefined : "Staff resolve Conflicts about a Location's state or a Grinder only at their own Locations";
+            const refusedId = `conflict-${conflict.id}-refused`;
             return (
               <TableRow key={conflict.id}>
                 {showItem && (
@@ -152,10 +156,11 @@ export function ConflictsTable({ conflicts, showItem, onResolved }: { conflicts:
                 </TableCell>
                 <TableCell>{formatTime(conflict.createdAt)}</TableCell>
                 <TableCell>
-                  <div className="flex justify-end gap-2" title={refused}>
+                  <div className="flex justify-end gap-2">
                     <ConfirmButton
                       label="Use this value"
                       ariaLabel={`Use the losing value of ${field}${showItem ? ` of ${itemName}` : ""}`}
+                      ariaDescribedBy={conflict.resolvable ? undefined : refusedId}
                       title="Use this value?"
                       description={
                         <>
@@ -170,12 +175,18 @@ export function ConflictsTable({ conflicts, showItem, onResolved }: { conflicts:
                     <Button
                       variant="outline"
                       aria-label={`Dismiss the Conflict about ${field}${showItem ? ` of ${itemName}` : ""}`}
+                      aria-describedby={conflict.resolvable ? undefined : refusedId}
                       disabled={!conflict.resolvable || busy !== undefined}
                       onClick={() => void resolve(conflict, "dismiss")}
                     >
                       Dismiss
                     </Button>
                   </div>
+                  {!conflict.resolvable && (
+                    <p id={refusedId} className="mt-1 max-w-56 text-right text-xs text-muted-foreground whitespace-normal">
+                      Staff resolve this only at {conflict.location?.name ?? "the Grinder's Location"}.
+                    </p>
+                  )}
                 </TableCell>
               </TableRow>
             );

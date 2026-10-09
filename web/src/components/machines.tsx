@@ -221,6 +221,7 @@ export function MachineEntryForm({
 export function ConfirmButton({
   label,
   ariaLabel,
+  ariaDescribedBy,
   title,
   description,
   confirmLabel,
@@ -231,6 +232,8 @@ export function ConfirmButton({
   label: string;
   /** A fuller name for the button, such as one naming the row it acts on. */
   ariaLabel?: string;
+  /** The id of what describes the button, such as why it is disabled. */
+  ariaDescribedBy?: string;
   title: string;
   description: ReactNode;
   confirmLabel: string;
@@ -241,7 +244,7 @@ export function ConfirmButton({
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant={variant} disabled={disabled} aria-label={ariaLabel}>
+        <Button variant={variant} disabled={disabled} aria-label={ariaLabel} aria-describedby={ariaDescribedBy}>
           {label}
         </Button>
       </AlertDialogTrigger>

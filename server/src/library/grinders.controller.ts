@@ -25,8 +25,8 @@ export class GrindersController {
 
   /** Its versions, the latest taken in first (ADR-0020). */
   @Get(":id/history")
-  async versions(@Param("id") id: string): Promise<{ versions: VersionView[] }> {
-    return { versions: await this.history.versions({ kind: "grinder", id: readGrinderId(id) }) };
+  async versions(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ versions: VersionView[] }> {
+    return { versions: await this.history.versions({ kind: "grinder", id: readGrinderId(id) }, scope) };
   }
 
   /** Its open Conflicts, the latest first (ADR-0020). */

@@ -17,7 +17,7 @@ import { profileText } from "./profile-intake.js";
 // reports editing the same items never wait on each other in turn.
 
 /** The table holding each kind of item. */
-const ITEM_TABLES: Readonly<Record<LibraryKind, { table: string; cast: string }>> = {
+export const ITEM_TABLES: Readonly<Record<LibraryKind, { table: string; cast: string }>> = {
   bean: { table: "beans", cast: "uuid" },
   beanBatch: { table: "bean_batches", cast: "uuid" },
   grinder: { table: "grinders", cast: "uuid" },

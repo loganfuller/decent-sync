@@ -1,7 +1,7 @@
 import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
-import { SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
+import { SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 and the REST API for ticket #85: an open Conflict (ADR-0020) shows
@@ -18,7 +18,7 @@ type Record_ = Record<string, unknown>;
 interface Source {
   machine: { id: string; name: string } | null;
   tabletId: string | null;
-  account: { id: string } | null;
+  account: { id: string; name: string | null } | null;
 }
 
 interface ConflictView {
@@ -31,7 +31,7 @@ interface ConflictView {
   editedAt: string;
   createdAt: string;
   state: "open" | "used" | "dismissed";
-  current: { value: unknown; source: Source | null; editedAt: string | null };
+  current: { value: unknown; source: Source | null; editedAt: string | null; versionId: string | null };
   resolvable: boolean;
 }
 
@@ -97,6 +97,8 @@ describe("Resolving Conflicts", { timeout: 60_000 }, () => {
   async function holds(tablet: SimulatedTablet, id: string, fields: Record_): Promise<void> {
     await expect.poll(() => heldBean(tablet, id), { timeout: 10_000 }).toMatchObject(fields);
   }
+  /** Uses the Conflict's value over the value now the account was shown with it. */
+  const use = (as: AdminApi, conflict: ConflictView) => as.call("POST", `/conflicts/${conflict.id}/use`, { seen: conflict.current.versionId });
   const openConflicts = async (as: AdminApi = api) => (await get<{ conflicts: ConflictView[] }>("/conflicts", as)).conflicts;
   const conflictsOf = async (id: string) => (await openConflicts()).filter((conflict) => conflict.item.id === id);
   const beanContent = async (id: string) => (await get<{ bean: { content: Record_ } }>(`/beans/${id}`)).bean.content;
@@ -162,10 +164,31 @@ describe("Resolving Conflicts", { timeout: 60_000 }, () => {
     const { id, conflict, one, two, cafe } = await notesConflict("Used", 20010);
     const before = await beanHistory(id);
 
-    const response = await api.call("POST", `/conflicts/${conflict.id}/use`);
+    // It names the value it replaces: a body that does not is refused.
+    expect((await api.call("POST", `/conflicts/${conflict.id}/use`)).status).toBe(400);
+    expect((await api.call("POST", `/conflicts/${conflict.id}/use`, { seen: "later" })).status).toBe(400);
+
+    // A tablet that had seen the value now edits the field after the Conflict was shown: using its value is refused, as
+    // the account was not shown that edit, which would otherwise be replaced unseen.
+    await cafe.editBean(heldBean(cafe, id)!.id, { notes: "Cafe notes" });
+    await expect.poll(async () => (await beanContent(id)).notes, { timeout: 10_000 }).toBe("Cafe notes");
+    const stale = await use(api, conflict);
+    expect(stale.status).toBe(409);
+    expect(((await stale.json()) as { message: string }).message).toMatch(/changed since/);
+    expect(await conflictsOf(id)).toHaveLength(1);
+    const [shown] = await conflictsOf(id);
+    expect(shown).toMatchObject({ current: { value: "Cafe notes", source: { machine: { name: "Used cafe 1" } } } });
+    for (const tablet of [one, two]) await holds(tablet, id, { notes: "Cafe notes" });
+
+    const response = await use(api, shown!);
     expect(response.status).toBe(200);
     const { conflict: used } = (await response.json()) as { conflict: ConflictView };
-    expect(used).toMatchObject({ id: conflict.id, state: "used", value: "Earlier notes", current: { value: "Earlier notes", source: { machine: null, account: { id: adminId } } } });
+    expect(used).toMatchObject({
+      id: conflict.id,
+      state: "used",
+      value: "Earlier notes",
+      current: { value: "Earlier notes", source: { machine: null, account: { id: adminId, name: "Ada Admin" } } },
+    });
 
     // Written to every tablet that holds the Bean, at both Locations, through both instances.
     for (const tablet of [one, two, cafe]) await holds(tablet, id, { notes: "Earlier notes" });
@@ -174,19 +197,19 @@ describe("Resolving Conflicts", { timeout: 60_000 }, () => {
     expect(await get<{ conflicts: ConflictView[] }>(`/beans/${id}/conflicts`)).toEqual({ conflicts: [] });
     // A new version, made in the management interface, timed by PostgreSQL's clock.
     const versions = await beanHistory(id);
-    expect(versions).toHaveLength(before.length + 1);
+    expect(versions).toHaveLength(before.length + 2);
     expect(versions[0]).toMatchObject({ fields: { notes: "Earlier notes" }, location: null, source: { machine: null, tabletId: null, account: { id: adminId } } });
     expect(versions[0]!.editedAt).toBe(versions[0]!.receivedAt);
 
     // It is resolved once.
-    expect((await api.call("POST", `/conflicts/${conflict.id}/use`)).status).toBe(409);
+    expect((await use(api, used)).status).toBe(409);
     expect((await api.call("POST", `/conflicts/${conflict.id}/dismiss`)).status).toBe(409);
-    expect((await api.call("POST", "/conflicts/00000000-0000-4000-8000-000000000000/use")).status).toBe(404);
+    expect((await api.call("POST", "/conflicts/00000000-0000-4000-8000-000000000000/use", { seen: null })).status).toBe(404);
     expect((await api.call("POST", "/conflicts/not-a-conflict/dismiss")).status).toBe(404);
 
     // A later edit on a tablet decides the field as any other would.
-    await cafe.editBean(heldBean(cafe, id)!.id, { notes: "Cafe notes" });
-    for (const tablet of [one, two]) await holds(tablet, id, { notes: "Cafe notes" });
+    await cafe.editBean(heldBean(cafe, id)!.id, { notes: "Cafe again" });
+    for (const tablet of [one, two]) await holds(tablet, id, { notes: "Cafe again" });
     expect(await conflictsOf(id)).toEqual([]);
   });
 
@@ -247,21 +270,24 @@ describe("Resolving Conflicts", { timeout: 60_000 }, () => {
     const cafeStaff = await staffAt("weight-cafe@example.com", cafe);
     expect((await openConflicts(cafeStaff)).find((open) => open.id === conflict!.id)).toMatchObject({ resolvable: false });
     for (const action of ["use", "dismiss"]) {
-      const refused = await cafeStaff.call("POST", `/conflicts/${conflict!.id}/${action}`);
+      const refused = await cafeStaff.call("POST", `/conflicts/${conflict!.id}/${action}`, { seen: conflict!.current.versionId });
       expect(refused.status).toBe(403);
     }
     expect(await conflictsOf(batchId)).toHaveLength(1);
 
     // Staff at the lab use it: the lab's figure, on both its tablets.
     const labStaff = await staffAt("weight-lab@example.com", lab, cafe);
-    const used = await labStaff.call("POST", `/conflicts/${conflict!.id}/use`);
+    const used = await use(labStaff, conflict!);
     expect(used.status).toBe(200);
     expect(((await used.json()) as { conflict: ConflictView }).conflict).toMatchObject({ state: "used", current: { value: 200, source: { machine: null } } });
     expect(await weightAt(batchId)).toBe(200);
     for (const tablet of [one, two]) await expect.poll(() => heldBatch(tablet)?.weightRemaining, { timeout: 10_000 }).toBe(200);
     expect(await conflictsOf(batchId)).toEqual([]);
     const { versions } = await get<{ versions: VersionView[] }>(`/bean-batches/${batchId}/history`);
-    expect(versions[0]).toMatchObject({ fields: { remainingWeight: 200 }, location: { id: lab.id }, source: { machine: null, tabletId: null, account: { id: expect.any(String) } } });
+    // Admins see which account it was; Staff see only its id, as other accounts' names are personal information.
+    expect(versions[0]).toMatchObject({ fields: { remainingWeight: 200 }, location: { id: lab.id }, source: { machine: null, tabletId: null, account: { name: "Staff" } } });
+    const asStaff = await get<{ versions: VersionView[] }>(`/bean-batches/${batchId}/history`, cafeStaff);
+    expect(asStaff.versions[0]!.source.account).toEqual({ id: versions[0]!.source.account!.id, name: null });
   });
 
   it("lets Staff resolve a Conflict about a Grinder's content only at its Location", async () => {
@@ -295,10 +321,121 @@ describe("Resolving Conflicts", { timeout: 60_000 }, () => {
 
     const cafeStaff = await staffAt("grinder-cafe@example.com", cafe);
     expect((await openConflicts(cafeStaff)).find((open) => open.id === conflict!.id)).toMatchObject({ resolvable: false });
-    expect((await cafeStaff.call("POST", `/conflicts/${conflict!.id}/use`)).status).toBe(403);
+    expect((await use(cafeStaff, conflict!)).status).toBe(403);
     const labStaff = await staffAt("grinder-lab@example.com", lab);
-    expect((await labStaff.call("POST", `/conflicts/${conflict!.id}/use`)).status).toBe(200);
+    expect((await use(labStaff, conflict!)).status).toBe(200);
     for (const tablet of [one, two]) await expect.poll(() => heldGrinder(tablet)?.burrs, { timeout: 10_000 }).toBe("98mm Turkish");
+  });
+
+  /** Two tablets at a lab, each on its own instance, both online. */
+  async function lab(name: string, serials: number) {
+    const location = await api.createLocation(`${name} lab`, "America/Chicago");
+    const first = await api.createMachine(`${name} lab 1`, location.id);
+    const second = await api.createMachine(`${name} lab 2`, location.id);
+    const one = load(first, String(serials + 1));
+    const two = load(second, String(serials + 2), other);
+    for (const { machine } of [first, second]) await api.waitForMachine(machine.name, (viewed) => viewed.online);
+    return { location, one, two };
+  }
+
+  /** The item's one open Conflict, once there is one. */
+  async function theConflict(id: string): Promise<ConflictView> {
+    await expect.poll(async () => (await conflictsOf(id)).length, { timeout: 10_000 }).toBe(1);
+    return (await conflictsOf(id))[0]!;
+  }
+
+  it("uses a value of whether a Profile is shown at a Location, hiding it there on every tablet", async () => {
+    const { location, one, two } = await lab("Visibility", 20050);
+    const saved = await one.addProfile(derivedProfile("Conflict Bloom", 8.5));
+    const id = String(saved.id);
+    const visibility = (tablet: SimulatedTablet) => tablet.profiles().find((record) => record.id === id)?.visibility;
+    await expect.poll(() => visibility(two), { timeout: 10_000 }).toBe("visible");
+
+    // The first group hides it offline; the second hides it and shows it again, later, which the first had not seen.
+    one.loseNetwork();
+    await one.setProfileVisibility(id, "hidden");
+    await delay(20);
+    await two.setProfileVisibility(id, "hidden");
+    await expect.poll(async () => (await get<{ profile: { shownAt: unknown[] } }>(`/profiles/${encodeURIComponent(id)}`)).profile.shownAt, { timeout: 10_000 }).toEqual([]);
+    await two.setProfileVisibility(id, "visible");
+    await expect.poll(async () => (await get<{ profile: { shownAt: unknown[] } }>(`/profiles/${encodeURIComponent(id)}`)).profile.shownAt.length, { timeout: 10_000 }).toBe(1);
+    one.restoreNetwork();
+    const conflict = await theConflict(id);
+    expect(conflict).toMatchObject({ item: { kind: "profile", name: "Conflict Bloom" }, field: "shown", value: false, location: { id: location.id }, current: { value: true } });
+    for (const tablet of [one, two]) await expect.poll(() => visibility(tablet), { timeout: 10_000 }).toBe("visible");
+
+    expect((await use(api, conflict)).status).toBe(200);
+    for (const tablet of [one, two]) await expect.poll(() => visibility(tablet), { timeout: 10_000 }).toBe("hidden");
+    expect((await get<{ profile: { shownAt: unknown[] } }>(`/profiles/${encodeURIComponent(id)}`)).profile.shownAt).toEqual([]);
+    const { versions } = await get<{ versions: VersionView[] }>(`/profiles/${encodeURIComponent(id)}/history`);
+    expect(versions[0]).toMatchObject({ fields: { shown: false }, location: { id: location.id }, source: { account: { id: adminId } } });
+  });
+
+  it("uses a value of whether a batch is at a Location, finishing it there on every tablet", async () => {
+    const { location, one, two } = await lab("Presence", 20060);
+    const bean = await one.addBean({ roaster: "Roux", name: "Presence Guji" });
+    const added = await one.addBatch(bean.id, { roastDate: "2026-10-02", weight: 250 });
+    const heldBatch = (tablet: SimulatedTablet) => tablet.batches().find((record) => record.roastDate === added.roastDate);
+    await expect.poll(() => globalIdOf(heldBatch(two) ?? {}), { timeout: 10_000 }).toBeTruthy();
+    await expect.poll(() => globalIdOf(heldBatch(one) ?? {}), { timeout: 10_000 }).toBeTruthy();
+    const batchId = globalIdOf(heldBatch(one)!)!;
+    const atLab = async () => (await get<{ batch: { locations: unknown[] } }>(`/bean-batches/${batchId}`)).batch.locations.length;
+
+    // The first group finishes it offline; the second finishes it and adds it back, later.
+    one.loseNetwork();
+    await one.editBatch(heldBatch(one)!.id, { archived: true });
+    await delay(20);
+    await two.editBatch(heldBatch(two)!.id, { archived: true });
+    await expect.poll(atLab, { timeout: 10_000 }).toBe(0);
+    await two.editBatch(heldBatch(two)!.id, { archived: false });
+    await expect.poll(atLab, { timeout: 10_000 }).toBe(1);
+    one.restoreNetwork();
+    const conflict = await theConflict(batchId);
+    expect(conflict).toMatchObject({ field: "atLocation", value: false, location: { id: location.id }, current: { value: true } });
+    for (const tablet of [one, two]) await expect.poll(() => heldBatch(tablet)?.archived, { timeout: 10_000 }).toBe(false);
+
+    expect((await use(api, conflict)).status).toBe(200);
+    expect(await atLab()).toBe(0);
+    for (const tablet of [one, two]) await expect.poll(() => heldBatch(tablet)?.archived, { timeout: 10_000 }).toBe(true);
+  });
+
+  it("lets Staff anywhere use a value of whether a Grinder is Archived, as they Archive and restore items anywhere", async () => {
+    const { one, two } = await lab("Archived", 20070);
+    await one.addGrinder({ model: "Archived EK43" });
+    const heldGrinder = (tablet: SimulatedTablet) => tablet.grinders().find((record) => record.model === "Archived EK43");
+    await expect.poll(() => globalIdOf(heldGrinder(two) ?? {}), { timeout: 10_000 }).toBeTruthy();
+    await expect.poll(() => globalIdOf(heldGrinder(one) ?? {}), { timeout: 10_000 }).toBeTruthy();
+    const grinderId = globalIdOf(heldGrinder(one)!)!;
+    const archived = async () => (await get<{ grinder: { archived: boolean } }>(`/grinders/${grinderId}`)).grinder.archived;
+
+    // The first group archives it offline; the second archives it and restores it, later.
+    one.loseNetwork();
+    await one.editGrinder(heldGrinder(one)!.id, { archived: true });
+    await delay(20);
+    await two.editGrinder(heldGrinder(two)!.id, { archived: true });
+    await expect.poll(archived, { timeout: 10_000 }).toBe(true);
+    await two.editGrinder(heldGrinder(two)!.id, { archived: false });
+    await expect.poll(archived, { timeout: 10_000 }).toBe(false);
+    one.restoreNetwork();
+    const conflict = await theConflict(grinderId);
+    expect(conflict).toMatchObject({ field: "archived", value: true, location: null, current: { value: false } });
+
+    const elsewhere = await staffAt("archiving@example.com", await api.createLocation("Archived elsewhere", "America/Chicago"));
+    expect((await openConflicts(elsewhere)).find((open) => open.id === conflict.id)).toMatchObject({ resolvable: true });
+    expect((await use(elsewhere, conflict)).status).toBe(200);
+    expect(await archived()).toBe(true);
+    for (const tablet of [one, two]) await expect.poll(() => heldGrinder(tablet)?.archived, { timeout: 10_000 }).toBe(true);
+  });
+
+  it("resolves a Conflict once when it is used and dismissed at the same time through two instances", async () => {
+    const { id, conflict } = await notesConflict("Raced", 20080);
+    const [used, dismissed] = await Promise.all([use(api, conflict), api.at(other.url).call("POST", `/conflicts/${conflict.id}/dismiss`)]);
+    expect([used.status, dismissed.status].sort()).toEqual([200, 409]);
+    const winner = used.status === 200 ? "used" : "dismissed";
+    expect(await conflictsOf(id)).toEqual([]);
+    const { conflict: closed } = (await (used.status === 200 ? used : dismissed).json()) as { conflict: ConflictView };
+    expect(closed.state).toBe(winner);
+    expect((await beanContent(id)).notes).toBe(winner === "used" ? "Earlier notes" : "Later notes");
   });
 
   /** The batch's remaining weight at its one Location, through the REST API. */
