@@ -305,6 +305,10 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const uptownMachine = await api.createMachine("Bringing Uptown 1", uptown.id);
     const uptownTablet = load(uptownMachine, "23041", { fresh: true });
     await online(uptownMachine);
+    // Its tablet has joined once its first report of its beans is taken in, which the collection is stored with.
+    await expect
+      .poll(async () => (await read<{ collection: unknown }>(`/machines/${uptownMachine.machine.id}/collections/beans`)).collection, { timeout: 10_000 })
+      .not.toBeNull();
     // Uptown enters a coffee the joining tablet holds too, after its own tablet joined: it brought nothing.
     await uptownTablet.addBean({ roaster: "roux bakehouse ", name: "Bringing traveller Roest #24 Eth", notes: "Uptown's notes" });
     await mapped(uptownTablet);

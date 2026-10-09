@@ -172,7 +172,8 @@ describe("Deliveries while a Machine's hardware is bound", () => {
         delivering.keepAlive();
         await delivering.acknowledged(sent.id);
       }
-      expect(await stored(machine)).toEqual(expected);
+      // Superseded, the connection may close before the delivery, which waited for the Machine's row, commits.
+      await expect.poll(() => stored(machine), { timeout: 10_000 }).toEqual(expected);
       expect(await api.waitForMachine(name, (viewed) => viewed.online)).toMatchObject({ ...hardware, identification: "identified" });
     },
   );
