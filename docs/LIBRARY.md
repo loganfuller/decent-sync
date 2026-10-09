@@ -789,7 +789,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
   latest first, each `{ id, item, field, value, location, source, editedAt,
   createdAt, state, current, resolvable }`: the item `{ kind, id, name }`,
   `kind` being `bean`, `beanBatch`, `grinder` or `profile`, and `name` a
-  Bean's roaster and name, a batch's Bean and roast date, a Grinder's model or
+  Bean's roaster and name, a batch's Bean and the day it was roasted, as
+  `Guji, roasted 2026-10-01`, a Grinder's model or
   a Profile's title, null where its content has none; the field and the
   losing value, null where the edit cleared it; the Location whose state the
   field is, null for content; where and when the losing edit was made, as a

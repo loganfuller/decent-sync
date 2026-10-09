@@ -236,7 +236,7 @@ describe("Resolving Conflicts", { timeout: 60_000 }, () => {
     await expect.poll(async () => (await conflictsOf(batchId)).length, { timeout: 10_000 }).toBe(1);
     const [conflict] = await conflictsOf(batchId);
     expect(conflict).toMatchObject({
-      item: { kind: "beanBatch", id: batchId },
+      item: { kind: "beanBatch", id: batchId, name: "Weight Guji, roasted 2026-10-01" },
       field: "remainingWeight",
       value: 200,
       location: { id: lab.id },

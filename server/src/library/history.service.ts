@@ -270,8 +270,11 @@ function conflictItem(conflict: {
     return { kind: "bean", id: conflict.beanId, name: joined([text(bean.roaster), text(bean.name)]) };
   }
   if (conflict.batchId !== null) {
-    const batch = fields(conflict.batch?.content);
-    return { kind: "beanBatch", id: conflict.batchId, name: joined([text(fields(conflict.batch?.bean.content).name), text(batch.roastDate)]) };
+    // As the Bean Batches list names it: its Bean, and the day a barista picked as its roast date.
+    const bean = text(fields(conflict.batch?.bean.content).name);
+    const roastDate = text(fields(conflict.batch?.content).roastDate);
+    const roasted = roastDate !== null && /^\d{4}-\d\d-\d\d/.test(roastDate) ? `roasted ${roastDate.slice(0, 10)}` : null;
+    return { kind: "beanBatch", id: conflict.batchId, name: bean === null && roasted === null ? null : `${bean ?? "Unnamed Bean"}, ${roasted ?? "no roast date"}` };
   }
   if (conflict.grinderId !== null) return { kind: "grinder", id: conflict.grinderId, name: text(fields(conflict.grinder?.content).model) };
   const profile = fields(fields(conflict.profile?.content).profile);
