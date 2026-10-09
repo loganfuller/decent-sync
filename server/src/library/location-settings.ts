@@ -40,7 +40,7 @@ interface HeldSettings {
   contentSeenAt: Date | null;
 }
 
-/** Whether a Machine's tablet shares its Location's settings: on, unless an account turned its sharing off. */
+/** Whether a Machine's tablet shares its Location's settings: on, unless an account turned its sharing of them off, or an Admin its sharing. */
 async function sharesSettings(tx: Prisma.TransactionClient, machineId: string): Promise<boolean> {
   return (await sharing(tx, machineId)).shares;
 }
@@ -55,7 +55,7 @@ async function sharesSettings(tx: Prisma.TransactionClient, machineId: string): 
  */
 async function sharing(tx: Prisma.TransactionClient, machineId: string, observedAt?: Date): Promise<{ shares: boolean; sharedThen: boolean }> {
   const [row] = await tx.$queryRaw<{ shares: boolean; since: Date | null }[]>`
-    SELECT shares_settings AS shares, shares_settings_since AS since FROM machines WHERE id = ${machineId}::uuid`;
+    SELECT shares_settings AND sharing AS shares, shares_settings_since AS since FROM machines WHERE id = ${machineId}::uuid`;
   const shares = row?.shares ?? false;
   const sharedThen = shares && (observedAt === undefined || row!.since === null || observedAt.getTime() >= row!.since.getTime());
   return { shares, sharedThen };

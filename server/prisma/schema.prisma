@@ -219,6 +219,15 @@ model Machine {
   pluginVersion      String?               @map("plugin_version")
   decaidVersion      String?               @map("decaid_version")
   remoteAddress      String?               @map("remote_address")
+  /// Whether it takes part in the Library at its Location: on unless an
+  /// Admin turned sharing off, making it a Capture-only Machine, whose
+  /// records are captured but whose tablet is written nothing and whose
+  /// Library changes are not taken in.
+  sharing            Boolean               @default(true)
+  /// When an Admin last turned sharing back on, by PostgreSQL's clock; null
+  /// if never. Each of its tablet's reports records it (`tablet_reports`),
+  /// so the first report since is part of joining its Location (ADR-0008).
+  sharingSince       DateTime?             @map("sharing_since") @db.Timestamptz(3)
   /// Whether its tablet shares its Location's steam, hot water and rinse
   /// settings (ADR-0014): with sharing turned off, nothing of them is taken
   /// from it or written to it, and with sharing turned back on it takes the
@@ -1218,10 +1227,12 @@ model TabletDeletion {
 /// Where each of a tablet's reports was last taken into the Library: its
 /// beans, bean batches, grinders and profiles, and its Workflow, each under
 /// the entry of its Machine's Location History current then, and that
-/// entry's Location. A report taken in under another entry or Location, or
-/// the tablet's first, is part of the tablet joining that Location
-/// (ADR-0008): its Machine was adopted or moved there, or the tablet is new
-/// there (server/src/library/joining.ts). Neither is a foreign key: an entry
+/// entry's Location, and when its Machine's sharing was last turned back on
+/// then. A report taken in under another entry or Location, or since sharing
+/// was turned back on, or the tablet's first, is part of the tablet joining
+/// that Location (ADR-0008): its Machine was adopted or moved there, had
+/// sharing turned back on, or the tablet is new there
+/// (server/src/library/joining.ts). Neither is a foreign key: an entry
 /// removed since still differs from the one current.
 model TabletReport {
   tabletId     String @map("tablet_id") @db.Uuid
@@ -1230,6 +1241,7 @@ model TabletReport {
   report       String
   assignmentId String @map("assignment_id") @db.Uuid
   locationId   String @map("location_id") @db.Uuid
+  sharingSince DateTime? @map("sharing_since") @db.Timestamptz(3)
 
   @@id([tabletId, report])
   @@map("tablet_reports")

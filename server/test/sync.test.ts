@@ -69,6 +69,8 @@ describe("Machines and the sync connection", () => {
         machineState: null,
         location: null,
         locationHistory: [],
+        sharing: true,
+        captureOnly: ["noLocation"],
         tablet: null,
         earlierTablets: [],
       });

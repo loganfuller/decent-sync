@@ -9,15 +9,15 @@ import {
   INTAKE_TRANSACTION,
   type ReportingTablet,
   type SeenDecision,
-  currentLocation,
   keepContentSeenSql,
   keepSeenSql,
   lockHeldMachine,
   lockTablet,
   seenAtSql,
+  sharingLocation,
 } from "./intake.js";
 import { setAsideDeleted } from "./hard-deletes.js";
-import { brought } from "./join-plan.js";
+import { brought, standing } from "./join-plan.js";
 import { currentEntry, recordBrought, takenIn } from "./joining.js";
 import { listedIds } from "./listed.js";
 import { decideProfileAt, deletedAt, lockLocation, showProfileAt, transactionTime } from "./location-state.js";
@@ -48,8 +48,8 @@ const PROFILE_JOINING_LOCK = 4_000_008;
  * takes its beans, in the transaction storing the report. A report with
  * profiles new to the tablet's map holds one advisory lock while it reads and
  * adds to the Library's, so two tablets reporting the same new Profile at
- * once make one, at whichever Location first. Returns the Location the report
- * was taken in at, or null if none.
+ * once make one, at whichever Location first. Returns where the report was
+ * taken in (`standing`), or null if nowhere.
  */
 export async function takeInProfiles(
   tx: Prisma.TransactionClient,
@@ -60,6 +60,8 @@ export async function takeInProfiles(
   const entry = await currentEntry(tx, tablet.machineId);
   if (entry === null) return null;
   const { locationId } = entry;
+  /** Where it is taken in, which its writer compares with where the Machine takes part as it looks. */
+  const takenInAt = standing(entry);
   const read = readReportedProfiles(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
   /** Whether the report is part of the tablet joining the Location: what it brings is listed on its Machine's page. */
@@ -105,7 +107,7 @@ export async function takeInProfiles(
   const library =
     unmapped.length === 0 ? [] : await tx.$queryRaw<{ id: string; bundled: boolean }[]>`SELECT id, bundled FROM profiles WHERE id = ANY(${unmapped}::text[])`;
   const bundled = new Set(library.flatMap((profile) => (profile.bundled ? [profile.id] : [])));
-  if (reported.length === 0 && mapped.length === 0) return locationId;
+  if (reported.length === 0 && mapped.length === 0) return takenInAt;
   // Whether the Location shows each Profile reported that it has decided, when and by whose edit that was decided, read under its lock.
   await lockLocation(tx, locationId);
   const located = await tx.$queryRaw<{ profileId: string; shown: boolean; changedAt: Date; decidedAt: Date; byTablet: boolean }[]>`
@@ -123,7 +125,7 @@ export async function takeInProfiles(
     unmapped.length === 0 ? null : await joinedAt(tx, tablet),
     listedIds(value),
   );
-  if (steps.length === 0) return locationId;
+  if (steps.length === 0) return takenInAt;
   /** Whether a record the map did not hold is of a user's Profile the Library has: linked to it, it takes its title, author and notes. */
   const linking = (step: ProfileIntakeStep): step is Extract<ProfileIntakeStep, { kind: "map" }> =>
     step.kind === "map" && !step.profile.bundled && !bundled.has(step.profileId);
@@ -191,7 +193,7 @@ export async function takeInProfiles(
     await saveRecord(tx, tablet.tabletId, profile.id, profile.record, profile.updatedAt, decided === null ? null : { at: decided, locationId }, null);
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
-  return locationId;
+  return takenInAt;
 }
 
 /**
@@ -239,7 +241,7 @@ export async function recordProfileWritten(
         ON CONFLICT DO NOTHING`;
       return "deleted";
     }
-    const here = await currentLocation(tx, tablet.machineId);
+    const here = await sharingLocation(tx, tablet.machineId);
     const at = updatedAt === null ? null : new Date(updatedAt);
     const [known] = await tx.$queryRaw<{ record: Record<string, unknown>; contentSeenAt: Date | null; seenAt: Date | null }[]>`
       SELECT record, content_seen_at AS "contentSeenAt", ${seenAtSql(here)} AS "seenAt"

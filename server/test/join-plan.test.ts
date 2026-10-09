@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { brought, clearStillDue, joins, workflowClear } from "../src/library/join-plan.js";
+import { brought, clearStillDue, joins, standing, workflowClear } from "../src/library/join-plan.js";
 
 // The plan a Machine's tablet follows when it joins a Location (ADR-0008,
 // ADR-0018): which reports are part of joining, what it brought, and which
@@ -9,7 +9,7 @@ import { brought, clearStillDue, joins, workflowClear } from "../src/library/joi
 
 const LAB = "0199c0de-0000-7000-8000-00000000000a";
 const BELMONT = "0199c0de-0000-7000-8000-00000000000b";
-const ENTRY = { id: "0199c0de-0000-7000-8000-000000000001", locationId: LAB };
+const ENTRY = { id: "0199c0de-0000-7000-8000-000000000001", locationId: LAB, sharingSince: null };
 
 /** A Workflow's context naming a grinder and a batch on the tablet, with its profile's dose and yield. */
 const CONTEXT = {
@@ -31,16 +31,32 @@ describe("Joining a Location", () => {
     expect(joins(null, ENTRY, false)).toBe(true);
     expect(joins(ENTRY, ENTRY, true)).toBe(false);
     // Moved, or moved back to a Location it was at before, a new entry replacing the one it was taken in under.
-    expect(joins(ENTRY, { id: "0199c0de-0000-7000-8000-000000000002", locationId: BELMONT }, true)).toBe(true);
-    expect(joins(ENTRY, { id: "0199c0de-0000-7000-8000-000000000003", locationId: LAB }, true)).toBe(true);
+    expect(joins(ENTRY, { id: "0199c0de-0000-7000-8000-000000000002", locationId: BELMONT, sharingSince: null }, true)).toBe(true);
+    expect(joins(ENTRY, { id: "0199c0de-0000-7000-8000-000000000003", locationId: LAB, sharingSince: null }, true)).toBe(true);
     // An Admin corrected the current entry's Location, or removed it: it is at another Location now.
-    expect(joins(ENTRY, { ...ENTRY, locationId: BELMONT }, true)).toBe(true);
-    expect(joins(ENTRY, { id: "0199c0de-0000-7000-8000-000000000004", locationId: BELMONT }, false)).toBe(true);
+    expect(joins(ENTRY, { ...ENTRY, locationId: BELMONT, sharingSince: null }, true)).toBe(true);
+    expect(joins(ENTRY, { id: "0199c0de-0000-7000-8000-000000000004", locationId: BELMONT, sharingSince: null }, false)).toBe(true);
   });
 
   it("does not start when a move made by mistake is removed, and the Machine never left", () => {
     // A move away and back removed: the entry it was taken in under is gone, and an earlier one at the same Location is current.
-    expect(joins(ENTRY, { id: "0199c0de-0000-7000-8000-000000000000", locationId: LAB }, false)).toBe(false);
+    expect(joins(ENTRY, { id: "0199c0de-0000-7000-8000-000000000000", locationId: LAB, sharingSince: null }, false)).toBe(false);
+  });
+
+  it("starts again once an Admin turns sharing back on, under the same entry", () => {
+    const turnedOn = { ...ENTRY, sharingSince: new Date("2026-10-09T12:00:00.000Z") };
+    expect(joins(ENTRY, turnedOn, true)).toBe(true);
+    expect(joins(turnedOn, { ...turnedOn, sharingSince: new Date("2026-10-09T12:00:00.000Z") }, true)).toBe(false);
+    // Turned off and on again since.
+    expect(joins(turnedOn, { ...ENTRY, sharingSince: new Date("2026-10-09T13:00:00.000Z") }, true)).toBe(true);
+  });
+
+  it("tells a tablet's writer its reports were taken in elsewhere once sharing was turned off and on again", () => {
+    const turnedOn = { ...ENTRY, sharingSince: new Date("2026-10-09T12:00:00.000Z") };
+    expect(standing(ENTRY)).toBe(LAB);
+    expect(standing(turnedOn)).not.toBe(standing(ENTRY));
+    expect(standing({ ...turnedOn, id: "0199c0de-0000-7000-8000-000000000002" })).toBe(standing(turnedOn));
+    expect(standing({ ...turnedOn, locationId: BELMONT })).not.toBe(standing(turnedOn));
   });
 
   it("lists what a joining report added to the Library or matched to an item it had, but not one of Decaid's bundled Profiles", () => {

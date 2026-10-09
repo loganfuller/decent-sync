@@ -33,16 +33,41 @@ Archives and restores them, and lets an Admin hard-delete one. Ticket
 joining a Location take on its state, clearing its Workflow's grinder and
 batch where the Location does not offer them, while what its tablet brings
 joins the Library there and is listed on its page (Joining a Location,
+below), and ticket [#90](https://github.com/loganfuller/decent-sync/issues/90)
+lets an Admin turn a Machine's sharing off, making it a Capture-only
+Machine, and back on, which joins its Location again (Who takes part,
 below). It follows ADR-0003, ADR-0006, ADR-0008, ADR-0014, ADR-0016,
 ADR-0018, ADR-0019 and ADR-0020.
 
 ## Who takes part
 
-A Machine takes part while it is at a Location: the Location of the latest
-entry of its Location History. A Machine with no Location is capture-only: its
-tablet's beans, bean batches, grinders and profiles are captured as collections
-(`COLLECTIONS.md`), but not taken into the Library, and nothing is written to
-it. A mismatched connection, whose tablet is not its token's Machine's, takes
+A Machine takes part while it is at a Location, the Location of the latest
+entry of its Location History, with its sharing on. A Machine with no
+Location is a Capture-only Machine, and so is one an Admin turned sharing
+off for (`machines.sharing`, on by default): its tablet's beans, bean
+batches, grinders and profiles, and its Workflow, are captured as in
+milestone 1 (`COLLECTIONS.md`, `WORKFLOW-AND-STATE.md`), but not taken into
+the Library or the Location's settings, and nothing is written to it, not
+even a hard delete's. Its page says it is capture-only, and why.
+
+- **The capture-only switch.** Only an Admin turns it, under the Machine's
+  row lock, which taking in its tablet's reports and recording its answers
+  hold too, so each is decided wholly before or after it, on any instance
+  (`sharing.service.ts`). The switch commits with a `NOTIFY` on
+  `machine_locations`, which wakes the writers of the Machine's
+  connections: turned off, a writer writes nothing more, and an answer to a
+  write sent before is recorded as one from a Machine at no Location would
+  be; turned back on, it asks the plugin for the tablet's reports afresh.
+- **Turned back on**, the Machine joins its Location (Joining a Location,
+  below): `machines.sharing_since` keeps when, by PostgreSQL's clock, and
+  each of its tablet's reports records it, so the first since is part of
+  joining. A writer compares where its tablet's reports were taken in, a
+  Location and when sharing was last turned back on there (`standing` in
+  `join-plan.ts`), with where its Machine takes part now, so a Machine
+  turned off and on again while its tablet reported nothing still has the
+  tablet report afresh, and join again.
+
+A mismatched connection, whose tablet is not its token's Machine's, takes
 no part either, and neither does a Pending Machine (ADR-0004). Unidentified
 Machines, and connections whose machine has not reported its hardware yet,
 take part as their token's Machine.
@@ -202,9 +227,13 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   there, by their ids there, a Profile's by Decaid's id, with its steps,
   and never in `deleted_items` (Hard deletes, below).
 - `tablet_reports`, `workflow_clears` and `brought_items`: where each of a
-  tablet's reports was last taken in, the Workflow grinder and batch still to
+  tablet's reports was last taken in, and when its Machine's sharing had
+  last been turned back on then, the Workflow grinder and batch still to
   be cleared on a joining tablet, and what each Machine brought to the
   Library as it joined a Location (Joining a Location, below).
+- `machines.sharing` and `machines.sharing_since`: whether a Machine takes
+  part in the Library at its Location, on unless an Admin turned it off,
+  and when it was last turned back on (Who takes part, above).
 - `conflicts`: each edit of a field that lost to another made without seeing
   it (ADR-0020): the item, the field, the losing value (null where it cleared
   the field), where it came from and when it was made, as a version keeps
@@ -1048,8 +1077,8 @@ machine, as it is not written to it.
 
 A Machine joins a Location when it is adopted there, as a machine entry
 created at the Location or an unassigned Machine given its first, or moved
-there: when the Location of its Location History's latest entry changes
-(ADR-0008). Turning sharing back on is ticket #90. Its tablet joins with it,
+there: when the Location of its Location History's latest entry changes,
+or has its sharing turned back on there (ADR-0008). Its tablet joins with it,
 and so does a new tablet on a Machine there already, as one whose Decaid
 data was reset. Correcting when a past move happened credits records again
 as milestone 1 does, but changes nothing on the tablet, as the Location it
@@ -1059,19 +1088,20 @@ Location, or removing the latest entry, changes it, and is a move.
 
 Each of a tablet's reports, of its beans, bean batches, grinders and
 profiles and of its Workflow, records the Location History entry it was
-taken in under, and that entry's Location (`tablet_reports`, in the
-transaction taking it in, under the Machine's and the tablet's row locks;
-`joining.ts`). The tablet's first report of each kind, its first at
-another Location, and its first under a newer entry than the one it was
-last taken in under, as after a move away and back, is part of joining
-(`joins` in the pure `join-plan.ts`). A report of its bean batches stays
-part of joining until its beans have been taken in under the entry, as a
-batch whose bean the tablet's map does not hold waits for it: so while a
-tablet's beans cannot be read, each batch it reports joining the Library is
-listed as brought. A Machine
-left at no Location forgets where its tablets' reports were taken in, but
-for a tablet that has moved to another Machine since, so given a Location
-again, even the one it was at, it joins it.
+taken in under, that entry's Location, and when its Machine's sharing was
+last turned back on (`tablet_reports`, in the transaction taking it in,
+under the Machine's and the tablet's row locks; `joining.ts`). The tablet's
+first report of each kind, its first at another Location, its first since
+sharing was turned back on, and its first under a newer entry than the one
+it was last taken in under, as after a move away and back, is part of
+joining (`joins` in the pure `join-plan.ts`). A report of its bean batches
+stays part of joining until its beans have been taken in under the entry,
+as a batch whose bean the tablet's map does not hold waits for it: so while
+a tablet's beans cannot be read, each batch it reports joining the Library
+is listed as brought. A Machine left at no Location forgets where its
+tablets' reports were taken in, but for a tablet that has moved to another
+Machine since, so given a Location again, even the one it was at, it joins
+it.
 
 - **The Location's state wins.** The writer finds the Machine at another
   Location than its tablet's latest reports, and asks the plugin for them
@@ -1122,9 +1152,13 @@ again, even the one it was at, it joins it.
   un-archived on it is added at its new Location. Its old Location's
   Grinders stay there, archived on it.
 - **Leaving.** A Machine at no Location, as when its only Location History
-  entry is removed, is capture-only (Who takes part, above): nothing more is
-  written to its tablet, which keeps what it has, and its reports are
-  captured but not taken in. Given a Location again, it joins it.
+  entry is removed, or with its sharing turned off, is capture-only (Who
+  takes part, above): nothing more is written to its tablet, which keeps
+  what it has, and its reports are captured but not taken in. Given a
+  Location again, or its sharing turned back on, it joins it. What its
+  tablet changed meanwhile of records its map holds is taken in as the
+  tablet's edits, as an offline tablet's are (ADR-0020), and what it added
+  joins the Library.
 
 A change made on the tablet just before a move, which a report or an answer
 brings after it, means what it would at the Machine's new Location, as the
@@ -1281,6 +1315,12 @@ Every endpoint requires the account session; Staff read them as Admins do.
   rather than joining it; whether it is Archived now; the Location it
   joined; the tablet that brought it; and when it was taken in, by
   PostgreSQL's clock. 404 for no such Machine.
+- `PUT /api/machines/:id/sharing`, with `{ sharing }`, turns the Machine's
+  sharing on or off, off making it a Capture-only Machine, and returns the
+  same: Admins only. 400 without a boolean, 404 for no such Machine.
+  `GET /api/machines/:id` and `GET /api/machines` give each Machine's
+  `sharing`, and `captureOnly`, why it is a Capture-only Machine:
+  `noLocation`, `sharingOff` or both, none while it takes part.
 - `PUT /api/machines/:id/settings-sharing`, with `{ sharesSettings }`,
   switches whether the Machine shares its Location's settings, and returns
   the same. 400 without a boolean, 404 for no such Machine, 403 for Staff
@@ -1304,7 +1344,10 @@ Admin, or Staff working there, changes, with their Conflicts and history,
 and its Machines, each with a switch for sharing them
 (`web/src/components/location-settings.tsx`). A Machine's page lists what
 its tablet brought to the Library as it joined a Location, each linking to
-the item's page (`web/src/components/brought-items.tsx`). The Beans, Bean Batches and
+the item's page (`web/src/components/brought-items.tsx`), and says whether
+it shares the Library at its Location or is capture-only, and why, with a
+switch an Admin turns its sharing off and on with, once they confirm
+(`web/src/components/machine-sharing.tsx`). The Beans, Bean Batches and
 Grinders lists create them, and each item's page edits it, Archives or
 restores it, and, for an Admin, deletes it; a batch's page adds it at each
 Location and finishes it there, and sets its remaining weight there
@@ -1317,9 +1360,7 @@ with Decaid.
 
 ## Not yet
 
-- The capture-only switch, and turning sharing back on, which joins a
-  Location: ticket #90. Recording refused writes, and each
-  Machine's sharing status: ticket #91.
+- Recording refused writes, and each Machine's sharing status: ticket #91.
 - Linking Shots to the Library's batches and Grinders: ticket #92.
 
 Decaid hides a bundled Profile a release no longer bundles, or bundles anew
@@ -1337,8 +1378,8 @@ Profiles.
 `server/test/library-conflicts.test.ts`,
 `server/test/library-management.test.ts`,
 `server/test/library-profile-management.test.ts`,
-`server/test/location-settings.test.ts` and `server/test/joining.test.ts`
-cover this through Seam 1, with the
+`server/test/location-settings.test.ts`, `server/test/joining.test.ts` and
+`server/test/capture-only.test.ts` cover this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL;
 `server/test/bean-intake.test.ts`, `server/test/batch-intake.test.ts`,
 `server/test/grinder-intake.test.ts`, `server/test/profile-intake.test.ts`,
@@ -1356,5 +1397,5 @@ against those recorded on Decaid's Linux release
 `profile-writes-v0.8.7/` and `workflow-writes-v0.8.7/`); and
 `e2e/library.spec.ts`, `e2e/library-management.spec.ts`,
 `e2e/profile-management.spec.ts`, `e2e/conflicts.spec.ts` and
-`e2e/location-settings.spec.ts` and `e2e/joining.spec.ts` the management
-interface.
+`e2e/location-settings.spec.ts`, `e2e/joining.spec.ts` and
+`e2e/capture-only.spec.ts` the management interface.

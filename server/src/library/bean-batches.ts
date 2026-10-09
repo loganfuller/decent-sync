@@ -11,15 +11,15 @@ import {
   INTAKE_TRANSACTION,
   type ReportingTablet,
   type SeenDecision,
-  currentLocation,
   keepContentSeenSql,
   keepSeenSql,
   lockHeldMachine,
   lockTablet,
   seenAtSql,
+  sharingLocation,
 } from "./intake.js";
 import { setAsideDeleted } from "./hard-deletes.js";
-import { brought } from "./join-plan.js";
+import { brought, standing } from "./join-plan.js";
 import { currentEntry, recordBrought, takenIn } from "./joining.js";
 import { listedIds } from "./listed.js";
 import { addBatchAt, deletedAt, enterRemainingWeight, finishBatchAt, lockLocation, transactionTime } from "./location-state.js";
@@ -40,7 +40,7 @@ import { changedFields } from "./merge.js";
 /**
  * Takes a tablet's report of its bean batches into the Library, as
  * `takeInBeans` takes its beans, in the transaction storing the report.
- * Returns the Location the report was taken in at, or null if none.
+ * Returns where the report was taken in (`standing`), or null if nowhere.
  */
 export async function takeInBatches(
   tx: Prisma.TransactionClient,
@@ -51,6 +51,8 @@ export async function takeInBatches(
   const entry = await currentEntry(tx, tablet.machineId);
   if (entry === null) return null;
   const { locationId } = entry;
+  /** Where it is taken in, which its writer compares with where the Machine takes part as it looks. */
+  const takenInAt = standing(entry);
   const read = readReportedBatches(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
   /** Whether the report is part of the tablet joining the Location: what it brings is listed on its Machine's page. */
@@ -88,7 +90,7 @@ export async function takeInBatches(
   const steps = planBatchIntake(reported, mapped, new Map(beans.map((bean) => [bean.localId, bean.beanId])), library, listedIds(value));
   if (steps.length === 0) {
     if (screened.due) await notify(tx, "library_changes", locationId);
-    return locationId;
+    return takenInAt;
   }
   await lockLocation(tx, locationId);
   await lockItems(tx, "beanBatch", steps.flatMap((step) => (step.kind === "update" && Object.keys(step.content).length > 0 ? [step.batchId] : [])));
@@ -131,7 +133,7 @@ export async function takeInBatches(
     if (batch.globalId !== batchId) writesDue = true;
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
-  return locationId;
+  return takenInAt;
 }
 
 /**
@@ -197,7 +199,7 @@ export async function recordBatchWritten(
     if ((await tx.beanBatch.count({ where: { id: batchId } })) === 0) return "notTheItem";
     const other = await tx.tabletBeanBatch.findUnique({ where: { tabletId_localId: { tabletId: tablet.tabletId, localId } }, select: { batchId: true } });
     if (other && other.batchId !== batchId) return "notTheItem";
-    const locationId = await currentLocation(tx, tablet.machineId);
+    const locationId = await sharingLocation(tx, tablet.machineId);
     const [known] = await tx.$queryRaw<
       { archived: boolean; weightRemaining: number | null; seenAt: Date | null; record: Record<string, unknown>; contentSeenAt: Date | null }[]
     >`

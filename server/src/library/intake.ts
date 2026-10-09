@@ -96,3 +96,16 @@ export async function currentLocation(tx: Prisma.TransactionClient, machineId: s
   const latest = await tx.locationAssignment.findFirst({ where: { machineId }, orderBy: { effectiveFrom: "desc" }, select: { locationId: true } });
   return latest?.locationId ?? null;
 }
+
+/**
+ * The Location the Machine takes part in the Library at now: the one it is
+ * at, or null when it is capture-only, at none or with sharing turned off.
+ */
+export async function sharingLocation(tx: Prisma.TransactionClient, machineId: string): Promise<string | null> {
+  const [row] = await tx.$queryRaw<{ locationId: string | null }[]>`
+    SELECT (
+      SELECT location_id FROM location_assignments WHERE machine_id = machines.id ORDER BY effective_from DESC LIMIT 1
+    ) AS "locationId"
+    FROM machines WHERE id = ${machineId}::uuid AND sharing`;
+  return row?.locationId ?? null;
+}

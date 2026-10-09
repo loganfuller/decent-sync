@@ -15,6 +15,7 @@ import {
   writeKey,
 } from "./holdings.js";
 import { shotNamesProfileSql } from "./hard-deletes.js";
+import { standing } from "./join-plan.js";
 import { workflowClearDue } from "./joining.js";
 import { settingsDue } from "./location-settings.js";
 import { latestDecision, readFieldEdits } from "./merge.js";
@@ -36,19 +37,23 @@ export interface WrittenTablet {
   tabletId: string;
 }
 
-/** What a connection's tablet is due: where its Machine is now, and the writes due there. */
+/** What a connection's tablet is due: where its Machine takes part now, and the writes due there. */
 export interface TabletDue {
-  /** The Location its Machine is at now, or null if none. */
+  /** The Location its Machine takes part at now, or null if none, as it is capture-only. */
   locationId: string | null;
+  /** Where its reports are to be taken in now (`standing`), or null if nowhere. */
+  standing: string | null;
   /** The writes and deletes due, in the order they are made; null while none is planned, as the Machine is not where they were reported. */
   writes: PlannedChange[] | null;
 }
 
 /**
- * Where the connection's Machine is now, and the writes its tablet is due,
- * leaving out the items in `skipped` (`writeKey`). No write is due while
- * the Machine is not at the Location its tablet's latest reports of its
- * beans, bean batches, grinders and profiles were all taken in at (`reportedAt`), so a
+ * Where the connection's Machine takes part now, and the writes its tablet
+ * is due, leaving out the items in `skipped` (`writeKey`). None is due while
+ * it is capture-only, at no Location or with sharing turned off, nor while
+ * it does not take part where its tablet's latest reports of its beans, bean
+ * batches, grinders and profiles were all taken in (`reportedAt`, a
+ * `standing`), as before sharing was turned off and on again, so a
  * tablet is written only what the Library knows it lacks once what it holds
  * is taken in there, and a bean it holds already is linked rather than
  * written again. Read in one snapshot. Null while the connection no longer
@@ -62,14 +67,18 @@ export async function tabletDue(
 ): Promise<TabletDue | null> {
   return prisma.$transaction(
     async (tx) => {
-      const [holder] = await tx.$queryRaw<{ locationId: string | null }[]>`
-        SELECT (
-          SELECT location_id FROM location_assignments WHERE machine_id = machines.id ORDER BY effective_from DESC LIMIT 1
-        ) AS "locationId"
-        FROM machines WHERE id = ${tablet.machineId}::uuid AND connected_session_id = ${tablet.sessionId}::uuid`;
+      const [holder] = await tx.$queryRaw<{ sharing: boolean; id: string | null; locationId: string | null; sharingSince: Date | null }[]>`
+        SELECT machines.sharing, latest.id, latest.location_id AS "locationId", machines.sharing_since AS "sharingSince"
+        FROM machines
+        LEFT JOIN LATERAL (
+          SELECT id, location_id FROM location_assignments WHERE machine_id = machines.id ORDER BY effective_from DESC LIMIT 1
+        ) AS latest ON true
+        WHERE machines.id = ${tablet.machineId}::uuid AND machines.connected_session_id = ${tablet.sessionId}::uuid`;
       if (!holder) return null;
-      const { locationId } = holder;
-      if (locationId === null || locationId !== reportedAt) return { locationId, writes: null };
+      const { id, locationId, sharingSince } = holder;
+      if (!holder.sharing || id === null || locationId === null) return { locationId: null, standing: null, writes: null };
+      const where = standing({ id, locationId, sharingSince });
+      if (where !== reportedAt) return { locationId, standing: where, writes: null };
       // Each with the latest decision of whether any of its batches is there: a write to the Bean carries it.
       const beans = await tx.$queryRaw<(Omit<OfferedBean, "contentDecidedAt"> & Edited)[]>`
         SELECT beans.id, beans.content, ${presenceDecidedSql(Prisma.raw("beans.id"), locationId)} AS "decidedAt", beans.field_edits AS "fieldEdits" FROM beans
@@ -143,7 +152,7 @@ export async function tabletDue(
       // need no item written before them.
       const workflow = [await settingsDue(tx, tablet, locationId), await workflowClearDue(tx, tablet.tabletId, locationId)];
       const writes = workflow.filter((write): write is PlannedWrite => write !== null && !skipped.has(writeKey(write.kind, write.globalId)));
-      return { locationId, writes: [...writes, ...(await deletesDue(tx, tablet.tabletId, skipped)), ...plannedWrites(offer, held, skipped)] };
+      return { locationId, standing: where, writes: [...writes, ...(await deletesDue(tx, tablet.tabletId, skipped)), ...plannedWrites(offer, held, skipped)] };
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   );

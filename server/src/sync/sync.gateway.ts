@@ -195,7 +195,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       for (const session of this.connections) session.writer?.wake();
     });
     // A moved Machine's writers find it at another Location than its tablet's report, and ask for the tablet's
-    // collections afresh. After listening anew, every writer looks, through the Library changes listener.
+    // collections afresh, as do those of one whose sharing was turned back on; one turned off, they write nothing more.
+    // After listening anew, every writer looks, through the Library changes listener.
     notifications.subscribe("machine_locations", (machineId) => {
       for (const session of this.connections) if (machineId !== null && session.machine?.id === machineId) session.writer?.wake();
     });

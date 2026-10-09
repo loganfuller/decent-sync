@@ -63,16 +63,18 @@ export const KIND_NAMES: Readonly<Record<WrittenKind, string>> = {
  * Nothing is written until the connection's reports of the tablet's beans,
  * bean batches, grinders and profiles are taken in, which the plugin sends on every
  * welcome, nor between a report of its beans and the report of its batches
- * the plugin sends after it, and only while the Machine is at the Location
- * the latest reports were all taken in at. A bean the tablet already holds,
- * entered there or before it joined, is then linked to the Library's Bean
- * rather than written to it again. When it finds the Machine at another Location
- * than that, as once it has moved, it asks the plugin for its collections
- * afresh (`requestCollections`), once for each Location it finds, and writes
- * once those reports are taken in there. A move is notified to every instance,
- * which wakes the writers of the Machine's connections, and every writer
- * looks again after its instance listens anew, so a move missed meanwhile is
- * found too.
+ * the plugin sends after it, and only while the Machine takes part where
+ * the latest reports were all taken in: at their Location, with sharing on
+ * since they were. A bean the tablet already holds, entered there or before
+ * it joined, is then linked to the Library's Bean rather than written to it
+ * again. Nothing is written while the Machine is capture-only. When it finds
+ * the Machine taking part elsewhere, as once it has moved, or had sharing
+ * turned off and on again, it asks the plugin for its collections afresh
+ * (`requestCollections`), once for each place it finds, and writes once
+ * those reports are taken in there. A move or a switch of sharing is
+ * notified to every instance, which wakes the writers of the Machine's
+ * connections, and every writer looks again after its instance listens
+ * anew, so one missed meanwhile is found too.
  *
  * Only the connection holding its Machine writes, and only a write its
  * connection awaits is answered, so a tablet is written one item at a
@@ -108,8 +110,9 @@ export class TabletWriter {
    */
   private readonly lastWritten = new Map<string, string>();
   /**
-   * The Location the connection's latest report of each list was taken in
-   * at: null while the Machine was at none, and absent until one is.
+   * Where the connection's latest report of each list was taken in
+   * (`standing`): its Location, and when the Machine's sharing was last
+   * turned back on; null while it was capture-only, and absent until one is.
    */
   private readonly reportedAt = new Map<TakenInList, string | null>();
   /**
@@ -123,9 +126,9 @@ export class TabletWriter {
    */
   private awaitingBatches = false;
   /**
-   * The Location the plugin was last asked to report the tablet's collections
-   * afresh for, until the writer finds the Machine at the Location of its
-   * latest report. A report taken in just before a move, after the request,
+   * Where (`standing`) the plugin was last asked to report the tablet's
+   * collections afresh for, until the writer finds the Machine taking part
+   * where its latest report was taken in. A report taken in just before a move, after the request,
    * does not clear it, so the plugin is not asked twice. The cost: should the
    * Machine move back, have the reply taken in there, and move to that
    * Location again before the writer next looks, it is not asked again, and
@@ -180,13 +183,13 @@ export class TabletWriter {
 
   /**
    * A report of the tablet's beans, bean batches, grinders or profiles from this
-   * connection was stored, and taken in with its Machine at that Location,
-   * or at none; or, undefined, not taken in, as when it was unavailable or
-   * set aside. One of its bean batches ends the wait a report of its beans
-   * began.
+   * connection was stored, and taken in there (`standing`), or nowhere, as
+   * its Machine was capture-only; or, undefined, not taken in, as when it was
+   * unavailable or set aside. One of its bean batches ends the wait a report
+   * of its beans began.
    */
-  reported(list: TakenInList, locationId: string | null | undefined): void {
-    if (locationId !== undefined) this.reportedAt.set(list, locationId);
+  reported(list: TakenInList, takenInAt: string | null | undefined): void {
+    if (takenInAt !== undefined) this.reportedAt.set(list, takenInAt);
     if (list === "beanBatches") this.awaitingBatches = false;
     this.wake();
   }
@@ -213,7 +216,7 @@ export class TabletWriter {
       this.again = false;
       // Until the connection's first reports are taken in, which its welcome brings, nothing is due.
       const reports = TAKEN_IN.map((list) => this.reportedAt.get(list));
-      /** Where all were taken in, or undefined while they were not, or were at different Locations, as across a move. */
+      /** Where all were taken in, or undefined while they were not, or were in different places, as across a move. */
       const reportedAt = reports.every((at) => at === reports[0]) ? reports[0] : undefined;
       const now = Date.now();
       for (const [key, until] of this.deferred) if (until <= now) this.deferred.delete(key);
@@ -221,9 +224,9 @@ export class TabletWriter {
       const found =
         reports.includes(undefined) || this.awaitingBatches ? null : await tabletDue(this.prisma, this.tablet, reportedAt ?? null, excluded);
       if (this.stopped) return;
-      if (found && found.locationId === reportedAt) this.requestedFor = undefined;
-      else if (found && found.locationId !== null && found.locationId !== this.requestedFor) {
-        this.requestedFor = found.locationId;
+      if (found && found.standing === reportedAt) this.requestedFor = undefined;
+      else if (found && found.standing !== null && found.standing !== this.requestedFor) {
+        this.requestedFor = found.standing;
         this.requestCollections();
       }
       // A report of the tablet's beans may have been taken in while this was read: what is due waits for its batches.

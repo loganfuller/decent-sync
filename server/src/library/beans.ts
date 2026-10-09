@@ -11,15 +11,15 @@ import {
   INTAKE_TRANSACTION,
   type ReportingTablet,
   type SeenDecision,
-  currentLocation,
   keepContentSeenSql,
   keepSeenSql,
   lockHeldMachine,
   lockTablet,
   seenAtSql,
+  sharingLocation,
 } from "./intake.js";
 import { setAsideDeleted } from "./hard-deletes.js";
-import { brought } from "./join-plan.js";
+import { brought, standing } from "./join-plan.js";
 import { currentEntry, recordBrought, takenIn } from "./joining.js";
 import { listedIds } from "./listed.js";
 import { deletedAt, lockLocation, offerBeanAt, takeBeanFrom, transactionTime } from "./location-state.js";
@@ -56,12 +56,13 @@ export async function lockBeanMatching(tx: Prisma.TransactionClient): Promise<vo
 }
 
 /**
- * Takes a tablet's report of its beans into the Library, if its Machine is
- * at a Location: a Machine without one is capture-only. Runs in the
- * transaction storing the report, holding the Machine's row lock, which
- * Location History changes take too. Tells every instance when the tablets
- * at its Location have something to be written. Returns the Location the
- * report was taken in at, or null if none.
+ * Takes a tablet's report of its beans into the Library, if its Machine
+ * takes part: a Machine at no Location, or with sharing turned off, is
+ * capture-only. Runs in the transaction storing the report, holding the
+ * Machine's row lock, which Location History changes and the capture-only
+ * switch take too. Tells every instance when the tablets at its Location
+ * have something to be written. Returns where the report was taken in
+ * (`standing`), or null if nowhere.
  */
 export async function takeInBeans(
   tx: Prisma.TransactionClient,
@@ -72,6 +73,8 @@ export async function takeInBeans(
   const entry = await currentEntry(tx, tablet.machineId);
   if (entry === null) return null;
   const { locationId } = entry;
+  /** Where it is taken in, which its writer compares with where the Machine takes part as it looks. */
+  const takenInAt = standing(entry);
   const read = readReportedBeans(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
   /** Whether the report is part of the tablet joining the Location: what it brings is listed on its Machine's page. */
@@ -119,7 +122,7 @@ export async function takeInBeans(
   const steps = planIntake(reported, mapped, library, listedIds(value));
   if (steps.length === 0) {
     if (screened.due) await notify(tx, "library_changes", locationId);
-    return locationId;
+    return takenInAt;
   }
   await lockLocation(tx, locationId);
   // The Beans whose content the report edits, or that records link to, compared with their content.
@@ -179,7 +182,7 @@ export async function takeInBeans(
     if (bean.globalId !== beanId) writesDue = true;
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
-  return locationId;
+  return takenInAt;
 }
 
 /**
@@ -225,7 +228,7 @@ export async function recordBeanWritten(
     if ((await tx.bean.count({ where: { id: beanId } })) === 0) return "notTheItem";
     const other = await tx.tabletBean.findUnique({ where: { tabletId_localId: { tabletId: tablet.tabletId, localId } }, select: { beanId: true } });
     if (other && other.beanId !== beanId) return "notTheItem";
-    const locationId = await currentLocation(tx, tablet.machineId);
+    const locationId = await sharingLocation(tx, tablet.machineId);
     const [known] = await tx.$queryRaw<{ archived: boolean; seenAt: Date | null; record: Record<string, unknown>; contentSeenAt: Date | null }[]>`
       SELECT (record ->> 'archived') = 'true' AS archived, ${seenAtSql(locationId)} AS "seenAt", record, content_seen_at AS "contentSeenAt"
       FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid AND bean_id = ${beanId}::uuid`;

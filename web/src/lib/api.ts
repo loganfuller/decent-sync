@@ -153,11 +153,18 @@ export interface Machine {
   location: Location | null;
   /** Where it has been, oldest first. Each entry lasts until the next one's time. */
   locationHistory: LocationHistoryEntry[];
+  /** Whether it shares the Library at its Location: on unless an Admin turned it off, making it a Capture-only Machine. */
+  sharing: boolean;
+  /** Why it is a Capture-only Machine, taking no part in the Library; empty while it takes part. */
+  captureOnly: CaptureOnlyReason[];
   /** The tablet its latest connection came from, or null before any. A reset or replaced tablet is a new one. */
   tablet: Tablet | null;
   /** The tablets its connections came from before, the one whose connection was accepted most recently first. */
   earlierTablets: Tablet[];
 }
+
+/** Why a Machine is a Capture-only Machine: it has no Location, or an Admin turned its sharing off. */
+export type CaptureOnlyReason = "noLocation" | "sharingOff";
 
 /** One tablet taking a Machine over from another, both connected with its token. */
 export interface Takeover {
