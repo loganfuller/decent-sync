@@ -261,6 +261,8 @@ describe("Steam, hot water and rinse settings shared by a Location's Machines", 
     // With sharing turned back on, it takes Uptown's settings, and its changes are shared from then on.
     expect((await switchBengle(true)).status).toBe(200);
     await holds(bengle, { "steamSettings.flow": 2.6, "hotWaterData.volume": 100 });
+    // Well after it, whatever the drift between the tablet's clock and PostgreSQL's.
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
     await bengle.changeSettings({ rinseData: { flow: 3.5 } });
     await holds(first, { "rinseData.flow": 3.5 });
   });
