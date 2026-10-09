@@ -397,6 +397,26 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     expect(await shownAt("Again", id)).toEqual([]);
   });
 
+  it("keeps a Profile shown at the lab that a lab tablet created there after another lab tablet hid it, though the hide arrives after", async () => {
+    const location = await api.createLocation("Recreated lab", "America/Chicago");
+    const first = await api.createMachine("Recreated lab 1", location.id);
+    const second = await api.createMachine("Recreated lab 2", location.id);
+    const one = await rawTablet(first, "17151");
+    const two = await rawTablet(second, "17152", other);
+    const id = "profile:a9a1000000000000017e";
+    // After both tablets joined the lab.
+    const start = Date.now() + 1000;
+    const at = (seconds: number) => new Date(start + seconds * 1000);
+    await one.report(id, true, at(0));
+    expect(await shownAt("Recreated", id)).toEqual(["Recreated lab"]);
+
+    // One hides it, its report late; the other creates the same Profile later, which its map did not hold.
+    await two.report(id, true, at(2));
+    // The earlier hide, arriving last, loses to that, the field's latest edit, though it left the lab showing it (ADR-0020).
+    await one.report(id, false, at(1));
+    expect(await shownAt("Recreated", id)).toEqual(["Recreated lab"]);
+  });
+
   it("judges a moved tablet's late show at its new Location by its time, whatever it had seen at its old one", async () => {
     const lab = await api.createLocation("Carried lab", "America/Chicago");
     const cafe = await api.createLocation("Carried cafe", "America/Chicago");

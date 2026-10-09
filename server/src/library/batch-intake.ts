@@ -49,7 +49,8 @@ export interface LibraryBatch {
  * its own (ADR-0020), timed by its record. A remaining weight carries the
  * value the tablet last had, so that it can be told whether the tablet saw
  * the Location's current value; whether the batch is there is judged by the
- * edits' times alone.
+ * Location's decision the tablet's record had seen, and otherwise by the
+ * edits' times (location-state.ts).
  */
 export type LocationEdit =
   /** Un-archived on the tablet, it is added there (true); archived or deleted, it is finished there (false). */

@@ -61,7 +61,8 @@ export type ProfileIntakeStep =
    * decides it (`decide`). Otherwise the Location's state stands, and is
    * written to the tablet, unless the tablet made the record visible after
    * both that state was decided and the tablet joined the Location, as a
-   * barista re-creating a Profile hidden there does (`shown`).
+   * barista re-creating a Profile hidden there does (`shown`). Shown there
+   * already, that is the field's latest edit still.
    */
   | { kind: "map"; profileId: string; profile: ReportedProfile; decide?: boolean; shown?: true }
   /** A Profile new to the Library, which joins it, created at the tablet's Location, shown there if visible on the tablet. */
@@ -127,7 +128,8 @@ export function profileContent(record: Record<string, unknown>): Record<string, 
  * Profile made visible after both that state was decided and the tablet
  * joined the Location (`joinedAt`, null if it is not known) is an edit made
  * there, and shows it, as when a barista re-creates a Profile, under its old
- * steps, that the Location hid when they changed it.
+ * steps, that the Location hid when they changed it; shown there already, it
+ * is the field's latest edit still (ADR-0020).
  *
  * Where the Location has decided nothing of a bundled Profile the map holds,
  * as after the tablet's Machine moved there, its record decides it as on a
@@ -169,7 +171,7 @@ export function planProfileIntake(
     }
     if (!library.has(profile.id)) steps.push({ kind: "add", profile, decide: profile.visible });
     else if (!decided) steps.push({ kind: "map", profileId: profile.id, profile, decide: profile.visible });
-    else if (!decided.shown && profile.visible && !profile.bundled && madeThere(profile, decided, joinedAt)) steps.push({ kind: "map", profileId: profile.id, profile, shown: true });
+    else if (profile.visible && !profile.bundled && madeThere(profile, decided, joinedAt)) steps.push({ kind: "map", profileId: profile.id, profile, shown: true });
     else steps.push({ kind: "map", profileId: profile.id, profile });
   }
   for (const profile of mapped) {

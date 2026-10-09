@@ -129,6 +129,8 @@ describe("planProfileIntake", () => {
   it("shows a user's Profile the Location hid that the tablet made visible after it joined and after the Location hid it, as when a barista re-creates it", () => {
     const library = new Set([IDS[0]]);
     expect(plan([reported(IDS[0], {}, LATER)], [], library, new Map([[IDS[0], at(false)]]))).toEqual([["map", IDS[0], "shows"]]);
+    // Shown there already, it is the latest edit still, so an earlier hide arriving later cannot undo it.
+    expect(plan([reported(IDS[0], {}, LATER)], [], library, new Map([[IDS[0], at(true)]]))).toEqual([["map", IDS[0], "shows"]]);
     // Made visible before the Location hid it, the tablet had not seen that.
     expect(plan([reported(IDS[0], {}, "2026-10-08T12:20:00.000Z")], [], library, new Map([[IDS[0], at(false)]]))).toEqual([["map", IDS[0], "unchanged"]]);
     // Without a known joining time, nothing is taken as made there.

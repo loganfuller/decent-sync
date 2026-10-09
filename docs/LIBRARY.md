@@ -279,13 +279,13 @@ Decaid's delete marks a user's Profile with, and hides a bundled one.
   bundled Profiles do not show those its Location hid. But a user's Profile
   the tablet made visible after both it joined the Location and the Location
   last decided the Profile, by their times, is an edit made there, and shows
-  it, as when a
-  barista changes a Profile's steps back, which Decaid's `PUT` makes a record
-  under the old id again, or re-creates one purged. A tablet joined its
-  Location at the later of when its Machine arrived there, by its Location
-  History, and when the tablet first connected as that Machine. Decaid's
-  bundled Profiles join the Library like any other, so whether each is shown
-  is per Location.
+  it, as when a barista changes a Profile's steps back, which Decaid's `PUT`
+  makes a record under the old id again, or re-creates one purged. Shown there
+  already, it is the Profile's latest edit there still, so an earlier hide
+  that arrives later cannot undo it (ADR-0020). A tablet joined its Location
+  at the later of when its Machine arrived there, by its Location History, and
+  when the tablet first connected as that Machine. Decaid's bundled Profiles
+  join the Library like any other, so whether each is shown is per Location.
 - A bundled Profile the map holds that the tablet's Location has decided
   nothing of, as after its Machine moved there, is decided by its record, as
   on a first report there. A user's Profile the map holds stays as the
