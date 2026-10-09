@@ -4,6 +4,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { takeInBatches } from "../library/bean-batches.js";
 import { takeInBeans } from "../library/beans.js";
 import { INTAKE_TRANSACTION } from "../library/intake.js";
+import { takeInProfiles } from "../library/profiles.js";
 import type { TakenInList } from "../sync/tablet-writer.js";
 import { creditFirstDelivery } from "../machines/credit.js";
 import { machineNotFound } from "../machines/input.js";
@@ -32,13 +33,21 @@ export interface CollectionView extends CollectionSummary {
 
 type Row = { name: string; available: boolean; reportedAt: Date; receivedAt: Date | null; items: number | null };
 
+/** How each of the tablet's Library lists is taken into the Library. */
+const TAKE_IN = { beans: takeInBeans, beanBatches: takeInBatches, profiles: takeInProfiles } as const satisfies Record<TakenInList, unknown>;
+
+function isTakenIn(name: string): name is TakenInList {
+  return Object.prototype.hasOwnProperty.call(TAKE_IN, name);
+}
+
 /**
  * The collections tablets report: their library, settings and paired
  * devices, stored as the latest value of each, per Machine. A tablet's
- * `beans` and `beanBatches` are also taken into the Library, in the same
- * transaction, when its connection is not mismatched and its Machine is at
- * a Location (server/src/library/beans.ts and bean-batches.ts); the Library
- * is written back to tablets, not these collections.
+ * `beans`, `beanBatches` and `profiles` are also taken into the Library, in
+ * the same transaction, when its connection is not mismatched and its
+ * Machine is at a Location (server/src/library/beans.ts, bean-batches.ts and
+ * profiles.ts); the Library is written back to tablets, not these
+ * collections.
  *
  * A collection belongs to the session's token's Machine, or for a mismatched
  * session to its reported hardware: the Machine that has it, or else its
@@ -65,11 +74,11 @@ export class CollectionsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Stores a collection delivery. For a report of the tablet's beans or bean
-   * batches from a connection that is not mismatched, stored now, returns
-   * which it was and the Location it was taken in at, null for a Machine at
-   * none, or undefined if it was unavailable and so not taken in; otherwise,
-   * as for a delivery handled before, undefined.
+   * Stores a collection delivery. For a report of the tablet's beans, bean
+   * batches or profiles from a connection that is not mismatched, stored
+   * now, returns which it was and the Location it was taken in at, null for a
+   * Machine at none, or undefined if it was unavailable and so not taken in;
+   * otherwise, as for a delivery handled before, undefined.
    */
   async store(message: CollectionDelivery, reporter: Reporter): Promise<{ list: TakenInList; takenInAt: string | null | undefined } | undefined> {
     // A collection a newer plugin reports that this server does not know: acknowledged, and ignored.
@@ -77,7 +86,7 @@ export class CollectionsService {
     const value = message.available ? JSON.stringify(message.value) : null;
     const items = message.available && Array.isArray(message.value) ? message.value.length : null;
     // A mismatched connection's tablet is not its token's Machine's, so it takes no part in the Library (ADR-0004).
-    const list = (message.name === "beans" || message.name === "beanBatches") && reporter.identity.kind !== "mismatch" ? message.name : null;
+    const list = isTakenIn(message.name) && reporter.identity.kind !== "mismatch" ? message.name : null;
     const takesIn = list !== null && message.available;
     return this.prisma.$transaction(async (tx) => {
       const credit = await creditFirstDelivery(tx, reporter, message.id);
@@ -102,7 +111,7 @@ export class CollectionsService {
       if (list === null) return undefined;
       if (!takesIn) return { list, takenInAt: undefined };
       const tablet = { machineId: reporter.machineId, tabletId: reporter.tabletId };
-      const takeIn = list === "beans" ? takeInBeans : takeInBatches;
+      const takeIn = TAKE_IN[list];
       return { list, takenInAt: await takeIn(tx, tablet, message.value, message.updatedAt) };
     }, takesIn ? INTAKE_TRANSACTION : undefined);
   }

@@ -16,7 +16,7 @@ export function BeanBatchesPage() {
       <div className="grid gap-1">
         <h1 className="text-2xl font-semibold">Bean Batches</h1>
         <p className="text-muted-foreground">
-          The roasts in the Library. A batch entered on a tablet is at that tablet's Location, and is written, with its
+          The Bean Batches in the Library. A batch entered on a tablet is at that tablet's Location, and is written, with its
           Bean, to every tablet there. Archiving it on a tablet finishes it at that tablet's Location, and the remaining
           weight entered on a tablet is that Location's.
         </p>

@@ -62,7 +62,8 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
   ): SimulatedTablet {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": options.beans ?? [] },
+      // No profiles, so only Beans are written to it: library-profiles.test.ts writes Profiles.
+      api: { ...derivedDe1Pro({ serial }), "/beans": options.beans ?? [], "/profiles": [] },
       storage: options.storage,
       timeScale: 50,
     });
@@ -242,6 +243,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     raws.push(raw);
     await raw.deliver(emptyBeans());
     await raw.deliver(emptyBatches());
+    await raw.deliver(emptyProfiles());
     const [refused] = await writesTo(raw, 1);
     // An answer to no write it was asked for, as one arriving after its write timed out, is acknowledged and leaves the
     // write it awaits waiting.
@@ -270,6 +272,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     raws.push(back);
     await back.deliver(emptyBeans());
     await back.deliver(emptyBatches());
+    await back.deliver(emptyProfiles());
     for (let count = 1; count <= 3; count++) {
       const write = (await writesTo(back, count))[count - 1]!;
       await back.deliver({ type: "writeRefused", id: write.id, kind: "bean", globalId: write.globalId, status: null, error: "Decaid did not answer: Fetch timed out" });
@@ -517,6 +520,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     raws.push(back);
     await back.deliver(emptyBeans());
     await back.deliver(emptyBatches());
+    await back.deliver(emptyProfiles());
     const [write] = await writesTo(back, 1);
     expect(write).toMatchObject({ globalId: bean.id, localId: null });
     expect(locations(await libraryBean("Unasked Bean"))).toEqual(["Unasked cafe"]);
@@ -540,12 +544,14 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const beats = setInterval(() => first.send({ type: "heartbeat" }), 300);
     await first.deliver(emptyBeans());
     await first.deliver(emptyBatches());
+    await first.deliver(emptyProfiles());
     const [write] = await writesTo(first, 1);
     clearInterval(beats);
     // A last heartbeat gives the race its connection's three intervals of silence, and the delivery after it, taken in
     // after the heartbeat, leaves none waiting to record itself.
     first.send({ type: "heartbeat" });
     await first.deliver(emptyBatches());
+    await first.deliver(emptyProfiles());
 
     const database = await server.connectDatabase();
     let second: RawConnection;
@@ -579,6 +585,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     second.keepAlive();
     await second.deliver(emptyBeans());
     await second.deliver(emptyBatches());
+    await second.deliver(emptyProfiles());
     const [again] = await writesTo(second, 1);
     expect(again).toMatchObject({ globalId: bean.id, localId: null });
     expect(locations(await libraryBean("Released Bean"))).toEqual(["Released cafe"]);
@@ -656,9 +663,14 @@ function emptyBeans() {
   return { type: "collection", id: randomUUID(), name: "beans", available: true, value: [], updatedAt: [] };
 }
 
-/** A report that the tablet holds no bean batches, which, with its beans, is taken in before anything is written to it. */
+/** A report that the tablet holds no bean batches, which, with its beans and profiles, is taken in before anything is written to it. */
 function emptyBatches() {
   return { type: "collection", id: randomUUID(), name: "beanBatches", available: true, value: [], updatedAt: [] };
+}
+
+/** A report that the tablet holds no profiles. */
+function emptyProfiles() {
+  return { type: "collection", id: randomUUID(), name: "profiles", available: true, value: [], updatedAt: [] };
 }
 
 /** Resolves with the first `count` writes the server sent on the raw connection, once it has sent that many. */

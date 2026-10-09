@@ -110,14 +110,33 @@ function toJson(fields: Bean): Bean {
   return Object.fromEntries(order.filter((key) => required.has(key) || (fields[key] !== null && fields[key] !== undefined)).map((key) => [key, fields[key]]));
 }
 
-/** Microseconds since the epoch at which Decaid last read its clock; every read is later than the one before. */
-let lastMicros = 0;
+/** For each clock offset, the microseconds since the epoch at which a Decaid with it last read its clock; every read is later than the one before. */
+const lastMicros = new Map<number, number>();
+/** How far ahead of this process's clock the Decaid answering now reads its own, in milliseconds (`withDecaidClock`). */
+let clockOffsetMs = 0;
+
+/** Runs `work`, which must not wait, as a Decaid whose clock is `offsetMs` ahead of this process's, or behind it if negative. */
+export function withDecaidClock<T>(offsetMs: number, work: () => T): T {
+  const previous = clockOffsetMs;
+  clockOffsetMs = offsetMs;
+  try {
+    return work();
+  } finally {
+    clockOffsetMs = previous;
+  }
+}
 
 /** Now, as Decaid writes `DateTime.now()`: the tablet's local time without an offset, by `toIso8601String`. */
 export function decaidNow(): string {
-  lastMicros = Math.max(lastMicros + 1, Math.floor((performance.timeOrigin + performance.now()) * 1000));
-  const time = new Date(Math.floor(lastMicros / 1000));
-  const micros = lastMicros % 1000;
+  const micros = Math.max((lastMicros.get(clockOffsetMs) ?? 0) + 1, Math.floor((performance.timeOrigin + performance.now() + clockOffsetMs) * 1000));
+  lastMicros.set(clockOffsetMs, micros);
+  return localIso(micros);
+}
+
+/** A time in microseconds since the epoch as Dart's `toIso8601String` writes a local one. */
+function localIso(at: number): string {
+  const time = new Date(Math.floor(at / 1000));
+  const micros = at % 1000;
   const two = (value: number) => String(value).padStart(2, "0");
   const three = (value: number) => String(value).padStart(3, "0");
   return (

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { LibraryWrite } from "@decent-sync/protocol";
+import type { LibraryKind, LibraryWrite } from "@decent-sync/protocol";
 import { writeKey } from "../library/holdings.js";
+import type { SeenDecision } from "../library/intake.js";
 import { type WrittenTablet, tabletDue } from "../library/tablet-due.js";
 import type { PrismaService } from "../prisma.service.js";
 
@@ -17,27 +18,32 @@ const ANSWER_TIMEOUT_MS = 300_000;
 export type WriteOutcome = "written" | "refused";
 
 /** The Library lists whose reports are taken in before anything is written: what the tablet holds. */
-export type TakenInList = "beans" | "beanBatches";
+export type TakenInList = "beans" | "beanBatches" | "profiles";
+
+const TAKEN_IN: readonly TakenInList[] = ["beans", "beanBatches", "profiles"];
+
+/** What each kind of Library item is called in the server's log. */
+export const KIND_NAMES: Readonly<Record<LibraryKind, string>> = { bean: "Bean", beanBatch: "Bean Batch", profile: "Profile" };
 
 /**
  * Writes the Library to the tablet of one connection this instance holds:
  * one write at a time, each once the plugin has answered the one before it
  * and its answer is recorded, until the tablet holds what its Machine's
  * Location offers (`tabletDue`): its Beans and Bean Batches, with their
- * global ids and the Location's remaining weights, and nothing else
- * unarchived. What is due is read from the database each time, so it
- * reflects changes made through any instance; the instance is woken to look
- * again when one is notified, when the connection's report of the tablet's
- * beans or bean batches is taken in, and when its notifications may have
- * been missed.
+ * global ids and the Location's remaining weights, and its Profiles,
+ * visible, and nothing else unarchived or visible. What is due is read from
+ * the database each time, so it reflects changes made through any instance;
+ * the instance is woken to look again when one is notified, when the
+ * connection's report of the tablet's beans, bean batches or profiles is
+ * taken in, and when its notifications may have been missed.
  *
- * Nothing is written until the connection's reports of the tablet's beans
- * and bean batches are taken in, which the plugin sends on every welcome,
- * nor between a report of its beans and the report of its batches the
- * plugin sends after it, and only while the Machine is at the Location both
- * latest reports were taken in at. A bean the tablet already holds, entered
- * there or before it joined, is then linked to the Library's Bean rather
- * than written to it again. When it finds the Machine at another Location
+ * Nothing is written until the connection's reports of the tablet's beans,
+ * bean batches and profiles are taken in, which the plugin sends on every
+ * welcome, nor between a report of its beans and the report of its batches
+ * the plugin sends after it, and only while the Machine is at the Location
+ * the latest reports were all taken in at. A bean the tablet already holds,
+ * entered there or before it joined, is then linked to the Library's Bean
+ * rather than written to it again. When it finds the Machine at another Location
  * than that, as once it has moved, it asks the plugin for its collections
  * afresh (`requestCollections`), once for each Location it finds, and writes
  * once those reports are taken in there. A move is notified to every instance,
@@ -60,8 +66,8 @@ export class TabletWriter {
   /** Woken while running: look again once the current write is done. */
   private again = false;
   private stopped = false;
-  /** The write awaiting its answer. */
-  private waiting: { write: LibraryWrite; settle: (outcome: WriteOutcome | "stopped" | "timedOut") => void } | undefined;
+  /** The write awaiting its answer, with the Location's decision its record holds once written (`PlannedWrite.decidedAt`), and that Location. */
+  private waiting: { write: LibraryWrite; seen: SeenDecision | null; settle: (outcome: WriteOutcome | "stopped" | "timedOut") => void } | undefined;
   /** Items whose write was refused, or not answered, on this connection, or that writing did not change, by `writeKey`. */
   private readonly skipped = new Set<string>();
   /**
@@ -134,10 +140,11 @@ export class TabletWriter {
   }
 
   /**
-   * A report of the tablet's beans or bean batches from this connection was
-   * stored, and taken in with its Machine at that Location, or at none; or,
-   * undefined, not taken in, as when it was unavailable or set aside. One of
-   * its bean batches ends the wait a report of its beans began.
+   * A report of the tablet's beans, bean batches or profiles from this
+   * connection was stored, and taken in with its Machine at that Location,
+   * or at none; or, undefined, not taken in, as when it was unavailable or
+   * set aside. One of its bean batches ends the wait a report of its beans
+   * began.
    */
   reported(list: TakenInList, locationId: string | null | undefined): void {
     if (locationId !== undefined) this.reportedAt.set(list, locationId);
@@ -145,9 +152,9 @@ export class TabletWriter {
     this.wake();
   }
 
-  /** The write with this id, if it awaits its answer. */
-  awaited(id: string): LibraryWrite | undefined {
-    return this.waiting?.write.id === id ? this.waiting.write : undefined;
+  /** The write with this id, if it awaits its answer, and the Location's decision its answer has seen. */
+  awaited(id: string): { write: LibraryWrite; seen: SeenDecision | null } | undefined {
+    return this.waiting?.write.id === id ? { write: this.waiting.write, seen: this.waiting.seen } : undefined;
   }
 
   /** The plugin answered a write, and its answer is recorded. Answers to other writes, such as late ones, are ignored. */
@@ -165,12 +172,11 @@ export class TabletWriter {
     for (;;) {
       this.again = false;
       // Until the connection's first reports are taken in, which its welcome brings, nothing is due.
-      const beans = this.reportedAt.get("beans");
-      const batches = this.reportedAt.get("beanBatches");
-      /** Where both were taken in, or undefined while they were not, or were at different Locations, as across a move. */
-      const reportedAt = beans !== undefined && beans === batches ? beans : undefined;
+      const reports = TAKEN_IN.map((list) => this.reportedAt.get(list));
+      /** Where all were taken in, or undefined while they were not, or were at different Locations, as across a move. */
+      const reportedAt = reports.every((at) => at === reports[0]) ? reports[0] : undefined;
       const found =
-        beans === undefined || batches === undefined || this.awaitingBatches ? null : await tabletDue(this.prisma, this.tablet, reportedAt ?? null, this.skipped);
+        reports.includes(undefined) || this.awaitingBatches ? null : await tabletDue(this.prisma, this.tablet, reportedAt ?? null, this.skipped);
       if (this.stopped) return;
       if (found && found.locationId === reportedAt) this.requestedFor = undefined;
       else if (found && found.locationId !== null && found.locationId !== this.requestedFor) {
@@ -190,7 +196,7 @@ export class TabletWriter {
         return;
       }
       const key = writeKey(due.kind, due.globalId);
-      const item = `${due.kind === "bean" ? "Bean" : "Bean Batch"} ${due.globalId}`;
+      const item = `${KIND_NAMES[due.kind]} ${due.globalId}`;
       const fields = JSON.stringify(due.fields);
       if (this.lastWritten.get(key) === fields) {
         this.log.warn(`Tablet ${this.tablet.tabletId} is still due ${item} once written; it is tried again once the tablet reconnects`);
@@ -198,7 +204,9 @@ export class TabletWriter {
         continue;
       }
       const write: LibraryWrite = { type: "write", id: randomUUID(), kind: due.kind, globalId: due.globalId, localId: due.localId, fields: due.fields };
-      const outcome = await this.ask(write);
+      // What the write carries was decided at the Location it was planned for.
+      const plannedFor = found?.locationId ?? null;
+      const outcome = await this.ask(write, due.decidedAt === null || plannedFor === null ? null : { at: due.decidedAt, locationId: plannedFor });
       if (outcome === "stopped") return;
       if (outcome === "timedOut") {
         this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the write of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once the tablet reconnects`);
@@ -209,7 +217,7 @@ export class TabletWriter {
   }
 
   /** Sends a write and resolves with what became of it. */
-  private ask(write: LibraryWrite): Promise<WriteOutcome | "stopped" | "timedOut"> {
+  private ask(write: LibraryWrite, seen: SeenDecision | null): Promise<WriteOutcome | "stopped" | "timedOut"> {
     return new Promise((resolve) => {
       const timer = setTimeout(() => settle("timedOut"), ANSWER_TIMEOUT_MS);
       const settle = (outcome: WriteOutcome | "stopped" | "timedOut") => {
@@ -217,7 +225,7 @@ export class TabletWriter {
         if (this.waiting?.write.id === write.id) this.waiting = undefined;
         resolve(outcome);
       };
-      this.waiting = { write, settle };
+      this.waiting = { write, seen, settle };
       this.send(write);
     });
   }

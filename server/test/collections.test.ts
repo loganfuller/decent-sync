@@ -307,7 +307,8 @@ describe("Library, settings and paired devices", () => {
     expect(Buffer.byteLength(JSON.stringify(profiles))).toBeGreaterThan(1024 * 1024);
     const tablet = load(machine, { api: { ...derivedDe1Pro({ serial: "30005" }), "/profiles": profiles } });
     await expect.poll(async () => (await collection(machine, "profiles"))?.items, { timeout: 20_000 }).toBe(profiles.length);
-    expect((await collection(machine, "profiles"))!.value).toEqual(profiles);
+    // As Decaid lists them: the most recently updated first.
+    expect((await collection(machine, "profiles"))!.value).toEqual(tablet.profiles());
     expect(tablet.sent.some((frame) => frameType(frame) === "chunk")).toBe(true);
     expect(tablet.peakPendingOutboundBytes).toBeLessThanOrEqual(1024 * 1024);
     expect(tablet.refusedSends).toBe(0);

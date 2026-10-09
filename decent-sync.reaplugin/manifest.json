@@ -2,7 +2,7 @@
   "id": "decent-sync.reaplugin",
   "author": "Logan Fuller",
   "name": "Decent Sync",
-  "description": "Sends everything this machine records to a Decent Sync server: shots, steam records, workflow changes, machine state, the library, settings and paired devices. Shares the library's beans and bean batches with the other machines at its location. Requires Decaid v0.8.7 or newer.",
+  "description": "Sends everything this machine records to a Decent Sync server: shots, steam records, workflow changes, machine state, the library, settings and paired devices. Shares the library's beans, bean batches and profiles with the other machines at its location. Requires Decaid v0.8.7 or newer.",
   "version": "0.2.1",
   "apiVersion": 1,
   "permissions": [

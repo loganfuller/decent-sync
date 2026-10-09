@@ -1,12 +1,13 @@
 import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
-import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 
-// The Library's Beans and Bean Batches in the management interface.
-// Simulated tablets running the built plugin, at two Locations, add beans and
-// batches in Decaid as baristas do; each joins the Library at its tablet's
-// Location, or, a Bean, becomes the Bean with the same roaster and name, and
-// is offered there.
+// The Library's Beans, Bean Batches and Profiles in the management
+// interface. Simulated tablets running the built plugin, at two Locations,
+// add beans, batches and profiles in Decaid as baristas do; each joins the
+// Library at its tablet's Location, or, a Bean, becomes the Bean with the
+// same roaster and name, and is offered there, or, a Profile, is the Profile
+// with the same steps, and is shown there.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
@@ -116,6 +117,60 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
   ]);
 });
 
+test("the Profiles list shows each Profile and the Locations showing it, and a Profile's page shows what it is", async ({ page }) => {
+  const lab = await createLocation(page, "Profile lab");
+  const cafe = await createLocation(page, "Profile cafe");
+  const labTablet = await tabletAt(page, "Profile lab group", lab, "15021");
+  const cafeTablet = await tabletAt(page, "Profile cafe group", cafe, "15022");
+
+  // A lab Profile, saved again from it with new steps, which Streamline hides; and one created at both Locations.
+  const bloom = await labTablet.addProfile(derivedProfile("Lab Bloom", 8.5));
+  await expect.poll(async () => shownAt(page, String(bloom.id))).toEqual(["Profile lab"]);
+  const turbo = await labTablet.addProfile(derivedProfile("Lab Bloom Turbo", 9.5), { parentId: bloom.id });
+  await expect.poll(async () => shownAt(page, String(turbo.id))).toEqual(["Profile lab"]);
+  await expect.poll(async () => shownAt(page, String(bloom.id))).toEqual([]);
+  const house = await labTablet.addProfile(derivedProfile("House Espresso", 7.5));
+  await expect.poll(async () => shownAt(page, String(house.id))).toEqual(["Profile lab"]);
+  await cafeTablet.addProfile(derivedProfile("Cafe House Espresso", 7.5));
+  await expect.poll(async () => shownAt(page, String(house.id))).toEqual(["Profile cafe", "Profile lab"]);
+  // The cafe hides one of Decaid's bundled Profiles, which the lab still shows.
+  await cafeTablet.setProfileVisibility("profile:729d284747718d27c93a", "hidden");
+  await expect.poll(async () => (await shownAt(page, "profile:729d284747718d27c93a"))?.filter((name) => name.startsWith("Profile "))).toEqual(["Profile lab"]);
+
+  await page.goto("/library/beans");
+  await page.getByRole("navigation", { name: "Library" }).getByRole("link", { name: "Profiles" }).click();
+  await expect(page.getByRole("heading", { name: "Profiles", level: 1 })).toBeVisible();
+  const table = page.getByRole("table", { name: "Profiles" });
+  const row = (title: string) => rows(table).filter({ has: page.getByRole("link", { name: title, exact: true }) });
+  await expect(row("Lab Bloom")).toHaveText(["Lab Bloom", "Decent Sync fixtures", "Nowhere", "Profile lab", ""].join(""));
+  await expect(row("Lab Bloom Turbo")).toHaveText(["Lab Bloom Turbo", "Decent Sync fixtures", "Profile lab", "Profile lab", ""].join(""));
+  await expect(row("House Espresso")).toHaveText(["House Espresso", "Decent Sync fixtures", "Profile cafe, Profile lab", "Profile lab", ""].join(""));
+  await expect(row("Londonium").getByRole("cell").nth(2)).toContainText("Profile lab");
+  await expect(row("Londonium").getByRole("cell").nth(2)).not.toContainText("Profile cafe");
+  await expect(row("Londonium").getByRole("cell").nth(4)).toHaveText("Bundled with Decaid");
+
+  await row("Lab Bloom Turbo").getByRole("link").click();
+  await expect(page.getByRole("heading", { name: "Lab Bloom Turbo", level: 1 })).toBeVisible();
+  await expect(page.getByText(String(turbo.id), { exact: true })).toBeVisible();
+  await expect(rows(page.getByRole("table", { name: "Shown at" })).locator("td:first-child")).toHaveText(["Profile lab"]);
+  const library = page.getByLabel("In the Library", { exact: true });
+  await expect(field(library, "Created at")).toHaveText("Profile lab");
+  await expect(field(library, "Saved from")).toHaveText("Lab Bloom");
+  const profile = page.getByLabel("Profile", { exact: true });
+  await expect(field(profile, "Author")).toHaveText("Decent Sync fixtures");
+  await expect(field(profile, "Target weight")).toHaveText("36 g");
+  await expect(field(profile, "Target volume")).toHaveText("-");
+  await expect(rows(page.getByRole("table", { name: "Steps" }))).toHaveText([
+    ["Bloom", "Flow 4 ml/s", "92 °C", "10 s", "pressure over 3"].join(""),
+    ["Pour", "Pressure 9.5 bar", "92 °C", "30 s", "-"].join(""),
+  ]);
+
+  // The Profile it was saved from, hidden at the lab, is shown nowhere.
+  await field(library, "Saved from").getByRole("link").click();
+  await expect(page.getByRole("heading", { name: "Lab Bloom", level: 1 })).toBeVisible();
+  await expect(page.getByText("It is shown at no Location.")).toBeVisible();
+});
+
 async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {
   const response = await page.request.post("/api/locations", { data: { name, timeZone: "America/Chicago" } });
   baseExpect(response.status()).toBe(201);
@@ -149,6 +204,12 @@ async function batchAt(page: Page, bean: string): Promise<[string, number | null
     batches: { bean: { name: string }; locations: { location: { name: string }; remainingWeight: number | null }[] }[];
   };
   return batches.find((batch) => batch.bean.name === bean)?.locations.map((here) => [here.location.name, here.remainingWeight]);
+}
+
+/** The Locations showing the Library's Profile with that id, through the REST API. */
+async function shownAt(page: Page, id: string): Promise<string[] | undefined> {
+  const { profiles } = (await (await page.request.get("/api/profiles")).json()) as { profiles: { id: string; shownAt: { location: { name: string } }[] }[] };
+  return profiles.find((profile) => profile.id === id)?.shownAt.map((here) => here.location.name);
 }
 
 /** The Locations offering the Library's Bean of that name, through the REST API. */

@@ -136,9 +136,9 @@ All endpoints require a signed-in account, Admin or Staff.
   - `coffeeRoaster` and `coffeeName` (together, a Bean as each Shot recorded
     it, so the same Bean is found across Machines), `barista` and
     `profileTitle`: exact matches on what the Shot recorded. An empty value
-    matches Shots that recorded none. There is no Bean Batch filter: each
-    tablet has its own id for the same roast until milestone 2's global ids
-    (ADR-0006).
+    matches Shots that recorded none. There is no Bean Batch filter yet:
+    each tablet has its own id for the same batch, which Shots will be linked
+    to the Library's through (ticket #92, ADR-0006).
   - `from` and `to`: a local date (`2026-10-05`) or date and time
     (`2026-10-05T06:00`) without an offset, read on each Shot's own
     Location's wall clock, or UTC for a Shot with no Location. `from` is the

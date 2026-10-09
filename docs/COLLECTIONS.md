@@ -9,8 +9,8 @@ protocol version 1 with one delivery, defined and validated in `protocol/`:
 
 It is acknowledged with `ack` once stored, or set aside because storing it
 fails in a way that would repeat, as Shots are (`AI_PROTOCOL_NOTES.md`,
-Deliveries set aside). Older plugins never
-send it, so the protocol version stays 1. A name the server does not know, as
+Deliveries set aside). The protocol version stays 1, as it does for any
+change until v1 (ADR-0017). A name the server does not know, as
 a newer plugin might send, is acknowledged and ignored. While `available` is
 true, `value` is any JSON but null; while false, it is absent.
 
@@ -76,8 +76,9 @@ tests (`plugin/test/change-detection.test.ts`):
   the Machine's Location changes (`LIBRARY.md`).
 - Whenever it sends the beans, it sends the bean batches in full after them,
   changed or not, as the server takes in a batch only once it knows the
-  batch's bean (`LIBRARY.md`). The library's lists are read, and queued,
-  between the server's writes to the tablet, never during one.
+  batch's bean (`LIBRARY.md`). The library's lists the server writes to (the
+  beans, bean batches and profiles) are read, and queued, between the
+  server's writes to the tablet, never during one.
 - A newer delivery of a collection drops an older one still queued, unless
   the older one was ever handed to a connection. Such a delivery may still be
   being stored by the instance that received it, so it is sent again, under
@@ -96,9 +97,9 @@ Bluetooth or USB connection (`UnifiedDe1`), fifteen reads per poll.
 
 `server/src/collections/collections.service.ts` stores the latest value of
 each collection in `reported_collections`, one row per Machine (or Pending
-Machine) and name. A `beans` or `beanBatches` collection from a connection
-that is not mismatched, whose Machine is at a Location, is also taken into
-the Library in the same transaction (`LIBRARY.md`):
+Machine) and name. A `beans`, `beanBatches` or `profiles` collection from a
+connection that is not mismatched, whose Machine is at a Location, is also
+taken into the Library in the same transaction (`LIBRARY.md`):
 
 - `available` and `reported_at`: whether the latest report had a value, and
   when it arrived, by PostgreSQL's clock.

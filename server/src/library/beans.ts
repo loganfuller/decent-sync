@@ -3,7 +3,18 @@ import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { archivingInAnswer, beanContent, planIntake, readReportedBeans } from "./bean-intake.js";
-import { type AnswerRecorded, type AnsweringTablet, INTAKE_TRANSACTION, type ReportingTablet, currentLocation, lockHeldMachine, lockTablet } from "./intake.js";
+import {
+  type AnswerRecorded,
+  type AnsweringTablet,
+  INTAKE_TRANSACTION,
+  type ReportingTablet,
+  type SeenDecision,
+  currentLocation,
+  keepSeenSql,
+  lockHeldMachine,
+  lockTablet,
+  seenAtSql,
+} from "./intake.js";
 import { listedIds } from "./listed.js";
 import { deletedAt, lockLocation, offerBeanAt, takeBeanFrom, transactionTime } from "./location-state.js";
 
@@ -15,7 +26,9 @@ import { deletedAt, lockLocation, offerBeanAt, takeBeanFrom, transactionTime } f
 // it there again (location-state.ts). The instance holding each of a
 // Location's tablets' connections writes it what the Location offers
 // (server/src/sync/tablet-writer.ts). The server keeps, per tablet, each
-// Bean's local id there and the record as the tablet last had it.
+// Bean's local id there, the record as the tablet last had it, and the
+// latest decision of its batches' presence at the Location that a write to
+// the record carried, by which taking the Bean away is judged (ADR-0020).
 //
 // Everything that changes a tablet's map holds its tablet's row lock, so
 // reports and the answers to writes are decided one at a time, on any
@@ -45,10 +58,12 @@ export async function takeInBeans(
   if (locationId === null) return null;
   const reported = readReportedBeans(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
-  const mapped = await tx.$queryRaw<{ beanId: string; localId: string; updatedAt: Date | null; globalId: string | null; archived: boolean }[]>`
+  const mapped = await tx.$queryRaw<{ beanId: string; localId: string; updatedAt: Date | null; globalId: string | null; archived: boolean; seenAt: Date | null }[]>`
     SELECT bean_id AS "beanId", local_id AS "localId", record_updated_at AS "updatedAt",
-      lower(record -> 'extras' ->> ${GLOBAL_ID_KEY}::text) AS "globalId", (record ->> 'archived') = 'true' AS archived
+      lower(record -> 'extras' ->> ${GLOBAL_ID_KEY}::text) AS "globalId", (record ->> 'archived') = 'true' AS archived, ${seenAtSql(locationId)} AS "seenAt"
     FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid`;
+  /** The latest decision of its batches' presence at the Location that each record the map holds has seen there. */
+  const seenAt = new Map(mapped.map((bean) => [bean.beanId, bean.seenAt]));
   const mappedIds = new Set(mapped.map((bean) => bean.localId));
   const unmapped = reported.filter((bean) => !mappedIds.has(bean.localId));
   if (unmapped.length > 0) await tx.$executeRaw`SELECT pg_advisory_xact_lock(${BEAN_MATCHING_LOCK}::bigint)`;
@@ -75,7 +90,7 @@ export async function takeInBeans(
   for (const step of steps) {
     if (step.kind === "delete") {
       await tx.$executeRaw`DELETE FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid AND bean_id = ${step.beanId}::uuid`;
-      await takeBeanFrom(tx, step.beanId, locationId, tablet.tabletId, deletedAt(await transactionTime(tx), step.updatedAt));
+      await takeBeanFrom(tx, step.beanId, locationId, deletedAt(await transactionTime(tx), step.updatedAt), seenAt.get(step.beanId) ?? null);
       writesDue = true;
       continue;
     }
@@ -90,7 +105,6 @@ export async function takeInBeans(
     } else {
       beanId = step.beanId;
     }
-    await saveRecord(tx, tablet.tabletId, beanId, bean.localId, bean.record, bean.updatedAt);
     if (step.kind === "add" || step.kind === "link") {
       // One archived on the tablet joins the Library, but is not offered at its Location.
       if (!bean.archived) await offerBeanAt(tx, beanId, locationId);
@@ -99,10 +113,13 @@ export async function takeInBeans(
       // The tablet holds it as the Location has it, or is written so.
       writesDue = true;
     } else if (step.archived === true) {
-      writesDue = (await takeBeanFrom(tx, beanId, locationId, tablet.tabletId, bean.updatedAt)) || writesDue;
+      writesDue = (await takeBeanFrom(tx, beanId, locationId, bean.updatedAt, seenAt.get(beanId) ?? null)) || writesDue;
     } else if (step.archived === false) {
       writesDue = (await offerBeanAt(tx, beanId, locationId)) || writesDue;
     }
+    // A report shows nothing of what the tablet saw of others' decisions. Nor does its own archiving, which may
+    // leave batches added since in place: one time of the record's could not say which it saw.
+    await saveRecord(tx, tablet.tabletId, beanId, bean.localId, bean.record, bean.updatedAt, null);
     // A record whose global id is lost has it written back.
     if (bean.globalId !== beanId) writesDue = true;
   }
@@ -118,10 +135,14 @@ export async function takeInBeans(
  * the write kept (`written`, the fields it set), means at the tablet's
  * Location what it would in a report. Recorded only while the answering
  * connection holds its Machine, under the Machine's, the tablet's and the
- * Location's locks, in the order a report takes them. Nothing is recorded
- * when the record does not carry the Bean's global id, when the map holds
- * the record as another Bean's, or when the Library no longer has the Bean,
- * and writing the Bean again would change nothing.
+ * Location's locks, in the order a report takes them. The record has seen
+ * the latest decision of the Bean's batches' presence at the Location that
+ * the write carried (`seen`), as Decaid answered after it, if its Machine is
+ * still at that Location; null says nothing new, as for an answer to a write
+ * no longer awaited. Nothing is recorded when the record does not carry the
+ * Bean's global id, when the map holds the record as another Bean's, or when
+ * the Library no longer has the Bean, and writing the Bean again would
+ * change nothing.
  */
 export async function recordBeanWritten(
   prisma: PrismaService,
@@ -130,6 +151,7 @@ export async function recordBeanWritten(
   written: ReadonlySet<string>,
   record: Record<string, unknown>,
   updatedAt: string | null,
+  seen: SeenDecision | null,
 ): Promise<AnswerRecorded> {
   if (!isRecordId(record.id) || globalIdOf(record) !== beanId.toLowerCase()) return "notTheItem";
   const localId = record.id;
@@ -139,28 +161,34 @@ export async function recordBeanWritten(
     if ((await tx.bean.count({ where: { id: beanId } })) === 0) return "notTheItem";
     const other = await tx.tabletBean.findUnique({ where: { tabletId_localId: { tabletId: tablet.tabletId, localId } }, select: { beanId: true } });
     if (other && other.beanId !== beanId) return "notTheItem";
-    const [known] = await tx.$queryRaw<{ archived: boolean }[]>`
-      SELECT (record ->> 'archived') = 'true' AS archived FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid AND bean_id = ${beanId}::uuid`;
+    const locationId = await currentLocation(tx, tablet.machineId);
+    const [known] = await tx.$queryRaw<{ archived: boolean; seenAt: Date | null }[]>`
+      SELECT (record ->> 'archived') = 'true' AS archived, ${seenAtSql(locationId)} AS "seenAt"
+      FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid AND bean_id = ${beanId}::uuid`;
     const at = updatedAt === null ? null : new Date(updatedAt);
-    await saveRecord(tx, tablet.tabletId, beanId, localId, record, at);
     const archived = archivingInAnswer(known?.archived ?? null, record, written);
-    const locationId = archived === undefined ? null : await currentLocation(tx, tablet.machineId);
-    if (locationId !== null) {
+    if (locationId !== null && archived !== undefined) {
       await lockLocation(tx, locationId);
+      // The tablet archived it before Decaid answered: judged by what the record had seen before.
       const changed = archived
-        ? await takeBeanFrom(tx, beanId, locationId, tablet.tabletId, at ?? (await transactionTime(tx)))
+        ? await takeBeanFrom(tx, beanId, locationId, at ?? (await transactionTime(tx)), known?.seenAt ?? null)
         : await offerBeanAt(tx, beanId, locationId);
       if (changed) await notify(tx, "library_changes", locationId);
     }
+    await saveRecord(tx, tablet.tabletId, beanId, localId, record, at, seen?.locationId === locationId ? seen : null);
     return "recorded";
   }, INTAKE_TRANSACTION);
 }
 
 /**
  * Saves the tablet's record of a Bean as the one it holds, under its local
- * id. Whether a reported record replaces the one known is decided by
- * `planIntake`, under the tablet's row lock; a record Decaid has just
- * returned for a write always does.
+ * id, with the latest decision of its batches' presence at its Location it
+ * has now seen (`seen`): one the server's write carried. Its own archiving
+ * does not count, as it may leave batches added since in place, which one
+ * time could not tell apart. It keeps the latest it has seen at one Location
+ * (`keepSeenSql`); null keeps the one known. Whether a reported record
+ * replaces the one known is decided by `planIntake`, under the tablet's row
+ * lock; a record Decaid has just returned for a write always does.
  */
 async function saveRecord(
   tx: Prisma.TransactionClient,
@@ -169,10 +197,12 @@ async function saveRecord(
   localId: string,
   record: Record<string, unknown>,
   updatedAt: Date | null,
+  seen: SeenDecision | null,
 ): Promise<void> {
   await tx.$executeRaw`
-    INSERT INTO tablet_beans (tablet_id, bean_id, local_id, record, record_updated_at)
-    VALUES (${tabletId}::uuid, ${beanId}::uuid, ${localId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz)
+    INSERT INTO tablet_beans (tablet_id, bean_id, local_id, record, record_updated_at, seen_at, seen_location_id)
+    VALUES (${tabletId}::uuid, ${beanId}::uuid, ${localId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz,
+      ${seen?.at ?? null}::timestamptz, ${seen?.locationId ?? null}::uuid)
     ON CONFLICT (tablet_id, bean_id) DO UPDATE SET
-      local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at`;
+      local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at, ${keepSeenSql("tablet_beans")}`;
 }

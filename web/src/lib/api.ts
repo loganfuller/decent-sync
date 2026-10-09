@@ -446,3 +446,35 @@ export interface BeanBatch extends BeanBatchSummary {
   /** The Locations it was at and has been finished at since, with when and the remaining weight last entered there. */
   finished: { location: Location; remainingWeight: number | null; finishedAt: string }[];
 }
+
+/** A Location showing a Profile. */
+export interface ProfileAtLocation {
+  location: Location;
+  /** Since when it is shown there, by the server's clock. */
+  since: string;
+}
+
+/** A Profile in the Library, as the Profiles list shows it. */
+export interface ProfileSummary {
+  /** Decaid's id, such as profile:bf1ca48b9c7389c7d146: a hash of what the machine executes, the same on every tablet. */
+  id: string;
+  title: string | null;
+  author: string | null;
+  beverageType: string | null;
+  /** One of Decaid's bundled Profiles, which every tablet has already. */
+  bundled: boolean;
+  archived: boolean;
+  /** The Locations showing it, by name. None while it is Archived. */
+  shownAt: ProfileAtLocation[];
+  /** When it joined the Library. */
+  createdAt: string;
+  /** The Location of the tablet that created it. */
+  createdLocation: Location | null;
+}
+
+/** A Profile with its content: Decaid's record fields, as the tablet that created it sent them. */
+export interface Profile extends ProfileSummary {
+  content: Record<string, unknown>;
+  /** The Profile it was saved from, if the Library has it. */
+  parent: { id: string; title: string | null } | null;
+}
