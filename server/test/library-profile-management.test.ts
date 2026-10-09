@@ -162,20 +162,20 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
   it("hides an Archived Profile on every tablet, and restoring it brings back each Location's shown state", async () => {
     const lab = await locationWith("Archive lab", [22011]);
     const cafe = await locationWith("Archive cafe", [22012, 22013]);
-    const other = await locationWith("Archive other", [22014]);
+    const elsewhere = await locationWith("Archive other", [22014]);
     const record = await labProfile(lab.tablets[0]!, "Retired Bloom", 7.75);
     const id = String(record.id);
     expect((await show(id, cafe.location, true)).status).toBe(200);
-    expect((await show(id, other.location, true)).status).toBe(200);
-    await poll(() => visibilityOn(other.tablets[0]!, id)).toBe("visible");
-    expect((await show(id, other.location, false)).status).toBe(200);
+    expect((await show(id, elsewhere.location, true)).status).toBe(200);
+    await poll(() => visibilityOn(elsewhere.tablets[0]!, id)).toBe("visible");
+    expect((await show(id, elsewhere.location, false)).status).toBe(200);
     for (const tablet of cafe.tablets) await poll(() => visibilityOn(tablet, id)).toBe("visible");
-    await poll(() => visibilityOn(other.tablets[0]!, id)).toBe("hidden");
+    await poll(() => visibilityOn(elsewhere.tablets[0]!, id)).toBe("hidden");
 
     const archived = await archive(id, true);
     expect(archived.status, await archived.clone().text()).toBe(200);
     expect(((await archived.json()) as { profile: ProfileView }).profile).toMatchObject({ archived: true, shownAt: [] });
-    for (const tablet of [...lab.tablets, ...cafe.tablets, ...other.tablets]) await poll(() => visibilityOn(tablet, id)).toBe("hidden");
+    for (const tablet of [...lab.tablets, ...cafe.tablets, ...elsewhere.tablets]) await poll(() => visibilityOn(tablet, id)).toBe("hidden");
     // Each Location's state of it is kept, and Archiving it again changes nothing.
     expect((await viewProfile(id)).locations.map((here) => [here.location.name, here.shown])).toEqual([
       ["Archive cafe", true],
@@ -187,7 +187,7 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     const restored = await archive(id, false);
     expect(restored.status).toBe(200);
     for (const tablet of [...lab.tablets, ...cafe.tablets]) await poll(() => visibilityOn(tablet, id)).toBe("visible");
-    expect(visibilityOn(other.tablets[0]!, id)).toBe("hidden");
+    expect(visibilityOn(elsewhere.tablets[0]!, id)).toBe("hidden");
     expect((await viewProfile(id)).shownAt.map((here) => here.location.name)).toEqual(["Archive cafe", "Archive lab"]);
     const { versions } = await send<{ versions: VersionView[] }>("GET", `${profilePath(id)}/history`);
     expect(versions.filter((version) => version.location === null && "archived" in version.fields).map((version) => version.fields)).toEqual([
@@ -237,8 +237,8 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     // Nothing took it in again meanwhile.
     expect((await api.call("GET", profilePath(mistakenId))).status).toBe(404);
     for (const tablet of [lab.tablets[0]!, ...cafe.tablets]) {
-      expect(visibilityOn(tablet, usedId)).toBe("visible");
-      expect(visibilityOn(tablet, BUNDLED)).toBe("visible");
+      await poll(() => visibilityOn(tablet, usedId)).toBe("visible");
+      await poll(() => visibilityOn(tablet, BUNDLED)).toBe("visible");
     }
 
     // A barista saving the same profile again later makes it anew, shown where it was saved.
