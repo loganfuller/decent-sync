@@ -776,7 +776,12 @@ var __decentSync = (() => {
       __publicField(this, "outbox", outbox);
       __publicField(this, "workflow", workflow);
       __publicField(this, "machineMissing", machineMissing);
-      /** The batch and Grinder records the Shots this plugin queued since it loaded name, as `kind:id`: a few per batch and Grinder used. */
+      /**
+       * The batch, Grinder and profile records the Shots this plugin queued since
+       * it loaded name, as `kind:id`: a few per batch, Grinder and profile used.
+       * A profile is named by what the machine executed of it, which decides its
+       * id (`executedKey`), and by the id a skin recorded, if one did.
+       */
       __publicField(this, "shotsName", /* @__PURE__ */ new Set());
       /** The Shots still to be sent that `namedByShot` read. */
       __publicField(this, "shotsRead", /* @__PURE__ */ new Set());
@@ -805,13 +810,18 @@ var __decentSync = (() => {
       }
       return [...ids].some((id) => this.shotsName.has(`${kind}:${id}`));
     }
-    /** Notes the batch and Grinder records a Shot names. */
+    /** Notes the batch, Grinder and profile records a Shot names. */
     noteShot(shot) {
       const workflow = shot.workflow;
-      const context = isObject2(workflow) ? workflow.context : void 0;
+      if (!isObject2(workflow)) return;
+      const executed = executedKey(workflow.profile);
+      if (executed !== null) this.shotsName.add(`profile:${executed}`);
+      const context = workflow.context;
       if (!isObject2(context)) return;
       if (typeof context.beanBatchId === "string") this.shotsName.add(`beanBatch:${context.beanBatchId}`);
       if (typeof context.grinderId === "string") this.shotsName.add(`grinder:${context.grinderId}`);
+      const skin = isObject2(context.extras) ? context.extras.workflowSkin : void 0;
+      if (isObject2(skin) && typeof skin.selectedProfileId === "string") this.shotsName.add(`profile:${skin.selectedProfileId}`);
     }
     /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
     apply(write) {
@@ -829,7 +839,8 @@ var __decentSync = (() => {
     }
   };
   async function carryOutDelete(remove, namedByShot) {
-    const route = remove.kind === "profile" || !Object.prototype.hasOwnProperty.call(ROUTES, remove.kind) ? void 0 : ROUTES[remove.kind];
+    if (remove.kind === "profile") return purgeProfile(remove, namedByShot);
+    const route = Object.prototype.hasOwnProperty.call(ROUTES, remove.kind) ? ROUTES[remove.kind] : void 0;
     if (!route) return refused(remove, null, `This plugin cannot delete a ${remove.kind}`);
     try {
       const path = `${route.records}/${encodeURIComponent(remove.localId)}`;
@@ -859,6 +870,31 @@ var __decentSync = (() => {
     } catch (error) {
       return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+  async function purgeProfile(remove, namedByShot) {
+    try {
+      const path = `/profiles/${encodeURIComponent(remove.localId)}`;
+      const current = await request("GET", path);
+      if (current.status === 404) return deleted(remove);
+      const record = current.ok ? parsed(current.text) : void 0;
+      if (!isObject2(record)) return refused(remove, current.status, current.text);
+      const executed = executedKey(record.profile);
+      if (await namedByShot("profile", new Set(executed === null ? [remove.localId] : [remove.localId, executed]))) return refused(remove, null, SHOT_NOT_SENT);
+      const answer = await request("DELETE", `${path}/purge`);
+      return answer.ok || answer.status === 404 ? deleted(remove) : refused(remove, answer.status, answer.text);
+    } catch (error) {
+      return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  var EXECUTED_FIELDS = ["version", "beverage_type", "steps", "tank_temperature", "target_weight", "target_volume", "target_volume_count_start"];
+  function executedKey(profile) {
+    if (!isObject2(profile)) return null;
+    return stableJson(Object.fromEntries(EXECUTED_FIELDS.map((field) => [field, profile[field] ?? null])));
+  }
+  function stableJson(value) {
+    if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+    if (isObject2(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+    return JSON.stringify(value ?? null);
   }
   var SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches, or too many are still to be read";
   var MAX_SHOTS_READ = 20;

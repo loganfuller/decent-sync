@@ -105,7 +105,10 @@ real tablet record. See the fixtures' README for provenance. A Shot's batch
 and Grinder are kept by their ids on the tablet that pulled it
 (`bean_batch_id` and `grinder_id`, from its Workflow's context), indexed, so
 an Admin's hard delete of a Library item a Shot names is refused
-(`LIBRARY.md`, Hard deletes).
+(`LIBRARY.md`, Hard deletes). A Shot names the Profile it used by what its
+Workflow's `profile` executes, which decides a Profile's id, its steps
+indexed by hash, or by the `profile_id` a skin recorded in its Workflow,
+indexed too.
 
 Decaid writes a Shot's `timestamp` and sample times in the tablet's local time
 without an offset, and `createdAt` in UTC as it saves the Shot, just after the

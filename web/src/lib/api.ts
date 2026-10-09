@@ -498,6 +498,12 @@ export interface Profile extends ProfileSummary {
   content: Record<string, unknown>;
   /** The Profile it was saved from, if the Library has it. */
   parent: { id: string; title: string | null } | null;
+  /**
+   * Each Location that has decided whether it shows it, by name, kept while
+   * it is Archived: whether it is shown there, and since when that was
+   * decided. A Location not listed does not show it.
+   */
+  locations: { location: Location; shown: boolean; since: string }[];
 }
 
 /** The kinds of Library item. */

@@ -32,8 +32,8 @@ import type { Outbox } from "./outbox.js";
 // reported yet is kept, and reaches the server in the answer (ADR-0020).
 // A Location's steam, hot water and rinse settings are written into the
 // tablet's Workflow the same way (ADR-0014). A record of an item an Admin
-// hard-deleted is deleted the same way too, the one thing the plugin
-// deletes (ADR-0003).
+// hard-deleted is deleted the same way too, a Profile's purged, the one
+// thing the plugin deletes (ADR-0003).
 
 interface Route {
   /** The kind's records, archived ones included. */
@@ -144,7 +144,12 @@ export class LibraryWrites {
     });
   }
 
-  /** The batch and Grinder records the Shots this plugin queued since it loaded name, as `kind:id`: a few per batch and Grinder used. */
+  /**
+   * The batch, Grinder and profile records the Shots this plugin queued since
+   * it loaded name, as `kind:id`: a few per batch, Grinder and profile used.
+   * A profile is named by what the machine executed of it, which decides its
+   * id (`executedKey`), and by the id a skin recorded, if one did.
+   */
   private readonly shotsName = new Set<string>();
   /** The Shots still to be sent that `namedByShot` read. */
   private readonly shotsRead = new Set<string>();
@@ -161,7 +166,7 @@ export class LibraryWrites {
    * and so could not keep the record for it. A Shot still to be read, as the
    * outbox reads a new Shot only as it sends it, is read here once.
    */
-  private async namedByShot(kind: "beanBatch" | "grinder", ids: ReadonlySet<string>): Promise<boolean> {
+  private async namedByShot(kind: NamedKind, ids: ReadonlySet<string>): Promise<boolean> {
     const unread = this.outbox.requestedIds("shot").filter((id) => !this.shotsRead.has(id));
     // As during a backfill: reading them all would hold up every write behind this one, so the delete waits for a later connection.
     if (unread.length > MAX_SHOTS_READ) return true;
@@ -173,13 +178,18 @@ export class LibraryWrites {
     return [...ids].some((id) => this.shotsName.has(`${kind}:${id}`));
   }
 
-  /** Notes the batch and Grinder records a Shot names. */
+  /** Notes the batch, Grinder and profile records a Shot names. */
   private noteShot(shot: Record<string, unknown>): void {
     const workflow = shot.workflow;
-    const context = isObject(workflow) ? workflow.context : undefined;
+    if (!isObject(workflow)) return;
+    const executed = executedKey(workflow.profile);
+    if (executed !== null) this.shotsName.add(`profile:${executed}`);
+    const context = workflow.context;
     if (!isObject(context)) return;
     if (typeof context.beanBatchId === "string") this.shotsName.add(`beanBatch:${context.beanBatchId}`);
     if (typeof context.grinderId === "string") this.shotsName.add(`grinder:${context.grinderId}`);
+    const skin = isObject(context.extras) ? context.extras.workflowSkin : undefined;
+    if (isObject(skin) && typeof skin.selectedProfileId === "string") this.shotsName.add(`profile:${skin.selectedProfileId}`);
   }
 
   /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
@@ -198,6 +208,9 @@ export class LibraryWrites {
   }
 }
 
+/** The kinds of record a Shot names. */
+type NamedKind = "beanBatch" | "grinder" | "profile";
+
 /**
  * Deletes the tablet's record of a hard-deleted item (`LibraryDelete`),
  * unless it carries another item's global id: one the server mapped may
@@ -213,9 +226,10 @@ export class LibraryWrites {
  */
 async function carryOutDelete(
   remove: LibraryDelete,
-  namedByShot: (kind: "beanBatch" | "grinder", ids: ReadonlySet<string>) => Promise<boolean>,
+  namedByShot: (kind: NamedKind, ids: ReadonlySet<string>) => Promise<boolean>,
 ): Promise<DeleteAnswer> {
-  const route = remove.kind === "profile" || !Object.prototype.hasOwnProperty.call(ROUTES, remove.kind) ? undefined : ROUTES[remove.kind];
+  if (remove.kind === "profile") return purgeProfile(remove, namedByShot);
+  const route = Object.prototype.hasOwnProperty.call(ROUTES, remove.kind) ? ROUTES[remove.kind] : undefined;
   if (!route) return refused(remove, null, `This plugin cannot delete a ${remove.kind}`);
   try {
     const path = `${route.records}/${encodeURIComponent(remove.localId)}`;
@@ -245,6 +259,51 @@ async function carryOutDelete(
   } catch (error) {
     return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+/**
+ * Purges the tablet's record of a hard-deleted Profile, as Decaid's delete
+ * only marks a user's profile deleted (`DELETE /profiles/{id}/purge`),
+ * unless a Shot this plugin queued since it loaded, or has yet to read and
+ * send, used it (`namedByShot`), as `carryOutDelete` keeps a batch's record.
+ * Its record carries no global id: its id is Decaid's, the same on every
+ * tablet. A record already gone is deleted. Decaid refuses to purge one of
+ * its bundled profiles, which the server never deletes.
+ */
+async function purgeProfile(remove: LibraryDelete, namedByShot: (kind: NamedKind, ids: ReadonlySet<string>) => Promise<boolean>): Promise<DeleteAnswer> {
+  try {
+    const path = `/profiles/${encodeURIComponent(remove.localId)}`;
+    const current = await request("GET", path);
+    if (current.status === 404) return deleted(remove);
+    const record = current.ok ? parsed(current.text) : undefined;
+    if (!isObject(record)) return refused(remove, current.status, current.text);
+    const executed = executedKey(record.profile);
+    if (await namedByShot("profile", new Set(executed === null ? [remove.localId] : [remove.localId, executed]))) return refused(remove, null, SHOT_NOT_SENT);
+    const answer = await request("DELETE", `${path}/purge`);
+    return answer.ok || answer.status === 404 ? deleted(remove) : refused(remove, answer.status, answer.text);
+  } catch (error) {
+    return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/** The fields of a profile Decaid hashes for its id: what the machine executes (`ProfileHash` in decaid:lib/src/models/data/profile_hash.dart). */
+const EXECUTED_FIELDS = ["version", "beverage_type", "steps", "tank_temperature", "target_weight", "target_volume", "target_volume_count_start"] as const;
+
+/**
+ * What the machine executes of a profile, as text that is the same for the
+ * same profile, its keys sorted, as a Shot's Workflow and a profile's record
+ * hold it alike; null if it is not a profile.
+ */
+function executedKey(profile: unknown): string | null {
+  if (!isObject(profile)) return null;
+  return stableJson(Object.fromEntries(EXECUTED_FIELDS.map((field) => [field, profile[field] ?? null])));
+}
+
+/** JSON with every object's keys sorted. */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (isObject(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+  return JSON.stringify(value ?? null);
 }
 
 /** Why a delete is refused while a Shot this plugin queued, or has yet to send, may name its record or one of its batches. */

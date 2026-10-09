@@ -13,6 +13,7 @@ import {
   plannedWrites,
   writeKey,
 } from "./holdings.js";
+import { shotNamesProfileSql } from "./hard-deletes.js";
 import { settingsDue } from "./location-settings.js";
 import { latestDecision, readFieldEdits } from "./merge.js";
 import { profileText } from "./profile-intake.js";
@@ -175,15 +176,15 @@ function presenceDecidedSql(beanId: Prisma.Sql, locationId: string): Prisma.Sql 
 }
 
 /** The order records are deleted in: a bean's batches before it, as Decaid refuses to delete a bean that has any. */
-const DELETE_ORDER: readonly DeletedKind[] = ["beanBatch", "bean", "grinder"];
+const DELETE_ORDER: readonly DeletedKind[] = ["beanBatch", "bean", "grinder", "profile"];
 
 /**
  * The tablet's records of hard-deleted items still to be deleted there, but
  * those in `skipped` (`deleteKey`), and a batch or Grinder record a Shot
- * names by its id, as one the tablet pulled, or sent, after the item was
- * deleted: that record is kept on its tablet, out of the Library, and so is
- * the record of a batch's Bean there, as the plugin deletes a bean's batches
- * with it.
+ * names by its id, or a Profile's a Shot used, as one the tablet pulled, or
+ * sent, after the item was deleted: that record is kept on its tablet, out
+ * of the Library, and so is the record of a batch's Bean there, as the
+ * plugin deletes a bean's batches with it.
  */
 async function deletesDue(tx: Prisma.TransactionClient, tabletId: string, skipped: ReadonlySet<string>): Promise<PlannedDelete[]> {
   const rows = await tx.$queryRaw<{ kind: DeletedKind; localId: string; itemId: string }[]>`
@@ -195,6 +196,7 @@ async function deletesDue(tx: Prisma.TransactionClient, tabletId: string, skippe
         SELECT 1 FROM tablet_deletions AS batch JOIN shots ON shots.bean_batch_id = batch.local_id
         WHERE batch.tablet_id = due.tablet_id AND batch.kind = 'beanBatch' AND batch.bean_local_id = due.local_id
       ))
+      AND NOT (kind = 'profile' AND ${shotNamesProfileSql(Prisma.sql`due.local_id`, Prisma.sql`due.executed`)})
     ORDER BY local_id`;
   return rows
     .filter((row) => DELETE_ORDER.includes(row.kind) && !skipped.has(deleteKey(row.kind, row.localId)))

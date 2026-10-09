@@ -470,6 +470,9 @@ model Shot {
   @@index([pendingMachineId])
   @@index([beanBatchId])
   @@index([grinderId])
+  @@index([profileId])
+  /// The migration also indexes the steps of its Workflow's profile, by
+  /// hash, which a Profile's hard delete looks for; Prisma cannot express it.
   @@map("shots")
 }
 
@@ -1165,7 +1168,9 @@ model TabletSettings {
 /// that was offline, is deleted there too rather than taken in as new
 /// (server/src/library/hard-deletes.ts).
 model DeletedItem {
-  /// `bean`, `beanBatch` or `grinder`.
+  /// `bean`, `beanBatch` or `grinder`. A Profile is never kept here: one
+  /// a tablet reports later, as when a barista makes it again, joins the
+  /// Library anew, as its id is Decaid's.
   kind      String
   itemId    String   @map("item_id") @db.Uuid
   /// When it was deleted, by PostgreSQL's clock.
@@ -1181,16 +1186,20 @@ model DeletedItem {
 model TabletDeletion {
   tabletId String @map("tablet_id") @db.Uuid
   tablet   Tablet @relation(fields: [tabletId], references: [id], onDelete: Cascade)
-  /// `bean`, `beanBatch` or `grinder`.
+  /// `bean`, `beanBatch`, `grinder` or `profile`.
   kind     String
   /// Decaid's id for the record on that tablet.
   localId  String @map("local_id")
-  /// The deleted item's global id, which the record carries.
-  itemId   String @map("item_id") @db.Uuid
+  /// The deleted item's global id, which the record carries, or a
+  /// Profile's id, which is Decaid's.
+  itemId   String @map("item_id")
   /// For a batch's record, the id there of its bean's record, which is
   /// deleted only once the batch's is, as the plugin deletes a bean's
   /// batches with it.
   beanLocalId String? @map("bean_local_id")
+  /// For a Profile's record, what the machine executes of it, which a Shot
+  /// that used it recorded in its Workflow (`executedProfileSql`).
+  executed    Json?   @db.JsonB
 
   @@id([tabletId, kind, localId])
   @@map("tablet_deletions")

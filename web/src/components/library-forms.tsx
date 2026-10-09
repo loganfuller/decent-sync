@@ -17,8 +17,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { ApiError, api, type BeanBatch, type BeanSummary, type Location } from "@/lib/api";
 
 // Creating and editing the Library's Beans, Bean Batches and Grinders,
-// Archiving and restoring them, adding and finishing batches at Locations,
-// and an Admin's hard delete. Each change is the account's edit, made over
+// Archiving and restoring them and Profiles, adding and finishing batches at
+// Locations, and an Admin's hard delete. Each change is the account's edit, made over
 // the item as it stands, and is written to every tablet that holds it.
 
 /** How a form reads a field: as text, longer text, a number, a day, yes or no, a list, a list of whole numbers, or one of some choices. */
@@ -290,8 +290,20 @@ export function useMayChangeAt(): (locationId: string | null) => boolean {
   return (locationId) => isAdmin || (locationId !== null && staffLocations.has(locationId));
 }
 
-/** Archives an item, offered nowhere from then on, or restores it, offered again where it was. */
-export function ArchiveButton({ path, name, archived, onDone }: { path: string; name: string; archived: boolean; onDone(): Promise<void> | void }) {
+/** Archives an item, offered nowhere from then on, or restores it, offered again where it was. `effect` says what Archiving does on tablets. */
+export function ArchiveButton({
+  path,
+  name,
+  archived,
+  effect = "archived on every tablet that holds it",
+  onDone,
+}: {
+  path: string;
+  name: string;
+  archived: boolean;
+  effect?: string;
+  onDone(): Promise<void> | void;
+}) {
   const [error, setError] = useState<string>();
   async function change() {
     setError(undefined);
@@ -313,7 +325,7 @@ export function ArchiveButton({ path, name, archived, onDone }: { path: string; 
         <ConfirmButton
           label="Archive"
           title={`Archive ${name}?`}
-          description="It is offered nowhere from now on, and archived on every tablet that holds it, but kept, so past Shots still name it. It can be restored."
+          description={`It is offered nowhere from now on, and ${effect}, but kept, so past Shots still name it. It can be restored.`}
           confirmLabel="Archive"
           onConfirm={() => void change()}
         />

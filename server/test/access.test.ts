@@ -56,6 +56,8 @@ const STAFF = [
   "GET /api/grinders/:id/conflicts",
   "GET /api/profiles",
   "GET /api/profiles/:id",
+  "PUT /api/profiles/:id/locations/:locationId",
+  "PUT /api/profiles/:id/archived",
   "GET /api/profiles/:id/history",
   "GET /api/profiles/:id/conflicts",
   "GET /api/locations",

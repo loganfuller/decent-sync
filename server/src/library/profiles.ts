@@ -16,6 +16,7 @@ import {
   lockTablet,
   seenAtSql,
 } from "./intake.js";
+import { setAsideDeleted } from "./hard-deletes.js";
 import { listedIds } from "./listed.js";
 import { decideProfileAt, deletedAt, lockLocation, showProfileAt, transactionTime } from "./location-state.js";
 import { changedFields } from "./merge.js";
@@ -56,8 +57,18 @@ export async function takeInProfiles(
 ): Promise<string | null> {
   const locationId = await currentLocation(tx, tablet.machineId);
   if (locationId === null) return null;
-  const reported = readReportedProfiles(value, updatedAt);
+  const read = readReportedProfiles(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
+  // A record of a Profile an Admin hard-deleted is deleted on the tablet rather than taken in again.
+  const screened = await setAsideDeleted(
+    tx,
+    tablet.tabletId,
+    "profile",
+    read.map((profile) => ({ localId: profile.id, globalId: null, profile })),
+    listedIds(value),
+    new Set(),
+  );
+  const reported = screened.kept.map((record) => record.profile);
   const mapped = await tx.$queryRaw<
     {
       profileId: string;

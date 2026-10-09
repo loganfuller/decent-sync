@@ -3,14 +3,15 @@ import { Link, useParams } from "react-router";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
 import { formatTime } from "@/components/machines";
-import { ProfileBadges, profilePath, profileTitle } from "@/components/profiles";
+import { ArchiveButton, DeleteButton } from "@/components/library-forms";
+import { ProfileBadges, ProfileLocationsCard, profilePath, profileTitle } from "@/components/profiles";
 import { OrNone } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError, api, type Profile } from "@/lib/api";
 
-/** One Profile: the Locations showing it, what the machine follows, and where it came from. */
+/** One Profile: the Locations showing it, which can be changed there, what the machine follows, and where it came from. */
 export function ProfilePage() {
   const { id = "" } = useParams();
   return <ProfileDetails key={id} id={id} />;
@@ -20,8 +21,10 @@ function ProfileDetails({ id }: { id: string }) {
   const [profile, setProfile] = useState<Profile>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
-  // Using a Conflict\'s value changes the item, so it is loaded again, with its history.
+  // Using a Conflict\'s value, or a change here, changes the item, so it is loaded again, with its history.
   const [changes, setChanges] = useState(0);
+  const changed = () => setChanges((count) => count + 1);
+  const path = `/profiles/${encodeURIComponent(id)}`;
 
   useEffect(() => {
     let current = true;
@@ -75,44 +78,14 @@ function ProfileDetails({ id }: { id: string }) {
         </h1>
         <p className="font-mono text-sm text-muted-foreground">{profile.id}</p>
       </div>
+      <div className="flex flex-wrap items-start gap-2">
+        <ArchiveButton path={path} name={profileTitle(profile)} archived={profile.archived} effect="hidden on every tablet that holds it" onDone={changed} />
+        {!profile.bundled && <DeleteButton path={path} name={profileTitle(profile)} back="/library/profiles" />}
+      </div>
 
-      <ItemConflictsCard kind="profile" id={id} onResolved={() => setChanges((count) => count + 1)} />
+      <ItemConflictsCard kind="profile" id={id} onResolved={changed} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            <h2>Locations</h2>
-          </CardTitle>
-          <CardDescription>
-            Where it is shown, and since when. Each Location's tablets hold it visible there, and hidden, never
-            deleted, everywhere else they hold it.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {profile.archived ? (
-            <p className="text-sm text-muted-foreground">It is Archived, so it is shown nowhere.</p>
-          ) : profile.shownAt.length === 0 ? (
-            <p className="text-sm text-muted-foreground">It is shown at no Location.</p>
-          ) : (
-            <Table aria-label="Shown at">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Shown since</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {profile.shownAt.map((here) => (
-                  <TableRow key={here.location.id}>
-                    <TableCell className="font-medium">{here.location.name}</TableCell>
-                    <TableCell>{formatTime(here.since)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      <ProfileLocationsCard profile={profile} onChanged={changed} />
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>

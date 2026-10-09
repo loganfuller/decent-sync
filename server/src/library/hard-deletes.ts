@@ -6,13 +6,16 @@ import type { PrismaService } from "../prisma.service.js";
 import { INTAKE_TRANSACTION, lockTablet } from "./intake.js";
 import { lockLocation } from "./location-state.js";
 
-// Hard deletes (ADR-0003, ADR-0019): an Admin removes a Bean, Bean Batch or
-// Grinder no Shot names from the Library and from every tablet that holds it,
-// the one thing the server deletes from tablets. A Bean goes with its
-// batches, as Decaid refuses to delete a bean that has any. A Shot names a
+// Hard deletes (ADR-0003, ADR-0019): an Admin removes a Bean, Bean Batch,
+// Grinder or Profile no Shot names from the Library and from every tablet that
+// holds it, the one thing the server deletes from tablets. A Bean goes with
+// its batches, as Decaid refuses to delete a bean that has any. A Shot names a
 // batch or Grinder by its id on the tablet that pulled it, so an item whose
 // record has that id on any tablet's map is named; a Bean is named when one
-// of its batches is.
+// of its batches is. A Shot names a Profile by what it executed, which its
+// Workflow records whole, and which decides a Profile's id (ADR-0006), or by
+// the profile id a skin recorded there. Decaid's bundled Profiles, which
+// every tablet has and Decaid refuses to delete, are never deleted.
 //
 // The item is gone from the Library at once, with its versions, Conflicts
 // and each Location's state of it. Its global id is kept (`deleted_items`),
@@ -20,7 +23,10 @@ import { lockLocation } from "./location-state.js";
 // tablet's writer deletes (tablet-due.ts), now or once the tablet connects
 // again. A record carrying a deleted item's global id that a tablet reports
 // later, as one that was offline, or one written it whose answer was lost, is
-// not taken in as new: it is deleted there too.
+// not taken in as new: it is deleted there too. A Profile's id is Decaid's,
+// a hash of what the machine executes, so a record of it a tablet reports
+// later is not told apart from one a barista made again: but for a record a
+// delete is due for, it joins the Library anew, as a Profile made there.
 //
 // Locks, in the order every other change takes them, so none waits on
 // another in turn: the item's open Conflicts, which resolving one locks
@@ -34,19 +40,52 @@ interface Deleted {
   id: string;
 }
 
-/** Each kind's table, its tablets' map, and the column naming the item in versions, Conflicts and maps. A batch's map names its Bean through the batch's row. */
-const TABLES: Readonly<Record<DeletedKind, { table: string; map: string; column: string }>> = {
-  bean: { table: "beans", map: "tablet_beans", column: "bean_id" },
-  beanBatch: { table: "bean_batches", map: "tablet_bean_batches", column: "batch_id" },
-  grinder: { table: "grinders", map: "tablet_grinders", column: "grinder_id" },
+/**
+ * Each kind's table, its tablets' map, the column naming the item in
+ * versions, Conflicts and maps, and its id's type. A batch's map names its
+ * Bean through the batch's row.
+ */
+const TABLES: Readonly<Record<DeletedKind, { table: string; map: string; column: string; cast: string }>> = {
+  bean: { table: "beans", map: "tablet_beans", column: "bean_id", cast: "uuid" },
+  beanBatch: { table: "bean_batches", map: "tablet_bean_batches", column: "batch_id", cast: "uuid" },
+  grinder: { table: "grinders", map: "tablet_grinders", column: "grinder_id", cast: "uuid" },
+  profile: { table: "profiles", map: "tablet_profiles", column: "profile_id", cast: "text" },
 };
 
-const NAMES: Readonly<Record<DeletedKind, string>> = { bean: "Bean", beanBatch: "Bean Batch", grinder: "Grinder" };
+const NAMES: Readonly<Record<DeletedKind, string>> = { bean: "Bean", beanBatch: "Bean Batch", grinder: "Grinder", profile: "Profile" };
+
+/**
+ * What the machine executes of a profile, as Decaid hashes it for the
+ * Profile's id (`ProfileHash` in decaid:lib/src/models/data/profile_hash.dart):
+ * its version, beverage type, steps, tank temperature and targets, from the
+ * `profile` of a Library Profile's content or of a Shot's Workflow, which
+ * Decaid writes alike. PostgreSQL compares JSON numbers by value, so a whole
+ * double Decaid writes as `92.0` equals 92.
+ */
+export function executedProfileSql(profile: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`jsonb_build_object('version', ${profile} -> 'version', 'beverage_type', ${profile} -> 'beverage_type',
+    'steps', ${profile} -> 'steps', 'tank_temperature', ${profile} -> 'tank_temperature', 'target_weight', ${profile} -> 'target_weight',
+    'target_volume', ${profile} -> 'target_volume', 'target_volume_count_start', ${profile} -> 'target_volume_count_start')`;
+}
+
+/**
+ * Whether a Shot names a Profile, given its id and what it executes
+ * (`executedProfileSql`): its Workflow's profile executes the same, found by
+ * the index on its steps, or a skin recorded the Profile's id there.
+ */
+export function shotNamesProfileSql(id: Prisma.Sql, executed: Prisma.Sql): Prisma.Sql {
+  const used = Prisma.sql`shots.record -> 'workflow' -> 'profile'`;
+  return Prisma.sql`EXISTS (
+    SELECT 1 FROM shots
+    WHERE shots.profile_id = ${id} OR (${used} -> 'steps' = ${executed} -> 'steps' AND ${executedProfileSql(used)} = ${executed})
+  )`;
+}
 
 /**
  * Deletes the item from the Library, a Bean with its batches, and has every
  * tablet that holds it delete its record. 404 if the Library does not have
- * it; 409 if a Shot names it, or for a Bean one of its batches.
+ * it; 409 if a Shot names it, or for a Bean one of its batches, or it is one
+ * of Decaid's bundled Profiles.
  */
 export async function hardDelete(prisma: PrismaService, kind: DeletedKind, id: string): Promise<void> {
   // A tablet or Location that comes to hold the item while its locks are taken is found once they are, and the
@@ -62,14 +101,19 @@ export async function hardDelete(prisma: PrismaService, kind: DeletedKind, id: s
 async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: string): Promise<boolean> {
   const items = await deletedWith(tx, kind, id);
   if (items === null) throw new NotFoundException(`No such ${NAMES[kind]}`);
+  if (kind === "profile" && (await tx.profile.count({ where: { id, bundled: true } })) > 0) {
+    throw new ConflictException("Decaid's bundled Profiles cannot be deleted from tablets: hide it at each Location, or Archive it");
+  }
   const byKind = (wanted: DeletedKind) => items.filter((item) => item.kind === wanted).map((item) => item.id);
   const beans = byKind("bean");
   const batches = byKind("beanBatch");
   const grinders = byKind("grinder");
+  const profiles = byKind("profile");
 
   await tx.$queryRaw`
     SELECT 1 FROM conflicts
-    WHERE state = 'OPEN' AND (bean_id = ANY(${beans}::uuid[]) OR batch_id = ANY(${batches}::uuid[]) OR grinder_id = ANY(${grinders}::uuid[]))
+    WHERE state = 'OPEN' AND (bean_id = ANY(${beans}::uuid[]) OR batch_id = ANY(${batches}::uuid[]) OR grinder_id = ANY(${grinders}::uuid[])
+      OR profile_id = ANY(${profiles}::text[]))
     ORDER BY id FOR UPDATE`;
   const holders = async () => ({
     tablets: (
@@ -77,6 +121,7 @@ async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: s
         SELECT tablet_id::text AS id FROM tablet_beans WHERE bean_id = ANY(${beans}::uuid[])
         UNION SELECT tablet_id::text FROM tablet_bean_batches WHERE batch_id = ANY(${batches}::uuid[])
         UNION SELECT tablet_id::text FROM tablet_grinders WHERE grinder_id = ANY(${grinders}::uuid[])
+        UNION SELECT tablet_id::text FROM tablet_profiles WHERE profile_id = ANY(${profiles}::text[])
         ORDER BY 1`
     ).map((row) => row.id),
     locations: (
@@ -84,6 +129,7 @@ async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: s
         SELECT location_id::text AS id FROM batch_locations WHERE batch_id = ANY(${batches}::uuid[])
         UNION SELECT location_id::text FROM bean_origins WHERE bean_id = ANY(${beans}::uuid[])
         UNION SELECT location_id::text FROM grinders WHERE id = ANY(${grinders}::uuid[]) AND location_id IS NOT NULL
+        UNION SELECT location_id::text FROM profile_locations WHERE profile_id = ANY(${profiles}::text[])
         ORDER BY 1`
     ).map((row) => row.id),
   });
@@ -91,7 +137,7 @@ async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: s
   for (const tabletId of locked.tablets) await lockTablet(tx, tabletId);
   for (const locationId of locked.locations) await lockLocation(tx, locationId);
   for (const item of [...items].sort((a, b) => a.id.localeCompare(b.id))) {
-    await tx.$queryRaw`SELECT 1 FROM ${Prisma.raw(TABLES[item.kind].table)} WHERE id = ${item.id}::uuid FOR UPDATE`;
+    await tx.$queryRaw`SELECT 1 FROM ${Prisma.raw(TABLES[item.kind].table)} WHERE id = ${item.id}::${Prisma.raw(TABLES[item.kind].cast)} FOR UPDATE`;
   }
   // Under the items' locks, nothing else comes to hold them: a map or a Location's state referencing one waits for them.
   const now = await holders();
@@ -105,6 +151,10 @@ async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: s
   const [named] = await tx.$queryRaw<{ named: boolean }[]>`
     SELECT EXISTS (SELECT 1 FROM shots JOIN tablet_bean_batches AS held ON held.local_id = shots.bean_batch_id WHERE held.batch_id = ANY(${batches}::uuid[]))
       OR EXISTS (SELECT 1 FROM shots JOIN tablet_grinders AS held ON held.local_id = shots.grinder_id WHERE held.grinder_id = ANY(${grinders}::uuid[]))
+      OR EXISTS (
+        SELECT 1 FROM profiles WHERE id = ANY(${profiles}::text[])
+          AND ${shotNamesProfileSql(Prisma.sql`profiles.id`, executedProfileSql(Prisma.sql`profiles.content -> 'profile'`))}
+      )
       AS named`;
   if (named?.named) {
     const what = kind === "bean" ? "one of this Bean's batches" : `this ${NAMES[kind]}`;
@@ -112,16 +162,25 @@ async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: s
   }
 
   for (const item of items) {
-    const { table, map, column } = TABLES[item.kind];
-    // A batch's records keep their bean's id there, so a bean's record is deleted only once its batches' are.
-    const bean = item.kind === "beanBatch" ? Prisma.sql`record ->> 'beanId'` : Prisma.sql`NULL::text`;
-    await tx.$executeRaw`
-      INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id, bean_local_id)
-      SELECT tablet_id, ${item.kind}, local_id, ${Prisma.raw(column)}, ${bean} FROM ${Prisma.raw(map)} WHERE ${Prisma.raw(column)} = ${item.id}::uuid
-      ON CONFLICT DO NOTHING`;
-    await tx.$executeRaw`INSERT INTO deleted_items (kind, item_id) VALUES (${item.kind}, ${item.id}::uuid) ON CONFLICT DO NOTHING`;
+    const { table, map, column, cast } = TABLES[item.kind];
+    if (item.kind === "profile") {
+      // A Profile's record is named by its id, which is Decaid's, and keeps what it executes, which a Shot that used it recorded.
+      await tx.$executeRaw`
+        INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id, executed)
+        SELECT held.tablet_id, 'profile', held.profile_id, held.profile_id, ${executedProfileSql(Prisma.sql`profiles.content -> 'profile'`)}
+        FROM tablet_profiles AS held JOIN profiles ON profiles.id = held.profile_id WHERE held.profile_id = ${item.id}
+        ON CONFLICT DO NOTHING`;
+    } else {
+      // A batch's records keep their bean's id there, so a bean's record is deleted only once its batches' are.
+      const bean = item.kind === "beanBatch" ? Prisma.sql`record ->> 'beanId'` : Prisma.sql`NULL::text`;
+      await tx.$executeRaw`
+        INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id, bean_local_id)
+        SELECT tablet_id, ${item.kind}, local_id, ${Prisma.raw(column)}::text, ${bean} FROM ${Prisma.raw(map)} WHERE ${Prisma.raw(column)} = ${item.id}::uuid
+        ON CONFLICT DO NOTHING`;
+      await tx.$executeRaw`INSERT INTO deleted_items (kind, item_id) VALUES (${item.kind}, ${item.id}::uuid) ON CONFLICT DO NOTHING`;
+    }
     // A Bean's batches go first, as their rows reference it.
-    if (item.kind !== "bean") await tx.$executeRaw`DELETE FROM ${Prisma.raw(table)} WHERE id = ${item.id}::uuid`;
+    if (item.kind !== "bean") await tx.$executeRaw`DELETE FROM ${Prisma.raw(table)} WHERE id = ${item.id}::${Prisma.raw(cast)}`;
   }
   if (beans.length > 0) await tx.$executeRaw`DELETE FROM beans WHERE id = ANY(${beans}::uuid[])`;
   if (now.tablets.length > 0 || now.locations.length > 0) await notify(tx, "library_changes", id);
@@ -130,7 +189,7 @@ async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: s
 
 /** The item and what goes with it, a Bean's batches; null if the Library does not have it. */
 async function deletedWith(tx: Prisma.TransactionClient, kind: DeletedKind, id: string): Promise<Deleted[] | null> {
-  const [found] = await tx.$queryRaw<unknown[]>`SELECT 1 FROM ${Prisma.raw(TABLES[kind].table)} WHERE id = ${id}::uuid`;
+  const [found] = await tx.$queryRaw<unknown[]>`SELECT 1 FROM ${Prisma.raw(TABLES[kind].table)} WHERE id = ${id}::${Prisma.raw(TABLES[kind].cast)}`;
   if (!found) return null;
   if (kind !== "bean") return [{ kind, id }];
   const batches = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM bean_batches WHERE bean_id = ${id}::uuid ORDER BY id`;
@@ -192,7 +251,7 @@ export async function setAsideDeleted<T extends ReportedRecord>(
     if (record.globalId !== null && !mapped.has(record.localId) && deleted.has(record.globalId)) {
       await tx.$executeRaw`
         INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id, bean_local_id)
-        VALUES (${tabletId}::uuid, ${kind}, ${record.localId}, ${record.globalId}::uuid, ${record.beanLocalId ?? null})
+        VALUES (${tabletId}::uuid, ${kind}, ${record.localId}, ${record.globalId}::uuid::text, ${record.beanLocalId ?? null})
         ON CONFLICT DO NOTHING`;
       deleting.add(record.localId);
       due = true;

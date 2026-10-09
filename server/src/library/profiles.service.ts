@@ -33,6 +33,13 @@ export interface ProfileView extends ProfileSummary {
   content: Record<string, unknown>;
   /** The Profile it was saved from, as Streamline saves one whose steps changed, if the Library has it. */
   parent: { id: string; title: string | null } | null;
+  /**
+   * Each Location that has decided whether it shows it, by name: whether it
+   * is shown there, and when that was last decided, by PostgreSQL's clock.
+   * Kept while it is Archived, which shows it nowhere, so restoring it shows
+   * it again where it is shown. A Location not listed does not show it.
+   */
+  locations: { location: LocationView; shown: boolean; since: string }[];
 }
 
 const withPlaces = {
@@ -58,7 +65,15 @@ export class ProfilesService {
     const content = object(profile.content);
     const parentId = typeof content.parentId === "string" ? content.parentId : null;
     const parent = parentId === null ? null : await this.prisma.profile.findUnique({ where: { id: parentId }, select: { id: true, content: true } });
-    return { ...summary(profile), content, parent: parent ? { id: parent.id, title: titled(parent.content).title } : null };
+    const decided = await this.prisma.profileLocation.findMany({ where: { profileId: id }, include: { location: true } });
+    return {
+      ...summary(profile),
+      content,
+      parent: parent ? { id: parent.id, title: titled(parent.content).title } : null,
+      locations: decided
+        .map((here) => ({ location: viewLocation(here.location), shown: here.shown, since: here.decidedAt.toISOString() }))
+        .sort((a, b) => a.location.name.localeCompare(b.location.name)),
+    };
   }
 }
 
