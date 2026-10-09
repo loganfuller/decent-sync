@@ -3,7 +3,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { type LocationEdit, batchContent, editsInAnswer, planBatchIntake, readReportedBatches } from "./batch-intake.js";
-import { editContent, lockItems, recordJoined } from "./content-edits.js";
+import { editContent, holdsWrittenContent, lockItems, recordJoined } from "./content-edits.js";
 import { type EditSource, tabletSource } from "./history.js";
 import {
   type AnswerRecorded,
@@ -160,7 +160,8 @@ async function applyEdits(
  * the Location's decision of the batch's presence that the write carried
  * (`seen`), as Decaid answered after it, if its Machine is still at that
  * Location, or, deciding it itself, its own, and the latest edit of the
- * batch's content the write carried (`contentSeen`); null says nothing new,
+ * batch's content the write carried (`contentSeen`), if it holds that content
+ * (`holdsWrittenContent`); null says nothing new,
  * as for an answer to a write no longer awaited. A field of its content the
  * write did not set that differs from the record known was edited on the
  * tablet since, and is merged as a report's edit would be (ADR-0020).
@@ -201,14 +202,16 @@ export async function recordBatchWritten(
       changed = applied.changed;
       decided = applied.decidedAt === null ? null : { at: applied.decidedAt, locationId };
     }
+    let edited: Record<string, unknown> | null = null;
     if (known) {
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
-      const edited = Object.fromEntries(Object.entries(changedFields(batchContent(known.record), batchContent(record))).filter(([field]) => !written.has(field)));
+      edited = Object.fromEntries(Object.entries(changedFields(batchContent(known.record), batchContent(record))).filter(([field]) => !written.has(field)));
       const edit = { values: edited, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt };
       changed = (await editContent(tx, { kind: "beanBatch", id: batchId }, edit, source)) || changed;
     }
     if (changed && locationId !== null) await notify(tx, "library_changes", locationId);
-    await saveRecord(tx, tablet.tabletId, batchId, localId, record, at, decided ?? (seen?.locationId === locationId ? seen : null), contentSeen);
+    const holds = contentSeen !== null && (await holdsWrittenContent(tx, { kind: "beanBatch", id: batchId }, batchContent(record), edited));
+    await saveRecord(tx, tablet.tabletId, batchId, localId, record, at, decided ?? (seen?.locationId === locationId ? seen : null), holds ? contentSeen : null);
     return "recorded";
   }, INTAKE_TRANSACTION);
 }

@@ -3,7 +3,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { archivingInAnswer, beanContent, planIntake, readReportedBeans } from "./bean-intake.js";
-import { editContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
+import { editContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
 import { tabletSource } from "./history.js";
 import {
   type AnswerRecorded,
@@ -173,8 +173,8 @@ export async function takeInBeans(
  * the latest decision of the Bean's batches' presence at the Location that
  * the write carried (`seen`), as Decaid answered after it, if its Machine is
  * still at that Location, and the latest edit of the Bean's content the write
- * carried (`contentSeen`); null says nothing new, as for an answer to a write
- * no longer awaited. A field of its content the write did not set that
+ * carried (`contentSeen`), if it holds that content (`holdsWrittenContent`);
+ * null says nothing new. A field of its content the write did not set that
  * differs from the record known was edited on the tablet since its last
  * report, and is merged as a report's edit would be (ADR-0020). A record the
  * plugin `linked` to the Bean, a bean of the same roaster and name entered
@@ -221,15 +221,17 @@ export async function recordBeanWritten(
     }
     const item = { kind: "bean", id: beanId } as const;
     let contentChanged = false;
+    let edited: Record<string, unknown> | null = null;
     if (known) {
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
-      const edited = Object.fromEntries(Object.entries(changedFields(beanContent(known.record), beanContent(record))).filter(([field]) => !written.has(field)));
+      edited = Object.fromEntries(Object.entries(changedFields(beanContent(known.record), beanContent(record))).filter(([field]) => !written.has(field)));
       contentChanged = await editContent(tx, item, { values: edited, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt }, source);
     } else if (linked) {
       contentChanged = await recordLinked(tx, item, beanContent(record), at ?? (await transactionTime(tx)), source);
     }
     if (contentChanged && locationId !== null) await notify(tx, "library_changes", locationId);
-    await saveRecord(tx, tablet.tabletId, beanId, localId, record, at, seen?.locationId === locationId ? seen : null, contentSeen);
+    const holds = contentSeen !== null && (await holdsWrittenContent(tx, item, beanContent(record), edited));
+    await saveRecord(tx, tablet.tabletId, beanId, localId, record, at, seen?.locationId === locationId ? seen : null, holds ? contentSeen : null);
     return "recorded";
   }, INTAKE_TRANSACTION);
 }

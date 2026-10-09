@@ -158,3 +158,28 @@ export async function recordLinked(tx: Prisma.TransactionClient, item: ItemRef, 
   for (const [field, value] of differing) await recordConflict(tx, item, null, field, value, source, at);
   return differing.length > 0;
 }
+
+/**
+ * Whether a tablet's record, as Decaid returned it for one of the server's
+ * writes, holds the content that write carried, so it has seen the edits the
+ * write's `contentDecidedAt` covers. A record the map held does when its
+ * answer shows no change of its content the write did not set (`edited`):
+ * a field the plugin left as the tablet had changed it, or that the tablet
+ * changed before the write, it does not hold. One the map did not hold, as a
+ * create's, does when its content is the item's now: a create may have found
+ * the record of an earlier write, or a bean of the same roaster and name.
+ * `values` are the record's, as edits merge them.
+ */
+export async function holdsWrittenContent(
+  tx: Prisma.TransactionClient,
+  item: ItemRef,
+  values: Readonly<Record<string, unknown>>,
+  edited: Readonly<Record<string, unknown>> | null,
+): Promise<boolean> {
+  if (edited !== null) return Object.keys(edited).length === 0;
+  const { table, cast } = ITEM_TABLES[item.kind];
+  const [row] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM ${Prisma.raw(table)} WHERE id = ${item.id}::${Prisma.raw(cast)}`;
+  if (!row) return false;
+  const content = isObject(row.content) ? row.content : {};
+  return Object.keys(changedFields(item.kind === "profile" ? profileText(content) : content, values)).length === 0;
+}

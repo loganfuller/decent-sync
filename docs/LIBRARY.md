@@ -154,7 +154,10 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   seen before. Every map also keeps the latest edit of the item's content
   that the record has seen (`content_seen_at`, by PostgreSQL's clock): the
   latest decided as the server's write it answers was planned, whichever is
-  later. A write carries that time (`contentDecidedAt`), and its answer
+  later, if the record holds that content: its answer shows no change of the
+  content the write did not set, such as a field the plugin left as the
+  tablet had changed it, or, for a record the map did not hold, as a
+  create's, its content is the item's (`holdsWrittenContent`). A write carries that time (`contentDecidedAt`), and its answer
   repeats it, so an answer that comes after its write stopped being awaited,
   as across a reconnect, says what its record has seen of the content too. A
   reset tablet has a new tablet id, so it starts with nothing here.

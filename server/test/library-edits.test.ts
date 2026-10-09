@@ -67,9 +67,16 @@ describe("Edits of the Library", { timeout: 60_000 }, () => {
   function load(
     machine: CreatedMachine,
     serial: string,
-    options: { instance?: TestServer; pollSeconds?: number; decaidClockOffsetMs?: number; stallUpload?: (frame: unknown) => boolean } = {},
+    options: {
+      instance?: TestServer;
+      pollSeconds?: number;
+      decaidClockOffsetMs?: number;
+      stallUpload?: (frame: unknown) => boolean;
+      apiDelayMs?: (method: string, path: string) => number;
+    } = {},
   ): SimulatedTablet {
     const tablet = SimulatedTablet.load({
+      apiDelayMs: options.apiDelayMs,
       decaidClockOffsetMs: options.decaidClockOffsetMs,
       stallUpload: options.stallUpload,
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
@@ -267,6 +274,38 @@ describe("Edits of the Library", { timeout: 60_000 }, () => {
     // The Library's value is then written to group 2, though the write before it named the same fields.
     await holds(two, bean.id, { notes: "Edited on group 1" });
     expect(two.received.filter((frame) => (frame as { type?: unknown }).type === "welcome")).toHaveLength(1);
+  });
+
+  it("keeps a second unreported edit that loses as a Conflict too, as its record never held the value written", async () => {
+    const lab = await api.createLocation("Twice lab", "America/Chicago");
+    const first = await api.createMachine("Twice 1", lab.id);
+    const second = await api.createMachine("Twice 2", lab.id);
+    const one = load(first, "19121");
+    // Its Decaid's clock runs 10 minutes slow, so its edits are timed before the other tablet's, and it reports only on
+    // welcome. While `slow`, each read of a bean takes 25 s (0.5 s here), so its barista can edit between a write's read
+    // and its update.
+    let slow = false;
+    const two = load(second, "19122", {
+      decaidClockOffsetMs: -10 * 60_000,
+      pollSeconds: 3600,
+      apiDelayMs: (method, path) => (slow && method === "GET" && path.startsWith("/beans/") ? 25_000 : 0),
+    });
+    await online(first, second);
+    const record = await one.addBean({ roaster: "Roux", name: "Twice Guji", notes: "Peach" });
+    const bean = await libraryBean("Twice Guji");
+    await holds(two, bean.id, { notes: "Peach" });
+
+    slow = true;
+    await two.editBean(heldBean(two, bean.id)!.id, { notes: "E1 on two" });
+    await one.editBean(record.id, { notes: "L on one" });
+    // The plugin keeps E1 as it writes L; its answer brings E1 in, which loses, and L is written to it again.
+    await expect.poll(async () => (await conflictsOf(bean.id)).map((conflict) => conflict.value), { timeout: 10_000 }).toEqual(["E1 on two"]);
+    // While that write reads the record, the barista edits it again, timed before L: its record never held L.
+    await two.editBean(heldBean(two, bean.id)!.id, { notes: "E2 on two" });
+    slow = false;
+    await expect.poll(async () => (await conflictsOf(bean.id)).map((conflict) => conflict.value).sort(), { timeout: 20_000 }).toEqual(["E1 on two", "E2 on two"]);
+    expect(await beanContent(bean.id)).toMatchObject({ notes: "L on one" });
+    await holds(two, bean.id, { notes: "L on one" });
   });
 
   it("applies an edit made over a value written to the tablet whose answer came late, whatever its time", async () => {

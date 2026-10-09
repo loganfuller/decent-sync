@@ -1,7 +1,7 @@
 import type { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
-import { editContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
+import { editContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
 import { tabletSource } from "./history.js";
 import {
   type AnswerRecorded,
@@ -179,7 +179,8 @@ export async function takeInProfiles(
  * hiding it at the tablet's Location, judged by what the record had seen of
  * the Location's decisions, under the Location's lock (`visibilityInAnswer`),
  * and its content merged per field (ADR-0020). The record has seen the latest edit of them the write carried
- * (`contentSeen`). Recorded only while the answering connection holds its Machine,
+ * (`contentSeen`), if it holds them (`holdsWrittenContent`). Recorded only
+ * while the answering connection holds its Machine,
  * under the Machine's and the tablet's locks, in the order a report takes
  * them. The record has seen the Location's decision of the Profile that the
  * write carried (`seen`), if its Machine is still at that Location; null
@@ -222,13 +223,17 @@ export async function recordProfileWritten(
       await notify(tx, "library_changes", here);
       if (decidedAt !== null) decided = { at: decidedAt, locationId: here };
     }
+    let edited: Record<string, unknown> | null = null;
     if (known && !library.bundled) {
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
       const values = Object.fromEntries(Object.entries(changedFields(profileText(known.record), profileText(record))).filter(([field]) => !written.has(field)));
+      edited = values;
       const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt };
       if ((await editContent(tx, { kind: "profile", id: profileId }, edit, source)) && here !== null) await notify(tx, "library_changes", here);
     }
-    await saveRecord(tx, tablet.tabletId, profileId, record, at, decided ?? (seen?.locationId === here ? seen : null), contentSeen);
+    // A bundled Profile's title, author and notes are never edited.
+    const holds = contentSeen !== null && (library.bundled || (await holdsWrittenContent(tx, { kind: "profile", id: profileId }, profileText(record), edited)));
+    await saveRecord(tx, tablet.tabletId, profileId, record, at, decided ?? (seen?.locationId === here ? seen : null), holds ? contentSeen : null);
     return "recorded";
   }, INTAKE_TRANSACTION);
 }

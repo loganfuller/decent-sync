@@ -3,7 +3,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { archivingInAnswer } from "./bean-intake.js";
-import { editContent, lockItems, recordJoined } from "./content-edits.js";
+import { editContent, holdsWrittenContent, lockItems, recordJoined } from "./content-edits.js";
 import { grinderContent, planGrinderIntake, readReportedGrinders } from "./grinder-intake.js";
 import { tabletSource } from "./history.js";
 import {
@@ -130,8 +130,8 @@ export async function takeInGrinders(
  * the write kept, Archives or restores the Grinder as a report would, and a
  * field of its content the write did not set that differs from the record
  * known is merged as a report's edit would be (ADR-0020). The record has seen
- * the latest edit of the Grinder the write carried (`contentSeen`); null says
- * nothing new. Recorded only while the answering connection holds its Machine. Nothing
+ * the latest edit of the Grinder the write carried (`contentSeen`), if it
+ * holds that content (`holdsWrittenContent`); null says nothing new. Recorded only while the answering connection holds its Machine. Nothing
  * is recorded when the record does not carry the Grinder's global id, when
  * the map holds the record as another Grinder's, or when the Library no
  * longer has the Grinder.
@@ -161,17 +161,18 @@ export async function recordGrinderWritten(
     const locationId = await currentLocation(tx, tablet.machineId);
     // Its Archived state changes only under the lock of the Location it belongs to, the tablet's if it may change it at all.
     if (locationId !== null && archived !== undefined) await lockLocation(tx, locationId);
+    let edited: Record<string, unknown> | null = null;
     if (known) {
-      const values: Record<string, unknown> = Object.fromEntries(
-        Object.entries(changedFields(grinderContent(known.record), grinderContent(record))).filter(([field]) => !written.has(field)),
-      );
+      edited = Object.fromEntries(Object.entries(changedFields(grinderContent(known.record), grinderContent(record))).filter(([field]) => !written.has(field)));
+      const values: Record<string, unknown> = { ...edited };
       const belongs = archived !== undefined && locationId !== null && (await tx.grinder.count({ where: { id: grinderId, locationId } })) > 0;
       if (belongs) values.archived = archived;
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
       const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt };
       if ((await editContent(tx, { kind: "grinder", id: grinderId }, edit, tabletSource(tablet))) && locationId !== null) await notify(tx, "library_changes", locationId);
     }
-    await saveRecord(tx, tablet.tabletId, grinderId, localId, record, at, contentSeen);
+    const holds = contentSeen !== null && (await holdsWrittenContent(tx, { kind: "grinder", id: grinderId }, grinderContent(record), edited));
+    await saveRecord(tx, tablet.tabletId, grinderId, localId, record, at, holds ? contentSeen : null);
     return "recorded";
   }, INTAKE_TRANSACTION);
 }
