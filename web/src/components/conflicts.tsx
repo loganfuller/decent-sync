@@ -177,10 +177,17 @@ export function ConflictsTable({ conflicts, showItem, onResolved }: { conflicts:
                       ariaDescribedBy={conflict.resolvable ? undefined : refusedId}
                       title="Use this value?"
                       description={
-                        <>
-                          {field} of {itemName} becomes {valueText(conflict.field, conflict.value)}, an edit made here, written to every tablet that
-                          holds it. {valueText(conflict.field, conflict.current.value)}, its value now, stays in its history.
-                        </>
+                        conflict.item.kind === "settings" ? (
+                          <>
+                            {field} becomes {valueText(conflict.field, conflict.value)}, an edit made here, written to every Machine there that
+                            shares the settings. {valueText(conflict.field, conflict.current.value)}, its value now, stays in their history.
+                          </>
+                        ) : (
+                          <>
+                            {field} of {itemName} becomes {valueText(conflict.field, conflict.value)}, an edit made here, written to every tablet
+                            that holds it. {valueText(conflict.field, conflict.current.value)}, its value now, stays in its history.
+                          </>
+                        )
                       }
                       confirmLabel="Use this value"
                       disabled={!conflict.resolvable || busy !== undefined}
@@ -264,7 +271,7 @@ export function ItemHistoryCard({ kind, id }: { kind: ItemKind; id: string }) {
         <CardDescription>
           Each change that was kept, the latest first, with the Machine or account it came from.{" "}
           {kind === "settings"
-            ? "Its first is the first Machine of the model at the Location setting them."
+            ? "Its first is the first Machine at the Location setting them."
             : `Its first is the ${KIND_NAMES[kind]} joining the Library.`}
         </CardDescription>
       </CardHeader>

@@ -5,11 +5,13 @@ import {
   MAX_REFUSAL_LENGTH,
   SETTINGS_KIND,
   SETTINGS_PARTS,
+  STEAM_SETTINGS,
   type WriteRefused,
   beanMatchKey,
   globalIdOf,
   sameValue,
   settingsParts,
+  steamIsOn,
 } from "@decent-sync/protocol";
 import { type Answer, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
@@ -113,8 +115,10 @@ export interface WorkflowChanges {
  * report read before a write before that write's answer, and never reads an
  * item the plugin wrote as deleted from a report that predates it (ADR-0019).
  *
- * Decaid sends the plugin the Workflow a write of the shared settings
- * changed (`workflowUpdated`), around when it answers the write. That change
+ * Decaid refuses to change the shared settings while no machine is
+ * connected (500, `DeviceNotConnectedException`), which `machineMissing` is
+ * told of. Decaid sends the plugin the Workflow a write of the shared
+ * settings changed (`workflowUpdated`), around when it answers the write. That change
  * is held back until the answer is queued, so the server takes in the answer
  * first and finds the change is the plugin's own write, not the tablet's
  * edit (ADR-0003).
@@ -124,6 +128,8 @@ export class LibraryWrites {
     private readonly library: LibraryAccess,
     private readonly outbox: Outbox,
     private readonly workflow: WorkflowChanges,
+    /** Told when Decaid refuses a write of the shared settings as no machine is connected. */
+    private readonly machineMissing: () => void,
   ) {}
 
   /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
@@ -132,7 +138,9 @@ export class LibraryWrites {
     return this.library.run(async () => {
       this.workflow.hold();
       try {
-        this.outbox.enqueue(await carryOut(write));
+        const answer = await carryOut(write);
+        if (answer.type === "writeRefused" && answer.status === 500 && answer.error.includes("DeviceNotConnectedException")) this.machineMissing();
+        this.outbox.enqueue(answer);
       } finally {
         this.workflow.release();
       }
@@ -201,7 +209,9 @@ async function writeProfile(write: LibraryWrite): Promise<WriteAnswer> {
 /**
  * Writes a Location's shared settings into the tablet's Workflow (ADR-0014):
  * reads the Workflow, then sets, through `PUT /workflow`, which Decaid merges
- * into it, the fields it still holds as the server expects. The answer is
+ * into it, the fields it still holds as the server expects, its steam
+ * settings only while it keeps steam on: a barista may have turned steam off
+ * since the tablet last reported, which stays on this Machine. The answer is
  * the Workflow's steam, hot water and rinse parts as Decaid returned them,
  * or as read when nothing was left to set, timed now, as a Workflow carries
  * no time. Decaid refuses to change them while no machine is connected.
@@ -210,11 +220,15 @@ async function writeSettings(write: LibraryWrite): Promise<WriteAnswer> {
   const current = await request("GET", "/workflow");
   const workflow = current.ok ? parsed(current.text) : undefined;
   if (!isObject(workflow)) return refused(write, current.status, current.text);
-  const fields = settable(write, (field) => {
+  const held = (field: string) => {
     const [part, name] = field.split(".") as [string, string];
     const values = workflow[part];
     return isObject(values) ? values[name] : undefined;
-  });
+  };
+  const steamOn = steamIsOn({ "steamSettings.targetTemperature": held("steamSettings.targetTemperature") });
+  const fields = Object.fromEntries(
+    Object.entries(settable(write, held)).filter(([field]) => steamOn || !(STEAM_SETTINGS as readonly string[]).includes(field)),
+  );
   if (Object.keys(fields).length === 0) return written(write, workflowSettings(workflow), [], new Date().toISOString());
   const answer = await request("PUT", "/workflow", settingsParts(fields));
   const updated = answer.ok ? parsed(answer.text) : undefined;

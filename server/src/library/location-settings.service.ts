@@ -2,30 +2,43 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { SHARED_SETTINGS, STEAM_ON_FROM, type SharedSetting } from "@decent-sync/protocol";
 import { type Scope, includesLocation } from "../accounts/scope.js";
 import { locationNotFound } from "../locations/input.js";
+import { machineNotFound } from "../machines/input.js";
+import { lockMachine } from "../machines/machines.service.js";
 import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { accountSource } from "./history.js";
-import { INTAKE_TRANSACTION } from "./intake.js";
+import { INTAKE_TRANSACTION, currentLocation } from "./intake.js";
 import { editSettings, lockSettings } from "./location-settings.js";
 import { readLocationValues } from "./settings-intake.js";
 
-// Each Location's steam, hot water and rinse settings per Machine model
-// (ADR-0014), read by Staff as by Admins, and changed by Admins, and by Staff
-// at their own Locations (ADR-0008's per-Location state). A change here is an
-// edit by the account, timed by PostgreSQL's clock (ADR-0016), made over the
-// settings as they stand, and written to the Location's Machines of that
-// model whose steam is on, or, for hot water and rinse, to all of them.
+// Each Location's steam, hot water and rinse settings, shared by its
+// Machines whatever their model (ADR-0014), read by Staff as by Admins, and
+// changed by Admins, and by Staff at their own Locations (ADR-0008's
+// per-Location state). A change here is an edit by the account, timed by
+// PostgreSQL's clock (ADR-0016), made over the settings as they stand, and
+// written to the Location's Machines that share them, their steam settings
+// only to those whose steam is on. Each Machine's sharing is switched on or
+// off the same way.
 
-/** A Location's settings for one model, as the REST API returns them. */
+/** A Machine at a Location, as its settings list it. */
+export interface SharingMachineView {
+  id: string;
+  name: string;
+  /** Its hardware's model, or for an Unidentified Machine the model it reports; null while neither is known. */
+  model: string | null;
+  /** Whether its tablet shares the Location's settings. */
+  sharesSettings: boolean;
+}
+
+/** A Location's settings, as the REST API returns them. */
 export interface LocationSettingsView {
-  /** Their id; null while no Machine of the model there has reported its Workflow, so none are set. */
+  /** Their id; null while no Machine there has reported its Workflow, so none are set. */
   id: string | null;
-  model: string;
   /** Each setting, by its name in SHARED_SETTINGS, such as `steamSettings.flow`; null while unset. */
   values: Record<SharedSetting, number | null>;
-  /** The Location's Machines of the model now, by name. */
-  machines: { id: string; name: string }[];
-  /** Whether the signed-in account may change them: an Admin, or Staff working at the Location. */
+  /** The Location's Machines now, by name, sharing them or not. */
+  machines: SharingMachineView[];
+  /** Whether the signed-in account may change them, and switch its Machines' sharing: an Admin, or Staff working at the Location. */
   editable: boolean;
 }
 
@@ -36,36 +49,45 @@ const WHOLE: ReadonlySet<SharedSetting> = new Set(SHARED_SETTINGS.filter((field)
 export class LocationSettingsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * The Location's settings for each model it has settings for or a Machine
-   * of now, by model; 404 if there is no such Location.
-   */
-  async list(locationId: string, scope: Scope): Promise<LocationSettingsView[]> {
-    const [location, rows, machines] = await this.prisma.$transaction([
+  /** The Location's settings, and its Machines now; 404 if there is no such Location. */
+  async view(locationId: string, scope: Scope): Promise<LocationSettingsView> {
+    const [location, row, machines] = await this.prisma.$transaction([
       this.prisma.location.findUnique({ where: { id: locationId }, select: { id: true } }),
-      this.prisma.locationSettings.findMany({ where: { locationId }, select: { id: true, model: true, values: true } }),
-      this.prisma.$queryRaw<{ id: string; name: string; model: string | null }[]>`
-        SELECT machines.id, machines.name,
+      this.prisma.locationSettings.findUnique({ where: { locationId }, select: { id: true, values: true } }),
+      this.prisma.$queryRaw<SharingMachineView[]>`
+        SELECT machines.id, machines.name, machines.shares_settings AS "sharesSettings",
           CASE WHEN machines.model IS NOT NULL THEN machines.model WHEN machines.identification = 'UNIDENTIFIED' THEN machines.reported_model END AS model
         FROM machines
         WHERE (SELECT location_id FROM location_assignments WHERE machine_id = machines.id ORDER BY effective_from DESC LIMIT 1) = ${locationId}::uuid
         ORDER BY machines.name`,
     ]);
     if (!location) throw locationNotFound();
-    const models = [...new Set([...rows.map((row) => row.model), ...machines.flatMap((machine) => (machine.model === null ? [] : [machine.model]))])];
-    models.sort((a, b) => a.localeCompare(b));
-    const editable = includesLocation(scope, locationId);
-    return models.map((model) => {
-      const row = rows.find((candidate) => candidate.model === model);
-      const values = readLocationValues(row?.values);
-      return {
-        id: row?.id ?? null,
-        model,
-        values: Object.fromEntries(SHARED_SETTINGS.map((field) => [field, values[field] ?? null])) as Record<SharedSetting, number | null>,
-        machines: machines.filter((machine) => machine.model === model).map(({ id, name }) => ({ id, name })),
-        editable,
-      };
+    const values = readLocationValues(row?.values);
+    return {
+      id: row?.id ?? null,
+      values: Object.fromEntries(SHARED_SETTINGS.map((field) => [field, values[field] ?? null])) as Record<SharedSetting, number | null>,
+      machines,
+      editable: includesLocation(scope, locationId),
+    };
+  }
+
+  /**
+   * Switches whether a Machine's tablet shares its Location's settings, under
+   * the Machine's row lock, which taking in its Workflow holds: switched off,
+   * nothing of them is taken from it or written to it; switched on again, it
+   * is written the Location's, and its own changes count from then on. Tells
+   * every instance its Location's tablets are to be written. 404 if there is
+   * no such Machine, 403 for Staff unless it is at one of their Locations.
+   */
+  async setSharing(machineId: string, sharesSettings: boolean, scope: Scope): Promise<{ sharesSettings: boolean }> {
+    await this.prisma.$transaction(async (tx) => {
+      if (!(await lockMachine(tx, machineId))) throw machineNotFound();
+      const locationId = await currentLocation(tx, machineId);
+      if (!includesLocation(scope, locationId)) throw new ForbiddenException("Staff switch settings sharing only for Machines at their own Locations");
+      await tx.$executeRaw`UPDATE machines SET shares_settings = ${sharesSettings} WHERE id = ${machineId}::uuid`;
+      if (locationId !== null) await notify(tx, "library_changes", locationId);
     });
+    return { sharesSettings };
   }
 
   /**
@@ -85,8 +107,7 @@ export class LocationSettingsService {
       if (edited.writesDue) await notify(tx, "library_changes", settings.locationId);
       return settings.locationId;
     }, INTAKE_TRANSACTION);
-    const views = await this.list(locationId, scope);
-    return views.find((view) => view.id === id)!;
+    return this.view(locationId, scope);
   }
 }
 

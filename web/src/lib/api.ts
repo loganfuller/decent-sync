@@ -504,17 +504,15 @@ export type LibraryKind = "bean" | "beanBatch" | "grinder" | "profile";
 /** What has versions and Conflicts: Library items, and each Location's settings for one model (`settings`). */
 export type ItemKind = LibraryKind | "settings";
 
-/** A Location's steam, hot water and rinse settings for its Machines of one model, which they share. */
+/** A Location's steam, hot water and rinse settings, shared by its Machines whatever their model. */
 export interface LocationSettings {
-  /** Null while no Machine of the model there has reported its Workflow, so none are set. */
+  /** Null while no Machine there has reported its Workflow, so none are set. */
   id: string | null;
-  /** Decaid's model name, such as DE1Pro or Bengle. */
-  model: string;
   /** Each setting, by its part and name, such as `steamSettings.flow`; null while unset. */
   values: Record<string, number | null>;
-  /** The Location's Machines of the model now. */
-  machines: { id: string; name: string }[];
-  /** Whether the signed-in account may change them. */
+  /** The Location's Machines now, each with its model, if known, and whether it shares them. */
+  machines: { id: string; name: string; model: string | null; sharesSettings: boolean }[];
+  /** Whether the signed-in account may change them, and switch its Machines' sharing. */
   editable: boolean;
 }
 

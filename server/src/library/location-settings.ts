@@ -10,19 +10,21 @@ import { transactionTime } from "./location-state.js";
 import { type FieldEdits, editsAfter, latestDecision, mergeEdit, readFieldEdits } from "./merge.js";
 import { type LocationValues, readLocationValues, settingsEdits, settingsToWrite } from "./settings-intake.js";
 
-// Each Location's steam, hot water and rinse settings, shared by its Machines
-// of one model (ADR-0014), each a field of its own merged as edits of a
-// Library item's content are, with versions and Conflicts (ADR-0020). A
-// tablet's edits arrive in the Workflow it reports (`workflow` deliveries),
-// timed by when the plugin observed them; only the settings count. The
-// first Machine of a model at a Location to report its Workflow sets them.
+// Each Location's steam, hot water and rinse settings, shared by its
+// Machines whatever their model (ADR-0014), each a field of its own merged as
+// edits of a Library item's content are, with versions and Conflicts
+// (ADR-0020). A tablet's edits arrive in the Workflow it reports (`workflow`
+// deliveries), timed by when the plugin observed them; only the settings
+// count. The first Machine at a Location to report its Workflow sets them. A
+// Machine whose settings sharing is switched off takes no part: nothing of
+// them is taken from its tablet or written to it.
 // The server keeps, per tablet, the settings as it last had them, reported
 // or as Decaid returned the plugin's write of them, so the plugin's own
 // write is never read as the tablet's edit (ADR-0003). Under the same locks
 // as the Library's intake: the reporting Machine's row, the tablet's, then
 // the settings' row, which edits in the management interface take alone.
 
-/** A Location's settings for one model, as edits merge them. */
+/** A Location's settings, as edits merge them. */
 interface EditedSettings {
   id: string;
   locationId: string;
@@ -37,25 +39,18 @@ interface HeldSettings {
   contentSeenAt: Date | null;
 }
 
-/**
- * The model whose settings a Machine shares: its hardware's, or, for an
- * Unidentified Machine, the model it reports beside serial "0". Null while
- * neither is known, as before its machine first reports its hardware, when
- * it shares none.
- */
-export async function machineModel(tx: Prisma.TransactionClient, machineId: string): Promise<string | null> {
-  const [row] = await tx.$queryRaw<{ model: string | null }[]>`
-    SELECT CASE WHEN model IS NOT NULL THEN model WHEN identification = 'UNIDENTIFIED' THEN reported_model END AS model
-    FROM machines WHERE id = ${machineId}::uuid`;
-  return row?.model ?? null;
+/** Whether a Machine's tablet shares its Location's settings: switched on, as it is unless an account switched it off. */
+async function sharesSettings(tx: Prisma.TransactionClient, machineId: string): Promise<boolean> {
+  const [row] = await tx.$queryRaw<{ shares: boolean }[]>`SELECT shares_settings AS shares FROM machines WHERE id = ${machineId}::uuid`;
+  return row?.shares ?? false;
 }
 
-/** The Location's settings for the model, created unset if it has none yet, under their row lock. */
-async function lockSettingsFor(tx: Prisma.TransactionClient, locationId: string, model: string): Promise<EditedSettings> {
+/** The Location's settings, created unset if it has none yet, under their row lock. */
+async function lockSettingsAt(tx: Prisma.TransactionClient, locationId: string): Promise<EditedSettings> {
   await tx.$executeRaw`
-    INSERT INTO location_settings (id, location_id, model) VALUES (gen_random_uuid(), ${locationId}::uuid, ${model})
-    ON CONFLICT (location_id, model) DO NOTHING`;
-  const [row] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM location_settings WHERE location_id = ${locationId}::uuid AND model = ${model}`;
+    INSERT INTO location_settings (id, location_id) VALUES (gen_random_uuid(), ${locationId}::uuid)
+    ON CONFLICT (location_id) DO NOTHING`;
+  const [row] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM location_settings WHERE location_id = ${locationId}::uuid`;
   return (await lockSettings(tx, row!.id))!;
 }
 
@@ -123,27 +118,27 @@ export async function editSettings(tx: Prisma.TransactionClient, settingsId: str
 }
 
 /**
- * Takes the settings in a Workflow the tablet reported into its Location's
- * settings for its Machine's model, in the transaction storing the
- * Workflow, which holds the Machine's row lock: each it changed since it
- * last had them is its edit, timed by when the plugin observed it, and
- * each its Location has not set yet is set by it (`settingsEdits`). A
- * Machine at no Location, or whose model is not known, shares none; nor
- * does a Workflow lacking what every supported Decaid sends. Tells every
- * instance when the Location's tablets, this one included, are to be
- * written.
+ * Takes the settings in a Workflow the tablet reported into its Machine's
+ * Location's settings, in the transaction storing the Workflow, which holds
+ * the Machine's row lock: each it changed since it last had them is its
+ * edit, timed by when the plugin observed it, and each its Location has not
+ * set yet is set by it (`settingsEdits`). A Machine at no Location shares
+ * none, nor does a Workflow lacking what every supported Decaid sends. One whose
+ * sharing is switched off changes nothing, but its settings are kept as the
+ * tablet's, so once it is switched on again its own changes since are told
+ * from the Location's, which are written to it. Tells every instance when
+ * the Location's tablets, this one included, are to be written.
  */
 export async function takeInWorkflow(tx: Prisma.TransactionClient, tablet: ReportingTablet, workflow: unknown, observedAt: string): Promise<void> {
   const reported = sharedSettingsOf(workflow);
   if (reported === null) return;
   const locationId = await currentLocation(tx, tablet.machineId);
   if (locationId === null) return;
-  const model = await machineModel(tx, tablet.machineId);
-  if (model === null) return;
   await lockTablet(tx, tablet.tabletId);
-  const settings = await lockSettingsFor(tx, locationId, model);
+  const settings = await lockSettingsAt(tx, locationId);
   const held = await heldSettings(tx, tablet.tabletId);
   const known = held?.settingsId === settings.id ? held : null;
+  if (!(await sharesSettings(tx, tablet.machineId))) return void (await saveHeld(tx, tablet.tabletId, settings.id, reported, null));
   const values = settingsEdits(known?.values ?? null, reported, settings.fieldEdits);
   const edit = { values, at: new Date(observedAt), seenAt: known?.contentSeenAt ?? null };
   const edited = await editSettings(tx, settings.id, edit, tabletSource(tablet));
@@ -181,8 +176,10 @@ export async function recordSettingsWritten(
     if (!settings) return "notTheItem";
     const held = await heldSettings(tx, tablet.tabletId);
     const known = held?.settingsId === settingsId ? held.values : null;
+    // Switched off since the write was sent: what the tablet changed is its own.
+    const shares = await sharesSettings(tx, tablet.machineId);
     let edited: EditOutcome | null = null;
-    if (known !== null) {
+    if (known !== null && shares) {
       const changed = settingsEdits(known, reported, settings.fieldEdits);
       const values = Object.fromEntries(Object.entries(changed).filter(([field]) => !written.has(field)));
       // Edited on the tablet before Decaid answered: judged by what its settings had seen before.
@@ -197,19 +194,19 @@ export async function recordSettingsWritten(
 }
 
 /**
- * The write of the Location's settings for its Machine's model that the
- * tablet is due, if any (`settingsToWrite`), read in the snapshot that
- * `tabletDue` reads. None is due before the tablet has reported its
- * Workflow there: until then the server does not know what it holds.
+ * The write of its Machine's Location's settings that the tablet is due, if
+ * any (`settingsToWrite`), read in the snapshot that `tabletDue` reads. None
+ * is due before the tablet has reported its Workflow there, as until then
+ * the server does not know what it holds, nor while its Machine's sharing
+ * is switched off.
  */
 export async function settingsDue(tx: Prisma.TransactionClient, tablet: ReportingTablet, locationId: string): Promise<PlannedWrite | null> {
-  const model = await machineModel(tx, tablet.machineId);
-  if (model === null) return null;
+  if (!(await sharesSettings(tx, tablet.machineId))) return null;
   const [row] = await tx.$queryRaw<{ id: string; values: unknown; fieldEdits: unknown; held: unknown }[]>`
     SELECT settings.id, settings.values, settings.field_edits AS "fieldEdits", held.values AS held
     FROM location_settings AS settings
     JOIN tablet_settings AS held ON held.settings_id = settings.id AND held.tablet_id = ${tablet.tabletId}::uuid
-    WHERE settings.location_id = ${locationId}::uuid AND settings.model = ${model}`;
+    WHERE settings.location_id = ${locationId}::uuid`;
   const values = row ? readHeld(row.held) : null;
   if (!row || values === null) return null;
   const due = settingsToWrite(readLocationValues(row.values), values);

@@ -8,9 +8,9 @@ import { ApiError, api, type Location, type LocationSettings } from "@/lib/api";
 import { usePolled } from "@/lib/use-polled";
 
 /**
- * One Location: its steam, hot water and rinse settings for each model of
- * Machine it has, which its Machines of that model share. Loaded every 5 s,
- * so a change made on a tablet shows.
+ * One Location: the steam, hot water and rinse settings its Machines share,
+ * and each Machine's switch to share them. Loaded every 5 s, so a change
+ * made on a tablet shows.
  */
 export function LocationPage() {
   const { id = "" } = useParams();
@@ -24,7 +24,7 @@ function LocationDetails({ id }: { id: string }) {
     try {
       const [{ locations }, { settings }] = await Promise.all([
         api<{ locations: Location[] }>("GET", "/locations"),
-        api<{ settings: LocationSettings[] }>("GET", `/locations/${encodeURIComponent(id)}/settings`),
+        api<{ settings: LocationSettings }>("GET", `/locations/${encodeURIComponent(id)}/settings`),
       ]);
       return { location: locations.find((location) => location.id === id), settings };
     } catch (caught) {
@@ -72,22 +72,12 @@ function LocationDetails({ id }: { id: string }) {
         <p className="text-muted-foreground">{location?.timeZone}</p>
       </div>
 
-      <div className="grid gap-1">
-        <h2 className="text-xl font-semibold">Steam, hot water and rinse</h2>
-        <p className="text-muted-foreground">
-          The Machines of each model here share these settings, set on any of their tablets or here. A Bengle and a DE1 read the same
-          values differently, so each model has its own.
-        </p>
-      </div>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {settings.length === 0 && <p className="text-muted-foreground">No Machines here yet.</p>}
-      {settings.map((model) => (
-        <LocationSettingsCard key={model.model} settings={model} onSaved={reload} />
-      ))}
+      <LocationSettingsCard settings={settings} onSaved={reload} />
     </section>
   );
 }

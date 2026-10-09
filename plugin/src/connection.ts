@@ -127,6 +127,14 @@ export class SyncConnection {
   private readonly timers = new Map<TimerName, number>();
   /** The hardware the latest `hello` reported, null while no machine was connected. */
   private sentHardware: MachineHardware | null = null;
+  /**
+   * Set once the machine this connection's `hello` reported is seen gone:
+   * no hardware read, or Decaid refusing a write of the shared settings as
+   * no machine is connected. Decaid refuses those while it is gone, and the
+   * server skips such a write for the rest of the connection, so once the
+   * same machine is back the plugin reconnects, and is written it again.
+   */
+  private machineAway = false;
   /** Hardware the server dismissed for this token; while set, the plugin does not connect. */
   private dismissedHardware: MachineHardware | null = null;
   /** Set once another tablet replaced this one, until a `yielding` hello is welcomed. */
@@ -158,7 +166,9 @@ export class SyncConnection {
     this.machineEvents = new MachineEvents(this.outbox);
     const library = new LibraryAccess();
     this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1000);
-    this.writes = new LibraryWrites(library, this.outbox, this.machineEvents);
+    this.writes = new LibraryWrites(library, this.outbox, this.machineEvents, () => {
+      if (this.sentHardware !== null) this.machineAway = true;
+    });
     this.tabletId = new TabletId(host, log);
   }
 
@@ -252,6 +262,7 @@ export class SyncConnection {
       this.chunks = new Reassembly();
       this.welcomed = false;
       this.sentHardware = identity.machine;
+      this.machineAway = false;
       this.host.transport.onEvent(handle, (event) => this.onTransportEvent(handle, event));
       await this.send(handle, {
         type: "hello",
@@ -436,8 +447,12 @@ export class SyncConnection {
     this.checkingHardware = true;
     try {
       const hardware = await readMachineHardware();
-      // While no machine is connected there is nothing new to tell the server.
-      if (this.stopped || hardware === null) return;
+      if (this.stopped) return;
+      // While no machine is connected there is nothing new to tell the server, but the machine is away.
+      if (hardware === null) {
+        if (this.welcomed && this.sentHardware !== null) this.machineAway = true;
+        return;
+      }
       if (this.dismissedHardware) {
         if (sameHardware(hardware, this.dismissedHardware)) return;
         this.dismissedHardware = null;
@@ -445,7 +460,13 @@ export class SyncConnection {
         this.reconnectNow();
         return;
       }
-      if (!this.welcomed || sameHardware(hardware, this.sentHardware)) return;
+      if (!this.welcomed) return;
+      if (sameHardware(hardware, this.sentHardware)) {
+        if (!this.machineAway) return;
+        this.log("The machine is connected again. Reconnecting, so the server writes what Decaid refused while it was away.");
+        this.reconnectNow();
+        return;
+      }
       this.log(
         this.sentHardware === null
           ? "The machine reports its hardware now. Reconnecting to tell the server."

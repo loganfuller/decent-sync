@@ -106,7 +106,7 @@ its events over with its Shots and Steam Records (`transferPendingRecords`).
 
 A Workflow from a connection that is not mismatched, for its token's
 Machine, is also taken into its Location's steam, hot water and rinse
-settings for the Machine's model in the same transaction (ticket #86,
+settings in the same transaction (ticket #86,
 `LIBRARY.md`, Steam, hot water and rinse settings): only those settings count
 as edits, timed by `observedAt`. While the plugin writes the shared settings
 into the Workflow, it holds back the `workflowUpdated` its write causes until

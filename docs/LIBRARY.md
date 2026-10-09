@@ -20,7 +20,7 @@ Conflicts and each item's history in the management interface, where a
 Conflict's value is used or the Conflict dismissed (Resolving Conflicts,
 below). Ticket [#86](https://github.com/loganfuller/decent-sync/issues/86)
 shares each Location's steam, hot water and rinse settings between its
-Machines of one model (Steam, hot water and rinse settings, below). It follows ADR-0003,
+Machines (Steam, hot water and rinse settings, below). It follows ADR-0003,
 ADR-0006, ADR-0008, ADR-0014, ADR-0016, ADR-0018, ADR-0019 and ADR-0020. Joining a
 Location and the management interface's changes build on it in later tickets
 (Not yet, below).
@@ -184,7 +184,7 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   version. Each names exactly one item, and goes with it. Versions taken in
   together keep the order they were taken in (`seq`), and so do Conflicts.
 - `location_settings` and `tablet_settings`: each Location's steam, hot water
-  and rinse settings for one model, and each tablet's as it last had them
+  and rinse settings, and each tablet's as it last had them
   (Steam, hot water and rinse settings, below).
 - `conflicts`: each edit of a field that lost to another made without seeing
   it (ADR-0020): the item, the field, the losing value (null where it cleared
@@ -743,16 +743,11 @@ and the bean gone from the tablet's next reports.
 ## Steam, hot water and rinse settings
 
 A Machine's Workflow stays its own, but for its steam, hot water and rinse
-settings, which the Machines of one model at a Location share, the way every
-steam wand on one commercial machine runs the same settings (ADR-0014;
-`location-settings.ts`, with the pure `settings-intake.ts`). A Bengle and a
-DE1 read the same values differently, so each model has its own: a Machine's
-model is its hardware's, or, for an Unidentified Machine, the model it
-reports beside serial `"0"`. A Machine whose model is not known yet, as
-before its machine first reports its hardware, shares none. They are shared
-by Decaid's model names, so a DE1Pro and a DE1XL at one Location have
-settings of their own. Who takes part is as for the Library (Who takes part,
-above).
+settings, which the Machines at a Location share whatever their model, DE1s
+and Bengles alike, the way every steam wand on one commercial machine runs
+the same settings (ADR-0014; `location-settings.ts`, with the pure
+`settings-intake.ts`). Who takes part is as for the Library (Who takes part,
+above), but for a Machine switched out of sharing them (below).
 
 The settings are the eleven fields `SHARED_SETTINGS` names (`protocol/`), each
 by its part of the Workflow and Decaid's name for it there, such as
@@ -763,31 +758,32 @@ own, merged as a Library item's content is (Edits, above; ADR-0020), with
 versions and Conflicts at the Location. A field Decaid may add to a part
 later is not shared.
 
-- `location_settings`: each Location's settings for one model, each set by
-  its name, and each setting's latest edit (`field_edits`), as an item's
+- `location_settings`: each Location's settings, each set by its name, and each setting's latest edit (`field_edits`), as an item's
   content keeps them. The settings' row lock decides their edits, on any
   instance, taken after the reporting Machine's and its tablet's.
 - `tablet_settings`: each tablet's settings as it last had them, reported in
-  its Workflow or as Decaid returned the plugin's write of them, of the
-  Location's settings for its Machine's model then, with the latest edit of
-  them they have seen (`content_seen_at`), as `content_seen_at` keeps an
-  item's. A tablet whose Machine moved, or that moved to a Machine of another
-  model, has had none of the new settings yet.
+  its Workflow or as Decaid returned the plugin's write of them, of its
+  Machine's Location's settings then, with the latest edit of them they have
+  seen (`content_seen_at`), as `content_seen_at` keeps an item's. A tablet
+  whose Machine moved, or that moved to a Machine at another Location, has
+  had none of the new settings yet.
+- `machines.shares_settings`: whether a Machine's tablet shares its
+  Location's settings, on unless an account switched it off.
 
 Tablets' edits arrive in the Workflow the plugin sends on every change and on
 every welcome (`WORKFLOW-AND-STATE.md`), which the server takes in in the
 transaction storing it (`takeInWorkflow`), timed by when the plugin observed
 it:
 
-- **The first Machine of a model** at a Location to report its Workflow sets
-  the Location's settings for that model: a setting nobody has set is set by
-  the first report holding it. A tablet new to the settings, as a new
-  tablet, one whose Machine joined the Location, or one moved to a Machine of
-  another model, sets only those; the Location's state wins (ADR-0008), and
-  is written to it.
+- **The first Machine** at a Location to report its Workflow sets the
+  Location's settings: a setting nobody has set is set by the first report
+  holding it. A tablet new to the settings, as a new tablet, one whose
+  Machine joined the Location, or one moved to a Machine at another
+  Location, sets only those; the Location's state wins (ADR-0008), and is
+  written to it.
 - **Edits.** Otherwise each setting that differs from what the tablet last
   had is its edit, merged per field: so a change on any tablet reaches the
-  Location's other Machines of that model, and only those.
+  Location's other Machines, and only those.
 - **Steam off.** Decaid has no steam on/off flag: a steam target temperature
   below 135 °C means off (`STEAM_ON_FROM`). Turning steam off on one Machine,
   for espresso only or descaling, is not shared, and while it is off none of
@@ -798,23 +794,33 @@ it:
   settings rather than giving its own, which are then written to it, but for
   any the Location has not set yet, which it sets. A Machine whose steam was
   off when it set its Location's settings set none of the steam ones, which
-  the first Machine of the model there with steam on sets.
+  the first Machine there with steam on sets.
+- **Switched out.** A Machine switched out of sharing them in the management
+  interface keeps its own settings: none of its changes are edits, and none
+  are written to it. Its tablet's settings are still kept as it reports them,
+  so once it is switched back in, its changes count from then on, and it
+  takes the Location's settings, which are written to it, as when its steam
+  is turned back on. Switching it, under the Machine's row lock, which taking
+  in its Workflow holds too, commits with a `NOTIFY` on `library_changes`.
 - **The plugin's own writes** are not edits (ADR-0003): the answer to a
   write is recorded as the tablet's settings, and the plugin sends the
   Workflow change its write causes only after the answer (below).
 
 Each welcomed connection's writer (Writing to tablets, above) writes the
-tablet the Location's settings for its Machine's model where its Workflow
-holds others, before any Library item: each setting the Location has set,
-but its steam settings while its steam is off. None is written before the
-tablet has reported its Workflow there, as the server does not know what it
-holds. The write is a `write` of the `settings` kind, named by the settings'
+tablet its Machine's Location's settings where its Workflow holds others,
+before any Library item: each setting the Location has set, but its steam
+settings while its steam is off. None is written before the tablet has
+reported its Workflow there, as the server does not know what it holds, nor
+to a Machine switched out of sharing them. The write is a `write` of the `settings` kind, named by the settings'
 id, its fields and the values it expects the Workflow to hold named as
 `SHARED_SETTINGS` names them.
 
 The plugin reads the tablet's Workflow (`GET /workflow`), then sets the
 settings it still holds as the server expects through `PUT /workflow`,
-which Decaid deep-merges into the Workflow and writes to the machine. Its
+which Decaid deep-merges into the Workflow and writes to the machine, the
+steam settings only while the Workflow keeps steam on: a barista may have
+turned it off since the tablet last reported, and the server, not knowing
+yet, sent them. Its
 answer, `written`, is the Workflow's steam, hot water and rinse parts as
 Decaid returned them, timed by the plugin's clock, as a Workflow carries no
 time. Decaid sends the plugin the Workflow its write changed
@@ -829,12 +835,16 @@ differs from what the tablet last had is the tablet's edit, timed by the
 answer, and the settings have seen the edits the write carried unless such
 an edit lost (`recordSettingsWritten`).
 
-Decaid refuses (500) to change steam, hot water or rinse settings while no
-machine is connected to the tablet, as the change goes to the machine:
-the write is refused, and skipped for the rest of the connection, as any
-refused write is. A tablet often connects before its machine, and its plugin
-reconnects once the machine reports its hardware, when the write is tried
-again. Decaid answers a change of `stopAtTemperature` alone without a
+Decaid refuses (500, `DeviceNotConnectedException`) to change steam, hot
+water or rinse settings while no machine is connected to the tablet, as the
+change goes to the machine: the write is refused, and skipped for the rest
+of the connection, as any refused write is. A tablet often connects before
+its machine, and its plugin reconnects once the machine reports its
+hardware. One whose machine goes away, as when it is switched off for the
+night while its tablet stays connected, is seen gone by the plugin's next
+read of its hardware, or by such a refusal; once the same machine is back,
+the plugin reconnects too. Either way the tablet is written the settings
+then. Decaid answers a change of `stopAtTemperature` alone without a
 machine, as it is not written to it.
 
 ## REST API
@@ -900,8 +910,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
   Bean's roaster and name, a batch's Bean and the day it was roasted, as
   `Guji, roasted 2026-10-01`, a Grinder's model or
   a Profile's title, null where its content has none; or, of `kind`
-  `settings`, a Location's settings for one model, named by the model, whose
-  Location `location` names; the field and the
+  `settings`, a Location's steam, hot water and rinse settings, named
+  `Steam, hot water and rinse`, whose Location `location` names; the field and the
   losing value, null where the edit cleared it; the Location whose state the
   field is, null for content; where and when the losing edit was made, as a
   version's; when it became a Conflict; `open`, `used` or `dismissed`; the
@@ -923,17 +933,18 @@ Every endpoint requires the account session; Staff read them as Admins do.
   account may not resolve it, and 409 if it was used or dismissed already, or
   the field was decided since the version `seen`.
 - `GET /api/locations/:id/settings` returns `{ settings }`, the Location's
-  steam, hot water and rinse settings for each model it has settings for or
-  a Machine of now, by model, each `{ id, model, values, machines, editable
-  }`: their id, null while no Machine of the model there has reported its
-  Workflow; each setting by its name, such as `steamSettings.flow`, null
-  while unset; the Location's Machines of the model now, each `{ id, name }`,
-  by name; and whether the signed-in account may change them, an Admin, or
-  Staff working there. 404 for no such Location.
+  steam, hot water and rinse settings, `{ id, values, machines, editable }`:
+  their id, null while no Machine there has reported its Workflow; each
+  setting by its name, such as `steamSettings.flow`, null while unset; the
+  Location's Machines now, each `{ id, name, model, sharesSettings }`, by
+  name, `model` its hardware's, or an Unidentified Machine's reported one,
+  null while neither is known; and whether the signed-in account may change
+  them and switch its Machines, an Admin, or Staff working there. 404 for no
+  such Location.
 - `PATCH /api/location-settings/:id`, with `{ values }`, some of the
   settings by name, changes them, an edit by the account timed by
   PostgreSQL's clock and made over the settings as they stand, written to
-  the Location's Machines of the model; returns `{ settings }`. Each value is
+  the Location's Machines that share them; returns `{ settings }`. Each value is
   a number of 0 or more, a whole one where Decaid keeps a whole number (each
   target temperature, time and the hot water volume), and a steam target
   temperature of 135 °C or more, as turning steam off is each Machine's own:
@@ -942,7 +953,11 @@ Every endpoint requires the account session; Staff read them as Admins do.
 - `GET /api/location-settings/:id/history` and `GET
   /api/location-settings/:id/conflicts` return their `{ versions }` and open
   `{ conflicts }`, as an item's do, each version naming their Location; the
-  first is the first Machine of the model there setting them.
+  first is the first Machine there setting them.
+- `PUT /api/machines/:id/settings-sharing`, with `{ sharesSettings }`,
+  switches whether the Machine shares its Location's settings, and returns
+  the same. 400 without a boolean, 404 for no such Machine, 403 for Staff
+  unless it is at one of their Locations.
 
 The management interface's Library section lists the Beans and where each is
 offered, the Bean Batches, the Locations each is at and its remaining weight
@@ -957,9 +972,10 @@ history, and the Library's Conflicts page lists every open Conflict, the
 latest first, with the losing value and the value now, and where and when
 each came from. A Conflict is used or dismissed from either, by an account
 that may (`web/src/components/conflicts.tsx`). Each Location's page
-(`/locations/:id`) shows its steam, hot water and rinse settings for each
-model, which an Admin, or Staff working there, changes, with their Conflicts
-and history (`web/src/components/location-settings.tsx`).
+(`/locations/:id`) shows its steam, hot water and rinse settings, which an
+Admin, or Staff working there, changes, with their Conflicts and history,
+and its Machines, each with a switch to share them
+(`web/src/components/location-settings.tsx`).
 
 ## Not yet
 
@@ -969,8 +985,7 @@ and history (`web/src/components/location-settings.tsx`).
   hiding Profiles at Locations there, and Archiving them: ticket #88.
 - Joining a Location, including what a moved Machine brings and clearing its
   Workflow's batch: ticket #89. A moved Machine's tablet already takes its
-  new Location's settings for its model, or sets them if the Location has
-  none, once it reports its Workflow there, which it does on every welcome
+  new Location's settings, or sets them if the Location has none, once it reports its Workflow there, which it does on every welcome
   and change: the move itself does not ask for it yet. Until then a moved Machine's tablet is written
   its new Location's items once its fresh reports are taken in there, and has
   what only its old one offered archived or hidden, its old Location's user

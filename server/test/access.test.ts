@@ -23,7 +23,7 @@ const PUBLIC = [
 
 /**
  * Routes Staff may use too: reading everything but other accounts, moving Machines between their Locations,
- * changing their Locations' settings, and resolving Conflicts about items they can edit.
+ * changing their Locations' settings and their Machines' sharing of them, and resolving Conflicts about items they can edit.
  */
 const STAFF = [
   "GET /api/session",
@@ -52,6 +52,7 @@ const STAFF = [
   "PATCH /api/location-settings/:id",
   "GET /api/location-settings/:id/history",
   "GET /api/location-settings/:id/conflicts",
+  "PUT /api/machines/:id/settings-sharing",
   "GET /api/time-zones",
   "GET /api/machines",
   "GET /api/machines/models",

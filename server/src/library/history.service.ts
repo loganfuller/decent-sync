@@ -43,7 +43,7 @@ export interface VersionView {
   receivedAt: string;
 }
 
-/** A Library item a Conflict is about, or a Location's settings for one model (`settings`), whose Location the Conflict names. */
+/** A Library item a Conflict is about, or a Location's steam, hot water and rinse settings (`settings`), whose Location the Conflict names. */
 export interface ConflictItemView {
   kind: WrittenKind;
   /** Its global id, a Profile's id, or the settings' id. */
@@ -51,7 +51,7 @@ export interface ConflictItemView {
   /**
    * What the management interface names it by: a Bean's roaster and name, a
    * batch's Bean and roast date, a Grinder's model, a Profile's title, the
-   * settings' model; null where its content has none.
+   * settings' "Steam, hot water and rinse"; null where its content has none.
    */
   name: string | null;
 }
@@ -159,7 +159,7 @@ export class HistoryService {
         batch: { select: { content: true, fieldEdits: true, bean: { select: { content: true } } } },
         grinder: { select: { content: true, fieldEdits: true, archived: true, locationId: true } },
         profile: { select: { content: true, fieldEdits: true } },
-        settings: { select: { model: true, values: true, fieldEdits: true } },
+        settings: { select: { values: true, fieldEdits: true } },
       },
       orderBy: [{ createdAt: "desc" }, { seq: "desc" }],
     });
@@ -302,9 +302,8 @@ function conflictItem(conflict: {
   grinder: ItemContent;
   profile: ItemContent;
   settingsId: string | null;
-  settings: { model: string } | null;
 }): ConflictItemView {
-  if (conflict.settingsId !== null) return { kind: "settings", id: conflict.settingsId, name: conflict.settings?.model ?? null };
+  if (conflict.settingsId !== null) return { kind: "settings", id: conflict.settingsId, name: "Steam, hot water and rinse" };
   if (conflict.beanId !== null) {
     const bean = fields(conflict.bean?.content);
     return { kind: "bean", id: conflict.beanId, name: joined([text(bean.roaster), text(bean.name)]) };

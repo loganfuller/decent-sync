@@ -458,9 +458,9 @@ export function isLibraryKind(kind: string): kind is LibraryKind {
 }
 
 /**
- * What the server writes to tablets besides Library items: a Location's
- * steam, hot water and rinse settings for the tablet's Machine's model
- * (ADR-0014), which a `write` of this kind carries.
+ * What the server writes to tablets besides Library items: the steam, hot
+ * water and rinse settings of the tablet's Machine's Location (ADR-0014),
+ * which a `write` of this kind carries.
  */
 export const SETTINGS_KIND = "settings";
 
@@ -483,8 +483,9 @@ export function isItemId(kind: string, value: unknown): value is string {
 }
 
 /**
- * The parts of Decaid's Workflow that a Location shares between its Machines
- * of one model (ADR-0014): the steam, hot water and rinse settings. The rest
+ * The parts of Decaid's Workflow that a Location shares between its
+ * Machines, whatever their model (ADR-0014): the steam, hot water and rinse
+ * settings. The rest
  * of a Workflow (its profile, dose, yield, batch and grinder) stays each
  * Machine's own.
  */
@@ -600,12 +601,13 @@ export function settingsParts(fields: Readonly<Record<string, unknown>>): Record
  * the record's `profile`, which Decaid's `PUT /profiles/{id}` takes whole:
  * they are outside the hash, so the record keeps its id (ADR-0006).
  *
- * A write of SETTINGS_KIND carries a Location's steam, hot water and rinse
- * settings for the Machine's model (ADR-0014): `globalId` is the server's id
+ * A write of SETTINGS_KIND carries the steam, hot water and rinse settings
+ * of the Machine's Location (ADR-0014): `globalId` is the server's id
  * for them, `localId` null, and `fields` and `expected` are named as
  * SHARED_SETTINGS names them. The plugin reads the tablet's Workflow and
  * sets, through `PUT /workflow`, which Decaid merges into the Workflow, the
- * fields it still holds as expected. Its answer's `record` is the Workflow's
+ * fields it still holds as expected, the steam settings only while the
+ * Workflow keeps steam on (`steamIsOn`). Its answer's `record` is the Workflow's
  * steam, hot water and rinse parts as Decaid returned them, and its
  * `updatedAt` when the plugin had Decaid's answer, by its own clock, as a
  * Workflow carries no time. Decaid refuses to change them while no machine
