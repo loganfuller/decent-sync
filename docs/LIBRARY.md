@@ -803,7 +803,8 @@ it:
   takes the Location's settings, which are written to it, as when its steam
   is turned back on. A change its tablet observed before it was switched back
   on, by PostgreSQL's clock (`shares_settings_since`), stays its own though
-  delivered after, as from a tablet that was offline meanwhile. Switching
+  delivered after, as from a tablet that was offline meanwhile or whose
+  outbox held it, and the tablet is then written the Location's settings. Switching
   it, under the Machine's row lock, which taking in its Workflow holds too,
   commits with a `NOTIFY` on `library_changes`.
 - **The plugin's own writes** are not edits (ADR-0003): the answer to a
