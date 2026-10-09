@@ -375,7 +375,13 @@ with its batches, as Decaid refuses to delete a bean that has any.
   deleted itself has left its map, so a Shot naming only that record does not
   count. A Shot the server takes in after the delete, as one an offline
   tablet pulled, that names a record still to be deleted keeps that record
-  on its tablet, out of the Library: it is never deleted there.
+  on its tablet, out of the Library, and so does the record of that batch's
+  Bean there, which the plugin would delete with its batches. The plugin
+  also refuses to delete a record a Shot it queued since it loaded, or has
+  yet to read and send, names, as the server may have planned the delete
+  before it had that Shot; the server keeps the record once it has it. A
+  Shot the plugin finds only later, from its index once it has reloaded, can
+  come too late to keep it.
 - **Tablets.** Each tablet's record of the item, read from its map, is kept
   as a delete due there (`tablet_deletions`), and the item's global id is
   kept (`deleted_items`). Each tablet's writer deletes its records, a bean's
@@ -846,7 +852,9 @@ tablet's list of batches to show it does not.
 - To delete a record of a hard-deleted item (`delete`), it reads the record,
   and deletes it (`DELETE /beans/{id}`, `/bean-batches/{id}` or
   `/grinders/{id}`) unless it carries another item's global id, which it
-  refuses (`ANOTHER_ITEMS_RECORD`); a bean's
+  refuses (`ANOTHER_ITEMS_RECORD`), or a Shot it queued since it loaded, or
+  has yet to read and send, names it, or, for a bean, one of its batches; a
+  bean's
   batches, archived ones included, first (`GET /beans/{id}/batches`), as DYE2
   does, since Decaid refuses to delete a bean that has any. A record already
   gone is deleted. It answers `deleted`, or `writeRefused`, through its

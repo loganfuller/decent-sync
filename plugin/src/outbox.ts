@@ -58,6 +58,7 @@ const SHORT_OUTBOX = 4;
  */
 export class Outbox {
   private readonly queued = new Map<string, Delivery>();
+  private readonly watchers: ((delivery: Delivery) => void)[] = [];
   private readonly requested = new Map<string, { kind: RecordKind; id: string }>();
   private readonly runtimeId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   private sequence = 0;
@@ -101,6 +102,7 @@ export class Outbox {
 
   enqueue(delivery: Delivery): void {
     this.queued.set(delivery.id, delivery);
+    for (const watcher of this.watchers) watcher(delivery);
     this.pump();
   }
 
@@ -109,6 +111,16 @@ export class Outbox {
     this.handed.delete(id);
     if (this.sent === id) this.sent = undefined;
     this.pump();
+  }
+
+  /** The ids of the records of that kind still to be read and sent. */
+  requestedIds(kind: RecordKind): string[] {
+    return [...this.requested.values()].filter((record) => record.kind === kind).map((record) => record.id);
+  }
+
+  /** Calls `watcher` with every delivery queued from now on, those read for the server's requests included. */
+  watch(watcher: (delivery: Delivery) => void): void {
+    this.watchers.push(watcher);
   }
 
   /** Drops a queued delivery that a newer one makes unnecessary; one being sent now stays, to be acknowledged. */
@@ -184,7 +196,10 @@ export class Outbox {
       if (this.stopped) return;
       this.requested.delete(key);
       // A record deleted on the tablet is absent; nothing deletes its server copy.
-      if (delivery) this.queued.set(delivery.id, delivery);
+      if (delivery) {
+        this.queued.set(delivery.id, delivery);
+        for (const watcher of this.watchers) watcher(delivery);
+      }
     }
     if (generation !== this.connections || !this.sendMessage) return;
     const next = this.queued.entries().next().value;

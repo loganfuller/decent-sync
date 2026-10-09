@@ -16,7 +16,7 @@ import {
   settingsParts,
   steamIsOn,
 } from "@decent-sync/protocol";
-import { type Answer, request } from "./decaid.js";
+import { type Answer, readShot, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
 import type { Outbox } from "./outbox.js";
 
@@ -138,11 +138,46 @@ export class LibraryWrites {
     private readonly workflow: WorkflowChanges,
     /** Told when Decaid refuses a write of the shared settings as no machine is connected. */
     private readonly machineMissing: () => void,
-  ) {}
+  ) {
+    outbox.watch((delivery) => {
+      if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shot);
+    });
+  }
+
+  /** The batch and Grinder records the Shots this plugin queued since it loaded name, as `kind:id`: a few per batch and Grinder used. */
+  private readonly shotsName = new Set<string>();
+  /** The Shots still to be sent that `namedByShot` read. */
+  private readonly shotsRead = new Set<string>();
 
   /** Deletes a record of a hard-deleted item once the reads and writes before it are done, and queues its answer. It never rejects. */
   remove(remove: LibraryDelete): Promise<void> {
-    return this.library.run(async () => this.outbox.enqueue(await carryOutDelete(remove)));
+    return this.library.run(async () => this.outbox.enqueue(await carryOutDelete(remove, (kind, ids) => this.namedByShot(kind, ids))));
+  }
+
+  /**
+   * Whether a Shot this plugin queued since it loaded, or has yet to read and
+   * send, names one of the records, as one pulled while the tablet was
+   * offline: the server may have planned the delete before it had the Shot,
+   * and so could not keep the record for it. A Shot still to be read, as the
+   * outbox reads a new Shot only as it sends it, is read here once.
+   */
+  private async namedByShot(kind: "beanBatch" | "grinder", ids: ReadonlySet<string>): Promise<boolean> {
+    for (const id of this.outbox.requestedIds("shot")) {
+      if (this.shotsRead.has(id)) continue;
+      const shot = await readShot(id);
+      this.shotsRead.add(id);
+      if (shot) this.noteShot(shot);
+    }
+    return [...ids].some((id) => this.shotsName.has(`${kind}:${id}`));
+  }
+
+  /** Notes the batch and Grinder records a Shot names. */
+  private noteShot(shot: Record<string, unknown>): void {
+    const workflow = shot.workflow;
+    const context = isObject(workflow) ? workflow.context : undefined;
+    if (!isObject(context)) return;
+    if (typeof context.beanBatchId === "string") this.shotsName.add(`beanBatch:${context.beanBatchId}`);
+    if (typeof context.grinderId === "string") this.shotsName.add(`grinder:${context.grinderId}`);
   }
 
   /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
@@ -165,11 +200,18 @@ export class LibraryWrites {
  * Deletes the tablet's record of a hard-deleted item (`LibraryDelete`),
  * unless it carries another item's global id: one the server mapped may
  * carry none yet, as when the write of its global id was still due. A record
- * already gone is deleted. A bean's batches, archived ones included, are deleted first, as
- * DYE2 does (dye2:dye2-plugin/src/utils/bean-delete.ts), since Decaid
- * refuses to delete a bean that has any.
+ * already gone is deleted. A bean's batches, archived ones included, are
+ * deleted first, as DYE2 does (dye2:dye2-plugin/src/utils/bean-delete.ts),
+ * since Decaid refuses to delete a bean that has any. A batch or Grinder
+ * record, or a bean one of whose batches is, that a Shot this plugin queued
+ * since it loaded, or has yet to read and send, names (`namedByShot`) is not deleted: the server keeps such
+ * a record once it has the Shot, and otherwise asks again on the tablet's
+ * next connection.
  */
-async function carryOutDelete(remove: LibraryDelete): Promise<DeleteAnswer> {
+async function carryOutDelete(
+  remove: LibraryDelete,
+  namedByShot: (kind: "beanBatch" | "grinder", ids: ReadonlySet<string>) => Promise<boolean>,
+): Promise<DeleteAnswer> {
   const route = remove.kind === "profile" || !Object.prototype.hasOwnProperty.call(ROUTES, remove.kind) ? undefined : ROUTES[remove.kind];
   if (!route) return refused(remove, null, `This plugin cannot delete a ${remove.kind}`);
   try {
@@ -180,10 +222,15 @@ async function carryOutDelete(remove: LibraryDelete): Promise<DeleteAnswer> {
     if (!isObject(record)) return refused(remove, current.status, current.text);
     const carried = globalIdOf(record);
     if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
+    if ((remove.kind === "beanBatch" || remove.kind === "grinder") && (await namedByShot(remove.kind, new Set([remove.localId])))) {
+      return refused(remove, null, SHOT_NOT_SENT);
+    }
     if (remove.kind === "bean") {
       const listed = await request("GET", `${path}/batches?includeArchived=true`);
       const batches = listed.ok ? parsed(listed.text) : undefined;
       if (!Array.isArray(batches)) return refused(remove, listed.status, listed.text);
+      const ids = new Set(batches.filter(isObject).flatMap((batch) => (typeof batch.id === "string" ? [batch.id] : [])));
+      if (await namedByShot("beanBatch", ids)) return refused(remove, null, SHOT_NOT_SENT);
       for (const batch of batches.filter(isObject)) {
         if (typeof batch.id !== "string") continue;
         const gone = await request("DELETE", `/bean-batches/${encodeURIComponent(batch.id)}`);
@@ -196,6 +243,9 @@ async function carryOutDelete(remove: LibraryDelete): Promise<DeleteAnswer> {
     return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
+
+/** Why a delete is refused while a Shot this plugin queued names its record. */
+const SHOT_NOT_SENT = "A Shot this tablet sent since the plugin loaded names the record";
 
 function deleted(remove: LibraryDelete): ItemDeleted {
   return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };

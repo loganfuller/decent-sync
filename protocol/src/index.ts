@@ -709,7 +709,8 @@ export interface WriteRefused {
  * server sends it as it sends a `write`, one at a time with them, and it is
  * answered with `deleted` or `writeRefused`. The plugin deletes the record
  * unless it carries another item's global id (ANOTHER_ITEMS_RECORD), as one
- * the server mapped may not carry one yet, and a bean only once its
+ * the server mapped may not carry one yet, or a Shot the plugin queued since
+ * it loaded, or has yet to send, names it, or one of a bean's batches; and a bean only once its
  * batches are deleted, as Decaid refuses to delete a bean that has any: so
  * it deletes the bean's batches first, as DYE2 does. A record already gone
  * is deleted.

@@ -26,6 +26,7 @@ CREATE TABLE "tablet_deletions" (
     "kind" TEXT NOT NULL,
     "local_id" TEXT NOT NULL,
     "item_id" UUID NOT NULL,
+    "bean_id" UUID,
 
     CONSTRAINT "tablet_deletions_pkey" PRIMARY KEY ("tablet_id","kind","local_id")
 );

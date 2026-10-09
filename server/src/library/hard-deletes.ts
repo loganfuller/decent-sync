@@ -34,7 +34,7 @@ interface Deleted {
   id: string;
 }
 
-/** Each kind's table, its tablets' map, and the column naming the item in versions, Conflicts and maps. */
+/** Each kind's table, its tablets' map, and the column naming the item in versions, Conflicts and maps. A batch's map names its Bean through the batch's row. */
 const TABLES: Readonly<Record<DeletedKind, { table: string; map: string; column: string }>> = {
   bean: { table: "beans", map: "tablet_beans", column: "bean_id" },
   beanBatch: { table: "bean_batches", map: "tablet_bean_batches", column: "batch_id" },
@@ -98,7 +98,8 @@ async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: s
   if (now.tablets.some((tabletId) => !locked.tablets.includes(tabletId)) || now.locations.some((locationId) => !locked.locations.includes(locationId))) {
     return false;
   }
-  if ((await deletedWith(tx, kind, id))?.length !== items.length) return false;
+  const stillDeleted = (await deletedWith(tx, kind, id))?.map((item) => item.id).sort() ?? [];
+  if (stillDeleted.join() !== items.map((item) => item.id).sort().join()) return false;
 
   // Read under the tablets' locks, which every change to their maps takes.
   const [named] = await tx.$queryRaw<{ named: boolean }[]>`
@@ -112,9 +113,11 @@ async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: s
 
   for (const item of items) {
     const { table, map, column } = TABLES[item.kind];
+    // A batch's records keep its Bean, so a record of the Bean is deleted only once theirs are.
+    const bean = item.kind === "beanBatch" ? Prisma.sql`(SELECT bean_id FROM bean_batches WHERE id = ${item.id}::uuid)` : Prisma.sql`NULL::uuid`;
     await tx.$executeRaw`
-      INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id)
-      SELECT tablet_id, ${item.kind}, local_id, ${Prisma.raw(column)} FROM ${Prisma.raw(map)} WHERE ${Prisma.raw(column)} = ${item.id}::uuid
+      INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id, bean_id)
+      SELECT tablet_id, ${item.kind}, local_id, ${Prisma.raw(column)}, ${bean} FROM ${Prisma.raw(map)} WHERE ${Prisma.raw(column)} = ${item.id}::uuid
       ON CONFLICT DO NOTHING`;
     await tx.$executeRaw`INSERT INTO deleted_items (kind, item_id) VALUES (${item.kind}, ${item.id}::uuid) ON CONFLICT DO NOTHING`;
     // A Bean's batches go first, as their rows reference it.

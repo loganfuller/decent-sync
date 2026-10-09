@@ -313,37 +313,51 @@ describe("Editing the Library in the management interface", { timeout: 60_000 },
     expect(await library()).toEqual({ beans: [], grinders: [] });
   });
 
-  it("deletes a record that lost its global id while its tablet was offline, but keeps one a Shot pulled offline names", async () => {
+  it("deletes a record that lost its global id while its tablet was offline, but keeps those a Shot pulled offline names", async () => {
     const cafe = await locationWith("Offline cafe", [21071]);
     const tablet = cafe.tablets[0]!;
     const bean = await createBean({ roaster: "Roux", name: "Wiped Bean" });
     await createBatch(bean.id, [{ locationId: cafe.location.id }]);
+    const pulled = await createBean({ roaster: "Roux", name: "Pulled offline" });
+    const pulledBatch = await createBatch(pulled.id, [{ locationId: cafe.location.id }]);
     const grinder = (await send<{ grinder: GrinderView }>("POST", "/grinders", { locationId: cafe.location.id, content: { model: "Offline grinder" } }, api, 201)).grinder;
     await poll(() => heldBean(tablet, bean.id)).toBeTruthy();
     await poll(() => heldGrinder(tablet, grinder.id)).toBeTruthy();
-    const local = { bean: heldBean(tablet, bean.id)!.id, grinder: heldGrinder(tablet, grinder.id)!.id };
+    await poll(() => heldBatch(tablet, pulledBatch.id)).toBeTruthy();
+    const local = {
+      bean: heldBean(tablet, bean.id)!.id,
+      pulled: heldBean(tablet, pulled.id)!.id,
+      pulledBatch: heldBatch(tablet, pulledBatch.id)!.id,
+      grinder: heldGrinder(tablet, grinder.id)!.id,
+    };
 
     tablet.loseNetwork();
-    // Another plugin wipes the Bean's global id, and a barista pulls a Shot with the Grinder.
+    // Another plugin wipes a Bean's global id, and a barista pulls a Shot with the Grinder and another Bean's batch.
     expect((await tablet.callApi("PUT", `/beans/${local.bean}`, { extras: {} })).status).toBe(200);
     const fixture = shotFixture();
     const workflow = fixture.workflow as Record_;
     const shot = {
       ...fixture,
       id: "shot-pulled-offline",
-      workflow: { ...workflow, machine: { ...(workflow.machine as Record_), serialNumber: "21071" }, context: { ...(workflow.context as Record_), grinderId: local.grinder } },
+      workflow: { ...workflow, machine: { ...(workflow.machine as Record_), serialNumber: "21071" }, context: { ...(workflow.context as Record_), beanBatchId: local.pulledBatch, grinderId: local.grinder } },
     };
     tablet.pullShot(shot);
     await send("DELETE", `/beans/${bean.id}`, undefined, api, 204);
+    await send("DELETE", `/beans/${pulled.id}`, undefined, api, 204);
     await send("DELETE", `/grinders/${grinder.id}`, undefined, api, 204);
 
     tablet.restoreNetwork();
     await poll(() => tablet.beans().find((record) => record.id === local.bean)).toBeUndefined();
-    await poll(() => tablet.batches()).toEqual([]);
+    await poll(() => tablet.batches().map((record) => record.id)).toEqual([local.pulledBatch]);
     await poll(async () => (await api.call("GET", `/shots/${shot.id}`)).status).toBe(200);
-    // Kept on the tablet, as its Shot names it, but not taken into the Library again.
+    // Kept on the tablet, as its Shot names them, the batch with its Bean, but not taken into the Library again.
     expect(tablet.grinders().map((record) => record.id)).toEqual([local.grinder]);
-    expect(tablet.writes).not.toContain(`DELETE /grinders/${local.grinder}`);
+    expect(tablet.beans().map((record) => record.id)).toEqual([local.pulled]);
+    expect(tablet.batches().map((record) => record.id)).toEqual([local.pulledBatch]);
+    for (const write of [`DELETE /grinders/${local.grinder}`, `DELETE /beans/${local.pulled}`, `DELETE /bean-batches/${local.pulledBatch}`]) {
+      expect(tablet.writes).not.toContain(write);
+    }
+    expect((await send<{ beans: BeanView[] }>("GET", "/beans")).beans.filter((listed) => listed.name === "Pulled offline")).toEqual([]);
     const grinders = (await send<{ grinders: { model: string | null }[] }>("GET", "/grinders")).grinders;
     expect(grinders.filter((listed) => listed.model === "Offline grinder")).toEqual([]);
   });
