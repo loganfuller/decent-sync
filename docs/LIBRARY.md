@@ -196,8 +196,8 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   (Steam, hot water and rinse settings, below).
 - `deleted_items` and `tablet_deletions`: the global id of each item an
   Admin hard-deleted, and each tablet's records of it still to be deleted
-  there, by their ids there, a Profile's by Decaid's id, with what it
-  executes, and never in `deleted_items` (Hard deletes, below).
+  there, by their ids there, a Profile's by Decaid's id, with its steps,
+  and never in `deleted_items` (Hard deletes, below).
 - `conflicts`: each edit of a field that lost to another made without seeing
   it (ADR-0020): the item, the field, the losing value (null where it cleared
   the field), where it came from and when it was made, as a version keeps
@@ -390,11 +390,13 @@ refuses to delete one; they are hidden at Locations or Archived instead.
   tablet's map is named, and a Bean is named when one of its batches is: its
   delete is refused, and it can be Archived instead. A record a tablet
   deleted itself has left its map, so a Shot naming only that record does not
-  count. A Shot names a Profile by what its Workflow's `profile` executes
-  (its version, beverage type, steps, tank temperature and targets), which
-  is what Decaid hashes for a Profile's id, compared as JSON so a whole
-  double Decaid writes as `92.0` equals 92, or by the profile id a skin
-  recorded in its Workflow (`shots.profile_id`); Decaid itself records none.
+  count. A Shot names a Profile whose steps its Workflow's `profile` has,
+  compared as JSON so a whole double Decaid writes as `92.0` equals 92, or
+  by the profile id a skin recorded in its Workflow (`shots.profile_id`);
+  Decaid itself records none. Only the steps are compared, not the rest of
+  what Decaid hashes for a Profile's id: a skin sets the Workflow's
+  profile's target weight to the Shot's yield, so a Shot pulled with a
+  Profile can hold other targets, and refusing a delete is the safe side.
   A Shot the server takes in after the delete, as one an offline
   tablet pulled, that names a record still to be deleted keeps that record
   on its tablet, out of the Library, and so does the record of that batch's
@@ -425,7 +427,10 @@ refuses to delete one; they are hidden at Locations or Archived instead.
   anew, shown where it was reported, as when a barista saves the same
   profile again. That includes one restored from a Decaid backup after its
   delete was carried out, and one written to a tablet whose answer came only
-  after the delete, which is then not recorded. The plugin deletes a bean's batches with it, those the Library never knew
+  after the delete, which is then not recorded. A delete of a Profile's
+  record is due only while the Library lacks the Profile: once it joins
+  again, the record still due to be deleted, as one a Shot kept, is that
+  Profile's, and the tablet's next report takes it in. The plugin deletes a bean's batches with it, those the Library never knew
   included, such as one a barista made of it offline; such a batch's Shots,
   which the server could not see when the Bean was deleted, then name a
   batch the tablet no longer holds.
@@ -893,8 +898,9 @@ tablet's list of batches to show it does not.
   does, since Decaid refuses to delete a bean that has any. A Profile's
   record it purges (`DELETE /profiles/{id}/purge`), as Decaid's `DELETE`
   only marks a user's profile deleted, unless a Shot it queued since it
-  loaded, or has yet to read and send, executed the same profile, or a skin
-  recorded its id there. A record already
+  loaded, or has yet to read and send, had the same steps, or a skin
+  recorded its id there; it takes Decaid's 400 for a profile it no longer
+  holds as the record gone. A record already
   gone is deleted. It answers `deleted`, or `writeRefused`, through its
   outbox as it answers a write.
 

@@ -1197,9 +1197,9 @@ model TabletDeletion {
   /// deleted only once the batch's is, as the plugin deletes a bean's
   /// batches with it.
   beanLocalId String? @map("bean_local_id")
-  /// For a Profile's record, what the machine executes of it, which a Shot
-  /// that used it recorded in its Workflow (`executedProfileSql`).
-  executed    Json?   @db.JsonB
+  /// For a Profile's record, its steps, which a Shot that used it recorded
+  /// in its Workflow (`shotNamesProfileSql`).
+  profileSteps Json?  @map("profile_steps") @db.JsonB
 
   @@id([tabletId, kind, localId])
   @@map("tablet_deletions")

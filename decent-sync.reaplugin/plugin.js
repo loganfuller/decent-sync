@@ -779,8 +779,9 @@ var __decentSync = (() => {
       /**
        * The batch, Grinder and profile records the Shots this plugin queued since
        * it loaded name, as `kind:id`: a few per batch, Grinder and profile used.
-       * A profile is named by what the machine executed of it, which decides its
-       * id (`executedKey`), and by the id a skin recorded, if one did.
+       * A profile is named by its steps (`stepsKey`), as a skin sets the
+       * Workflow's profile's targets for the Shot, and by the id a skin recorded,
+       * if one did.
        */
       __publicField(this, "shotsName", /* @__PURE__ */ new Set());
       /** The Shots still to be sent that `namedByShot` read. */
@@ -814,8 +815,8 @@ var __decentSync = (() => {
     noteShot(shot) {
       const workflow = shot.workflow;
       if (!isObject2(workflow)) return;
-      const executed = executedKey(workflow.profile);
-      if (executed !== null) this.shotsName.add(`profile:${executed}`);
+      const steps = stepsKey(workflow.profile);
+      if (steps !== null) this.shotsName.add(`profile:${steps}`);
       const context = workflow.context;
       if (!isObject2(context)) return;
       if (typeof context.beanBatchId === "string") this.shotsName.add(`beanBatch:${context.beanBatchId}`);
@@ -878,18 +879,16 @@ var __decentSync = (() => {
       if (current.status === 404) return deleted(remove);
       const record = current.ok ? parsed(current.text) : void 0;
       if (!isObject2(record)) return refused(remove, current.status, current.text);
-      const executed = executedKey(record.profile);
-      if (await namedByShot("profile", new Set(executed === null ? [remove.localId] : [remove.localId, executed]))) return refused(remove, null, SHOT_NOT_SENT);
+      const steps = stepsKey(record.profile);
+      if (await namedByShot("profile", new Set(steps === null ? [remove.localId] : [remove.localId, steps]))) return refused(remove, null, SHOT_NOT_SENT);
       const answer = await request("DELETE", `${path}/purge`);
-      return answer.ok || answer.status === 404 ? deleted(remove) : refused(remove, answer.status, answer.text);
+      return answer.ok || answer.status === 400 && answer.text.includes("Profile not found") ? deleted(remove) : refused(remove, answer.status, answer.text);
     } catch (error) {
       return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  var EXECUTED_FIELDS = ["version", "beverage_type", "steps", "tank_temperature", "target_weight", "target_volume", "target_volume_count_start"];
-  function executedKey(profile) {
-    if (!isObject2(profile)) return null;
-    return stableJson(Object.fromEntries(EXECUTED_FIELDS.map((field) => [field, profile[field] ?? null])));
+  function stepsKey(profile) {
+    return isObject2(profile) && Array.isArray(profile.steps) ? stableJson(profile.steps) : null;
   }
   function stableJson(value) {
     if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;

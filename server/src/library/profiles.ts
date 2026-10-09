@@ -59,7 +59,11 @@ export async function takeInProfiles(
   if (locationId === null) return null;
   const read = readReportedProfiles(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
-  // A record of a Profile an Admin hard-deleted is deleted on the tablet rather than taken in again.
+  // A record of a Profile an Admin hard-deleted is deleted on the tablet rather than taken in again, while the Library lacks
+  // it: once the Profile joins the Library again, as when a barista saves the same profile, the record is that Profile's.
+  await tx.$executeRaw`
+    DELETE FROM tablet_deletions AS due
+    WHERE due.tablet_id = ${tablet.tabletId}::uuid AND due.kind = 'profile' AND EXISTS (SELECT 1 FROM profiles WHERE profiles.id = due.local_id)`;
   const screened = await setAsideDeleted(
     tx,
     tablet.tabletId,

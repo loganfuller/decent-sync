@@ -184,7 +184,9 @@ const DELETE_ORDER: readonly DeletedKind[] = ["beanBatch", "bean", "grinder", "p
  * names by its id, or a Profile's a Shot used, as one the tablet pulled, or
  * sent, after the item was deleted: that record is kept on its tablet, out
  * of the Library, and so is the record of a batch's Bean there, as the
- * plugin deletes a bean's batches with it.
+ * plugin deletes a bean's batches with it. Nor is a Profile's record whose
+ * id the Library has again, as when a barista saved the same profile since:
+ * it is that Profile's, and the tablet's next report takes it in.
  */
 async function deletesDue(tx: Prisma.TransactionClient, tabletId: string, skipped: ReadonlySet<string>): Promise<PlannedDelete[]> {
   const rows = await tx.$queryRaw<{ kind: DeletedKind; localId: string; itemId: string }[]>`
@@ -196,7 +198,11 @@ async function deletesDue(tx: Prisma.TransactionClient, tabletId: string, skippe
         SELECT 1 FROM tablet_deletions AS batch JOIN shots ON shots.bean_batch_id = batch.local_id
         WHERE batch.tablet_id = due.tablet_id AND batch.kind = 'beanBatch' AND batch.bean_local_id = due.local_id
       ))
-      AND NOT (kind = 'profile' AND ${shotNamesProfileSql(Prisma.sql`due.local_id`, Prisma.sql`due.executed`)})
+      AND NOT (kind = 'profile' AND (
+        ${shotNamesProfileSql(Prisma.sql`due.local_id`, Prisma.sql`due.profile_steps`)}
+        -- Joined the Library again: the record is the Library's Profile's.
+        OR EXISTS (SELECT 1 FROM profiles WHERE profiles.id = due.local_id)
+      ))
     ORDER BY local_id`;
   return rows
     .filter((row) => DELETE_ORDER.includes(row.kind) && !skipped.has(deleteKey(row.kind, row.localId)))

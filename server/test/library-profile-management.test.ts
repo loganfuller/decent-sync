@@ -109,16 +109,16 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     return AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Staff", password: "staff password 1" }));
   }
 
-  /** A Shot pulled on the tablet with that serial, with a profile it executed. */
-  function shotWith(id: string, serial: string, profile: unknown): Record_ {
+  /** A Shot pulled on the tablet with that serial, with a profile it executed, and the profile id a skin recorded, if any. */
+  function shotWith(id: string, serial: string, profile: unknown, skinProfileId?: string): Record_ {
     const fixture = shotFixture();
     const workflow = fixture.workflow as Record_;
     const context = workflow.context as Record_;
+    const extras = skinProfileId === undefined ? {} : { workflowSkin: { selectedProfileId: skinProfileId } };
     return {
       ...fixture,
       id,
-      // No skin recorded the profile's id: what it executed names it.
-      workflow: { ...workflow, profile, machine: { ...(workflow.machine as Record_), serialNumber: serial }, context: { ...context, extras: {} } },
+      workflow: { ...workflow, profile, machine: { ...(workflow.machine as Record_), serialNumber: serial }, context: { ...context, extras } },
     };
   }
 
@@ -212,13 +212,19 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     await online.setProfileVisibility(mistakenId, "deleted");
     await poll(() => visibilityOn(offline, mistakenId)).toBe("hidden");
 
-    // A Shot pulled at the lab with the other: what it executed names it.
-    const shot = shotWith("shot-used-bloom", "22021", used.profile);
+    // A Shot pulled at the lab with the other names it by its steps, though a skin set its target weight to the Shot's yield.
+    const shot = shotWith("shot-used-bloom", "22021", { ...(used.profile as Record_), target_weight: 38 });
     lab.tablets[0]!.pullShot(shot);
     await poll(async () => (await api.call("GET", `/shots/${shot.id}`)).status).toBe(200);
     const refused = await api.call("DELETE", profilePath(usedId));
     expect(refused.status).toBe(409);
     expect(await refused.text()).toMatch(/A Shot names this Profile/);
+    // A Shot whose skin recorded a Profile's id names it, whatever steps it ran.
+    const skinned = await labProfile(lab.tablets[0]!, "Skinned Bloom", 3.75);
+    const skinShot = shotWith("shot-skinned-bloom", "22021", derivedProfile("Unsaved Bloom", 9.75), String(skinned.id));
+    lab.tablets[0]!.pullShot(skinShot);
+    await poll(async () => (await api.call("GET", `/shots/${skinShot.id}`)).status).toBe(200);
+    expect((await api.call("DELETE", profilePath(String(skinned.id)))).status).toBe(409);
     const bundled = await api.call("DELETE", profilePath(BUNDLED));
     expect(bundled.status).toBe(409);
     expect(await bundled.text()).toMatch(/bundled/);
@@ -246,27 +252,41 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     expect(visibilityOn(lab.tablets[0]!, mistakenId)).toBe("visible");
   });
 
-  it("refuses on the tablet the delete of a Profile a Shot it has yet to send used, though the server planned it first", async () => {
+  it("keeps on its tablet a Profile's record a Shot pulled offline used, though the server planned its delete first", async () => {
     const location = await api.createLocation("Unsent lab", "America/Chicago");
     const machine = await api.createMachine("Unsent lab 1", location.id);
-    // Decaid is slow to read a Shot, so the server plans the delete before it has the Shot just pulled.
+    // Decaid is slow to read a Shot, so the plugin usually reads it only as it checks the delete.
     const tablet = load(machine, "22031", server, { apiDelayMs: (method, path) => (method === "GET" && path.startsWith("/shots/") ? 3_000 : 0) });
     await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
     const record = await labProfile(tablet, "Unsent Bloom", 4.25);
     const id = String(record.id);
 
+    // Pulled while the tablet is offline, the Shot reaches the server only after the delete. Either the plugin refuses the
+    // delete, as the Shot is still to be sent, or the server, once it has the Shot, no longer asks for it.
+    tablet.loseNetwork();
     const shot = shotWith("shot-with-unsent-bloom", "22031", record.profile);
     tablet.pullShot(shot);
     await send("DELETE", profilePath(id), undefined, api, 204);
-
-    await expect
-      .poll(() => server.output(), { timeout: 20_000 })
-      .toMatch(/did not delete "profile" .*A Shot this plugin has queued or has yet to send names the record/);
+    tablet.restoreNetwork();
     await poll(async () => (await api.call("GET", `/shots/${shot.id}`)).status).toBe(200);
     // Kept on the tablet, out of the Library, as its Shot used it.
     expect(visibilityOn(tablet, id)).toBe("visible");
     expect(tablet.writes.filter((write) => write.startsWith("DELETE "))).toEqual([]);
     expect((await api.call("GET", profilePath(id))).status).toBe(404);
+
+    // Saved again on another tablet there, it joins the Library again, and the record kept is that Profile's once more.
+    const second = await api.createMachine("Unsent lab 2", location.id);
+    const otherTablet = load(second, "22032", other);
+    await api.waitForMachine(second.machine.name, (viewed) => viewed.online);
+    const requested = tablet.requests.length;
+    await labProfile(otherTablet, "Unsent Bloom", 4.25);
+    // Written the Profile again, which the plugin finds it holds, and which maps its record: until then, a barista's change to
+    // the record is not taken as an edit.
+    await poll(() => tablet.requests.slice(requested).includes(`/profiles/${encodeURIComponent(id)}`)).toBe(true);
+    await tablet.setProfileVisibility(id, "hidden");
+    await poll(async () => (await viewProfile(id)).locations.find((here) => here.location.id === location.id)?.shown).toBe(false);
+    await poll(() => visibilityOn(otherTablet, id)).toBe("hidden");
+    expect(tablet.writes.filter((write) => write.startsWith("DELETE "))).toEqual([]);
   });
 
   it("lets Staff show and hide Profiles only at their own Locations, Archive and restore them anywhere, and never hard-delete", async () => {

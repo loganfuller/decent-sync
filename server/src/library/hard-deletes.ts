@@ -12,10 +12,10 @@ import { lockLocation } from "./location-state.js";
 // its batches, as Decaid refuses to delete a bean that has any. A Shot names a
 // batch or Grinder by its id on the tablet that pulled it, so an item whose
 // record has that id on any tablet's map is named; a Bean is named when one
-// of its batches is. A Shot names a Profile by what it executed, which its
-// Workflow records whole, and which decides a Profile's id (ADR-0006), or by
-// the profile id a skin recorded there. Decaid's bundled Profiles, which
-// every tablet has and Decaid refuses to delete, are never deleted.
+// of its batches is. A Shot names a Profile by the steps it executed, which
+// its Workflow records with the rest of its profile, or by the profile id a
+// skin recorded there. Decaid's bundled Profiles, which every tablet has and
+// Decaid refuses to delete, are never deleted.
 //
 // The item is gone from the Library at once, with its versions, Conflicts
 // and each Location's state of it. Its global id is kept (`deleted_items`),
@@ -26,7 +26,9 @@ import { lockLocation } from "./location-state.js";
 // not taken in as new: it is deleted there too. A Profile's id is Decaid's,
 // a hash of what the machine executes, so a record of it a tablet reports
 // later is not told apart from one a barista made again: but for a record a
-// delete is due for, it joins the Library anew, as a Profile made there.
+// delete is due for, it joins the Library anew, as a Profile made there. A
+// delete of a Profile's record is due only while the Library lacks that id:
+// once the Profile joins it again, the tablet's record is the Library's.
 //
 // Locks, in the order every other change takes them, so none waits on
 // another in turn: the item's open Conflicts, which resolving one locks
@@ -55,29 +57,20 @@ const TABLES: Readonly<Record<DeletedKind, { table: string; map: string; column:
 const NAMES: Readonly<Record<DeletedKind, string>> = { bean: "Bean", beanBatch: "Bean Batch", grinder: "Grinder", profile: "Profile" };
 
 /**
- * What the machine executes of a profile, as Decaid hashes it for the
- * Profile's id (`ProfileHash` in decaid:lib/src/models/data/profile_hash.dart):
- * its version, beverage type, steps, tank temperature and targets, from the
- * `profile` of a Library Profile's content or of a Shot's Workflow, which
- * Decaid writes alike. PostgreSQL compares JSON numbers by value, so a whole
- * double Decaid writes as `92.0` equals 92.
+ * Whether a Shot names a Profile, given its id and its steps, from the
+ * `profile` of its content, which Decaid writes as it writes a Shot's
+ * Workflow's: the Shot's Workflow's profile has the same steps, found by the
+ * index on them, or a skin recorded the Profile's id there. Steps alone are
+ * compared, not the rest of what Decaid hashes for a Profile's id
+ * (`ProfileHash` in decaid:lib/src/models/data/profile_hash.dart): a skin
+ * sets the Workflow's profile's target weight to the Shot's yield, so a
+ * Shot pulled with a Profile can hold other targets. Refusing more deletes
+ * than Shots used is the safe side. PostgreSQL compares JSON numbers by
+ * value, so a whole double Decaid writes as `92.0` equals 92.
  */
-export function executedProfileSql(profile: Prisma.Sql): Prisma.Sql {
-  return Prisma.sql`jsonb_build_object('version', ${profile} -> 'version', 'beverage_type', ${profile} -> 'beverage_type',
-    'steps', ${profile} -> 'steps', 'tank_temperature', ${profile} -> 'tank_temperature', 'target_weight', ${profile} -> 'target_weight',
-    'target_volume', ${profile} -> 'target_volume', 'target_volume_count_start', ${profile} -> 'target_volume_count_start')`;
-}
-
-/**
- * Whether a Shot names a Profile, given its id and what it executes
- * (`executedProfileSql`): its Workflow's profile executes the same, found by
- * the index on its steps, or a skin recorded the Profile's id there.
- */
-export function shotNamesProfileSql(id: Prisma.Sql, executed: Prisma.Sql): Prisma.Sql {
-  const used = Prisma.sql`shots.record -> 'workflow' -> 'profile'`;
+export function shotNamesProfileSql(id: Prisma.Sql, steps: Prisma.Sql): Prisma.Sql {
   return Prisma.sql`EXISTS (
-    SELECT 1 FROM shots
-    WHERE shots.profile_id = ${id} OR (${used} -> 'steps' = ${executed} -> 'steps' AND ${executedProfileSql(used)} = ${executed})
+    SELECT 1 FROM shots WHERE shots.profile_id = ${id} OR shots.record -> 'workflow' -> 'profile' -> 'steps' = ${steps}
   )`;
 }
 
@@ -153,7 +146,7 @@ async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: s
       OR EXISTS (SELECT 1 FROM shots JOIN tablet_grinders AS held ON held.local_id = shots.grinder_id WHERE held.grinder_id = ANY(${grinders}::uuid[]))
       OR EXISTS (
         SELECT 1 FROM profiles WHERE id = ANY(${profiles}::text[])
-          AND ${shotNamesProfileSql(Prisma.sql`profiles.id`, executedProfileSql(Prisma.sql`profiles.content -> 'profile'`))}
+          AND ${shotNamesProfileSql(Prisma.sql`profiles.id`, Prisma.sql`profiles.content -> 'profile' -> 'steps'`)}
       )
       AS named`;
   if (named?.named) {
@@ -164,10 +157,10 @@ async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: s
   for (const item of items) {
     const { table, map, column, cast } = TABLES[item.kind];
     if (item.kind === "profile") {
-      // A Profile's record is named by its id, which is Decaid's, and keeps what it executes, which a Shot that used it recorded.
+      // A Profile's record is named by its id, which is Decaid's, and keeps its steps, which a Shot that used it recorded.
       await tx.$executeRaw`
-        INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id, executed)
-        SELECT held.tablet_id, 'profile', held.profile_id, held.profile_id, ${executedProfileSql(Prisma.sql`profiles.content -> 'profile'`)}
+        INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id, profile_steps)
+        SELECT held.tablet_id, 'profile', held.profile_id, held.profile_id, profiles.content -> 'profile' -> 'steps'
         FROM tablet_profiles AS held JOIN profiles ON profiles.id = held.profile_id WHERE held.profile_id = ${item.id}
         ON CONFLICT DO NOTHING`;
     } else {

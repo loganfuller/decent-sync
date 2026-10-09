@@ -147,8 +147,9 @@ export class LibraryWrites {
   /**
    * The batch, Grinder and profile records the Shots this plugin queued since
    * it loaded name, as `kind:id`: a few per batch, Grinder and profile used.
-   * A profile is named by what the machine executed of it, which decides its
-   * id (`executedKey`), and by the id a skin recorded, if one did.
+   * A profile is named by its steps (`stepsKey`), as a skin sets the
+   * Workflow's profile's targets for the Shot, and by the id a skin recorded,
+   * if one did.
    */
   private readonly shotsName = new Set<string>();
   /** The Shots still to be sent that `namedByShot` read. */
@@ -182,8 +183,8 @@ export class LibraryWrites {
   private noteShot(shot: Record<string, unknown>): void {
     const workflow = shot.workflow;
     if (!isObject(workflow)) return;
-    const executed = executedKey(workflow.profile);
-    if (executed !== null) this.shotsName.add(`profile:${executed}`);
+    const steps = stepsKey(workflow.profile);
+    if (steps !== null) this.shotsName.add(`profile:${steps}`);
     const context = workflow.context;
     if (!isObject(context)) return;
     if (typeof context.beanBatchId === "string") this.shotsName.add(`beanBatch:${context.beanBatchId}`);
@@ -277,26 +278,24 @@ async function purgeProfile(remove: LibraryDelete, namedByShot: (kind: NamedKind
     if (current.status === 404) return deleted(remove);
     const record = current.ok ? parsed(current.text) : undefined;
     if (!isObject(record)) return refused(remove, current.status, current.text);
-    const executed = executedKey(record.profile);
-    if (await namedByShot("profile", new Set(executed === null ? [remove.localId] : [remove.localId, executed]))) return refused(remove, null, SHOT_NOT_SENT);
+    const steps = stepsKey(record.profile);
+    if (await namedByShot("profile", new Set(steps === null ? [remove.localId] : [remove.localId, steps]))) return refused(remove, null, SHOT_NOT_SENT);
     const answer = await request("DELETE", `${path}/purge`);
-    return answer.ok || answer.status === 404 ? deleted(remove) : refused(remove, answer.status, answer.text);
+    // Decaid answers a purge of a profile it no longer holds, as one replaced since it was read, with 400.
+    return answer.ok || (answer.status === 400 && answer.text.includes("Profile not found")) ? deleted(remove) : refused(remove, answer.status, answer.text);
   } catch (error) {
     return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
-/** The fields of a profile Decaid hashes for its id: what the machine executes (`ProfileHash` in decaid:lib/src/models/data/profile_hash.dart). */
-const EXECUTED_FIELDS = ["version", "beverage_type", "steps", "tank_temperature", "target_weight", "target_volume", "target_volume_count_start"] as const;
-
 /**
- * What the machine executes of a profile, as text that is the same for the
- * same profile, its keys sorted, as a Shot's Workflow and a profile's record
- * hold it alike; null if it is not a profile.
+ * A profile's steps, as text that is the same for the same steps, its keys
+ * sorted, as a Shot's Workflow and a profile's record hold them alike; null
+ * if it has none. Its other fields are not compared, as the server does not
+ * compare them: a skin sets the Workflow's profile's targets for the Shot.
  */
-function executedKey(profile: unknown): string | null {
-  if (!isObject(profile)) return null;
-  return stableJson(Object.fromEntries(EXECUTED_FIELDS.map((field) => [field, profile[field] ?? null])));
+function stepsKey(profile: unknown): string | null {
+  return isObject(profile) && Array.isArray(profile.steps) ? stableJson(profile.steps) : null;
 }
 
 /** JSON with every object's keys sorted. */
