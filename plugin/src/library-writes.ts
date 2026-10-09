@@ -1,4 +1,5 @@
 import {
+  ANOTHER_ITEMS_RECORD,
   GLOBAL_ID_KEY,
   type ItemDeleted,
   type ItemWritten,
@@ -161,9 +162,10 @@ export class LibraryWrites {
 }
 
 /**
- * Deletes the tablet's record of a hard-deleted item (`LibraryDelete`), only
- * while it still carries the item's global id: a record already gone is
- * deleted. A bean's batches, archived ones included, are deleted first, as
+ * Deletes the tablet's record of a hard-deleted item (`LibraryDelete`),
+ * unless it carries another item's global id: one the server mapped may
+ * carry none yet, as when the write of its global id was still due. A record
+ * already gone is deleted. A bean's batches, archived ones included, are deleted first, as
  * DYE2 does (dye2:dye2-plugin/src/utils/bean-delete.ts), since Decaid
  * refuses to delete a bean that has any.
  */
@@ -176,7 +178,8 @@ async function carryOutDelete(remove: LibraryDelete): Promise<DeleteAnswer> {
     if (current.status === 404) return deleted(remove);
     const record = current.ok ? parsed(current.text) : undefined;
     if (!isObject(record)) return refused(remove, current.status, current.text);
-    if (globalIdOf(record) !== remove.globalId.toLowerCase()) return refused(remove, null, "The record is not that item's");
+    const carried = globalIdOf(record);
+    if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
     if (remove.kind === "bean") {
       const listed = await request("GET", `${path}/batches?includeArchived=true`);
       const batches = listed.ok ? parsed(listed.text) : undefined;

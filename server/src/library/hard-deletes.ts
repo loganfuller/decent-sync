@@ -49,57 +49,80 @@ const NAMES: Readonly<Record<DeletedKind, string>> = { bean: "Bean", beanBatch: 
  * it; 409 if a Shot names it, or for a Bean one of its batches.
  */
 export async function hardDelete(prisma: PrismaService, kind: DeletedKind, id: string): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    const items = await deletedWith(tx, kind, id);
-    if (items === null) throw new NotFoundException(`No such ${NAMES[kind]}`);
-    const byKind = (wanted: DeletedKind) => items.filter((item) => item.kind === wanted).map((item) => item.id);
-    const beans = byKind("bean");
-    const batches = byKind("beanBatch");
-    const grinders = byKind("grinder");
+  // A tablet or Location that comes to hold the item while its locks are taken is found once they are, and the
+  // delete starts again, as its locks cannot be taken after the items' in order.
+  for (let attempt = 1; ; attempt++) {
+    const done = await prisma.$transaction((tx) => deleteOnce(tx, kind, id), INTAKE_TRANSACTION);
+    if (done) return;
+    if (attempt === 3) throw new ConflictException(`The ${NAMES[kind]} is changing on tablets: try again`);
+  }
+}
 
-    await tx.$queryRaw`
-      SELECT 1 FROM conflicts
-      WHERE state = 'OPEN' AND (bean_id = ANY(${beans}::uuid[]) OR batch_id = ANY(${batches}::uuid[]) OR grinder_id = ANY(${grinders}::uuid[]))
-      ORDER BY id FOR UPDATE`;
-    const tablets = await tx.$queryRaw<{ tabletId: string }[]>`
-      SELECT tablet_id AS "tabletId" FROM tablet_beans WHERE bean_id = ANY(${beans}::uuid[])
-      UNION SELECT tablet_id FROM tablet_bean_batches WHERE batch_id = ANY(${batches}::uuid[])
-      UNION SELECT tablet_id FROM tablet_grinders WHERE grinder_id = ANY(${grinders}::uuid[])
-      ORDER BY 1`;
-    for (const { tabletId } of tablets) await lockTablet(tx, tabletId);
-    const locations = await tx.$queryRaw<{ locationId: string }[]>`
-      SELECT location_id AS "locationId" FROM batch_locations WHERE batch_id = ANY(${batches}::uuid[])
-      UNION SELECT location_id FROM bean_origins WHERE bean_id = ANY(${beans}::uuid[])
-      UNION SELECT location_id FROM grinders WHERE id = ANY(${grinders}::uuid[]) AND location_id IS NOT NULL
-      ORDER BY 1`;
-    for (const { locationId } of locations) await lockLocation(tx, locationId);
-    for (const item of [...items].sort((a, b) => a.id.localeCompare(b.id))) {
-      await tx.$queryRaw`SELECT 1 FROM ${Prisma.raw(TABLES[item.kind].table)} WHERE id = ${item.id}::uuid FOR UPDATE`;
-    }
+/** Deletes the item as `hardDelete` does, under the locks it needs; false if more came to hold it as they were taken, changing nothing. */
+async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: string): Promise<boolean> {
+  const items = await deletedWith(tx, kind, id);
+  if (items === null) throw new NotFoundException(`No such ${NAMES[kind]}`);
+  const byKind = (wanted: DeletedKind) => items.filter((item) => item.kind === wanted).map((item) => item.id);
+  const beans = byKind("bean");
+  const batches = byKind("beanBatch");
+  const grinders = byKind("grinder");
 
-    // Read under the tablets' locks, which every change to their maps takes.
-    const [named] = await tx.$queryRaw<{ named: boolean }[]>`
-      SELECT EXISTS (SELECT 1 FROM shots JOIN tablet_bean_batches AS held ON held.local_id = shots.bean_batch_id WHERE held.batch_id = ANY(${batches}::uuid[]))
-        OR EXISTS (SELECT 1 FROM shots JOIN tablet_grinders AS held ON held.local_id = shots.grinder_id WHERE held.grinder_id = ANY(${grinders}::uuid[]))
-        AS named`;
-    if (named?.named) {
-      const what = kind === "bean" ? "one of this Bean's batches" : `this ${NAMES[kind]}`;
-      throw new ConflictException(`A Shot names ${what}, so it cannot be deleted. Archive it instead.`);
-    }
+  await tx.$queryRaw`
+    SELECT 1 FROM conflicts
+    WHERE state = 'OPEN' AND (bean_id = ANY(${beans}::uuid[]) OR batch_id = ANY(${batches}::uuid[]) OR grinder_id = ANY(${grinders}::uuid[]))
+    ORDER BY id FOR UPDATE`;
+  const holders = async () => ({
+    tablets: (
+      await tx.$queryRaw<{ id: string }[]>`
+        SELECT tablet_id::text AS id FROM tablet_beans WHERE bean_id = ANY(${beans}::uuid[])
+        UNION SELECT tablet_id::text FROM tablet_bean_batches WHERE batch_id = ANY(${batches}::uuid[])
+        UNION SELECT tablet_id::text FROM tablet_grinders WHERE grinder_id = ANY(${grinders}::uuid[])
+        ORDER BY 1`
+    ).map((row) => row.id),
+    locations: (
+      await tx.$queryRaw<{ id: string }[]>`
+        SELECT location_id::text AS id FROM batch_locations WHERE batch_id = ANY(${batches}::uuid[])
+        UNION SELECT location_id::text FROM bean_origins WHERE bean_id = ANY(${beans}::uuid[])
+        UNION SELECT location_id::text FROM grinders WHERE id = ANY(${grinders}::uuid[]) AND location_id IS NOT NULL
+        ORDER BY 1`
+    ).map((row) => row.id),
+  });
+  const locked = await holders();
+  for (const tabletId of locked.tablets) await lockTablet(tx, tabletId);
+  for (const locationId of locked.locations) await lockLocation(tx, locationId);
+  for (const item of [...items].sort((a, b) => a.id.localeCompare(b.id))) {
+    await tx.$queryRaw`SELECT 1 FROM ${Prisma.raw(TABLES[item.kind].table)} WHERE id = ${item.id}::uuid FOR UPDATE`;
+  }
+  // Under the items' locks, nothing else comes to hold them: a map or a Location's state referencing one waits for them.
+  const now = await holders();
+  if (now.tablets.some((tabletId) => !locked.tablets.includes(tabletId)) || now.locations.some((locationId) => !locked.locations.includes(locationId))) {
+    return false;
+  }
+  if ((await deletedWith(tx, kind, id))?.length !== items.length) return false;
 
-    for (const item of items) {
-      const { table, map, column } = TABLES[item.kind];
-      await tx.$executeRaw`
-        INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id)
-        SELECT tablet_id, ${item.kind}, local_id, ${Prisma.raw(column)} FROM ${Prisma.raw(map)} WHERE ${Prisma.raw(column)} = ${item.id}::uuid
-        ON CONFLICT DO NOTHING`;
-      await tx.$executeRaw`INSERT INTO deleted_items (kind, item_id) VALUES (${item.kind}, ${item.id}::uuid) ON CONFLICT DO NOTHING`;
-      // A Bean's batches go first, as their rows reference it.
-      if (item.kind !== "bean") await tx.$executeRaw`DELETE FROM ${Prisma.raw(table)} WHERE id = ${item.id}::uuid`;
-    }
-    if (beans.length > 0) await tx.$executeRaw`DELETE FROM beans WHERE id = ANY(${beans}::uuid[])`;
-    if (tablets.length > 0 || locations.length > 0) await notify(tx, "library_changes", id);
-  }, INTAKE_TRANSACTION);
+  // Read under the tablets' locks, which every change to their maps takes.
+  const [named] = await tx.$queryRaw<{ named: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM shots JOIN tablet_bean_batches AS held ON held.local_id = shots.bean_batch_id WHERE held.batch_id = ANY(${batches}::uuid[]))
+      OR EXISTS (SELECT 1 FROM shots JOIN tablet_grinders AS held ON held.local_id = shots.grinder_id WHERE held.grinder_id = ANY(${grinders}::uuid[]))
+      AS named`;
+  if (named?.named) {
+    const what = kind === "bean" ? "one of this Bean's batches" : `this ${NAMES[kind]}`;
+    throw new ConflictException(`A Shot names ${what}, so it cannot be deleted. Archive it instead.`);
+  }
+
+  for (const item of items) {
+    const { table, map, column } = TABLES[item.kind];
+    await tx.$executeRaw`
+      INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id)
+      SELECT tablet_id, ${item.kind}, local_id, ${Prisma.raw(column)} FROM ${Prisma.raw(map)} WHERE ${Prisma.raw(column)} = ${item.id}::uuid
+      ON CONFLICT DO NOTHING`;
+    await tx.$executeRaw`INSERT INTO deleted_items (kind, item_id) VALUES (${item.kind}, ${item.id}::uuid) ON CONFLICT DO NOTHING`;
+    // A Bean's batches go first, as their rows reference it.
+    if (item.kind !== "bean") await tx.$executeRaw`DELETE FROM ${Prisma.raw(table)} WHERE id = ${item.id}::uuid`;
+  }
+  if (beans.length > 0) await tx.$executeRaw`DELETE FROM beans WHERE id = ANY(${beans}::uuid[])`;
+  if (now.tablets.length > 0 || now.locations.length > 0) await notify(tx, "library_changes", id);
+  return true;
 }
 
 /** The item and what goes with it, a Bean's batches; null if the Library does not have it. */

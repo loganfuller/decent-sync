@@ -373,7 +373,9 @@ with its batches, as Decaid refuses to delete a bean that has any.
   tablet's map is named, and a Bean is named when one of its batches is: its
   delete is refused, and it can be Archived instead. A record a tablet
   deleted itself has left its map, so a Shot naming only that record does not
-  count.
+  count. A Shot the server takes in after the delete, as one an offline
+  tablet pulled, that names a record still to be deleted keeps that record
+  on its tablet, out of the Library: it is never deleted there.
 - **Tablets.** Each tablet's record of the item, read from its map, is kept
   as a delete due there (`tablet_deletions`), and the item's global id is
   kept (`deleted_items`). Each tablet's writer deletes its records, a bean's
@@ -383,11 +385,24 @@ with its batches, as Decaid refuses to delete a bean that has any.
   delete is no longer due. A record a tablet reports carrying a deleted
   item's global id that its map does not hold, as from one that was offline,
   written the item by a write whose answer was lost, or restored from a
-  Decaid backup, is not taken in as new: it is deleted there too.
+  Decaid backup, is not taken in as new: it is deleted there too. A record
+  the map held that carries no global id, as one whose global id was still
+  to be written, is deleted too; one that now carries another item's is not
+  the deleted item's, and is taken in again from the tablet's next report.
+  The plugin deletes a bean's batches with it, those the Library never knew
+  included, such as one a barista made of it offline; such a batch's Shots,
+  which the server could not see when the Bean was deleted, then name a
+  batch the tablet no longer holds.
 - **Locks.** It takes the item's open Conflicts' row locks, then the row
   locks of the tablets that hold it, then the locks of the Locations whose
   state of it changes, then the items' rows, the order every other change
-  takes them in, and decides whether a Shot names it under them.
+  takes them in, and decides whether a Shot names it under them. A tablet or
+  Location that came to hold the item while those were taken is found once
+  the items' rows are locked, as nothing else can come to hold them then,
+  and the delete starts again, at most three times. A batch created of the
+  Bean, or a batch placed at a Location, meanwhile waits for the items'
+  locks and then finds them gone (404); a tablet's report mapping one fails
+  on its foreign key, and is taken in when the plugin sends it again.
 
 ## Taking in a tablet's beans
 
@@ -830,7 +845,8 @@ tablet's list of batches to show it does not.
 
 - To delete a record of a hard-deleted item (`delete`), it reads the record,
   and deletes it (`DELETE /beans/{id}`, `/bean-batches/{id}` or
-  `/grinders/{id}`) only while it still carries the item's global id; a bean's
+  `/grinders/{id}`) unless it carries another item's global id, which it
+  refuses (`ANOTHER_ITEMS_RECORD`); a bean's
   batches, archived ones included, first (`GET /beans/{id}/batches`), as DYE2
   does, since Decaid refuses to delete a bean that has any. A record already
   gone is deleted. It answers `deleted`, or `writeRefused`, through its

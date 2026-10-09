@@ -177,10 +177,19 @@ function presenceDecidedSql(beanId: Prisma.Sql, locationId: string): Prisma.Sql 
 /** The order records are deleted in: a bean's batches before it, as Decaid refuses to delete a bean that has any. */
 const DELETE_ORDER: readonly DeletedKind[] = ["beanBatch", "bean", "grinder"];
 
-/** The tablet's records of hard-deleted items still to be deleted there, but those in `skipped` (`deleteKey`). */
+/**
+ * The tablet's records of hard-deleted items still to be deleted there, but
+ * those in `skipped` (`deleteKey`), and a batch or Grinder record a Shot
+ * names by its id, as one the tablet pulled, or sent, after the item was
+ * deleted: that record is kept on its tablet, out of the Library.
+ */
 async function deletesDue(tx: Prisma.TransactionClient, tabletId: string, skipped: ReadonlySet<string>): Promise<PlannedDelete[]> {
   const rows = await tx.$queryRaw<{ kind: DeletedKind; localId: string; itemId: string }[]>`
-    SELECT kind, local_id AS "localId", item_id AS "itemId" FROM tablet_deletions WHERE tablet_id = ${tabletId}::uuid ORDER BY local_id`;
+    SELECT kind, local_id AS "localId", item_id AS "itemId" FROM tablet_deletions AS due
+    WHERE tablet_id = ${tabletId}::uuid
+      AND NOT (kind = 'beanBatch' AND EXISTS (SELECT 1 FROM shots WHERE shots.bean_batch_id = due.local_id))
+      AND NOT (kind = 'grinder' AND EXISTS (SELECT 1 FROM shots WHERE shots.grinder_id = due.local_id))
+    ORDER BY local_id`;
   return rows
     .filter((row) => DELETE_ORDER.includes(row.kind) && !skipped.has(deleteKey(row.kind, row.localId)))
     .sort((a, b) => DELETE_ORDER.indexOf(a.kind) - DELETE_ORDER.indexOf(b.kind))

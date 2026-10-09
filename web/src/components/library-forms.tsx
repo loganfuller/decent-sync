@@ -124,8 +124,12 @@ function contentValue(field: FormField, value: string | boolean): unknown {
       return Number(text);
     case "list":
       return text.split(",").map((item) => item.trim()).filter((item) => item !== "");
-    case "wholeList":
-      return text.split(",").map((item) => Number(item.trim())).filter((item) => !Number.isNaN(item));
+    case "wholeList": {
+      const items = text.split(",").map((item) => item.trim()).filter((item) => item !== "");
+      // Refused rather than dropped, so nothing typed is lost unseen.
+      if (!items.every((item) => /^\d+$/.test(item))) throw new Error(`${field.label} must be whole numbers, separated by commas`);
+      return items.map(Number);
+    }
     case "longText":
       return value;
     default:
@@ -244,10 +248,15 @@ export function ContentForm({
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const changed = changedContent(fields, initial, values);
+    setError(undefined);
+    let changed: Record<string, unknown>;
+    try {
+      changed = changedContent(fields, initial, values);
+    } catch (caught) {
+      return setError(failure(caught, "The changes could not be read"));
+    }
     if (Object.keys(changed).length === 0) return onCancel();
     setSaving(true);
-    setError(undefined);
     try {
       await api("PATCH", path, { content: changed });
       await onSaved();

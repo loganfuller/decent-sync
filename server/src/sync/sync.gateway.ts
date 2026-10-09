@@ -4,6 +4,7 @@ import type { Duplex } from "node:stream";
 import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
 import { HttpAdapterHost } from "@nestjs/core";
 import {
+  ANOTHER_ITEMS_RECORD,
   CHUNK_LIMITS,
   CLOSE_CODES,
   type Chunk,
@@ -479,7 +480,11 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         if (write) outcome = "written";
       }
     } else if (write?.type === "delete") {
-      if (answer.type === "writeRefused") {
+      if (answer.type === "writeRefused" && answer.status === null && answer.error === ANOTHER_ITEMS_RECORD && isDeletedKind(write.kind)) {
+        // Not the deleted item's record after all: the tablet's next report takes it in as any record carrying that id.
+        await recordDeleted(this.prisma, session.live!.tabletId, write.kind, write.localId);
+        this.logger.log(`The tablet of ${this.describe(session)} holds ${quoted(write.kind)} ${write.localId} as another item's; it is not deleted`);
+      } else if (answer.type === "writeRefused") {
         this.logger.warn(
           `The tablet of ${this.describe(session)} did not delete ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? quoted(answer.error.slice(0, 200)) : `Decaid answered ${answer.status}, ${quoted(answer.error.slice(0, 200))}`}`,
         );

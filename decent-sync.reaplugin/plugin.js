@@ -269,6 +269,7 @@ var __decentSync = (() => {
     }
     return parts;
   }
+  var ANOTHER_ITEMS_RECORD = "The record carries another item's global id";
   var MAX_REFUSAL_LENGTH = 1e3;
   function encode(message) {
     return JSON.stringify(message);
@@ -804,7 +805,8 @@ var __decentSync = (() => {
       if (current.status === 404) return deleted(remove);
       const record = current.ok ? parsed(current.text) : void 0;
       if (!isObject2(record)) return refused(remove, current.status, current.text);
-      if (globalIdOf(record) !== remove.globalId.toLowerCase()) return refused(remove, null, "The record is not that item's");
+      const carried = globalIdOf(record);
+      if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
       if (remove.kind === "bean") {
         const listed = await request("GET", `${path}/batches?includeArchived=true`);
         const batches = listed.ok ? parsed(listed.text) : void 0;

@@ -102,7 +102,8 @@ export class LibraryEditsService {
       const places = [...at].sort((a, b) => a.locationId.localeCompare(b.locationId));
       await this.checkLocations(tx, places.map((here) => here.locationId));
       for (const here of places) await lockLocation(tx, here.locationId);
-      const bean = await tx.bean.findUnique({ where: { id: beanId }, select: { archived: true } });
+      // Under its row lock, so it is neither Archived nor hard-deleted until the batch is created.
+      const [bean] = await tx.$queryRaw<{ archived: boolean }[]>`SELECT archived FROM beans WHERE id = ${beanId}::uuid FOR SHARE`;
       if (!bean) throw new NotFoundException("No such Bean");
       if (bean.archived) throw new ConflictException("This Bean is Archived: restore it before adding a batch of it");
       const created = await tx.beanBatch.create({ data: { beanId, content: content as Prisma.InputJsonObject }, select: { id: true } });
@@ -142,7 +143,9 @@ export class LibraryEditsService {
     await this.prisma.$transaction(async (tx) => {
       await this.checkLocations(tx, [locationId]);
       await lockLocation(tx, locationId);
-      await found(tx, "beanBatch", id);
+      // Under its key's lock, so it is not hard-deleted until its state here changes.
+      const batch = await tx.$queryRaw<unknown[]>`SELECT 1 FROM bean_batches WHERE id = ${id}::uuid FOR KEY SHARE`;
+      if (batch.length === 0) throw notFound("beanBatch");
       const [here] = await tx.$queryRaw<{ at: boolean }[]>`
         SELECT added_at IS NOT NULL AND finished_at IS NULL AS at FROM batch_locations WHERE batch_id = ${id}::uuid AND location_id = ${locationId}::uuid`;
       if (placement.remainingWeight !== undefined && (placement.atLocation ?? here?.at ?? false) === false) {

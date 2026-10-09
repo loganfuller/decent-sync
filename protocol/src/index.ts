@@ -708,7 +708,8 @@ export interface WriteRefused {
  * hard-deleted (ADR-0003): a Bean, Bean Batch or Grinder no Shot names. The
  * server sends it as it sends a `write`, one at a time with them, and it is
  * answered with `deleted` or `writeRefused`. The plugin deletes the record
- * only while it still carries the item's global id, and a bean only once its
+ * unless it carries another item's global id (ANOTHER_ITEMS_RECORD), as one
+ * the server mapped may not carry one yet, and a bean only once its
  * batches are deleted, as Decaid refuses to delete a bean that has any: so
  * it deletes the bean's batches first, as DYE2 does. A record already gone
  * is deleted.
@@ -724,6 +725,13 @@ export interface LibraryDelete {
   /** The tablet's record to delete. */
   localId: string;
 }
+
+/**
+ * The error of a `writeRefused` answering a `delete` whose record carries
+ * another item's global id: it is not the deleted item's, so the server takes
+ * it in again rather than asking for its delete.
+ */
+export const ANOTHER_ITEMS_RECORD = "The record carries another item's global id";
 
 /** The kinds of Library item an Admin hard-deletes from tablets. Profiles are hidden, never deleted (ADR-0019). */
 export const DELETED_KINDS = ["bean", "beanBatch", "grinder"] as const;
