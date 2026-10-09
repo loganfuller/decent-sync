@@ -723,6 +723,11 @@ model TabletBean {
   /// PostgreSQL's clock, as the server's write it answered carried them;
   /// null if none. Its own edits it has seen whatever this says (ADR-0020).
   contentSeenAt DateTime? @map("content_seen_at") @db.Timestamptz(3)
+  /// When the record was last saved here, by PostgreSQL's clock: it held
+  /// then what it holds. An edit of a field the record held at the item's
+  /// value, which nobody had edited since, replaces nothing its tablet had
+  /// not seen (ADR-0020).
+  recordSavedAt DateTime? @map("record_saved_at") @db.Timestamptz(3)
 
   @@id([tabletId, beanId])
   @@unique([tabletId, localId])
@@ -826,6 +831,11 @@ model TabletBeanBatch {
   /// PostgreSQL's clock, as the server's write it answered carried them;
   /// null if none. Its own edits it has seen whatever this says (ADR-0020).
   contentSeenAt DateTime? @map("content_seen_at") @db.Timestamptz(3)
+  /// When the record was last saved here, by PostgreSQL's clock: it held
+  /// then what it holds. An edit of a field the record held at the item's
+  /// value, which nobody had edited since, replaces nothing its tablet had
+  /// not seen (ADR-0020).
+  recordSavedAt DateTime? @map("record_saved_at") @db.Timestamptz(3)
 
   @@id([tabletId, batchId])
   @@unique([tabletId, localId])
@@ -881,6 +891,11 @@ model TabletGrinder {
   /// PostgreSQL's clock, as the server's write it answered carried them;
   /// null if none. Its own edits it has seen whatever this says (ADR-0020).
   contentSeenAt DateTime? @map("content_seen_at") @db.Timestamptz(3)
+  /// When the record was last saved here, by PostgreSQL's clock: it held
+  /// then what it holds. An edit of a field the record held at the item's
+  /// value, which nobody had edited since, replaces nothing its tablet had
+  /// not seen (ADR-0020).
+  recordSavedAt DateTime? @map("record_saved_at") @db.Timestamptz(3)
 
   @@id([tabletId, grinderId])
   @@unique([tabletId, localId])
@@ -976,6 +991,11 @@ model TabletProfile {
   /// PostgreSQL's clock, as the server's write it answered carried them;
   /// null if none. Its own edits it has seen whatever this says (ADR-0020).
   contentSeenAt DateTime? @map("content_seen_at") @db.Timestamptz(3)
+  /// When the record was last saved here, by PostgreSQL's clock: it held
+  /// then what it holds. An edit of a field the record held at the item's
+  /// value, which nobody had edited since, replaces nothing its tablet had
+  /// not seen (ADR-0020).
+  recordSavedAt DateTime? @map("record_saved_at") @db.Timestamptz(3)
 
   @@id([tabletId, profileId])
   @@index([profileId])

@@ -67,15 +67,18 @@ export async function takeInProfiles(
       record: Record<string, unknown>;
       seenAt: Date | null;
       contentSeenAt: Date | null;
+      savedAt: Date | null;
     }[]
   >`
     SELECT profile_id AS "profileId", record_updated_at AS "updatedAt", (record ->> 'visibility') = 'visible' AS visible,
-      (record ->> 'visibility') = 'deleted' AS deleted, ${seenAtSql(locationId)} AS "seenAt", content_seen_at AS "contentSeenAt",
+      (record ->> 'visibility') = 'deleted' AS deleted, ${seenAtSql(locationId)} AS "seenAt", content_seen_at AS "contentSeenAt", record_saved_at AS "savedAt",
       jsonb_build_object('profile', jsonb_build_object('title', record -> 'profile' -> 'title', 'author', record -> 'profile' -> 'author',
         'notes', record -> 'profile' -> 'notes')) AS record
     FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid`;
   /** The latest edit of its title, author and notes that each record the map holds has seen. */
   const contentSeenAt = new Map(mapped.map((profile) => [profile.profileId, profile.contentSeenAt]));
+  /** When each record the map holds was saved, by PostgreSQL's clock. */
+  const savedAt = new Map(mapped.map((profile) => [profile.profileId, profile.savedAt]));
   /** The title, author and notes of each record the map holds, as the tablet last had them. */
   const knownText = new Map(mapped.map((profile) => [profile.profileId, profileText(profile.record)]));
   /** The Location's latest decision of each Profile that the tablet's record the map holds has seen there: one decided by then, the tablet had seen. */
@@ -153,7 +156,7 @@ export async function takeInProfiles(
     if (step.kind === "update") {
       if (step.shown !== undefined) decided = await showProfileAt(tx, profile.id, locationId, source, step.shown, profile.updatedAt, seenAt.get(profile.id) ?? null);
       writesDue = decided !== null || writesDue;
-      const edit = { values: step.content, at: profile.updatedAt, seenAt: contentSeenAt.get(profile.id) ?? null, had: heldBefore(knownText.get(profile.id) ?? {}, step.content) };
+      const edit = { values: step.content, at: profile.updatedAt, seenAt: contentSeenAt.get(profile.id) ?? null, had: heldBefore(knownText.get(profile.id) ?? {}, step.content), heldAt: savedAt.get(profile.id) ?? null };
       writesDue = (await editContent(tx, { kind: "profile", id: profile.id }, edit, source)) || writesDue;
     } else {
       // The tablet holds it as the Location has it, or is written so; the Location's other tablets may lack it.
@@ -207,12 +210,12 @@ export async function recordProfileWritten(
     if (!library) return "notTheItem";
     const here = await currentLocation(tx, tablet.machineId);
     const at = updatedAt === null ? null : new Date(updatedAt);
-    const [known] = await tx.$queryRaw<{ record: Record<string, unknown>; contentSeenAt: Date | null }[]>`
-      SELECT record, content_seen_at AS "contentSeenAt" FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid AND profile_id = ${profileId}`;
+    const [known] = await tx.$queryRaw<{ record: Record<string, unknown>; contentSeenAt: Date | null; savedAt: Date | null }[]>`
+      SELECT record, content_seen_at AS "contentSeenAt", record_saved_at AS "savedAt" FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid AND profile_id = ${profileId}`;
     if (known && !library.bundled) {
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
       const values = Object.fromEntries(Object.entries(changedFields(profileText(known.record), profileText(record))).filter(([field]) => !written.has(field)));
-      const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt, had: heldBefore(profileText(known.record), values) };
+      const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt, had: heldBefore(profileText(known.record), values), heldAt: known.savedAt };
       if ((await editContent(tx, { kind: "profile", id: profileId }, edit, tabletSource(tablet))) && here !== null) await notify(tx, "library_changes", here);
     }
     await saveRecord(tx, tablet.tabletId, profileId, record, at, seen?.locationId === here ? seen : null, contentSeen);
@@ -253,9 +256,9 @@ async function saveRecord(
   contentSeen: Date | null,
 ): Promise<void> {
   await tx.$executeRaw`
-    INSERT INTO tablet_profiles (tablet_id, profile_id, record, record_updated_at, seen_at, seen_location_id, content_seen_at)
+    INSERT INTO tablet_profiles (tablet_id, profile_id, record, record_updated_at, seen_at, seen_location_id, content_seen_at, record_saved_at)
     VALUES (${tabletId}::uuid, ${profileId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz, ${seen?.at ?? null}::timestamptz,
-      ${seen?.locationId ?? null}::uuid, ${contentSeen}::timestamptz)
+      ${seen?.locationId ?? null}::uuid, ${contentSeen}::timestamptz, clock_timestamp())
     ON CONFLICT (tablet_id, profile_id) DO UPDATE SET
-      record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at, ${keepSeenSql("tablet_profiles")}, ${keepContentSeenSql("tablet_profiles")}`;
+      record = EXCLUDED.record, record_saved_at = EXCLUDED.record_saved_at, record_updated_at = EXCLUDED.record_updated_at, ${keepSeenSql("tablet_profiles")}, ${keepContentSeenSql("tablet_profiles")}`;
 }

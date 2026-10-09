@@ -88,7 +88,7 @@ never deleted, so their Shots still find it (Writing to tablets, below).
 - `batch_locations`: each batch's state at a Location, each part a field of
   its own (ADR-0020): when it was last added there and when it was finished
   there since, if it was, and the remaining weight entered there last, in
-  grams, with that edit's time. A batch is at a Location while it was added
+  grams, with that edit's time, never earlier than the one before. A batch is at a Location while it was added
   there and not finished since. Whether it is there is a field whose latest
   edit wins (ADR-0020), with when that was last decided by PostgreSQL's clock.
   An edit from a tablet whose record of the batch had seen that decision
@@ -154,7 +154,8 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   seen before. Every map also keeps the latest edit of the item's content
   that the record has seen (`content_seen_at`, by PostgreSQL's clock): the
   latest decided as the server's write it answers was planned, while that
-  write was awaited, whichever is later. A reset tablet has a new tablet id,
+  write was awaited, whichever is later, and when the record was last saved
+  there (`record_saved_at`, by PostgreSQL's clock). A reset tablet has a new tablet id,
   so it starts with nothing here.
 - `field_edits` on `beans`, `bean_batches`, `grinders` and `profiles`: the
   latest edit of each field of the item's content, `{ at, decidedAt,
@@ -209,9 +210,12 @@ Profile's are never edits, and never written.
   latest edit (`field_edits`). An edit decides a field nobody has edited
   yet, and one whose latest edit its tablet had seen: its own, one decided
   by when its record last held what the server wrote it (`content_seen_at`),
-  or one whose value the record held before the edit, however it came to
-  hold it, as when the answer to the write that brought it came late, so the
-  edit replaces nothing its tablet had not seen.
+  or one whose value the record held before the edit, when it was saved
+  after the field's latest edit was decided (`record_saved_at`), however it
+  came to hold it, as when the answer to the write that brought it came
+  late, so the edit replaces nothing its tablet had not seen. A value set
+  again since the record was saved, as when one tablet changed it and
+  another changed it back, it had not seen.
   Otherwise edit times decide: one made no earlier than the field's latest
   edit decides it, and the value it replaces, if another, is kept as a
   Conflict from where and when that edit came, as neither saw the other; one

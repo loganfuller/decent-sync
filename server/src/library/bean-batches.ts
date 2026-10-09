@@ -60,10 +60,11 @@ export async function takeInBatches(
       record: Record<string, unknown>;
       seenAt: Date | null;
       contentSeenAt: Date | null;
+      savedAt: Date | null;
     }[]
   >`
     SELECT batch_id AS "batchId", local_id AS "localId", record_updated_at AS "updatedAt", ${seenAtSql(locationId)} AS "seenAt", record,
-      content_seen_at AS "contentSeenAt",
+      content_seen_at AS "contentSeenAt", record_saved_at AS "savedAt",
       lower(record -> 'extras' ->> ${GLOBAL_ID_KEY}::text) AS "globalId", (record ->> 'archived') = 'true' AS archived,
       CASE WHEN jsonb_typeof(record -> 'weightRemaining') = 'number' THEN (record ->> 'weightRemaining')::double precision END AS "weightRemaining"
     FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid`;
@@ -71,6 +72,8 @@ export async function takeInBatches(
   const seenAt = new Map(mapped.map((batch) => [batch.batchId, batch.seenAt]));
   /** The latest edit of its content that each record the map holds has seen. */
   const contentSeenAt = new Map(mapped.map((batch) => [batch.batchId, batch.contentSeenAt]));
+  /** When each record the map holds was saved, by PostgreSQL's clock. */
+  const savedAt = new Map(mapped.map((batch) => [batch.batchId, batch.savedAt]));
   /** The content of each record the map holds, as the tablet last had it. */
   const knownContent = new Map(mapped.map((batch) => [batch.batchId, batchContent(batch.record)]));
   // The Library Beans the tablet's records of its beans are, by their ids there.
@@ -108,7 +111,7 @@ export async function takeInBatches(
     }
     if (step.kind === "add" || step.kind === "map") writesDue = true;
     if (step.kind === "update") {
-      const edit = { values: step.content, at: batch.updatedAt, seenAt: contentSeenAt.get(batchId) ?? null, had: heldBefore(knownContent.get(batchId) ?? {}, step.content) };
+      const edit = { values: step.content, at: batch.updatedAt, seenAt: contentSeenAt.get(batchId) ?? null, had: heldBefore(knownContent.get(batchId) ?? {}, step.content), heldAt: savedAt.get(batchId) ?? null };
       writesDue = (await editContent(tx, { kind: "beanBatch", id: batchId }, edit, source)) || writesDue;
     }
     const applied = step.kind === "map" ? null : await applyEdits(tx, batchId, locationId, step.edits, batch.updatedAt, seenAt.get(batchId) ?? null, source);
@@ -187,9 +190,9 @@ export async function recordBatchWritten(
     if (other && other.batchId !== batchId) return "notTheItem";
     const locationId = await currentLocation(tx, tablet.machineId);
     const [known] = await tx.$queryRaw<
-      { archived: boolean; weightRemaining: number | null; seenAt: Date | null; record: Record<string, unknown>; contentSeenAt: Date | null }[]
+      { archived: boolean; weightRemaining: number | null; seenAt: Date | null; record: Record<string, unknown>; contentSeenAt: Date | null; savedAt: Date | null }[]
     >`
-      SELECT (record ->> 'archived') = 'true' AS archived, ${seenAtSql(locationId)} AS "seenAt", record, content_seen_at AS "contentSeenAt",
+      SELECT (record ->> 'archived') = 'true' AS archived, ${seenAtSql(locationId)} AS "seenAt", record, content_seen_at AS "contentSeenAt", record_saved_at AS "savedAt",
         CASE WHEN jsonb_typeof(record -> 'weightRemaining') = 'number' THEN (record ->> 'weightRemaining')::double precision END AS "weightRemaining"
       FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid AND batch_id = ${batchId}::uuid`;
     const at = updatedAt === null ? null : new Date(updatedAt);
@@ -206,7 +209,7 @@ export async function recordBatchWritten(
     if (known) {
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
       const edited = Object.fromEntries(Object.entries(changedFields(batchContent(known.record), batchContent(record))).filter(([field]) => !written.has(field)));
-      const edit = { values: edited, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt, had: heldBefore(batchContent(known.record), edited) };
+      const edit = { values: edited, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt, had: heldBefore(batchContent(known.record), edited), heldAt: known.savedAt };
       changed = (await editContent(tx, { kind: "beanBatch", id: batchId }, edit, source)) || changed;
     }
     if (changed && locationId !== null) await notify(tx, "library_changes", locationId);
@@ -237,10 +240,10 @@ async function saveRecord(
   contentSeen: Date | null,
 ): Promise<void> {
   await tx.$executeRaw`
-    INSERT INTO tablet_bean_batches (tablet_id, batch_id, local_id, record, record_updated_at, seen_at, seen_location_id, content_seen_at)
+    INSERT INTO tablet_bean_batches (tablet_id, batch_id, local_id, record, record_updated_at, seen_at, seen_location_id, content_seen_at, record_saved_at)
     VALUES (${tabletId}::uuid, ${batchId}::uuid, ${localId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz,
-      ${seen?.at ?? null}::timestamptz, ${seen?.locationId ?? null}::uuid, ${contentSeen}::timestamptz)
+      ${seen?.at ?? null}::timestamptz, ${seen?.locationId ?? null}::uuid, ${contentSeen}::timestamptz, clock_timestamp())
     ON CONFLICT (tablet_id, batch_id) DO UPDATE SET
-      local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at, ${keepSeenSql("tablet_bean_batches")},
+      local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_saved_at = EXCLUDED.record_saved_at, record_updated_at = EXCLUDED.record_updated_at, ${keepSeenSql("tablet_bean_batches")},
       ${keepContentSeenSql("tablet_bean_batches")}`;
 }

@@ -59,13 +59,16 @@ export async function takeInGrinders(
       archived: boolean;
       record: Record<string, unknown>;
       contentSeenAt: Date | null;
+      savedAt: Date | null;
     }[]
   >`
-    SELECT grinder_id AS "grinderId", local_id AS "localId", record_updated_at AS "updatedAt", record, content_seen_at AS "contentSeenAt",
+    SELECT grinder_id AS "grinderId", local_id AS "localId", record_updated_at AS "updatedAt", record, content_seen_at AS "contentSeenAt", record_saved_at AS "savedAt",
       lower(record -> 'extras' ->> ${GLOBAL_ID_KEY}::text) AS "globalId", (record ->> 'archived') = 'true' AS archived
     FROM tablet_grinders WHERE tablet_id = ${tablet.tabletId}::uuid`;
   /** The latest edit of its content that each record the map holds has seen. */
   const contentSeenAt = new Map(mapped.map((grinder) => [grinder.grinderId, grinder.contentSeenAt]));
+  /** When each record the map holds was saved, by PostgreSQL's clock. */
+  const savedAt = new Map(mapped.map((grinder) => [grinder.grinderId, grinder.savedAt]));
   /** Each record the map holds, as the tablet last had it, as edits merge it: its content and whether it is archived. */
   const knownValues = new Map(mapped.map((grinder) => [grinder.grinderId, { ...grinderContent(grinder.record), archived: grinder.archived }]));
   const mappedIds = new Set(mapped.map((grinder) => grinder.localId));
@@ -91,7 +94,7 @@ export async function takeInGrinders(
       await tx.$executeRaw`DELETE FROM tablet_grinders WHERE tablet_id = ${tablet.tabletId}::uuid AND grinder_id = ${step.grinderId}::uuid`;
       if (step.archived && here.has(step.grinderId)) {
         const at = deletedAt(await transactionTime(tx), step.updatedAt);
-        const edit = { values: { archived: true }, at, seenAt: contentSeenAt.get(step.grinderId) ?? null, had: { archived: false } };
+        const edit = { values: { archived: true }, at, seenAt: contentSeenAt.get(step.grinderId) ?? null, had: { archived: false }, heldAt: savedAt.get(step.grinderId) ?? null };
         await editContent(tx, { kind: "grinder", id: step.grinderId }, edit, source);
       }
       writesDue = true;
@@ -116,7 +119,7 @@ export async function takeInGrinders(
     if (step.kind === "update") {
       // Archiving or un-archiving it changes it only at its own Location: a moved tablet's record of it is only written over.
       const values = { ...step.content, ...(step.archived !== undefined && here.has(grinderId) ? { archived: step.archived } : {}) };
-      const edit = { values, at: grinder.updatedAt, seenAt: contentSeenAt.get(grinderId) ?? null, had: heldBefore(knownValues.get(grinderId) ?? {}, values) };
+      const edit = { values, at: grinder.updatedAt, seenAt: contentSeenAt.get(grinderId) ?? null, had: heldBefore(knownValues.get(grinderId) ?? {}, values), heldAt: savedAt.get(grinderId) ?? null };
       writesDue = (await editContent(tx, { kind: "grinder", id: grinderId }, edit, source)) || writesDue;
       if (step.archived !== undefined && !here.has(grinderId)) writesDue = true;
     }
@@ -157,8 +160,8 @@ export async function recordGrinderWritten(
     if ((await tx.grinder.count({ where: { id: grinderId } })) === 0) return "notTheItem";
     const other = await tx.tabletGrinder.findUnique({ where: { tabletId_localId: { tabletId: tablet.tabletId, localId } }, select: { grinderId: true } });
     if (other && other.grinderId !== grinderId) return "notTheItem";
-    const [known] = await tx.$queryRaw<{ archived: boolean; record: Record<string, unknown>; contentSeenAt: Date | null }[]>`
-      SELECT (record ->> 'archived') = 'true' AS archived, record, content_seen_at AS "contentSeenAt"
+    const [known] = await tx.$queryRaw<{ archived: boolean; record: Record<string, unknown>; contentSeenAt: Date | null; savedAt: Date | null }[]>`
+      SELECT (record ->> 'archived') = 'true' AS archived, record, content_seen_at AS "contentSeenAt", record_saved_at AS "savedAt"
       FROM tablet_grinders WHERE tablet_id = ${tablet.tabletId}::uuid AND grinder_id = ${grinderId}::uuid`;
     const at = updatedAt === null ? null : new Date(updatedAt);
     const archived = archivingInAnswer(known?.archived ?? null, record, written);
@@ -173,7 +176,7 @@ export async function recordGrinderWritten(
       if (belongs) values.archived = archived;
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
       const had = heldBefore({ ...grinderContent(known.record), archived: known.archived }, values);
-      const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt, had };
+      const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt, had, heldAt: known.savedAt };
       if ((await editContent(tx, { kind: "grinder", id: grinderId }, edit, tabletSource(tablet))) && locationId !== null) await notify(tx, "library_changes", locationId);
     }
     await saveRecord(tx, tablet.tabletId, grinderId, localId, record, at, contentSeen);
@@ -197,8 +200,8 @@ async function saveRecord(
   contentSeen: Date | null,
 ): Promise<void> {
   await tx.$executeRaw`
-    INSERT INTO tablet_grinders (tablet_id, grinder_id, local_id, record, record_updated_at, content_seen_at)
-    VALUES (${tabletId}::uuid, ${grinderId}::uuid, ${localId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz, ${contentSeen}::timestamptz)
+    INSERT INTO tablet_grinders (tablet_id, grinder_id, local_id, record, record_updated_at, content_seen_at, record_saved_at)
+    VALUES (${tabletId}::uuid, ${grinderId}::uuid, ${localId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz, ${contentSeen}::timestamptz, clock_timestamp())
     ON CONFLICT (tablet_id, grinder_id) DO UPDATE SET
-      local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at, ${keepContentSeenSql("tablet_grinders")}`;
+      local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_saved_at = EXCLUDED.record_saved_at, record_updated_at = EXCLUDED.record_updated_at, ${keepContentSeenSql("tablet_grinders")}`;
 }

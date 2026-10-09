@@ -173,7 +173,9 @@ function unseen(before: { decidedAt: Date | null; tabletId: string | null }, see
  * Records a remaining weight entered for the batch at the Location (ADR-0020):
  * it replaces the one known if the tablet that entered it had that value, or
  * no value was ever entered there, or it was entered later than the value
- * known, which the tablet had not seen. Says whether it did.
+ * known, which the tablet had not seen. Its time is never earlier than the
+ * one known, so an entry timed between the two cannot undo it. Says whether
+ * it did.
  */
 export async function enterRemainingWeight(
   tx: Prisma.TransactionClient,
@@ -192,7 +194,8 @@ export async function enterRemainingWeight(
     INSERT INTO batch_locations (batch_id, location_id, remaining_weight, remaining_weight_at)
     VALUES (${batchId}::uuid, ${locationId}::uuid, ${weight.value}::double precision, ${at}::timestamptz)
     ON CONFLICT (batch_id, location_id) DO UPDATE SET
-      remaining_weight = EXCLUDED.remaining_weight, remaining_weight_at = EXCLUDED.remaining_weight_at
+      remaining_weight = EXCLUDED.remaining_weight,
+      remaining_weight_at = GREATEST(EXCLUDED.remaining_weight_at, batch_locations.remaining_weight_at)
       WHERE batch_locations.remaining_weight_at IS NULL
         OR batch_locations.remaining_weight IS NOT DISTINCT FROM ${weight.had}::double precision
         OR batch_locations.remaining_weight_at < EXCLUDED.remaining_weight_at`;
