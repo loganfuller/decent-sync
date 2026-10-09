@@ -736,6 +736,14 @@ export interface LibraryDelete {
  */
 export const ANOTHER_ITEMS_RECORD = "The record carries another item's global id";
 
+/**
+ * The error of a `writeRefused` answering a `delete` the plugin cannot judge
+ * yet: more Shots are still to be read and sent than it reads to see whether
+ * one names the record, as during a backfill. The server asks again on the
+ * same connection a little later, rather than skipping it until the next.
+ */
+export const SHOTS_STILL_TO_READ = "More Shots are still to be sent than a delete reads; ask again once they are";
+
 /** The kinds of Library item an Admin hard-deletes from tablets. A tablet's own delete of a Profile only hides it at its Location (ADR-0019). */
 export const DELETED_KINDS = ["bean", "beanBatch", "grinder", "profile"] as const;
 

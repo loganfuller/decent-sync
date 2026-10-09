@@ -5,6 +5,7 @@ import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnModuleD
 import { HttpAdapterHost } from "@nestjs/core";
 import {
   ANOTHER_ITEMS_RECORD,
+  SHOTS_STILL_TO_READ,
   CHUNK_LIMITS,
   CLOSE_CODES,
   type Chunk,
@@ -56,7 +57,7 @@ import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { hashSecret } from "../secrets.js";
 import { HandledDeliveries, type IndexRequest } from "./handled-deliveries.js";
 import type { Hardware, Identity, Reporter } from "./identity.js";
-import { KIND_NAMES, TabletWriter } from "./tablet-writer.js";
+import { KIND_NAMES, TabletWriter, type WriteOutcome } from "./tablet-writer.js";
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
 const MAX_PAYLOAD_BYTES = 1 << 20;
@@ -470,7 +471,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * mismatched connection, which is never written to.
    */
   private async answered(session: Session, answer: ItemWritten | ItemDeleted | WriteRefused): Promise<void> {
-    let outcome: "written" | "refused" = "refused";
+    let outcome: WriteOutcome = "refused";
     const awaited = session.writer?.awaited(answer.id);
     const write = awaited?.write;
     if (answer.type === "deleted") {
@@ -484,6 +485,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         // Not the deleted item's record after all: the tablet's next report takes it in as any record carrying that id.
         await recordDeleted(this.prisma, session.live!.tabletId, write.kind, write.localId);
         this.logger.log(`The tablet of ${this.describe(session)} holds ${quoted(write.kind)} ${write.localId} as another item's; it is not deleted`);
+      } else if (answer.type === "writeRefused" && answer.status === null && answer.error === SHOTS_STILL_TO_READ) {
+        // As during a backfill: asked again on this connection once its Shots have been sent.
+        outcome = "deferred";
+        this.logger.log(`The tablet of ${this.describe(session)} has Shots still to send; the delete of ${quoted(write.kind)} ${write.localId} is asked again later`);
       } else if (answer.type === "writeRefused") {
         this.logger.warn(
           `The tablet of ${this.describe(session)} did not delete ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? quoted(answer.error.slice(0, 200)) : `Decaid answered ${answer.status}, ${quoted(answer.error.slice(0, 200))}`}`,
@@ -619,6 +624,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         },
         this.logger,
         (work) => this.track(work),
+        // A delete the plugin could not judge yet is asked again after two heartbeat intervals.
+        2 * this.config.heartbeatIntervalMs,
       );
     }
     this.logger.log(

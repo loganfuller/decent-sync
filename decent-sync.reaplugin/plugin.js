@@ -270,6 +270,7 @@ var __decentSync = (() => {
     return parts;
   }
   var ANOTHER_ITEMS_RECORD = "The record carries another item's global id";
+  var SHOTS_STILL_TO_READ = "More Shots are still to be sent than a delete reads; ask again once they are";
   var MAX_REFUSAL_LENGTH = 1e3;
   function encode(message) {
     return JSON.stringify(message);
@@ -803,7 +804,7 @@ var __decentSync = (() => {
      */
     async namedByShot(kind, ids) {
       const unread = this.outbox.requestedIds("shot").filter((id) => !this.shotsRead.has(id));
-      if (unread.length > MAX_SHOTS_READ) return true;
+      if (unread.length > MAX_SHOTS_READ) return "tooMany";
       for (const id of unread) {
         const shot = await readShot(id);
         this.shotsRead.add(id);
@@ -851,15 +852,17 @@ var __decentSync = (() => {
       if (!isObject2(record)) return refused(remove, current.status, current.text);
       const carried = globalIdOf(record);
       if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
-      if ((remove.kind === "beanBatch" || remove.kind === "grinder") && await namedByShot(remove.kind, /* @__PURE__ */ new Set([remove.localId]))) {
-        return refused(remove, null, SHOT_NOT_SENT);
+      if (remove.kind === "beanBatch" || remove.kind === "grinder") {
+        const named = await namedByShot(remove.kind, /* @__PURE__ */ new Set([remove.localId]));
+        if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
       }
       if (remove.kind === "bean") {
         const listed = await request("GET", `${path}/batches?includeArchived=true`);
         const batches = listed.ok ? parsed(listed.text) : void 0;
         if (!Array.isArray(batches)) return refused(remove, listed.status, listed.text);
         const ids = new Set(batches.filter(isObject2).flatMap((batch) => typeof batch.id === "string" ? [batch.id] : []));
-        if (await namedByShot("beanBatch", ids)) return refused(remove, null, SHOT_NOT_SENT);
+        const named = await namedByShot("beanBatch", ids);
+        if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
         for (const batch of batches.filter(isObject2)) {
           if (typeof batch.id !== "string") continue;
           const gone = await request("DELETE", `/bean-batches/${encodeURIComponent(batch.id)}`);
@@ -880,7 +883,8 @@ var __decentSync = (() => {
       const record = current.ok ? parsed(current.text) : void 0;
       if (!isObject2(record)) return refused(remove, current.status, current.text);
       const steps = stepsKey(record.profile);
-      if (await namedByShot("profile", new Set(steps === null ? [remove.localId] : [remove.localId, steps]))) return refused(remove, null, SHOT_NOT_SENT);
+      const named = await namedByShot("profile", new Set(steps === null ? [remove.localId] : [remove.localId, steps]));
+      if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
       const answer = await request("DELETE", `${path}/purge`);
       return answer.ok || answer.status === 400 && answer.text.includes("Profile not found") ? deleted(remove) : refused(remove, answer.status, answer.text);
     } catch (error) {
@@ -895,7 +899,7 @@ var __decentSync = (() => {
     if (isObject2(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
     return JSON.stringify(value ?? null);
   }
-  var SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches, or too many are still to be read";
+  var SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches";
   var MAX_SHOTS_READ = 20;
   function deleted(remove) {
     return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };

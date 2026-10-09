@@ -1,5 +1,6 @@
 import {
   ANOTHER_ITEMS_RECORD,
+  SHOTS_STILL_TO_READ,
   GLOBAL_ID_KEY,
   type ItemDeleted,
   type ItemWritten,
@@ -167,10 +168,10 @@ export class LibraryWrites {
    * and so could not keep the record for it. A Shot still to be read, as the
    * outbox reads a new Shot only as it sends it, is read here once.
    */
-  private async namedByShot(kind: NamedKind, ids: ReadonlySet<string>): Promise<boolean> {
+  private async namedByShot(kind: NamedKind, ids: ReadonlySet<string>): Promise<boolean | "tooMany"> {
     const unread = this.outbox.requestedIds("shot").filter((id) => !this.shotsRead.has(id));
-    // As during a backfill: reading them all would hold up every write behind this one, so the delete waits for a later connection.
-    if (unread.length > MAX_SHOTS_READ) return true;
+    // As during a backfill: reading them all would hold up every write behind this one, so the server asks again later.
+    if (unread.length > MAX_SHOTS_READ) return "tooMany";
     for (const id of unread) {
       const shot = await readShot(id);
       this.shotsRead.add(id);
@@ -220,14 +221,16 @@ type NamedKind = "beanBatch" | "grinder" | "profile";
  * deleted first, as DYE2 does (dye2:dye2-plugin/src/utils/bean-delete.ts),
  * since Decaid refuses to delete a bean that has any. A batch or Grinder
  * record, or a bean one of whose batches is, that a Shot this plugin queued
- * since it loaded, or has yet to read and send, names (`namedByShot`) is not deleted, nor is
- * anything while more Shots than MAX_SHOTS_READ are still to be read: the server keeps such
- * a record once it has the Shot, and otherwise asks again on the tablet's
- * next connection.
+ * since it loaded, or has yet to read and send, names (`namedByShot`) is not
+ * deleted: the server keeps such a record once it has the Shot, and
+ * otherwise asks again on the tablet's next connection. Nor is anything while
+ * more Shots than MAX_SHOTS_READ are still to be read (SHOTS_STILL_TO_READ),
+ * as during a backfill, which the server asks again for soon, on the same
+ * connection.
  */
 async function carryOutDelete(
   remove: LibraryDelete,
-  namedByShot: (kind: NamedKind, ids: ReadonlySet<string>) => Promise<boolean>,
+  namedByShot: (kind: NamedKind, ids: ReadonlySet<string>) => Promise<boolean | "tooMany">,
 ): Promise<DeleteAnswer> {
   if (remove.kind === "profile") return purgeProfile(remove, namedByShot);
   const route = Object.prototype.hasOwnProperty.call(ROUTES, remove.kind) ? ROUTES[remove.kind] : undefined;
@@ -240,15 +243,17 @@ async function carryOutDelete(
     if (!isObject(record)) return refused(remove, current.status, current.text);
     const carried = globalIdOf(record);
     if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
-    if ((remove.kind === "beanBatch" || remove.kind === "grinder") && (await namedByShot(remove.kind, new Set([remove.localId])))) {
-      return refused(remove, null, SHOT_NOT_SENT);
+    if (remove.kind === "beanBatch" || remove.kind === "grinder") {
+      const named = await namedByShot(remove.kind, new Set([remove.localId]));
+      if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
     }
     if (remove.kind === "bean") {
       const listed = await request("GET", `${path}/batches?includeArchived=true`);
       const batches = listed.ok ? parsed(listed.text) : undefined;
       if (!Array.isArray(batches)) return refused(remove, listed.status, listed.text);
       const ids = new Set(batches.filter(isObject).flatMap((batch) => (typeof batch.id === "string" ? [batch.id] : [])));
-      if (await namedByShot("beanBatch", ids)) return refused(remove, null, SHOT_NOT_SENT);
+      const named = await namedByShot("beanBatch", ids);
+      if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
       for (const batch of batches.filter(isObject)) {
         if (typeof batch.id !== "string") continue;
         const gone = await request("DELETE", `/bean-batches/${encodeURIComponent(batch.id)}`);
@@ -271,7 +276,7 @@ async function carryOutDelete(
  * tablet. A record already gone is deleted. Decaid refuses to purge one of
  * its bundled profiles, which the server never deletes.
  */
-async function purgeProfile(remove: LibraryDelete, namedByShot: (kind: NamedKind, ids: ReadonlySet<string>) => Promise<boolean>): Promise<DeleteAnswer> {
+async function purgeProfile(remove: LibraryDelete, namedByShot: (kind: NamedKind, ids: ReadonlySet<string>) => Promise<boolean | "tooMany">): Promise<DeleteAnswer> {
   try {
     const path = `/profiles/${encodeURIComponent(remove.localId)}`;
     const current = await request("GET", path);
@@ -279,7 +284,8 @@ async function purgeProfile(remove: LibraryDelete, namedByShot: (kind: NamedKind
     const record = current.ok ? parsed(current.text) : undefined;
     if (!isObject(record)) return refused(remove, current.status, current.text);
     const steps = stepsKey(record.profile);
-    if (await namedByShot("profile", new Set(steps === null ? [remove.localId] : [remove.localId, steps]))) return refused(remove, null, SHOT_NOT_SENT);
+    const named = await namedByShot("profile", new Set(steps === null ? [remove.localId] : [remove.localId, steps]));
+    if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
     const answer = await request("DELETE", `${path}/purge`);
     // Decaid answers a purge of a profile it no longer holds, as one replaced since it was read, with 400.
     return answer.ok || (answer.status === 400 && answer.text.includes("Profile not found")) ? deleted(remove) : refused(remove, answer.status, answer.text);
@@ -306,7 +312,7 @@ function stableJson(value: unknown): string {
 }
 
 /** Why a delete is refused while a Shot this plugin queued, or has yet to send, may name its record or one of its batches. */
-const SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches, or too many are still to be read";
+const SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches";
 
 /** The most Shots still to be read that a delete reads to see whether they name its record. */
 const MAX_SHOTS_READ = 20;

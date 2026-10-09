@@ -1,7 +1,7 @@
 import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
-import { shotFixture } from "./support/shot-fixtures.js";
+import { shotFixture, withShots } from "./support/shot-fixtures.js";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -391,6 +391,40 @@ describe("Editing the Library in the management interface", { timeout: 60_000 },
     await poll(async () => (await api.call("GET", `/shots/${shot.id}`)).status).toBe(200);
     expect(tablet.batches().map((record) => record.id)).toEqual([local.batch]);
     expect(tablet.writes.filter((write) => write.startsWith("DELETE "))).toEqual([]);
+  });
+
+  it("asks a tablet backfilling Shots again for a delete it could not judge yet, on the same connection", async () => {
+    const location = await api.createLocation("Backfill cafe", "America/Chicago");
+    const machine = await api.createMachine("Backfill cafe 1", location.id);
+    // Forty Shots the server lacks, each slow to read, so the tablet has more still to send than a delete reads for a while.
+    const shots = Array.from({ length: 40 }, (_, index) => shotNaming(`shot-backfilled-${index}`, "21101", {}));
+    const tablet = SimulatedTablet.load({
+      settings: { ...settingsFor({ token: machine.token, serverUrl: server.url }), PollSeconds: 5 },
+      api: withShots({ ...derivedDe1Pro({ serial: "21101" }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] }, shots),
+      timeScale: 50,
+      apiDelayMs: (method, path) => (method === "GET" && path.startsWith("/shots/") ? 400 : 0),
+    });
+    tablets.push(tablet);
+    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    const bean = await createBean({ roaster: "Roux", name: "Backfill Bean" });
+    const first = await createBatch(bean.id, [{ locationId: location.id }]);
+    const second = await createBatch(bean.id, [{ locationId: location.id }]);
+    await poll(() => heldBatch(tablet, first.id)).toBeTruthy();
+    await poll(() => heldBatch(tablet, second.id)).toBeTruthy();
+    const local = [String(heldBatch(tablet, first.id)!.id), String(heldBatch(tablet, second.id)!.id)];
+    const deferral = (id: string) => new RegExp(`has Shots still to send; the delete of "beanBatch" ${id} is asked again later`);
+
+    // Two deletes deferred at different times, each asked again in its turn.
+    await send("DELETE", `/bean-batches/${first.id}`, undefined, api, 204);
+    await expect.poll(() => server.output(), { timeout: 20_000 }).toMatch(deferral(local[0]!));
+    await send("DELETE", `/bean-batches/${second.id}`, undefined, api, 204);
+    await expect.poll(() => server.output(), { timeout: 20_000 }).toMatch(deferral(local[1]!));
+    const connections = () => server.output().split("\n").filter((line) => line.includes(`Machine ${machine.machine.name} connected from`)).length;
+    const connected = connections();
+    // Once few enough Shots are still to be sent, the deletes are asked again, and carried out, without the tablet reconnecting.
+    await expect.poll(() => tablet.batches().map((record) => record.id), { timeout: 40_000 }).toEqual([]);
+    expect(tablet.writes).toEqual(expect.arrayContaining(local.map((id) => `DELETE /bean-batches/${id}`)));
+    expect(connections()).toBe(connected);
   });
 
   it("keeps a record restored with a deleted item's global id that a Shot names, with its bean, and deletes the rest", async () => {
