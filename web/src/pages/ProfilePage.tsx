@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
+import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
 import { formatTime } from "@/components/machines";
 import { ProfileBadges, profilePath, profileTitle } from "@/components/profiles";
@@ -19,6 +20,8 @@ function ProfileDetails({ id }: { id: string }) {
   const [profile, setProfile] = useState<Profile>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
+  // Using a Conflict\'s value changes the item, so it is loaded again, with its history.
+  const [changes, setChanges] = useState(0);
 
   useEffect(() => {
     let current = true;
@@ -33,7 +36,7 @@ function ProfileDetails({ id }: { id: string }) {
     return () => {
       current = false;
     };
-  }, [id]);
+  }, [id, changes]);
 
   const back = (
     <Link to="/library/profiles" className="text-sm text-muted-foreground hover:text-foreground">
@@ -72,6 +75,8 @@ function ProfileDetails({ id }: { id: string }) {
         </h1>
         <p className="font-mono text-sm text-muted-foreground">{profile.id}</p>
       </div>
+
+      <ItemConflictsCard kind="profile" id={id} onResolved={() => setChanges((count) => count + 1)} />
 
       <Card>
         <CardHeader>
@@ -115,7 +120,7 @@ function ProfileDetails({ id }: { id: string }) {
             <CardTitle>
               <h2>Profile</h2>
             </CardTitle>
-            <CardDescription>As the tablet that created it recorded it.</CardDescription>
+            <CardDescription>As the tablet that created it recorded it, with the edits made since.</CardDescription>
           </CardHeader>
           <CardContent>
             <Fields label="Profile">
@@ -196,6 +201,8 @@ function ProfileDetails({ id }: { id: string }) {
           </Table>
         </CardContent>
       </Card>
+
+      <ItemHistoryCard key={changes} kind="profile" id={id} />
     </section>
   );
 }

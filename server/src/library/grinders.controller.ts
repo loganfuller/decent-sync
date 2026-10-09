@@ -1,6 +1,7 @@
 import { Controller, Get, Param } from "@nestjs/common";
-import { AllowStaff } from "../accounts/guards.js";
-import { HistoryService, type VersionView } from "./history.service.js";
+import { AllowStaff, CurrentScope } from "../accounts/guards.js";
+import type { Scope } from "../accounts/scope.js";
+import { type ConflictView, HistoryService, type VersionView } from "./history.service.js";
 import { type GrinderSummary, type GrinderView, GrindersService, readGrinderId } from "./grinders.service.js";
 
 /** The Library's Grinders, and the Location each belongs to. Read-only for now; Staff read them too. */
@@ -26,5 +27,11 @@ export class GrindersController {
   @Get(":id/history")
   async versions(@Param("id") id: string): Promise<{ versions: VersionView[] }> {
     return { versions: await this.history.versions({ kind: "grinder", id: readGrinderId(id) }) };
+  }
+
+  /** Its open Conflicts, the latest first (ADR-0020). */
+  @Get(":id/conflicts")
+  async conflicts(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ conflicts: ConflictView[] }> {
+    return { conflicts: await this.history.openConflicts(scope, { kind: "grinder", id: readGrinderId(id) }) };
   }
 }

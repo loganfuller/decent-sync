@@ -14,7 +14,11 @@ belonging to one Location. Ticket
 [#84](https://github.com/loganfuller/decent-sync/issues/84) has an edit of
 an item's content on any tablet reach every tablet that holds it, merged per
 field with the latest edit winning, keeping each accepted edit as a version
-and each that lost as a Conflict (Edits, below). It follows ADR-0003,
+and each that lost as a Conflict (Edits, below), and ticket
+[#85](https://github.com/loganfuller/decent-sync/issues/85) shows the
+Conflicts and each item's history in the management interface, where a
+Conflict's value is used or the Conflict dismissed (Resolving Conflicts,
+below). It follows ADR-0003,
 ADR-0006, ADR-0008, ADR-0016, ADR-0018, ADR-0019 and ADR-0020. Joining a
 Location and the management interface's changes build on it in later tickets
 (Not yet, below).
@@ -181,7 +185,8 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   it (ADR-0020): the item, the field, the losing value (null where it cleared
   the field), where it came from and when it was made, as a version keeps
   them, its Location for a Location's state, when it became a Conflict, and
-  whether it is open, its value used or dismissed (ticket #85).
+  whether it is open, its value used or dismissed (Resolving Conflicts,
+  below).
 
 ## Edits
 
@@ -247,6 +252,35 @@ whose clock runs behind another's can lose such an edit, a tablet clock error
 ADR-0003 accepts. Of two edits of one field made without seeing each other
 and timed in the same millisecond, the precision the plugin reads times to,
 the one taken in last wins.
+
+### Resolving Conflicts
+
+An open Conflict is resolved once, by an Admin, or by Staff where they can
+edit the item (`mayResolve` in `conflict-access.ts`): the Library's shared
+content anywhere, a Grinder's Archived state included, as Staff Archive and
+restore items anywhere; but a Location's state of an item (a batch at a
+Location, its remaining weight there, a Profile shown there) and a Grinder's
+other content only at their own Locations, as a Grinder belongs to one
+(`conflicts.service.ts`). Each is decided under the Conflict's row lock, on
+any instance, so it is used or dismissed once; a tablet's report never locks
+a Conflict, so neither waits on the other in turn.
+
+- **Using its value** makes it the field's latest edit, a version from the
+  account, timed by PostgreSQL's clock (ADR-0016), as its `received_at` is.
+  The account chose it over the field's value now, which the Conflict shows,
+  so the edit decides the field whatever the times of the edits before it,
+  and keeps nothing it replaces as a Conflict: it is no edit made without
+  seeing another. An edit of the item's content is merged under the item's
+  row lock, after its Location's lock for a Grinder, whose Archived state
+  changes only under it, as a tablet's is (`editContent`, with `seenAt`
+  `everything`); one of a Location's state, under the Location's lock, as
+  having seen every decision made there before it (`addBatchAt`,
+  `finishBatchAt`, `enterRemainingWeight`, `showProfileAt`). It commits with a
+  `NOTIFY` on `library_changes`, so every tablet that holds the item, at every
+  Location, is written it; a tablet's edit made before it that arrives later,
+  as from one that was offline, loses to it and is kept as a Conflict.
+- **Dismissing it** closes it with nothing else changed: no version, and
+  nothing written.
 
 ## Taking in a tablet's beans
 
@@ -753,14 +787,27 @@ Every endpoint requires the account session; Staff read them as Admins do.
   the item joining the Library. 404 if the Library does not have the item.
 - `GET /api/conflicts` returns `{ conflicts }`, the open Conflicts, the
   latest first, each `{ id, item, field, value, location, source, editedAt,
-  createdAt }`: the item `{ kind, id, name }`, `kind` being `bean`,
-  `beanBatch`, `grinder` or `profile`, and `name` a Bean's roaster and name,
-  a batch's Bean and roast date, a Grinder's model or a Profile's title, null
-  where its content has none; the field and the losing value, null where the
-  edit cleared it; the Location whose state the field is, null for content;
-  where and when the losing edit was made, as a version's; and when it became
-  a Conflict. Using a Conflict's value and dismissing one come with ticket
-  #85.
+  createdAt, state, current, resolvable }`: the item `{ kind, id, name }`,
+  `kind` being `bean`, `beanBatch`, `grinder` or `profile`, and `name` a
+  Bean's roaster and name, a batch's Bean and roast date, a Grinder's model or
+  a Profile's title, null where its content has none; the field and the
+  losing value, null where the edit cleared it; the Location whose state the
+  field is, null for content; where and when the losing edit was made, as a
+  version's; when it became a Conflict; `open`, `used` or `dismissed`; the
+  field's value now, `{ value, source, editedAt }`, with where and when the
+  edit that set it was made, each null if that is not known, as for a field
+  nothing set; a batch never added at the Location is not there, and a
+  Profile its Location never decided not shown; and whether the signed-in
+  account may use its value or dismiss it (Resolving Conflicts, above).
+- `GET /api/beans/:id/conflicts`, `GET /api/bean-batches/:id/conflicts`,
+  `GET /api/grinders/:id/conflicts` and `GET /api/profiles/:id/conflicts`
+  return `{ conflicts }`, the item's open Conflicts, as the list shows them;
+  or 404.
+- `POST /api/conflicts/:id/use` uses an open Conflict's value, and `POST
+  /api/conflicts/:id/dismiss` dismisses it (Resolving Conflicts, above). Each
+  returns `{ conflict }`, closed, with the field's value now; 404 if there is
+  no such Conflict, 403 if the account may not resolve it, and 409 if it was
+  used or dismissed already.
 
 The management interface's Library section lists the Beans and where each is
 offered, the Bean Batches, the Locations each is at and its remaining weight
@@ -770,7 +817,11 @@ offered, its batches and its likely duplicates, each batch's page its roast,
 the Locations it is at with its remaining weight at each, and where it was
 finished, each Grinder's page its Location and what it is, and each
 Profile's page where it is shown, its steps and the Profile it was saved
-from.
+from. Each item's page notes its open Conflicts, if it has any, and shows its
+history, and the Library's Conflicts page lists every open Conflict, the
+latest first, with the losing value and the value now, and where and when
+each came from. A Conflict is used or dismissed from either, by an account
+that may (`web/src/components/conflicts.tsx`).
 
 ## Not yet
 
@@ -792,10 +843,9 @@ from.
   server reads it where the Machine is when it is taken in. The old
   Location's Grinders stay there, archived on the moved tablet.
 - Each Location's
-  steam, hot water and rinse settings: ticket #86. Conflicts and each item's
-  history in the management interface, and using a Conflict's value or
-  dismissing it: ticket #85. Edits there, timed by PostgreSQL's clock, are
-  versions from an account (tickets #87 and #88).
+  steam, hot water and rinse settings: ticket #86. Editing items in the
+  management interface, which, as using a Conflict's value does, are versions
+  from an account timed by PostgreSQL's clock: tickets #87 and #88.
 - The capture-only switch: ticket #90. Recording refused writes, and each
   Machine's sharing status: ticket #91.
 - Linking Shots to the Library's batches and Grinders: ticket #92.
@@ -810,8 +860,9 @@ Profiles.
 
 `server/test/library-beans.test.ts`, `server/test/library-batches.test.ts`,
 `server/test/library-grinders.test.ts`,
-`server/test/library-profiles.test.ts` and
-`server/test/library-edits.test.ts` cover this through Seam 1, with the
+`server/test/library-profiles.test.ts`,
+`server/test/library-edits.test.ts` and
+`server/test/library-conflicts.test.ts` cover this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL;
 `server/test/bean-intake.test.ts`, `server/test/batch-intake.test.ts`,
 `server/test/grinder-intake.test.ts`, `server/test/profile-intake.test.ts`,
@@ -825,4 +876,5 @@ against those recorded on Decaid's Linux release
 (`server/test/fixtures/decaid/bean-writes-v0.8.7/`,
 `bean-batch-writes-v0.8.7/`, `grinder-writes-v0.8.7/` and
 `profile-writes-v0.8.7/`); and
-`e2e/library.spec.ts` the management interface.
+`e2e/library.spec.ts` and `e2e/conflicts.spec.ts` the management
+interface.

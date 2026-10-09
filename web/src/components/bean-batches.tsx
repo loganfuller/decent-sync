@@ -19,6 +19,9 @@ export function LibraryNav() {
       <NavLink to="/library/profiles" className={linkClass}>
         Profiles
       </NavLink>
+      <NavLink to="/library/conflicts" className={linkClass}>
+        Conflicts
+      </NavLink>
     </nav>
   );
 }

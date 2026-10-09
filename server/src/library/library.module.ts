@@ -4,6 +4,7 @@ import { BeanBatchesService } from "./bean-batches.service.js";
 import { BeansController } from "./beans.controller.js";
 import { BeansService } from "./beans.service.js";
 import { ConflictsController } from "./conflicts.controller.js";
+import { ConflictsService } from "./conflicts.service.js";
 import { GrindersController } from "./grinders.controller.js";
 import { GrindersService } from "./grinders.service.js";
 import { HistoryService } from "./history.service.js";
@@ -17,6 +18,6 @@ import { ProfilesService } from "./profiles.service.js";
  */
 @Module({
   controllers: [BeansController, BeanBatchesController, GrindersController, ProfilesController, ConflictsController],
-  providers: [BeansService, BeanBatchesService, GrindersService, ProfilesService, HistoryService],
+  providers: [BeansService, BeanBatchesService, GrindersService, ProfilesService, HistoryService, ConflictsService],
 })
 export class LibraryModule {}

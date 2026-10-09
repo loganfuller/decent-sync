@@ -1,10 +1,13 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { LibraryKind } from "@decent-sync/protocol";
-import type { Prisma } from "../generated/prisma/client.js";
+import type { Scope } from "../accounts/scope.js";
+import type { BatchLocation, ConflictState, Prisma, ProfileLocation } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
 import type { ItemRef } from "./history.js";
+import { mayResolve } from "./conflict-access.js";
 import { isObject } from "./listed.js";
+import { readFieldEdits } from "./merge.js";
 
 /**
  * Where a version or a Conflict came from: a Machine's tablet, or an account
@@ -47,7 +50,7 @@ export interface ConflictItemView {
   name: string | null;
 }
 
-/** An open Conflict, as the REST API returns it. */
+/** A Conflict, as the REST API returns it. */
 export interface ConflictView {
   id: string;
   item: ConflictItemView;
@@ -61,12 +64,32 @@ export interface ConflictView {
   editedAt: string;
   /** When it became a Conflict, by PostgreSQL's clock. */
   createdAt: string;
+  /** Open, or closed: its value used, which made it a new edit, or dismissed. */
+  state: "open" | "used" | "dismissed";
+  /** The field's value now, which the losing value lost to or was replaced by, and where and when it came from. */
+  current: CurrentValueView;
+  /**
+   * Whether the signed-in account may use its value or dismiss it: an Admin
+   * may any, and Staff one about an item's shared content anywhere, or about
+   * a Location's state or a Grinder's content only at their own Locations.
+   */
+  resolvable: boolean;
+}
+
+/** A field's value now, and the edit that set it. */
+export interface CurrentValueView {
+  /** Null where nothing set it, or the edit that set it last cleared it. A batch never added at the Location is not there (false), as is a Profile its Location never decided (not shown). */
+  value: unknown;
+  /** Where the edit that set it came from; null if that is not known, as for a field nothing has set. */
+  source: SourceView | null;
+  /** When that edit was made; null if it is not known. */
+  editedAt: string | null;
 }
 
 const withSource = { machine: { select: { id: true, name: true } }, location: true } as const;
 
 /** The column each kind of item is named by in a version or Conflict. */
-const ITEM_WHERE: Readonly<Record<LibraryKind, (id: string) => Prisma.ItemVersionWhereInput>> = {
+const ITEM_WHERE: Readonly<Record<LibraryKind, (id: string) => { beanId?: string; batchId?: string; grinderId?: string; profileId?: string }>> = {
   bean: (id) => ({ beanId: id }),
   beanBatch: (id) => ({ batchId: id }),
   grinder: (id) => ({ grinderId: id }),
@@ -75,7 +98,7 @@ const ITEM_WHERE: Readonly<Record<LibraryKind, (id: string) => Prisma.ItemVersio
 
 const KIND_NAMES: Readonly<Record<LibraryKind, string>> = { bean: "Bean", beanBatch: "Bean Batch", grinder: "Grinder", profile: "Profile" };
 
-/** Each Library item's history and the open Conflicts (ADR-0020), which Staff read as Admins do. */
+/** Each Library item's history and its Conflicts (ADR-0020), which Staff read as Admins do. */
 @Injectable()
 export class HistoryService {
   constructor(private readonly prisma: PrismaService) {}
@@ -97,29 +120,74 @@ export class HistoryService {
     }));
   }
 
-  /** The open Conflicts, the latest first. */
-  async openConflicts(): Promise<ConflictView[]> {
+  /** The open Conflicts, the latest first: all of them, or those about one item, 404 if the Library does not have it. */
+  async openConflicts(scope: Scope, item?: ItemRef): Promise<ConflictView[]> {
+    if (item && !(await this.exists(item))) throw new NotFoundException(`No such ${KIND_NAMES[item.kind]}`);
+    return this.conflicts({ state: "OPEN", ...(item ? ITEM_WHERE[item.kind](item.id) : {}) }, scope);
+  }
+
+  /** One Conflict, open or not; 404 if there is no such Conflict. */
+  async conflict(id: string, scope: Scope): Promise<ConflictView> {
+    const [conflict] = await this.conflicts({ id }, scope);
+    if (!conflict) throw new NotFoundException("No such Conflict");
+    return conflict;
+  }
+
+  private async conflicts(where: Prisma.ConflictWhereInput, scope: Scope): Promise<ConflictView[]> {
     const conflicts = await this.prisma.conflict.findMany({
-      where: { state: "OPEN" },
+      where,
       include: {
         ...withSource,
-        bean: { select: { content: true } },
-        batch: { select: { content: true, bean: { select: { content: true } } } },
-        grinder: { select: { content: true } },
-        profile: { select: { content: true } },
+        bean: { select: { content: true, fieldEdits: true } },
+        batch: { select: { content: true, fieldEdits: true, bean: { select: { content: true } } } },
+        grinder: { select: { content: true, fieldEdits: true, archived: true, locationId: true } },
+        profile: { select: { content: true, fieldEdits: true } },
       },
       orderBy: [{ createdAt: "desc" }, { seq: "desc" }],
     });
-    return conflicts.map((conflict) => ({
-      id: conflict.id,
-      item: conflictItem(conflict),
-      field: conflict.field,
-      value: conflict.value,
-      location: conflict.location ? viewLocation(conflict.location) : null,
-      source: viewSource(conflict),
-      editedAt: conflict.editedAt.toISOString(),
-      createdAt: conflict.createdAt.toISOString(),
-    }));
+    const states = await this.locationStates(conflicts);
+    const currents = conflicts.map((conflict) => currentValue(conflict, states));
+    const versionIds = [...new Set(currents.flatMap((current) => (current.versionId === null ? [] : [current.versionId])))];
+    const versions = new Map(
+      (
+        await this.prisma.itemVersion.findMany({
+          where: { id: { in: versionIds } },
+          select: { id: true, editedAt: true, tabletId: true, accountId: true, machine: { select: { id: true, name: true } } },
+        })
+      ).map((version) => [version.id, version]),
+    );
+    return conflicts.map((conflict, index) => {
+      const { value, versionId } = currents[index]!;
+      const version = versionId === null ? undefined : versions.get(versionId);
+      return {
+        id: conflict.id,
+        item: conflictItem(conflict),
+        field: conflict.field,
+        value: conflict.value,
+        location: conflict.location ? viewLocation(conflict.location) : null,
+        source: viewSource(conflict),
+        editedAt: conflict.editedAt.toISOString(),
+        createdAt: conflict.createdAt.toISOString(),
+        state: STATES[conflict.state],
+        current: { value, source: version ? viewSource(version) : null, editedAt: version ? version.editedAt.toISOString() : null },
+        resolvable: mayResolve(scope, { locationId: conflict.locationId, field: conflict.field, grinderLocationId: conflict.grinder?.locationId }),
+      };
+    });
+  }
+
+  /** Each Location's state of the batches and Profiles the Conflicts about a Location's state are about. */
+  private async locationStates(conflicts: { batchId: string | null; profileId: string | null; locationId: string | null }[]): Promise<LocationStates> {
+    const at = conflicts.filter((conflict) => conflict.locationId !== null);
+    const batches = at.flatMap(({ batchId, locationId }) => (batchId === null ? [] : [{ batchId, locationId: locationId! }]));
+    const profiles = at.flatMap(({ profileId, locationId }) => (profileId === null ? [] : [{ profileId, locationId: locationId! }]));
+    const [batchRows, profileRows] = await Promise.all([
+      batches.length === 0 ? [] : this.prisma.batchLocation.findMany({ where: { OR: batches } }),
+      profiles.length === 0 ? [] : this.prisma.profileLocation.findMany({ where: { OR: profiles } }),
+    ]);
+    return {
+      batches: new Map(batchRows.map((row) => [`${row.batchId}/${row.locationId}`, row])),
+      profiles: new Map(profileRows.map((row) => [`${row.profileId}/${row.locationId}`, row])),
+    };
   }
 
   private async exists(item: ItemRef): Promise<boolean> {
@@ -135,6 +203,50 @@ export class HistoryService {
         return (await this.prisma.profile.count(where)) > 0;
     }
   }
+}
+
+const STATES: Readonly<Record<ConflictState, ConflictView["state"]>> = { OPEN: "open", USED: "used", DISMISSED: "dismissed" };
+
+interface LocationStates {
+  batches: Map<string, BatchLocation>;
+  profiles: Map<string, ProfileLocation>;
+}
+
+type EditedContent = { content: Prisma.JsonValue; fieldEdits: Prisma.JsonValue } | null;
+
+/** A Conflict's field's value now, and the version that set it, if one is known. */
+function currentValue(
+  conflict: {
+    field: string;
+    locationId: string | null;
+    beanId: string | null;
+    batchId: string | null;
+    grinderId: string | null;
+    profileId: string | null;
+    bean: EditedContent;
+    batch: EditedContent;
+    grinder: (EditedContent & { archived: boolean }) | null;
+    profile: EditedContent;
+  },
+  states: LocationStates,
+): { value: unknown; versionId: string | null } {
+  const { field, locationId } = conflict;
+  if (locationId !== null) {
+    if (conflict.profileId !== null) {
+      const here = states.profiles.get(`${conflict.profileId}/${locationId}`);
+      return { value: here?.shown ?? false, versionId: here?.versionId ?? null };
+    }
+    const here = states.batches.get(`${conflict.batchId}/${locationId}`);
+    if (field === "remainingWeight") return { value: here?.remainingWeight ?? null, versionId: here?.remainingWeightVersionId ?? null };
+    return { value: here !== undefined && here.addedAt !== null && here.finishedAt === null, versionId: here?.presenceVersionId ?? null };
+  }
+  const item = conflict.bean ?? conflict.batch ?? conflict.grinder ?? conflict.profile;
+  const edits = readFieldEdits(item?.fieldEdits);
+  const versionId = Object.prototype.hasOwnProperty.call(edits, field) ? edits[field]!.versionId : null;
+  if (conflict.grinder && field === "archived") return { value: conflict.grinder.archived, versionId };
+  const content = fields(item?.content);
+  const values = conflict.profile ? fields(content.profile) : content;
+  return { value: values[field] ?? null, versionId };
 }
 
 function viewSource(row: { machine: { id: string; name: string } | null; tabletId: string | null; accountId: string | null }): SourceView {

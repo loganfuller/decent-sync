@@ -12,7 +12,9 @@ import type { Prisma } from "./generated/prisma/client.js";
  *   changed, as when a hello was accepted, replacing the previous
  *   connection, its token was reissued, or hardware was dismissed for it;
  * - `library_changes`, a Location's id: what the Library offers there, or
- *   what its tablets must be written, has changed;
+ *   what its tablets must be written, has changed; or a Library item's id:
+ *   its content changed in the management interface, which every
+ *   Location's tablets may hold;
  * - `machine_locations`, a Machine's id: the Location it is at now has
  *   changed, so its tablet's Library is to be taken in afresh.
  */

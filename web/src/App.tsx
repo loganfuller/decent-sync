@@ -6,6 +6,7 @@ import { BeanBatchPage } from "@/pages/BeanBatchPage";
 import { BeanBatchesPage } from "@/pages/BeanBatchesPage";
 import { BeanPage } from "@/pages/BeanPage";
 import { BeansPage } from "@/pages/BeansPage";
+import { ConflictsPage } from "@/pages/ConflictsPage";
 import { GrinderPage } from "@/pages/GrinderPage";
 import { GrindersPage } from "@/pages/GrindersPage";
 import { InvitePage } from "@/pages/InvitePage";
@@ -53,6 +54,7 @@ export function App() {
             <Route path="/library/grinders/:id" element={<GrinderPage />} />
             <Route path="/library/profiles" element={<ProfilesPage />} />
             <Route path="/library/profiles/:id" element={<ProfilePage />} />
+            <Route path="/library/conflicts" element={<ConflictsPage />} />
             <Route path="/locations" element={<LocationsPage />} />
             <Route path="/machines" element={<MachinesPage />} />
             <Route path="/machines/:id" element={<MachinePage />} />
