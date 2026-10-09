@@ -41,6 +41,7 @@ const mapped = (profileId: string, known: Partial<MappedProfile> = {}): MappedPr
   updatedAt: new Date(KNOWN_AT),
   visible: true,
   deleted: false,
+  record: record(profileId),
   ...known,
 });
 

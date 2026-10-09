@@ -828,6 +828,13 @@ export class SimulatedTablet {
     return body as Record<string, unknown>;
   }
 
+  /** Changes the tablet's bean with that id in Decaid, as a barista does, and resolves with the record Decaid returned. */
+  async editBean(id: unknown, fields: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { status, body } = await this.callApi("PUT", `/beans/${encodeURIComponent(String(id))}`, fields);
+    if (status !== 200) throw new Error(`Decaid refused the change with ${status}: ${JSON.stringify(body)}`);
+    return body as Record<string, unknown>;
+  }
+
   /** Adds a batch of the tablet's bean with that id in Decaid, as a barista does, and resolves with the record Decaid made. */
   async addBatch(beanId: unknown, fields: Record<string, unknown>): Promise<Record<string, unknown>> {
     const { status, body } = await this.callApi("POST", `/beans/${encodeURIComponent(String(beanId))}/batches`, fields);

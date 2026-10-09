@@ -216,6 +216,17 @@ var __decentSync = (() => {
   function beanMatchKey(roaster, name) {
     return JSON.stringify([roaster.trim().toLowerCase(), name.trim().toLowerCase()]);
   }
+  function sameValue(a, b) {
+    if (a === void 0) a = null;
+    if (b === void 0) b = null;
+    if (a === b) return true;
+    if (Array.isArray(a) || Array.isArray(b)) {
+      return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => sameValue(value, b[index]));
+    }
+    if (!isObject(a) || !isObject(b)) return false;
+    const keys = /* @__PURE__ */ new Set([...Object.keys(a), ...Object.keys(b)]);
+    return [...keys].every((key) => sameValue(a[key], b[key]));
+  }
   function globalIdOf(record) {
     const extras = isObject(record) ? record.extras : void 0;
     const id = isObject(extras) ? extras[GLOBAL_ID_KEY] : void 0;
@@ -289,6 +300,7 @@ var __decentSync = (() => {
           fields.itemId("globalId", object3.kind);
           if (object3.localId !== null) fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
           fields.objectField("fields");
+          if (object3.expected !== void 0) fields.objectField("expected");
         });
       default:
         return invalid("Unknown message type");
@@ -734,14 +746,16 @@ var __decentSync = (() => {
     if (!route && write.kind !== "profile") return refused(write, null, `This plugin cannot write a ${write.kind}`);
     try {
       if (!route) return await writeProfile(write);
-      return write.localId === null ? await create(route, write) : answerTo(write, await update(route, write, write.localId), Object.keys(write.fields));
+      if (write.localId === null) return await create(route, write);
+      const updated = await update(route, write, write.localId);
+      return answerTo(write, updated.answer, updated.written);
     } catch (error) {
       return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   async function writeProfile(write) {
     const visibility = write.fields.visibility;
-    if (write.localId !== null) return answerTo(write, await setVisibility(write.localId, visibility), ["visibility"]);
+    if (write.localId !== null) return await updateProfile(write, write.localId);
     const held = await heldProfile(write.globalId);
     if ("refused" in held) return refused(write, held.refused.status, held.refused.text);
     let record = held.record;
@@ -763,6 +777,50 @@ var __decentSync = (() => {
     if (!isObject2(updated) || updated.id !== write.globalId) return written(write, record, writtenFields);
     return written(write, updated, [...writtenFields, "visibility"]);
   }
+  var PROFILE_TEXT = ["title", "author", "notes"];
+  async function updateProfile(write, id) {
+    const held = await heldProfile(id);
+    if ("refused" in held) return refused(write, held.refused.status, held.refused.text);
+    if (!held.record) return refused(write, 404, "Profile not found");
+    let record = held.record;
+    const fields = settable(write, (field) => field === "visibility" ? record.visibility : isObject2(record.profile) ? record.profile[field] : void 0);
+    const writtenFields = [];
+    const text = PROFILE_TEXT.filter((field) => field in fields);
+    if (text.length > 0) {
+      const profile = { ...isObject2(record.profile) ? record.profile : {} };
+      for (const field of text) {
+        if (fields[field] === null) delete profile[field];
+        else profile[field] = fields[field];
+      }
+      const answer = await request("PUT", `/profiles/${encodeURIComponent(id)}`, { profile });
+      const updated = answer.ok ? parsed(answer.text) : void 0;
+      if (!isObject2(updated) || typeof updated.id !== "string") return refused(write, answer.status, answer.text);
+      if (updated.id !== id) return written(write, updated, text);
+      record = updated;
+      writtenFields.push(...text);
+    }
+    if ("visibility" in fields) {
+      if (record.visibility !== fields.visibility) {
+        const answer = await setVisibility(id, fields.visibility).catch((error) => {
+          if (writtenFields.length === 0) throw error;
+          return void 0;
+        });
+        const updated = answer?.ok ? parsed(answer.text) : void 0;
+        if (!isObject2(updated) || updated.id !== id) {
+          return writtenFields.length === 0 ? refused(write, answer?.status ?? null, answer?.text ?? "") : written(write, record, writtenFields);
+        }
+        record = updated;
+      }
+      writtenFields.push("visibility");
+    }
+    return written(write, record, writtenFields);
+  }
+  function settable(write, current) {
+    const expected = write.expected;
+    return Object.fromEntries(
+      Object.entries(write.fields).filter(([field]) => !expected || !(field in expected) || sameValue(current(field), expected[field]))
+    );
+  }
   async function heldProfile(id) {
     const answer = await request("GET", `/profiles/${encodeURIComponent(id)}`);
     if (answer.status === 404) return { record: void 0 };
@@ -780,7 +838,10 @@ var __decentSync = (() => {
     const held = records.find((record2) => globalIdOf(record2) === write.globalId.toLowerCase());
     if (held) return written(write, held, []);
     const same = records.find((record2) => globalIdOf(record2) === null && record2.archived !== true && route.sameItem(record2, write.fields));
-    if (same && typeof same.id === "string") return answerTo(write, await update(route, { ...write, fields: {} }, same.id), []);
+    if (same && typeof same.id === "string") {
+      const answer = answerTo(write, (await update(route, { ...write, fields: {} }, same.id)).answer, []);
+      return answer.type === "written" ? { ...answer, linked: true } : answer;
+    }
     const path = route.create(write.fields);
     if (path === null) return refused(write, null, `A ${write.kind} to create must name what it belongs to`);
     const body = { ...write.fields, extras: { [GLOBAL_ID_KEY]: write.globalId } };
@@ -798,10 +859,12 @@ var __decentSync = (() => {
   async function update(route, write, localId) {
     const path = `${route.records}/${encodeURIComponent(localId)}`;
     const current = await request("GET", path);
-    if (!current.ok) return current;
-    const record = parsed(current.text);
-    const extras = isObject2(record) && isObject2(record.extras) ? record.extras : {};
-    return request("PUT", path, { ...write.fields, extras: { ...extras, [GLOBAL_ID_KEY]: write.globalId } });
+    if (!current.ok) return { answer: current, written: [] };
+    const parsedRecord = parsed(current.text);
+    const record = isObject2(parsedRecord) ? parsedRecord : {};
+    const extras = isObject2(record.extras) ? record.extras : {};
+    const fields = settable(write, (field) => record[field]);
+    return { answer: await request("PUT", path, { ...fields, extras: { ...extras, [GLOBAL_ID_KEY]: write.globalId } }), written: Object.keys(fields) };
   }
   function answerTo(write, answer, writtenFields) {
     const record = answer.ok ? parsed(answer.text) : void 0;

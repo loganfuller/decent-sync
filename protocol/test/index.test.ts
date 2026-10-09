@@ -28,6 +28,7 @@ import {
   isLibraryKind,
   isLibraryList,
   isRecordId,
+  sameValue,
 } from "@decent-sync/protocol";
 
 const token = "8cTqXr0b2m6Yw1zH4kLpQeNvSa7uJdFg9oIiBhC3E5s";
@@ -454,9 +455,11 @@ describe("Library writes", () => {
   });
 
   it("reads a write, creating or updating a record, accepting fields and kinds it does not know", () => {
-    for (const message of [create, update, { ...create, kind: "recipe", priority: 1 }]) {
+    const expecting = { ...update, fields: { notes: "Jasmine" }, expected: { notes: null } };
+    for (const message of [create, update, expecting, { ...create, kind: "recipe", priority: 1 }]) {
       expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
     }
+    expect(decodeServerMessage(frame({ ...expecting, expected: ["notes"] }))).toMatchObject({ ok: false, problem: "write.expected must be an object" });
   });
 
   it("refuses a write without a global id, a usable local id or fields", () => {
@@ -481,9 +484,16 @@ describe("Library writes", () => {
   });
 
   it("reads the answers to a write: the record Decaid returned, or its refusal", () => {
-    for (const message of [written, { ...written, updatedAt: null }, refused, { ...refused, status: null, error: "Decaid did not answer: Fetch timed out" }]) {
+    for (const message of [
+      written,
+      { ...written, updatedAt: null },
+      { ...written, writtenFields: [], linked: true },
+      refused,
+      { ...refused, status: null, error: "Decaid did not answer: Fetch timed out" },
+    ]) {
       expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
     }
+    expect(decodePluginMessage(frame({ ...written, linked: "yes" }))).toMatchObject({ ok: false, problem: "written.linked must be true or false" });
     expect(decodePluginMessage(frame({ ...written, updatedAt: undefined }))).toMatchObject({ ok: false, problem: "written.updatedAt must be a UTC time such as 2026-10-05T14:07:03.341Z" });
     expect(decodePluginMessage(frame({ ...written, record: "record" }))).toMatchObject({ ok: false, problem: "written.record must be an object" });
     for (const writtenFields of [undefined, "archived", [7], Array.from({ length: MAX_WRITTEN_FIELDS + 1 }, () => "notes")]) {
@@ -528,6 +538,16 @@ describe("Library writes", () => {
     for (const record of [{}, { extras: null }, { extras: { [GLOBAL_ID_KEY]: "bean-1" } }, { extras: [globalId] }, null, "record"]) {
       expect(globalIdOf(record)).toBeNull();
     }
+  });
+
+  it("compares the values records hold as JSON, a field left out being the same as null", () => {
+    expect(sameValue({ a: 1, b: [1, { c: "x" }] }, { b: [1, { c: "x" }], a: 1 })).toBe(true);
+    expect(sameValue({ a: 1, gone: null }, { a: 1 })).toBe(true);
+    expect(sameValue(undefined, null)).toBe(true);
+    expect(sameValue([1, 2], [2, 1])).toBe(false);
+    expect(sameValue({ a: 1 }, { a: "1" })).toBe(false);
+    expect(sameValue([], {})).toBe(false);
+    expect(sameValue(0, null)).toBe(false);
   });
 });
 

@@ -1,5 +1,6 @@
 import { globalIdOf, isRecordId } from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
+import { changedFields } from "./merge.js";
 
 // How a tablet's report of its bean batches is taken into the Library
 // (ADR-0006, ADR-0018), and what each change means at the tablet's Location
@@ -37,6 +38,8 @@ export interface MappedBatch {
   globalId: string | null;
   archived: boolean;
   weightRemaining: number | null;
+  /** The record known, as the tablet reported it or Decaid returned the plugin's write of it. */
+  record: Record<string, unknown>;
 }
 
 /** A Library Bean Batch the report may name by the global id a record carries. */
@@ -62,9 +65,11 @@ export type LocationEdit =
 export type BatchIntakeStep =
   /**
    * The tablet's record of a batch the map holds is newer than the one known,
-   * which it replaces, with the changes it made at its Location since.
+   * which it replaces, with the changes it made at its Location since, and
+   * the fields of the batch's content it changed since, each with its value
+   * (`content`): its edit (ADR-0020).
    */
-  | { kind: "update"; batchId: string; batch: ReportedBatch; edits: LocationEdit[] }
+  | { kind: "update"; batchId: string; batch: ReportedBatch; edits: LocationEdit[]; content: Record<string, unknown> }
   /** The tablet holds a Library batch the map did not know it held, by the global id its record carries. */
   | { kind: "map"; batchId: string; batch: ReportedBatch }
   /**
@@ -127,7 +132,7 @@ export function batchContent(record: Record<string, unknown>): Record<string, un
  * does, whatever its time. Each such record brings the changes made to it since the one
  * known: un-archived, the batch is added at the tablet's Location; archived,
  * finished there; its `weightRemaining` changed, its remaining weight there
- * (ADR-0008). Otherwise a record carrying a Library batch's global id is
+ * (ADR-0008); any other field changed, an edit of the batch's content. Otherwise a record carrying a Library batch's global id is
  * that batch, and changes nothing at the Location: the Location's state is
  * then written to it.
  *
@@ -163,11 +168,13 @@ export function planBatchIntake(
     const mine = byLocalId.get(batch.localId);
     if (mine) {
       const edits = editsSince(mine, batch);
+      const content = changedFields(batchContent(mine.record), batchContent(batch.record));
       const newer = mine.updatedAt === null || batch.updatedAt.getTime() > mine.updatedAt.getTime();
-      // Times are read to the millisecond, so one as old that differs at the Location was changed within it.
-      const sameTime = mine.updatedAt !== null && batch.updatedAt.getTime() === mine.updatedAt.getTime() && edits.length > 0;
+      // Times are read to the millisecond, so one as old that was changed since was changed within it.
+      const sameTime =
+        mine.updatedAt !== null && batch.updatedAt.getTime() === mine.updatedAt.getTime() && (edits.length > 0 || Object.keys(content).length > 0);
       const lostId = batch.globalId !== mine.batchId && mine.globalId === mine.batchId;
-      if (newer || sameTime || lostId) steps.push({ kind: "update", batchId: mine.batchId, batch, edits });
+      if (newer || sameTime || lostId) steps.push({ kind: "update", batchId: mine.batchId, batch, edits, content });
       continue;
     }
     if (batch.globalId !== null && known.has(batch.globalId) && !held.has(batch.globalId)) {

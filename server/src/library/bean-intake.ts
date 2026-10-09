@@ -1,5 +1,6 @@
 import { beanMatchKey, globalIdOf, isRecordId } from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
+import { changedFields } from "./merge.js";
 
 // How a tablet's report of its beans is taken into the Library (ADR-0006,
 // ADR-0018), and what it means at the tablet's Location (ADR-0008,
@@ -33,6 +34,8 @@ export interface MappedBean {
   globalId: string | null;
   /** Whether the record known is archived on the tablet. */
   archived: boolean;
+  /** The record known, as the tablet reported it or Decaid returned the plugin's write of it. */
+  record: Record<string, unknown>;
 }
 
 /** A Library Bean the report may name, by the global id a record carries or by roaster and name. */
@@ -48,9 +51,10 @@ export type IntakeStep =
    * The tablet's record of a Bean the map holds is newer than the one known,
    * which it replaces. With `archived`, the tablet archived the record since
    * (true), so the Bean leaves its Location, or un-archived it (false), so it
-   * is offered there again.
+   * is offered there again. `content` holds the fields of the Bean's content
+   * the tablet changed since, each with its value: its edit (ADR-0020).
    */
-  | { kind: "update"; beanId: string; bean: ReportedBean; archived?: boolean }
+  | { kind: "update"; beanId: string; bean: ReportedBean; archived?: boolean; content: Record<string, unknown> }
   /** The tablet holds a Library Bean the map did not know it held, by the global id its record carries. */
   | { kind: "map"; beanId: string; bean: ReportedBean }
   /** A bean new to the Library whose roaster and name match a Library Bean's: it is that Bean. */
@@ -107,8 +111,10 @@ export function beanContent(record: Record<string, unknown>): Record<string, unk
  * while the one known does, whatever its time: a tablet's clock can go back,
  * and the id is still to be written back. One as old as the record known
  * replaces it too when it was archived or un-archived since, within the
- * millisecond the plugin reads times to. A record replacing one known with
- * another archived flag was archived or un-archived on the tablet since.
+ * millisecond the plugin reads times to, and so does one as old whose
+ * content changed. A record replacing one known with another archived flag
+ * was archived or un-archived on the tablet since, and each field of its
+ * content that differs from the record known was edited there since.
  * Otherwise a record carrying a Library Bean's global id is that Bean, as on
  * a tablet whose answer to the write was lost, or that was restored from a
  * backup.
@@ -145,12 +151,14 @@ export function planIntake(
     seen.add(bean.localId);
     const mine = byLocalId.get(bean.localId);
     if (mine) {
+      const content = changedFields(beanContent(mine.record), beanContent(bean.record));
       const newer = mine.updatedAt === null || bean.updatedAt.getTime() > mine.updatedAt.getTime();
-      // Times are read to the millisecond, so one as old that was archived or un-archived since was changed within it.
-      const sameTime = mine.updatedAt !== null && bean.updatedAt.getTime() === mine.updatedAt.getTime() && bean.archived !== mine.archived;
+      // Times are read to the millisecond, so one as old that was changed since was changed within it.
+      const sameTime =
+        mine.updatedAt !== null && bean.updatedAt.getTime() === mine.updatedAt.getTime() && (bean.archived !== mine.archived || Object.keys(content).length > 0);
       const lostId = bean.globalId !== mine.beanId && mine.globalId === mine.beanId;
       if (newer || sameTime || lostId) {
-        steps.push({ kind: "update", beanId: mine.beanId, bean, ...(bean.archived === mine.archived ? {} : { archived: bean.archived }) });
+        steps.push({ kind: "update", beanId: mine.beanId, bean, ...(bean.archived === mine.archived ? {} : { archived: bean.archived }), content });
       }
       continue;
     }

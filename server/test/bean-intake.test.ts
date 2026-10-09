@@ -47,12 +47,14 @@ const mapped = (
   updatedAt: string | null = "2026-10-05T19:03:13.044Z",
   globalId: string | null = null,
   archived = false,
+  fields: Record<string, unknown> = {},
 ): MappedBean => ({
   beanId,
   localId,
   updatedAt: updatedAt === null ? null : new Date(updatedAt),
   globalId,
   archived,
+  record: record(localId, fields),
 });
 const withId = (id: string) => ({ extras: { [GLOBAL_ID_KEY]: id } });
 
@@ -167,13 +169,13 @@ describe("planIntake", () => {
     const wiped = reported(LOCAL[0], { extras: { otherPlugin: true } }, "2026-10-06T00:00:00.000Z");
     const other = reported(LOCAL[0], withId(GLOBAL[1]), "2026-10-06T00:00:00.000Z");
     const library_ = [library(GLOBAL[1], "Fixture Roaster", "Fixture Bean")];
-    expect(planIntake([wiped], [mapped(GLOBAL[0], LOCAL[0])], library_)).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: wiped }]);
-    expect(planIntake([other], [mapped(GLOBAL[0], LOCAL[0])], library_)).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: other }]);
+    expect(planIntake([wiped], [mapped(GLOBAL[0], LOCAL[0])], library_)).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: wiped, content: {} }]);
+    expect(planIntake([other], [mapped(GLOBAL[0], LOCAL[0])], library_)).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: other, content: {} }]);
     // As old as the record known, or older, as a report read before the plugin's own write: nothing changes.
     expect(planIntake([wiped], [mapped(GLOBAL[0], LOCAL[0], "2026-10-06T00:00:00.000Z")], library_)).toEqual([]);
     expect(planIntake([wiped], [mapped(GLOBAL[0], LOCAL[0], "2026-10-07T00:00:00.000Z")], library_)).toEqual([]);
     // A known record whose time could not be read is replaced.
-    expect(planIntake([wiped], [mapped(GLOBAL[0], LOCAL[0], null)], library_)).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: wiped }]);
+    expect(planIntake([wiped], [mapped(GLOBAL[0], LOCAL[0], null)], library_)).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: wiped, content: {} }]);
   });
 
   it("replaces a known record carrying the Bean's global id with one that no longer does, whatever its time, so the id is written back", () => {
@@ -181,7 +183,7 @@ describe("planIntake", () => {
     const wiped = reported(LOCAL[0], { extras: { otherPlugin: true } }, "2026-10-06T00:00:00.000Z");
     const intact = reported(LOCAL[0], withId(GLOBAL[0]), "2026-10-06T00:00:00.000Z");
     const known = mapped(GLOBAL[0], LOCAL[0], "2026-10-07T00:00:00.000Z", GLOBAL[0]);
-    expect(planIntake([wiped], [known], [])).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: wiped }]);
+    expect(planIntake([wiped], [known], [])).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: wiped, content: {} }]);
     // An older record still carrying the id changes nothing.
     expect(planIntake([intact], [known], [])).toEqual([]);
   });
@@ -199,16 +201,18 @@ describe("planIntake", () => {
   it("says a known record archived on the tablet since takes its Bean away from the Location, and one un-archived offers it there again", () => {
     const archived = reported(LOCAL[0], { archived: true }, "2026-10-06T00:00:00.000Z");
     const restored = reported(LOCAL[0], {}, "2026-10-06T00:00:00.000Z");
-    expect(planIntake([archived], [mapped(GLOBAL[0], LOCAL[0])], [])).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: archived, archived: true }]);
+    expect(planIntake([archived], [mapped(GLOBAL[0], LOCAL[0])], [])).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: archived, archived: true, content: {} }]);
     expect(planIntake([restored], [mapped(GLOBAL[0], LOCAL[0], undefined, null, true)], [])).toEqual([
-      { kind: "update", beanId: GLOBAL[0], bean: restored, archived: false },
+      { kind: "update", beanId: GLOBAL[0], bean: restored, archived: false, content: {} },
     ]);
-    // A record changed otherwise changes nothing at the Location.
-    const edited = reported(LOCAL[0], { notes: "Edited" }, "2026-10-06T00:00:00.000Z");
-    expect(planIntake([edited], [mapped(GLOBAL[0], LOCAL[0])], [])).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: edited }]);
+    // A record changed otherwise changes nothing at the Location: its changed fields are an edit of the Bean's content.
+    const edited = reported(LOCAL[0], { notes: "Edited", country: null }, "2026-10-06T00:00:00.000Z");
+    expect(planIntake([edited], [mapped(GLOBAL[0], LOCAL[0], undefined, null, false, { country: "Ethiopia" })], [])).toEqual([
+      { kind: "update", beanId: GLOBAL[0], bean: edited, content: { notes: "Edited", country: null } },
+    ]);
     // Archived within the millisecond times are read to, as old as the record known.
     const quick = reported(LOCAL[0], { archived: true }, "2026-10-05T19:03:13.044Z");
-    expect(planIntake([quick], [mapped(GLOBAL[0], LOCAL[0])], [])).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: quick, archived: true }]);
+    expect(planIntake([quick], [mapped(GLOBAL[0], LOCAL[0])], [])).toEqual([{ kind: "update", beanId: GLOBAL[0], bean: quick, archived: true, content: {} }]);
   });
 
   it("reads a record the map holds that the list no longer holds as deleted on the tablet", () => {

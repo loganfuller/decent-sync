@@ -14,6 +14,18 @@ import type { PrismaService } from "../prisma.service.js";
  */
 const ANSWER_TIMEOUT_MS = 300_000;
 
+/**
+ * A write awaiting its answer, with what the record it answers with has seen
+ * once written, as it was planned (`PlannedWrite`): the Location's decision
+ * its record holds, and that Location; and the latest edit of the item's
+ * content, which its record holds.
+ */
+export interface AwaitedWrite {
+  write: LibraryWrite;
+  seen: SeenDecision | null;
+  contentSeen: Date | null;
+}
+
 /** What a write's answer said. */
 export type WriteOutcome = "written" | "refused";
 
@@ -66,8 +78,11 @@ export class TabletWriter {
   /** Woken while running: look again once the current write is done. */
   private again = false;
   private stopped = false;
-  /** The write awaiting its answer, with the Location's decision its record holds once written (`PlannedWrite.decidedAt`), and that Location. */
-  private waiting: { write: LibraryWrite; seen: SeenDecision | null; settle: (outcome: WriteOutcome | "stopped" | "timedOut") => void } | undefined;
+  /**
+   * The write awaiting its answer, with what its record has seen once
+   * written (`AwaitedWrite`).
+   */
+  private waiting: (AwaitedWrite & { settle: (outcome: WriteOutcome | "stopped" | "timedOut") => void }) | undefined;
   /** Items whose write was refused, or not answered, on this connection, or that writing did not change, by `writeKey`. */
   private readonly skipped = new Set<string>();
   /**
@@ -152,9 +167,9 @@ export class TabletWriter {
     this.wake();
   }
 
-  /** The write with this id, if it awaits its answer, and the Location's decision its answer has seen. */
-  awaited(id: string): { write: LibraryWrite; seen: SeenDecision | null } | undefined {
-    return this.waiting?.write.id === id ? { write: this.waiting.write, seen: this.waiting.seen } : undefined;
+  /** The write with this id, if it awaits its answer, and what its answer has seen. */
+  awaited(id: string): AwaitedWrite | undefined {
+    return this.waiting?.write.id === id ? { write: this.waiting.write, seen: this.waiting.seen, contentSeen: this.waiting.contentSeen } : undefined;
   }
 
   /** The plugin answered a write, and its answer is recorded. Answers to other writes, such as late ones, are ignored. */
@@ -203,10 +218,19 @@ export class TabletWriter {
         this.skipped.add(key);
         continue;
       }
-      const write: LibraryWrite = { type: "write", id: randomUUID(), kind: due.kind, globalId: due.globalId, localId: due.localId, fields: due.fields };
+      const write: LibraryWrite = {
+        type: "write",
+        id: randomUUID(),
+        kind: due.kind,
+        globalId: due.globalId,
+        localId: due.localId,
+        fields: due.fields,
+        ...(due.expected ? { expected: due.expected } : {}),
+      };
       // What the write carries was decided at the Location it was planned for.
       const plannedFor = found?.locationId ?? null;
-      const outcome = await this.ask(write, due.decidedAt === null || plannedFor === null ? null : { at: due.decidedAt, locationId: plannedFor });
+      const seen = due.decidedAt === null || plannedFor === null ? null : { at: due.decidedAt, locationId: plannedFor };
+      const outcome = await this.ask({ write, seen, contentSeen: due.contentDecidedAt });
       if (outcome === "stopped") return;
       if (outcome === "timedOut") {
         this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the write of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once the tablet reconnects`);
@@ -217,7 +241,8 @@ export class TabletWriter {
   }
 
   /** Sends a write and resolves with what became of it. */
-  private ask(write: LibraryWrite, seen: SeenDecision | null): Promise<WriteOutcome | "stopped" | "timedOut"> {
+  private ask(awaited: AwaitedWrite): Promise<WriteOutcome | "stopped" | "timedOut"> {
+    const { write } = awaited;
     return new Promise((resolve) => {
       const timer = setTimeout(() => settle("timedOut"), ANSWER_TIMEOUT_MS);
       const settle = (outcome: WriteOutcome | "stopped" | "timedOut") => {
@@ -225,7 +250,7 @@ export class TabletWriter {
         if (this.waiting?.write.id === write.id) this.waiting = undefined;
         resolve(outcome);
       };
-      this.waiting = { write, seen, settle };
+      this.waiting = { ...awaited, settle };
       this.send(write);
     });
   }

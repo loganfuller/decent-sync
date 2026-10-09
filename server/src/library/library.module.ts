@@ -3,8 +3,10 @@ import { BeanBatchesController } from "./bean-batches.controller.js";
 import { BeanBatchesService } from "./bean-batches.service.js";
 import { BeansController } from "./beans.controller.js";
 import { BeansService } from "./beans.service.js";
+import { ConflictsController } from "./conflicts.controller.js";
 import { GrindersController } from "./grinders.controller.js";
 import { GrindersService } from "./grinders.service.js";
+import { HistoryService } from "./history.service.js";
 import { ProfilesController } from "./profiles.controller.js";
 import { ProfilesService } from "./profiles.service.js";
 
@@ -14,7 +16,7 @@ import { ProfilesService } from "./profiles.service.js";
  * the sync gateway's writers (`TabletWriter`).
  */
 @Module({
-  controllers: [BeansController, BeanBatchesController, GrindersController, ProfilesController],
-  providers: [BeansService, BeanBatchesService, GrindersService, ProfilesService],
+  controllers: [BeansController, BeanBatchesController, GrindersController, ProfilesController, ConflictsController],
+  providers: [BeansService, BeanBatchesService, GrindersService, ProfilesService, HistoryService],
 })
 export class LibraryModule {}

@@ -201,6 +201,26 @@ export function beanMatchKey(roaster: string, name: string): string {
   return JSON.stringify([roaster.trim().toLowerCase(), name.trim().toLowerCase()]);
 }
 
+/**
+ * Whether two values a Library record holds are the same, as JSON: objects
+ * compared key by key whatever their order, arrays element by element. A
+ * field a record does not hold is the same as one holding null, since Decaid
+ * leaves out a field it holds no value for. The server compares a tablet's
+ * records by it to find what an edit changed (ADR-0020), and the plugin a
+ * record with what the server expects it to hold before it writes a field.
+ */
+export function sameValue(a: unknown, b: unknown): boolean {
+  if (a === undefined) a = null;
+  if (b === undefined) b = null;
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => sameValue(value, b[index]));
+  }
+  if (!isObject(a) || !isObject(b)) return false;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...keys].every((key) => sameValue(a[key], b[key]));
+}
+
 /** The global id a tablet's Library record carries in its `extras`, or null if it carries none. */
 export function globalIdOf(record: unknown): string | null {
   const extras = isObject(record) ? record.extras : undefined;
@@ -461,7 +481,11 @@ export function isItemId(kind: string, value: unknown): value is string {
  * Grinders are never the same item (ADR-0018). With a `localId`, it updates
  * that record.
  * Either way it sets only `fields`, and writes the global id into the
- * record's `extras`, keeping the other keys there.
+ * record's `extras`, keeping the other keys there. An update sets a field
+ * only while the record holds the value `expected` names for it, as the
+ * tablet last reported it: a field changed on the tablet since, such as a
+ * barista's edit of a Bean's notes not yet reported, is kept, and reaches the
+ * server in the answer, which leaves it out of `writtenFields`.
  *
  * A Bean Batch is created under its Bean: `fields.beanId` is the tablet's id
  * for the Bean's record, which the server writes first. Decaid's create
@@ -479,7 +503,9 @@ export function isItemId(kind: string, value: unknown): value is string {
  * hidden or deleted as it may be. So the plugin then sets
  * `fields.visibility` where the record has another (`PUT
  * /profiles/{id}/visibility`). To update one, it sets `fields.visibility`
- * alone.
+ * alone, and its title, author and notes, where `fields` holds them, in
+ * the record's `profile`, which Decaid's `PUT /profiles/{id}` takes whole:
+ * they are outside the hash, so the record keeps its id (ADR-0006).
  */
 export interface LibraryWrite {
   type: "write";
@@ -493,6 +519,12 @@ export interface LibraryWrite {
   localId: string | null;
   /** The record's fields to set, as Decaid names them: on creating, its content. */
   fields: Record<string, unknown>;
+  /**
+   * On updating, the value the record held for each of `fields` as the
+   * tablet last reported it, null for none: the plugin sets a field only
+   * while the record still holds it.
+   */
+  expected?: Record<string, unknown>;
 }
 
 /**
@@ -529,6 +561,14 @@ export interface ItemWritten {
    * from the answer, whether or not it still awaits it.
    */
   writtenFields: string[];
+  /**
+   * Set when the write was to create a Bean, and the plugin found the tablet
+   * holding the same coffee without a global id, entered there before it was
+   * reported, and wrote only the global id to it: the record is linked to the
+   * Bean, and so takes the Bean's content, each field it held otherwise kept
+   * as a Conflict (ADR-0018).
+   */
+  linked?: boolean;
 }
 
 /**
@@ -753,6 +793,7 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         fields.objectField("record");
         if (object.updatedAt !== null) fields.instant("updatedAt");
         fields.array("writtenFields", (value) => typeof value === "string", MAX_WRITTEN_FIELDS);
+        fields.optionalBoolean("linked");
       });
     case "writeRefused":
       return check<WriteRefused>(object, "writeRefused", (fields) => {
@@ -831,6 +872,7 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
         fields.itemId("globalId", object.kind);
         if (object.localId !== null) fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
         fields.objectField("fields");
+        if (object.expected !== undefined) fields.objectField("expected");
       });
     default:
       return invalid("Unknown message type");

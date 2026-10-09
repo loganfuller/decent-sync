@@ -1,5 +1,6 @@
 import { isRecordId } from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
+import { changedFields } from "./merge.js";
 
 // How a tablet's report of its profiles is taken into the Library (ADR-0006,
 // ADR-0018), and what each change means at the tablet's Location (ADR-0008,
@@ -35,6 +36,8 @@ export interface MappedProfile {
   visible: boolean;
   /** Whether the record known is marked deleted. */
   deleted: boolean;
+  /** The record known, as the tablet reported it or Decaid returned the plugin's write of it. */
+  record: Record<string, unknown>;
 }
 
 /** Whether the Location shows a Profile it has decided, and the time of the edit that decided it last. */
@@ -58,9 +61,12 @@ export type ProfileIntakeStep =
    * The tablet's record of a Profile the map holds is newer than the one
    * known, which it replaces. With `shown`, the tablet made it visible since
    * (true), so it is shown at its Location, or hid or deleted it (false), so it
-   * is hidden there, deleting one it had hidden included.
+   * is hidden there, deleting one it had hidden included. `content` holds
+   * its title, author and notes where the tablet changed them since, each
+   * with its value: its edit (ADR-0020). Decaid refuses to change a bundled
+   * Profile's, so a bundled Profile has none.
    */
-  | { kind: "update"; profileId: string; profile: ReportedProfile; shown?: boolean }
+  | { kind: "update"; profileId: string; profile: ReportedProfile; shown?: boolean; content: Record<string, unknown> }
   /**
    * The tablet holds a Library Profile the map did not know it held. Where
    * the Location has decided nothing of it yet, the record's visibility
@@ -86,6 +92,15 @@ export type ProfileIntakeStep =
    * whether the record known was visible or not.
    */
   | { kind: "delete"; profileId: string; updatedAt: Date | null; shown: false };
+
+/** The fields of a Profile's `profile` that are its content's edits: outside its id (ADR-0006). */
+export const PROFILE_TEXT = ["title", "author", "notes"] as const;
+
+/** A Profile's title, author and notes, from its record or its content: each null where it has none. */
+export function profileText(record: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const profile = isObject(record.profile) ? record.profile : {};
+  return Object.fromEntries(PROFILE_TEXT.map((field) => [field, profile[field] ?? null]));
+}
 
 /**
  * The profiles of a reported `profiles` list that Decent Sync can take in,
@@ -122,7 +137,9 @@ export function profileContent(record: Record<string, unknown>): Record<string, 
  * deleted and hidden since, as another tablet may have shown it there
  * meanwhile. Only a Profile the tablet held
  * can be hidden this way. Each is an edit timed by its record, which loses to
- * a later one the tablet had not seen (ADR-0020).
+ * a later one the tablet had not seen (ADR-0020), and so is a change of its
+ * title, author or notes, which are outside its id, so the Profile is the
+ * same (ADR-0006).
  *
  * Every other record is one the map does not hold yet: one the tablet
  * created, or held before it joined its Location, or was written by a write
@@ -169,14 +186,17 @@ export function planProfileIntake(
     const mine = byId.get(profile.id);
     const decided = located.get(profile.id);
     if (mine) {
+      const content = profile.bundled ? {} : changedFields(profileText(mine.record), profileText(profile.record));
       const newer = mine.updatedAt === null || profile.updatedAt.getTime() > mine.updatedAt.getTime();
-      // Times are read to the millisecond, so one as old that was shown or hidden since was changed within it.
+      // Times are read to the millisecond, so one as old that was changed since was changed within it.
       const sameTime =
-        mine.updatedAt !== null && profile.updatedAt.getTime() === mine.updatedAt.getTime() && (profile.visible !== mine.visible || profile.deleted !== mine.deleted);
+        mine.updatedAt !== null &&
+        profile.updatedAt.getTime() === mine.updatedAt.getTime() &&
+        (profile.visible !== mine.visible || profile.deleted !== mine.deleted || Object.keys(content).length > 0);
       if (newer || sameTime) {
         // Deleted since it was hidden, or hidden again since it was deleted, is hidden still, as an edit: another tablet may have shown it meanwhile.
         const shown = profile.visible !== mine.visible ? profile.visible : profile.deleted !== mine.deleted ? false : undefined;
-        steps.push({ kind: "update", profileId: profile.id, profile, ...(shown === undefined ? {} : { shown }) });
+        steps.push({ kind: "update", profileId: profile.id, profile, ...(shown === undefined ? {} : { shown }), content });
       }
       if (!decided && profile.bundled) steps.push({ kind: "decide", profileId: profile.id, shown: profile.visible, at: profile.updatedAt });
       continue;

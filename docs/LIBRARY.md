@@ -10,9 +10,14 @@ remaining weight at each, and offers each Bean where its batches are. Ticket
 [#82](https://github.com/loganfuller/decent-sync/issues/82) adds Profiles,
 each shown or hidden at each Location, and ticket
 [#83](https://github.com/loganfuller/decent-sync/issues/83) Grinders, each
-belonging to one Location. It follows ADR-0003, ADR-0006, ADR-0008, ADR-0016,
-ADR-0018, ADR-0019 and ADR-0020. Edits, joining a Location and the management
-interface's changes build on it in later tickets (Not yet, below).
+belonging to one Location. Ticket
+[#84](https://github.com/loganfuller/decent-sync/issues/84) has an edit of
+an item's content on any tablet reach every tablet that holds it, merged per
+field with the latest edit winning, keeping each accepted edit as a version
+and each that lost as a Conflict (Edits, below). It follows ADR-0003,
+ADR-0006, ADR-0008, ADR-0016, ADR-0018, ADR-0019 and ADR-0020. Joining a
+Location and the management interface's changes build on it in later tickets
+(Not yet, below).
 
 ## Who takes part
 
@@ -60,9 +65,11 @@ never deleted, so their Shots still find it (Writing to tablets, below).
 - `beans`: each Bean, by its global id (ADR-0006), with its content, Decaid's
   record fields as the tablet that created it sent them, those the server
   does not know included, but the record's id, times, `archived` and
-  `extras`, which belong to each tablet's record. Also its match key (below),
-  whether it is Archived, the Location of the tablet that created it, and
-  when it joined the Library, by PostgreSQL's clock.
+  `extras`, which belong to each tablet's record, as edited since (Edits,
+  below). Also its match key (below), kept to its roaster and name as edited,
+  whether it is Archived, the Location of the tablet that created it, when it
+  joined the Library, by PostgreSQL's clock, and the latest edit of each of
+  its fields (`field_edits`, below).
 - `bean_origins`: the Locations offering a Bean that has no batch there yet:
   where a tablet created it, linked a bean of its own to it, or un-archived
   its record, while none of its batches was there. A batch of it added there
@@ -75,8 +82,9 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   content, Decaid's record fields as the tablet that created it sent them,
   but its id, its bean's id there, its times and `extras`, which are that
   record's, and `archived` and `weightRemaining`, which are each
-  Location's. Also whether it is Archived, the Location of the tablet that
-  created it, and when it joined the Library.
+  Location's, as edited since. Also whether it is Archived, the Location of
+  the tablet that created it, when it joined the Library, and its fields'
+  latest edits.
 - `batch_locations`: each batch's state at a Location, each part a field of
   its own (ADR-0020): when it was last added there and when it was finished
   there since, if it was, and the remaining weight entered there last, in
@@ -88,7 +96,13 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   Bean had, applies, if that was at this Location. Otherwise, as from a tablet
   that was offline, adding it there loses to a finish timed later, and
   finishing it there to an add timed later; the Location's state is then
-  written back to that tablet. One that applies is the field's latest edit
+  written back to that tablet, and the edit kept as a Conflict. One that
+  applies over another tablet's decision it had not seen, which it changes,
+  keeps that decision as a Conflict instead, as neither saw the other
+  (ADR-0020). Each that applies is a version (`item_versions`, below), whose
+  id the field keeps (`presence_version_id`, `remaining_weight_version_id`),
+  so a Conflict it becomes knows where it came from. One that applies is the
+  field's latest edit
   even when it leaves the batch where it was: it is added or finished there
   again, so an earlier edit that arrives later cannot undo it. It is never
   finished before it was added, nor added again before it was finished,
@@ -98,25 +112,28 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   known to have.
 - `grinders`: each Grinder, by its global id, with its content, Decaid's
   record fields as the tablet that created it sent them, but the record's id,
-  times, `archived` and `extras`, which belong to each tablet's record. Also
-  whether it is Archived, the Location it belongs to, which is that of the
-  tablet that created it, and when it joined the Library. Its Location and
-  whether it is Archived change only under that Location's lock
+  times, `archived` and `extras`, which belong to each tablet's record, as
+  edited since. Also whether it is Archived, a field of its own merged with
+  its content's, the Location it belongs to, which is that of the tablet that
+  created it, when it joined the Library, and its fields' latest edits. Its
+  Location and whether it is Archived change only under that Location's lock
   (`location-state.ts`).
 - `profiles`: each Profile, by Decaid's id (ADR-0006), with its content,
   Decaid's record fields as the tablet that created it sent them, but its id,
   times and `visibility`, which are that record's or each Location's. Also
   whether it is one of Decaid's bundled Profiles (`isDefault`), whether it is
-  Archived, the Location of the tablet that created it, and when it joined
-  the Library.
+  Archived, the Location of the tablet that created it, when it joined the
+  Library, and the latest edits of its title, author and notes, which are its
+  only fields edited (Edits, below).
 - `profile_locations`: whether each Profile is shown at a Location, a field of
   its own (ADR-0020), with the time of the edit that decided it, never earlier
   than the one before: a tablet's by its record's `updatedAt` in UTC; a
   delete, which Decaid does not time, by PostgreSQL's clock, but never earlier
   than the record the tablet was last known to have. And when it was decided,
   by PostgreSQL's clock, as again by an edit that applied but left it shown or
-  hidden as it was, and the tablet whose edit decided it. A Location with no
-  row for a Profile has decided nothing of it, and does not show it.
+  hidden as it was, the tablet whose edit decided it, and that edit's version
+  (`version_id`). A Location with no row for a Profile has decided nothing of
+  it, and does not show it.
 - `tablet_beans`, `tablet_bean_batches`, `tablet_grinders` and
   `tablet_profiles`: the map, per tablet id (ticket #79): each item's local
   id on that tablet, which is a Profile's own, and the record as the tablet
@@ -134,8 +151,86 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   of other tablets' decisions, as the plugin may have read it before them and
   sent it after, as across a reconnect; nor does an answer to a write no
   longer awaited, whose write is not known. Either keeps the decision known
-  seen before. A reset tablet has a new tablet id, so it starts with nothing
-  here.
+  seen before. Every map also keeps the latest edit of the item's content
+  that the record has seen (`content_seen_at`, by PostgreSQL's clock): the
+  latest decided as the server's write it answers was planned, while that
+  write was awaited, whichever is later. A reset tablet has a new tablet id,
+  so it starts with nothing here.
+- `field_edits` on `beans`, `bean_batches`, `grinders` and `profiles`: the
+  latest edit of each field of the item's content, `{ at, decidedAt,
+  tabletId, versionId }`: when it was made, never earlier than the edit
+  before it; when it was decided, by PostgreSQL's clock, after every edit of
+  the item decided before it; the tablet that made it, if one did; and its
+  version.
+- `item_versions`: each accepted edit of an item (ADR-0020), with the fields
+  it set and their values, the Machine and tablet or the account it came
+  from, when it was made (`edited_at`, timed as the edit was) and when the
+  server took it in (`received_at`, by PostgreSQL's clock). An edit of the
+  item's content has no Location; one of a Location's state of it names that
+  Location, and only those fields: `atLocation` and `remainingWeight` for a
+  batch, `shown` for a Profile. Joining the Library is an item's first
+  version. Each names exactly one item, and goes with it.
+- `conflicts`: each edit of a field that lost to another made without seeing
+  it (ADR-0020): the item, the field, the losing value (null where it cleared
+  the field), where it came from and when it was made, as a version keeps
+  them, its Location for a Location's state, when it became a Conflict, and
+  whether it is open, its value used or dismissed (ticket #85).
+
+## Edits
+
+An edit of a Library item's content on any tablet reaches every tablet that
+holds the item, at every Location, merged per field with the latest edit
+winning (ADR-0020; `content-edits.ts`, with the pure merge in `merge.ts`). An
+item's content is a Bean's, a Bean Batch's or a Grinder's record fields, but
+those of the tablet's record (its ids, times and `extras`) and of each
+Location's (a batch's `archived` and `weightRemaining`; a Bean's `archived`,
+which takes it away from the tablet's Location), whether a Grinder is
+Archived, and a Profile's title, author and notes, which are outside its id
+(ADR-0006). Decaid refuses to change a bundled Profile's, so a bundled
+Profile's are never edits, and never written.
+
+- **What an edit is.** A record the tablet's map holds that it reports anew,
+  or that Decaid returned for one of the server's writes, is compared with
+  the record known, the version that tablet last had: each field of its
+  content that differs, a field the record leaves out being null, as Decaid
+  leaves out a field it holds no value for, was edited on the tablet. The edit
+  is timed by the record's `updatedAt`, placed in UTC by the plugin. A record
+  equal to what the server last wrote to that tablet holds no edit (ADR-0003).
+- **Merging.** Each field the edit changed is decided against the field's
+  latest edit (`field_edits`). An edit decides a field nobody has edited
+  yet, and one whose latest edit its tablet had seen: its own, or one decided
+  by when its record last held what the server wrote it (`content_seen_at`).
+  Otherwise edit times decide: one made no earlier than the field's latest
+  edit decides it, and the value it replaces, if another, is kept as a
+  Conflict from where and when that edit came, as neither saw the other; one
+  made earlier loses, and its value, if another, is kept as a Conflict, and
+  the Library's value is written back to its tablet. An edit that decides a
+  field is its latest edit even when it leaves it as it was, so an earlier
+  edit that arrives later cannot undo it. Each edit that decides a field is
+  kept as a version, with the fields it decided. A Bean whose roaster or name
+  is edited keeps its match key to them, so another Bean of the same roaster
+  and name lists it as a likely duplicate; they are not merged (ADR-0018).
+- **Linking.** A record linked to a Library item, a new bean by its roaster
+  and name, or a user's Profile the tablet holds by Decaid's id, takes the
+  item's content: each field where the record held another value is kept as
+  a Conflict, timed by the record (ADR-0018). A field the record holds no
+  value for loses nothing. A record carrying a Bean's, batch's or Grinder's
+  global id that the map did not hold, as after a lost answer, takes the
+  item's content with no Conflict, as its own content came from the server.
+- **Locks.** An item's edits are decided under its row lock, on any
+  instance (ADR-0016), taken after the reporting tablet's and its Location's
+  locks; a report locks every item it edits at once, in id order, so two
+  reports editing the same items never wait on each other in turn.
+- **Per-Location state.** Whether a batch is at a Location, its remaining
+  weight there and whether a Profile is shown there are each a field of
+  their own, merged as `batch_locations` and `profile_locations` describe,
+  with versions and Conflicts as content's are.
+
+Times decide only between edits made without seeing each other, so a tablet
+whose clock runs behind another's can lose such an edit, a tablet clock error
+ADR-0003 accepts. Of two edits of one field made without seeing each other
+and timed in the same millisecond, the precision the plugin reads times to,
+the one taken in last wins.
 
 ## Taking in a tablet's beans
 
@@ -174,12 +269,15 @@ order reported (`planIntake` in `bean-intake.ts`):
    count, as the plugin may read the Bean archived after it answered a write
    to a batch, though the barista archived it before (ADR-0020). Un-archived,
    the Bean is offered there again, as an origin, while none of its batches is
-   there.
+   there. Each field of its content that differs from the record known is an
+   edit (Edits, above); one as old as the record known that differs so was
+   changed within the millisecond too.
 2. Otherwise a record carrying a Library Bean's global id is that Bean, as on
    a tablet whose answer to a write was lost, or one restored from a Decaid
    backup, unless another record the tablet reports is that Bean already: it
    is then matched as a new record. Such a record changes nothing at the
-   Location; the Location's state is written to it, over any change the
+   Location or in the Bean; the Location's state and the Bean's content are
+   written to it, over any change the
    tablet made to it before it was mapped, as when the plugin reloaded
    between a write whose answer was lost and a barista's edit, so no outbox
    held the answer any more.
@@ -191,10 +289,11 @@ order reported:
 3. Any other record is new. It is linked to the oldest Library Bean, not
    Archived, whose roaster and name match its own, ignoring case and white
    space at either end (`beanMatchKey`), unless one of the tablet's other
-   records already is that Bean. Otherwise it joins the Library, created at
-   the tablet's Location. Either way, unless it is archived on the tablet, the
-   Bean is offered at the tablet's Location, as an origin, while none of its
-   batches is there.
+   records already is that Bean: it then takes the Bean's content, each field
+   it held otherwise kept as a Conflict (ADR-0018). Otherwise it joins the
+   Library, created at the tablet's Location, its content its first version.
+   Either way, unless it is archived on the tablet, the Bean is offered at the
+   tablet's Location, as an origin, while none of its batches is there.
 
 Last:
 
@@ -234,7 +333,9 @@ beans, and taken in the same way, under the same locks (`takeInBatches` in
   seen (`batch_locations`, above; ADR-0020). A remaining weight replaces the
   one known when the tablet had that value, none was ever entered there, or
   it was entered later than the value known, which the tablet had not seen;
-  Conflicts come with ticket #84.
+  otherwise it is kept as a Conflict, and so is a value replaced that the
+  tablet had not had, entered by another tablet. Any other field changed is
+  an edit of the batch's content (Edits, above).
 - A record carrying a Library batch's global id is that batch, changing
   nothing at the Location, as a bean's, and so written the Location's state
   over any change the tablet made to it before it was mapped.
@@ -268,7 +369,9 @@ are two Grinders.
   since, it is restored (ADR-0019). Either only if it belongs to the tablet's
   Location: a tablet whose Machine moved still holds its old Location's
   Grinders, archived, and un-archiving or archiving one there changes nothing
-  but what is written to it.
+  but what is written to it. Whether it is Archived is a field merged with
+  its content's (Edits, above), so an archiving made offline loses to a
+  restore made later that its tablet had not seen, and is kept as a Conflict.
 - A record carrying a Library Grinder's global id is that Grinder, as a
   bean's is, changing nothing: the Library's state is written to it.
 - Any other record is new, and joins the Library belonging to the tablet's
@@ -276,16 +379,14 @@ are two Grinders.
 - A record the map holds whose id the list no longer holds was deleted on the
   tablet (Decaid's delete removes the record), unless another record it
   reports is that Grinder now: if the tablet held it unarchived, and it
-  belongs to the tablet's Location, it is Archived, and the map holds the
+  belongs to the tablet's Location, it is Archived, timed when the server
+  learns of it but no earlier than the record known, and the map holds the
   record no more. Only a Grinder the tablet held can be Archived this way: a
   new or reset tablet's map holds nothing, so it Archives nothing.
 
 So archiving or deleting a Grinder on a tablet Archives it, and it is archived
 on its Location's other tablets, never deleted; un-archiving it on a tablet
 there restores it, and it is written to them again.
-Until ticket #84, the latest report decides, whatever the time of the change
-it shows: a tablet that was offline while it archived a Grinder Archives it
-once it reports, even if another tablet restored it after that.
 
 ## Taking in a tablet's profiles
 
@@ -320,15 +421,20 @@ Decaid's delete marks a user's Profile with, and hides a bundled one.
   before the edit that decided the Location's state loses to it (ADR-0020),
   and the Location's state is written back to that tablet. One that applies
   decides it again even when it leaves it shown or hidden as it was, so an
-  earlier edit that arrives later cannot undo it. Conflicts, which will keep
-  the losing edit, come with ticket #84. A Profile the tablet purged and
+  earlier edit that arrives later cannot undo it. One that loses is kept as a
+  Conflict, and so is a decision replaced that the tablet had not seen, made
+  by another tablet. A changed title, author or notes of a user's Profile is
+  an edit of its content (Edits, above), so a rename reaches every tablet that
+  holds it, under the same id. A Profile the tablet purged and
   re-created, or deleted and made visible again, between two reports shows no
   change in them, so it is no edit: where the Location hid it meanwhile, it
   stays hidden there.
 - Any other record is one the map does not hold yet: the tablet created it,
   held it before it joined the Location, or was written it by a write whose
-  answer was lost. If the Library has its id, it is that Profile; otherwise it
-  joins the Library, created at the tablet's Location. Where the Location has
+  answer was lost. If the Library has its id, it is that Profile, and a
+  user's Profile takes its title, author and notes, each the record held
+  otherwise kept as a Conflict (ADR-0018); otherwise it joins the Library,
+  created at the tablet's Location. Where the Location has
   decided nothing of the Profile yet, the record's visibility decides it, so a
   Profile new to the Library is shown where it was created only, and an
   identical Profile created at two Locations is shown at both. Otherwise the
@@ -368,7 +474,9 @@ Each welcomed connection that is not mismatched has a writer
 (`server/src/sync/tablet-writer.ts`), on the instance holding it. It looks for
 the next write due (`tabletDue` in `tablet-due.ts`), reading in one snapshot
 what the Machine's Location offers and what the tablet's map holds, and
-planning the writes with the pure `plannedWrites` (`holdings.ts`), in order:
+planning the writes with the pure `plannedWrites` (`holdings.ts`), in order,
+each update also writing the item's content where the record differs from it
+(below):
 
 1. Each Bean the Location offers that the tablet lacks, which is created
    with the Bean's content; or that it holds archived, which is un-archived;
@@ -391,10 +499,19 @@ planning the writes with the pure `plannedWrites` (`holdings.ts`), in order:
    Then each Profile the tablet holds visible that the Location does not
    show, hidden, never deleted.
 
-Beans are written before their batches, and batches are archived before
-their Beans. Within each, items that joined the Library first are written
-first. Every update sets only the fields that differ, and writes the global
-id with them to a record that lost it; a Profile's record carries none.
+Every record the tablet holds whose content differs from its item's, offered
+at the Location or not, is written the item's content, in the same update as
+anything else due to it: so an edit reaches every tablet that holds the item,
+at every Location (ADR-0020), a Profile's title, author and notes included,
+but never a bundled Profile's. A field the item holds no value for is
+cleared. Beans are written before their batches, and batches are archived
+before their Beans. Within each, items that joined the Library first are
+written first. Every update sets only the fields that differ, and writes the
+global id with them to a record that lost it; a Profile's record carries
+none. Each update names the value the record held for each field it sets,
+as the tablet last reported it (`expected`), and the plugin sets a field only
+while the record still holds that, so a barista's edit the tablet has not
+reported yet is kept, and reaches the server in the answer.
 Nothing is deleted from a tablet; an Admin's hard delete, which will delete
 an item no Shot names from every tablet that holds it (ticket #87), is the
 one exception.
@@ -441,7 +558,15 @@ none. So the answer names the fields the write set (`writtenFields`), and its
 `archived` and `weightRemaining`, where the write did not set them and they
 differ from the record known, are taken in as a report's would be
 (`editsInAnswer`, `archivingInAnswer`), under the Machine's, the tablet's and
-the Location's locks, rather than written back over. Such a change is timed by
+the Location's locks, rather than written back over; and so are the fields of
+its content the write did not set that differ from the record known, merged
+as edits under the item's row lock (Edits, above), judged by what the record
+had seen before the write. The record has then seen the content the write
+carried (`content_seen_at`, above), if its write was awaited. An answer the
+plugin marks `linked`, to a create it carried out by writing the global id to
+a bean of the same roaster and name entered there before the tablet reported
+it, links that record: it takes the Bean's content, each field it held
+otherwise kept as a Conflict (ADR-0018). Such a change is timed by
 the answered record, which Decaid stamped when the plugin wrote, up to a poll
 interval after the barista made it, so it can win by its time over another
 tablet's change made in between. An answer is recorded
@@ -505,9 +630,12 @@ tablet's list of batches to show it does not.
   server writes the weight again on the same connection. Each create reads the whole list once, which a tablet joining
   a Location with many items does once per item.
 - To update a record, it reads the record and updates it (`PUT /beans/{id}`,
-  `PUT /bean-batches/{id}` or `PUT /grinders/{id}`) with the fields the server sent and `extras`
-  holding its other keys beside the global id, since Decaid replaces `extras`
-  whole.
+  `PUT /bean-batches/{id}` or `PUT /grinders/{id}`) with the fields the
+  server sent that the record still holds as the server expects
+  (`expected`), and `extras` holding its other keys beside the global id,
+  since Decaid replaces `extras` whole. A field the tablet changed since it
+  last reported the record is left as the tablet has it, and left out of the
+  answer's `writtenFields`.
 
 - To create a Profile, it reads the tablet's record of it (`GET
   /profiles/{id}`), hidden or deleted as it may be. Unless the tablet holds
@@ -524,7 +652,17 @@ tablet's list of batches to show it does not.
   Profile: the server does not record it as one, and skips the write for the
   connection, and the tablet's next report adds the record to the Library as
   a Profile of its own.
-- To show or hide a Profile, it sets the record's visibility alone.
+- To update a Profile, it reads the tablet's record of it, then sets its
+  title, author and notes where the write holds them, in the record's
+  `profile`, which Decaid's `PUT /profiles/{id}` takes whole: they are
+  outside the hash, so the record keeps its id
+  (`server/test/fixtures/decaid/profile-writes-v0.8.7/`). Then it shows or
+  hides it (`PUT /profiles/{id}/visibility`), where the write holds a
+  visibility. Each only while the record holds what the server expects;
+  should the visibility fail once the rest is written, the record as it then
+  is is the answer, and the server writes the visibility again. Decaid
+  refuses to change a bundled Profile's content, which the server never
+  writes.
 
 The plugin's next report then holds the record as written, which changes
 nothing (ADR-0003). If the connection drops before the answer arrives, the
@@ -579,6 +717,30 @@ Every endpoint requires the account session; Staff read them as Admins do.
   and `parent`, `{ id, title }` of the Profile it was saved from if the
   Library has it, or null; or 404. The id goes in the path as it is or
   percent-encoded.
+- `GET /api/beans/:id/history`, `GET /api/bean-batches/:id/history`,
+  `GET /api/grinders/:id/history` and `GET /api/profiles/:id/history` return
+  `{ versions }`, the item's versions (ADR-0020), the latest taken in first,
+  each `{ id, fields, location, source, editedAt, receivedAt }`: the fields
+  it set, with their values, of the item's content, or of its state at
+  `location` (`atLocation`, `remainingWeight`, `shown`), null for its
+  content; where it came from, `source`, `{ machine, tabletId, account }`,
+  the Machine `{ id, name }` whose tablet made it, if one did and it still
+  exists, that tablet's id, and the account `{ id }` that made it in the
+  management interface, named by its id only, as other accounts' names are
+  personal information Staff do not see; when it was made, a tablet's by its
+  record's `updatedAt` in UTC, a delete on a tablet when the server learned
+  of it; and when the server took it in, by PostgreSQL's clock. The first is
+  the item joining the Library. 404 if the Library does not have the item.
+- `GET /api/conflicts` returns `{ conflicts }`, the open Conflicts, the
+  latest first, each `{ id, item, field, value, location, source, editedAt,
+  createdAt }`: the item `{ kind, id, name }`, `kind` being `bean`,
+  `beanBatch`, `grinder` or `profile`, and `name` a Bean's roaster and name,
+  a batch's Bean and roast date, a Grinder's model or a Profile's title, null
+  where its content has none; the field and the losing value, null where the
+  edit cleared it; the Location whose state the field is, null for content;
+  where and when the losing edit was made, as a version's; and when it became
+  a Conflict. Using a Conflict's value and dismissing one come with ticket
+  #85.
 
 The management interface's Library section lists the Beans and where each is
 offered, the Bean Batches, the Locations each is at and its remaining weight
@@ -592,14 +754,6 @@ from.
 
 ## Not yet
 
-- Edits, merged per field with Conflicts (ADR-0020), Profiles' titles,
-  authors and notes included: ticket #84. Until then a
-  record's content stays as the tablet that created or linked it sent it, and
-  only per-Location state is taken from tablets: a linked bean keeps its own
-  content, and only its global id is written; linking will then write the
-  Library's content to it, keeping each field it differed in as a Conflict
-  (ADR-0018). Two remaining weights entered without seeing each other keep
-  the later; the other will be kept as a Conflict.
 - Archive, restore, creating and editing items, Grinders included, and
   adding and finishing batches at Locations in the management interface:
   ticket #87; showing and
@@ -619,7 +773,9 @@ from.
   Location's Grinders stay there, archived on the moved tablet.
 - Each Location's
   steam, hot water and rinse settings: ticket #86. Conflicts and each item's
-  history in the management interface: ticket #85.
+  history in the management interface, and using a Conflict's value or
+  dismissing it: ticket #85. Edits there, timed by PostgreSQL's clock, are
+  versions from an account (tickets #87 and #88).
 - The capture-only switch: ticket #90. Recording refused writes, and each
   Machine's sharing status: ticket #91.
 - Linking Shots to the Library's batches and Grinders: ticket #92.
@@ -633,12 +789,14 @@ new one: bundled Profiles are never written. v0.8.7 and v0.8.8 bundle the same
 Profiles.
 
 `server/test/library-beans.test.ts`, `server/test/library-batches.test.ts`,
-`server/test/library-grinders.test.ts` and
-`server/test/library-profiles.test.ts` cover this through Seam 1, with the
+`server/test/library-grinders.test.ts`,
+`server/test/library-profiles.test.ts` and
+`server/test/library-edits.test.ts` cover this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL;
 `server/test/bean-intake.test.ts`, `server/test/batch-intake.test.ts`,
-`server/test/grinder-intake.test.ts`, `server/test/profile-intake.test.ts`
-and `server/test/holdings.test.ts` the pure modules;
+`server/test/grinder-intake.test.ts`, `server/test/profile-intake.test.ts`,
+`server/test/holdings.test.ts` and `server/test/merge.test.ts` the pure
+modules;
 `server/test/simulated-bean-writes.test.ts`,
 `server/test/simulated-batch-writes.test.ts`,
 `server/test/simulated-grinder-writes.test.ts` and

@@ -1,5 +1,6 @@
 import { globalIdOf, isRecordId } from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
+import { changedFields } from "./merge.js";
 
 // How a tablet's report of its grinders is taken into the Library (ADR-0006,
 // ADR-0018), and what each change means for a Grinder, which belongs to one
@@ -32,6 +33,8 @@ export interface MappedGrinder {
   globalId: string | null;
   /** Whether the record known is archived on the tablet. */
   archived: boolean;
+  /** The record known, as the tablet reported it or Decaid returned the plugin's write of it. */
+  record: Record<string, unknown>;
 }
 
 /** One thing a report changes. */
@@ -40,9 +43,10 @@ export type GrinderIntakeStep =
    * The tablet's record of a Grinder the map holds is newer than the one
    * known, which it replaces. With `archived`, the tablet archived the record
    * since (true), so the Grinder is Archived, or un-archived it (false), so it
-   * is restored (ADR-0019).
+   * is restored (ADR-0019). `content` holds the fields of its content the
+   * tablet changed since, each with its value: its edit (ADR-0020).
    */
-  | { kind: "update"; grinderId: string; grinder: ReportedGrinder; archived?: boolean }
+  | { kind: "update"; grinderId: string; grinder: ReportedGrinder; archived?: boolean; content: Record<string, unknown> }
   /** The tablet holds a Library Grinder the map did not know it held, by the global id its record carries. */
   | { kind: "map"; grinderId: string; grinder: ReportedGrinder }
   /** A grinder new to the Library, which joins it, belonging to the tablet's Location, Archived if it is archived there. */
@@ -50,9 +54,10 @@ export type GrinderIntakeStep =
   /**
    * A record the map holds is gone from the tablet's list: the tablet deleted
    * it, and holds it no more. With `archived`, the record known was not
-   * archived, so the Grinder is Archived (ADR-0019).
+   * archived, so the Grinder is Archived (ADR-0019), an edit timed when the
+   * server learns of it, but no earlier than the record known (`updatedAt`).
    */
-  | { kind: "delete"; grinderId: string; localId: string; archived?: true };
+  | { kind: "delete"; grinderId: string; localId: string; updatedAt: Date | null; archived?: true };
 
 /**
  * The grinders of a reported `grinders` list that Decent Sync can take in,
@@ -87,7 +92,8 @@ export function grinderContent(record: Record<string, unknown>): Record<string, 
  * when it is newer, or as old but archived or un-archived since, within the
  * millisecond the plugin reads times to, or when it no longer carries the
  * Grinder's global id while the one known does, whatever its time. Archived
- * since, the Grinder is Archived; un-archived, it is restored. Otherwise a
+ * since, the Grinder is Archived; un-archived, it is restored; each field of
+ * its content that differs from the record known was edited. Otherwise a
  * record carrying a Library Grinder's global id (`library`) is that Grinder,
  * unless another record the tablet reports is it already, and changes
  * nothing: the Library's state is then written to it.
@@ -121,12 +127,16 @@ export function planGrinderIntake(
     seen.add(grinder.localId);
     const mine = byLocalId.get(grinder.localId);
     if (mine) {
+      const content = changedFields(grinderContent(mine.record), grinderContent(grinder.record));
       const newer = mine.updatedAt === null || grinder.updatedAt.getTime() > mine.updatedAt.getTime();
-      // Times are read to the millisecond, so one as old that was archived or un-archived since was changed within it.
-      const sameTime = mine.updatedAt !== null && grinder.updatedAt.getTime() === mine.updatedAt.getTime() && grinder.archived !== mine.archived;
+      // Times are read to the millisecond, so one as old that was changed since was changed within it.
+      const sameTime =
+        mine.updatedAt !== null &&
+        grinder.updatedAt.getTime() === mine.updatedAt.getTime() &&
+        (grinder.archived !== mine.archived || Object.keys(content).length > 0);
       const lostId = grinder.globalId !== mine.grinderId && mine.globalId === mine.grinderId;
       if (newer || sameTime || lostId) {
-        steps.push({ kind: "update", grinderId: mine.grinderId, grinder, ...(grinder.archived === mine.archived ? {} : { archived: grinder.archived }) });
+        steps.push({ kind: "update", grinderId: mine.grinderId, grinder, ...(grinder.archived === mine.archived ? {} : { archived: grinder.archived }), content });
       }
       continue;
     }
@@ -140,7 +150,13 @@ export function planGrinderIntake(
   for (const grinder of mapped) {
     // A Grinder another of its records is now, as one made again under another id, is still held.
     if (listed.has(grinder.localId) || held.has(grinder.grinderId)) continue;
-    steps.push({ kind: "delete", grinderId: grinder.grinderId, localId: grinder.localId, ...(grinder.archived ? {} : { archived: true as const }) });
+    steps.push({
+      kind: "delete",
+      grinderId: grinder.grinderId,
+      localId: grinder.localId,
+      updatedAt: grinder.updatedAt,
+      ...(grinder.archived ? {} : { archived: true as const }),
+    });
   }
   return steps;
 }

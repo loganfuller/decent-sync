@@ -41,6 +41,7 @@ const mapped = (grinderId: string, localId: string, known: Partial<MappedGrinder
   updatedAt: new Date(TIME),
   globalId: grinderId,
   archived: false,
+  record: record(localId),
   ...known,
 });
 const withId = (id: string) => ({ extras: { [GLOBAL_ID_KEY]: id } });
@@ -124,8 +125,8 @@ describe("planGrinderIntake", () => {
 
   it("Archives a Grinder the tablet deleted, only if it held it unarchived, and deletes nothing for a record still listed but unreadable", () => {
     expect(planGrinderIntake([], [mapped(GLOBAL[0], LOCAL[0]), mapped(GLOBAL[1], LOCAL[1], { archived: true })], new Set())).toEqual([
-      { kind: "delete", grinderId: GLOBAL[0], localId: LOCAL[0], archived: true },
-      { kind: "delete", grinderId: GLOBAL[1], localId: LOCAL[1] },
+      { kind: "delete", grinderId: GLOBAL[0], localId: LOCAL[0], updatedAt: new Date(TIME), archived: true },
+      { kind: "delete", grinderId: GLOBAL[1], localId: LOCAL[1], updatedAt: new Date(TIME) },
     ]);
     expect(planGrinderIntake([], [mapped(GLOBAL[0], LOCAL[0])], new Set(), new Set([LOCAL[0]]))).toEqual([]);
   });

@@ -46,6 +46,7 @@ const mapped = (batchId: string, localId: string, known: Partial<MappedBatch> = 
   globalId: batchId,
   archived: false,
   weightRemaining: 250,
+  record: record(localId),
   ...known,
 });
 const withId = (id: string) => ({ extras: { [GLOBAL_ID_KEY]: id } });
@@ -113,44 +114,46 @@ describe("planBatchIntake", () => {
   it("finishes a known batch archived on the tablet since at its Location, and adds one un-archived there", () => {
     const archived = reported(LOCAL[0], { archived: true }, LATER);
     expect(planBatchIntake([archived], [mapped(GLOBAL[0], LOCAL[0])], beans, [])).toEqual([
-      { kind: "update", batchId: GLOBAL[0], batch: archived, edits: [{ field: "at", value: false }] },
+      { kind: "update", batchId: GLOBAL[0], batch: archived, edits: [{ field: "at", value: false }], content: {} },
     ]);
     const restored = reported(LOCAL[0], {}, LATER);
     expect(planBatchIntake([restored], [mapped(GLOBAL[0], LOCAL[0], { archived: true })], beans, [])).toEqual([
-      { kind: "update", batchId: GLOBAL[0], batch: restored, edits: [{ field: "at", value: true }] },
+      { kind: "update", batchId: GLOBAL[0], batch: restored, edits: [{ field: "at", value: true }], content: {} },
     ]);
   });
 
   it("makes a weightRemaining changed on the tablet its Location's remaining weight, with the value the tablet had", () => {
     const counted = reported(LOCAL[0], { weightRemaining: 180.5 }, LATER);
     expect(planBatchIntake([counted], [mapped(GLOBAL[0], LOCAL[0])], beans, [])).toEqual([
-      { kind: "update", batchId: GLOBAL[0], batch: counted, edits: [{ field: "remainingWeight", value: 180.5, had: 250 }] },
+      { kind: "update", batchId: GLOBAL[0], batch: counted, edits: [{ field: "remainingWeight", value: 180.5, had: 250 }], content: {} },
     ]);
     // Cleared, and archived in the same edit.
     const cleared = reported(LOCAL[0], { weightRemaining: undefined, archived: true }, LATER);
     expect(planBatchIntake([cleared], [mapped(GLOBAL[0], LOCAL[0])], beans, [])).toEqual([
-      { kind: "update", batchId: GLOBAL[0], batch: cleared, edits: [{ field: "at", value: false }, { field: "remainingWeight", value: null, had: 250 }] },
+      { kind: "update", batchId: GLOBAL[0], batch: cleared, edits: [{ field: "at", value: false }, { field: "remainingWeight", value: null, had: 250 }], content: {} },
     ]);
   });
 
   it("changes nothing at the Location for a known record changed otherwise, or older than the one known", () => {
     const edited = reported(LOCAL[0], { notes: "Edited", ...withId(GLOBAL[0]) }, LATER);
-    expect(planBatchIntake([edited], [mapped(GLOBAL[0], LOCAL[0])], beans, [])).toEqual([{ kind: "update", batchId: GLOBAL[0], batch: edited, edits: [] }]);
+    expect(planBatchIntake([edited], [mapped(GLOBAL[0], LOCAL[0])], beans, [])).toEqual([
+      { kind: "update", batchId: GLOBAL[0], batch: edited, edits: [], content: { notes: "Edited" } },
+    ]);
     expect(planBatchIntake([reported(LOCAL[0], { archived: true, ...withId(GLOBAL[0]) }, "2026-10-08T03:00:00.000Z")], [mapped(GLOBAL[0], LOCAL[0])], beans, [])).toEqual([]);
-    // As old, and the same at the Location: nothing changed.
-    expect(planBatchIntake([reported(LOCAL[0], { notes: "Edited", ...withId(GLOBAL[0]) })], [mapped(GLOBAL[0], LOCAL[0])], beans, [])).toEqual([]);
+    // As old, and the same: nothing changed.
+    expect(planBatchIntake([reported(LOCAL[0], withId(GLOBAL[0]))], [mapped(GLOBAL[0], LOCAL[0])], beans, [])).toEqual([]);
   });
 
   it("takes a record as old as the one known that differs at the Location as changed within the millisecond times are read to", () => {
     const counted = reported(LOCAL[0], { weightRemaining: 200, ...withId(GLOBAL[0]) });
     expect(planBatchIntake([counted], [mapped(GLOBAL[0], LOCAL[0])], beans, [])).toEqual([
-      { kind: "update", batchId: GLOBAL[0], batch: counted, edits: [{ field: "remainingWeight", value: 200, had: 250 }] },
+      { kind: "update", batchId: GLOBAL[0], batch: counted, edits: [{ field: "remainingWeight", value: 200, had: 250 }], content: {} },
     ]);
   });
 
   it("replaces a known record carrying the batch's global id with one that no longer does, whatever its time, so the id is written back", () => {
     const wiped = reported(LOCAL[0], { extras: { otherPlugin: true } }, "2026-10-07T00:00:00.000Z");
-    expect(planBatchIntake([wiped], [mapped(GLOBAL[0], LOCAL[0])], beans, [])).toEqual([{ kind: "update", batchId: GLOBAL[0], batch: wiped, edits: [] }]);
+    expect(planBatchIntake([wiped], [mapped(GLOBAL[0], LOCAL[0])], beans, [])).toEqual([{ kind: "update", batchId: GLOBAL[0], batch: wiped, edits: [], content: {} }]);
   });
 
   it("maps a record carrying a Library batch's global id to that batch, changing nothing at the Location, as after a lost answer or a restored backup", () => {
