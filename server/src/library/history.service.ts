@@ -83,7 +83,7 @@ export class HistoryService {
   /** The item's versions, the latest taken in first; 404 if the Library does not have it. */
   async versions(item: ItemRef): Promise<VersionView[]> {
     const [versions, exists] = await Promise.all([
-      this.prisma.itemVersion.findMany({ where: ITEM_WHERE[item.kind](item.id), include: withSource, orderBy: [{ receivedAt: "desc" }, { id: "desc" }] }),
+      this.prisma.itemVersion.findMany({ where: ITEM_WHERE[item.kind](item.id), include: withSource, orderBy: [{ receivedAt: "desc" }, { seq: "desc" }] }),
       this.exists(item),
     ]);
     if (!exists) throw new NotFoundException(`No such ${KIND_NAMES[item.kind]}`);
@@ -108,7 +108,7 @@ export class HistoryService {
         grinder: { select: { content: true } },
         profile: { select: { content: true } },
       },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      orderBy: [{ createdAt: "desc" }, { seq: "desc" }],
     });
     return conflicts.map((conflict) => ({
       id: conflict.id,

@@ -3,7 +3,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { archivingInAnswer, beanContent, planIntake, readReportedBeans } from "./bean-intake.js";
-import { editContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
+import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
 import { tabletSource } from "./history.js";
 import {
   type AnswerRecorded,
@@ -137,7 +137,7 @@ export async function takeInBeans(
     if (step.kind === "link") await recordLinked(tx, { kind: "bean", id: beanId }, beanContent(bean.record), bean.updatedAt, source);
     if (step.kind === "update") {
       const edit = { values: step.content, at: bean.updatedAt, seenAt: contentSeenAt.get(beanId) ?? null };
-      writesDue = (await editContent(tx, { kind: "bean", id: beanId }, edit, source)) || writesDue;
+      writesDue = (await editContent(tx, { kind: "bean", id: beanId }, edit, source)).writesDue || writesDue;
     }
     if (step.kind === "add" || step.kind === "link") {
       // One archived on the tablet joins the Library, but is not offered at its Location.
@@ -221,11 +221,12 @@ export async function recordBeanWritten(
     }
     const item = { kind: "bean", id: beanId } as const;
     let contentChanged = false;
-    let edited: Record<string, unknown> | null = null;
+    let edited: EditOutcome | null = null;
     if (known) {
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
-      edited = Object.fromEntries(Object.entries(changedFields(beanContent(known.record), beanContent(record))).filter(([field]) => !written.has(field)));
-      contentChanged = await editContent(tx, item, { values: edited, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt }, source);
+      const values = Object.fromEntries(Object.entries(changedFields(beanContent(known.record), beanContent(record))).filter(([field]) => !written.has(field)));
+      edited = await editContent(tx, item, { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt }, source);
+      contentChanged = edited.writesDue;
     } else if (linked) {
       contentChanged = await recordLinked(tx, item, beanContent(record), at ?? (await transactionTime(tx)), source);
     }

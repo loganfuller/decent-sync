@@ -51,6 +51,7 @@ CREATE TABLE "item_versions" (
     "account_id" UUID,
     "edited_at" TIMESTAMPTZ(3) NOT NULL,
     "received_at" TIMESTAMPTZ(3) NOT NULL DEFAULT transaction_timestamp(),
+    "seq" BIGSERIAL NOT NULL,
 
     CONSTRAINT "item_versions_pkey" PRIMARY KEY ("id")
 );
@@ -70,6 +71,7 @@ CREATE TABLE "conflicts" (
     "account_id" UUID,
     "edited_at" TIMESTAMPTZ(3) NOT NULL,
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT transaction_timestamp(),
+    "seq" BIGSERIAL NOT NULL,
     "state" "conflict_state" NOT NULL DEFAULT 'OPEN',
 
     CONSTRAINT "conflicts_pkey" PRIMARY KEY ("id")

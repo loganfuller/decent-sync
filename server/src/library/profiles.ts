@@ -1,7 +1,7 @@
 import type { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
-import { editContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
+import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
 import { tabletSource } from "./history.js";
 import {
   type AnswerRecorded,
@@ -152,7 +152,7 @@ export async function takeInProfiles(
       if (step.shown !== undefined) decided = await showProfileAt(tx, profile.id, locationId, source, step.shown, profile.updatedAt, seenAt.get(profile.id) ?? null);
       writesDue = decided !== null || writesDue;
       const edit = { values: step.content, at: profile.updatedAt, seenAt: contentSeenAt.get(profile.id) ?? null };
-      writesDue = (await editContent(tx, { kind: "profile", id: profile.id }, edit, source)) || writesDue;
+      writesDue = (await editContent(tx, { kind: "profile", id: profile.id }, edit, source)).writesDue || writesDue;
     } else {
       // The tablet holds it as the Location has it, or is written so; the Location's other tablets may lack it.
       if (step.decide !== undefined) decided = await decideProfileAt(tx, profile.id, locationId, source, step.decide, profile.updatedAt);
@@ -223,13 +223,12 @@ export async function recordProfileWritten(
       await notify(tx, "library_changes", here);
       if (decidedAt !== null) decided = { at: decidedAt, locationId: here };
     }
-    let edited: Record<string, unknown> | null = null;
+    let edited: EditOutcome | null = null;
     if (known && !library.bundled) {
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
       const values = Object.fromEntries(Object.entries(changedFields(profileText(known.record), profileText(record))).filter(([field]) => !written.has(field)));
-      edited = values;
-      const edit = { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt };
-      if ((await editContent(tx, { kind: "profile", id: profileId }, edit, source)) && here !== null) await notify(tx, "library_changes", here);
+      edited = await editContent(tx, { kind: "profile", id: profileId }, { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt }, source);
+      if (edited.writesDue && here !== null) await notify(tx, "library_changes", here);
     }
     // A bundled Profile's title, author and notes are never edited.
     const holds = contentSeen !== null && (library.bundled || (await holdsWrittenContent(tx, { kind: "profile", id: profileId }, profileText(record), edited)));

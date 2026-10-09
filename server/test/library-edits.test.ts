@@ -308,6 +308,34 @@ describe("Edits of the Library", { timeout: 60_000 }, () => {
     await holds(two, bean.id, { notes: "L on one" });
   });
 
+  it("applies an edit made over a written value whose answer also brought the tablet's edit of another field, whatever its time", async () => {
+    const lab = await api.createLocation("Other field lab", "America/Chicago");
+    const first = await api.createMachine("Other field 1", lab.id);
+    const second = await api.createMachine("Other field 2", lab.id);
+    const one = load(first, "19131");
+    // Its Decaid's clock runs 10 minutes slow, so its edits are timed before the other tablet's, and it reports only on welcome.
+    const two = load(second, "19132", { decaidClockOffsetMs: -10 * 60_000, pollSeconds: 3600 });
+    await online(first, second);
+    const record = await one.addBean({ roaster: "Roux", name: "Other Field Guji", notes: "Peach", country: "Ethiopia" });
+    const bean = await libraryBean("Other Field Guji");
+    await holds(two, bean.id, { notes: "Peach" });
+
+    // Its barista changes the country, not yet reported, and the other tablet's notes are written to it: the answer
+    // brings the country in, which applies, and the notes it holds are the Library's.
+    await two.editBean(heldBean(two, bean.id)!.id, { country: "Kenya" });
+    await one.editBean(record.id, { notes: "L on one" });
+    await holds(two, bean.id, { notes: "L on one", country: "Kenya" });
+    await expect.poll(async () => (await beanContent(bean.id)).country, { timeout: 10_000 }).toBe("Kenya");
+
+    // Its barista then edits the notes it shows, timed before the other tablet's: made over the Library's value, it applies.
+    await two.editBean(heldBean(two, bean.id)!.id, { notes: "E2 on two" });
+    two.loseNetwork();
+    two.restoreNetwork();
+    await holds(one, bean.id, { notes: "E2 on two", country: "Kenya" });
+    expect(await beanContent(bean.id)).toMatchObject({ notes: "E2 on two", country: "Kenya" });
+    expect(await conflictsOf(bean.id)).toEqual([]);
+  });
+
   it("applies an edit made over a value written to the tablet whose answer came late, whatever its time", async () => {
     const lab = await api.createLocation("Late lab", "America/Chicago");
     const first = await api.createMachine("Late 1", lab.id);

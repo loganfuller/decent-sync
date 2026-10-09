@@ -3,7 +3,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { type LocationEdit, batchContent, editsInAnswer, planBatchIntake, readReportedBatches } from "./batch-intake.js";
-import { editContent, holdsWrittenContent, lockItems, recordJoined } from "./content-edits.js";
+import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined } from "./content-edits.js";
 import { type EditSource, tabletSource } from "./history.js";
 import {
   type AnswerRecorded,
@@ -107,7 +107,7 @@ export async function takeInBatches(
     if (step.kind === "add" || step.kind === "map") writesDue = true;
     if (step.kind === "update") {
       const edit = { values: step.content, at: batch.updatedAt, seenAt: contentSeenAt.get(batchId) ?? null };
-      writesDue = (await editContent(tx, { kind: "beanBatch", id: batchId }, edit, source)) || writesDue;
+      writesDue = (await editContent(tx, { kind: "beanBatch", id: batchId }, edit, source)).writesDue || writesDue;
     }
     const applied = step.kind === "map" ? null : await applyEdits(tx, batchId, locationId, step.edits, batch.updatedAt, seenAt.get(batchId) ?? null, source);
     if (applied?.changed) writesDue = true;
@@ -202,12 +202,12 @@ export async function recordBatchWritten(
       changed = applied.changed;
       decided = applied.decidedAt === null ? null : { at: applied.decidedAt, locationId };
     }
-    let edited: Record<string, unknown> | null = null;
+    let edited: EditOutcome | null = null;
     if (known) {
       // Edited on the tablet before Decaid answered: judged by what the record had seen before.
-      edited = Object.fromEntries(Object.entries(changedFields(batchContent(known.record), batchContent(record))).filter(([field]) => !written.has(field)));
-      const edit = { values: edited, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt };
-      changed = (await editContent(tx, { kind: "beanBatch", id: batchId }, edit, source)) || changed;
+      const values = Object.fromEntries(Object.entries(changedFields(batchContent(known.record), batchContent(record))).filter(([field]) => !written.has(field)));
+      edited = await editContent(tx, { kind: "beanBatch", id: batchId }, { values, at: at ?? (await transactionTime(tx)), seenAt: known.contentSeenAt }, source);
+      changed = edited.writesDue || changed;
     }
     if (changed && locationId !== null) await notify(tx, "library_changes", locationId);
     const holds = contentSeen !== null && (await holdsWrittenContent(tx, { kind: "beanBatch", id: batchId }, batchContent(record), edited));

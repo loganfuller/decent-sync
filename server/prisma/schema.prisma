@@ -1017,6 +1017,8 @@ model ItemVersion {
   editedAt   DateTime   @map("edited_at") @db.Timestamptz(3)
   /// When the server took it in, by PostgreSQL's clock.
   receivedAt DateTime   @default(dbgenerated("transaction_timestamp()")) @map("received_at") @db.Timestamptz(3)
+  /// The order it was taken in, which `receivedAt` cannot tell apart within one transaction.
+  seq        BigInt     @default(autoincrement())
 
   @@index([beanId, receivedAt])
   @@index([batchId, receivedAt])
@@ -1069,6 +1071,8 @@ model Conflict {
   editedAt   DateTime      @map("edited_at") @db.Timestamptz(3)
   /// When it became a Conflict, by PostgreSQL's clock.
   createdAt  DateTime      @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  /// The order it became a Conflict, which `createdAt` cannot tell apart within one transaction.
+  seq        BigInt        @default(autoincrement())
   state      ConflictState @default(OPEN)
 
   @@index([state, createdAt])

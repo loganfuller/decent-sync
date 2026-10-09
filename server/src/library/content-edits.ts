@@ -108,6 +108,16 @@ export interface ItemEdit {
 }
 
 /**
+ * What an edit of an item's content did: whether the item's tablets are to be
+ * written (its content changed, or a field lost, which is written back to its
+ * tablet), and whether any field lost.
+ */
+export interface EditOutcome {
+  writesDue: boolean;
+  lost: boolean;
+}
+
+/**
  * Merges an edit into the item's content (`mergeEdit`): the fields it
  * decides are set and kept as a version, and each value that lost, or that
  * it replaced without its maker having seen it, as a Conflict. Takes the
@@ -115,18 +125,19 @@ export interface ItemEdit {
  * the item's tablets are to be written: the item's content, or a field where
  * the edit lost, which is written back to its tablet.
  */
-export async function editContent(tx: Prisma.TransactionClient, item: ItemRef, edit: ItemEdit, source: EditSource): Promise<boolean> {
-  if (Object.keys(edit.values).length === 0) return false;
+export async function editContent(tx: Prisma.TransactionClient, item: ItemRef, edit: ItemEdit, source: EditSource): Promise<EditOutcome> {
+  if (Object.keys(edit.values).length === 0) return { writesDue: false, lost: false };
   const current = await readItem(tx, item);
-  if (!current) return false;
+  if (!current) return { writesDue: false, lost: false };
   const merged = mergeEdit(mergedValues(item.kind, current), current.fieldEdits, { ...edit, tabletId: source.tabletId });
   for (const [field, value] of Object.entries(merged.lost)) await recordConflict(tx, item, null, field, value, source, edit.at);
   for (const { field, value, versionId } of merged.overwritten) await recordReplaced(tx, item, null, field, value, versionId);
-  if (Object.keys(merged.applied).length === 0) return Object.keys(merged.lost).length > 0;
+  const lost = Object.keys(merged.lost).length > 0;
+  if (Object.keys(merged.applied).length === 0) return { writesDue: lost, lost };
   const versionId = await recordVersion(tx, item, null, merged.applied, source, edit.at);
   const decidedAt = await decisionTime(tx, current.fieldEdits);
   await saveItem(tx, item, current, merged.applied, editsAfter(current.fieldEdits, merged.applied, { at: edit.at, tabletId: source.tabletId }, decidedAt, versionId));
-  return true;
+  return { writesDue: true, lost };
 }
 
 /**
@@ -162,21 +173,23 @@ export async function recordLinked(tx: Prisma.TransactionClient, item: ItemRef, 
 /**
  * Whether a tablet's record, as Decaid returned it for one of the server's
  * writes, holds the content that write carried, so it has seen the edits the
- * write's `contentDecidedAt` covers. A record the map held does when its
- * answer shows no change of its content the write did not set (`edited`):
- * a field the plugin left as the tablet had changed it, or that the tablet
- * changed before the write, it does not hold. One the map did not hold, as a
- * create's, does when its content is the item's now: a create may have found
- * the record of an earlier write, or a bean of the same roaster and name.
- * `values` are the record's, as edits merge them.
+ * write's `contentDecidedAt` covers. A record the map held does unless a
+ * change of its content the write did not set lost (`edited`): a field the
+ * plugin left as the tablet had changed it, or that the tablet changed before
+ * the write, which then lost, does not hold the item's value. One that won is
+ * the field's latest edit, the tablet's own, which it has seen whatever this
+ * says. One the map did not hold, as a create's, does when its content is
+ * the item's now: a create may have found the record of an earlier write, or
+ * a bean of the same roaster and name. `values` are the record's, as edits
+ * merge them.
  */
 export async function holdsWrittenContent(
   tx: Prisma.TransactionClient,
   item: ItemRef,
   values: Readonly<Record<string, unknown>>,
-  edited: Readonly<Record<string, unknown>> | null,
+  edited: EditOutcome | null,
 ): Promise<boolean> {
-  if (edited !== null) return Object.keys(edited).length === 0;
+  if (edited !== null) return !edited.lost;
   const { table, cast } = ITEM_TABLES[item.kind];
   const [row] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM ${Prisma.raw(table)} WHERE id = ${item.id}::${Prisma.raw(cast)}`;
   if (!row) return false;
