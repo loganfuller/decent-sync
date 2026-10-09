@@ -438,6 +438,30 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     });
   }
 
+  for (const [how, scenario, serial, id, replacement] of [
+    ["purges and re-creates", "Behind purge", 17171, "profile:a9a10000000000000181", null],
+    ["replaces with new steps and changes back", "Behind revert", 17172, "profile:a9a10000000000000182", "profile:a9a10000000000000183"],
+  ] as const) {
+    it(`keeps showing a Profile at the lab that a lab tablet whose clock runs behind ${how}`, async () => {
+      const location = await api.createLocation(`${scenario} lab`, "America/Chicago");
+      const machine = await api.createMachine(`${scenario} lab group`, location.id);
+      const one = await rawTablet(machine, String(serial));
+      // Its clock runs 3 s behind PostgreSQL's, which times what is gone from its list.
+      const behind = () => new Date(Date.now() - 3000);
+      await one.report(id, true, behind());
+      expect(await shownAt(scenario, id)).toEqual([`${scenario} lab`]);
+
+      // Gone from its list, purged or replaced under new steps, it is hidden there, as deleting it does.
+      if (replacement === null) await one.report(id, "gone", behind());
+      else await one.report(replacement, true, behind());
+      expect(await shownAt(scenario, id)).toEqual([]);
+      // Re-created, or changed back, it is made there after that, whatever its time says (ADR-0020).
+      await one.report(id, true, behind());
+      expect(await shownAt(scenario, id)).toEqual([`${scenario} lab`]);
+      if (replacement !== null) expect(await shownAt(scenario, replacement)).toEqual([]);
+    });
+  }
+
   it("judges a moved tablet's late show at its new Location by its time, whatever it had seen at its old one", async () => {
     const lab = await api.createLocation("Carried lab", "America/Chicago");
     const cafe = await api.createLocation("Carried cafe", "America/Chicago");

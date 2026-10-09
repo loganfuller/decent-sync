@@ -63,7 +63,9 @@ it (Writing to tablets, below).
   its record, while none of its batches was there. A batch of it added there
   ends its origin there, and so does archiving or deleting it on a tablet
   there. Origins change only under the Location's lock (`location-state.ts`),
-  which keeps them to Beans with no batch at the Location.
+  which keeps them to Beans with no batch at the Location. They follow the
+  order edits arrive in, not ADR-0020's edit times: a Bean archived offline
+  and un-archived elsewhere since is offered as the later report has it.
 - `bean_batches`: each Bean Batch, by its global id, with its Bean, its
   content, Decaid's record fields as the tablet that created it sent them,
   but its id, its bean's id there, its times and `extras`, which are that
@@ -101,8 +103,8 @@ it (Writing to tablets, below).
   delete, which Decaid does not time, by PostgreSQL's clock, but never earlier
   than the record the tablet was last known to have. And when it was decided,
   by PostgreSQL's clock, as again by an edit that applied but left it shown or
-  hidden as it was. A Location with no row for a Profile has decided nothing
-  of it, and does not show it.
+  hidden as it was, and the tablet whose edit decided it. A Location with no
+  row for a Profile has decided nothing of it, and does not show it.
 - `tablet_beans`, `tablet_bean_batches` and `tablet_profiles`: the map, per
   tablet id (ticket #79): each item's local id on that tablet, which is a
   Profile's own, and the record as the tablet last had it, as it reported it
@@ -280,14 +282,16 @@ Decaid's delete marks a user's Profile with, and hides a bundled one.
   Location's state stands, and is written to the tablet: a new tablet's
   bundled Profiles do not show those its Location hid. But a user's Profile
   the tablet made visible after both it joined the Location and the Location
-  last decided the Profile, by their times, is an edit made there, and shows
-  it, as when a barista changes a Profile's steps back, which Decaid's `PUT`
-  makes a record under the old id again, or re-creates one purged. Shown there
-  already, it is the Profile's latest edit there still, so an earlier hide
-  that arrives later cannot undo it (ADR-0020). A tablet joined its Location
-  at the later of when its Machine arrived there, by its Location History, and
-  when the tablet first connected as that Machine. Decaid's bundled Profiles
-  join the Library like any other, so whether each is shown is per Location.
+  last decided the Profile, by their times, or whatever its clock where the
+  tablet's own edit decided it last, as when it deleted or replaced the
+  Profile there, is an edit made there, and shows it, as when a barista
+  changes a Profile's steps back, which Decaid's `PUT` makes a record under
+  the old id again, or re-creates one purged. Shown there already, it is the
+  Profile's latest edit there still, so an earlier hide that arrives later
+  cannot undo it (ADR-0020). A tablet joined its Location at the later of when
+  its Machine arrived there, by its Location History, and when the tablet
+  first connected as that Machine. Decaid's bundled Profiles join the Library
+  like any other, so whether each is shown is per Location.
 - A bundled Profile the map holds that the tablet's Location has decided
   nothing of, as after its Machine moved there, is decided by its record, as
   on a first report there. A user's Profile the map holds stays as the
@@ -373,12 +377,15 @@ read as older), then acknowledges the answer with `ack` and goes on. The
 plugin reads a record before it updates it, and Decaid keeps the fields it is
 not sent, so a change the tablet made at its Location since its last report,
 such as archiving a batch just before the server wrote its global id, comes
-back in the answer, and the next report, holding the record as answered,
-shows none. So the answer names the fields the write set (`writtenFields`),
-and its `archived` and `weightRemaining`, where the write did not set them and
-they differ from the record known, are taken in as a report's would be
+back in the answer, and the next report, holding the record as answered, shows
+none. So the answer names the fields the write set (`writtenFields`), and its
+`archived` and `weightRemaining`, where the write did not set them and they
+differ from the record known, are taken in as a report's would be
 (`editsInAnswer`, `archivingInAnswer`), under the Machine's, the tablet's and
-the Location's locks, rather than written back over. An answer is recorded
+the Location's locks, rather than written back over. Such a change is timed by
+the answered record, which Decaid stamped when the plugin wrote, up to a poll
+interval after the barista made it, so it can win by its time over another
+tablet's change made in between. An answer is recorded
 only while its connection holds the Machine, decided under the Machine's row
 lock, which a newer connection's hello takes too, so one an instance records
 late, after another connection has taken the Machine, never lands after that

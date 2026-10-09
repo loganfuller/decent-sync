@@ -20,6 +20,7 @@ CREATE TABLE "profile_locations" (
     "shown" BOOLEAN NOT NULL,
     "changed_at" TIMESTAMPTZ(3) NOT NULL,
     "decided_at" TIMESTAMPTZ(3) NOT NULL DEFAULT transaction_timestamp(),
+    "decided_by_tablet_id" UUID,
 
     CONSTRAINT "profile_locations_pkey" PRIMARY KEY ("profile_id","location_id")
 );

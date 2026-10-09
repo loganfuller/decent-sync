@@ -833,6 +833,9 @@ model ProfileLocation {
   changedAt  DateTime @map("changed_at") @db.Timestamptz(3)
   /// When that was decided, by PostgreSQL's clock: a tablet whose record has seen it had seen it (`TabletProfile.seenAt`).
   decidedAt  DateTime @default(dbgenerated("transaction_timestamp()")) @map("decided_at") @db.Timestamptz(3)
+  /// The tablet whose edit decided that: a record it reports under the id
+  /// afterwards, as after it deleted the Profile, was made after it.
+  decidedByTabletId String? @map("decided_by_tablet_id") @db.Uuid
 
   @@id([profileId, locationId])
   @@index([locationId])

@@ -63,16 +63,20 @@ export async function takeInProfiles(
   // The Library Profiles the new records are.
   const library = unmapped.length === 0 ? [] : await tx.$queryRaw<{ id: string }[]>`SELECT id FROM profiles WHERE id = ANY(${unmapped}::text[])`;
   if (reported.length === 0 && mapped.length === 0) return locationId;
-  // Whether the Location shows each Profile reported that it has decided, and when that was decided, read under its lock.
+  // Whether the Location shows each Profile reported that it has decided, when and by whose edit that was decided, read under its lock.
   await lockLocation(tx, locationId);
-  const located = await tx.$queryRaw<{ profileId: string; shown: boolean; changedAt: Date }[]>`
-    SELECT profile_id AS "profileId", shown, changed_at AS "changedAt" FROM profile_locations
+  const located = await tx.$queryRaw<{ profileId: string; shown: boolean; changedAt: Date; decidedAt: Date; byTablet: boolean }[]>`
+    SELECT profile_id AS "profileId", shown, changed_at AS "changedAt", decided_at AS "decidedAt",
+      COALESCE(decided_by_tablet_id = ${tablet.tabletId}::uuid, false) AS "byTablet"
+    FROM profile_locations
     WHERE location_id = ${locationId}::uuid AND profile_id = ANY(${reported.map((profile) => profile.id)}::text[])`;
+  /** The Location's decision of each Profile that this tablet's own edit made last, which it has seen whatever its map holds. */
+  const ownDecision = new Map(located.flatMap((row) => (row.byTablet ? [[row.profileId, row.decidedAt] as const] : [])));
   const steps = planProfileIntake(
     reported,
     mapped,
     new Set(library.map((profile) => profile.id)),
-    new Map(located.map(({ profileId, ...state }) => [profileId, state])),
+    new Map(located.map(({ profileId, shown, changedAt, byTablet }) => [profileId, { shown, changedAt, byTablet }])),
     unmapped.length === 0 ? null : await joinedAt(tx, tablet),
     listedIds(value),
   );
@@ -83,12 +87,12 @@ export async function takeInProfiles(
   for (const step of steps) {
     if (step.kind === "delete") {
       await tx.$executeRaw`DELETE FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid AND profile_id = ${step.profileId}`;
-      await showProfileAt(tx, step.profileId, locationId, false, deletedAt(await transactionTime(tx), step.updatedAt), seenAt.get(step.profileId) ?? null);
+      await showProfileAt(tx, step.profileId, locationId, tablet.tabletId, false, deletedAt(await transactionTime(tx), step.updatedAt), seenAt.get(step.profileId) ?? null);
       writesDue = true;
       continue;
     }
     if (step.kind === "decide") {
-      const decided = await decideProfileAt(tx, step.profileId, locationId, step.shown, step.at);
+      const decided = await decideProfileAt(tx, step.profileId, locationId, tablet.tabletId, step.shown, step.at);
       if (decided !== null) {
         writesDue = true;
         // The tablet's record decided it, so it has seen that.
@@ -110,13 +114,15 @@ export async function takeInProfiles(
     /** When the record's own edit decided the Profile's state at the Location, which it has seen then; null if it did not. */
     let decided: Date | null = null;
     if (step.kind === "update") {
-      if (step.shown !== undefined) decided = await showProfileAt(tx, profile.id, locationId, step.shown, profile.updatedAt, seenAt.get(profile.id) ?? null);
+      if (step.shown !== undefined) decided = await showProfileAt(tx, profile.id, locationId, tablet.tabletId, step.shown, profile.updatedAt, seenAt.get(profile.id) ?? null);
       writesDue = decided !== null || writesDue;
     } else {
       // The tablet holds it as the Location has it, or is written so; the Location's other tablets may lack it.
-      if (step.decide !== undefined) decided = await decideProfileAt(tx, profile.id, locationId, step.decide, profile.updatedAt);
-      // The map did not hold it, so only its time tells whether the tablet saw the Location's state.
-      if (step.kind === "map" && step.shown) decided = (await showProfileAt(tx, profile.id, locationId, true, profile.updatedAt, null)) ?? decided;
+      if (step.decide !== undefined) decided = await decideProfileAt(tx, profile.id, locationId, tablet.tabletId, step.decide, profile.updatedAt);
+      // The map did not hold it, so only its time tells whether the tablet saw the Location's state, unless its own edit decided that.
+      if (step.kind === "map" && step.shown) {
+        decided = (await showProfileAt(tx, profile.id, locationId, tablet.tabletId, true, profile.updatedAt, ownDecision.get(profile.id) ?? null)) ?? decided;
+      }
       writesDue = true;
     }
     // A report shows nothing of what the tablet saw of others' decisions, only of the one its own edit made.

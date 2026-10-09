@@ -41,6 +41,8 @@ export interface MappedProfile {
 export interface LocationProfile {
   shown: boolean;
   changedAt: Date;
+  /** Whether the reporting tablet's own edit decided it last: what the tablet reports of it now, it changed after that. */
+  byTablet: boolean;
 }
 
 /**
@@ -116,8 +118,9 @@ export function profileContent(record: Record<string, unknown>): Record<string, 
  * known when it is newer, or as old but of another visibility, changed within
  * the millisecond the plugin reads times to. One made visible since is shown
  * at the tablet's Location; one hidden or deleted since is hidden there
- * (ADR-0019), one the tablet had hidden and deleted since too, as another
- * tablet may have shown it there meanwhile. Only a Profile the tablet held
+ * (ADR-0019), one the tablet had hidden and deleted since too, or had
+ * deleted and hidden since, as another tablet may have shown it there
+ * meanwhile. Only a Profile the tablet held
  * can be hidden this way. Each is an edit timed by its record, which loses to
  * a later one the tablet had not seen (ADR-0020).
  *
@@ -171,8 +174,8 @@ export function planProfileIntake(
       const sameTime =
         mine.updatedAt !== null && profile.updatedAt.getTime() === mine.updatedAt.getTime() && (profile.visible !== mine.visible || profile.deleted !== mine.deleted);
       if (newer || sameTime) {
-        // Deleted since it was hidden is hidden still, as an edit: another tablet may have shown it meanwhile.
-        const shown = profile.visible !== mine.visible ? profile.visible : profile.deleted && !mine.deleted ? false : undefined;
+        // Deleted since it was hidden, or hidden again since it was deleted, is hidden still, as an edit: another tablet may have shown it meanwhile.
+        const shown = profile.visible !== mine.visible ? profile.visible : profile.deleted !== mine.deleted ? false : undefined;
         steps.push({ kind: "update", profileId: profile.id, profile, ...(shown === undefined ? {} : { shown }) });
       }
       if (!decided && profile.bundled) steps.push({ kind: "decide", profileId: profile.id, shown: profile.visible, at: profile.updatedAt });
@@ -191,8 +194,15 @@ export function planProfileIntake(
   return steps;
 }
 
-/** Whether a record was changed at the tablet's Location after both it joined there and the Location's state was decided. */
+/**
+ * Whether a record was changed at the tablet's Location after both it joined
+ * there and the Location's state was decided: by their times, or, where the
+ * tablet's own edit decided it, as when it deleted the Profile there, by
+ * construction, as a tablet reports in order, so a clock behind PostgreSQL's,
+ * which timed that delete, does not matter.
+ */
 function madeThere(profile: ReportedProfile, decided: LocationProfile, joinedAt: Date | null): boolean {
+  if (decided.byTablet) return true;
   const at = profile.updatedAt.getTime();
   return joinedAt !== null && at > joinedAt.getTime() && at >= decided.changedAt.getTime();
 }

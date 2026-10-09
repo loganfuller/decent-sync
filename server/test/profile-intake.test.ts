@@ -46,8 +46,8 @@ const mapped = (profileId: string, known: Partial<MappedProfile> = {}): MappedPr
 
 /** When the tablet joined its Location, before the records reported: what it holds, it brought. */
 const JOINED = new Date("2026-10-08T12:00:00.000Z");
-/** The Location's state of a Profile, decided by an edit at that time. */
-const at = (shown: boolean, changedAt = "2026-10-08T12:30:00.000Z"): LocationProfile => ({ shown, changedAt: new Date(changedAt) });
+/** The Location's state of a Profile, decided by an edit at that time, another tablet's unless given otherwise. */
+const at = (shown: boolean, changedAt = "2026-10-08T12:30:00.000Z", byTablet = false): LocationProfile => ({ shown, changedAt: new Date(changedAt), byTablet });
 
 /**
  * The steps a report makes, each with what it does at the Location: an edit
@@ -139,6 +139,8 @@ describe("planProfileIntake", () => {
     expect(plan([reported(IDS[0], {}, LATER)], [], library, new Map([[IDS[0], at(true)]]))).toEqual([["map", IDS[0], "shows"]]);
     // Made visible before the Location hid it, the tablet had not seen that.
     expect(plan([reported(IDS[0], {}, "2026-10-08T12:20:00.000Z")], [], library, new Map([[IDS[0], at(false)]]))).toEqual([["map", IDS[0], "unchanged"]]);
+    // Where the tablet's own edit hid it last, as when it deleted or replaced it there, what it reports now it made after that, whatever its clock.
+    expect(plan([reported(IDS[0], {}, "2026-10-08T11:00:00.000Z")], [], library, new Map([[IDS[0], at(false, LATER, true)]]))).toEqual([["map", IDS[0], "shows"]]);
     // Without a known joining time, nothing is taken as made there.
     expect(planProfileIntake([reported(IDS[0], {}, LATER)], [], library, new Map([[IDS[0], at(false)]]), null).map((step) => step.kind === "map" && step.shown === true)).toEqual([false]);
   });
@@ -176,6 +178,10 @@ describe("planProfileIntake", () => {
     expect(plan([reported(IDS[1], { visibility: "deleted" }, LATER)], [mapped(IDS[1], { visible: false })], new Set(), located)).toEqual([["update", IDS[1], "hides"]]);
     // Within the millisecond the plugin reads times to, too.
     expect(plan([reported(IDS[1], { visibility: "deleted" })], [mapped(IDS[1], { visible: false })], new Set(), located)).toEqual([["update", IDS[1], "hides"]]);
+    // So is one it had deleted that it hid again.
+    expect(plan([reported(IDS[1], { visibility: "hidden" }, LATER)], [mapped(IDS[1], { visible: false, deleted: true })], new Set(), located)).toEqual([
+      ["update", IDS[1], "hides"],
+    ]);
   });
 
   it("takes a record as old as the one known only if it was shown or hidden since, within the millisecond the plugin reads times to, and an older one not at all", () => {

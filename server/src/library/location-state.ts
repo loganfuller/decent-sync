@@ -187,22 +187,25 @@ export async function offeringLocations(db: Prisma.TransactionClient, beanIds: r
  * Conflicts, which will keep the losing edit, come with ticket #84. One
  * shown or hidden there as the edit has it is decided again, as the
  * field's latest edit, if that edit wins as one changing it would, so an
- * older edit the tablet had not seen cannot undo it. Says when it decided
- * it, or null if the edit lost.
+ * older edit the tablet had not seen cannot undo it. The decision keeps the
+ * tablet that made it (`tabletId`). Says when it decided it, or null if the
+ * edit lost.
  */
 export async function showProfileAt(
   tx: Prisma.TransactionClient,
   profileId: string,
   locationId: string,
+  tabletId: string,
   shown: boolean,
   at: Date,
   seenAt: Date | null,
 ): Promise<Date | null> {
   const [changed] = await tx.$queryRaw<{ decidedAt: Date }[]>`
-    INSERT INTO profile_locations (profile_id, location_id, shown, changed_at, decided_at)
-    VALUES (${profileId}, ${locationId}::uuid, ${shown}, ${at}::timestamptz, clock_timestamp())
+    INSERT INTO profile_locations (profile_id, location_id, shown, changed_at, decided_at, decided_by_tablet_id)
+    VALUES (${profileId}, ${locationId}::uuid, ${shown}, ${at}::timestamptz, clock_timestamp(), ${tabletId}::uuid)
     ON CONFLICT (profile_id, location_id) DO UPDATE SET
-      shown = EXCLUDED.shown, changed_at = GREATEST(EXCLUDED.changed_at, profile_locations.changed_at), decided_at = clock_timestamp()
+      shown = EXCLUDED.shown, changed_at = GREATEST(EXCLUDED.changed_at, profile_locations.changed_at), decided_at = clock_timestamp(),
+      decided_by_tablet_id = EXCLUDED.decided_by_tablet_id
       WHERE profile_locations.changed_at <= EXCLUDED.changed_at OR profile_locations.decided_at <= ${seenAt}::timestamptz
     RETURNING decided_at AS "decidedAt"`;
   return changed?.decidedAt ?? null;
@@ -211,12 +214,20 @@ export async function showProfileAt(
 /**
  * Decides whether the Profile is shown at the Location where nothing has
  * decided it there yet, as a tablet there that holds it but was not known
- * to does, timed by its record. Says when it decided it, or null if it did not.
+ * to does, timed by its record, as `showProfileAt` keeps the tablet's.
+ * Says when it decided it, or null if it did not.
  */
-export async function decideProfileAt(tx: Prisma.TransactionClient, profileId: string, locationId: string, shown: boolean, at: Date): Promise<Date | null> {
+export async function decideProfileAt(
+  tx: Prisma.TransactionClient,
+  profileId: string,
+  locationId: string,
+  tabletId: string,
+  shown: boolean,
+  at: Date,
+): Promise<Date | null> {
   const [decided] = await tx.$queryRaw<{ decidedAt: Date }[]>`
-    INSERT INTO profile_locations (profile_id, location_id, shown, changed_at, decided_at)
-    VALUES (${profileId}, ${locationId}::uuid, ${shown}, ${at}::timestamptz, clock_timestamp())
+    INSERT INTO profile_locations (profile_id, location_id, shown, changed_at, decided_at, decided_by_tablet_id)
+    VALUES (${profileId}, ${locationId}::uuid, ${shown}, ${at}::timestamptz, clock_timestamp(), ${tabletId}::uuid)
     ON CONFLICT (profile_id, location_id) DO NOTHING
     RETURNING decided_at AS "decidedAt"`;
   return decided?.decidedAt ?? null;
