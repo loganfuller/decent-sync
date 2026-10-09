@@ -16,6 +16,7 @@ import {
   lockTablet,
   seenAtSql,
 } from "./intake.js";
+import { setAsideDeleted } from "./hard-deletes.js";
 import { listedIds } from "./listed.js";
 import { decideProfileAt, deletedAt, lockLocation, showProfileAt, transactionTime } from "./location-state.js";
 import { changedFields } from "./merge.js";
@@ -56,8 +57,22 @@ export async function takeInProfiles(
 ): Promise<string | null> {
   const locationId = await currentLocation(tx, tablet.machineId);
   if (locationId === null) return null;
-  const reported = readReportedProfiles(value, updatedAt);
+  const read = readReportedProfiles(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
+  // A record of a Profile an Admin hard-deleted is deleted on the tablet rather than taken in again, while the Library lacks
+  // it: once the Profile joins the Library again, as when a barista saves the same profile, the record is that Profile's.
+  await tx.$executeRaw`
+    DELETE FROM tablet_deletions AS due
+    WHERE due.tablet_id = ${tablet.tabletId}::uuid AND due.kind = 'profile' AND EXISTS (SELECT 1 FROM profiles WHERE profiles.id = due.local_id)`;
+  const screened = await setAsideDeleted(
+    tx,
+    tablet.tabletId,
+    "profile",
+    read.map((profile) => ({ localId: profile.id, globalId: null, profile })),
+    listedIds(value),
+    new Set(),
+  );
+  const reported = screened.kept.map((record) => record.profile);
   const mapped = await tx.$queryRaw<
     {
       profileId: string;
@@ -187,7 +202,9 @@ export async function takeInProfiles(
  * says nothing new, as for an answer to a write no longer awaited. Nothing
  * is recorded
  * when the record is another Profile's, as one a Decaid hashing profiles
- * otherwise would make, or when the Library no longer has the Profile.
+ * otherwise would make, nor when the Library no longer has the Profile: an
+ * Admin hard-deleted it since, so the record is due to be deleted there too
+ * (hard-deletes.ts), which it answers with `deleted`.
  */
 export async function recordProfileWritten(
   prisma: PrismaService,
@@ -204,7 +221,14 @@ export async function recordProfileWritten(
     if (!(await lockHeldMachine(tx, tablet))) return "released";
     await lockTablet(tx, tablet.tabletId);
     const library = await tx.profile.findUnique({ where: { id: profileId }, select: { bundled: true } });
-    if (!library) return "notTheItem";
+    if (!library) {
+      // Hard-deleted since it was written: the record it made is due to be deleted too, as one the tablet held would be.
+      await tx.$executeRaw`
+        INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id, profile_steps)
+        VALUES (${tablet.tabletId}::uuid, 'profile', ${profileId}, ${profileId}, ${JSON.stringify(stepsOf(record))}::jsonb)
+        ON CONFLICT DO NOTHING`;
+      return "deleted";
+    }
     const here = await currentLocation(tx, tablet.machineId);
     const at = updatedAt === null ? null : new Date(updatedAt);
     const [known] = await tx.$queryRaw<{ record: Record<string, unknown>; contentSeenAt: Date | null; seenAt: Date | null }[]>`
@@ -235,6 +259,12 @@ export async function recordProfileWritten(
     await saveRecord(tx, tablet.tabletId, profileId, record, at, decided ?? (seen?.locationId === here ? seen : null), holds ? contentSeen : null);
     return "recorded";
   }, INTAKE_TRANSACTION);
+}
+
+/** A profile record's steps, or null. */
+function stepsOf(record: Record<string, unknown>): unknown {
+  const profile = record.profile;
+  return typeof profile === "object" && profile !== null && !Array.isArray(profile) ? ((profile as Record<string, unknown>).steps ?? null) : null;
 }
 
 /**

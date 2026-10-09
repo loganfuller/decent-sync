@@ -552,6 +552,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       if (recorded === "notTheItem" && awaited) {
         this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);
       }
+      if (recorded === "deleted") this.logger.log(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId}, deleted since: its record there is to be deleted`);
       return recorded === "recorded";
     } catch (error) {
       const failure = repeatingFailure(error);

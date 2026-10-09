@@ -705,15 +705,17 @@ export interface WriteRefused {
 
 /**
  * Asks the plugin to delete a tablet's record of a Library item an Admin
- * hard-deleted (ADR-0003): a Bean, Bean Batch or Grinder no Shot names. The
- * server sends it as it sends a `write`, one at a time with them, and it is
- * answered with `deleted` or `writeRefused`. The plugin deletes the record
- * unless it carries another item's global id (ANOTHER_ITEMS_RECORD), as one
- * the server mapped may not carry one yet, or a Shot the plugin queued since
- * it loaded, or has yet to send, names it, or one of a bean's batches; and a bean only once its
- * batches are deleted, as Decaid refuses to delete a bean that has any: so
- * it deletes the bean's batches first, as DYE2 does. A record already gone
- * is deleted.
+ * hard-deleted (ADR-0003): a Bean, Bean Batch, Grinder or Profile no Shot
+ * names. The server sends it as it sends a `write`, one at a time with them,
+ * and it is answered with `deleted` or `writeRefused`. The plugin deletes the
+ * record unless it carries another item's global id (ANOTHER_ITEMS_RECORD),
+ * as one the server mapped may not carry one yet, or a Shot the plugin queued
+ * since it loaded, or has yet to send, names it, or one of a bean's batches;
+ * and a bean only once its batches are deleted, as Decaid refuses to delete a
+ * bean that has any: so it deletes the bean's batches first, as DYE2 does. A
+ * Profile's record carries no global id, its id being Decaid's, the same on
+ * every tablet, and is purged, as Decaid's delete only marks it deleted. A
+ * record already gone is deleted.
  */
 export interface LibraryDelete {
   type: "delete";
@@ -721,7 +723,7 @@ export interface LibraryDelete {
   id: string;
   /** One of DELETED_KINDS. A plugin answers a kind it does not know with `writeRefused`. */
   kind: string;
-  /** The deleted item's global id, which the record carries. */
+  /** The deleted item's global id, which the record carries; a Profile's is Decaid's id, as its record's is. */
   globalId: string;
   /** The tablet's record to delete. */
   localId: string;
@@ -742,8 +744,8 @@ export const ANOTHER_ITEMS_RECORD = "The record carries another item's global id
  */
 export const SHOTS_STILL_TO_READ = "More Shots are still to be sent than a delete reads; ask again once they are";
 
-/** The kinds of Library item an Admin hard-deletes from tablets. Profiles are hidden, never deleted (ADR-0019). */
-export const DELETED_KINDS = ["bean", "beanBatch", "grinder"] as const;
+/** The kinds of Library item an Admin hard-deletes from tablets. A tablet's own delete of a Profile only hides it at its Location (ADR-0019). */
+export const DELETED_KINDS = ["bean", "beanBatch", "grinder", "profile"] as const;
 
 export type DeletedKind = (typeof DELETED_KINDS)[number];
 

@@ -25,10 +25,13 @@ Machines (Steam, hot water and rinse settings, below). Ticket
 Beans, Bean Batches and Grinders in the management interface, Archives and
 restores them, adds and finishes batches at Locations there, and lets an
 Admin hard-delete an item no Shot names (Editing in the management
-interface, below). It follows ADR-0003,
-ADR-0006, ADR-0008, ADR-0014, ADR-0016, ADR-0018, ADR-0019 and ADR-0020. Joining a
-Location and the management interface's Profiles build on it in later tickets
-(Not yet, below).
+interface, below), and ticket
+[#88](https://github.com/loganfuller/decent-sync/issues/88) shows and hides
+Profiles at Locations there, which is how a lab Profile reaches a cafe,
+Archives and restores them, and lets an Admin hard-delete one. It follows
+ADR-0003, ADR-0006, ADR-0008, ADR-0014, ADR-0016, ADR-0018, ADR-0019 and
+ADR-0020. Joining a Location builds on it in a later ticket (Not yet,
+below).
 
 ## Who takes part
 
@@ -62,8 +65,8 @@ A tablet holds only what its Machine's Location offers (ADR-0008):
 
 So a Bean with batches is offered only where they are: once its last batch
 at a Location is finished, it is no longer offered there. Archived items are
-offered nowhere. Only the management interface Archives a Bean or Bean
-Batch (and, with ticket #88, a Profile); a Grinder is Archived there too, or
+offered nowhere. Only the management interface Archives a Bean, Bean
+Batch or Profile; a Grinder is Archived there too, or
 by archiving or deleting it on a tablet at its Location. What the Location offers is written
 to each of its tablets, with each batch's remaining weight there and each
 Profile visible, and what it does not offer is archived or hidden on them,
@@ -193,7 +196,8 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   (Steam, hot water and rinse settings, below).
 - `deleted_items` and `tablet_deletions`: the global id of each item an
   Admin hard-deleted, and each tablet's records of it still to be deleted
-  there, by their ids there (Hard deletes, below).
+  there, by their ids there, a Profile's by Decaid's id, with its steps,
+  and never in `deleted_items` (Hard deletes, below).
 - `conflicts`: each edit of a field that lost to another made without seeing
   it (ADR-0020): the item, the field, the losing value (null where it cleared
   the field), where it came from and when it was made, as a version keeps
@@ -304,9 +308,9 @@ a Conflict, so neither waits on the other in turn.
 ## Editing in the management interface
 
 Admins and Staff create and edit Beans, Bean Batches and Grinders in the
-management interface, Archive and restore them, and add and finish batches at
-Locations, setting their remaining weight at each
-(`library-edits.service.ts`). Each change is an edit by the account, timed by
+management interface, Archive and restore them and Profiles, add and finish
+batches at Locations, setting their remaining weight at each, and show and
+hide Profiles at Locations (`library-edits.service.ts`). Each change is an edit by the account, timed by
 PostgreSQL's clock (ADR-0016), and made over the item as it stands, as using
 a Conflict's value is (Resolving Conflicts, above): it decides each field it
 sets whatever the times of the edits before it, and keeps nothing it
@@ -346,26 +350,39 @@ tablets, below).
 - **Grinders.** A Grinder is created belonging to a Location, which never
   changes; its Archived state and its content are edited under that
   Location's lock, as a tablet's are.
+- **Profiles.** A Profile is shown or hidden at each Location, as an edit of
+  that Location's state of it (`showProfileAt`), under the Location's lock,
+  as having seen every decision made there before it, which is how a lab
+  Profile reaches a cafe: showing it there writes it to the cafe's tablets,
+  visible, and hiding it there hides it on them, and on no other Location's.
+  A Profile is never created or edited here: Decaid computes its id from what
+  the machine executes, so Profiles join the Library from tablets, and their
+  title, author and notes are edited there.
 - **Archive and restore.** An Archived Bean or batch is offered nowhere, with
   the Bean's batches, and is archived on every tablet that holds it, but kept,
   with each Location's state of it, so restoring it offers it again where it
   was. A Bean is Archived or restored under the lock new beans are matched
   under, so a tablet never links a new bean to a Bean Archived at once. Each
   is a version of the item (`archived`). A Grinder's Archived state is a field
-  of its content, merged as a tablet's archiving is.
+  of its content, merged as a tablet's archiving is. An Archived Profile is
+  shown nowhere and hidden on every tablet that holds it, but keeps each
+  Location's state of it, which can still be changed, so restoring it shows
+  it again where it is shown.
 - **Who.** An Admin does everything. Staff edit the Library's shared content
   anywhere (a Bean, a batch's details) and Archive and restore items, but add
-  and finish batches, set their remaining weight, and create and edit
-  Grinders only at the Locations they work at, as a Grinder belongs to one
-  (ADR-0008), and never hard-delete.
+  and finish batches, set their remaining weight, create and edit Grinders,
+  and show and hide Profiles only at the Locations they work at, as a Grinder
+  belongs to one (ADR-0008), and never hard-delete.
 
 ### Hard deletes
 
-An Admin hard-deletes a Bean, Bean Batch or Grinder no Shot names
+An Admin hard-deletes a Bean, Bean Batch, Grinder or Profile no Shot names
 (ADR-0003, `hard-deletes.ts`): it is gone from the Library at once, with its
 versions, Conflicts and each Location's state of it, and from every tablet
 that holds it, the one thing the server deletes from tablets. A Bean goes
-with its batches, as Decaid refuses to delete a bean that has any.
+with its batches, as Decaid refuses to delete a bean that has any. Decaid's
+bundled Profiles are never deleted (409): every tablet has them, and Decaid
+refuses to delete one; they are hidden at Locations or Archived instead.
 
 - **Named by a Shot.** A Shot names its batch and Grinder by their ids on the
   tablet that pulled it (`shots.bean_batch_id` and `shots.grinder_id`, from
@@ -373,7 +390,14 @@ with its batches, as Decaid refuses to delete a bean that has any.
   tablet's map is named, and a Bean is named when one of its batches is: its
   delete is refused, and it can be Archived instead. A record a tablet
   deleted itself has left its map, so a Shot naming only that record does not
-  count. A Shot the server takes in after the delete, as one an offline
+  count. A Shot names a Profile whose steps its Workflow's `profile` has,
+  compared as JSON so a whole double Decaid writes as `92.0` equals 92, or
+  by the profile id a skin recorded in its Workflow (`shots.profile_id`);
+  Decaid itself records none. Only the steps are compared, not the rest of
+  what Decaid hashes for a Profile's id: a skin sets the Workflow's
+  profile's target weight to the Shot's yield, so a Shot pulled with a
+  Profile can hold other targets, and refusing a delete is the safe side.
+  A Shot the server takes in after the delete, as one an offline
   tablet pulled, that names a record still to be deleted keeps that record
   on its tablet, out of the Library, and so does the record of that batch's
   Bean there, which the plugin would delete with its batches. The plugin
@@ -399,20 +423,36 @@ with its batches, as Decaid refuses to delete a bean that has any.
   the map held that carries no global id, as one whose global id was still
   to be written, is deleted too; one that now carries another item's is not
   the deleted item's, and is taken in again from the tablet's next report.
-  The plugin deletes a bean's batches with it, those the Library never knew
+  A Profile's records carry no global id, its id being Decaid's, the same on
+  every tablet: so its global id is not kept, and a record of it a tablet
+  reports later, but for one due to be deleted there, joins the Library
+  anew, shown where it was reported, as when a barista saves the same
+  profile again. That includes one restored from a Decaid backup after its
+  delete was carried out. A Profile written to a tablet whose answer comes
+  only after the delete is not recorded: that record is due to be deleted
+  there too. A delete of a Profile's
+  record is due only while the Library lacks the Profile: once it joins
+  again, the record still due to be deleted, as one a Shot kept, is that
+  Profile's, and the tablet's next report takes it in. A purge carried out
+  once the Profile joined again, planned before, also removes the record
+  from the tablet's map, so its next report does not read the record gone
+  as the tablet's delete, and the writer writes it again where its Location
+  shows it. The plugin deletes a bean's batches with it, those the Library never knew
   included, such as one a barista made of it offline; such a batch's Shots,
   which the server could not see when the Bean was deleted, then name a
   batch the tablet no longer holds.
 - **Locks.** It takes the item's open Conflicts' row locks, then the row
   locks of the tablets that hold it, then the locks of the Locations whose
-  state of it changes, then the items' rows, the order every other change
+  state of it changes (for a Profile, each that decided whether it shows
+  it), then the items' rows, the order every other change
   takes them in, and decides whether a Shot names it under them. A tablet or
   Location that came to hold the item while those were taken is found once
   the items' rows are locked, as nothing else can come to hold them then,
   and the delete starts again, at most three times. A batch created of the
   Bean, or a batch placed at a Location, meanwhile waits for the items'
-  locks and then finds them gone (404); a tablet's report mapping one fails
-  on its foreign key, and is taken in when the plugin sends it again.
+  locks and then finds them gone (404), as does showing a Profile at a
+  Location; a tablet's report mapping one fails on its foreign key, and is
+  taken in when the plugin sends it again.
 
 ## Taking in a tablet's beans
 
@@ -593,7 +633,9 @@ is shown at the tablet's Location: `visible`, or `hidden` or `deleted`, which
 Decaid's delete marks a user's Profile with, and hides a bundled one.
 
 - A record without what every supported Decaid sends (its id, its `profile`,
-  its `visibility` and an `updatedAt` the plugin could place) is ignored.
+  its `visibility` and an `updatedAt` the plugin could place) is ignored, and
+  so is one of a Profile an Admin hard-deleted that is due to be deleted
+  there, while the Library lacks that Profile (Hard deletes, above).
 - A record the map holds replaces the one known when it is newer, or as old
   but of another visibility. Made visible since, the Profile is shown at the
   tablet's Location; hidden or deleted since, it is hidden there (ADR-0019),
@@ -860,7 +902,12 @@ tablet's list of batches to show it does not.
   has yet to read and send, names it, or, for a bean, one of its batches; a
   bean's
   batches, archived ones included, first (`GET /beans/{id}/batches`), as DYE2
-  does, since Decaid refuses to delete a bean that has any. A record already
+  does, since Decaid refuses to delete a bean that has any. A Profile's
+  record it purges (`DELETE /profiles/{id}/purge`), as Decaid's `DELETE`
+  only marks a user's profile deleted, unless a Shot it queued since it
+  loaded, or has yet to read and send, had the same steps, or a skin
+  recorded its id there; it takes Decaid's 400 for a profile it no longer
+  holds as the record gone. A record already
   gone is deleted. It answers `deleted`, or `writeRefused`, through its
   outbox as it answers a write.
 
@@ -1026,10 +1073,12 @@ Every endpoint requires the account session; Staff read them as Admins do.
   location, since }`, when the Location last decided to show it, by
   PostgreSQL's clock, as when a tablet there showed it again while it was
   shown. None while it is Archived.
-- `GET /api/profiles/:id` returns `{ profile }`, the same with its `content`
-  and `parent`, `{ id, title }` of the Profile it was saved from if the
-  Library has it, or null; or 404. The id goes in the path as it is or
-  percent-encoded.
+- `GET /api/profiles/:id` returns `{ profile }`, the same with its `content`;
+  `parent`, `{ id, title }` of the Profile it was saved from if the
+  Library has it, or null; and `locations`, each Location that has decided
+  whether it shows it, by name, `{ location, shown, since }`, kept while it
+  is Archived; or 404. A Location not listed does not show it. The id goes in
+  the path as it is or percent-encoded.
 - `POST /api/beans`, with `{ content }`, creates a Bean, its roaster and name
   required, and returns `{ bean }` with 201; 409 with `{ existing: { id,
   roaster, name } }` if the Library has a Bean of that roaster and name.
@@ -1053,9 +1102,16 @@ Every endpoint requires the account session; Staff read them as Admins do.
   it and Archive or restore it, each returning `{ grinder }`. 403 for Staff
   creating or editing one at a Location they do not work at; they Archive
   and restore any.
-- `DELETE /api/beans/:id`, `DELETE /api/bean-batches/:id` and `DELETE
-  /api/grinders/:id` hard-delete one, a Bean with its batches, and answer
-  204: Admins only. 409 if a Shot names it, or one of a Bean's batches.
+- `PUT /api/profiles/:id/locations/:locationId`, with `{ shown }`, shows the
+  Profile at the Location or hides it there; `PUT /api/profiles/:id/archived`,
+  with `{ archived }`, Archives or restores it. Each returns `{ profile }`;
+  400 without a boolean, 404 for no such Profile or Location, and 403 for
+  Staff showing or hiding one at a Location they do not work at. They
+  Archive and restore any.
+- `DELETE /api/beans/:id`, `DELETE /api/bean-batches/:id`, `DELETE
+  /api/grinders/:id` and `DELETE /api/profiles/:id` hard-delete one, a Bean
+  with its batches, and answer 204: Admins only. 409 if a Shot names it, or
+  one of a Bean's batches, or it is one of Decaid's bundled Profiles.
 - `GET /api/beans/:id/history`, `GET /api/bean-batches/:id/history`,
   `GET /api/grinders/:id/history` and `GET /api/profiles/:id/history` return
   `{ versions }`, the item's versions (ADR-0020), the latest taken in first,
@@ -1148,12 +1204,14 @@ Grinders lists create them, and each item's page edits it, Archives or
 restores it, and, for an Admin, deletes it; a batch's page adds it at each
 Location and finishes it there, and sets its remaining weight there
 (`web/src/components/library-forms.tsx`). A Bean refused as one the Library
-has links to that Bean.
+has links to that Bean. Each Profile's page lists every Location, each with
+a switch that shows or hides the Profile there, for an Admin or Staff
+working there (`ProfileLocationsCard` in `web/src/components/profiles.tsx`),
+and Archives or restores it, and, for an Admin, deletes one not bundled
+with Decaid.
 
 ## Not yet
 
-- Showing and hiding Profiles at Locations in the management interface, and
-  Archiving them: ticket #88.
 - Joining a Location, including what a moved Machine brings and clearing its
   Workflow's batch: ticket #89. A moved Machine's tablet already takes its
   new Location's settings, or sets them if the Location has none, once it reports its Workflow there, which it does on every welcome
@@ -1169,7 +1227,6 @@ has links to that Bean.
   after it, means what it would at the Machine's new Location, as the
   server reads it where the Machine is when it is taken in. The old
   Location's Grinders stay there, archived on the moved tablet.
-- Editing Profiles in the management interface: ticket #88.
 - The capture-only switch: ticket #90. Recording refused writes, and each
   Machine's sharing status: ticket #91.
 - Linking Shots to the Library's batches and Grinders: ticket #92.
@@ -1187,7 +1244,8 @@ Profiles.
 `server/test/library-profiles.test.ts`,
 `server/test/library-edits.test.ts`,
 `server/test/library-conflicts.test.ts`,
-`server/test/library-management.test.ts` and
+`server/test/library-management.test.ts`,
+`server/test/library-profile-management.test.ts` and
 `server/test/location-settings.test.ts` cover this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL;
 `server/test/bean-intake.test.ts`, `server/test/batch-intake.test.ts`,
@@ -1203,5 +1261,6 @@ against those recorded on Decaid's Linux release
 (`server/test/fixtures/decaid/bean-writes-v0.8.7/`,
 `bean-batch-writes-v0.8.7/`, `grinder-writes-v0.8.7/`,
 `profile-writes-v0.8.7/` and `workflow-writes-v0.8.7/`); and
-`e2e/library.spec.ts`, `e2e/library-management.spec.ts`, `e2e/conflicts.spec.ts` and
+`e2e/library.spec.ts`, `e2e/library-management.spec.ts`,
+`e2e/profile-management.spec.ts`, `e2e/conflicts.spec.ts` and
 `e2e/location-settings.spec.ts` the management interface.

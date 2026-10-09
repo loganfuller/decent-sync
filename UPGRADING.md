@@ -110,11 +110,14 @@ want them back.
 
 Admins and Staff can create and edit Beans, Bean Batches and Grinders in the
 management interface, Archive and restore them, and add a batch at a
-Location or finish it there, with its remaining weight at each; every tablet
-that should hold the change is written it. An Admin can delete a Bean, Bean
-Batch or Grinder no Shot names, which also deletes it from every tablet that
-holds it, a Bean with its batches, once each tablet connects. Nothing else is
-ever deleted from a tablet.
+Location or finish it there, with its remaining weight at each. They can show
+or hide each Profile at each Location, Staff only at their own, and Archive
+and restore Profiles, which hides an Archived one on every tablet. Every
+tablet that should hold the change is written it. An Admin can delete a
+Bean, Bean Batch, Grinder or Profile no Shot names, which also deletes it
+from every tablet that holds it, a Bean with its batches, once each tablet
+connects; Decaid's bundled Profiles are never deleted. Nothing else is ever
+deleted from a tablet.
 
 ### Reload the plugin after restoring the server's database
 

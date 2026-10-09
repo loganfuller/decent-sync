@@ -523,7 +523,13 @@ describe("Library writes", () => {
       expect(decodeServerMessage(frame({ ...remove, localId })).ok).toBe(false);
       expect(decodePluginMessage(frame({ ...deleted, localId })).ok).toBe(false);
     }
-    expect(DELETED_KINDS).toEqual(["bean", "beanBatch", "grinder"]);
+    expect(DELETED_KINDS).toEqual(["bean", "beanBatch", "grinder", "profile"]);
+    // A Profile's record is named by Decaid's id, which is its global id too.
+    const profileId = "profile:bf1ca48b9c7389c7d146";
+    const profile: LibraryDelete = { type: "delete", id: "delete-2", kind: "profile", globalId: profileId, localId: profileId };
+    expect(decodeServerMessage(frame(profile))).toEqual({ ok: true, message: profile });
+    expect(decodePluginMessage(frame({ ...deleted, id: "delete-2", kind: "profile", globalId: profileId, localId: profileId }))).toMatchObject({ ok: true });
+    expect(decodeServerMessage(frame({ ...profile, globalId: "profile:\u0000" })).ok).toBe(false);
   });
 
   it("names a Profile by Decaid's id, which is the same on every tablet, and every other kind by a global id", () => {

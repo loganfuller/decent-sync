@@ -153,7 +153,8 @@ test("the Profiles list shows each Profile and the Locations showing it, and a P
   await row("Lab Bloom Turbo").getByRole("link").click();
   await expect(page.getByRole("heading", { name: "Lab Bloom Turbo", level: 1 })).toBeVisible();
   await expect(page.getByText(String(turbo.id), { exact: true })).toBeVisible();
-  await expect(rows(page.getByRole("table", { name: "Shown at" })).locator("td:first-child")).toHaveText(["Profile lab"]);
+  await expect(page.getByRole("switch", { name: "Shown at Profile lab" })).toBeChecked();
+  await expect(page.getByRole("switch", { name: "Shown at Profile cafe" })).not.toBeChecked();
   const library = page.getByLabel("In the Library", { exact: true });
   await expect(field(library, "Created at")).toHaveText("Profile lab");
   await expect(field(library, "Saved from")).toHaveText("Lab Bloom");
@@ -169,7 +170,8 @@ test("the Profiles list shows each Profile and the Locations showing it, and a P
   // The Profile it was saved from, hidden at the lab, is shown nowhere.
   await field(library, "Saved from").getByRole("link").click();
   await expect(page.getByRole("heading", { name: "Lab Bloom", level: 1 })).toBeVisible();
-  await expect(page.getByText("It is shown at no Location.")).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Shown at Profile lab" })).not.toBeChecked();
+  await expect(page.getByRole("switch", { name: "Shown at Profile cafe" })).not.toBeChecked();
 });
 
 test("the Grinders list shows each Grinder's Location, and a Grinder's page shows what it is", async ({ page }) => {

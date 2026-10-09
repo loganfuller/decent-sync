@@ -8,11 +8,15 @@ import { lockBeanMatching } from "./beans.js";
 import { editContent, lockItems, recordJoined } from "./content-edits.js";
 import { type EditSource, type LibraryItemRef, accountSource, recordVersion } from "./history.js";
 import { INTAKE_TRANSACTION } from "./intake.js";
-import { addBatchAt, enterRemainingWeight, finishBatchAt, lockLocation } from "./location-state.js";
+import { addBatchAt, enterRemainingWeight, finishBatchAt, lockLocation, showProfileAt } from "./location-state.js";
 
 // Creating and editing Beans, Bean Batches and Grinders in the management
 // interface, Archiving and restoring them, and adding and finishing batches
-// at Locations with their remaining weight there (ticket #87). Each is an
+// at Locations with their remaining weight there (ticket #87); showing and
+// hiding Profiles at Locations, and Archiving and restoring them (ticket
+// #88). A Profile is never created or edited here: Decaid computes its id
+// from what the machine executes, so Profiles join the Library from
+// tablets. Each is an
 // edit by the account, timed by PostgreSQL's clock (ADR-0016), made over the
 // item as it stands, as using a Conflict's value is (ADR-0020): it decides
 // every field it sets whatever the times of the edits before it, and keeps
@@ -28,8 +32,8 @@ import { addBatchAt, enterRemainingWeight, finishBatchAt, lockLocation } from ".
 //
 // Staff edit the Library's shared content anywhere (a Bean's, and a batch's
 // details) and Archive and restore items, but add and finish batches, set
-// their remaining weight, and create and edit Grinders only at their own
-// Locations, as a Grinder belongs to one.
+// their remaining weight, create and edit Grinders, and show and hide
+// Profiles only at their own Locations, as a Grinder belongs to one.
 
 /** A batch at a Location as a request sets it: whether it is there, and its remaining weight there, null to clear it. */
 export interface BatchPlacement {
@@ -180,6 +184,45 @@ export class LibraryEditsService {
   }
 
   /**
+   * Shows or hides the Profile at the Location, an edit of the Location's
+   * state of it, as having seen every decision made there before it. An
+   * Archived Profile is shown nowhere, but keeps each Location's state of
+   * it, so restoring it shows it again where it is shown. 404 if there is
+   * no such Profile or Location, 403 for Staff elsewhere.
+   */
+  async showProfile(id: string, locationId: string, shown: boolean, accountId: string, scope: Scope): Promise<void> {
+    if (!includesLocation(scope, locationId)) throw staffElsewhere("show or hide a Profile");
+    await this.prisma.$transaction(async (tx) => {
+      await this.checkLocations(tx, [locationId]);
+      await lockLocation(tx, locationId);
+      // Under its key's lock, so it is not hard-deleted until its state here changes.
+      const profile = await tx.$queryRaw<unknown[]>`SELECT 1 FROM profiles WHERE id = ${id} FOR KEY SHARE`;
+      if (profile.length === 0) throw notFound("profile");
+      const [{ seenAt }] = await tx.$queryRaw<[{ seenAt: Date }]>`SELECT clock_timestamp() AS "seenAt"`;
+      await showProfileAt(tx, id, locationId, accountSource(accountId), shown, await editTime(tx), seenAt);
+      await notify(tx, "library_changes", locationId);
+    }, INTAKE_TRANSACTION);
+  }
+
+  /**
+   * Archives a Profile, so it is shown nowhere and hidden on every tablet
+   * that holds it, or restores it, shown again where it is shown: anywhere,
+   * Staff too. Only the management interface Archives a Profile (ADR-0019).
+   */
+  async archiveProfile(id: string, archived: boolean, accountId: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await lockItems(tx, "profile", [id]);
+      const changed = await tx.profile.updateMany({ where: { id, archived: !archived }, data: { archived } });
+      if (changed.count === 0) {
+        if ((await tx.profile.count({ where: { id } })) === 0) throw notFound("profile");
+        return;
+      }
+      await recordVersion(tx, { kind: "profile", id }, null, { archived }, accountSource(accountId), await editTime(tx));
+      await notify(tx, "library_changes", id);
+    }, INTAKE_TRANSACTION);
+  }
+
+  /**
    * Merges an edit of the item's content, a Grinder's Archived state
    * included, made over it as it stands, under its row lock, after its
    * Location's for a Grinder, whose Archived state changes only under it.
@@ -224,7 +267,7 @@ async function place(tx: Prisma.TransactionClient, batchId: string, locationId: 
   }
 }
 
-/** The kinds of item edited here; Profiles are ticket #88's. */
+/** The kinds of item whose content is edited here: a Profile's never is. */
 type EditedKind = "bean" | "beanBatch" | "grinder";
 
 /** When an edit made now is timed: PostgreSQL's clock (ADR-0016), to the millisecond it keeps. */
@@ -233,7 +276,7 @@ async function editTime(tx: Prisma.TransactionClient): Promise<Date> {
   return at;
 }
 
-const NAMES: Readonly<Record<string, string>> = { bean: "Bean", beanBatch: "Bean Batch", grinder: "Grinder" };
+const NAMES: Readonly<Record<string, string>> = { bean: "Bean", beanBatch: "Bean Batch", grinder: "Grinder", profile: "Profile" };
 
 function notFound(kind: string): NotFoundException {
   return new NotFoundException(`No such ${NAMES[kind]}`);

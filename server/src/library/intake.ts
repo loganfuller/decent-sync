@@ -68,6 +68,8 @@ export type AnswerRecorded =
   | "recorded"
   /** The record is not the item's, or the Library no longer has the item: nothing changed. */
   | "notTheItem"
+  /** The Library no longer has the Profile, which an Admin hard-deleted: the record is due to be deleted there instead. */
+  | "deleted"
   /** The connection no longer holds its Machine: another one does, which hears from the tablet now. */
   | "released";
 
