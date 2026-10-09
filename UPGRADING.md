@@ -92,6 +92,18 @@ is deleted from a tablet: a moved Machine's tablet keeps its old Location's
 grinders, archived. Export each tablet's data first if you may want to undo
 this, as above.
 
+### Machines of one model at a Location now share steam, hot water and rinse settings
+
+Once a tablet's Machine is at a Location, its Workflow's steam, hot water and
+rinse settings are shared with the Location's other Machines of the same
+model. The first Machine of each model at a Location to connect after the
+upgrade sets that Location's settings for the model, and every other Machine
+of that model there is written them as it connects, replacing its own. Check
+each Location's page in the management interface afterwards, and change them
+there or on any of those tablets. A Machine whose steam is turned off keeps
+it off, and takes the Location's steam settings once it is turned on again.
+Note each machine's settings before upgrading if you may want them back.
+
 ### Reload the plugin after restoring the server's database
 
 The plugin now tells the server which Shots and Steam Records its tablet

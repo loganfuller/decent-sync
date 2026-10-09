@@ -1,4 +1,5 @@
 import type { WorkflowDelivery } from "@decent-sync/protocol";
+import type { WorkflowChanges } from "./library-writes.js";
 import type { Outbox } from "./outbox.js";
 
 /**
@@ -9,9 +10,17 @@ import type { Outbox } from "./outbox.js";
  * it is not used. The server records only changes, judged against what it
  * stored last, so sending one again is harmless.
  */
-export class MachineEvents {
+export class MachineEvents implements WorkflowChanges {
   /** The latest Workflow Decaid reported. */
   private workflow: Record<string, unknown> | undefined;
+  /**
+   * Set while the plugin writes the shared settings into the Workflow
+   * (`LibraryWrites`): a change Decaid reports meanwhile is sent once the
+   * write's answer is queued, so the server reads the answer first.
+   */
+  private held = false;
+  /** A change reported while held, which `release` sends. */
+  private heldChange = false;
   /** The delivery that sent it again on the latest welcome, which the next welcome's replaces. */
   private resent: string | undefined;
   /** The state and substate last queued, so repeated state updates send nothing. */
@@ -24,7 +33,24 @@ export class MachineEvents {
     const workflow = object(payload);
     if (!workflow) return;
     this.workflow = workflow;
-    this.queueWorkflow(workflow);
+    if (this.held) this.heldChange = true;
+    else this.queueWorkflow(workflow);
+  }
+
+  /** Holds back the Workflow's changes, as a write of the shared settings begins. */
+  hold(): void {
+    this.held = true;
+  }
+
+  /**
+   * Sends the latest Workflow, observed now, if it changed while held: that
+   * holds the plugin's own write, and any change a barista made meanwhile.
+   */
+  release(): void {
+    this.held = false;
+    if (!this.heldChange || !this.workflow) return;
+    this.heldChange = false;
+    this.queueWorkflow(this.workflow);
   }
 
   /**
@@ -56,7 +82,10 @@ export class MachineEvents {
     this.state = undefined;
     if (!this.workflow) return;
     if (this.resent !== undefined) this.outbox.discard(this.resent);
-    this.resent = this.queueWorkflow(this.workflow);
+    this.resent = undefined;
+    // Sent once the write under way is answered, which it may hold already.
+    if (this.held) this.heldChange = true;
+    else this.resent = this.queueWorkflow(this.workflow);
   }
 
   /** Queues the Workflow as observed now, returning its delivery's id. */

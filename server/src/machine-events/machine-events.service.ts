@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import type { MachineStateDelivery, WorkflowDelivery } from "@decent-sync/protocol";
 import { type MachineStateEvent, Prisma, type WorkflowEvent } from "../generated/prisma/client.js";
+import { INTAKE_TRANSACTION } from "../library/intake.js";
+import { takeInWorkflow } from "../library/location-settings.js";
 import { type Credit, creditFirstDelivery } from "../machines/credit.js";
 import { machineNotFound } from "../machines/input.js";
 import type { MachineStateView } from "../machines/machines.service.js";
@@ -43,6 +45,10 @@ export interface MachineStateEventView extends MachineStateView {
  * instance decide one at a time, never by what an instance or connection
  * remembers. The latest event stored is the current one; one delivered late
  * keeps the time the plugin observed it.
+ *
+ * A Workflow from a connection that is not mismatched, for its token's
+ * Machine, is also taken into its Location's steam, hot water and rinse
+ * settings in the same transaction (`takeInWorkflow`, ADR-0014).
  */
 @Injectable()
 export class MachineEventsService {
@@ -60,7 +66,11 @@ export class MachineEventsService {
           SELECT 1 FROM (SELECT workflow FROM workflow_events WHERE ${heldBy(credit)} ORDER BY id DESC LIMIT 1) AS latest
           WHERE latest.workflow = ${workflow}::jsonb
         )`;
-    });
+      // A mismatched connection's tablet is not its token's Machine's, so it takes no part in the Library (ADR-0004).
+      if (reporter.identity.kind !== "mismatch" && credit.machineId === reporter.machineId) {
+        await takeInWorkflow(tx, { machineId: reporter.machineId, tabletId: reporter.tabletId }, message.workflow, message.observedAt);
+      }
+    }, INTAKE_TRANSACTION);
   }
 
   async storeMachineState(message: MachineStateDelivery, reporter: Reporter): Promise<void> {

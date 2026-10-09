@@ -1,6 +1,6 @@
 import { type LibraryKind, beanMatchKey } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
-import { type EditSource, type ItemRef, recordConflict, recordReplaced, recordVersion } from "./history.js";
+import { type EditSource, type LibraryItemRef as ItemRef, recordConflict, recordReplaced, recordVersion } from "./history.js";
 import { isObject } from "./listed.js";
 import { type FieldEdits, changedFields, editsAfter, latestDecision, mergeEdit, readFieldEdits } from "./merge.js";
 import { profileText } from "./profile-intake.js";
@@ -66,7 +66,7 @@ function mergedValues(kind: LibraryKind, item: EditedItem): Record<string, unkno
  * millisecond times are kept to, but after every edit of the item decided
  * before it, so a record that has seen one has seen every one before it.
  */
-async function decisionTime(tx: Prisma.TransactionClient, edits: FieldEdits): Promise<Date> {
+export async function decisionTime(tx: Prisma.TransactionClient, edits: FieldEdits): Promise<Date> {
   const [row] = await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp()::timestamptz(3) AS now`;
   const latest = latestDecision(edits);
   return latest !== null && latest.getTime() >= row!.now.getTime() ? new Date(latest.getTime() + 1) : row!.now;

@@ -158,7 +158,7 @@ export class SyncConnection {
     this.machineEvents = new MachineEvents(this.outbox);
     const library = new LibraryAccess();
     this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1000);
-    this.writes = new LibraryWrites(library, this.outbox);
+    this.writes = new LibraryWrites(library, this.outbox, this.machineEvents);
     this.tabletId = new TabletId(host, log);
   }
 

@@ -173,6 +173,7 @@ model Location {
   profilesCreated Profile[]            @relation("ProfilesCreated")
   profiles        ProfileLocation[]
   grinders        Grinder[]
+  settings        LocationSettings[]
   itemVersions    ItemVersion[]
   conflicts       Conflict[]
 
@@ -339,6 +340,7 @@ model Tablet {
   beanBatches  TabletBeanBatch[]
   grinders     TabletGrinder[]
   profiles     TabletProfile[]
+  settings     TabletSettings?
   itemVersions ItemVersion[]
   conflicts    Conflict[]
 
@@ -999,10 +1001,15 @@ model ItemVersion {
   grinder    Grinder?   @relation(fields: [grinderId], references: [id], onDelete: Cascade)
   profileId  String?    @map("profile_id")
   profile    Profile?   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  /// A Location's steam, hot water and rinse settings for one model, which
+  /// it names as `locationId`.
+  settingsId String?           @map("settings_id") @db.Uuid
+  settings   LocationSettings? @relation(fields: [settingsId], references: [id], onDelete: Cascade)
   locationId String?    @map("location_id") @db.Uuid
   location   Location?  @relation(fields: [locationId], references: [id], onDelete: Cascade)
   /// The fields it set, by Decaid's names or a Location's state's
-  /// (`atLocation`, `remainingWeight`, `shown`), each with its value.
+  /// (`atLocation`, `remainingWeight`, `shown`, or a shared setting such as
+  /// `steamSettings.flow`), each with its value.
   fields     Json       @db.JsonB
   /// The Machine whose tablet made it, if one did.
   machineId  String?    @map("machine_id") @db.Uuid
@@ -1024,6 +1031,7 @@ model ItemVersion {
   @@index([batchId, receivedAt])
   @@index([grinderId, receivedAt])
   @@index([profileId, receivedAt])
+  @@index([settingsId, receivedAt])
   @@index([locationId])
   @@index([machineId])
   @@index([tabletId])
@@ -1056,6 +1064,8 @@ model Conflict {
   grinder    Grinder?      @relation(fields: [grinderId], references: [id], onDelete: Cascade)
   profileId  String?       @map("profile_id")
   profile    Profile?      @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  settingsId String?           @map("settings_id") @db.Uuid
+  settings   LocationSettings? @relation(fields: [settingsId], references: [id], onDelete: Cascade)
   locationId String?       @map("location_id") @db.Uuid
   location   Location?     @relation(fields: [locationId], references: [id], onDelete: Cascade)
   field      String
@@ -1080,9 +1090,59 @@ model Conflict {
   @@index([batchId])
   @@index([grinderId])
   @@index([profileId])
+  @@index([settingsId])
   @@index([locationId])
   @@index([machineId])
   @@index([tabletId])
   @@index([accountId])
   @@map("conflicts")
+}
+
+/// A Location's steam, hot water and rinse settings for its Machines of one
+/// model (ADR-0014), each a field of its own, merged as edits of a Library
+/// item's content are (ADR-0020). The first Machine of the model at the
+/// Location to report its Workflow sets them; a setting no Machine with
+/// steam on has reported yet is unset. See server/src/library/location-settings.ts.
+model LocationSettings {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  locationId String   @map("location_id") @db.Uuid
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  /// Decaid's model name, as a Machine's is, such as DE1Pro or Bengle.
+  model      String
+  /// Each setting set, by its name in SHARED_SETTINGS (protocol/), such as
+  /// `steamSettings.flow`.
+  values     Json     @default("{}") @db.JsonB
+  /// Each setting's latest edit, as `Bean.fieldEdits` keeps a Bean's fields.
+  fieldEdits Json     @default("{}") @map("field_edits") @db.JsonB
+  /// When the first Machine of the model there reported them, by PostgreSQL's clock.
+  createdAt  DateTime @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+
+  tablets   TabletSettings[]
+  versions  ItemVersion[]
+  conflicts Conflict[]
+
+  @@unique([locationId, model])
+  @@map("location_settings")
+}
+
+/// A tablet's shared settings as it last had them, reported in its Workflow
+/// or as Decaid returned the plugin's write of them, as `TabletBean` keeps a
+/// Bean's record: what an edit there is compared with. They are of the
+/// Location's settings for its Machine's model then; a tablet whose Machine
+/// moved, or that moved to a Machine of another model, has had none of the
+/// new settings yet.
+model TabletSettings {
+  tabletId      String           @id @map("tablet_id") @db.Uuid
+  tablet        Tablet           @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  settingsId    String           @map("settings_id") @db.Uuid
+  settings      LocationSettings @relation(fields: [settingsId], references: [id], onDelete: Cascade)
+  /// Each setting, by its name in SHARED_SETTINGS, as the tablet's Workflow held it.
+  values        Json             @db.JsonB
+  /// The latest edit of the settings that they have seen (`fieldEdits`
+  /// `decidedAt`), by PostgreSQL's clock, as the server's write they
+  /// answered carried them; null if none (ADR-0020).
+  contentSeenAt DateTime?        @map("content_seen_at") @db.Timestamptz(3)
+
+  @@index([settingsId])
+  @@map("tablet_settings")
 }

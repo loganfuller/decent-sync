@@ -1,4 +1,4 @@
-import type { LibraryKind } from "@decent-sync/protocol";
+import type { LibraryKind, WrittenKind } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import type { ReportingTablet } from "./intake.js";
 
@@ -10,10 +10,19 @@ import type { ReportingTablet } from "./intake.js";
 // that such an edit replaced, is kept as a Conflict, open until someone uses
 // its value, which makes it a new edit, or dismisses it (conflicts.service.ts).
 
-/** A Library item: its kind, and its global id, or a Profile's id. */
+/**
+ * A Library item: its kind, and its global id, or a Profile's id. Or a
+ * Location's steam, hot water and rinse settings for one model, which keep
+ * versions and Conflicts as items do (ADR-0020), always of their Location.
+ */
 export interface ItemRef {
-  kind: LibraryKind;
+  kind: WrittenKind;
   id: string;
+}
+
+/** A Library item, as opposed to a Location's settings. */
+export interface LibraryItemRef extends ItemRef {
+  kind: LibraryKind;
 }
 
 /** Where an edit came from: a Machine's tablet, or an account in the management interface. */
@@ -34,10 +43,16 @@ export function accountSource(accountId: string): EditSource {
 }
 
 /** The field naming each kind of item in a version or Conflict. */
-const ITEM_FIELDS = { bean: "beanId", beanBatch: "batchId", grinder: "grinderId", profile: "profileId" } as const satisfies Record<LibraryKind, string>;
+const ITEM_FIELDS = {
+  bean: "beanId",
+  beanBatch: "batchId",
+  grinder: "grinderId",
+  profile: "profileId",
+  settings: "settingsId",
+} as const satisfies Record<WrittenKind, string>;
 
 /** The item's field of a version or Conflict, set to its id. */
-function itemField(item: ItemRef): { beanId: string } | { batchId: string } | { grinderId: string } | { profileId: string } {
+function itemField(item: ItemRef): { beanId: string } | { batchId: string } | { grinderId: string } | { profileId: string } | { settingsId: string } {
   return { [ITEM_FIELDS[item.kind]]: item.id } as { beanId: string };
 }
 

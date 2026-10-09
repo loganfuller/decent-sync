@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { LibraryKind, LibraryWrite } from "@decent-sync/protocol";
+import type { LibraryWrite, WrittenKind } from "@decent-sync/protocol";
 import { writeKey } from "../library/holdings.js";
 import type { SeenDecision } from "../library/intake.js";
 import { type WrittenTablet, tabletDue } from "../library/tablet-due.js";
@@ -34,8 +34,14 @@ export type TakenInList = "beans" | "beanBatches" | "grinders" | "profiles";
 
 const TAKEN_IN: readonly TakenInList[] = ["beans", "beanBatches", "grinders", "profiles"];
 
-/** What each kind of Library item is called in the server's log. */
-export const KIND_NAMES: Readonly<Record<LibraryKind, string>> = { bean: "Bean", beanBatch: "Bean Batch", grinder: "Grinder", profile: "Profile" };
+/** What each kind of Library item, and the shared settings, are called in the server's log. */
+export const KIND_NAMES: Readonly<Record<WrittenKind, string>> = {
+  bean: "Bean",
+  beanBatch: "Bean Batch",
+  grinder: "Grinder",
+  profile: "Profile",
+  settings: "Location settings",
+};
 
 /**
  * Writes the Library to the tablet of one connection this instance holds:

@@ -26,7 +26,7 @@ import {
   decodePluginMessage,
   encode,
   frames,
-  isLibraryKind,
+  isWrittenKind,
 } from "@decent-sync/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { CollectionsService } from "../collections/collections.service.js";
@@ -35,6 +35,7 @@ import type { Config } from "../config.js";
 import { recordBatchWritten } from "../library/bean-batches.js";
 import { recordBeanWritten } from "../library/beans.js";
 import { recordGrinderWritten } from "../library/grinders.js";
+import { recordSettingsWritten } from "../library/location-settings.js";
 import type { SeenDecision } from "../library/intake.js";
 import { recordProfileWritten } from "../library/profiles.js";
 import { MachineEventsService } from "../machine-events/machine-events.service.js";
@@ -478,7 +479,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     } else if (write) {
       // The write it answers names the item, whatever the answer says: its record must carry that item's global id.
       if (await this.recordAnswer(session, write.kind, write.globalId, answer, true, awaited.seen, awaited.contentSeen)) outcome = "written";
-    } else if (session.writer && isLibraryKind(answer.kind)) {
+    } else if (session.writer && isWrittenKind(answer.kind)) {
       // What the item's content its write carried the answer repeats; which Location's decision it carried is not known.
       const contentSeen = answer.contentDecidedAt === undefined ? null : new Date(answer.contentDecidedAt);
       await this.recordAnswer(session, answer.kind, answer.globalId, answer, false, null, contentSeen);
@@ -505,20 +506,22 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     contentSeen: Date | null,
   ): Promise<boolean> {
     // Only a kind the server writes is ever answered for.
-    if (!isLibraryKind(kind)) return false;
+    if (!isWrittenKind(kind)) return false;
     const name = KIND_NAMES[kind];
     try {
       const tablet = { sessionId: session.id, machineId: session.machine!.id, tabletId: session.live!.tabletId };
       const written = new Set(answer.writtenFields);
       const { record, updatedAt } = answer;
       const recorded =
-        kind === "profile"
-          ? await recordProfileWritten(this.prisma, tablet, globalId, written, record, updatedAt, seen, contentSeen)
-          : kind === "bean"
-            ? await recordBeanWritten(this.prisma, tablet, globalId, written, record, updatedAt, seen, contentSeen, answer.linked === true)
-            : kind === "beanBatch"
-              ? await recordBatchWritten(this.prisma, tablet, globalId, written, record, updatedAt, seen, contentSeen)
-              : await recordGrinderWritten(this.prisma, tablet, globalId, written, record, updatedAt, contentSeen);
+        kind === "settings"
+          ? await recordSettingsWritten(this.prisma, tablet, globalId, written, record, updatedAt, contentSeen)
+          : kind === "profile"
+            ? await recordProfileWritten(this.prisma, tablet, globalId, written, record, updatedAt, seen, contentSeen)
+            : kind === "bean"
+              ? await recordBeanWritten(this.prisma, tablet, globalId, written, record, updatedAt, seen, contentSeen, answer.linked === true)
+              : kind === "beanBatch"
+                ? await recordBatchWritten(this.prisma, tablet, globalId, written, record, updatedAt, seen, contentSeen)
+                : await recordGrinderWritten(this.prisma, tablet, globalId, written, record, updatedAt, contentSeen);
       if (recorded === "notTheItem" && awaited) {
         this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);
       }

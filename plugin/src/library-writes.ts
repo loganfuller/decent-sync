@@ -3,10 +3,13 @@ import {
   type ItemWritten,
   type LibraryWrite,
   MAX_REFUSAL_LENGTH,
+  SETTINGS_KIND,
+  SETTINGS_PARTS,
   type WriteRefused,
   beanMatchKey,
   globalIdOf,
   sameValue,
+  settingsParts,
 } from "@decent-sync/protocol";
 import { type Answer, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
@@ -22,6 +25,8 @@ import type { Outbox } from "./outbox.js";
 // An update sets a field only while the record holds what the server expects
 // it to (`LibraryWrite.expected`), so a barista's change the tablet has not
 // reported yet is kept, and reaches the server in the answer (ADR-0020).
+// A Location's steam, hot water and rinse settings are written into the
+// tablet's Workflow the same way (ADR-0014).
 
 interface Route {
   /** The kind's records, archived ones included. */
@@ -92,28 +97,54 @@ export class LibraryAccess {
 }
 
 /**
+ * Holds back the changes of the tablet's Workflow the plugin sends while it
+ * writes the shared settings into it, and sends the latest once released
+ * (`MachineEvents`).
+ */
+export interface WorkflowChanges {
+  hold(): void;
+  release(): void;
+}
+
+/**
  * Carries out the server's writes in the order they arrive, one at a time,
  * between reads of the lists it writes to, and queues each answer in the
  * outbox, behind the reports read before it. So the server takes in each
  * report read before a write before that write's answer, and never reads an
  * item the plugin wrote as deleted from a report that predates it (ADR-0019).
+ *
+ * Decaid sends the plugin the Workflow a write of the shared settings
+ * changed (`workflowUpdated`), around when it answers the write. That change
+ * is held back until the answer is queued, so the server takes in the answer
+ * first and finds the change is the plugin's own write, not the tablet's
+ * edit (ADR-0003).
  */
 export class LibraryWrites {
   constructor(
     private readonly library: LibraryAccess,
     private readonly outbox: Outbox,
+    private readonly workflow: WorkflowChanges,
   ) {}
 
   /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
   apply(write: LibraryWrite): Promise<void> {
-    return this.library.run(async () => this.outbox.enqueue(await carryOut(write)));
+    if (write.kind !== SETTINGS_KIND) return this.library.run(async () => this.outbox.enqueue(await carryOut(write)));
+    return this.library.run(async () => {
+      this.workflow.hold();
+      try {
+        this.outbox.enqueue(await carryOut(write));
+      } finally {
+        this.workflow.release();
+      }
+    });
   }
 }
 
 async function carryOut(write: LibraryWrite): Promise<WriteAnswer> {
   const route = Object.prototype.hasOwnProperty.call(ROUTES, write.kind) ? ROUTES[write.kind] : undefined;
-  if (!route && write.kind !== "profile") return refused(write, null, `This plugin cannot write a ${write.kind}`);
+  if (!route && write.kind !== "profile" && write.kind !== SETTINGS_KIND) return refused(write, null, `This plugin cannot write a ${write.kind}`);
   try {
+    if (write.kind === SETTINGS_KIND) return await writeSettings(write);
     if (!route) return await writeProfile(write);
     if (write.localId === null) return await create(route, write);
     const updated = await update(route, write, write.localId);
@@ -165,6 +196,35 @@ async function writeProfile(write: LibraryWrite): Promise<WriteAnswer> {
   const updated = again?.ok ? parsed(again.text) : undefined;
   if (!isObject(updated) || updated.id !== write.globalId) return written(write, record, writtenFields);
   return written(write, updated, [...writtenFields, "visibility"]);
+}
+
+/**
+ * Writes a Location's shared settings into the tablet's Workflow (ADR-0014):
+ * reads the Workflow, then sets, through `PUT /workflow`, which Decaid merges
+ * into it, the fields it still holds as the server expects. The answer is
+ * the Workflow's steam, hot water and rinse parts as Decaid returned them,
+ * or as read when nothing was left to set, timed now, as a Workflow carries
+ * no time. Decaid refuses to change them while no machine is connected.
+ */
+async function writeSettings(write: LibraryWrite): Promise<WriteAnswer> {
+  const current = await request("GET", "/workflow");
+  const workflow = current.ok ? parsed(current.text) : undefined;
+  if (!isObject(workflow)) return refused(write, current.status, current.text);
+  const fields = settable(write, (field) => {
+    const [part, name] = field.split(".") as [string, string];
+    const values = workflow[part];
+    return isObject(values) ? values[name] : undefined;
+  });
+  if (Object.keys(fields).length === 0) return written(write, workflowSettings(workflow), [], new Date().toISOString());
+  const answer = await request("PUT", "/workflow", settingsParts(fields));
+  const updated = answer.ok ? parsed(answer.text) : undefined;
+  if (!isObject(updated)) return refused(write, answer.status, answer.text);
+  return written(write, workflowSettings(updated), Object.keys(fields), new Date().toISOString());
+}
+
+/** The steam, hot water and rinse parts of a Workflow, as Decaid holds them. */
+function workflowSettings(workflow: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(SETTINGS_PARTS.flatMap((part) => (part in workflow ? [[part, workflow[part]]] : [])));
 }
 
 /** The fields of a Profile's `profile` the server writes: outside the hash of what the machine executes, so its id stays (ADR-0006). */
@@ -307,15 +367,19 @@ function answerTo(write: LibraryWrite, answer: Answer, writtenFields: string[]):
   return refused(write, answer.status, answer.text);
 }
 
-/** A write's answer: the record Decaid holds now, and the fields the write set, beside its global id in `extras`, repeating what the write carried. */
-function written(write: LibraryWrite, record: Record<string, unknown>, writtenFields: string[]): ItemWritten {
+/**
+ * A write's answer: the record Decaid holds now, and the fields the write
+ * set, beside its global id in `extras`, repeating what the write carried.
+ * Timed by the record's `updatedAt`, or `at` for settings, which carry none.
+ */
+function written(write: LibraryWrite, record: Record<string, unknown>, writtenFields: string[], at?: string): ItemWritten {
   return {
     type: "written",
     id: write.id,
     kind: write.kind,
     globalId: write.globalId,
     record,
-    updatedAt: utcTime(record.updatedAt),
+    updatedAt: at ?? utcTime(record.updatedAt),
     writtenFields,
     ...(write.contentDecidedAt === undefined ? {} : { contentDecidedAt: write.contentDecidedAt }),
   };

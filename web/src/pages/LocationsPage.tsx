@@ -1,4 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
+import { Link } from "react-router";
 import { useIsAdmin, useStaffLocationIds } from "@/auth";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +11,7 @@ import { api, type Location } from "@/lib/api";
 
 const TIME_ZONE_LIST = "time-zones";
 
-/** Locations: creating them, and renaming them or changing their time zone. Staff see which they work at. */
+/** Locations: creating them, and renaming them or changing their time zone, each opening its page. Staff see which they work at. */
 export function LocationsPage() {
   const isAdmin = useIsAdmin();
   const worksAt = useStaffLocationIds();
@@ -58,7 +59,8 @@ export function LocationsPage() {
       <div className="grid gap-1">
         <h1 className="text-2xl font-semibold">Locations</h1>
         <p className="text-muted-foreground">
-          The sites where your machines are used. Each Location's time zone sets the local times shown for it.
+          The sites where your machines are used. Each Location's time zone sets the local times shown for it, and its page shows the
+          steam, hot water and rinse settings its Machines share.
         </p>
       </div>
 
@@ -110,7 +112,9 @@ export function LocationsPage() {
                 <div className="flex items-center gap-4">
                   <div className="grid flex-1 gap-0.5">
                     <span className="flex items-center gap-2 font-medium">
-                      {location.name}
+                      <Link to={`/locations/${location.id}`} className="underline-offset-4 hover:underline">
+                        {location.name}
+                      </Link>
                       {worksAt.has(location.id) && <Badge variant="secondary">You work here</Badge>}
                     </span>
                     <span className="text-sm text-muted-foreground">{location.timeZone}</span>

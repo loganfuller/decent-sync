@@ -2,19 +2,22 @@ import { useCallback, useState } from "react";
 import { Link } from "react-router";
 import { useAuth } from "@/auth";
 import { ConfirmButton, formatTime } from "@/components/machines";
+import { SETTING_LABELS, settingText } from "@/components/location-settings";
 import { profilePath } from "@/components/profiles";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { api, type Conflict, type EditSource, type ItemVersion, type LibraryKind, type Location } from "@/lib/api";
+import { api, type Conflict, type EditSource, type ItemKind, type ItemVersion, type Location } from "@/lib/api";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
-const KIND_NAMES: Record<LibraryKind, string> = { bean: "Bean", beanBatch: "Bean Batch", grinder: "Grinder", profile: "Profile" };
+const KIND_NAMES: Record<ItemKind, string> = { bean: "Bean", beanBatch: "Bean Batch", grinder: "Grinder", profile: "Profile", settings: "Location settings" };
 
-/** The address of an item's page. */
-export function itemPath(kind: LibraryKind, id: string): string {
+/** The address of an item's page; a Location's settings are on its page. */
+export function itemPath(kind: ItemKind, id: string, location: Location | null = null): string {
   switch (kind) {
+    case "settings":
+      return location ? `/locations/${location.id}` : "/locations";
     case "bean":
       return `/library/beans/${id}`;
     case "beanBatch":
@@ -27,8 +30,8 @@ export function itemPath(kind: LibraryKind, id: string): string {
 }
 
 /** The REST API's address of an item. */
-function itemApiPath(kind: LibraryKind, id: string): string {
-  const kinds: Record<LibraryKind, string> = { bean: "beans", beanBatch: "bean-batches", grinder: "grinders", profile: "profiles" };
+function itemApiPath(kind: ItemKind, id: string): string {
+  const kinds: Record<ItemKind, string> = { bean: "beans", beanBatch: "bean-batches", grinder: "grinders", profile: "profiles", settings: "location-settings" };
   return `/${kinds[kind]}/${encodeURIComponent(id)}`;
 }
 
@@ -38,6 +41,7 @@ export function fieldLabel(field: string, location: Location | null): string {
     if (field === "atLocation") return `At ${location.name}`;
     if (field === "remainingWeight") return `Remaining weight at ${location.name}`;
     if (field === "shown") return `Shown at ${location.name}`;
+    if (Object.prototype.hasOwnProperty.call(SETTING_LABELS, field)) return `${SETTING_LABELS[field]} at ${location.name}`;
     return `${spelled(field)} at ${location.name}`;
   }
   return spelled(field);
@@ -52,7 +56,10 @@ function spelled(field: string): string {
 export function valueText(field: string, value: unknown): string {
   if (value === null || value === undefined || value === "") return "None";
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "number") return field === "remainingWeight" ? `${value} g` : String(value);
+  if (typeof value === "number") {
+    if (field === "remainingWeight") return `${value} g`;
+    return Object.prototype.hasOwnProperty.call(SETTING_LABELS, field) ? settingText(value) : String(value);
+  }
   if (typeof value === "string") return value;
   if (Array.isArray(value) && value.every((item) => typeof item === "string" || typeof item === "number")) return value.join(", ");
   return JSON.stringify(value);
@@ -141,7 +148,7 @@ export function ConflictsTable({ conflicts, showItem, onResolved }: { conflicts:
               <TableRow key={conflict.id}>
                 {showItem && (
                   <TableCell className="whitespace-normal">
-                    <Link to={itemPath(conflict.item.kind, conflict.item.id)} className="font-medium underline-offset-4 hover:underline">
+                    <Link to={itemPath(conflict.item.kind, conflict.item.id, conflict.location)} className="font-medium underline-offset-4 hover:underline">
                       {itemName}
                     </Link>
                     <div className="text-xs text-muted-foreground">{KIND_NAMES[conflict.item.kind]}</div>
@@ -198,7 +205,7 @@ export function ConflictsTable({ conflicts, showItem, onResolved }: { conflicts:
 }
 
 /** A note of the item's open Conflicts, shown only while it has any. `onResolved` follows using a value or dismissing one. */
-export function ItemConflictsCard({ kind, id, onResolved }: { kind: LibraryKind; id: string; onResolved(): void }) {
+export function ItemConflictsCard({ kind, id, onResolved }: { kind: ItemKind; id: string; onResolved(): void }) {
   const load = useCallback(async () => (await api<{ conflicts: Conflict[] }>("GET", `${itemApiPath(kind, id)}/conflicts`)).conflicts, [kind, id]);
   const { data: conflicts, error, reload } = usePolled(load, DETAILS_POLL_MS);
 
@@ -217,8 +224,9 @@ export function ItemConflictsCard({ kind, id, onResolved }: { kind: LibraryKind;
           <h2>Open Conflicts</h2>
         </CardTitle>
         <CardDescription>
-          {conflicts.length === 1 ? "An edit" : `${conflicts.length} edits`} of this {KIND_NAMES[kind]} lost to another of the same field made
-          without seeing it. Use a losing value to make it current on every tablet that holds it, or dismiss the Conflict to keep the value now.
+          {conflicts.length === 1 ? "An edit" : `${conflicts.length} edits`} of {kind === "settings" ? "these settings" : `this ${KIND_NAMES[kind]}`}{" "}
+          lost to another of the same field made without seeing it. Use a losing value to make it current on every tablet that{" "}
+          {kind === "settings" ? "shares them" : "holds it"}, or dismiss the Conflict to keep the value now.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -236,7 +244,7 @@ export function ItemConflictsCard({ kind, id, onResolved }: { kind: LibraryKind;
 }
 
 /** The item's change history: each accepted edit, the latest taken in first, with where and when it was made. */
-export function ItemHistoryCard({ kind, id }: { kind: LibraryKind; id: string }) {
+export function ItemHistoryCard({ kind, id }: { kind: ItemKind; id: string }) {
   const load = useCallback(async () => (await api<{ versions: ItemVersion[] }>("GET", `${itemApiPath(kind, id)}/history`)).versions, [kind, id]);
   const { data: versions, error } = usePolled(load, DETAILS_POLL_MS);
 
@@ -247,8 +255,10 @@ export function ItemHistoryCard({ kind, id }: { kind: LibraryKind; id: string })
           <h2>History</h2>
         </CardTitle>
         <CardDescription>
-          Each change that was kept, the latest first, with the Machine or account it came from. Its first is the {KIND_NAMES[kind]} joining the
-          Library.
+          Each change that was kept, the latest first, with the Machine or account it came from.{" "}
+          {kind === "settings"
+            ? "Its first is the first Machine of the model at the Location setting them."
+            : `Its first is the ${KIND_NAMES[kind]} joining the Library.`}
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
