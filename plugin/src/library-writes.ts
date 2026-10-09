@@ -419,27 +419,26 @@ async function writeSettings(write: LibraryWrite): Promise<WriteAnswer> {
 
 /**
  * Clears the grinder and batch of the tablet's Workflow that the write names
- * (`WORKFLOW_KIND`), each only while the Workflow still holds every field of
- * it as expected, through `PUT /workflow`, which Decaid merges into the
- * Workflow: a field merged in as null is cleared. A grinder or batch a
- * barista picked since stays whole, though another grinder may be of the
- * same model. Answers with the Workflow's `context`, timed now, as a
- * Workflow carries no time.
+ * (`WORKFLOW_KIND`), each whole, only while the Workflow still names the
+ * grinder, or batch, by the id expected, through `PUT /workflow`, which
+ * Decaid merges into the Workflow: a field merged in as null is cleared. A
+ * grinder or batch a barista picked since stays whole, though another
+ * grinder may be of the same model, while one a skin relabelled is still
+ * cleared. Answers with the Workflow's `context`, timed now, as a Workflow
+ * carries no time.
  */
 async function clearWorkflow(write: LibraryWrite): Promise<WriteAnswer> {
   const current = await request("GET", "/workflow");
   const workflow = current.ok ? parsed(current.text) : undefined;
   if (!isObject(workflow)) return refused(write, current.status, current.text);
-  const held = (field: string) => {
-    const [part, name] = field.split(".") as [string, string];
-    const values = workflow[part];
-    return isObject(values) ? values[name] : undefined;
-  };
-  const settableNow = settable(write, held);
+  const context = isObject(workflow.context) ? workflow.context : {};
   const fields = Object.fromEntries(
     [WORKFLOW_GRINDER, WORKFLOW_BATCH].flatMap((group) => {
+      const [id] = group;
       const named = group.filter((field) => field in write.fields);
-      return named.every((field) => field in settableNow) ? named.map((field) => [field, settableNow[field]]) : [];
+      const expected = write.expected?.[id];
+      const holds = named.includes(id) && expected !== undefined && expected !== null && sameValue(context[id.slice("context.".length)], expected);
+      return holds ? named.map((field) => [field, null]) : [];
     }),
   );
   if (Object.keys(fields).length === 0) return written(write, workflowContext(workflow), [], new Date().toISOString());

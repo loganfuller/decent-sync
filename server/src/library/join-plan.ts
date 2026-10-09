@@ -18,12 +18,16 @@ export interface CurrentEntry {
 /**
  * Whether a report taken in under `current` is part of the tablet joining
  * its Location: the first of its kind the tablet has had taken in, or the
- * first since its Machine's current entry changed, as on a move, or its
- * Location did, as when an Admin corrects that entry's Location. A corrected
- * time of a move changes neither, so it changes nothing on the tablet.
+ * first since its Machine's Location changed, as on a move, or as when an
+ * Admin corrects the current entry's Location or removes it; or since a
+ * newer entry replaced the one it was last taken in under (`lastRemains`),
+ * as when the Machine moved away and back. A corrected time of a move
+ * changes neither, nor does removing a move made by mistake, after which the
+ * Machine never left: so neither changes anything on the tablet.
  */
-export function joins(last: CurrentEntry | null, current: CurrentEntry): boolean {
-  return last === null || last.id !== current.id || last.locationId !== current.locationId;
+export function joins(last: CurrentEntry | null, current: CurrentEntry, lastRemains: boolean): boolean {
+  if (last === null || last.locationId !== current.locationId) return true;
+  return last.id !== current.id && lastRemains;
 }
 
 /** How a report's record was taken into the Library. */
@@ -71,12 +75,14 @@ export function workflowClear(context: unknown, grinder: Offered, batch: Offered
 }
 
 /**
- * What of a clear still due the tablet's Workflow still holds: the grinder's
- * fields while its `context.grinderId` is still the one expected, and the
- * batch's while its `context.beanBatchId` is. One a barista changed since,
- * as by picking another grinder, or that a write cleared, is no longer due,
- * whatever its other fields hold, as another grinder may be of the same
- * model. Null if neither is.
+ * What of a clear still due the tablet's Workflow still holds: the grinder
+ * while its `context.grinderId` is still the one expected, and the batch
+ * while its `context.beanBatchId` is, each field expecting what the
+ * Workflow holds now, as a skin may relabel the same grinder. One a barista
+ * changed since, as by picking another grinder, or that a write cleared, is
+ * no longer due, whatever its other fields hold, as another grinder may be
+ * of the same model. Null if neither is. The plugin judges a group by its id
+ * alike.
  */
 export function clearStillDue(expected: Readonly<Record<string, unknown>>, context: unknown): Record<string, unknown> | null {
   const held = isObject(context) ? context : {};
@@ -84,7 +90,7 @@ export function clearStillDue(expected: Readonly<Record<string, unknown>>, conte
   for (const fields of [WORKFLOW_GRINDER, WORKFLOW_BATCH]) {
     const [id] = fields;
     if (!(id in expected) || expected[id] === null || !sameValue(valueAt(held, id), expected[id])) continue;
-    for (const field of fields) if (field in expected) due[field] = expected[field];
+    for (const field of fields) if (field in expected) due[field] = valueAt(held, field);
   }
   return Object.keys(due).length === 0 ? null : due;
 }

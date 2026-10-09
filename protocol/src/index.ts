@@ -641,8 +641,9 @@ export function settingsParts(fields: Readonly<Record<string, unknown>>): Record
  * names WORKFLOW_GRINDER, WORKFLOW_BATCH or both, each null, with `expected`
  * the values the Workflow held for them as the tablet last reported it. The
  * plugin reads the tablet's Workflow and clears, through `PUT /workflow`,
- * the grinder, and the batch, only while it still holds every field of it as
- * expected: a barista who picked another grinder or batch since keeps it.
+ * the grinder, and the batch, each whole, only while it still names it by
+ * the id expected (`context.grinderId`, `context.beanBatchId`): a barista
+ * who picked another grinder or batch since keeps it.
  * Decaid needs no machine for this. Its answer's `record` is the Workflow's
  * `context` as Decaid returned it, timed as a settings write's is, and the
  * Workflow change it causes is sent after the answer, as a settings write's

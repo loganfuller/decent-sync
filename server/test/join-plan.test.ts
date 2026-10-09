@@ -27,14 +27,20 @@ const GRINDER = { "context.grinderId": "grinder-1", "context.grinderModel": "Nic
 const BATCH = { "context.beanBatchId": "batch-1", "context.coffeeName": "Guji Hambela", "context.coffeeRoaster": "Roux" };
 
 describe("Joining a Location", () => {
-  it("starts with a tablet's first report of a kind, and again with one under another entry of its Location History", () => {
-    expect(joins(null, ENTRY)).toBe(true);
-    expect(joins(ENTRY, ENTRY)).toBe(false);
-    // Moved, or moved back to a Location it was at before: a new entry.
-    expect(joins(ENTRY, { id: "0199c0de-0000-7000-8000-000000000002", locationId: BELMONT })).toBe(true);
-    expect(joins(ENTRY, { id: "0199c0de-0000-7000-8000-000000000003", locationId: LAB })).toBe(true);
-    // An Admin corrected the current entry's Location: it is at another Location now.
-    expect(joins(ENTRY, { ...ENTRY, locationId: BELMONT })).toBe(true);
+  it("starts with a tablet's first report of a kind, and again once its Machine is at another Location, or moved away and back", () => {
+    expect(joins(null, ENTRY, false)).toBe(true);
+    expect(joins(ENTRY, ENTRY, true)).toBe(false);
+    // Moved, or moved back to a Location it was at before, a new entry replacing the one it was taken in under.
+    expect(joins(ENTRY, { id: "0199c0de-0000-7000-8000-000000000002", locationId: BELMONT }, true)).toBe(true);
+    expect(joins(ENTRY, { id: "0199c0de-0000-7000-8000-000000000003", locationId: LAB }, true)).toBe(true);
+    // An Admin corrected the current entry's Location, or removed it: it is at another Location now.
+    expect(joins(ENTRY, { ...ENTRY, locationId: BELMONT }, true)).toBe(true);
+    expect(joins(ENTRY, { id: "0199c0de-0000-7000-8000-000000000004", locationId: BELMONT }, false)).toBe(true);
+  });
+
+  it("does not start when a move made by mistake is removed, and the Machine never left", () => {
+    // A move away and back removed: the entry it was taken in under is gone, and an earlier one at the same Location is current.
+    expect(joins(ENTRY, { id: "0199c0de-0000-7000-8000-000000000000", locationId: LAB }, false)).toBe(false);
   });
 
   it("lists what a joining report added to the Library or matched to an item it had, but not one of Decaid's bundled Profiles", () => {
@@ -80,7 +86,7 @@ describe("A joining tablet's Workflow", () => {
     // The write cleared both, as Decaid answered it.
     expect(clearStillDue(expected, { targetDoseWeight: 18, targetYield: 36, grinderSetting: "12" })).toBeNull();
     expect(clearStillDue(expected, undefined)).toBeNull();
-    // A model changed under the same grinder is still cleared with it.
-    expect(clearStillDue(GRINDER, { ...CONTEXT, grinderModel: "Niche Duo" })).toEqual(GRINDER);
+    // A skin relabelled the same grinder: it is still cleared, expecting the label it holds now.
+    expect(clearStillDue(GRINDER, { ...CONTEXT, grinderModel: "Niche Zero (bar)" })).toEqual({ ...GRINDER, "context.grinderModel": "Niche Zero (bar)" });
   });
 });

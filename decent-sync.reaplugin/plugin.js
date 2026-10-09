@@ -970,16 +970,14 @@ var __decentSync = (() => {
     const current = await request("GET", "/workflow");
     const workflow = current.ok ? parsed(current.text) : void 0;
     if (!isObject2(workflow)) return refused(write, current.status, current.text);
-    const held = (field) => {
-      const [part, name] = field.split(".");
-      const values = workflow[part];
-      return isObject2(values) ? values[name] : void 0;
-    };
-    const settableNow = settable(write, held);
+    const context = isObject2(workflow.context) ? workflow.context : {};
     const fields = Object.fromEntries(
       [WORKFLOW_GRINDER, WORKFLOW_BATCH].flatMap((group) => {
+        const [id] = group;
         const named = group.filter((field) => field in write.fields);
-        return named.every((field) => field in settableNow) ? named.map((field) => [field, settableNow[field]]) : [];
+        const expected = write.expected?.[id];
+        const holds = named.includes(id) && expected !== void 0 && expected !== null && sameValue(context[id.slice("context.".length)], expected);
+        return holds ? named.map((field) => [field, null]) : [];
       })
     );
     if (Object.keys(fields).length === 0) return written(write, workflowContext(workflow), [], (/* @__PURE__ */ new Date()).toISOString());

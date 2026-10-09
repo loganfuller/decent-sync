@@ -1053,16 +1053,22 @@ there: when the Location of its Location History's latest entry changes
 and so does a new tablet on a Machine there already, as one whose Decaid
 data was reset. Correcting when a past move happened credits records again
 as milestone 1 does, but changes nothing on the tablet, as the Location it
-is at now is the same; correcting the latest entry's Location, or removing
-the latest entry, changes it, and is a move.
+is at now is the same, and so does removing a move away and back made by
+mistake, after which the Machine never left; correcting the latest entry's
+Location, or removing the latest entry, changes it, and is a move.
 
 Each of a tablet's reports, of its beans, bean batches, grinders and
 profiles and of its Workflow, records the Location History entry it was
 taken in under, and that entry's Location (`tablet_reports`, in the
 transaction taking it in, under the Machine's and the tablet's row locks;
-`joining.ts`). The tablet's first report of each kind, and its first under
-another entry or Location, is part of joining (`joins` in the pure
-`join-plan.ts`).
+`joining.ts`). The tablet's first report of each kind, its first at
+another Location, and its first under a newer entry than the one it was
+last taken in under, as after a move away and back, is part of joining
+(`joins` in the pure `join-plan.ts`). A report of its bean batches stays
+part of joining until its beans have been taken in under the entry, as a
+batch whose bean the tablet's map does not hold waits for it. A Machine
+left at no Location forgets where its tablets' reports were taken in, so
+given a Location again, even the one it was at, it joins it.
 
 - **The Location's state wins.** The writer finds the Machine at another
   Location than its tablet's latest reports, and asks the plugin for them
@@ -1089,11 +1095,16 @@ another entry or Location, is part of joining (`joins` in the pure
   with its reports there, stays. The clear is kept (`workflow_clears`) and
   written whether or not the Machine shares the settings, as a `write` of
   the `workflow` kind, after the settings and before anything else: the
-  plugin clears the grinder, and the batch, only while the Workflow still
-  holds every field of it as the tablet reported it, and a Workflow naming
-  another since, reported or in the write's answer, drops that part of the
-  clear (`clearStillDue`). It is due only as the tablet joins: a batch
-  finished at the Location later leaves the Workflow as it is (ADR-0014).
+  plugin clears the grinder, and the batch, each whole, only while the
+  Workflow still names it by the id the tablet reported, so one a skin
+  relabelled is still cleared, and a Workflow naming another since,
+  reported or in the write's answer, drops that part of the clear
+  (`clearStillDue`), which otherwise expects what the Workflow holds now.
+  It is due only as the tablet joins: a batch finished at the Location
+  later leaves the Workflow as it is (ADR-0014). A clear the plugin is
+  carrying out as its Machine moves back, within one write, to a Location
+  that offers the grinder or batch is not called back: the Workflow's next
+  join there finds it cleared already.
 - **What it brings** (ADR-0018). The tablet's records its map does not hold
   join the Library at the Location, or are matched to an item the Library
   has, as any tablet's are (Taking in a tablet's beans, and those after it):

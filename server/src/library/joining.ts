@@ -34,19 +34,40 @@ export async function currentEntry(tx: Prisma.TransactionClient, machineId: stri
 /**
  * Records that the tablet's report of this kind is taken in under the
  * entry, and says whether it is part of joining the entry's Location
- * (`joins`). The tablet's row lock must be held.
+ * (`joins`). A report of its bean batches is recorded only once its beans
+ * are taken in under the entry, as a batch whose bean the tablet's map does
+ * not hold waits for it: until then each of its reports is part of joining,
+ * so a batch it brings is listed once its bean is mapped. The tablet's row
+ * lock must be held.
  */
 export async function takenIn(tx: Prisma.TransactionClient, tabletId: string, report: TakenInReport, entry: CurrentEntry): Promise<boolean> {
-  const [last] = await tx.$queryRaw<{ id: string; locationId: string }[]>`
-    SELECT assignment_id AS id, location_id AS "locationId" FROM tablet_reports WHERE tablet_id = ${tabletId}::uuid AND report = ${report}`;
-  const joining = joins(last ?? null, entry);
-  if (joining) {
+  const [last] = await tx.$queryRaw<{ id: string; locationId: string; remains: boolean }[]>`
+    SELECT assignment_id AS id, location_id AS "locationId", EXISTS (SELECT 1 FROM location_assignments WHERE id = assignment_id) AS remains
+    FROM tablet_reports WHERE tablet_id = ${tabletId}::uuid AND report = ${report}`;
+  const joining = joins(last ?? null, entry, last?.remains ?? false);
+  if (joining && report === "beanBatches") {
+    const [beans] = await tx.$queryRaw<unknown[]>`
+      SELECT 1 FROM tablet_reports WHERE tablet_id = ${tabletId}::uuid AND report = 'beans' AND assignment_id = ${entry.id}::uuid AND location_id = ${entry.locationId}::uuid`;
+    if (!beans) return true;
+  }
+  // Kept to the current entry, joining or not, so a later move away and back is told from a removed entry.
+  if (last?.id !== entry.id || last.locationId !== entry.locationId) {
     await tx.$executeRaw`
       INSERT INTO tablet_reports (tablet_id, report, assignment_id, location_id)
       VALUES (${tabletId}::uuid, ${report}, ${entry.id}::uuid, ${entry.locationId}::uuid)
       ON CONFLICT (tablet_id, report) DO UPDATE SET assignment_id = EXCLUDED.assignment_id, location_id = EXCLUDED.location_id`;
   }
   return joining;
+}
+
+/**
+ * Forgets where the reports of the Machine's tablets were taken in, as it
+ * is left at no Location: given one again, even the Location it was at, it
+ * joins it. Under the Machine's row lock, which every report taken in holds.
+ */
+export async function forgetReports(tx: Prisma.TransactionClient, machineId: string): Promise<void> {
+  await tx.$executeRaw`
+    DELETE FROM tablet_reports WHERE tablet_id IN (SELECT tablet_id FROM machine_tablets WHERE machine_id = ${machineId}::uuid)`;
 }
 
 /**

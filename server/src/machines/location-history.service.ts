@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
 import { type Scope, includesLocation } from "../accounts/scope.js";
 import type { Prisma } from "../generated/prisma/client.js";
+import { forgetReports } from "../library/joining.js";
 import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { type Correction, type Move, locationHistoryEntryNotFound, machineNotFound, unknownLocation } from "./input.js";
@@ -118,6 +119,8 @@ export class LocationHistoryService {
       // Records from its time to the next entry that remains change Location.
       const next = neverLeft ? afterThat : after;
       await creditLocations(tx, machineId, { from: entry.effectiveFrom, until: next?.effectiveFrom ?? null });
+      // Left at no Location, it is capture-only; given one again, it joins it.
+      if (!before && !next) await forgetReports(tx, machineId);
       await notifyLocationChanged(tx, machineId, current);
     }, CREDITING_TRANSACTION);
     return this.machines.get(machineId);

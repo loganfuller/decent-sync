@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView } from "./support/admin-api.js";
-import { SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
+import { RawConnection, SimulatedTablet, derivedDe1Pro, derivedProfile, helloWith, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #89: a Machine joining a Location, as it is adopted
@@ -64,6 +65,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
   let other: TestServer;
   let api: AdminApi;
   const tablets: SimulatedTablet[] = [];
+  const raws: RawConnection[] = [];
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -72,6 +74,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
   }, 60_000);
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await Promise.all(raws.map((raw) => raw.terminate()));
     await other?.stop();
     await server?.stop();
   });
@@ -86,7 +89,11 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
    * user Profiles are the same Profiles on every tablet holding them, in
    * every test.
    */
-  function load(machine: CreatedMachine, serial: string, options: { instance?: TestServer; fresh?: boolean; parts?: Parts } = {}): SimulatedTablet {
+  function load(
+    machine: CreatedMachine,
+    serial: string,
+    options: { instance?: TestServer; fresh?: boolean; parts?: Parts; timeScale?: number; apiDelayMs?: (method: string, path: string) => number } = {},
+  ): SimulatedTablet {
     const library = options.fresh
       ? { "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": bundledProfiles() }
       : { "/beans": beansNamed(machine.machine.name) };
@@ -94,7 +101,8 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
       api: { ...derivedDe1Pro({ serial }), ...library, "/workflow": workflowWith(options.parts ?? {}, context) },
-      timeScale: 50,
+      timeScale: options.timeScale ?? 50,
+      apiDelayMs: options.apiDelayMs,
     });
     tablets.push(tablet);
     return tablet;
@@ -381,5 +389,80 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     expect(tablet.beans().filter((bean) => bean.name !== "Leaving Own")).toEqual(held);
     const { beans } = await read<{ beans: { name: string }[] }>("/beans");
     expect(beans.map((bean) => bean.name).filter((name) => name.startsWith("Leaving"))).toEqual(["Leaving After", "Leaving Before"]);
+  });
+
+  it("clears a grinder a skin relabelled between the join and the write, but keeps a batch a barista picked meanwhile", async () => {
+    const lab = await api.createLocation("Picking lab", "UTC");
+    const belmont = await api.createLocation("Picking Belmont", "UTC");
+    const labMachine = await api.createMachine("Picking lab 1", lab.id);
+    const belmontMachine = await api.createMachine("Picking Belmont 1", belmont.id);
+    // Its reads of the Workflow are slow, so the barista acts while the plugin reads it to clear its grinder and batch.
+    const tablet = load(labMachine, "23071", { timeScale: 10, apiDelayMs: (method, path) => (method === "GET" && path === "/workflow" ? 10_000 : 0) });
+    load(belmontMachine, "23072", { instance: other, fresh: true });
+    await online(labMachine, belmontMachine);
+    await mapped(tablet);
+    const picked = tablet.batches().find((batch) => batch.id !== context(tablet).beanBatchId)!;
+
+    expect((await move(labMachine, belmont)).status).toBe(201);
+    // The write that clears them has reached the plugin, which is reading the Workflow.
+    await expect.poll(() => tablet.received.some((frame) => (frame as { kind?: unknown }).kind === "workflow"), { timeout: 15_000 }).toBe(true);
+    const relabelled: Record_ = { ...context(tablet), grinderModel: "DF64 v2 (bar)", beanBatchId: picked.id, coffeeName: "Picked" };
+    tablet.setWorkflow({ ...tablet.workflow(), context: relabelled });
+    await expect.poll(() => "grinderId" in context(tablet), { timeout: 15_000 }).toBe(false);
+    expect(context(tablet)).toMatchObject({ beanBatchId: picked.id, coffeeName: "Picked", coffeeRoaster: relabelled.coffeeRoaster });
+    expect("grinderModel" in context(tablet)).toBe(false);
+    // Once the lab's Profiles are hidden on it, the move is written whole, and nothing is due to its Workflow again.
+    await expect.poll(() => userProfiles(tablet, true), { timeout: 15_000 }).toEqual([]);
+    expect(tablet.writes.filter((write) => write === "PUT /workflow")).toHaveLength(1);
+  });
+
+  it("changes nothing on the tablet when a move away and back made by mistake is removed", async () => {
+    const lab = await api.createLocation("Mistaken lab", "UTC");
+    const belmont = await api.createLocation("Mistaken Belmont", "UTC");
+    const labMachine = await api.createMachine("Mistaken lab 1", lab.id);
+    const traveller = await api.createMachine("Mistaken traveller", lab.id);
+    const labTablet = load(labMachine, "23081", { fresh: true, parts: { steamSettings: { flow: 1.4 } } });
+    await online(labMachine);
+    await settingsOf(lab);
+    const tablet = load(traveller, "23082", { instance: other, fresh: true, parts: { steamSettings: { flow: 1.4 } } });
+    await online(traveller);
+    const requests = () => tablet.received.filter((frame) => (frame as { type?: unknown }).type === "requestCollections").length;
+    expect((await move(traveller, belmont)).status).toBe(201);
+    await expect.poll(requests, { timeout: 10_000 }).toBe(1);
+    expect((await move(traveller, lab)).status).toBe(201);
+    await expect.poll(requests, { timeout: 10_000 }).toBe(2);
+    await labTablet.addBean({ roaster: "Roux", name: "Mistaken Sentinel" });
+    await expect.poll(() => tablet.beans().filter((bean) => globalIdOf(bean) !== null).length, { timeout: 10_000 }).toBe(1);
+
+    // The move to Belmont was a mistake: removing it removes the move back too, as the Machine never left the lab.
+    const [, toBelmont] = (await machineView(traveller)).locationHistory;
+    expect(toBelmont!.location.id).toBe(belmont.id);
+    expect((await api.call("DELETE", `/machines/${traveller.machine.id}/location-history/${toBelmont!.id}`)).status).toBe(200);
+    expect((await machineView(traveller)).locationHistory.map((entry) => entry.location.id)).toEqual([lab.id]);
+    // A change its barista makes then is an edit at the lab, not given way to the lab's settings, and a coffee entered is no item it brought.
+    await tablet.changeSettings({ steamSettings: { flow: 2.1 } });
+    await expect.poll(async () => (await settingsAt(lab)).values["steamSettings.flow"], { timeout: 10_000 }).toBe(2.1);
+    await tablet.addBean({ roaster: "Roux", name: "Mistaken Later" });
+    await expect.poll(() => tablet.beans().filter((bean) => globalIdOf(bean) !== null).length, { timeout: 10_000 }).toBe(2);
+    expect(await brought(traveller)).toEqual([]);
+    expect(requests()).toBe(2);
+    expect(tabletSettings(tablet)["steamSettings.flow"]).toBe(2.1);
+  });
+
+  it("lists the batches a joining tablet brought though its report of them came before its beans'", async () => {
+    const uptown = await api.createLocation("Ordering Uptown", "UTC");
+    const machine = await api.createMachine("Ordering Uptown 1", uptown.id);
+    const beans = beansNamed("Ordering");
+    const batches = derivedDe1Pro({})["/bean-batches"] as Record_[];
+    const report = (name: string, value: Record_[]) => ({ type: "collection", id: randomUUID(), name, available: true, value, updatedAt: value.map(() => "2026-10-07T15:00:00.000Z") });
+    const raw = await RawConnection.welcomed(server.url, helloWith(machine.token, { tabletId: randomUUID(), machine: { model: "DE1Pro", serial: "23091" } }));
+    raws.push(raw);
+    // Its batches first, as when its read of the beans failed: none can join before its bean is known.
+    await raw.deliver(report("beanBatches", batches));
+    await raw.deliver(report("beans", beans));
+    await raw.deliver(report("beanBatches", batches));
+    const listed = await brought(machine);
+    expect(listed.filter((item) => item.item.kind === "bean")).toHaveLength(beans.length);
+    expect(listed.filter((item) => item.item.kind === "beanBatch")).toHaveLength(batches.length);
   });
 });
