@@ -153,7 +153,8 @@ function checkSeen(versionId: string | null, seen: string | null): void {
 export function readSeen(body: unknown): string | null {
   const seen = typeof body === "object" && body !== null ? (body as { seen?: unknown }).seen : undefined;
   if (seen === null) return null;
-  if (typeof seen === "string" && UUID.test(seen)) return seen;
+  // PostgreSQL returns ids in lower case.
+  if (typeof seen === "string" && UUID.test(seen)) return seen.toLowerCase();
   throw new BadRequestException("Name the version of the field's value now that you were shown (seen), or null if it has none");
 }
 

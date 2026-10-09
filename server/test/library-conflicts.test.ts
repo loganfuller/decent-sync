@@ -180,7 +180,8 @@ describe("Resolving Conflicts", { timeout: 60_000 }, () => {
     expect(shown).toMatchObject({ current: { value: "Cafe notes", source: { machine: { name: "Used cafe 1" } } } });
     for (const tablet of [one, two]) await holds(tablet, id, { notes: "Cafe notes" });
 
-    const response = await use(api, shown!);
+    // A version's id is read in any case.
+    const response = await api.call("POST", `/conflicts/${conflict.id}/use`, { seen: shown!.current.versionId!.toUpperCase() });
     expect(response.status).toBe(200);
     const { conflict: used } = (await response.json()) as { conflict: ConflictView };
     expect(used).toMatchObject({
@@ -275,9 +276,18 @@ describe("Resolving Conflicts", { timeout: 60_000 }, () => {
     }
     expect(await conflictsOf(batchId)).toHaveLength(1);
 
-    // Staff at the lab use it: the lab's figure, on both its tablets.
+    // A group that had seen the figure now weighs again after the Conflict was shown: its value is not used over that
+    // unseen entry, which made no Conflict.
     const labStaff = await staffAt("weight-lab@example.com", lab, cafe);
-    const used = await use(labStaff, conflict!);
+    await two.editBatch(heldBatch(two)!.id, { weightRemaining: 120 });
+    await expect.poll(() => weightAt(batchId), { timeout: 10_000 }).toBe(120);
+    expect((await use(labStaff, conflict!)).status).toBe(409);
+    expect(await weightAt(batchId)).toBe(120);
+    const [shown] = await conflictsOf(batchId);
+    expect(shown).toMatchObject({ id: conflict!.id, current: { value: 120, source: { machine: { id: second.machine.id } } } });
+
+    // Staff at the lab use it over the figure now: the lab's figure, on both its tablets.
+    const used = await use(labStaff, shown!);
     expect(used.status).toBe(200);
     expect(((await used.json()) as { conflict: ConflictView }).conflict).toMatchObject({ state: "used", current: { value: 200, source: { machine: null } } });
     expect(await weightAt(batchId)).toBe(200);

@@ -20,7 +20,7 @@ export interface SourceView {
   machine: { id: string; name: string } | null;
   /** That tablet's id. */
   tabletId: string | null;
-  /** The account that made it here; its name null but to Admins, and for an account since deleted. */
+  /** The account that made it here; its name null but to Admins. */
   account: { id: string; name: string | null } | null;
 }
 

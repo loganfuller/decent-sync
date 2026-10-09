@@ -786,8 +786,7 @@ Every endpoint requires the account session; Staff read them as Admins do.
   the Machine `{ id, name }` whose tablet made it, if one did and it still
   exists, that tablet's id, and the account `{ id, name }` that made it in
   the management interface, its name null to Staff, as other accounts' names
-  are personal information Staff do not see, and for an account since
-  deleted; when it was made, a tablet's by its
+  are personal information Staff do not see; when it was made, a tablet's by its
   record's `updatedAt` in UTC, a delete on a tablet when the server learned
   of it; and when the server took it in, by PostgreSQL's clock. The first is
   the item joining the Library. 404 if the Library does not have the item.
