@@ -407,19 +407,23 @@ describe("Editing the Library in the management interface", { timeout: 60_000 },
     tablets.push(tablet);
     await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
     const bean = await createBean({ roaster: "Roux", name: "Backfill Bean" });
-    const batch = await createBatch(bean.id, [{ locationId: location.id }]);
-    await poll(() => heldBatch(tablet, batch.id)).toBeTruthy();
-    const local = String(heldBatch(tablet, batch.id)!.id);
+    const first = await createBatch(bean.id, [{ locationId: location.id }]);
+    const second = await createBatch(bean.id, [{ locationId: location.id }]);
+    await poll(() => heldBatch(tablet, first.id)).toBeTruthy();
+    await poll(() => heldBatch(tablet, second.id)).toBeTruthy();
+    const local = [String(heldBatch(tablet, first.id)!.id), String(heldBatch(tablet, second.id)!.id)];
+    const deferral = (id: string) => new RegExp(`has Shots still to send; the delete of "beanBatch" ${id} is asked again later`);
 
-    await send("DELETE", `/bean-batches/${batch.id}`, undefined, api, 204);
-    await expect
-      .poll(() => server.output(), { timeout: 20_000 })
-      .toMatch(new RegExp(`has Shots still to send; the delete of "beanBatch" ${local} is asked again later`));
+    // Two deletes deferred at different times, each asked again in its turn.
+    await send("DELETE", `/bean-batches/${first.id}`, undefined, api, 204);
+    await expect.poll(() => server.output(), { timeout: 20_000 }).toMatch(deferral(local[0]!));
+    await send("DELETE", `/bean-batches/${second.id}`, undefined, api, 204);
+    await expect.poll(() => server.output(), { timeout: 20_000 }).toMatch(deferral(local[1]!));
     const connections = () => server.output().split("\n").filter((line) => line.includes(`Machine ${machine.machine.name} connected from`)).length;
     const connected = connections();
-    // Once few enough Shots are still to be sent, the delete is asked again, and carried out, without the tablet reconnecting.
-    await expect.poll(() => tablet.batches().map((record) => record.id), { timeout: 40_000 }).not.toContain(local);
-    expect(tablet.writes).toContain(`DELETE /bean-batches/${local}`);
+    // Once few enough Shots are still to be sent, the deletes are asked again, and carried out, without the tablet reconnecting.
+    await expect.poll(() => tablet.batches().map((record) => record.id), { timeout: 40_000 }).toEqual([]);
+    expect(tablet.writes).toEqual(expect.arrayContaining(local.map((id) => `DELETE /bean-batches/${id}`)));
     expect(connections()).toBe(connected);
   });
 

@@ -167,6 +167,7 @@ export class TabletWriter {
         .catch((error: unknown) => this.log.error(`Could not write the Library to tablet ${this.tablet.tabletId}: ${String(error)}`))
         .finally(() => {
           this.running = false;
+          this.armRetry();
         }),
     );
   }
@@ -283,14 +284,27 @@ export class TabletWriter {
     }
   }
 
-  /** Leaves a delete out until `retryDeferredMs` has passed, then looks again. */
+  /** Leaves a delete out until `retryDeferredMs` has passed: the writer looks again then (`armRetry`). */
   private defer(key: string): void {
     this.deferred.set(key, Date.now() + this.retryDeferredMs);
-    if (this.retryTimer !== undefined) return;
-    this.retryTimer = setTimeout(() => {
-      this.retryTimer = undefined;
-      this.wake();
-    }, this.retryDeferredMs);
+  }
+
+  /**
+   * Once the writer has stopped looking, wakes it when the first delete still
+   * deferred is due to be asked again. Armed after every look, so a delete
+   * deferred after another, or a timer firing just before its time, is never
+   * left without one.
+   */
+  private armRetry(): void {
+    if (this.stopped || this.retryTimer !== undefined || this.deferred.size === 0) return;
+    const next = Math.min(...this.deferred.values());
+    this.retryTimer = setTimeout(
+      () => {
+        this.retryTimer = undefined;
+        this.wake();
+      },
+      Math.max(0, next - Date.now()) + 1,
+    );
   }
 
   /** Sends a write and resolves with what became of it. */
