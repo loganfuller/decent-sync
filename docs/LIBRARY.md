@@ -381,7 +381,9 @@ with its batches, as Decaid refuses to delete a bean that has any.
   yet to read and send, names, as the server may have planned the delete
   before it had that Shot; the server keeps the record once it has it. It
   reads at most 20 Shots still to be read for this, and refuses any delete
-  while more are, as during a backfill, until a later connection. A
+  while more are, as during a backfill (`SHOTS_STILL_TO_READ`): the
+  writer then leaves that delete out for two heartbeat intervals and asks
+  again on the same connection, until the Shots have been sent. A
   Shot the plugin finds only later, from its index once it has reloaded, can
   come too late to keep it.
 - **Tablets.** Each tablet's record of the item, read from its map, is kept

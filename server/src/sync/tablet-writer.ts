@@ -26,8 +26,12 @@ export interface AwaitedWrite {
   contentSeen: Date | null;
 }
 
-/** What a write's answer said. */
-export type WriteOutcome = "written" | "refused";
+/**
+ * What a write's answer said: written, refused, or, for a delete the plugin
+ * could not judge yet as Shots were still to be sent, deferred: asked again
+ * on the same connection a little later.
+ */
+export type WriteOutcome = "written" | "refused" | "deferred";
 
 /** The Library lists whose reports are taken in before anything is written: what the tablet holds. */
 export type TakenInList = "beans" | "beanBatches" | "grinders" | "profiles";
@@ -128,6 +132,13 @@ export class TabletWriter {
    * change or it reconnects. Nothing is written twice meanwhile.
    */
   private requestedFor: string | undefined;
+  /**
+   * Deletes the plugin deferred, by `deleteKey`, with when they are planned
+   * again, by this instance's clock: in its memory, as they belong to this
+   * connection alone.
+   */
+  private readonly deferred = new Map<string, number>();
+  private retryTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private readonly tablet: WrittenTablet,
@@ -139,6 +150,8 @@ export class TabletWriter {
     private readonly log: { warn(message: string): void; error(message: string): void },
     /** Keeps database work in the instance's work in flight, which shutdown waits for. */
     private readonly track: (work: Promise<void>) => Promise<void>,
+    /** How long a deferred delete waits before it is planned again. */
+    private readonly retryDeferredMs: number,
   ) {}
 
   /** Looks for writes due, now or, if it is writing, once the current write is done. */
@@ -189,6 +202,7 @@ export class TabletWriter {
   /** The connection closed: nothing more is written on it. */
   stop(): void {
     this.stopped = true;
+    clearTimeout(this.retryTimer);
     this.waiting?.settle("stopped");
   }
 
@@ -199,8 +213,11 @@ export class TabletWriter {
       const reports = TAKEN_IN.map((list) => this.reportedAt.get(list));
       /** Where all were taken in, or undefined while they were not, or were at different Locations, as across a move. */
       const reportedAt = reports.every((at) => at === reports[0]) ? reports[0] : undefined;
+      const now = Date.now();
+      for (const [key, until] of this.deferred) if (until <= now) this.deferred.delete(key);
+      const excluded = this.deferred.size === 0 ? this.skipped : new Set([...this.skipped, ...this.deferred.keys()]);
       const found =
-        reports.includes(undefined) || this.awaitingBatches ? null : await tabletDue(this.prisma, this.tablet, reportedAt ?? null, this.skipped);
+        reports.includes(undefined) || this.awaitingBatches ? null : await tabletDue(this.prisma, this.tablet, reportedAt ?? null, excluded);
       if (this.stopped) return;
       if (found && found.locationId === reportedAt) this.requestedFor = undefined;
       else if (found && found.locationId !== null && found.locationId !== this.requestedFor) {
@@ -239,6 +256,7 @@ export class TabletWriter {
           this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the delete of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once the tablet reconnects`);
         }
         if (outcome === "written") this.lastWritten.set(key, fields);
+        else if (outcome === "deferred") this.defer(key);
         else this.skipped.add(key);
         continue;
       }
@@ -263,6 +281,16 @@ export class TabletWriter {
       if (outcome === "written") this.lastWritten.set(key, fields);
       else this.skipped.add(key);
     }
+  }
+
+  /** Leaves a delete out until `retryDeferredMs` has passed, then looks again. */
+  private defer(key: string): void {
+    this.deferred.set(key, Date.now() + this.retryDeferredMs);
+    if (this.retryTimer !== undefined) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      this.wake();
+    }, this.retryDeferredMs);
   }
 
   /** Sends a write and resolves with what became of it. */
