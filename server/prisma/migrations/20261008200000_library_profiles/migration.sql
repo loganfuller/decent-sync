@@ -31,6 +31,7 @@ CREATE TABLE "tablet_profiles" (
     "record" JSONB NOT NULL,
     "record_updated_at" TIMESTAMPTZ(3),
     "seen_at" TIMESTAMPTZ(3),
+    "seen_location_id" UUID,
 
     CONSTRAINT "tablet_profiles_pkey" PRIMARY KEY ("tablet_id","profile_id")
 );

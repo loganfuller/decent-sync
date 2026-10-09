@@ -78,9 +78,12 @@ it (Writing to tablets, below).
   edit wins (ADR-0020), with when that was last decided by PostgreSQL's clock.
   An edit from a tablet whose record of the batch had seen that decision
   (`seen_at`, below), or, archiving or deleting its Bean, whose record of the
-  Bean had, applies. Otherwise, as from a tablet that was offline, adding it
-  there loses to a finish timed later, and finishing it there to an add timed
-  later; the Location's state is then written back to that tablet. It is never
+  Bean had, applies, if that was at this Location. Otherwise, as from a tablet
+  that was offline, adding it there loses to a finish timed later, and
+  finishing it there to an add timed later; the Location's state is then
+  written back to that tablet. One that applies is the field's latest edit
+  even when it leaves the batch where it was: it is added or finished there
+  again, so an earlier edit that arrives later cannot undo it. It is never
   finished before it was added, nor added again before it was finished,
   whatever the clock that timed the edit. Times are each edit's: a tablet's by
   the record's `updatedAt` in UTC; a delete, which Decaid does not time, by
@@ -97,8 +100,9 @@ it (Writing to tablets, below).
   than the one before: a tablet's by its record's `updatedAt` in UTC; a
   delete, which Decaid does not time, by PostgreSQL's clock, but never earlier
   than the record the tablet was last known to have. And when it was decided,
-  by PostgreSQL's clock. A Location with no row for a Profile has decided
-  nothing of it, and does not show it.
+  by PostgreSQL's clock, as again by an edit that applied but left it shown or
+  hidden as it was. A Location with no row for a Profile has decided nothing
+  of it, and does not show it.
 - `tablet_beans`, `tablet_bean_batches` and `tablet_profiles`: the map, per
   tablet id (ticket #79): each item's local id on that tablet, which is a
   Profile's own, and the record as the tablet last had it, as it reported it
@@ -106,15 +110,17 @@ it (Writing to tablets, below).
   placed in UTC by the plugin, and the Location's latest decision that the
   record has seen (`seen_at`, its time by PostgreSQL's clock) of the batch's
   presence, of the Profile's showing, or of the presence of any of the Bean's
-  batches: the one the server's write it answers carried, which Decaid
-  answered after, or one its own edit made, whichever is later, as a write
-  planned before the tablet's own decision may be answered after it. A Bean's
-  own archiving does not count, as it may leave batches added since in place.
-  A report shows nothing of what the tablet saw of other tablets' decisions,
-  as the plugin may have read it before them and sent it after, as across a
-  reconnect; nor does an answer to a write no longer awaited, whose write is
-  not known. Either keeps the decision known seen before. A reset tablet has a
-  new tablet id, so it starts with nothing here.
+  batches, with that decision's Location, as it says nothing of another's: the
+  one the server's write it answers carried, which Decaid answered after, if
+  the tablet's Machine is still at that Location, or one its own edit made,
+  whichever is later, as a write planned before the tablet's own decision may
+  be answered after it. A Bean's own archiving does not count, as it may leave
+  batches added since in place. A report shows nothing of what the tablet saw
+  of other tablets' decisions, as the plugin may have read it before them and
+  sent it after, as across a reconnect; nor does an answer to a write no
+  longer awaited, whose write is not known. Either keeps the decision known
+  seen before. A reset tablet has a new tablet id, so it starts with nothing
+  here.
 
 ## Taking in a tablet's beans
 
@@ -256,11 +262,12 @@ Decaid's delete marks a user's Profile with, and hides a bundled one.
   tablet's Location; hidden or deleted since, it is hidden there (ADR-0019).
   Only a Profile the tablet held can be hidden this way. Each is an edit timed
   by the record. One from a tablet whose record had seen the Location's last
-  decision of the Profile (`seen_at`, above) applies. Otherwise, as from
-  a tablet that was offline, one timed before the edit that decided the
-  Location's state loses to it (ADR-0020), and the Location's state is
-  written back to that tablet. Conflicts, which will keep the losing edit,
-  come with ticket #84.
+  decision of the Profile (`seen_at`, above) applies. Otherwise, as from a
+  tablet that was offline, one timed before the edit that decided the
+  Location's state loses to it (ADR-0020), and the Location's state is written
+  back to that tablet. One that applies decides it again even when it leaves
+  it shown or hidden as it was, so an earlier edit that arrives later cannot
+  undo it. Conflicts, which will keep the losing edit, come with ticket #84.
 - Any other record is one the map does not hold yet: the tablet created it,
   held it before it joined the Location, or was written it by a write whose
   answer was lost. If the Library has its id, it is that Profile; otherwise it
@@ -474,10 +481,11 @@ Every endpoint requires the account session; Staff read them as Admins do.
 - `GET /api/bean-batches` returns `{ batches }`, each `{ id, bean: { id,
   roaster, name }, roastDate, archived, locations, createdAt, createdLocation
   }`, by their Bean's name and roaster, ignoring case, then the latest roast
-  date first. `roastDate` is the content's, as Decaid recorded it.
-  `locations` lists the Locations it is at, by name, each `{ location,
-  remainingWeight, since }`: the remaining weight entered there last, in
-  grams, or null if none was or it was cleared, and when it was added there.
+  date first. `roastDate` is the content's, as Decaid recorded it. `locations`
+  lists the Locations it is at, by name, each `{ location, remainingWeight,
+  since }`: the remaining weight entered there last, in grams, or null if none
+  was or it was cleared, and when it was last added there, which a tablet
+  adding it again while it is there moves.
 - `GET /api/bean-batches/:id` returns `{ batch }`, the same with its
   `content` and `finished`, the Locations it was at and has been finished at
   since, each `{ location, remainingWeight, finishedAt }`; or 404.
@@ -486,8 +494,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   title, ignoring case. `id` is Decaid's, such as
   `profile:bf1ca48b9c7389c7d146`; `title`, `author` and `beverageType` are its
   content's. `shownAt` lists the Locations showing it, by name, each `{
-  location, since }`, since when it is shown there, by PostgreSQL's clock.
-  None while it is Archived.
+  location, since }`, when the Location last decided to show it, by
+  PostgreSQL's clock, as when a tablet there showed it again while it was
+  shown. None while it is Archived.
 - `GET /api/profiles/:id` returns `{ profile }`, the same with its `content`
   and `parent`, `{ id, title }` of the Profile it was saved from if the
   Library has it, or null; or 404. The id goes in the path as it is or

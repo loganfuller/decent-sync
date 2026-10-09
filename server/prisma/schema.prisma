@@ -697,6 +697,8 @@ model TabletBean {
   /// does not count, as it may leave batches added since in place.
   /// Archiving or deleting the Bean is judged by it (ADR-0020).
   seenAt          DateTime? @map("seen_at") @db.Timestamptz(3)
+  /// The Location of that decision: it says nothing of another's.
+  seenLocationId  String?   @map("seen_location_id") @db.Uuid
 
   @@id([tabletId, beanId])
   @@unique([tabletId, localId])
@@ -778,6 +780,8 @@ model TabletBeanBatch {
   /// record has seen (`BatchLocation.presenceDecidedAt`): one the server's
   /// write to it carried, or one its own edit made; null if none (ADR-0020).
   seenAt          DateTime? @map("seen_at") @db.Timestamptz(3)
+  /// The Location of that decision: it says nothing of another's.
+  seenLocationId  String?   @map("seen_location_id") @db.Uuid
 
   @@id([tabletId, batchId])
   @@unique([tabletId, localId])
@@ -851,6 +855,8 @@ model TabletProfile {
   /// record has seen (`ProfileLocation.decidedAt`): one the server's write to
   /// it carried, or one its own edit made; null if none (ADR-0020).
   seenAt          DateTime? @map("seen_at") @db.Timestamptz(3)
+  /// The Location of that decision: it says nothing of another's.
+  seenLocationId  String?   @map("seen_location_id") @db.Uuid
 
   @@id([tabletId, profileId])
   @@index([profileId])

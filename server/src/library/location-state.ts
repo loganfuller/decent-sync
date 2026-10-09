@@ -14,14 +14,16 @@ import type { Prisma } from "../generated/prisma/client.js";
 // of one is stamped with PostgreSQL's clock (`decided_at`,
 // `presence_decided_at`). An edit made after its tablet saw the field's
 // current value applies: the tablet's record of the item, or for taking a
-// Bean away its record of the Bean, had seen that decision (`seenAt`, the
-// latest it has seen: one the server wrote it after, or one its own edit
-// made). Otherwise, as from a tablet that was offline, it applies only if it
-// is timed no earlier than the edit that set the field, and else loses to it,
-// and the Location's state is written back to that tablet. Conflicts, which
-// will keep the losing edit, come with ticket #84. Each change says when it
-// decided the field, or null if it did not, so the tablet's record can be
-// known to have seen that.
+// Bean away its record of the Bean, had seen that decision at this Location
+// (`seenAt`, the latest it has seen there: one the server wrote it after, or
+// one its own edit made). Otherwise, as from a tablet that was offline, it
+// applies only if it is timed no earlier than the edit that set the field,
+// and else loses to it, and the Location's state is written back to that
+// tablet. Conflicts, which will keep the losing edit, come with ticket #84.
+// An edit that applies decides the field even when it leaves the value as it
+// was, since it is the field's latest edit. Each change says when it decided
+// the field, or null if it did not, so the tablet's record can be known to
+// have seen that.
 //
 // Every change to a Location's state runs under that Location's advisory
 // lock, taken after the reporting tablet's row lock, so origins are kept to
@@ -40,24 +42,28 @@ export async function lockLocation(tx: Prisma.TransactionClient, locationId: str
 }
 
 /**
- * Adds the batch at the Location, if it is not there, timed by the edit,
- * unless it was finished there by an edit its tablet had not seen (as of
- * `seenAt`, the latest decision its record of the batch has seen, or none)
- * and timed later; and, unless the batch is Archived, ends its Bean's origin
- * there while the batch is there: from then on the Bean is offered there
- * while one of its batches is. It is never added before it was finished,
- * whatever the clock that timed the edit. Says when it added it, or null if
- * it was there already or the edit lost.
+ * Adds the batch at the Location, timed by the edit, unless it was finished
+ * there by an edit its tablet had not seen (as of `seenAt`, the latest
+ * decision its record of the batch has seen, or none) and timed later; and,
+ * unless the batch is Archived, ends its Bean's origin there while the batch
+ * is there: from then on the Bean is offered there while one of its batches
+ * is. One already there is added again, as the field's latest edit, if that
+ * edit wins as one changing it would (ADR-0020), so an older edit the tablet
+ * had not seen cannot undo it. It is never added before it was finished,
+ * whatever the clock that timed the edit. Says when it decided it, or null
+ * if the edit lost.
  */
 export async function addBatchAt(tx: Prisma.TransactionClient, batchId: string, locationId: string, at: Date, seenAt: Date | null): Promise<Date | null> {
   const [added] = await tx.$queryRaw<{ decidedAt: Date }[]>`
     INSERT INTO batch_locations (batch_id, location_id, added_at, presence_decided_at)
     VALUES (${batchId}::uuid, ${locationId}::uuid, ${at}::timestamptz, clock_timestamp())
     ON CONFLICT (batch_id, location_id) DO UPDATE SET
-      added_at = GREATEST(EXCLUDED.added_at, batch_locations.finished_at), finished_at = NULL, presence_decided_at = clock_timestamp()
-      WHERE (batch_locations.added_at IS NULL OR batch_locations.finished_at IS NOT NULL)
-        AND (batch_locations.finished_at IS NULL OR batch_locations.finished_at <= EXCLUDED.added_at
-          OR batch_locations.presence_decided_at <= ${seenAt}::timestamptz)
+      added_at = CASE WHEN batch_locations.finished_at IS NULL THEN GREATEST(batch_locations.added_at, EXCLUDED.added_at)
+        ELSE GREATEST(EXCLUDED.added_at, batch_locations.finished_at) END,
+      finished_at = NULL, presence_decided_at = clock_timestamp()
+      WHERE COALESCE(batch_locations.finished_at, batch_locations.added_at) IS NULL
+        OR COALESCE(batch_locations.finished_at, batch_locations.added_at) <= EXCLUDED.added_at
+        OR batch_locations.presence_decided_at <= ${seenAt}::timestamptz
     RETURNING presence_decided_at AS "decidedAt"`;
   await tx.$executeRaw`
     DELETE FROM bean_origins
@@ -70,17 +76,18 @@ export async function addBatchAt(tx: Prisma.TransactionClient, batchId: string, 
 }
 
 /**
- * Finishes the batch at the Location, if it is there, timed by the edit,
- * unless it was added there by an edit its tablet had not seen (`seenAt`, as
- * `addBatchAt` reads it) and timed later. It is never finished before it was
- * added, whatever the clock that timed the edit. Says when it finished it,
- * or null if it did not.
+ * Finishes the batch at the Location, timed by the edit, unless it was added
+ * there by an edit its tablet had not seen (`seenAt`, as `addBatchAt` reads
+ * it) and timed later. One finished there already is finished again, as
+ * `addBatchAt` adds one there again. It is never finished before it was
+ * added, whatever the clock that timed the edit. Says when it decided it, or
+ * null if it was never added there or the edit lost.
  */
 export async function finishBatchAt(tx: Prisma.TransactionClient, batchId: string, locationId: string, at: Date, seenAt: Date | null): Promise<Date | null> {
   const [finished] = await tx.$queryRaw<{ decidedAt: Date }[]>`
-    UPDATE batch_locations SET finished_at = GREATEST(added_at, ${at}::timestamptz), presence_decided_at = clock_timestamp()
-    WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid AND added_at IS NOT NULL AND finished_at IS NULL
-      AND (added_at <= ${at}::timestamptz OR presence_decided_at <= ${seenAt}::timestamptz)
+    UPDATE batch_locations SET finished_at = GREATEST(added_at, finished_at, ${at}::timestamptz), presence_decided_at = clock_timestamp()
+    WHERE batch_id = ${batchId}::uuid AND location_id = ${locationId}::uuid AND added_at IS NOT NULL
+      AND (COALESCE(finished_at, added_at) <= ${at}::timestamptz OR presence_decided_at <= ${seenAt}::timestamptz)
     RETURNING presence_decided_at AS "decidedAt"`;
   return finished?.decidedAt ?? null;
 }
@@ -117,17 +124,17 @@ export async function enterRemainingWeight(
  * added there by an edit the tablet had not seen, as of `seenAt`, the latest
  * decision of its batches' presence there that the tablet's record of the
  * Bean has seen, and timed later, stays. What its records of the batches
- * have seen says nothing of when the Bean was archived. Says whether
- * anything changed.
+ * have seen says nothing of when the Bean was archived. Its batches finished
+ * there already are finished again, as `finishBatchAt` finishes one, where
+ * the archiving wins. Says whether anything changed.
  */
 export async function takeBeanFrom(tx: Prisma.TransactionClient, beanId: string, locationId: string, at: Date, seenAt: Date | null): Promise<boolean> {
   const origins = await tx.$executeRaw`DELETE FROM bean_origins WHERE bean_id = ${beanId}::uuid AND location_id = ${locationId}::uuid`;
   const finished = await tx.$executeRaw`
-    UPDATE batch_locations AS here SET finished_at = GREATEST(here.added_at, ${at}::timestamptz), presence_decided_at = clock_timestamp()
+    UPDATE batch_locations AS here SET finished_at = GREATEST(here.added_at, here.finished_at, ${at}::timestamptz), presence_decided_at = clock_timestamp()
     FROM bean_batches AS batch
-    WHERE here.batch_id = batch.id AND batch.bean_id = ${beanId}::uuid AND here.location_id = ${locationId}::uuid
-      AND here.added_at IS NOT NULL AND here.finished_at IS NULL
-      AND (here.added_at <= ${at}::timestamptz OR here.presence_decided_at <= ${seenAt}::timestamptz)`;
+    WHERE here.batch_id = batch.id AND batch.bean_id = ${beanId}::uuid AND here.location_id = ${locationId}::uuid AND here.added_at IS NOT NULL
+      AND (COALESCE(here.finished_at, here.added_at) <= ${at}::timestamptz OR here.presence_decided_at <= ${seenAt}::timestamptz)`;
   return origins + finished > 0;
 }
 
@@ -177,8 +184,11 @@ export async function offeringLocations(db: Prisma.TransactionClient, beanIds: r
  * unless the Location's state was decided by an edit the tablet had not seen
  * (as of `seenAt`, the latest decision its record of the Profile has seen,
  * or none) and timed later: that wins, and is written back to the tablet.
- * Conflicts, which will keep the losing edit, come with ticket #84. Says
- * when it decided it, or null if that changed nothing or the edit lost.
+ * Conflicts, which will keep the losing edit, come with ticket #84. One
+ * shown or hidden there as the edit has it is decided again, as the
+ * field's latest edit, if that edit wins as one changing it would, so an
+ * older edit the tablet had not seen cannot undo it. Says when it decided
+ * it, or null if the edit lost.
  */
 export async function showProfileAt(
   tx: Prisma.TransactionClient,
@@ -193,8 +203,7 @@ export async function showProfileAt(
     VALUES (${profileId}, ${locationId}::uuid, ${shown}, ${at}::timestamptz, clock_timestamp())
     ON CONFLICT (profile_id, location_id) DO UPDATE SET
       shown = EXCLUDED.shown, changed_at = GREATEST(EXCLUDED.changed_at, profile_locations.changed_at), decided_at = clock_timestamp()
-      WHERE profile_locations.shown <> EXCLUDED.shown
-        AND (profile_locations.changed_at <= EXCLUDED.changed_at OR profile_locations.decided_at <= ${seenAt}::timestamptz)
+      WHERE profile_locations.changed_at <= EXCLUDED.changed_at OR profile_locations.decided_at <= ${seenAt}::timestamptz
     RETURNING decided_at AS "decidedAt"`;
   return changed?.decidedAt ?? null;
 }

@@ -142,6 +142,52 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     return { labLocation, cafeLocation, machines, one, two, cafe };
   }
 
+  /**
+   * A tablet of the Machine sending raw frames, which holds a Bean and its
+   * batch as copies of another tablet's records, under local ids of its own,
+   * and reports them only as a test gives them, each as of the time given.
+   * It reports no profiles, so nothing is written to it.
+   */
+  async function rawHolder(machine: CreatedMachine, serial: string, bean: Record_, batch: Record_, instance = server) {
+    const raw = await RawConnection.welcomed(instance.url, helloWith(machine.token, { machine: { model: "DE1Pro", serial } }));
+    raws.push(raw);
+    const heldBean_ = { ...bean, id: randomUUID() };
+    const heldBatch_ = { ...batch, id: randomUUID(), beanId: heldBean_.id };
+    const deliver = (name: string, record: Record_, at: Date) =>
+      raw.deliver({ type: "collection", id: randomUUID(), name, available: true, value: [{ ...record, updatedAt: at.toISOString() }], updatedAt: [at.toISOString()] });
+    return {
+      /** Reports its Bean, then its batch, as the plugin sends them, neither archived. */
+      async holds(at: Date) {
+        await deliver("beans", heldBean_, at);
+        await deliver("beanBatches", heldBatch_, at);
+      },
+      reportBatch: (archived: boolean, at: Date) => deliver("beanBatches", { ...heldBatch_, archived }, at),
+      reportBean: (archived: boolean, at: Date) => deliver("beans", { ...heldBean_, archived }, at),
+    };
+  }
+
+  /** A lab where a simulated tablet entered a batch, with two tablets sending raw frames that hold it, and times from a second after now. */
+  async function rawLab(name: string, serials: number) {
+    const location = await api.createLocation(`${name} lab`, "America/Chicago");
+    const machines = [
+      await api.createMachine(`${name} lab 1`, location.id),
+      await api.createMachine(`${name} lab 2`, location.id),
+      await api.createMachine(`${name} lab 3`, location.id),
+    ] as const;
+    const adding = load(machines[0], String(serials));
+    await online(machines[0]);
+    const { batch } = await enterBatch(adding, `${name} Natural`);
+    const bean = await holds(() => heldBean(adding, batch.bean.id), { archived: false });
+    const record = await holds(() => heldBatch(adding, batch.id), { archived: false });
+    const one = await rawHolder(machines[1], String(serials + 1), bean, record);
+    const two = await rawHolder(machines[2], String(serials + 2), bean, record, other);
+    const start = Date.now() + 1000;
+    const at = (seconds: number) => new Date(start + seconds * 1000);
+    await one.holds(at(0));
+    await two.holds(at(0));
+    return { batch, one, two, at };
+  }
+
   /** A Bean entered on a tablet and a batch of it, as a barista enters them, once the Library has the batch. */
   async function enterBatch(tablet: SimulatedTablet, bean: string, fields: Record_ = {}): Promise<{ record: Record_; batch: BeanBatchSummary }> {
     const entered = await tablet.addBean({ roaster: "Roux", name: bean, country: "Ethiopia" });
@@ -421,6 +467,40 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     expect(await whereAt(second_.id)).toEqual([["Rearchived lab", 250]]);
     expect(await offeredAt("Rearchived Natural")).toEqual(["Rearchived lab"]);
     expect(added.id).not.toBe(kept.id);
+  });
+
+  it("keeps a batch finished at the lab when a lab tablet archived it after another's archiving there, though that one's earlier un-archiving arrives after", async () => {
+    const { batch, one, two, at } = await rawLab("Refinished", 16271);
+    // One archives it, which the lab takes in, then, offline, un-archives it; the other, not yet written that, archives it later.
+    await one.reportBatch(true, at(1));
+    expect(await whereAt(batch.id)).toEqual([]);
+    await two.reportBatch(true, at(3));
+    // The earlier un-archiving, arriving last, loses to that archiving, the field's latest edit, though it left the lab's state as it was.
+    await one.reportBatch(false, at(2));
+    expect(await whereAt(batch.id)).toEqual([]);
+  });
+
+  it("keeps a batch at the lab when a lab tablet added it back after another's adding back there, though that one's earlier archiving arrives after", async () => {
+    const { batch, one, two, at } = await rawLab("Readded", 16281);
+    await two.reportBatch(true, at(1));
+    expect(await whereAt(batch.id)).toEqual([]);
+    // One archives it too and adds it back, then, offline, archives it again; the other, not yet written that, adds it back later.
+    await one.reportBatch(true, at(2));
+    await one.reportBatch(false, at(3));
+    expect(await whereAt(batch.id)).toEqual([["Readded lab", 250]]);
+    await two.reportBatch(false, at(5));
+    await one.reportBatch(true, at(4));
+    expect(await whereAt(batch.id)).toEqual([["Readded lab", 250]]);
+  });
+
+  it("keeps a batch finished at the lab when a lab tablet archived its Bean after another's archiving of the batch, though that one's earlier un-archiving arrives after", async () => {
+    const { batch, one, two, at } = await rawLab("Shelved again", 16291);
+    await one.reportBatch(true, at(1));
+    expect(await whereAt(batch.id)).toEqual([]);
+    // The other archives the Bean later: an edit to whether each of its batches is at the lab.
+    await two.reportBean(true, at(3));
+    await one.reportBatch(false, at(2));
+    expect(await whereAt(batch.id)).toEqual([]);
   });
 
   it("archives a batch deleted on one tablet on the Location's other tablet, not deleting it there", async () => {

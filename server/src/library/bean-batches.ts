@@ -3,7 +3,18 @@ import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { type LocationEdit, batchContent, editsInAnswer, planBatchIntake, readReportedBatches } from "./batch-intake.js";
-import { type AnswerRecorded, type AnsweringTablet, INTAKE_TRANSACTION, type ReportingTablet, currentLocation, lockHeldMachine, lockTablet } from "./intake.js";
+import {
+  type AnswerRecorded,
+  type AnsweringTablet,
+  INTAKE_TRANSACTION,
+  type ReportingTablet,
+  type SeenDecision,
+  currentLocation,
+  keepSeenSql,
+  lockHeldMachine,
+  lockTablet,
+  seenAtSql,
+} from "./intake.js";
 import { listedIds } from "./listed.js";
 import { addBatchAt, deletedAt, enterRemainingWeight, finishBatchAt, lockLocation, transactionTime } from "./location-state.js";
 
@@ -36,11 +47,11 @@ export async function takeInBatches(
   const mapped = await tx.$queryRaw<
     { batchId: string; localId: string; updatedAt: Date | null; globalId: string | null; archived: boolean; weightRemaining: number | null; seenAt: Date | null }[]
   >`
-    SELECT batch_id AS "batchId", local_id AS "localId", record_updated_at AS "updatedAt", seen_at AS "seenAt",
+    SELECT batch_id AS "batchId", local_id AS "localId", record_updated_at AS "updatedAt", ${seenAtSql(locationId)} AS "seenAt",
       lower(record -> 'extras' ->> ${GLOBAL_ID_KEY}::text) AS "globalId", (record ->> 'archived') = 'true' AS archived,
       CASE WHEN jsonb_typeof(record -> 'weightRemaining') = 'number' THEN (record ->> 'weightRemaining')::double precision END AS "weightRemaining"
     FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid`;
-  /** The Location's decision of each batch that the tablet's record the map holds has seen: one decided by then, the tablet had seen. */
+  /** The Location's latest decision of each batch that the tablet's record the map holds has seen there: one decided by then, the tablet had seen. */
   const seenAt = new Map(mapped.map((batch) => [batch.batchId, batch.seenAt]));
   // The Library Beans the tablet's records of its beans are, by their ids there.
   const beans = await tx.tabletBean.findMany({ where: { tabletId: tablet.tabletId }, select: { localId: true, beanId: true } });
@@ -75,7 +86,8 @@ export async function takeInBatches(
     const applied = step.kind === "map" ? null : await applyEdits(tx, batchId, locationId, step.edits, batch.updatedAt, seenAt.get(batchId) ?? null);
     if (applied?.changed) writesDue = true;
     // A report shows nothing of what the tablet saw of others' decisions, only of the one its own edit made.
-    await saveRecord(tx, tablet.tabletId, batchId, batch.localId, batch.record, batch.updatedAt, applied?.decidedAt ?? null);
+    const decided = applied?.decidedAt ?? null;
+    await saveRecord(tx, tablet.tabletId, batchId, batch.localId, batch.record, batch.updatedAt, decided === null ? null : { at: decided, locationId });
     // A record whose global id is lost has it written back.
     if (batch.globalId !== batchId) writesDue = true;
   }
@@ -118,8 +130,9 @@ async function applyEdits(
  * such as archiving the batch just before the server wrote its global id, is
  * taken in as a report would take it (`editsInAnswer`). The record has seen
  * the Location's decision of the batch's presence that the write carried
- * (`seenAt`), as Decaid answered after it, or, deciding it itself, its own;
- * null says nothing new, as for an answer to a write no longer awaited.
+ * (`seen`), as Decaid answered after it, if its Machine is still at that
+ * Location, or, deciding it itself, its own; null says nothing new, as for
+ * an answer to a write no longer awaited.
  */
 export async function recordBatchWritten(
   prisma: PrismaService,
@@ -128,7 +141,7 @@ export async function recordBatchWritten(
   written: ReadonlySet<string>,
   record: Record<string, unknown>,
   updatedAt: string | null,
-  seenAt: Date | null,
+  seen: SeenDecision | null,
 ): Promise<AnswerRecorded> {
   if (!isRecordId(record.id) || globalIdOf(record) !== batchId.toLowerCase()) return "notTheItem";
   const localId = record.id;
@@ -138,33 +151,34 @@ export async function recordBatchWritten(
     if ((await tx.beanBatch.count({ where: { id: batchId } })) === 0) return "notTheItem";
     const other = await tx.tabletBeanBatch.findUnique({ where: { tabletId_localId: { tabletId: tablet.tabletId, localId } }, select: { batchId: true } });
     if (other && other.batchId !== batchId) return "notTheItem";
+    const locationId = await currentLocation(tx, tablet.machineId);
     const [known] = await tx.$queryRaw<{ archived: boolean; weightRemaining: number | null; seenAt: Date | null }[]>`
-      SELECT (record ->> 'archived') = 'true' AS archived, seen_at AS "seenAt",
+      SELECT (record ->> 'archived') = 'true' AS archived, ${seenAtSql(locationId)} AS "seenAt",
         CASE WHEN jsonb_typeof(record -> 'weightRemaining') = 'number' THEN (record ->> 'weightRemaining')::double precision END AS "weightRemaining"
       FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid AND batch_id = ${batchId}::uuid`;
     const at = updatedAt === null ? null : new Date(updatedAt);
     const edits = editsInAnswer(known ?? null, record, written);
-    const locationId = edits.length === 0 ? null : await currentLocation(tx, tablet.machineId);
-    let decidedAt: Date | null = null;
-    if (locationId !== null) {
+    let decided: SeenDecision | null = null;
+    if (locationId !== null && edits.length > 0) {
       await lockLocation(tx, locationId);
       const applied = await applyEdits(tx, batchId, locationId, edits, at ?? (await transactionTime(tx)), known?.seenAt ?? null);
       if (applied.changed) await notify(tx, "library_changes", locationId);
-      decidedAt = applied.decidedAt;
+      decided = applied.decidedAt === null ? null : { at: applied.decidedAt, locationId };
     }
-    await saveRecord(tx, tablet.tabletId, batchId, localId, record, at, decidedAt ?? seenAt);
+    await saveRecord(tx, tablet.tabletId, batchId, localId, record, at, decided ?? (seen?.locationId === locationId ? seen : null));
     return "recorded";
   }, INTAKE_TRANSACTION);
 }
 
 /**
  * Saves the tablet's record of a batch as the one it holds, under its local
- * id, as `saveRecord` in beans.ts does a Bean's, with the Location's decision
- * of the batch's presence it has now seen (`seenAt`): one the server's write
- * carried, or one its own edit made. It keeps the latest it has seen: a write
- * planned before the tablet's own later decision, such as one of a remaining
- * weight answered after a report that archived the batch, shows that decision
- * no less. Null keeps the one known.
+ * id, as `saveRecord` in beans.ts does a Bean's, with a decision of the
+ * batch's presence at its Location it has now seen (`seen`): one the
+ * server's write carried, or one its own edit made. It keeps the latest it
+ * has seen at one Location (`keepSeenSql`): a write planned before the
+ * tablet's own later decision, such as one of a remaining weight answered
+ * after a report that archived the batch, shows that decision no less. Null
+ * keeps the one known.
  */
 async function saveRecord(
   tx: Prisma.TransactionClient,
@@ -173,12 +187,12 @@ async function saveRecord(
   localId: string,
   record: Record<string, unknown>,
   updatedAt: Date | null,
-  seenAt: Date | null,
+  seen: SeenDecision | null,
 ): Promise<void> {
   await tx.$executeRaw`
-    INSERT INTO tablet_bean_batches (tablet_id, batch_id, local_id, record, record_updated_at, seen_at)
-    VALUES (${tabletId}::uuid, ${batchId}::uuid, ${localId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz, ${seenAt}::timestamptz)
+    INSERT INTO tablet_bean_batches (tablet_id, batch_id, local_id, record, record_updated_at, seen_at, seen_location_id)
+    VALUES (${tabletId}::uuid, ${batchId}::uuid, ${localId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz,
+      ${seen?.at ?? null}::timestamptz, ${seen?.locationId ?? null}::uuid)
     ON CONFLICT (tablet_id, batch_id) DO UPDATE SET
-      local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at,
-      seen_at = GREATEST(EXCLUDED.seen_at, tablet_bean_batches.seen_at)`;
+      local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at, ${keepSeenSql("tablet_bean_batches")}`;
 }

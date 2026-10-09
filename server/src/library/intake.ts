@@ -1,7 +1,7 @@
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 
 // What taking a tablet's reports into the Library shares across kinds
-// (beans.ts, bean-batches.ts): who reported, the Location it is taken in at,
+// (beans.ts, bean-batches.ts, profiles.ts): who reported, the Location it is taken in at,
 // and the tablet's row lock that every change to its map holds.
 
 /**
@@ -22,6 +22,35 @@ export interface ReportingTablet {
 /** A connection whose tablet's answers to writes are recorded: its session, the Machine whose token it used, and its tablet. */
 export interface AnsweringTablet extends ReportingTablet {
   sessionId: string;
+}
+
+/**
+ * A decision of a Location's state that a tablet's record has seen
+ * (ADR-0020): when it was decided, by PostgreSQL's clock, and at which
+ * Location. It says nothing of another Location's decisions.
+ */
+export interface SeenDecision {
+  at: Date;
+  locationId: string;
+}
+
+/** The time of the decision a tablet's record has seen, as a column of the record's row, if it was at this Location; null otherwise, or without one. */
+export function seenAtSql(locationId: string | null): Prisma.Sql {
+  return Prisma.sql`CASE WHEN seen_location_id = ${locationId}::uuid THEN seen_at END`;
+}
+
+/**
+ * How an upsert of a tablet's record in `table` keeps the decision it has
+ * seen: the latest at one Location. One seen at another Location replaces
+ * it, as the Machine has moved there; none keeps it.
+ */
+export function keepSeenSql(table: string): Prisma.Sql {
+  const known = Prisma.raw(table);
+  return Prisma.sql`
+    seen_at = CASE WHEN EXCLUDED.seen_at IS NULL THEN ${known}.seen_at
+      WHEN ${known}.seen_location_id IS DISTINCT FROM EXCLUDED.seen_location_id THEN EXCLUDED.seen_at
+      ELSE GREATEST(EXCLUDED.seen_at, ${known}.seen_at) END,
+    seen_location_id = CASE WHEN EXCLUDED.seen_at IS NULL THEN ${known}.seen_location_id ELSE EXCLUDED.seen_location_id END`;
 }
 
 /** What became of an answer to a write. */

@@ -8,7 +8,7 @@ export interface BatchAtLocation {
   location: LocationView;
   /** The remaining weight entered there last, in grams: null if none was, or it was cleared. */
   remainingWeight: number | null;
-  /** When it was added there, by the edit's time: a tablet's edit by its clock. */
+  /** When it was last added there, by the edit's time: a tablet's edit by its clock. A tablet adding it again while it is there moves it. */
   since: string;
 }
 

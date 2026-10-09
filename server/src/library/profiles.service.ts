@@ -15,7 +15,11 @@ export interface ProfileSummary {
   /** Whether it is one of Decaid's bundled Profiles, which every tablet has already. */
   bundled: boolean;
   archived: boolean;
-  /** The Locations showing it (ADR-0008), by name, each since when it is shown there, by PostgreSQL's clock. None while it is Archived. */
+  /**
+   * The Locations showing it (ADR-0008), by name, each with when the
+   * Location last decided to show it, by PostgreSQL's clock, as when a tablet
+   * there showed it again while it was shown. None while it is Archived.
+   */
   shownAt: { location: LocationView; since: string }[];
   /** When it joined the Library, by PostgreSQL's clock. */
   createdAt: string;

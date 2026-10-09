@@ -1,7 +1,18 @@
 import type { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
-import { type AnswerRecorded, type AnsweringTablet, INTAKE_TRANSACTION, type ReportingTablet, currentLocation, lockHeldMachine, lockTablet } from "./intake.js";
+import {
+  type AnswerRecorded,
+  type AnsweringTablet,
+  INTAKE_TRANSACTION,
+  type ReportingTablet,
+  type SeenDecision,
+  currentLocation,
+  keepSeenSql,
+  lockHeldMachine,
+  lockTablet,
+  seenAtSql,
+} from "./intake.js";
 import { listedIds } from "./listed.js";
 import { decideProfileAt, deletedAt, lockLocation, showProfileAt, transactionTime } from "./location-state.js";
 import { planProfileIntake, profileContent, readReportedProfiles } from "./profile-intake.js";
@@ -41,9 +52,9 @@ export async function takeInProfiles(
   const reported = readReportedProfiles(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
   const mapped = await tx.$queryRaw<{ profileId: string; updatedAt: Date | null; visible: boolean; seenAt: Date | null }[]>`
-    SELECT profile_id AS "profileId", record_updated_at AS "updatedAt", (record ->> 'visibility') = 'visible' AS visible, seen_at AS "seenAt"
+    SELECT profile_id AS "profileId", record_updated_at AS "updatedAt", (record ->> 'visibility') = 'visible' AS visible, ${seenAtSql(locationId)} AS "seenAt"
     FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid`;
-  /** The Location's decision of each Profile that the tablet's record the map holds has seen: one decided by then, the tablet had seen. */
+  /** The Location's latest decision of each Profile that the tablet's record the map holds has seen there: one decided by then, the tablet had seen. */
   const seenAt = new Map(mapped.map((profile) => [profile.profileId, profile.seenAt]));
   const mappedIds = new Set(mapped.map((profile) => profile.profileId));
   const unmapped = reported.flatMap((profile) => (mappedIds.has(profile.id) ? [] : [profile.id]));
@@ -82,7 +93,11 @@ export async function takeInProfiles(
       if (decided !== null) {
         writesDue = true;
         // The tablet's record decided it, so it has seen that.
-        await tx.$executeRaw`UPDATE tablet_profiles SET seen_at = GREATEST(seen_at, ${decided}::timestamptz) WHERE tablet_id = ${tablet.tabletId}::uuid AND profile_id = ${step.profileId}`;
+        await tx.$executeRaw`
+          UPDATE tablet_profiles SET
+            seen_at = CASE WHEN seen_location_id = ${locationId}::uuid THEN GREATEST(seen_at, ${decided}::timestamptz) ELSE ${decided}::timestamptz END,
+            seen_location_id = ${locationId}::uuid
+          WHERE tablet_id = ${tablet.tabletId}::uuid AND profile_id = ${step.profileId}`;
       }
       continue;
     }
@@ -106,7 +121,7 @@ export async function takeInProfiles(
       writesDue = true;
     }
     // A report shows nothing of what the tablet saw of others' decisions, only of the one its own edit made.
-    await saveRecord(tx, tablet.tabletId, profile.id, profile.record, profile.updatedAt, decided);
+    await saveRecord(tx, tablet.tabletId, profile.id, profile.record, profile.updatedAt, decided === null ? null : { at: decided, locationId });
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
   return locationId;
@@ -120,8 +135,9 @@ export async function takeInProfiles(
  * Location. Recorded only while the answering connection holds its Machine,
  * under the Machine's and the tablet's locks, in the order a report takes
  * them. The record has seen the Location's decision of the Profile that the
- * write carried (`seenAt`); null says nothing new, as for an answer to a
- * write no longer awaited. Nothing is recorded
+ * write carried (`seen`), if its Machine is still at that Location; null
+ * says nothing new, as for an answer to a write no longer awaited. Nothing
+ * is recorded
  * when the record is another Profile's, as one a Decaid hashing profiles
  * otherwise would make, or when the Library no longer has the Profile.
  */
@@ -131,14 +147,15 @@ export async function recordProfileWritten(
   profileId: string,
   record: Record<string, unknown>,
   updatedAt: string | null,
-  seenAt: Date | null,
+  seen: SeenDecision | null,
 ): Promise<AnswerRecorded> {
   if (record.id !== profileId) return "notTheItem";
   return prisma.$transaction(async (tx): Promise<AnswerRecorded> => {
     if (!(await lockHeldMachine(tx, tablet))) return "released";
     await lockTablet(tx, tablet.tabletId);
     if ((await tx.profile.count({ where: { id: profileId } })) === 0) return "notTheItem";
-    await saveRecord(tx, tablet.tabletId, profileId, record, updatedAt === null ? null : new Date(updatedAt), seenAt);
+    const here = seen === null ? null : await currentLocation(tx, tablet.machineId);
+    await saveRecord(tx, tablet.tabletId, profileId, record, updatedAt === null ? null : new Date(updatedAt), seen?.locationId === here ? seen : null);
     return "recorded";
   }, INTAKE_TRANSACTION);
 }
@@ -160,10 +177,10 @@ async function joinedAt(tx: Prisma.TransactionClient, tablet: ReportingTablet): 
 
 /**
  * Saves the tablet's record of a Profile as the one it holds, as `saveRecord`
- * in beans.ts does a Bean's, with the Location's decision of the Profile it
- * has now seen (`seenAt`): one the server's write carried, or one its own
- * edit made. It keeps the latest it has seen, as a batch's record does; null
- * keeps the one known.
+ * in beans.ts does a Bean's, with a decision of the Profile at its Location
+ * it has now seen (`seen`): one the server's write carried, or one its own
+ * edit made. It keeps the latest it has seen at one Location (`keepSeenSql`);
+ * null keeps the one known.
  */
 async function saveRecord(
   tx: Prisma.TransactionClient,
@@ -171,11 +188,11 @@ async function saveRecord(
   profileId: string,
   record: Record<string, unknown>,
   updatedAt: Date | null,
-  seenAt: Date | null,
+  seen: SeenDecision | null,
 ): Promise<void> {
   await tx.$executeRaw`
-    INSERT INTO tablet_profiles (tablet_id, profile_id, record, record_updated_at, seen_at)
-    VALUES (${tabletId}::uuid, ${profileId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz, ${seenAt}::timestamptz)
+    INSERT INTO tablet_profiles (tablet_id, profile_id, record, record_updated_at, seen_at, seen_location_id)
+    VALUES (${tabletId}::uuid, ${profileId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz, ${seen?.at ?? null}::timestamptz, ${seen?.locationId ?? null}::uuid)
     ON CONFLICT (tablet_id, profile_id) DO UPDATE SET
-      record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at, seen_at = GREATEST(EXCLUDED.seen_at, tablet_profiles.seen_at)`;
+      record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at, ${keepSeenSql("tablet_profiles")}`;
 }

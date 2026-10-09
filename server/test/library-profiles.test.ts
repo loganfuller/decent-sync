@@ -1,6 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { SimulatedTablet, de1ProOnDecaid087, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
+import { RawConnection, SimulatedTablet, de1ProOnDecaid087, derivedDe1Pro, derivedProfile, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #82: Profiles shown per Location. A Profile keeps
@@ -10,7 +11,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // Location's other tablets; hiding, deleting or replacing one on a tablet
 // hides it at that tablet's Location only, and hidden there it is hidden on
 // the Location's tablets, never deleted (ADR-0008, ADR-0019). Through the
-// built plugin in simulated tablets, on two server instances sharing one
+// built plugin in simulated tablets, and raw frames where a test sets when a
+// tablet's edits are reported, on two server instances sharing one
 // database, with assertions through the REST API and what each simulated
 // tablet's Decaid holds. Serials are made up, from 17001.
 
@@ -42,6 +44,7 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
   let other: TestServer;
   let api: AdminApi;
   const tablets: SimulatedTablet[] = [];
+  const raws: RawConnection[] = [];
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -50,6 +53,7 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
   }, 60_000);
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await Promise.all(raws.map((raw) => raw.terminate()));
     await other?.stop();
     await server?.stop();
   });
@@ -118,6 +122,28 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     // Each Location shows Decaid's bundled Profiles, as its first tablet reported them.
     await expect.poll(() => shownAt(name, BUNDLED), { timeout: 10_000 }).toEqual([`${name} cafe`, `${name} lab`]);
     return { labLocation, cafeLocation, machines, one, two, cafe, cafeTwo };
+  }
+
+  /**
+   * A tablet of the Machine sending raw frames, which reports its profiles
+   * only as a test gives them: a record of the Profile with that id, shown
+   * or hidden as of each time given. It reports no beans, so nothing is
+   * written to it.
+   */
+  async function rawTablet(machine: CreatedMachine, serial: string, instance = server) {
+    const raw = await RawConnection.welcomed(instance.url, helloWith(machine.token, { machine: { model: "DE1Pro", serial } }));
+    raws.push(raw);
+    return {
+      report: (id: string, visible: boolean, at: Date) =>
+        raw.deliver({
+          type: "collection",
+          id: randomUUID(),
+          name: "profiles",
+          available: true,
+          value: [{ id, profile: derivedProfile("Raw Bloom", 2.75), visibility: visible ? "visible" : "hidden", isDefault: false, updatedAt: at.toISOString() }],
+          updatedAt: [at.toISOString()],
+        }),
+    };
   }
 
   /** Saves a profile on the tablet, as a barista does, and resolves with its record once the Library shows it at the scenario's Locations named. */
@@ -347,6 +373,52 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     await holds(resent, record.id, "hidden");
     expect(await shownAt("Resent", record.id)).toEqual([]);
     expect(visibilityOn(lab2, record.id)).toBe("hidden");
+  });
+
+  it("keeps a Profile hidden at the lab when a lab tablet hid it after another's hide there, though that one's earlier show arrives after", async () => {
+    const location = await api.createLocation("Again lab", "America/Chicago");
+    const first = await api.createMachine("Again lab 1", location.id);
+    const second = await api.createMachine("Again lab 2", location.id);
+    const one = await rawTablet(first, "17131");
+    const two = await rawTablet(second, "17132", other);
+    const id = "profile:a9a1000000000000017c";
+    const start = Date.now() - 60_000;
+    const at = (seconds: number) => new Date(start + seconds * 1000);
+    await one.report(id, true, at(0));
+    await two.report(id, true, at(0));
+    expect(await shownAt("Again", id)).toEqual(["Again lab"]);
+
+    // One hides it, which the lab takes in, then, offline, shows it again; the other, not yet written the hide, hides it later.
+    await one.report(id, false, at(1));
+    expect(await shownAt("Again", id)).toEqual([]);
+    await two.report(id, false, at(3));
+    // The earlier show, arriving last, loses to that hide, the field's latest edit, though it left the lab's state as it was (ADR-0020).
+    await one.report(id, true, at(2));
+    expect(await shownAt("Again", id)).toEqual([]);
+  });
+
+  it("judges a moved tablet's late show at its new Location by its time, whatever it had seen at its old one", async () => {
+    const lab = await api.createLocation("Carried lab", "America/Chicago");
+    const cafe = await api.createLocation("Carried cafe", "America/Chicago");
+    const moving = await api.createMachine("Carried lab group", lab.id);
+    const staying = await api.createMachine("Carried cafe group", cafe.id);
+    const one = await rawTablet(moving, "17141");
+    const two = await rawTablet(staying, "17142", other);
+    const id = "profile:a9a1000000000000017d";
+    const start = Date.now() - 60_000;
+    const at = (seconds: number) => new Date(start + seconds * 1000);
+    await one.report(id, true, at(0));
+    await two.report(id, true, at(0));
+    expect(await shownAt("Carried", id)).toEqual(["Carried cafe", "Carried lab"]);
+
+    // The cafe's tablet hides it there; the lab's hid it at the lab earlier, and showed it again, its reports late.
+    await two.report(id, false, at(3));
+    await one.report(id, false, at(1));
+    expect(await shownAt("Carried", id)).toEqual([]);
+    // Its Machine moves to the cafe before the show arrives: what it had seen at the lab says nothing of the cafe's later hide.
+    expect((await api.call("POST", `/machines/${moving.machine.id}/location-history`, { locationId: cafe.id })).status).toBe(201);
+    await one.report(id, true, at(2));
+    expect(await shownAt("Carried", id)).toEqual([]);
   });
 
   it("keeps Decaid's bundled Profiles as a moved tablet had them at a Location that has decided nothing of them, and hides the Profiles of its old Location there", async () => {
