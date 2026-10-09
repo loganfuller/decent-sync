@@ -162,8 +162,10 @@ export class LibraryWrites {
    * outbox reads a new Shot only as it sends it, is read here once.
    */
   private async namedByShot(kind: "beanBatch" | "grinder", ids: ReadonlySet<string>): Promise<boolean> {
-    for (const id of this.outbox.requestedIds("shot")) {
-      if (this.shotsRead.has(id)) continue;
+    const unread = this.outbox.requestedIds("shot").filter((id) => !this.shotsRead.has(id));
+    // As during a backfill: reading them all would hold up every write behind this one, so the delete waits for a later connection.
+    if (unread.length > MAX_SHOTS_READ) return true;
+    for (const id of unread) {
       const shot = await readShot(id);
       this.shotsRead.add(id);
       if (shot) this.noteShot(shot);
@@ -204,7 +206,8 @@ export class LibraryWrites {
  * deleted first, as DYE2 does (dye2:dye2-plugin/src/utils/bean-delete.ts),
  * since Decaid refuses to delete a bean that has any. A batch or Grinder
  * record, or a bean one of whose batches is, that a Shot this plugin queued
- * since it loaded, or has yet to read and send, names (`namedByShot`) is not deleted: the server keeps such
+ * since it loaded, or has yet to read and send, names (`namedByShot`) is not deleted, nor is
+ * anything while more Shots than MAX_SHOTS_READ are still to be read: the server keeps such
  * a record once it has the Shot, and otherwise asks again on the tablet's
  * next connection.
  */
@@ -244,8 +247,11 @@ async function carryOutDelete(
   }
 }
 
-/** Why a delete is refused while a Shot this plugin queued names its record. */
-const SHOT_NOT_SENT = "A Shot this tablet sent since the plugin loaded names the record";
+/** Why a delete is refused while a Shot this plugin queued, or has yet to send, may name its record or one of its batches. */
+const SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches, or too many are still to be read";
+
+/** The most Shots still to be read that a delete reads to see whether they name its record. */
+const MAX_SHOTS_READ = 20;
 
 function deleted(remove: LibraryDelete): ItemDeleted {
   return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };

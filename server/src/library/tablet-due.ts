@@ -193,7 +193,7 @@ async function deletesDue(tx: Prisma.TransactionClient, tabletId: string, skippe
       AND NOT (kind = 'grinder' AND EXISTS (SELECT 1 FROM shots WHERE shots.grinder_id = due.local_id))
       AND NOT (kind = 'bean' AND EXISTS (
         SELECT 1 FROM tablet_deletions AS batch JOIN shots ON shots.bean_batch_id = batch.local_id
-        WHERE batch.tablet_id = due.tablet_id AND batch.kind = 'beanBatch' AND batch.bean_id = due.item_id
+        WHERE batch.tablet_id = due.tablet_id AND batch.kind = 'beanBatch' AND batch.bean_local_id = due.local_id
       ))
     ORDER BY local_id`;
   return rows

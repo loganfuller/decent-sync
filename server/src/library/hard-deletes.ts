@@ -113,10 +113,10 @@ async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: s
 
   for (const item of items) {
     const { table, map, column } = TABLES[item.kind];
-    // A batch's records keep its Bean, so a record of the Bean is deleted only once theirs are.
-    const bean = item.kind === "beanBatch" ? Prisma.sql`(SELECT bean_id FROM bean_batches WHERE id = ${item.id}::uuid)` : Prisma.sql`NULL::uuid`;
+    // A batch's records keep their bean's id there, so a bean's record is deleted only once its batches' are.
+    const bean = item.kind === "beanBatch" ? Prisma.sql`record ->> 'beanId'` : Prisma.sql`NULL::text`;
     await tx.$executeRaw`
-      INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id, bean_id)
+      INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id, bean_local_id)
       SELECT tablet_id, ${item.kind}, local_id, ${Prisma.raw(column)}, ${bean} FROM ${Prisma.raw(map)} WHERE ${Prisma.raw(column)} = ${item.id}::uuid
       ON CONFLICT DO NOTHING`;
     await tx.$executeRaw`INSERT INTO deleted_items (kind, item_id) VALUES (${item.kind}, ${item.id}::uuid) ON CONFLICT DO NOTHING`;
@@ -145,10 +145,11 @@ export async function recordDeleted(prisma: PrismaService, tabletId: string, kin
   });
 }
 
-/** A record a tablet reported: its id there, and the global id it carries, if any. */
+/** A record a tablet reported: its id there, the global id it carries, if any, and for a batch its bean's id there. */
 interface ReportedRecord {
   localId: string;
   globalId: string | null;
+  beanLocalId?: string;
 }
 
 /**
@@ -190,7 +191,8 @@ export async function setAsideDeleted<T extends ReportedRecord>(
     if (deleting.has(record.localId)) continue;
     if (record.globalId !== null && !mapped.has(record.localId) && deleted.has(record.globalId)) {
       await tx.$executeRaw`
-        INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id) VALUES (${tabletId}::uuid, ${kind}, ${record.localId}, ${record.globalId}::uuid)
+        INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id, bean_local_id)
+        VALUES (${tabletId}::uuid, ${kind}, ${record.localId}, ${record.globalId}::uuid, ${record.beanLocalId ?? null})
         ON CONFLICT DO NOTHING`;
       deleting.add(record.localId);
       due = true;

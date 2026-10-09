@@ -58,11 +58,12 @@ describe("Editing the Library in the management interface", { timeout: 60_000 },
   });
 
   /** The built plugin on a tablet of the Machine, polling every 5 s (0.1 s here), its Decaid's Library empty. */
-  function load(machine: CreatedMachine, serial: string, instance: TestServer = server): SimulatedTablet {
+  function load(machine: CreatedMachine, serial: string, instance: TestServer = server, apiDelayMs?: (method: string, path: string) => number): SimulatedTablet {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
       api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] },
       timeScale: 50,
+      ...(apiDelayMs ? { apiDelayMs } : {}),
     });
     tablets.push(tablet);
     return tablet;
@@ -360,6 +361,69 @@ describe("Editing the Library in the management interface", { timeout: 60_000 },
     expect((await send<{ beans: BeanView[] }>("GET", "/beans")).beans.filter((listed) => listed.name === "Pulled offline")).toEqual([]);
     const grinders = (await send<{ grinders: { model: string | null }[] }>("GET", "/grinders")).grinders;
     expect(grinders.filter((listed) => listed.model === "Offline grinder")).toEqual([]);
+  });
+
+  /** A Shot as the tablet with that serial pulled it, its Workflow naming the batch and Grinder records there. */
+  function shotNaming(id: string, serial: string, context: { beanBatchId?: string; grinderId?: string }): Record_ {
+    const fixture = shotFixture();
+    const workflow = fixture.workflow as Record_;
+    return { ...fixture, id, workflow: { ...workflow, machine: { ...(workflow.machine as Record_), serialNumber: serial }, context: { ...(workflow.context as Record_), ...context } } };
+  }
+
+  it("refuses on the tablet a delete a Shot it has yet to send names, though the server planned it first", async () => {
+    const location = await api.createLocation("Unsent cafe", "America/Chicago");
+    const machine = await api.createMachine("Unsent cafe 1", location.id);
+    // Decaid is slow to read a Shot, so the server plans the delete before it has the Shot just pulled.
+    const tablet = load(machine, "21081", server, (method, path) => (method === "GET" && path.startsWith("/shots/") ? 3_000 : 0));
+    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    const bean = await createBean({ roaster: "Roux", name: "Unsent Bean" });
+    const batch = await createBatch(bean.id, [{ locationId: location.id }]);
+    await poll(() => heldBatch(tablet, batch.id)).toBeTruthy();
+    const local = { batch: String(heldBatch(tablet, batch.id)!.id) };
+
+    const shot = shotNaming("shot-not-sent-yet", "21081", { beanBatchId: local.batch });
+    tablet.pullShot(shot);
+    await send("DELETE", `/bean-batches/${batch.id}`, undefined, api, 204);
+
+    await expect
+      .poll(() => server.output(), { timeout: 20_000 })
+      .toMatch(/did not delete "beanBatch" .*A Shot this plugin has queued or has yet to send names the record/);
+    await poll(async () => (await api.call("GET", `/shots/${shot.id}`)).status).toBe(200);
+    expect(tablet.batches().map((record) => record.id)).toEqual([local.batch]);
+    expect(tablet.writes.filter((write) => write.startsWith("DELETE "))).toEqual([]);
+  });
+
+  it("keeps a record restored with a deleted item's global id that a Shot names, with its bean, and deletes the rest", async () => {
+    const cafe = await locationWith("Restored cafe", [21091]);
+    const [first] = cafe.tablets as [SimulatedTablet];
+    const bean = await createBean({ roaster: "Roux", name: "Restored Bean" });
+    const batch = await createBatch(bean.id, [{ locationId: cafe.location.id }]);
+    const grinder = (await send<{ grinder: GrinderView }>("POST", "/grinders", { locationId: cafe.location.id, content: { model: "Restored grinder" } }, api, 201)).grinder;
+    await poll(() => heldBatch(first, batch.id)).toBeTruthy();
+    await poll(() => heldGrinder(first, grinder.id)).toBeTruthy();
+    await send("DELETE", `/beans/${bean.id}`, undefined, api, 204);
+    await send("DELETE", `/grinders/${grinder.id}`, undefined, api, 204);
+    await poll(() => first.batches()).toEqual([]);
+
+    // Another tablet there, offline, is restored from a backup holding them, and a Shot naming its batch reaches the server first.
+    const machine = await api.createMachine("Restored cafe 2", cafe.location.id);
+    const restored = load(machine, "21092");
+    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    restored.loseNetwork();
+    const restoredBean = (await restored.callApi("POST", "/beans", { roaster: "Roux", name: "Restored Bean", extras: { decentSyncId: bean.id } })).body as Record_;
+    const restoredBatch = (await restored.callApi("POST", `/beans/${String(restoredBean.id)}/batches`, { notes: "Restored", extras: { decentSyncId: batch.id } })).body as Record_;
+    const restoredGrinder = (await restored.callApi("POST", "/grinders", { model: "Restored grinder", extras: { decentSyncId: grinder.id } })).body as Record_;
+    const shot = shotNaming("shot-of-a-restored-batch", "21091", { beanBatchId: String(restoredBatch.id) });
+    first.pullShot(shot);
+    await poll(async () => (await api.call("GET", `/shots/${shot.id}`)).status).toBe(200);
+    restored.restoreNetwork();
+
+    // Grinders are deleted last, after any batch or bean due.
+    await poll(() => restored.grinders().find((record) => record.id === restoredGrinder.id)).toBeUndefined();
+    expect(restored.beans().map((record) => record.id)).toContain(restoredBean.id);
+    expect(restored.batches().map((record) => record.id)).toEqual([restoredBatch.id]);
+    expect(restored.writes).not.toContain(`DELETE /beans/${String(restoredBean.id)}`);
+    expect((await send<{ beans: BeanView[] }>("GET", "/beans")).beans.filter((listed) => listed.name === "Restored Bean")).toEqual([]);
   });
 
   it("lets Staff edit Beans and batch details anywhere, but add batches and edit Grinders only at their own Locations, and never hard-delete", async () => {

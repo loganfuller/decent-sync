@@ -796,8 +796,9 @@ var __decentSync = (() => {
      * outbox reads a new Shot only as it sends it, is read here once.
      */
     async namedByShot(kind, ids) {
-      for (const id of this.outbox.requestedIds("shot")) {
-        if (this.shotsRead.has(id)) continue;
+      const unread = this.outbox.requestedIds("shot").filter((id) => !this.shotsRead.has(id));
+      if (unread.length > MAX_SHOTS_READ) return true;
+      for (const id of unread) {
         const shot = await readShot(id);
         this.shotsRead.add(id);
         if (shot) this.noteShot(shot);
@@ -859,7 +860,8 @@ var __decentSync = (() => {
       return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  var SHOT_NOT_SENT = "A Shot this tablet sent since the plugin loaded names the record";
+  var SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches, or too many are still to be read";
+  var MAX_SHOTS_READ = 20;
   function deleted(remove) {
     return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
   }

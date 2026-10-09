@@ -1187,10 +1187,10 @@ model TabletDeletion {
   localId  String @map("local_id")
   /// The deleted item's global id, which the record carries.
   itemId   String @map("item_id") @db.Uuid
-  /// For a batch's record, the global id of its Bean, whose record is
-  /// deleted only once the batch's is, as Decaid deletes a bean's batches
-  /// with it.
-  beanId   String? @map("bean_id") @db.Uuid
+  /// For a batch's record, the id there of its bean's record, which is
+  /// deleted only once the batch's is, as the plugin deletes a bean's
+  /// batches with it.
+  beanLocalId String? @map("bean_local_id")
 
   @@id([tabletId, kind, localId])
   @@map("tablet_deletions")
