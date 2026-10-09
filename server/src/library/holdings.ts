@@ -3,9 +3,9 @@ import type { LibraryKind } from "@decent-sync/protocol";
 import { weightOf } from "./batch-intake.js";
 
 // What a tablet should hold for its Location (ADR-0008), and the writes that
-// bring it there. A tablet holds only what its Location offers: each Bean
-// and Bean Batch offered there, not archived, each batch with the remaining
-// weight entered there, and each Profile shown there, visible. What it holds
+// bring it there. A tablet holds only what its Location offers: each Bean,
+// Bean Batch and Grinder offered there, not archived, each batch with the
+// remaining weight entered there, and each Profile shown there, visible. What it holds
 // that the Location does not offer is archived or hidden on it, never
 // deleted, so its Shots still find it. Pure, so module tests can drive it;
 // tablet-due.ts reads what it needs.
@@ -16,6 +16,12 @@ export interface OfferedBean {
   content: Record<string, unknown>;
   /** When the Location last decided whether any of its batches is there, by PostgreSQL's clock; null if it never did. */
   decidedAt: Date | null;
+}
+
+/** A Grinder a Location offers, with its content. */
+export interface OfferedGrinder {
+  id: string;
+  content: Record<string, unknown>;
 }
 
 /** A Bean Batch, as the Location has it: offered there or not, and its remaining weight there. */
@@ -48,6 +54,8 @@ export interface LocationOffer {
   beans: readonly OfferedBean[];
   /** The batches it offers, then the other batches the tablet holds. */
   batches: readonly LocationBatch[];
+  /** The Grinders belonging to it, but those Archived. */
+  grinders: readonly OfferedGrinder[];
   /** The Profiles it shows. */
   profiles: readonly ShownProfile[];
 }
@@ -69,6 +77,7 @@ export interface HeldRecord {
 export interface TabletHoldings {
   beans: readonly HeldRecord[];
   batches: readonly HeldRecord[];
+  grinders: readonly HeldRecord[];
   profiles: readonly HeldRecord[];
 }
 
@@ -84,7 +93,8 @@ export interface PlannedWrite {
    * The Location's latest decision of the batch's presence, of the presence
    * of any of the Bean's batches, or of the Profile's showing, by
    * PostgreSQL's clock, as the write was planned: Decaid answers it after
-   * that, so its answer has seen it. Null where the Location never decided it.
+   * that, so its answer has seen it. Null where the Location never decided
+   * it, and for a Grinder, whose Archived state no decision times yet.
    */
   decidedAt: Date | null;
 }
@@ -101,12 +111,14 @@ export function writeKey(kind: LibraryKind, globalId: string): string {
  * global id or with another remaining weight than the Location's; then
  * each batch the tablet holds that the Location does not offer, archived,
  * and each Bean the same way. Beans so come before their batches, and
- * batches are archived before their Beans. Last, each Profile the Location
- * shows that the tablet lacks, created, unless it is one of Decaid's bundled
- * Profiles, after the Profile it was saved from if that is created too, so
- * the tablet keeps its parent; or that the tablet holds hidden or deleted,
- * made visible. Then each the tablet holds visible that the Location does
- * not show, hidden. Items in `skipped`
+ * batches are archived before their Beans. Then each Grinder the Location
+ * offers that the tablet lacks, holds archived, or holds without its global
+ * id, and each the tablet holds that it does not offer, archived. Last, each
+ * Profile the Location shows that the tablet lacks, created, unless it is one
+ * of Decaid's bundled Profiles, after the Profile it was saved from if that
+ * is created too, so the tablet keeps its parent; or that the tablet holds
+ * hidden or deleted, made visible. Then each the tablet holds visible that
+ * the Location does not show, hidden. Items in `skipped`
  * (`writeKey`) are left out, and so is a batch whose Bean the tablet holds
  * no record of yet: its Bean is written first. Every update sets only the
  * fields that differ, writing the global id beside them; a Profile's records
@@ -144,6 +156,16 @@ export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skippe
   }
   for (const record of held.beans) {
     if (!offeredBeans.has(record.itemId)) pushUpdate(writes, "bean", record.itemId, record, record.record.archived === true ? {} : { archived: true }, record.decidedAt ?? null);
+  }
+  const grinders = new Map(held.grinders.map((record) => [record.itemId, record]));
+  const offeredGrinders = new Set(offer.grinders.map((grinder) => grinder.id));
+  for (const grinder of offer.grinders) {
+    const record = grinders.get(grinder.id);
+    if (!record) writes.push({ kind: "grinder", globalId: grinder.id, localId: null, fields: grinder.content, decidedAt: null });
+    else pushUpdate(writes, "grinder", grinder.id, record, record.record.archived === true ? { archived: false } : {}, null);
+  }
+  for (const record of held.grinders) {
+    if (!offeredGrinders.has(record.itemId)) pushUpdate(writes, "grinder", record.itemId, record, record.record.archived === true ? {} : { archived: true }, null);
   }
   const profiles = new Map(held.profiles.map((record) => [record.itemId, record]));
   const shownProfiles = new Set(offer.profiles.map((profile) => profile.id));

@@ -30,7 +30,8 @@ interface Route {
   deferred: readonly string[];
   /**
    * Whether a record without a global id is the item a write would create:
-   * a bean with the same roaster and name (ADR-0018). Bean Batches never are.
+   * a bean with the same roaster and name (ADR-0018). Bean Batches and
+   * Grinders never are.
    */
   sameItem(record: Record<string, unknown>, fields: Record<string, unknown>): boolean;
 }
@@ -55,6 +56,13 @@ const ROUTES: Readonly<Record<string, Route>> = {
     // Under the tablet's record of its bean, which `beanId` names; the path decides it, and Decaid ignores the field.
     create: (fields) => (typeof fields.beanId === "string" && fields.beanId !== "" ? `/beans/${encodeURIComponent(fields.beanId)}/batches` : null),
     deferred: ["archived", "weightRemaining"],
+    sameItem: () => false,
+  },
+  grinder: {
+    list: "/grinders?includeArchived=true",
+    records: "/grinders",
+    create: () => "/grinders",
+    deferred: ["archived"],
     sameItem: () => false,
   },
 };

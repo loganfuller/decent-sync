@@ -40,7 +40,7 @@ const SOURCES: readonly Source[] = [
  * (`LibraryAccess`): a report of one of them must hold each write that began
  * before it.
  */
-const WRITTEN_LISTS: ReadonlySet<CollectionName> = new Set(["beans", "beanBatches", "profiles"]);
+const WRITTEN_LISTS: ReadonlySet<CollectionName> = new Set(["beans", "beanBatches", "grinders", "profiles"]);
 
 /**
  * The tablet's library, settings and paired devices, through the outbox.

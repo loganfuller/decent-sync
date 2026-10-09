@@ -13,6 +13,9 @@ export function LibraryNav() {
       <NavLink to="/library/bean-batches" className={linkClass}>
         Bean Batches
       </NavLink>
+      <NavLink to="/library/grinders" className={linkClass}>
+        Grinders
+      </NavLink>
       <NavLink to="/library/profiles" className={linkClass}>
         Profiles
       </NavLink>

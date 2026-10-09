@@ -3,6 +3,7 @@ import { COLLECTION_NAMES, type CollectionDelivery, type CollectionName, isColle
 import { Prisma } from "../generated/prisma/client.js";
 import { takeInBatches } from "../library/bean-batches.js";
 import { takeInBeans } from "../library/beans.js";
+import { takeInGrinders } from "../library/grinders.js";
 import { INTAKE_TRANSACTION } from "../library/intake.js";
 import { takeInProfiles } from "../library/profiles.js";
 import type { TakenInList } from "../sync/tablet-writer.js";
@@ -34,7 +35,7 @@ export interface CollectionView extends CollectionSummary {
 type Row = { name: string; available: boolean; reportedAt: Date; receivedAt: Date | null; items: number | null };
 
 /** How each of the tablet's Library lists is taken into the Library. */
-const TAKE_IN = { beans: takeInBeans, beanBatches: takeInBatches, profiles: takeInProfiles } as const satisfies Record<TakenInList, unknown>;
+const TAKE_IN = { beans: takeInBeans, beanBatches: takeInBatches, grinders: takeInGrinders, profiles: takeInProfiles } as const satisfies Record<TakenInList, unknown>;
 
 function isTakenIn(name: string): name is TakenInList {
   return Object.prototype.hasOwnProperty.call(TAKE_IN, name);
@@ -43,11 +44,11 @@ function isTakenIn(name: string): name is TakenInList {
 /**
  * The collections tablets report: their library, settings and paired
  * devices, stored as the latest value of each, per Machine. A tablet's
- * `beans`, `beanBatches` and `profiles` are also taken into the Library, in
- * the same transaction, when its connection is not mismatched and its
- * Machine is at a Location (server/src/library/beans.ts, bean-batches.ts and
- * profiles.ts); the Library is written back to tablets, not these
- * collections.
+ * `beans`, `beanBatches`, `grinders` and `profiles` are also taken into the
+ * Library, in the same transaction, when its connection is not mismatched
+ * and its Machine is at a Location (server/src/library/beans.ts,
+ * bean-batches.ts, grinders.ts and profiles.ts); the Library is written back
+ * to tablets, not these collections.
  *
  * A collection belongs to the session's token's Machine, or for a mismatched
  * session to its reported hardware: the Machine that has it, or else its
@@ -75,7 +76,7 @@ export class CollectionsService {
 
   /**
    * Stores a collection delivery. For a report of the tablet's beans, bean
-   * batches or profiles from a connection that is not mismatched, stored
+   * batches, grinders or profiles from a connection that is not mismatched, stored
    * now, returns which it was and the Location it was taken in at, null for a
    * Machine at none, or undefined if it was unavailable and so not taken in;
    * otherwise, as for a delivery handled before, undefined.

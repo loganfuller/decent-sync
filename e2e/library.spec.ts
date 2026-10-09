@@ -2,12 +2,13 @@ import { expect as baseExpect, type Locator, type Page, test } from "@playwright
 import { SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 
-// The Library's Beans, Bean Batches and Profiles in the management
-// interface. Simulated tablets running the built plugin, at two Locations,
-// add beans, batches and profiles in Decaid as baristas do; each joins the
-// Library at its tablet's Location, or, a Bean, becomes the Bean with the
-// same roaster and name, and is offered there, or, a Profile, is the Profile
-// with the same steps, and is shown there.
+// The Library's Beans, Bean Batches, Grinders and Profiles in the
+// management interface. Simulated tablets running the built plugin, at two
+// Locations, add beans, batches, grinders and profiles in Decaid as baristas
+// do; each joins the Library at its tablet's Location, or, a Bean, becomes
+// the Bean with the same roaster and name, and is offered there, or, a
+// Profile, is the Profile with the same steps, and is shown there. A Grinder
+// belongs to the Location where it was created.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
@@ -171,6 +172,51 @@ test("the Profiles list shows each Profile and the Locations showing it, and a P
   await expect(page.getByText("It is shown at no Location.")).toBeVisible();
 });
 
+test("the Grinders list shows each Grinder's Location, and a Grinder's page shows what it is", async ({ page }) => {
+  const lab = await createLocation(page, "Grinder lab");
+  const cafe = await createLocation(page, "Grinder cafe");
+  const labTablet = await tabletAt(page, "Grinder lab group", lab, "15031");
+  const cafeTablet = await tabletAt(page, "Grinder cafe group", cafe, "15032");
+
+  // One model at both Locations is two Grinders; one archived on the lab's tablet is Archived.
+  await labTablet.addGrinder({ model: "E2E EK43", burrs: "98mm Turkish", burrSize: 98, burrType: "flat", notes: "Filter station" });
+  await cafeTablet.addGrinder({ model: "E2E EK43", burrs: "98mm Turkish" });
+  const preset = await labTablet.addGrinder({ model: "E2E Encore", burrType: "conical", settingType: "preset", settingValues: ["1", "5", "10"], settingSmallStep: 1 });
+  await expect.poll(async () => grindersAt(page, "E2E EK43")).toEqual([["Grinder cafe", false], ["Grinder lab", false]]);
+  await expect.poll(async () => grindersAt(page, "E2E Encore")).toEqual([["Grinder lab", false]]);
+  await labTablet.editGrinder(preset.id, { archived: true });
+  await expect.poll(async () => grindersAt(page, "E2E Encore")).toEqual([["Grinder lab", true]]);
+
+  await page.goto("/library/beans");
+  await page.getByRole("navigation", { name: "Library" }).getByRole("link", { name: "Grinders" }).click();
+  await expect(page.getByRole("heading", { name: "Grinders", level: 1 })).toBeVisible();
+  const table = page.getByRole("table", { name: "Grinders" });
+  const row = (model: string) => rows(table).filter({ has: page.getByRole("link", { name: model, exact: true }) });
+  await expect(row("E2E EK43")).toHaveText([
+    ["E2E EK43", "98mm Turkish", "Grinder cafe", ""].join(""),
+    ["E2E EK43", "98mm Turkish", "Grinder lab", ""].join(""),
+  ]);
+  await expect(row("E2E Encore")).toHaveText(["E2E Encore", "-", "Grinder lab", "Archived"].join(""));
+
+  await row("E2E EK43").nth(1).getByRole("link").click();
+  await expect(page.getByRole("heading", { name: "E2E EK43", level: 1 })).toBeVisible();
+  const library = page.getByLabel("In the Library", { exact: true });
+  await expect(field(library, "Location")).toHaveText("Grinder lab");
+  await expect(field(library, "Offered")).toHaveText("Yes");
+  const grinder = page.getByLabel("Grinder", { exact: true });
+  await expect(field(grinder, "Burr size")).toHaveText("98 mm");
+  await expect(field(grinder, "Burr type")).toHaveText("flat");
+  await expect(field(grinder, "Notes")).toHaveText("Filter station");
+  await expect(field(grinder, "Setting")).toHaveText("Numbered dial");
+
+  await page.getByRole("link", { name: "← Grinders" }).click();
+  await row("E2E Encore").getByRole("link").click();
+  await expect(page.getByRole("heading", { name: "E2E Encore", level: 1 })).toBeVisible();
+  await expect(field(page.getByLabel("In the Library", { exact: true }), "Offered")).toHaveText("Nowhere: Archived");
+  await expect(field(page.getByLabel("Grinder", { exact: true }), "Setting")).toHaveText("Named positions: 1, 5, 10");
+  await expect(field(page.getByLabel("Grinder", { exact: true }), "Small step")).toHaveText("1");
+});
+
 async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {
   const response = await page.request.post("/api/locations", { data: { name, timeZone: "America/Chicago" } });
   baseExpect(response.status()).toBe(201);
@@ -204,6 +250,12 @@ async function batchAt(page: Page, bean: string): Promise<[string, number | null
     batches: { bean: { name: string }; locations: { location: { name: string }; remainingWeight: number | null }[] }[];
   };
   return batches.find((batch) => batch.bean.name === bean)?.locations.map((here) => [here.location.name, here.remainingWeight]);
+}
+
+/** The Locations of the Library's Grinders of that model, by name, with whether each is Archived, through the REST API. */
+async function grindersAt(page: Page, model: string): Promise<[string | undefined, boolean][]> {
+  const { grinders } = (await (await page.request.get("/api/grinders")).json()) as { grinders: { model: string; archived: boolean; location: { name: string } | null }[] };
+  return grinders.filter((grinder) => grinder.model === model).map((grinder) => [grinder.location?.name, grinder.archived]);
 }
 
 /** The Locations showing the Library's Profile with that id, through the REST API. */

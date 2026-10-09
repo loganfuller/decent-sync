@@ -89,7 +89,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
       decaidClockOffsetMs: options.decaidClockOffsetMs,
       stallUpload: options.stallUpload,
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": options.beans ?? [], "/bean-batches": options.batches ?? [] },
+      api: { ...derivedDe1Pro({ serial }), "/beans": options.beans ?? [], "/bean-batches": options.batches ?? [], "/grinders": [] },
       storage: options.storage,
       apiDelayMs: options.apiDelayMs,
       answerOnArrival: options.answerOnArrival,

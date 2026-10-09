@@ -79,6 +79,19 @@ the other tablets use. Show it again on any tablet there. Nothing is deleted
 from a tablet: what its Location stops showing is hidden on it.
 Export each tablet's data first if you may want to undo this, as above.
 
+### Tablets at a Location now share their grinders
+
+Once a tablet's Machine is at a Location, its grinders join the server's
+Library too, each belonging to that Location, and the Location's other
+tablets are written them, and no other Location's tablets. A tablet at a
+Location with several Machines therefore gets the other tablets' grinders
+beside its own, even ones of the same model: grinders are never merged.
+Archiving or deleting a grinder on a tablet archives it on every tablet at
+that Location, never deleting it, and un-archiving it brings it back. Nothing
+is deleted from a tablet: a moved Machine's tablet keeps its old Location's
+grinders, archived. Export each tablet's data first if you may want to undo
+this, as above.
+
 ### Reload the plugin after restoring the server's database
 
 The plugin now tells the server which Shots and Steam Records its tablet

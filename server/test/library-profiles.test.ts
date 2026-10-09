@@ -72,7 +72,7 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
       decaidClockOffsetMs: options.decaidClockOffsetMs,
       stallUpload: options.stallUpload,
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/profiles": bundled() },
+      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": bundled() },
       timeScale: 50,
     });
     tablets.push(tablet);

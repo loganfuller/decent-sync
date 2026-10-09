@@ -1,6 +1,6 @@
 import { Prisma } from "../generated/prisma/client.js";
 import type { PrismaService } from "../prisma.service.js";
-import { type HeldRecord, type LocationBatch, type OfferedBean, type PlannedWrite, type ShownProfile, plannedWrites } from "./holdings.js";
+import { type HeldRecord, type LocationBatch, type OfferedBean, type OfferedGrinder, type PlannedWrite, type ShownProfile, plannedWrites } from "./holdings.js";
 
 // What a connection's tablet is due: the next write that brings it to what
 // its Machine's Location offers (holdings.ts), read from the database each
@@ -25,7 +25,7 @@ export interface TabletDue {
  * Where the connection's Machine is now, and the writes its tablet is due,
  * leaving out the items in `skipped` (`writeKey`). No write is due while
  * the Machine is not at the Location its tablet's latest reports of its
- * beans, bean batches and profiles were all taken in at (`reportedAt`), so a
+ * beans, bean batches, grinders and profiles were all taken in at (`reportedAt`), so a
  * tablet is written only what the Library knows it lacks once what it holds
  * is taken in there, and a bean it holds already is linked rather than
  * written again. Read in one snapshot. Null while the connection no longer
@@ -75,6 +75,10 @@ export async function tabletDue(
         FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid ORDER BY bean_id`;
       const heldBatches = await tx.$queryRaw<HeldRecord[]>`
         SELECT batch_id AS "itemId", local_id AS "localId", record FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid ORDER BY batch_id`;
+      const grinders = await tx.$queryRaw<OfferedGrinder[]>`
+        SELECT id, content FROM grinders WHERE location_id = ${locationId}::uuid AND NOT archived ORDER BY created_at, id`;
+      const heldGrinders = await tx.$queryRaw<HeldRecord[]>`
+        SELECT grinder_id AS "itemId", local_id AS "localId", record FROM tablet_grinders WHERE tablet_id = ${tablet.tabletId}::uuid ORDER BY grinder_id`;
       // Each Profile's content only where the tablet lacks it, to create its record with: what a Location shows is many and large.
       const profiles = await tx.$queryRaw<ShownProfile[]>`
         SELECT profiles.id, profiles.bundled, here.decided_at AS "decidedAt",
@@ -94,9 +98,10 @@ export async function tabletDue(
       const offer = {
         beans,
         batches: batches.map(({ entered, remainingWeight, ...batch }) => ({ ...batch, remainingWeight: entered ? remainingWeight : undefined })),
+        grinders,
         profiles,
       };
-      return { locationId, writes: plannedWrites(offer, { beans: heldBeans, batches: heldBatches, profiles: heldProfiles }, skipped) };
+      return { locationId, writes: plannedWrites(offer, { beans: heldBeans, batches: heldBatches, grinders: heldGrinders, profiles: heldProfiles }, skipped) };
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   );

@@ -596,7 +596,7 @@ var __decentSync = (() => {
     { name: "scaleInfo", path: "/scale/info" },
     { name: "sensors", path: "/sensors" }
   ];
-  var WRITTEN_LISTS = /* @__PURE__ */ new Set(["beans", "beanBatches", "profiles"]);
+  var WRITTEN_LISTS = /* @__PURE__ */ new Set(["beans", "beanBatches", "grinders", "profiles"]);
   var CollectionCapture = class {
     constructor(outbox, library, pollMs) {
       __publicField(this, "outbox", outbox);
@@ -697,6 +697,13 @@ var __decentSync = (() => {
       // Under the tablet's record of its bean, which `beanId` names; the path decides it, and Decaid ignores the field.
       create: (fields) => typeof fields.beanId === "string" && fields.beanId !== "" ? `/beans/${encodeURIComponent(fields.beanId)}/batches` : null,
       deferred: ["archived", "weightRemaining"],
+      sameItem: () => false
+    },
+    grinder: {
+      list: "/grinders?includeArchived=true",
+      records: "/grinders",
+      create: () => "/grinders",
+      deferred: ["archived"],
       sameItem: () => false
     }
   };
