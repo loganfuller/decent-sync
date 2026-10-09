@@ -178,6 +178,8 @@ describe("Editing the Library in the management interface", { timeout: 60_000 },
     const tablet = north.tablets[0]!;
     tablet.loseNetwork();
     await tablet.editBean(heldBean(tablet, bean.id)!.id, { notes: "Offline notes" });
+    // Well after it, whatever the drift between the tablet's clock and PostgreSQL's.
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
     await send("PATCH", `/beans/${bean.id}`, { content: { notes: "Management notes" } });
     tablet.restoreNetwork();
     await poll(() => heldBean(tablet, bean.id)?.notes).toBe("Management notes");
