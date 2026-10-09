@@ -6,7 +6,7 @@ import { useFreshServer } from "./support/fresh-server.js";
 // interface (ADR-0014). Two simulated tablets running the built plugin at
 // Uptown, a DE1Pro and a Bengle, share Uptown's settings, which the first to
 // connect set; the Location's page shows them and its Machines, an Admin's
-// change reaches both tablets, a Machine switched off from sharing keeps its
+// change reaches both tablets, a Machine with sharing turned off keeps its
 // own, and Staff working elsewhere can change neither.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
@@ -25,7 +25,7 @@ test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
 });
 
-test("a Location's page shows its settings and Machines, changes them on every Machine sharing them, switches a Machine off, and Staff elsewhere cannot change them", async ({
+test("a Location's page shows its settings and Machines, changes them on every Machine sharing them, turns a Machine's sharing off, and Staff elsewhere cannot change them", async ({
   page,
   browser,
 }) => {
@@ -71,7 +71,7 @@ test("a Location's page shows its settings and Machines, changes them on every M
   await de1.changeSettings({ rinseData: { duration: 9 } });
   await expect(value(values, "Rinse time")).toHaveText("9 s");
 
-  // Switched off, the Bengle keeps its own; switched on again, it takes Uptown's.
+  // With sharing turned off, the Bengle keeps its own; turned back on, it takes Uptown's.
   const bengleSwitch = machines.getByRole("switch", { name: "Uptown Bengle shares these settings" });
   await bengleSwitch.click();
   await expect(bengleSwitch).not.toBeChecked();

@@ -17,8 +17,8 @@ import { readLocationValues } from "./settings-intake.js";
 // per-Location state). A change here is an edit by the account, timed by
 // PostgreSQL's clock (ADR-0016), made over the settings as they stand, and
 // written to the Location's Machines that share them, their steam settings
-// only to those whose steam is on. Each Machine's sharing is switched on or
-// off the same way.
+// only to those whose steam is on. Each Machine's sharing of them is turned
+// on or off the same way.
 
 /** A Machine at a Location, as its settings list it. */
 export interface SharingMachineView {
@@ -64,7 +64,7 @@ export class LocationSettingsService {
     if (!location) throw locationNotFound();
     const values = readLocationValues(row?.values);
     return {
-      // A Machine switched out of sharing makes the row, with nothing set, to keep its tablet's settings against.
+      // A Machine with sharing turned off makes the row, with nothing set, to keep its tablet's settings against.
       id: row && Object.keys(values).length > 0 ? row.id : null,
       values: Object.fromEntries(SHARED_SETTINGS.map((field) => [field, values[field] ?? null])) as Record<SharedSetting, number | null>,
       machines,
@@ -74,8 +74,8 @@ export class LocationSettingsService {
 
   /**
    * Switches whether a Machine's tablet shares its Location's settings, under
-   * the Machine's row lock, which taking in its Workflow holds: switched off,
-   * nothing of them is taken from it or written to it; switched on again, it
+   * the Machine's row lock, which taking in its Workflow holds: turned off,
+   * nothing of them is taken from it or written to it; turned back on, it
    * is written the Location's, and its own changes count from then on. Tells
    * every instance its Location's tablets are to be written. 404 if there is
    * no such Machine, 403 for Staff unless it is at one of their Locations.
@@ -84,8 +84,8 @@ export class LocationSettingsService {
     await this.prisma.$transaction(async (tx) => {
       if (!(await lockMachine(tx, machineId))) throw machineNotFound();
       const locationId = await currentLocation(tx, machineId);
-      if (!includesLocation(scope, locationId)) throw new ForbiddenException("Staff switch settings sharing only for Machines at their own Locations");
-      // Switched on, it is timed, so a change its tablet made while it was off and delivers later stays its own.
+      if (!includesLocation(scope, locationId)) throw new ForbiddenException("Staff turn settings sharing on or off only for Machines at their own Locations");
+      // Turned on, it is timed, so a change its tablet made while sharing was off and delivers later stays its own.
       await tx.$executeRaw`
         UPDATE machines SET shares_settings = ${sharesSettings},
           shares_settings_since = CASE WHEN ${sharesSettings} AND NOT shares_settings THEN now() ELSE shares_settings_since END

@@ -218,8 +218,9 @@ model Machine {
   decaidVersion      String?               @map("decaid_version")
   remoteAddress      String?               @map("remote_address")
   /// Whether its tablet shares its Location's steam, hot water and rinse
-  /// settings (ADR-0014): switched off, nothing of them is taken from it or
-  /// written to it, and switched on again it takes the Location's.
+  /// settings (ADR-0014): with sharing turned off, nothing of them is taken
+  /// from it or written to it, and with sharing turned back on it takes the
+  /// Location's.
   sharesSettings     Boolean               @default(true) @map("shares_settings")
   /// When an account last switched it on, by PostgreSQL's clock; null if
   /// never. A change its tablet observed before then, delivered after, was

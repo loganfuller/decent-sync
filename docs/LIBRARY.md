@@ -747,7 +747,7 @@ settings, which the Machines at a Location share whatever their model, DE1s
 and Bengles alike, the way every steam wand on one commercial machine runs
 the same settings (ADR-0014; `location-settings.ts`, with the pure
 `settings-intake.ts`). Who takes part is as for the Library (Who takes part,
-above), but for a Machine switched out of sharing them (below).
+above), but for a Machine whose sharing of them is turned off (below).
 
 The settings are the eleven fields `SHARED_SETTINGS` names (`protocol/`), each
 by its part of the Workflow and Decaid's name for it there, such as
@@ -796,17 +796,18 @@ it:
   any the Location has not set yet, which it sets. A Machine whose steam was
   off when it set its Location's settings set none of the steam ones, which
   the first Machine there with steam on sets.
-- **Switched out.** A Machine switched out of sharing them in the management
-  interface keeps its own settings: none of its changes are edits, and none
-  are written to it. Its tablet's settings are still kept as it reports them,
-  so once it is switched back in, its changes count from then on, and it
-  takes the Location's settings, which are written to it, as when its steam
-  is turned back on. A change its tablet observed before it was switched back
-  on, by PostgreSQL's clock (`shares_settings_since`), stays its own though
-  delivered after, as from a tablet that was offline meanwhile or whose
-  outbox held it, and the tablet is then written the Location's settings. Switching
-  it, under the Machine's row lock, which taking in its Workflow holds too,
-  commits with a `NOTIFY` on `library_changes`.
+- **Sharing turned off.** A Machine whose sharing of them is turned off in
+  the management interface keeps its own settings: none of its changes are
+  edits, and none are written to it. Its tablet's settings are still kept as
+  it reports them, so once its sharing is turned back on, its changes count
+  from then on, and it takes the Location's settings, which are written to
+  it, as when its steam is turned back on. A change its tablet observed
+  before its sharing was turned back on, by PostgreSQL's clock
+  (`shares_settings_since`), stays its own though delivered after, as from a
+  tablet that was offline meanwhile or whose outbox held it, and the tablet
+  is then written the Location's settings. Turning sharing on or off, under
+  the Machine's row lock, which taking in its Workflow holds too, commits
+  with a `NOTIFY` on `library_changes`.
 - **The plugin's own writes** are not edits (ADR-0003): the answer to a
   write is recorded as the tablet's settings, and the plugin sends the
   Workflow change its write causes only after the answer (below).
@@ -816,9 +817,9 @@ tablet its Machine's Location's settings where its Workflow holds others,
 before any Library item: each setting the Location has set, but its steam
 settings while its steam is off. None is written before the tablet has
 reported its Workflow there, as the server does not know what it holds, nor
-to a Machine switched out of sharing them. The write is a `write` of the `settings` kind, named by the settings'
-id, its fields and the values it expects the Workflow to hold named as
-`SHARED_SETTINGS` names them.
+to a Machine whose sharing of them is turned off. The write is a `write` of
+the `settings` kind, named by the settings' id, its fields and the values it
+expects the Workflow to hold named as `SHARED_SETTINGS` names them.
 
 The plugin reads the tablet's Workflow (`GET /workflow`), then sets the
 settings it still holds as the server expects through `PUT /workflow`,
@@ -845,7 +846,7 @@ water or rinse settings while no machine is connected to the tablet, as the
 change goes to the machine: the write is refused, and skipped for the rest
 of the connection, as any refused write is. A tablet often connects before
 its machine, and its plugin reconnects once the machine reports its
-hardware. One whose machine goes away, as when it is switched off for the
+hardware. One whose machine goes away, as when it is powered off for the
 night while its tablet stays connected, is seen gone by the plugin's next
 read of its hardware, or by such a refusal; once the same machine is back,
 the plugin reconnects too. Either way the tablet is written the settings
@@ -980,7 +981,7 @@ each came from. A Conflict is used or dismissed from either, by an account
 that may (`web/src/components/conflicts.tsx`). Each Location's page
 (`/locations/:id`) shows its steam, hot water and rinse settings, which an
 Admin, or Staff working there, changes, with their Conflicts and history,
-and its Machines, each with a switch to share them
+and its Machines, each with a switch for sharing them
 (`web/src/components/location-settings.tsx`).
 
 ## Not yet

@@ -7,8 +7,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // Location's Machines, whatever their model (ADR-0014). The first Machine at
 // a Location sets them; a change on one tablet reaches the Location's other
 // Machines, and a change in the management interface reaches them all. A
-// Machine switched off from sharing keeps its own, and takes the Location's
-// once switched on again. Turning steam off stays on that Machine, and once it is
+// Machine with sharing turned off keeps its own, and takes the Location's
+// once sharing is turned back on. Turning steam off stays on that Machine, and once it is
 // turned on again the Machine takes the Location's values. Through the built
 // plugin in simulated tablets, on two server instances sharing one database,
 // with assertions through the REST API and what each simulated tablet's
@@ -233,7 +233,7 @@ describe("Steam, hot water and rinse settings shared by a Location's Machines", 
     await holds(second, { "rinseData.flow": 3 });
   });
 
-  it("keeps a Machine switched off from sharing to its own settings, and writes it the Location's once switched on again", async () => {
+  it("keeps a Machine with sharing turned off to its own settings, and writes it the Location's once sharing is turned back on", async () => {
     const { uptown, belmont, machines, first, second, bengle, uptownSettings } = await cafes("Switched", 19061);
     const switchBengle = (sharesSettings: boolean, as = api) => as.call("PUT", `/machines/${machines.bengle.machine.id}/settings-sharing`, { sharesSettings });
     expect((await switchBengle(false)).status).toBe(200);
@@ -258,14 +258,14 @@ describe("Steam, hot water and rinse settings shared by a Location's Machines", 
     const elsewhere = AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Staff", password: "staff password 1" }));
     expect((await switchBengle(true, elsewhere)).status).toBe(403);
 
-    // Switched on again, it takes Uptown's settings, and its changes are shared from then on.
+    // With sharing turned back on, it takes Uptown's settings, and its changes are shared from then on.
     expect((await switchBengle(true)).status).toBe(200);
     await holds(bengle, { "steamSettings.flow": 2.6, "hotWaterData.volume": 100 });
     await bengle.changeSettings({ rinseData: { flow: 3.5 } });
     await holds(first, { "rinseData.flow": 3.5 });
   });
 
-  it("keeps a change a switched-off Machine made offline to it, though it arrives once the Machine is switched back on", async () => {
+  it("keeps a change made offline on a Machine with sharing turned off to it, though it arrives once sharing is turned back on", async () => {
     const { uptown, machines, first, bengle } = await cafes("Offline switched", 19071);
     const switchBengle = (sharesSettings: boolean) => api.call("PUT", `/machines/${machines.bengle.machine.id}/settings-sharing`, { sharesSettings });
     expect((await switchBengle(false)).status).toBe(200);
@@ -282,13 +282,13 @@ describe("Steam, hot water and rinse settings shared by a Location's Machines", 
     expect(setting(first, "steamSettings.flow")).toBe(1.5);
   });
 
-  it("writes the Location's settings to a Machine switched back on whose change made while off arrives after, its tablet still connected", async () => {
+  it("writes the Location's settings to a Machine with sharing turned back on whose change made while it was off arrives after, its tablet still connected", async () => {
     let holding = false;
     const stallBengle = (frame: unknown) => holding && (frame as Record_).type === "workflow";
     const { uptown, machines, bengle } = await cafes("Held", 19081, { stallBengle });
     const switchBengle = (sharesSettings: boolean) => api.call("PUT", `/machines/${machines.bengle.machine.id}/settings-sharing`, { sharesSettings });
     expect((await switchBengle(false)).status).toBe(200);
-    // Its change waits on the tablet, as behind a long upload, until well after it is switched back on.
+    // Its change waits on the tablet, as behind a long upload, until well after sharing is turned back on.
     holding = true;
     await bengle.changeSettings({ steamSettings: { flow: 0.8 } });
     await new Promise((resolve) => setTimeout(resolve, 1_000));

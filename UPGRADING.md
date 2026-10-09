@@ -100,7 +100,7 @@ Bengles alike. The first Machine at a Location to connect after the upgrade
 sets that Location's settings, and every other Machine there is written them
 as it connects, replacing its own. Check each Location's page in the
 management interface afterwards, and change them there or on any of its
-tablets. To keep a Machine on its own settings, switch it out of sharing on
+tablets. To keep a Machine on its own settings, turn off its sharing on
 its Location's page before its tablet connects. A Machine whose steam is
 turned off keeps it off, and takes the Location's steam settings once it is
 turned on again. Note each machine's settings before upgrading if you may

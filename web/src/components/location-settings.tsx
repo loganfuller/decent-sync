@@ -72,7 +72,7 @@ export function LocationSettingsCard({ settings, onSaved }: { settings: Location
             <h2>{title}</h2>
           </CardTitle>
           <CardDescription>
-            Shared by this Location's Machines, whatever their model, but those switched off below, which keep their own. Set them on
+            Shared by this Location's Machines, whatever their model. Machines with sharing turned off below keep their own. Set them on
             any of their tablets or here. A Machine whose steam is turned off keeps it off, and takes these steam settings once it is
             turned on again.
           </CardDescription>
@@ -128,8 +128,8 @@ export function LocationSettingsCard({ settings, onSaved }: { settings: Location
 
 /**
  * The Location's Machines, each with a switch for whether it
- * shares the settings: switched off, its tablet keeps its own and none of
- * its changes are shared; switched on again, it takes these.
+ * shares the settings: with sharing turned off, its tablet keeps its own and
+ * none of its changes are shared; turned back on, it takes these.
  */
 function SharingMachines({ settings, onChanged }: { settings: LocationSettings; onChanged(): Promise<void> | void }) {
   const [busy, setBusy] = useState<string>();

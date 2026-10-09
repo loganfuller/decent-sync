@@ -16,7 +16,7 @@ import { type LocationValues, readLocationValues, settingsEdits, settingsToWrite
 // (ADR-0020). A tablet's edits arrive in the Workflow it reports (`workflow`
 // deliveries), timed by when the plugin observed them; only the settings
 // count. The first Machine at a Location to report its Workflow sets them. A
-// Machine whose settings sharing is switched off takes no part: nothing of
+// Machine whose settings sharing is turned off takes no part: nothing of
 // them is taken from its tablet or written to it.
 // The server keeps, per tablet, the settings as it last had them, reported
 // or as Decaid returned the plugin's write of them, so the plugin's own
@@ -39,7 +39,7 @@ interface HeldSettings {
   contentSeenAt: Date | null;
 }
 
-/** Whether a Machine's tablet shares its Location's settings: switched on, as it is unless an account switched it off. */
+/** Whether a Machine's tablet shares its Location's settings: on, unless an account turned its sharing off. */
 async function sharesSettings(tx: Prisma.TransactionClient, machineId: string): Promise<boolean> {
   return (await sharing(tx, machineId)).shares;
 }
@@ -47,7 +47,7 @@ async function sharesSettings(tx: Prisma.TransactionClient, machineId: string): 
 /**
  * Whether a Machine's tablet shares its Location's settings now, and whether
  * it did when the tablet observed a change: one observed before the Machine
- * was last switched on was made while it kept its own settings, and is not
+ * last had sharing turned on was made while it kept its own settings, and is not
  * shared, though delivered later, as from a tablet that was offline or whose
  * outbox held it. Compared with PostgreSQL's clock, which timed the switch,
  * as other tablet times are (ADR-0003).
@@ -139,8 +139,8 @@ export async function editSettings(tx: Prisma.TransactionClient, settingsId: str
  * edit, timed by when the plugin observed it, and each its Location has not
  * set yet is set by it (`settingsEdits`). A Machine at no Location shares
  * none, nor does a Workflow lacking what every supported Decaid sends. One whose
- * sharing is switched off changes nothing, but its settings are kept as the
- * tablet's, so once it is switched on again its own changes since are told
+ * sharing is turned off changes nothing, but its settings are kept as the
+ * tablet's, so once its sharing is turned back on its own changes since are told
  * from the Location's, which are written to it. Tells every instance when
  * the Location's tablets, this one included, are to be written.
  */
@@ -156,7 +156,7 @@ export async function takeInWorkflow(tx: Prisma.TransactionClient, tablet: Repor
   const { shares, sharedThen } = await sharing(tx, tablet.machineId, new Date(observedAt));
   if (!sharedThen) {
     await saveHeld(tx, tablet.tabletId, settings.id, reported, null);
-    // Switched on since it was made: the tablet is to take the Location's, which its switching may have found it held already.
+    // Sharing turned on since it was made: the tablet is to take the Location's, which turning it on may have found it held already.
     if (shares && settingsToWrite(settings.values, reported) !== null) await notify(tx, "library_changes", locationId);
     return;
   }
@@ -197,7 +197,7 @@ export async function recordSettingsWritten(
     if (!settings) return "notTheItem";
     const held = await heldSettings(tx, tablet.tabletId);
     const known = held?.settingsId === settingsId ? held.values : null;
-    // Switched off since the write was sent: what the tablet changed is its own.
+    // Sharing turned off since the write was sent: what the tablet changed is its own.
     const shares = await sharesSettings(tx, tablet.machineId);
     let edited: EditOutcome | null = null;
     if (known !== null && shares) {
@@ -219,7 +219,7 @@ export async function recordSettingsWritten(
  * any (`settingsToWrite`), read in the snapshot that `tabletDue` reads. None
  * is due before the tablet has reported its Workflow there, as until then
  * the server does not know what it holds, nor while its Machine's sharing
- * is switched off.
+ * is turned off.
  */
 export async function settingsDue(tx: Prisma.TransactionClient, tablet: ReportingTablet, locationId: string): Promise<PlannedWrite | null> {
   if (!(await sharesSettings(tx, tablet.machineId))) return null;

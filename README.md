@@ -60,7 +60,7 @@ The target sharing scopes are:
 |---|---|
 | Beans, bean batches, profiles | every location, each offering its own part: the profiles shown there, the batches at that location and their beans, and each batch's stock there |
 | Equipment (grinders included), recipe slots | machines at the same location |
-| Steam, hot water and rinse settings | machines at the same location, whatever their model, but those switched out of sharing them. Turning steam on or off stays per machine |
+| Steam, hot water and rinse settings | machines at the same location, whatever their model, but those with their sharing turned off. Turning steam on or off stays per machine |
 | Profile, dose, yield, batch and grinder in use | not shared: each machine has its own |
 
 - A **machine** is the hardware, identified by model and serial. Replacing its
