@@ -539,7 +539,7 @@ export interface LocationSettings {
   /** Each setting, by its part and name, such as `steamSettings.flow`; null while unset. */
   values: Record<string, number | null>;
   /** The Location's Machines now, each with its model, if known, and whether it shares them. */
-  machines: { id: string; name: string; model: string | null; sharesSettings: boolean }[];
+  machines: { id: string; name: string; model: string | null; sharesSettings: boolean; sharing: boolean }[];
   /** Whether the signed-in account may change them, and switch its Machines' sharing. */
   editable: boolean;
 }

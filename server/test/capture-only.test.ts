@@ -1,7 +1,7 @@
 import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView, acceptInvite } from "./support/admin-api.js";
-import { SimulatedTablet, derivedDe1Pro, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
+import { SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #90: an Admin turns sharing off for a Machine at a
@@ -127,6 +127,12 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     const view = await machineView(switched);
     expect(view.sharing).toBe(false);
     expect(view.captureOnly).toEqual(["sharingOff"]);
+    // Its Location's settings list it as capture-only.
+    const listed = (await read<{ settings: { machines: { id: string; sharing: boolean }[] } }>(`/locations/${uptown.id}/settings`)).settings.machines;
+    expect(listed.map(({ id, sharing }) => ({ id, sharing }))).toEqual([
+      { id: switched.machine.id, sharing: false },
+      { id: sharing.machine.id, sharing: true },
+    ]);
     const writes = tablet.writes.length;
     const held = tablet.beans();
 
@@ -187,6 +193,38 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     await expect.poll(() => requests(tablet), { timeout: 10_000 }).toBe(asked + 1);
     await expect.poll(() => setting(tablet, "steamSettings.flow"), { timeout: 10_000 }).toBe(2.2);
     expect(await brought(switched)).toEqual([]);
+  });
+
+  it("takes in an edit its tablet made while capture-only as an offline tablet's once sharing is back on, and deletes a Profile hard-deleted meanwhile", async () => {
+    const uptown = await api.createLocation("Offline Uptown", "UTC");
+    const switched = await api.createMachine("Offline Uptown 1", uptown.id);
+    const tablet = load(switched, "25021", { instance: other });
+    await online(switched);
+    const bean = await tablet.addBean({ roaster: "Roux", name: "Offline Guji", notes: "Floral" });
+    const profile = await tablet.addProfile(derivedProfile("Offline Espresso", 8.4));
+    await expect.poll(() => sharedBeans(tablet), { timeout: 10_000 }).toEqual(["Offline Guji"]);
+    const beanId = globalIdOf(tablet.beans().find((record) => record.id === bean.id)!)!;
+    const profilePath = `/profiles/${encodeURIComponent(String(profile.id))}`;
+    await expect.poll(async () => (await api.call("GET", profilePath)).status, { timeout: 10_000 }).toBe(200);
+    const notes = async () => (await read<{ bean: { content: Record_ } }>(`/beans/${beanId}`)).bean.content.notes;
+
+    expect((await switchSharing(switched, false)).status).toBe(200);
+    // Its barista edits the Bean, which is captured but not taken in, and an Admin hard-deletes the Profile, which stays on it.
+    await tablet.editBean(bean.id, { notes: "Floral, then stone fruit" });
+    await expect
+      .poll(async () => (await read<{ collection: { value: Record_[] } | null }>(`/machines/${switched.machine.id}/collections/beans`)).collection?.value[0]?.notes, {
+        timeout: 10_000,
+      })
+      .toBe("Floral, then stone fruit");
+    expect(await notes()).toBe("Floral");
+    expect((await api.call("DELETE", profilePath)).status).toBe(204);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(tablet.profiles().some((record) => record.id === profile.id)).toBe(true);
+
+    // Back on, its edit is the latest, so it wins, and the Profile is deleted from it.
+    expect((await switchSharing(switched, true)).status).toBe(200);
+    await expect.poll(notes, { timeout: 15_000 }).toBe("Floral, then stone fruit");
+    await expect.poll(() => tablet.profiles().some((record) => record.id === profile.id), { timeout: 15_000 }).toBe(false);
   });
 
   it("shows why a Machine is capture-only, and lets only Admins switch it", async () => {

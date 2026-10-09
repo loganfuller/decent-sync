@@ -26,8 +26,10 @@ export interface SharingMachineView {
   name: string;
   /** Its hardware's model, or for an Unidentified Machine the model it reports; null while neither is known. */
   model: string | null;
-  /** Whether its tablet shares the Location's settings. */
+  /** Whether its tablet shares the Location's settings, once it takes part in the Library. */
   sharesSettings: boolean;
+  /** Whether it takes part in the Library: false while an Admin has turned its sharing off, making it capture-only, when it shares no settings either. */
+  sharing: boolean;
 }
 
 /** A Location's settings, as the REST API returns them. */
@@ -55,7 +57,7 @@ export class LocationSettingsService {
       this.prisma.location.findUnique({ where: { id: locationId }, select: { id: true } }),
       this.prisma.locationSettings.findUnique({ where: { locationId }, select: { id: true, values: true } }),
       this.prisma.$queryRaw<SharingMachineView[]>`
-        SELECT machines.id, machines.name, machines.shares_settings AS "sharesSettings",
+        SELECT machines.id, machines.name, machines.shares_settings AS "sharesSettings", machines.sharing,
           CASE WHEN machines.model IS NOT NULL THEN machines.model WHEN machines.identification = 'UNIDENTIFIED' THEN machines.reported_model END AS model
         FROM machines
         WHERE (SELECT location_id FROM location_assignments WHERE machine_id = machines.id ORDER BY effective_from DESC LIMIT 1) = ${locationId}::uuid

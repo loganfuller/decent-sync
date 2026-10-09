@@ -63,7 +63,8 @@ export function MachineSharingCard({ machine, isAdmin, onChanged }: { machine: M
           <h2>Sharing</h2>
         </CardTitle>
         <CardDescription>
-          A Machine at a Location shares its Library: Beans, Bean Batches, Grinders, Profiles and steam, hot water and rinse settings.
+          A Machine at a Location shares the Library with the Location's other Machines: its Beans, Bean Batches, Grinders and
+          Profiles.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">
@@ -109,7 +110,9 @@ export function MachineSharingCard({ machine, isAdmin, onChanged }: { machine: M
                   ? location
                     ? `It joins ${location} again: its tablet is written what ${location} offers and its settings, and what its tablet added meanwhile joins the Library there.`
                     : "It shares once it is at a Location."
-                  : "It becomes capture-only: its Shots and Steam Records are still recorded, but nothing more is written to its tablet, and what its tablet adds or changes isn't taken into the Library."}
+                  : location
+                    ? "It becomes capture-only: its Shots and Steam Records are still recorded, but nothing more is written to its tablet, and what its tablet adds or changes isn't taken into the Library."
+                    : "It has no Location, so it is capture-only already, and stays so once it is given one."}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

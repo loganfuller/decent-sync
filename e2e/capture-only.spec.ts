@@ -52,6 +52,11 @@ test("an Admin turns a Machine's sharing off on its page, making it capture-only
   await expect(sharing.getByText("It has no Location.")).toHaveCount(0);
   await expect(sharing.getByRole("switch", { name: "Share the Library" })).not.toBeChecked();
   await expect(page.getByText("Capture-only", { exact: true }).first()).toBeVisible();
+  // Uptown's page flags it among the Machines sharing its settings.
+  await page.goto(`/locations/${uptown.id}`);
+  const row = page.getByRole("table", { name: "Machines sharing these settings" }).getByRole("row", { name: /Uptown group/ });
+  await expect(row.getByText("Capture-only", { exact: true })).toBeVisible();
+  await page.goto(`/machines/${machine.id}`);
 
   // Staff working at Uptown see why, but have no switch.
   const response = await page.request.post("/api/invites", { data: { email: sam.email, role: "staff", locationIds: [uptown.id] } });

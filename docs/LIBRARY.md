@@ -1289,9 +1289,10 @@ Every endpoint requires the account session; Staff read them as Admins do.
   their id, null while no Machine there sharing them has reported its
   Workflow, so none is set; each
   setting by its name, such as `steamSettings.flow`, null while unset; the
-  Location's Machines now, each `{ id, name, model, sharesSettings }`, by
-  name, `model` its hardware's, or an Unidentified Machine's reported one,
-  null while neither is known; and whether the signed-in account may change
+  Location's Machines now, each `{ id, name, model, sharesSettings, sharing
+  }`, by name, `model` its hardware's, or an Unidentified Machine's reported
+  one, null while neither is known, and `sharing` false while it is
+  capture-only, when it shares no settings whatever `sharesSettings` says; and whether the signed-in account may change
   them and switch its Machines, an Admin, or Staff working there. 404 for no
   such Location.
 - `PATCH /api/location-settings/:id`, with `{ values }`, some of the
@@ -1341,8 +1342,8 @@ each came from. A Conflict is used or dismissed from either, by an account
 that may (`web/src/components/conflicts.tsx`). Each Location's page
 (`/locations/:id`) shows its steam, hot water and rinse settings, which an
 Admin, or Staff working there, changes, with their Conflicts and history,
-and its Machines, each with a switch for sharing them
-(`web/src/components/location-settings.tsx`). A Machine's page lists what
+and its Machines, each with a switch for sharing them, a capture-only one
+flagged (`web/src/components/location-settings.tsx`). A Machine's page lists what
 its tablet brought to the Library as it joined a Location, each linking to
 the item's page (`web/src/components/brought-items.tsx`), and says whether
 it shares the Library at its Location or is capture-only, and why, with a
