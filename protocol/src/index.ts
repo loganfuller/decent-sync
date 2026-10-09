@@ -475,8 +475,7 @@ export function isWrittenKind(kind: string): kind is WrittenKind {
  * Whether a value is the id of a Library item of that kind: a Profile's is
  * Decaid's own (`isRecordId`), a hash of what the machine executes that is
  * the same on every tablet (ADR-0006); every other kind's is its global id,
- * and the shared settings' is the id the server gives a Location's settings
- * for one model.
+ * and the shared settings' is the id the server gives a Location's settings.
  */
 export function isItemId(kind: string, value: unknown): value is string {
   return kind === "profile" ? isRecordId(value) : isGlobalId(value);

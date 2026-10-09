@@ -501,7 +501,7 @@ export interface Profile extends ProfileSummary {
 /** The kinds of Library item. */
 export type LibraryKind = "bean" | "beanBatch" | "grinder" | "profile";
 
-/** What has versions and Conflicts: Library items, and each Location's settings for one model (`settings`). */
+/** What has versions and Conflicts: Library items, and each Location's steam, hot water and rinse settings (`settings`). */
 export type ItemKind = LibraryKind | "settings";
 
 /** A Location's steam, hot water and rinse settings, shared by its Machines whatever their model. */
