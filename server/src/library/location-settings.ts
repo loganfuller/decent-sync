@@ -154,6 +154,8 @@ export async function takeInWorkflow(tx: Prisma.TransactionClient, tablet: Repor
   const reported = sharedSettingsOf(workflow);
   if (reported === null) return;
   const entry = await currentEntry(tx, tablet.machineId);
+  // Capture-only: its settings as last had are kept as they were, stale until it joins. The plugin sends its Workflow
+  // before its lists, which the writer waits for, so the joining Workflow replaces them before any settings write.
   if (entry === null) return;
   const { locationId } = entry;
   await lockTablet(tx, tablet.tabletId);
