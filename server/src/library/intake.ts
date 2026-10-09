@@ -53,6 +53,15 @@ export function keepSeenSql(table: string): Prisma.Sql {
     seen_location_id = CASE WHEN EXCLUDED.seen_at IS NULL THEN ${known}.seen_location_id ELSE EXCLUDED.seen_location_id END`;
 }
 
+/**
+ * How an upsert of a tablet's record in `table` keeps the latest edit of the
+ * item's content it has seen (`content_seen_at`): the later of the one known
+ * and the one given; none keeps the one known.
+ */
+export function keepContentSeenSql(table: string): Prisma.Sql {
+  return Prisma.sql`content_seen_at = GREATEST(${Prisma.raw(table)}.content_seen_at, EXCLUDED.content_seen_at)`;
+}
+
 /** What became of an answer to a write. */
 export type AnswerRecorded =
   /** The record is the tablet's record of the item now. */

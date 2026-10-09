@@ -88,6 +88,16 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
   const holds = (tablet: SimulatedTablet, name: string, id: string) =>
     expect.poll(() => heldAs(tablet, name), { timeout: 10_000 }).toEqual([id]);
   const locations = (bean: BeanSummary) => bean.offeredAt.map((location) => location.name);
+  /** The open Conflicts about a Bean, each as its field, losing value and the Machine it came from, by field. */
+  async function conflictsOf(beanId: string): Promise<{ field: string; value: unknown; machine: string | undefined }[]> {
+    const { conflicts } = (await (await api.call("GET", "/conflicts")).json()) as {
+      conflicts: { item: { id: string }; field: string; value: unknown; source: { machine: { name: string } | null } }[];
+    };
+    return conflicts
+      .filter((conflict) => conflict.item.id === beanId)
+      .map((conflict) => ({ field: conflict.field, value: conflict.value, machine: conflict.source.machine?.name }))
+      .sort((a, b) => a.field.localeCompare(b.field));
+  }
 
   it("writes a Bean created on one tablet to its Location's other tablet, through another instance, with the same global id, and lists it once", async () => {
     const lab = await api.createLocation("Roastery lab", "America/Chicago");
@@ -173,9 +183,16 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     await uptownTablet.addBean({ roaster: "  roux bakehouse ", name: "LAUNCH DAY BLEND  ", notes: "Entered at Uptown" });
     await expect.poll(async () => locations((await beansNamed("Launch Day Blend"))[0]!), { timeout: 10_000 }).toEqual(["Matching lab", "Matching Uptown"]);
     expect(await libraryBeans()).not.toContainEqual(expect.objectContaining({ name: "LAUNCH DAY BLEND  " }));
-    // Uptown's record carries the Bean's global id, and keeps what was entered there.
+    // Uptown's record carries the Bean's global id and takes its content; what was entered there otherwise is kept as Conflicts (ADR-0018).
     await expect.poll(() => uptownTablet.beans().map(globalIdOf), { timeout: 10_000 }).toEqual([bean.id]);
-    expect(uptownTablet.beans()[0]).toMatchObject({ name: "LAUNCH DAY BLEND  ", notes: "Entered at Uptown" });
+    await expect.poll(() => uptownTablet.beans()[0]!.name, { timeout: 10_000 }).toBe("Launch Day Blend");
+    expect(uptownTablet.beans()[0]).toMatchObject({ roaster: "Roux Bakehouse", country: "Brazil" });
+    expect(uptownTablet.beans()[0]).not.toHaveProperty("notes");
+    expect(await conflictsOf(bean.id)).toEqual([
+      { field: "name", value: "LAUNCH DAY BLEND  ", machine: "Matching Uptown group" },
+      { field: "notes", value: "Entered at Uptown", machine: "Matching Uptown group" },
+      { field: "roaster", value: "  roux bakehouse ", machine: "Matching Uptown group" },
+    ]);
     expect((await libraryBean("Launch Day Blend")).id).toBe(bean.id);
   });
 
@@ -192,8 +209,14 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const own = await beansEnteredOffline({ roaster: "roux ", name: "Already Here", notes: "Entered on group 2" });
     const two = load(second, "14112", { beans: own });
     await expect.poll(() => two.beans().map(globalIdOf), { timeout: 10_000 }).toEqual([bean.id]);
-    expect(two.beans()[0]).toMatchObject({ id: own[0]!.id, notes: "Entered on group 2" });
+    // Linked, it takes the Bean's content in the same write, and what it held otherwise is kept as Conflicts.
+    expect(two.beans()[0]).toMatchObject({ id: own[0]!.id, roaster: "Roux", country: "Ethiopia" });
+    expect(two.beans()[0]).not.toHaveProperty("notes");
     expect(two.writes).toEqual([`PUT /beans/${String(own[0]!.id)}`]);
+    expect(await conflictsOf(bean.id)).toEqual([
+      { field: "notes", value: "Entered on group 2", machine: "Joining 2" },
+      { field: "roaster", value: "roux ", machine: "Joining 2" },
+    ]);
     expect(await beansNamed("Already Here")).toHaveLength(1);
     // Its first write came only once its report of its beans was acknowledged, so taken in.
     const report = two.sent.find((frame) => (frame as { type?: unknown; name?: unknown }).type === "collection" && (frame as { name?: unknown }).name === "beans") as {
@@ -220,8 +243,15 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     await one.addBean({ roaster: "Roux", name: "Launch Race" });
     const bean = await libraryBean("Launch Race");
     await expect.poll(() => two.beans().map(globalIdOf), { timeout: 10_000 }).toEqual([bean.id]);
-    expect(two.beans()[0]).toMatchObject({ id: entered.id, name: "launch race ", notes: "Entered on group 2" });
-    expect(two.writes).toEqual([`PUT /beans/${String(entered.id)}`]);
+    // The plugin linked it, writing only the global id; it then takes the Bean's content, what it held otherwise kept as Conflicts.
+    await expect.poll(() => two.beans()[0]!.name, { timeout: 10_000 }).toBe("Launch Race");
+    expect(two.beans()[0]).toMatchObject({ id: entered.id });
+    expect(two.beans()[0]).not.toHaveProperty("notes");
+    expect(two.writes).toEqual([`PUT /beans/${String(entered.id)}`, `PUT /beans/${String(entered.id)}`]);
+    expect(await conflictsOf(bean.id)).toEqual([
+      { field: "name", value: "launch race ", machine: "Race 2" },
+      { field: "notes", value: "Entered on group 2", machine: "Race 2" },
+    ]);
   });
 
   it("goes on writing past a write the tablet refuses or answers with another record, and tries both again once it reconnects", async () => {
@@ -324,7 +354,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     await holds(tablet, "Uptown Only", uptownOnly.id);
     // Asked again for its collections there, unless its own reports were taken in there first: at most once per Location.
     expect(tablet.received.filter((frame) => (frame as { type?: unknown }).type === "requestCollections").length).toBeLessThanOrEqual(2);
-    await expect.poll(() => tablet.beans().filter((bean) => bean.archived === true).map((bean) => bean.name).sort(), { timeout: 10_000 }).toEqual(["Lab Second", "moved into"]);
+    await expect.poll(() => tablet.beans().filter((bean) => bean.archived === true).map((bean) => bean.name).sort(), { timeout: 10_000 }).toEqual(["Lab Second", "Moved Into"]);
     // The Beans it held keep being offered where they were: taking in what a joining Machine brings is ticket #89.
     expect(locations(await libraryBean("Moved Into"))).toEqual(["Moving lab"]);
   });
