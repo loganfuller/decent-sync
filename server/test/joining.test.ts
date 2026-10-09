@@ -411,9 +411,9 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     await expect.poll(() => "grinderId" in context(tablet), { timeout: 15_000 }).toBe(false);
     expect(context(tablet)).toMatchObject({ beanBatchId: picked.id, coffeeName: "Picked", coffeeRoaster: relabelled.coffeeRoaster });
     expect("grinderModel" in context(tablet)).toBe(false);
-    // Once the lab's Profiles are hidden on it, the move is written whole, and nothing is due to its Workflow again.
+    // Once the lab's Profiles are hidden on it, the move is written whole, and its grinder and batch are not due again.
     await expect.poll(() => userProfiles(tablet, true), { timeout: 15_000 }).toEqual([]);
-    expect(tablet.writes.filter((write) => write === "PUT /workflow")).toHaveLength(1);
+    expect(tablet.received.filter((frame) => (frame as { type?: unknown; kind?: unknown }).type === "write" && (frame as { kind?: unknown }).kind === "workflow")).toHaveLength(1);
   });
 
   it("changes nothing on the tablet when a move away and back made by mistake is removed", async () => {
