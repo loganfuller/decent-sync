@@ -45,5 +45,6 @@ References written `<name>:<path>` are relative to that checkout. Use an existin
 - Capture storage: `docs/AI_STORAGE_NOTES.md`.
 - Verification and real-tablet rules: `docs/AI_BUILD_NOTES.md`.
 - GitHub Issues, milestones and dependency conventions: `docs/agents/issue-tracker.md`.
+- Pull request descriptions, and screenshots of management interface changes embedded in them: `docs/agents/pull-requests.md`.
 - Triage label meanings: `docs/agents/triage-labels.md`.
 - Glossary use and ADR conflicts: `docs/agents/domain.md`.

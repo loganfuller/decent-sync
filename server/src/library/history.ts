@@ -8,7 +8,7 @@ import type { ReportingTablet } from "./intake.js";
 // took it in. An edit of a Location's state of the item names that Location.
 // An edit that lost to another of the same field made without seeing it, or
 // that such an edit replaced, is kept as a Conflict, open until someone uses
-// its value or dismisses it (ticket #85).
+// its value, which makes it a new edit, or dismisses it (conflicts.service.ts).
 
 /** A Library item: its kind, and its global id, or a Profile's id. */
 export interface ItemRef {
@@ -26,6 +26,11 @@ export interface EditSource {
 /** An edit made on a tablet, which its report or answer brought. */
 export function tabletSource(tablet: ReportingTablet): EditSource {
   return { machineId: tablet.machineId, tabletId: tablet.tabletId, accountId: null };
+}
+
+/** An edit made in the management interface by the account. */
+export function accountSource(accountId: string): EditSource {
+  return { machineId: null, tabletId: null, accountId };
 }
 
 /** The field naming each kind of item in a version or Conflict. */

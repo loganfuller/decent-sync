@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { atText, batchName } from "@/components/bean-batches";
 import { BeanBadges, beanName, offeredAtText } from "@/components/beans";
+import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
 import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
@@ -32,6 +33,8 @@ function BeanDetails({ id }: { id: string }) {
   const [bean, setBean] = useState<Bean>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
+  // Using a Conflict\'s value changes the item, so it is loaded again, with its history.
+  const [changes, setChanges] = useState(0);
 
   useEffect(() => {
     let current = true;
@@ -46,7 +49,7 @@ function BeanDetails({ id }: { id: string }) {
     return () => {
       current = false;
     };
-  }, [id]);
+  }, [id, changes]);
 
   const back = (
     <Link to="/library/beans" className="text-sm text-muted-foreground hover:text-foreground">
@@ -84,6 +87,8 @@ function BeanDetails({ id }: { id: string }) {
         <p className="text-muted-foreground">{bean.roaster ?? "No roaster recorded"}</p>
       </div>
 
+      <ItemConflictsCard kind="bean" id={id} onResolved={() => setChanges((count) => count + 1)} />
+
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -111,7 +116,7 @@ function BeanDetails({ id }: { id: string }) {
             <CardTitle>
               <h2>Coffee</h2>
             </CardTitle>
-            <CardDescription>As the tablet that created it recorded it.</CardDescription>
+            <CardDescription>As the tablet that created it recorded it, with the edits made since.</CardDescription>
           </CardHeader>
           <CardContent>
             <Fields label="Coffee">
@@ -192,6 +197,8 @@ function BeanDetails({ id }: { id: string }) {
           </CardContent>
         </Card>
       )}
+
+      <ItemHistoryCard key={changes} kind="bean" id={id} />
     </section>
   );
 }

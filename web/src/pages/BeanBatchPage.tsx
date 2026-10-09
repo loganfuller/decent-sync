@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { BatchBadges, batchName, roastDateText, weightText } from "@/components/bean-batches";
+import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
 import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
@@ -35,6 +36,8 @@ function BeanBatchDetails({ id }: { id: string }) {
   const [batch, setBatch] = useState<BeanBatch>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
+  // Using a Conflict\'s value changes the item, so it is loaded again, with its history.
+  const [changes, setChanges] = useState(0);
 
   useEffect(() => {
     let current = true;
@@ -49,7 +52,7 @@ function BeanBatchDetails({ id }: { id: string }) {
     return () => {
       current = false;
     };
-  }, [id]);
+  }, [id, changes]);
 
   const back = (
     <Link to="/library/bean-batches" className="text-sm text-muted-foreground hover:text-foreground">
@@ -92,6 +95,8 @@ function BeanBatchDetails({ id }: { id: string }) {
           {batch.bean.roaster && `, by ${batch.bean.roaster}`}
         </p>
       </div>
+
+      <ItemConflictsCard kind="beanBatch" id={id} onResolved={() => setChanges((count) => count + 1)} />
 
       <Card>
         <CardHeader>
@@ -144,7 +149,7 @@ function BeanBatchDetails({ id }: { id: string }) {
             <CardTitle>
               <h2>Roast</h2>
             </CardTitle>
-            <CardDescription>As the tablet that created it recorded it.</CardDescription>
+            <CardDescription>As the tablet that created it recorded it, with the edits made since.</CardDescription>
           </CardHeader>
           <CardContent>
             <Fields label="Roast">
@@ -176,6 +181,8 @@ function BeanBatchDetails({ id }: { id: string }) {
           </CardContent>
         </Card>
       </div>
+
+      <ItemHistoryCard key={changes} kind="beanBatch" id={id} />
     </section>
   );
 }

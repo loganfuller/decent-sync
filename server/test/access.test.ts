@@ -21,23 +21,32 @@ const PUBLIC = [
   "POST /api/password-reset-links/:secret/redeem",
 ];
 
-/** Routes Staff may use too: reading everything but other accounts, and moving Machines between their Locations. */
+/**
+ * Routes Staff may use too: reading everything but other accounts, moving Machines between their Locations, and
+ * resolving Conflicts about items they can edit.
+ */
 const STAFF = [
   "GET /api/session",
   "DELETE /api/session",
   "GET /api/beans",
   "GET /api/beans/:id",
   "GET /api/beans/:id/history",
+  "GET /api/beans/:id/conflicts",
   "GET /api/bean-batches",
   "GET /api/bean-batches/:id",
   "GET /api/bean-batches/:id/history",
+  "GET /api/bean-batches/:id/conflicts",
   "GET /api/conflicts",
+  "POST /api/conflicts/:id/use",
+  "POST /api/conflicts/:id/dismiss",
   "GET /api/grinders",
   "GET /api/grinders/:id",
   "GET /api/grinders/:id/history",
+  "GET /api/grinders/:id/conflicts",
   "GET /api/profiles",
   "GET /api/profiles/:id",
   "GET /api/profiles/:id/history",
+  "GET /api/profiles/:id/conflicts",
   "GET /api/locations",
   "GET /api/time-zones",
   "GET /api/machines",

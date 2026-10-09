@@ -17,7 +17,7 @@ import { profileText } from "./profile-intake.js";
 // reports editing the same items never wait on each other in turn.
 
 /** The table holding each kind of item. */
-const ITEM_TABLES: Readonly<Record<LibraryKind, { table: string; cast: string }>> = {
+export const ITEM_TABLES: Readonly<Record<LibraryKind, { table: string; cast: string }>> = {
   bean: { table: "beans", cast: "uuid" },
   beanBatch: { table: "bean_batches", cast: "uuid" },
   grinder: { table: "grinders", cast: "uuid" },
@@ -100,11 +100,17 @@ async function saveItem(
     WHERE id = ${item.id}::${Prisma.raw(cast)}`;
 }
 
-/** An edit of an item's content: the fields it changed, with their values, when it was made, and the latest edit of the item its record had seen. */
+/**
+ * An edit of an item's content: the fields it changed, with their values,
+ * when it was made, and the latest edit of the item its record had seen, or
+ * `everything` for an edit in the management interface made over the item as
+ * it stands, as using a Conflict's value is, which has seen every edit
+ * decided before it.
+ */
 export interface ItemEdit {
   values: Readonly<Record<string, unknown>>;
   at: Date;
-  seenAt: Date | null;
+  seenAt: Date | null | "everything";
 }
 
 /**
@@ -129,7 +135,8 @@ export async function editContent(tx: Prisma.TransactionClient, item: ItemRef, e
   if (Object.keys(edit.values).length === 0) return { writesDue: false, lost: false };
   const current = await readItem(tx, item);
   if (!current) return { writesDue: false, lost: false };
-  const merged = mergeEdit(mergedValues(item.kind, current), current.fieldEdits, { ...edit, tabletId: source.tabletId });
+  const seenAt = edit.seenAt === "everything" ? latestDecision(current.fieldEdits) : edit.seenAt;
+  const merged = mergeEdit(mergedValues(item.kind, current), current.fieldEdits, { ...edit, seenAt, tabletId: source.tabletId });
   for (const [field, value] of Object.entries(merged.lost)) await recordConflict(tx, item, null, field, value, source, edit.at);
   for (const { field, value, versionId } of merged.overwritten) await recordReplaced(tx, item, null, field, value, versionId);
   const lost = Object.keys(merged.lost).length > 0;

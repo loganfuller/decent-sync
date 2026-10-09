@@ -497,3 +497,50 @@ export interface Profile extends ProfileSummary {
   /** The Profile it was saved from, if the Library has it. */
   parent: { id: string; title: string | null } | null;
 }
+
+/** The kinds of Library item that have versions and Conflicts. */
+export type LibraryKind = "bean" | "beanBatch" | "grinder" | "profile";
+
+/** Where a version or a Conflict came from: a Machine's tablet, or an account in the management interface. */
+export interface EditSource {
+  /** The Machine whose tablet made it, if one did and it still exists. */
+  machine: { id: string; name: string } | null;
+  tabletId: string | null;
+  /** The account that made it here, named only to Admins: other accounts' names are personal information Staff do not see. */
+  account: { id: string; name: string | null } | null;
+}
+
+/** One accepted edit of a Library item. */
+export interface ItemVersion {
+  id: string;
+  /** The fields it set, with their values: of the item's content, or of its state at `location` (`atLocation`, `remainingWeight`, `shown`). */
+  fields: Record<string, unknown>;
+  /** The Location whose state of the item it changed; null for its content. */
+  location: Location | null;
+  source: EditSource;
+  /** When it was made: a tablet's by its record's time, a management-interface edit by the server's clock. */
+  editedAt: string;
+  /** When the server took it in. */
+  receivedAt: string;
+}
+
+/** An edit of a field of a Library item that lost to another made without seeing it. */
+export interface Conflict {
+  id: string;
+  item: { kind: LibraryKind; id: string; name: string | null };
+  field: string;
+  /** The losing value; null where the edit cleared the field. */
+  value: unknown;
+  /** The Location whose state of the item the field is; null for the item's content. */
+  location: Location | null;
+  source: EditSource;
+  /** When the losing edit was made. */
+  editedAt: string;
+  /** When it became a Conflict. */
+  createdAt: string;
+  state: "open" | "used" | "dismissed";
+  /** The field's value now, and where and when that came from and its version, where known. Using the value names that version. */
+  current: { value: unknown; source: EditSource | null; editedAt: string | null; versionId: string | null };
+  /** Whether the signed-in account may use its value or dismiss it. */
+  resolvable: boolean;
+}

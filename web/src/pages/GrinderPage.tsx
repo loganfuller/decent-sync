@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
+import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
 import { GrinderBadges, grinderLocationText, grinderName } from "@/components/grinders";
 import { formatTime } from "@/components/machines";
@@ -34,6 +35,8 @@ function GrinderDetails({ id }: { id: string }) {
   const [grinder, setGrinder] = useState<Grinder>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
+  // Using a Conflict\'s value changes the item, so it is loaded again, with its history.
+  const [changes, setChanges] = useState(0);
 
   useEffect(() => {
     let current = true;
@@ -48,7 +51,7 @@ function GrinderDetails({ id }: { id: string }) {
     return () => {
       current = false;
     };
-  }, [id]);
+  }, [id, changes]);
 
   const back = (
     <Link to="/library/grinders" className="text-sm text-muted-foreground hover:text-foreground">
@@ -86,6 +89,8 @@ function GrinderDetails({ id }: { id: string }) {
         <p className="text-muted-foreground">{grinderLocationText(grinder)}</p>
       </div>
 
+      <ItemConflictsCard kind="grinder" id={id} onResolved={() => setChanges((count) => count + 1)} />
+
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -110,7 +115,7 @@ function GrinderDetails({ id }: { id: string }) {
             <CardTitle>
               <h2>Grinder</h2>
             </CardTitle>
-            <CardDescription>As the tablet that created it recorded it.</CardDescription>
+            <CardDescription>As the tablet that created it recorded it, with the edits made since.</CardDescription>
           </CardHeader>
           <CardContent>
             <Fields label="Grinder">
@@ -132,6 +137,8 @@ function GrinderDetails({ id }: { id: string }) {
           </CardContent>
         </Card>
       </div>
+
+      <ItemHistoryCard key={changes} kind="grinder" id={id} />
     </section>
   );
 }
