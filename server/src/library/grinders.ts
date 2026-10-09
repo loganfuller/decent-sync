@@ -107,13 +107,13 @@ export async function recordGrinderWritten(
     if (other && other.grinderId !== grinderId) return "notTheItem";
     const [known] = await tx.$queryRaw<{ archived: boolean }[]>`
       SELECT (record ->> 'archived') = 'true' AS archived FROM tablet_grinders WHERE tablet_id = ${tablet.tabletId}::uuid AND grinder_id = ${grinderId}::uuid`;
-    await saveRecord(tx, tablet.tabletId, grinderId, localId, record, updatedAt === null ? null : new Date(updatedAt));
     const archived = archivingInAnswer(known?.archived ?? null, record, written);
     const locationId = archived === undefined ? null : await currentLocation(tx, tablet.machineId);
     if (locationId !== null) {
       await lockLocation(tx, locationId);
       if (await archiveGrinderAt(tx, grinderId, locationId, archived!)) await notify(tx, "library_changes", locationId);
     }
+    await saveRecord(tx, tablet.tabletId, grinderId, localId, record, updatedAt === null ? null : new Date(updatedAt));
     return "recorded";
   }, INTAKE_TRANSACTION);
 }

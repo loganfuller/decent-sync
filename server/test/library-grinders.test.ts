@@ -54,11 +54,16 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
    * none by default, as on a fresh install, and no beans or profiles, so
    * only Grinders are written to it.
    */
-  function load(machine: CreatedMachine, serial: string, options: { instance?: TestServer; storage?: PluginStorage; grinders?: Record_[] } = {}): SimulatedTablet {
+  function load(
+    machine: CreatedMachine,
+    serial: string,
+    options: { instance?: TestServer; storage?: PluginStorage; grinders?: Record_[]; apiDelayMs?: (method: string, path: string) => number } = {},
+  ): SimulatedTablet {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
       api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/profiles": [], "/grinders": options.grinders ?? [] },
       storage: options.storage,
+      apiDelayMs: options.apiDelayMs,
       timeScale: 50,
     });
     tablets.push(tablet);
@@ -159,6 +164,35 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
     await one.editGrinder(record.id, { archived: false });
     await expect.poll(async () => (await libraryGrinder("Archived EK43")).archived, { timeout: 10_000 }).toBe(false);
     await holds(two, grinder.id, { archived: false });
+  });
+
+  it("Archives a Grinder archived on a tablet just before the server wrote its global id, which kept it archived, rather than undoing it", async () => {
+    const labLocation = await api.createLocation("Kept lab", "America/Chicago");
+    const first = await api.createMachine("Kept lab 1", labLocation.id);
+    const second = await api.createMachine("Kept lab 2", labLocation.id);
+    let archived = false;
+    // A barista archives the grinder on the tablet just as the plugin reads it to write its global id.
+    const one: SimulatedTablet = load(first, "18071", {
+      apiDelayMs: (method, path) => {
+        if (!archived && method === "GET" && /^\/grinders\/[^/?]+$/.test(path)) {
+          archived = true;
+          void one.callApi("PUT", path, { archived: true });
+        }
+        return 0;
+      },
+    });
+    const two = load(second, "18072", { instance: other });
+    await online(first, second);
+    const record = await one.addGrinder({ model: "Kept Mythos", burrs: "Mythos 75mm" });
+    const grinder = await libraryGrinder("Kept Mythos");
+
+    // The answer showed it archived, which the write did not set: the Grinder is Archived, and archived on the other tablet.
+    await expect.poll(async () => (await libraryGrinder("Kept Mythos")).archived, { timeout: 10_000 }).toBe(true);
+    expect(archived).toBe(true);
+    await holds(one, grinder.id, { id: record.id, archived: true, extras: { [GLOBAL_ID_KEY]: grinder.id } });
+    await holds(two, grinder.id, { archived: true });
+    expect(grinderWrites(one)).toEqual([`PUT /grinders/${String(record.id)}`]);
+    expect((await libraryGrinder("Kept Mythos")).archived).toBe(true);
   });
 
   it("keeps two Grinders of the same model at two Locations two Grinders, each written only at its own", async () => {

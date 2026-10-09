@@ -283,6 +283,9 @@ are two Grinders.
 So archiving or deleting a Grinder on a tablet Archives it, and it is archived
 on its Location's other tablets, never deleted; un-archiving it on a tablet
 there restores it, and it is written to them again.
+Until ticket #84, the latest report decides, whatever the time of the change
+it shows: a tablet that was offline while it archived a Grinder Archives it
+once it reports, even if another tablet restored it after that.
 
 ## Taking in a tablet's profiles
 
