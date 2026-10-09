@@ -101,7 +101,11 @@ The metadata and analytics live in `shots`; curves live in
 `shot_measurements.data`, a separate jsonb column with lz4 compression. List
 and status queries never read the measurements table. `extractShot` and
 `extractCurves` are pure, optional-field projections tested against a scrubbed
-real tablet record. See the fixtures' README for provenance.
+real tablet record. See the fixtures' README for provenance. A Shot's batch
+and Grinder are kept by their ids on the tablet that pulled it
+(`bean_batch_id` and `grinder_id`, from its Workflow's context), indexed, so
+an Admin's hard delete of a Library item a Shot names is refused
+(`LIBRARY.md`, Hard deletes).
 
 Decaid writes a Shot's `timestamp` and sample times in the tablet's local time
 without an offset, and `createdAt` in UTC as it saves the Shot, just after the

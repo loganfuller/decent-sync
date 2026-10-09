@@ -333,6 +333,13 @@ var __decentSync = (() => {
           if (object3.expected !== void 0) fields.objectField("expected");
           if (object3.contentDecidedAt !== void 0) fields.instant("contentDecidedAt");
         });
+      case "delete":
+        return check(object3, "delete", (fields) => {
+          fields.id();
+          fields.string("kind", { nonEmpty: true });
+          fields.itemId("globalId", object3.kind);
+          fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+        });
       default:
         return invalid("Unknown message type");
     }
@@ -769,6 +776,10 @@ var __decentSync = (() => {
       __publicField(this, "workflow", workflow);
       __publicField(this, "machineMissing", machineMissing);
     }
+    /** Deletes a record of a hard-deleted item once the reads and writes before it are done, and queues its answer. It never rejects. */
+    remove(remove) {
+      return this.library.run(async () => this.outbox.enqueue(await carryOutDelete(remove)));
+    }
     /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
     apply(write) {
       if (write.kind !== SETTINGS_KIND) return this.library.run(async () => this.outbox.enqueue(await carryOut(write)));
@@ -784,6 +795,35 @@ var __decentSync = (() => {
       });
     }
   };
+  async function carryOutDelete(remove) {
+    const route = remove.kind === "profile" || !Object.prototype.hasOwnProperty.call(ROUTES, remove.kind) ? void 0 : ROUTES[remove.kind];
+    if (!route) return refused(remove, null, `This plugin cannot delete a ${remove.kind}`);
+    try {
+      const path = `${route.records}/${encodeURIComponent(remove.localId)}`;
+      const current = await request("GET", path);
+      if (current.status === 404) return deleted(remove);
+      const record = current.ok ? parsed(current.text) : void 0;
+      if (!isObject2(record)) return refused(remove, current.status, current.text);
+      if (globalIdOf(record) !== remove.globalId.toLowerCase()) return refused(remove, null, "The record is not that item's");
+      if (remove.kind === "bean") {
+        const listed = await request("GET", `${path}/batches?includeArchived=true`);
+        const batches = listed.ok ? parsed(listed.text) : void 0;
+        if (!Array.isArray(batches)) return refused(remove, listed.status, listed.text);
+        for (const batch of batches.filter(isObject2)) {
+          if (typeof batch.id !== "string") continue;
+          const gone = await request("DELETE", `/bean-batches/${encodeURIComponent(batch.id)}`);
+          if (!gone.ok && gone.status !== 404) return refused(remove, gone.status, gone.text);
+        }
+      }
+      const answer = await request("DELETE", path);
+      return answer.ok || answer.status === 404 ? deleted(remove) : refused(remove, answer.status, answer.text);
+    } catch (error) {
+      return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  function deleted(remove) {
+    return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
+  }
   async function carryOut(write) {
     const route = Object.prototype.hasOwnProperty.call(ROUTES, write.kind) ? ROUTES[write.kind] : void 0;
     if (!route && write.kind !== "profile" && write.kind !== SETTINGS_KIND) return refused(write, null, `This plugin cannot write a ${write.kind}`);
@@ -1900,6 +1940,9 @@ var __decentSync = (() => {
           break;
         case "write":
           void this.writes.apply(message);
+          break;
+        case "delete":
+          void this.writes.remove(message);
           break;
         case "heartbeat":
           break;

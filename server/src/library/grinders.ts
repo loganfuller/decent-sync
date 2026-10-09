@@ -16,6 +16,7 @@ import {
   lockHeldMachine,
   lockTablet,
 } from "./intake.js";
+import { setAsideDeleted } from "./hard-deletes.js";
 import { listedIds } from "./listed.js";
 import { deletedAt, lockLocation, transactionTime } from "./location-state.js";
 import { changedFields } from "./merge.js";
@@ -48,7 +49,7 @@ export async function takeInGrinders(
 ): Promise<string | null> {
   const locationId = await currentLocation(tx, tablet.machineId);
   if (locationId === null) return null;
-  const reported = readReportedGrinders(value, updatedAt);
+  const read = readReportedGrinders(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
   const mapped = await tx.$queryRaw<
     {
@@ -67,10 +68,16 @@ export async function takeInGrinders(
   /** The latest edit of its content that each record the map holds has seen. */
   const contentSeenAt = new Map(mapped.map((grinder) => [grinder.grinderId, grinder.contentSeenAt]));
   const mappedIds = new Set(mapped.map((grinder) => grinder.localId));
+  // Records of items an Admin hard-deleted are deleted on the tablet rather than taken in.
+  const screened = await setAsideDeleted(tx, tablet.tabletId, "grinder", read, listedIds(value), mappedIds);
+  const reported = screened.kept;
   const named = reported.flatMap((grinder) => (grinder.globalId !== null && !mappedIds.has(grinder.localId) ? [grinder.globalId] : []));
   const library = named.length === 0 ? [] : await tx.grinder.findMany({ where: { id: { in: named } }, select: { id: true } });
   const steps = planGrinderIntake(reported, mapped, new Set(library.map((grinder) => grinder.id)), listedIds(value));
-  if (steps.length === 0) return locationId;
+  if (steps.length === 0) {
+    if (screened.due) await notify(tx, "library_changes", locationId);
+    return locationId;
+  }
   await lockLocation(tx, locationId);
   const edited = steps.flatMap((step) =>
     (step.kind === "update" && (Object.keys(step.content).length > 0 || step.archived !== undefined)) || (step.kind === "delete" && step.archived) ? [step.grinderId] : [],
@@ -83,7 +90,7 @@ export async function takeInGrinders(
   const source = tabletSource(tablet);
 
   /** Whether the Location's tablets, this one included, may have something to be written. */
-  let writesDue = false;
+  let writesDue = screened.due;
   for (const step of steps) {
     if (step.kind === "delete") {
       await tx.$executeRaw`DELETE FROM tablet_grinders WHERE tablet_id = ${tablet.tabletId}::uuid AND grinder_id = ${step.grinderId}::uuid`;

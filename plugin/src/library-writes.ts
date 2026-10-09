@@ -1,6 +1,8 @@
 import {
   GLOBAL_ID_KEY,
+  type ItemDeleted,
   type ItemWritten,
+  type LibraryDelete,
   type LibraryWrite,
   MAX_REFUSAL_LENGTH,
   SETTINGS_KIND,
@@ -28,7 +30,9 @@ import type { Outbox } from "./outbox.js";
 // it to (`LibraryWrite.expected`), so a barista's change the tablet has not
 // reported yet is kept, and reaches the server in the answer (ADR-0020).
 // A Location's steam, hot water and rinse settings are written into the
-// tablet's Workflow the same way (ADR-0014).
+// tablet's Workflow the same way (ADR-0014). A record of an item an Admin
+// hard-deleted is deleted the same way too, the one thing the plugin
+// deletes (ADR-0003).
 
 interface Route {
   /** The kind's records, archived ones included. */
@@ -81,6 +85,9 @@ const ROUTES: Readonly<Record<string, Route>> = {
 /** What becomes of a write: the record Decaid returned, or why it did not write one. */
 export type WriteAnswer = ItemWritten | WriteRefused;
 
+/** What becomes of a delete: the record is gone, or why it is not. */
+export type DeleteAnswer = ItemDeleted | WriteRefused;
+
 /**
  * Reads of the tablet's Library lists and writes to them, one at a time, in
  * the order they are asked for. A report of a list then either holds a
@@ -132,6 +139,11 @@ export class LibraryWrites {
     private readonly machineMissing: () => void,
   ) {}
 
+  /** Deletes a record of a hard-deleted item once the reads and writes before it are done, and queues its answer. It never rejects. */
+  remove(remove: LibraryDelete): Promise<void> {
+    return this.library.run(async () => this.outbox.enqueue(await carryOutDelete(remove)));
+  }
+
   /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
   apply(write: LibraryWrite): Promise<void> {
     if (write.kind !== SETTINGS_KIND) return this.library.run(async () => this.outbox.enqueue(await carryOut(write)));
@@ -146,6 +158,44 @@ export class LibraryWrites {
       }
     });
   }
+}
+
+/**
+ * Deletes the tablet's record of a hard-deleted item (`LibraryDelete`), only
+ * while it still carries the item's global id: a record already gone is
+ * deleted. A bean's batches, archived ones included, are deleted first, as
+ * DYE2 does (dye2:dye2-plugin/src/utils/bean-delete.ts), since Decaid
+ * refuses to delete a bean that has any.
+ */
+async function carryOutDelete(remove: LibraryDelete): Promise<DeleteAnswer> {
+  const route = remove.kind === "profile" || !Object.prototype.hasOwnProperty.call(ROUTES, remove.kind) ? undefined : ROUTES[remove.kind];
+  if (!route) return refused(remove, null, `This plugin cannot delete a ${remove.kind}`);
+  try {
+    const path = `${route.records}/${encodeURIComponent(remove.localId)}`;
+    const current = await request("GET", path);
+    if (current.status === 404) return deleted(remove);
+    const record = current.ok ? parsed(current.text) : undefined;
+    if (!isObject(record)) return refused(remove, current.status, current.text);
+    if (globalIdOf(record) !== remove.globalId.toLowerCase()) return refused(remove, null, "The record is not that item's");
+    if (remove.kind === "bean") {
+      const listed = await request("GET", `${path}/batches?includeArchived=true`);
+      const batches = listed.ok ? parsed(listed.text) : undefined;
+      if (!Array.isArray(batches)) return refused(remove, listed.status, listed.text);
+      for (const batch of batches.filter(isObject)) {
+        if (typeof batch.id !== "string") continue;
+        const gone = await request("DELETE", `/bean-batches/${encodeURIComponent(batch.id)}`);
+        if (!gone.ok && gone.status !== 404) return refused(remove, gone.status, gone.text);
+      }
+    }
+    const answer = await request("DELETE", path);
+    return answer.ok || answer.status === 404 ? deleted(remove) : refused(remove, answer.status, answer.text);
+  } catch (error) {
+    return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function deleted(remove: LibraryDelete): ItemDeleted {
+  return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
 }
 
 async function carryOut(write: LibraryWrite): Promise<WriteAnswer> {
@@ -399,7 +449,7 @@ function written(write: LibraryWrite, record: Record<string, unknown>, writtenFi
   };
 }
 
-function refused(write: LibraryWrite, status: number | null, error: string): WriteRefused {
+function refused(write: LibraryWrite | LibraryDelete, status: number | null, error: string): WriteRefused {
   return { type: "writeRefused", id: write.id, kind: write.kind, globalId: write.globalId, status, error: error.slice(0, MAX_REFUSAL_LENGTH) };
 }
 

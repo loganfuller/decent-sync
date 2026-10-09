@@ -11,7 +11,7 @@ describe("Shot extraction", () => {
     expect(extractShot(shot)).toMatchObject({
       profileTitle: "Londonium", profileId: "profile:98fa00c191551b435845", targetDose: 18, targetYield: 36,
       actualDose: 18, actualYield: 35.9, barista: "Fixture Barista",
-      beanBatchId: "416d62df-2554-4a8a-b266-c0029bc459b2", coffeeName: "Ethiopia Generic 100g Sample",
+      beanBatchId: "416d62df-2554-4a8a-b266-c0029bc459b2", grinderId: "e2d50b3d-a6d9-48bb-9b50-1efb4df60229", coffeeName: "Ethiopia Generic 100g Sample",
     });
     expect(extractCurves(shot, shot.measurements)).toMatchObject({ duration: 27.935, peakPressure: expect.any(Number), peakFlow: expect.any(Number) });
     expect(shotHardware(shot)).toEqual({ model: "DE1Pro", serial: "10001" });

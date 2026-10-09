@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { LibraryWrite, WrittenKind } from "@decent-sync/protocol";
-import { writeKey } from "../library/holdings.js";
+import type { LibraryDelete, LibraryWrite, WrittenKind } from "@decent-sync/protocol";
+import { type PlannedChange, deleteKey, writeKey } from "../library/holdings.js";
 import type { SeenDecision } from "../library/intake.js";
 import { type WrittenTablet, tabletDue } from "../library/tablet-due.js";
 import type { PrismaService } from "../prisma.service.js";
@@ -21,7 +21,7 @@ const ANSWER_TIMEOUT_MS = 300_000;
  * content, which its record holds.
  */
 export interface AwaitedWrite {
-  write: LibraryWrite;
+  write: LibraryWrite | LibraryDelete;
   seen: SeenDecision | null;
   contentSeen: Date | null;
 }
@@ -89,7 +89,7 @@ export class TabletWriter {
    * written (`AwaitedWrite`).
    */
   private waiting: (AwaitedWrite & { settle: (outcome: WriteOutcome | "stopped" | "timedOut") => void }) | undefined;
-  /** Items whose write was refused, or not answered, on this connection, or that writing did not change, by `writeKey`. */
+  /** Items whose write or delete was refused, or not answered, on this connection, or that writing did not change, by `writeKey` or `deleteKey`. */
   private readonly skipped = new Set<string>();
   /**
    * The fields last written to each item on this connection, by `writeKey`,
@@ -132,8 +132,8 @@ export class TabletWriter {
   constructor(
     private readonly tablet: WrittenTablet,
     private readonly prisma: PrismaService,
-    /** Sends a write on the connection, in chunks if it is too large for one frame. */
-    private readonly send: (write: LibraryWrite) => void,
+    /** Sends a write or delete on the connection, in chunks if it is too large for one frame. */
+    private readonly send: (write: LibraryWrite | LibraryDelete) => void,
     /** Asks the plugin for every collection afresh, as on a welcome. */
     private readonly requestCollections: () => void,
     private readonly log: { warn(message: string): void; error(message: string): void },
@@ -211,7 +211,7 @@ export class TabletWriter {
       const planned = this.awaitingBatches ? null : (found?.writes ?? null);
       if (planned) {
         // An item no longer due has not stayed due since it was written.
-        const stillDue = new Set(planned.map((write) => writeKey(write.kind, write.globalId)));
+        const stillDue = new Set(planned.map(changeKey));
         for (const key of this.lastWritten.keys()) if (!stillDue.has(key)) this.lastWritten.delete(key);
       }
       const due = planned?.[0];
@@ -219,12 +219,27 @@ export class TabletWriter {
         if (this.again) continue;
         return;
       }
-      const key = writeKey(due.kind, due.globalId);
+      const key = changeKey(due);
       const item = `${KIND_NAMES[due.kind]} ${due.globalId}`;
-      const fields = JSON.stringify({ fields: due.fields, expected: due.expected ?? null });
+      const fields = "delete" in due ? "delete" : JSON.stringify({ fields: due.fields, expected: due.expected ?? null });
       if (this.lastWritten.get(key) === fields) {
         this.log.warn(`Tablet ${this.tablet.tabletId} is still due ${item} once written; it is tried again once the tablet reconnects`);
         this.skipped.add(key);
+        continue;
+      }
+      if ("delete" in due) {
+        // Its answer removes it from what the tablet is due, so it is not due again once deleted.
+        const outcome = await this.ask({
+          write: { type: "delete", id: randomUUID(), kind: due.kind, globalId: due.globalId, localId: due.localId },
+          seen: null,
+          contentSeen: null,
+        });
+        if (outcome === "stopped") return;
+        if (outcome === "timedOut") {
+          this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the delete of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once the tablet reconnects`);
+        }
+        if (outcome === "written") this.lastWritten.set(key, fields);
+        else this.skipped.add(key);
         continue;
       }
       const write: LibraryWrite = {
@@ -264,4 +279,9 @@ export class TabletWriter {
       this.send(write);
     });
   }
+}
+
+/** The key a planned write or delete is skipped and remembered under. */
+function changeKey(change: PlannedChange): string {
+  return "delete" in change ? deleteKey(change.kind, change.localId) : writeKey(change.kind, change.globalId);
 }

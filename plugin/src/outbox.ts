@@ -1,5 +1,6 @@
 import type {
   CollectionDelivery,
+  ItemDeleted,
   ItemWritten,
   MachineStateDelivery,
   PluginMessage,
@@ -25,6 +26,7 @@ export type Delivery =
   | MachineStateDelivery
   | CollectionDelivery
   | ItemWritten
+  | ItemDeleted
   | WriteRefused;
 
 /** The kinds of record the server can request by their ids. */

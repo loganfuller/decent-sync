@@ -636,6 +636,16 @@ export class SimulatedTablet {
   }
 
   /**
+   * Saves a Shot in the tablet's Decaid, as one pulled there does when it
+   * ends: /shots/{id} answers with it from now on, and the plugin is sent
+   * it in a `shotStored` event.
+   */
+  pullShot(shot: Record<string, unknown>): void {
+    this.api = { ...this.api, [`/shots/${encodeURIComponent(String(shot.id))}`]: shot };
+    this.fire("shotStored", { id: shot.id });
+  }
+
+  /**
    * Changes the tablet's Workflow, as a barista or a skin does: /workflow
    * answers with it from now on, and the plugin is sent it in a
    * `workflowUpdated` event.

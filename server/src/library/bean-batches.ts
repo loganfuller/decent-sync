@@ -18,6 +18,7 @@ import {
   lockTablet,
   seenAtSql,
 } from "./intake.js";
+import { setAsideDeleted } from "./hard-deletes.js";
 import { listedIds } from "./listed.js";
 import { addBatchAt, deletedAt, enterRemainingWeight, finishBatchAt, lockLocation, transactionTime } from "./location-state.js";
 import { changedFields } from "./merge.js";
@@ -47,7 +48,7 @@ export async function takeInBatches(
 ): Promise<string | null> {
   const locationId = await currentLocation(tx, tablet.machineId);
   if (locationId === null) return null;
-  const reported = readReportedBatches(value, updatedAt);
+  const read = readReportedBatches(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
   const mapped = await tx.$queryRaw<
     {
@@ -74,16 +75,22 @@ export async function takeInBatches(
   // The Library Beans the tablet's records of its beans are, by their ids there.
   const beans = await tx.tabletBean.findMany({ where: { tabletId: tablet.tabletId }, select: { localId: true, beanId: true } });
   const mappedIds = new Set(mapped.map((batch) => batch.localId));
+  // Records of items an Admin hard-deleted are deleted on the tablet rather than taken in.
+  const screened = await setAsideDeleted(tx, tablet.tabletId, "beanBatch", read, listedIds(value), mappedIds);
+  const reported = screened.kept;
   const named = reported.flatMap((batch) => (batch.globalId !== null && !mappedIds.has(batch.localId) ? [batch.globalId] : []));
   const library = named.length === 0 ? [] : await tx.beanBatch.findMany({ where: { id: { in: named } }, select: { id: true } });
   const steps = planBatchIntake(reported, mapped, new Map(beans.map((bean) => [bean.localId, bean.beanId])), library, listedIds(value));
-  if (steps.length === 0) return locationId;
+  if (steps.length === 0) {
+    if (screened.due) await notify(tx, "library_changes", locationId);
+    return locationId;
+  }
   await lockLocation(tx, locationId);
   await lockItems(tx, "beanBatch", steps.flatMap((step) => (step.kind === "update" && Object.keys(step.content).length > 0 ? [step.batchId] : [])));
   const source = tabletSource(tablet);
 
   /** Whether the Location's tablets, this one included, may have something to be written. */
-  let writesDue = false;
+  let writesDue = screened.due;
   for (const step of steps) {
     if (step.kind === "delete") {
       await tx.$executeRaw`DELETE FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid AND batch_id = ${step.batchId}::uuid`;

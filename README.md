@@ -42,7 +42,9 @@ it was created, and a Profile is shown or hidden at each Location. Archiving,
 hiding or deleting one on a tablet acts at that tablet's Location only; a
 Grinder archived or deleted there is Archived. The management interface's
 Library lists the Beans, the Bean Batches, the Grinders, the Profiles, and
-where each is. Everything else is captured without being written
+where each is, and creates, edits, Archives and restores Beans, Bean Batches
+and Grinders, adding and finishing batches at each Location; an Admin
+hard-deletes one no Shot names, from every tablet too. Everything else is captured without being written
 to tablets.
 
 Releases publish the server image and the plugin ZIP, starting with
@@ -73,7 +75,7 @@ The target sharing scopes are:
   location only. Edits resolve per field by last-writer-wins on the time of the
   original edit, and the management interface keeps a losing edit as a
   Conflict to review. A delete on a tablet acts only at its location, and sync
-  never hard-deletes.
+  deletes nothing from tablets but what an admin hard-deletes.
 
 ## Layout
 

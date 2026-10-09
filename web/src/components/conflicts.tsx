@@ -67,7 +67,8 @@ export function valueText(field: string, value: unknown): string {
     if (field === "remainingWeight") return `${value} g`;
     return Object.prototype.hasOwnProperty.call(SETTING_LABELS, field) ? settingText(value) : String(value);
   }
-  if (typeof value === "string") return value;
+  // Decaid keeps a day as its local midnight, such as a roast date entered as a day.
+  if (typeof value === "string") return /^\d{4}-\d\d-\d\dT00:00:00\.000$/.test(value) ? value.slice(0, 10) : value;
   if (Array.isArray(value) && value.every((item) => typeof item === "string" || typeof item === "number")) return value.join(", ");
   return JSON.stringify(value);
 }

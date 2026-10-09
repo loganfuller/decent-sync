@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
-import { BatchBadges, batchName, roastDateText, weightText } from "@/components/bean-batches";
+import { BatchBadges, batchName, roastDateText } from "@/components/bean-batches";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
+import { ArchiveButton, BATCH_FIELDS, BatchLocationsCard, ContentForm, DeleteButton } from "@/components/library-forms";
 import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError, api, type BeanBatch } from "@/lib/api";
 
 /** The content fields a batch's page names, in Decaid's order, after its roast date, with how each is shown. */
@@ -36,8 +37,10 @@ function BeanBatchDetails({ id }: { id: string }) {
   const [batch, setBatch] = useState<BeanBatch>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
-  // Using a Conflict\'s value changes the item, so it is loaded again, with its history.
+  // Using a Conflict\'s value, or an edit here, changes the item, so it is loaded again, with its history.
   const [changes, setChanges] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const changed = () => setChanges((count) => count + 1);
 
   useEffect(() => {
     let current = true;
@@ -95,53 +98,14 @@ function BeanBatchDetails({ id }: { id: string }) {
           {batch.bean.roaster && `, by ${batch.bean.roaster}`}
         </p>
       </div>
+      <div className="flex flex-wrap items-start gap-2">
+        <ArchiveButton path={`/bean-batches/${id}`} name={batchName(batch)} archived={batch.archived} onDone={changed} />
+        <DeleteButton path={`/bean-batches/${id}`} name={batchName(batch)} back="/library/bean-batches" />
+      </div>
 
-      <ItemConflictsCard kind="beanBatch" id={id} onResolved={() => setChanges((count) => count + 1)} />
+      <ItemConflictsCard kind="beanBatch" id={id} onResolved={changed} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            <h2>Locations</h2>
-          </CardTitle>
-          <CardDescription>
-            Where it is, from when it was added there until it is finished there, and the remaining weight entered last at
-            each. Each Location's tablets hold it with that Location's weight.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          {batch.locations.length === 0 ? (
-            <p className="text-sm text-muted-foreground">It is at no Location.</p>
-          ) : (
-            <Table aria-label="Locations">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Remaining weight</TableHead>
-                  <TableHead>Added</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {batch.locations.map((here) => (
-                  <TableRow key={here.location.id}>
-                    <TableCell className="font-medium">{here.location.name}</TableCell>
-                    <TableCell>{weightText(here.remainingWeight)}</TableCell>
-                    <TableCell>{formatTime(here.since)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-          {batch.finished.length > 0 && (
-            <Fields label="Finished">
-              {batch.finished.map((here) => (
-                <Field key={here.location.id} term={here.location.name}>
-                  Finished {formatTime(here.finishedAt)}, with {weightText(here.remainingWeight)}
-                </Field>
-              ))}
-            </Fields>
-          )}
-        </CardContent>
-      </Card>
+      <BatchLocationsCard batch={batch} onChanged={changed} />
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
@@ -149,9 +113,23 @@ function BeanBatchDetails({ id }: { id: string }) {
             <CardTitle>
               <h2>Roast</h2>
             </CardTitle>
-            <CardDescription>As the tablet that created it recorded it, with the edits made since.</CardDescription>
+            <CardDescription>As it was created, with the edits made since, on tablets or here.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="grid gap-4">
+            {editing ? (
+              <ContentForm
+                label="Edit the roast"
+                fields={BATCH_FIELDS}
+                content={batch.content}
+                path={`/bean-batches/${id}`}
+                onCancel={() => setEditing(false)}
+                onSaved={() => {
+                  setEditing(false);
+                  changed();
+                }}
+              />
+            ) : (
+            <>
             <Fields label="Roast">
               <Field term="Roasted">
                 <OrNone>{roastDateText(batch.roastDate)}</OrNone>
@@ -162,6 +140,13 @@ function BeanBatchDetails({ id }: { id: string }) {
                 </Field>
               ))}
             </Fields>
+            <div>
+              <Button variant="outline" aria-label="Edit the roast" onClick={() => setEditing(true)}>
+                Edit
+              </Button>
+            </div>
+            </>
+            )}
           </CardContent>
         </Card>
 

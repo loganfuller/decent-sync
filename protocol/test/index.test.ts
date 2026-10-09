@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   CLOSE_CODES,
   COLLECTION_NAMES,
+  DELETED_KINDS,
   type ErrorMessage,
   GLOBAL_ID_KEY,
   type Hello,
+  type ItemDeleted,
   type ItemWritten,
   LIBRARY_KINDS,
   LIBRARY_LISTS,
+  type LibraryDelete,
   type LibraryWrite,
   MAX_HARDWARE_LENGTH,
   MAX_ID_LENGTH,
@@ -509,6 +512,20 @@ describe("Library writes", () => {
     });
   });
 
+  it("reads a delete of a record of a hard-deleted item, and its answer", () => {
+    const remove: LibraryDelete = { type: "delete", id: "delete-1", kind: "beanBatch", globalId, localId: "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca" };
+    const deleted: ItemDeleted = { type: "deleted", id: "delete-1", kind: "beanBatch", globalId, localId: remove.localId };
+    expect(decodeServerMessage(frame(remove))).toEqual({ ok: true, message: remove });
+    expect(decodePluginMessage(frame(deleted))).toEqual({ ok: true, message: deleted });
+    expect(decodePluginMessage(frame({ ...refused, id: "delete-1", kind: "beanBatch" }))).toMatchObject({ ok: true });
+    expect(decodeServerMessage(frame({ ...remove, globalId: "batch-1" }))).toMatchObject({ ok: false, problem: "delete.globalId must be a UUID" });
+    for (const localId of [undefined, null, "", "a".repeat(MAX_RECORD_ID_LENGTH + 1)]) {
+      expect(decodeServerMessage(frame({ ...remove, localId })).ok).toBe(false);
+      expect(decodePluginMessage(frame({ ...deleted, localId })).ok).toBe(false);
+    }
+    expect(DELETED_KINDS).toEqual(["bean", "beanBatch", "grinder"]);
+  });
+
   it("names a Profile by Decaid's id, which is the same on every tablet, and every other kind by a global id", () => {
     const profileId = "profile:bf1ca48b9c7389c7d146";
     const profile: LibraryWrite = { type: "write", id: "write-2", kind: "profile", globalId: profileId, localId: profileId, fields: { visibility: "hidden" } };
@@ -566,6 +583,7 @@ describe("Delivery ids", () => {
     { type: "collection", name: "scaleInfo", available: false },
     { type: "written", kind: "bean", globalId: "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d", record: {}, updatedAt: null, writtenFields: [] },
     { type: "writeRefused", kind: "bean", globalId: "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d", status: 400, error: "" },
+    { type: "deleted", kind: "bean", globalId: "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d", localId: "8ac511b9-81a6-4066-9a5e-5b67da092efc" },
   ];
 
   it("are at most MAX_ID_LENGTH characters on every delivery, and a longer one is refused without being repeated", () => {

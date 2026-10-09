@@ -9,6 +9,7 @@ export function extractShot(record: unknown) {
   const annotations = object(shot.annotations);
   return {
     beanBatchId: string(context.beanBatchId),
+    grinderId: string(context.grinderId),
     coffeeName: string(context.coffeeName),
     coffeeRoaster: string(context.coffeeRoaster),
     profileTitle: string(profile.title),

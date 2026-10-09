@@ -4,9 +4,11 @@ import { atText, batchName } from "@/components/bean-batches";
 import { BeanBadges, beanName, offeredAtText } from "@/components/beans";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
+import { ArchiveButton, BEAN_FIELDS, ContentForm, DeleteButton, NewBatchDialog } from "@/components/library-forms";
 import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError, api, type Bean } from "@/lib/api";
@@ -33,8 +35,10 @@ function BeanDetails({ id }: { id: string }) {
   const [bean, setBean] = useState<Bean>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
-  // Using a Conflict\'s value changes the item, so it is loaded again, with its history.
+  // Using a Conflict\'s value, or an edit here, changes the item, so it is loaded again, with its history.
   const [changes, setChanges] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const changed = () => setChanges((count) => count + 1);
 
   useEffect(() => {
     let current = true;
@@ -86,8 +90,13 @@ function BeanDetails({ id }: { id: string }) {
         </h1>
         <p className="text-muted-foreground">{bean.roaster ?? "No roaster recorded"}</p>
       </div>
+      <div className="flex flex-wrap items-start gap-2">
+        {!bean.archived && <NewBatchDialog bean={bean} />}
+        <ArchiveButton path={`/beans/${id}`} name={beanName(bean)} archived={bean.archived} onDone={changed} />
+        <DeleteButton path={`/beans/${id}`} name={beanName(bean)} what="Its batches are deleted with it." back="/library/beans" />
+      </div>
 
-      <ItemConflictsCard kind="bean" id={id} onResolved={() => setChanges((count) => count + 1)} />
+      <ItemConflictsCard kind="bean" id={id} onResolved={changed} />
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
@@ -116,9 +125,23 @@ function BeanDetails({ id }: { id: string }) {
             <CardTitle>
               <h2>Coffee</h2>
             </CardTitle>
-            <CardDescription>As the tablet that created it recorded it, with the edits made since.</CardDescription>
+            <CardDescription>As it was created, with the edits made since, on tablets or here.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="grid gap-4">
+            {editing ? (
+              <ContentForm
+                label="Edit the coffee"
+                fields={BEAN_FIELDS}
+                content={bean.content}
+                path={`/beans/${id}`}
+                onCancel={() => setEditing(false)}
+                onSaved={() => {
+                  setEditing(false);
+                  changed();
+                }}
+              />
+            ) : (
+            <>
             <Fields label="Coffee">
               <Field term="Roaster">
                 <OrNone>{bean.roaster ?? undefined}</OrNone>
@@ -133,6 +156,13 @@ function BeanDetails({ id }: { id: string }) {
                 </Field>
               ))}
             </Fields>
+            <div>
+              <Button variant="outline" aria-label="Edit the coffee" onClick={() => setEditing(true)}>
+                Edit
+              </Button>
+            </div>
+            </>
+            )}
           </CardContent>
         </Card>
       </div>

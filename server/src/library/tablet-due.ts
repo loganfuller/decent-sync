@@ -1,15 +1,28 @@
 import { Prisma } from "../generated/prisma/client.js";
 import type { PrismaService } from "../prisma.service.js";
-import { type HeldRecord, type LocationBatch, type OfferedBean, type OfferedGrinder, type PlannedWrite, type ShownProfile, plannedWrites, writeKey } from "./holdings.js";
+import type { DeletedKind } from "@decent-sync/protocol";
+import {
+  type HeldRecord,
+  type LocationBatch,
+  type OfferedBean,
+  type OfferedGrinder,
+  type PlannedChange,
+  type PlannedDelete,
+  type ShownProfile,
+  deleteKey,
+  plannedWrites,
+  writeKey,
+} from "./holdings.js";
 import { settingsDue } from "./location-settings.js";
 import { latestDecision, readFieldEdits } from "./merge.js";
 import { profileText } from "./profile-intake.js";
 
 // What a connection's tablet is due: the next write that brings it to what
 // its Machine's Location offers, and each record it holds to its item's
-// content (holdings.ts), and its Workflow to the Location's steam, hot water
-// and rinse settings (location-settings.ts), read from the database each
-// time, so it reflects changes made through any instance.
+// content (holdings.ts), its Workflow to the Location's steam, hot water
+// and rinse settings (location-settings.ts), and the deletes of its records
+// of items an Admin hard-deleted (hard-deletes.ts), read from the database
+// each time, so it reflects changes made through any instance.
 
 /** A connection whose tablet is written to: its session, which must still hold its Machine, the Machine and its tablet. */
 export interface WrittenTablet {
@@ -22,8 +35,8 @@ export interface WrittenTablet {
 export interface TabletDue {
   /** The Location its Machine is at now, or null if none. */
   locationId: string | null;
-  /** The writes due, in the order they are made; null while none is planned, as the Machine is not where they were reported. */
-  writes: PlannedWrite[] | null;
+  /** The writes and deletes due, in the order they are made; null while none is planned, as the Machine is not where they were reported. */
+  writes: PlannedChange[] | null;
 }
 
 /**
@@ -124,7 +137,7 @@ export async function tabletDue(
       // The Location's settings first: they need no item written before them.
       const settings = await settingsDue(tx, tablet, locationId);
       const writes = settings && !skipped.has(writeKey(settings.kind, settings.globalId)) ? [settings] : [];
-      return { locationId, writes: [...writes, ...plannedWrites(offer, held, skipped)] };
+      return { locationId, writes: [...writes, ...(await deletesDue(tx, tablet.tabletId, skipped)), ...plannedWrites(offer, held, skipped)] };
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   );
@@ -159,4 +172,17 @@ function presenceDecidedSql(beanId: Prisma.Sql, locationId: string): Prisma.Sql 
     SELECT max(here.presence_decided_at) FROM batch_locations AS here JOIN bean_batches AS batch ON batch.id = here.batch_id
     WHERE batch.bean_id = ${beanId} AND here.location_id = ${locationId}::uuid
   )`;
+}
+
+/** The order records are deleted in: a bean's batches before it, as Decaid refuses to delete a bean that has any. */
+const DELETE_ORDER: readonly DeletedKind[] = ["beanBatch", "bean", "grinder"];
+
+/** The tablet's records of hard-deleted items still to be deleted there, but those in `skipped` (`deleteKey`). */
+async function deletesDue(tx: Prisma.TransactionClient, tabletId: string, skipped: ReadonlySet<string>): Promise<PlannedDelete[]> {
+  const rows = await tx.$queryRaw<{ kind: DeletedKind; localId: string; itemId: string }[]>`
+    SELECT kind, local_id AS "localId", item_id AS "itemId" FROM tablet_deletions WHERE tablet_id = ${tabletId}::uuid ORDER BY local_id`;
+  return rows
+    .filter((row) => DELETE_ORDER.includes(row.kind) && !skipped.has(deleteKey(row.kind, row.localId)))
+    .sort((a, b) => DELETE_ORDER.indexOf(a.kind) - DELETE_ORDER.indexOf(b.kind))
+    .map((row) => ({ delete: true, kind: row.kind, globalId: row.itemId, localId: row.localId }));
 }
