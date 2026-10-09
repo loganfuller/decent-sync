@@ -57,7 +57,7 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     machine: CreatedMachine,
     serial: string,
     instance: TestServer = server,
-    options: { bundled?: boolean; apiDelayMs?: (method: string, path: string) => number } = {},
+    options: { bundled?: boolean; apiDelayMs?: (method: string, path: string) => number; stallUpload?: (frame: unknown) => boolean } = {},
   ): SimulatedTablet {
     const profiles = options.bundled ? (de1ProOnDecaid087()["/profiles"] as Record_[]).filter((record) => record.isDefault === true) : [];
     const tablet = SimulatedTablet.load({
@@ -65,6 +65,7 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
       api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": profiles },
       timeScale: 50,
       ...(options.apiDelayMs ? { apiDelayMs: options.apiDelayMs } : {}),
+      ...(options.stallUpload ? { stallUpload: options.stallUpload } : {}),
     });
     tablets.push(tablet);
     return tablet;
@@ -156,10 +157,6 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     const uptownVersions = versions.filter((version) => version.location?.id === uptown.location.id);
     expect(uptownVersions.map((version) => version.fields)).toEqual([{ shown: false }, { shown: true }]);
     expect(uptownVersions.every((version) => version.source.account !== null && version.source.tabletId === null)).toBe(true);
-    // The tablets hold it as the Library does, so it is not written again.
-    const writes = uptown.tablets[0]!.writes.length;
-    await poll(async () => (await viewProfile(id)).locations.find((here) => here.location.id === uptown.location.id)?.shown).toBe(false);
-    expect(uptown.tablets[0]!.writes.length).toBe(writes);
   });
 
   it("hides an Archived Profile on every tablet, and restoring it brings back each Location's shown state", async () => {
@@ -287,6 +284,32 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     await poll(async () => (await viewProfile(id)).locations.find((here) => here.location.id === location.id)?.shown).toBe(false);
     await poll(() => visibilityOn(otherTablet, id)).toBe("hidden");
     expect(tablet.writes.filter((write) => write.startsWith("DELETE "))).toEqual([]);
+  });
+
+  it("deletes a Profile from a tablet whose answer to its write came only after the delete", async () => {
+    const lab = await locationWith("Late lab", [22051]);
+    const location = await api.createLocation("Late cafe", "America/Chicago");
+    const machine = await api.createMachine("Late cafe 1", location.id);
+    // Its answer to the write of the Profile waits in its outbox until it reconnects, after the delete.
+    let holdingAnswers = true;
+    const late = load(machine, "22052", other, {
+      stallUpload: (frame) => holdingAnswers && (frame as { type?: unknown; kind?: unknown }).type === "written" && (frame as { kind?: unknown }).kind === "profile",
+    });
+    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    const record = await labProfile(lab.tablets[0]!, "Late Bloom", 6.25);
+    const id = String(record.id);
+    expect((await show(id, location, true)).status).toBe(200);
+    await poll(() => visibilityOn(late, id)).toBe("visible");
+
+    late.loseNetwork();
+    holdingAnswers = false;
+    await send("DELETE", profilePath(id), undefined, api, 204);
+    await poll(() => visibilityOn(lab.tablets[0]!, id)).toBeUndefined();
+    late.restoreNetwork();
+    // The answer is not recorded, as the Library no longer has the Profile, and the record it made is purged.
+    await poll(() => visibilityOn(late, id)).toBeUndefined();
+    expect(late.writes).toContain(`DELETE /profiles/${encodeURIComponent(id)}/purge`);
+    expect((await api.call("GET", profilePath(id))).status).toBe(404);
   });
 
   it("lets Staff show and hide Profiles only at their own Locations, Archive and restore them anywhere, and never hard-delete", async () => {

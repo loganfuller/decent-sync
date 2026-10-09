@@ -202,7 +202,9 @@ export async function takeInProfiles(
  * says nothing new, as for an answer to a write no longer awaited. Nothing
  * is recorded
  * when the record is another Profile's, as one a Decaid hashing profiles
- * otherwise would make, or when the Library no longer has the Profile.
+ * otherwise would make, or when the Library no longer has the Profile: an
+ * Admin hard-deleted it since, so the record is due to be deleted there too
+ * (hard-deletes.ts).
  */
 export async function recordProfileWritten(
   prisma: PrismaService,
@@ -219,7 +221,14 @@ export async function recordProfileWritten(
     if (!(await lockHeldMachine(tx, tablet))) return "released";
     await lockTablet(tx, tablet.tabletId);
     const library = await tx.profile.findUnique({ where: { id: profileId }, select: { bundled: true } });
-    if (!library) return "notTheItem";
+    if (!library) {
+      // Hard-deleted since it was written: the record it made is due to be deleted too, as one the tablet held would be.
+      await tx.$executeRaw`
+        INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id, profile_steps)
+        VALUES (${tablet.tabletId}::uuid, 'profile', ${profileId}, ${profileId}, ${JSON.stringify(stepsOf(record))}::jsonb)
+        ON CONFLICT DO NOTHING`;
+      return "notTheItem";
+    }
     const here = await currentLocation(tx, tablet.machineId);
     const at = updatedAt === null ? null : new Date(updatedAt);
     const [known] = await tx.$queryRaw<{ record: Record<string, unknown>; contentSeenAt: Date | null; seenAt: Date | null }[]>`
@@ -250,6 +259,12 @@ export async function recordProfileWritten(
     await saveRecord(tx, tablet.tabletId, profileId, record, at, decided ?? (seen?.locationId === here ? seen : null), holds ? contentSeen : null);
     return "recorded";
   }, INTAKE_TRANSACTION);
+}
+
+/** A profile record's steps, or null. */
+function stepsOf(record: Record<string, unknown>): unknown {
+  const profile = record.profile;
+  return typeof profile === "object" && profile !== null && !Array.isArray(profile) ? ((profile as Record<string, unknown>).steps ?? null) : null;
 }
 
 /**

@@ -426,11 +426,16 @@ refuses to delete one; they are hidden at Locations or Archived instead.
   reports later, but for one due to be deleted there, joins the Library
   anew, shown where it was reported, as when a barista saves the same
   profile again. That includes one restored from a Decaid backup after its
-  delete was carried out, and one written to a tablet whose answer came only
-  after the delete, which is then not recorded. A delete of a Profile's
+  delete was carried out. A Profile written to a tablet whose answer comes
+  only after the delete is not recorded: that record is due to be deleted
+  there too. A delete of a Profile's
   record is due only while the Library lacks the Profile: once it joins
   again, the record still due to be deleted, as one a Shot kept, is that
-  Profile's, and the tablet's next report takes it in. The plugin deletes a bean's batches with it, those the Library never knew
+  Profile's, and the tablet's next report takes it in. A purge carried out
+  once the Profile joined again, planned before, also removes the record
+  from the tablet's map, so its next report does not read the record gone
+  as the tablet's delete, and the writer writes it again where its Location
+  shows it. The plugin deletes a bean's batches with it, those the Library never knew
   included, such as one a barista made of it offline; such a batch's Shots,
   which the server could not see when the Bean was deleted, then name a
   batch the tablet no longer holds.
@@ -628,7 +633,7 @@ Decaid's delete marks a user's Profile with, and hides a bundled one.
 - A record without what every supported Decaid sends (its id, its `profile`,
   its `visibility` and an `updatedAt` the plugin could place) is ignored, and
   so is one of a Profile an Admin hard-deleted that is due to be deleted
-  there (Hard deletes, above).
+  there, while the Library lacks that Profile (Hard deletes, above).
 - A record the map holds replaces the one known when it is newer, or as old
   but of another visibility. Made visible since, the Profile is shown at the
   tablet's Location; hidden or deleted since, it is hidden there (ADR-0019),

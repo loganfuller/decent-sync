@@ -189,11 +189,18 @@ async function deletedWith(tx: Prisma.TransactionClient, kind: DeletedKind, id: 
   return [{ kind, id }, ...batches.map((batch) => ({ kind: "beanBatch" as const, id: batch.id }))];
 }
 
-/** The tablet deleted its record of a hard-deleted item, or found it gone: it is not due to be deleted again. */
+/**
+ * The tablet deleted its record of a hard-deleted item, or found it gone: it
+ * is not due to be deleted again. A Profile's record may have been mapped
+ * again meanwhile, as the Profile joined the Library again before the purge
+ * was carried out: the tablet no longer holds it, so it is not mapped either,
+ * and its next report does not read it as the tablet's delete.
+ */
 export async function recordDeleted(prisma: PrismaService, tabletId: string, kind: DeletedKind, localId: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await lockTablet(tx, tabletId);
     await tx.$executeRaw`DELETE FROM tablet_deletions WHERE tablet_id = ${tabletId}::uuid AND kind = ${kind} AND local_id = ${localId}`;
+    if (kind === "profile") await tx.$executeRaw`DELETE FROM tablet_profiles WHERE tablet_id = ${tabletId}::uuid AND profile_id = ${localId}`;
   });
 }
 
