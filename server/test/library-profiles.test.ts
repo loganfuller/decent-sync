@@ -126,23 +126,19 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
 
   /**
    * A tablet of the Machine sending raw frames, which reports its profiles
-   * only as a test gives them: a record of the Profile with that id, shown
-   * or hidden as of each time given. It reports no beans, so nothing is
-   * written to it.
+   * only as a test gives them: a record of the Profile with that id, shown,
+   * hidden or deleted as of each time given, or none once it is gone. It
+   * reports no beans, so nothing is written to it.
    */
   async function rawTablet(machine: CreatedMachine, serial: string, instance = server) {
     const raw = await RawConnection.welcomed(instance.url, helloWith(machine.token, { machine: { model: "DE1Pro", serial } }));
     raws.push(raw);
     return {
-      report: (id: string, visible: boolean, at: Date) =>
-        raw.deliver({
-          type: "collection",
-          id: randomUUID(),
-          name: "profiles",
-          available: true,
-          value: [{ id, profile: derivedProfile("Raw Bloom", 2.75), visibility: visible ? "visible" : "hidden", isDefault: false, updatedAt: at.toISOString() }],
-          updatedAt: [at.toISOString()],
-        }),
+      report: (id: string, state: boolean | "deleted" | "gone", at: Date) => {
+        const visibility = state === "deleted" ? "deleted" : state ? "visible" : "hidden";
+        const held = state === "gone" ? [] : [{ id, profile: derivedProfile("Raw Bloom", 2.75), visibility, isDefault: false, updatedAt: at.toISOString() }];
+        return raw.deliver({ type: "collection", id: randomUUID(), name: "profiles", available: true, value: held, updatedAt: held.map(() => at.toISOString()) });
+      },
     };
   }
 
@@ -416,6 +412,31 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     await one.report(id, false, at(1));
     expect(await shownAt("Recreated", id)).toEqual(["Recreated lab"]);
   });
+
+  for (const [how, removed, serial, id] of [
+    ["deletes", "deleted", 17161, "profile:a9a1000000000000017f"],
+    ["purges", "gone", 17163, "profile:a9a10000000000000180"],
+  ] as const) {
+    it(`hides a Profile at the lab when a lab tablet that had hidden it ${how} it after another showed it there again`, async () => {
+      const location = await api.createLocation(`Removed ${how} lab`, "America/Chicago");
+      const first = await api.createMachine(`Removed ${how} lab 1`, location.id);
+      const second = await api.createMachine(`Removed ${how} lab 2`, location.id);
+      const one = await rawTablet(first, String(serial));
+      const two = await rawTablet(second, String(serial + 1), other);
+      const start = Date.now() - 60_000;
+      const at = (seconds: number) => new Date(start + seconds * 1000);
+      await one.report(id, true, at(0));
+      await two.report(id, true, at(0));
+      await one.report(id, false, at(1));
+      await two.report(id, false, at(2));
+      await two.report(id, true, at(3));
+      expect(await shownAt(`Removed ${how}`, id)).toEqual([`Removed ${how} lab`]);
+
+      // The first, not yet written that, removes its hidden copy later: as deleting it does, that hides it there (ADR-0019).
+      await one.report(id, removed, at(4));
+      expect(await shownAt(`Removed ${how}`, id)).toEqual([]);
+    });
+  }
 
   it("judges a moved tablet's late show at its new Location by its time, whatever it had seen at its old one", async () => {
     const lab = await api.createLocation("Carried lab", "America/Chicago");

@@ -36,7 +36,13 @@ function reported(id: string, fields: Record<string, unknown> = {}, updatedAt = 
 }
 
 /** A record the tablet's map holds, as it was known: visible, unless given otherwise. */
-const mapped = (profileId: string, known: Partial<MappedProfile> = {}): MappedProfile => ({ profileId, updatedAt: new Date(KNOWN_AT), visible: true, ...known });
+const mapped = (profileId: string, known: Partial<MappedProfile> = {}): MappedProfile => ({
+  profileId,
+  updatedAt: new Date(KNOWN_AT),
+  visible: true,
+  deleted: false,
+  ...known,
+});
 
 /** When the tablet joined its Location, before the records reported: what it holds, it brought. */
 const JOINED = new Date("2026-10-08T12:00:00.000Z");
@@ -64,16 +70,16 @@ function plan(
 }
 
 describe("readReportedProfiles", () => {
-  it("reads each profile with whether it is visible, whether it is bundled and its UTC time", () => {
+  it("reads each profile with whether it is visible, deleted or bundled and its UTC time", () => {
     const profiles = readReportedProfiles(
       [record(IDS[0]), record(IDS[1], { visibility: "hidden" }), record(IDS[2], { visibility: "deleted" }), record(BUNDLED, { isDefault: true })],
       [KNOWN_AT, KNOWN_AT, KNOWN_AT, LATER],
     );
     expect(profiles.map(({ record, ...read }) => read)).toEqual([
-      { id: IDS[0], visible: true, bundled: false, updatedAt: new Date(KNOWN_AT) },
-      { id: IDS[1], visible: false, bundled: false, updatedAt: new Date(KNOWN_AT) },
-      { id: IDS[2], visible: false, bundled: false, updatedAt: new Date(KNOWN_AT) },
-      { id: BUNDLED, visible: true, bundled: true, updatedAt: new Date(LATER) },
+      { id: IDS[0], visible: true, deleted: false, bundled: false, updatedAt: new Date(KNOWN_AT) },
+      { id: IDS[1], visible: false, deleted: false, bundled: false, updatedAt: new Date(KNOWN_AT) },
+      { id: IDS[2], visible: false, deleted: true, bundled: false, updatedAt: new Date(KNOWN_AT) },
+      { id: BUNDLED, visible: true, deleted: false, bundled: true, updatedAt: new Date(LATER) },
     ]);
   });
 
@@ -152,9 +158,9 @@ describe("planProfileIntake", () => {
     ]);
   });
 
-  it("changes nothing at the Location for a record that only changed otherwise, or went from hidden to deleted", () => {
-    const known = [mapped(IDS[0]), mapped(IDS[1], { visible: false })];
-    const report = [reported(IDS[0], { profile: { title: "Renamed" } }, LATER), reported(IDS[1], { visibility: "deleted" }, LATER)];
+  it("changes nothing at the Location for a record that only changed otherwise", () => {
+    const known = [mapped(IDS[0]), mapped(IDS[1], { visible: false, deleted: true })];
+    const report = [reported(IDS[0], { profile: { title: "Renamed" } }, LATER), reported(IDS[1], { visibility: "deleted", profile: { title: "Renamed" } }, LATER)];
     const located = new Map([
       [IDS[0], at(true)],
       [IDS[1], at(false)],
@@ -163,6 +169,13 @@ describe("planProfileIntake", () => {
       ["update", IDS[0], "unchanged"],
       ["update", IDS[1], "unchanged"],
     ]);
+  });
+
+  it("hides at the Location a Profile the tablet had hidden that it deleted since, as another tablet may have shown it there meanwhile", () => {
+    const located = new Map([[IDS[1], at(true)]]);
+    expect(plan([reported(IDS[1], { visibility: "deleted" }, LATER)], [mapped(IDS[1], { visible: false })], new Set(), located)).toEqual([["update", IDS[1], "hides"]]);
+    // Within the millisecond the plugin reads times to, too.
+    expect(plan([reported(IDS[1], { visibility: "deleted" })], [mapped(IDS[1], { visible: false })], new Set(), located)).toEqual([["update", IDS[1], "hides"]]);
   });
 
   it("takes a record as old as the one known only if it was shown or hidden since, within the millisecond the plugin reads times to, and an older one not at all", () => {
@@ -188,14 +201,14 @@ describe("planProfileIntake", () => {
     expect(plan([reported(BUNDLED, { isDefault: true })], [mapped(BUNDLED)], new Set(), new Map([[BUNDLED, at(false)]]))).toEqual([]);
   });
 
-  it("hides at the Location a Profile gone from the tablet that it held visible, as when its steps changed and Decaid replaced it under a new id, which is a new Profile shown there", () => {
+  it("hides at the Location a Profile gone from the tablet, as when its steps changed and Decaid replaced it under a new id, which is a new Profile shown there", () => {
     // Decaid's PUT with new steps: the old id is gone, and the new one is new to the Library.
     expect(plan([reported(IDS[2], {}, LATER)], [mapped(IDS[0])])).toEqual([
       ["add", IDS[2], "decides shown"],
       ["delete", IDS[0], "hides"],
     ]);
-    // Purged while hidden there, it was not shown there already.
-    expect(plan([], [mapped(IDS[1], { visible: false })])).toEqual([["delete", IDS[1], "unchanged"]]);
+    // Purged while the tablet had it hidden, it is hidden there still, as an edit: another tablet may have shown it there meanwhile.
+    expect(plan([], [mapped(IDS[1], { visible: false })])).toEqual([["delete", IDS[1], "hides"]]);
   });
 
   it("deletes only what the tablet's map held, and nothing whose id the list still holds, readable or not", () => {

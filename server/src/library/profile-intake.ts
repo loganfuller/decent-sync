@@ -16,6 +16,8 @@ export interface ReportedProfile {
   id: string;
   /** Whether it is visible on the tablet, neither hidden nor deleted: shown at the tablet's Location (ADR-0008). */
   visible: boolean;
+  /** Whether Decaid's delete marked it deleted, as it does a user's Profile. */
+  deleted: boolean;
   /** Whether it is one of Decaid's bundled Profiles (`isDefault`). */
   bundled: boolean;
   /** Its `updatedAt`, placed in UTC by the plugin: the time of its edits. */
@@ -31,6 +33,8 @@ export interface MappedProfile {
   updatedAt: Date | null;
   /** Whether the record known is visible. */
   visible: boolean;
+  /** Whether the record known is marked deleted. */
+  deleted: boolean;
 }
 
 /** Whether the Location shows a Profile it has decided, and the time of the edit that decided it last. */
@@ -52,7 +56,7 @@ export type ProfileIntakeStep =
    * The tablet's record of a Profile the map holds is newer than the one
    * known, which it replaces. With `shown`, the tablet made it visible since
    * (true), so it is shown at its Location, or hid or deleted it (false), so it
-   * is hidden there.
+   * is hidden there, deleting one it had hidden included.
    */
   | { kind: "update"; profileId: string; profile: ReportedProfile; shown?: boolean }
   /**
@@ -76,10 +80,10 @@ export type ProfileIntakeStep =
   /**
    * A record the map holds is gone from the tablet's list, as when Decaid
    * replaced it with one of new steps under another id, or purged it: the
-   * tablet holds it no more, and, if the record known was visible, it is
-   * hidden at its Location (`shown`, false).
+   * tablet holds it no more, and it is hidden at its Location (ADR-0019),
+   * whether the record known was visible or not.
    */
-  | { kind: "delete"; profileId: string; updatedAt: Date | null; shown?: false };
+  | { kind: "delete"; profileId: string; updatedAt: Date | null; shown: false };
 
 /**
  * The profiles of a reported `profiles` list that Decent Sync can take in,
@@ -92,7 +96,8 @@ export function readReportedProfiles(value: unknown, updatedAt: readonly (string
   return value.flatMap((record: unknown, index) => {
     const time = updatedAt?.[index];
     if (!isObject(record) || !isRecordId(record.id) || !isObject(record.profile) || typeof record.visibility !== "string" || !time) return [];
-    return [{ id: record.id, visible: record.visibility === "visible", bundled: record.isDefault === true, updatedAt: new Date(time), record }];
+    const { visibility } = record;
+    return [{ id: record.id, visible: visibility === "visible", deleted: visibility === "deleted", bundled: record.isDefault === true, updatedAt: new Date(time), record }];
   });
 }
 
@@ -111,9 +116,10 @@ export function profileContent(record: Record<string, unknown>): Record<string, 
  * known when it is newer, or as old but of another visibility, changed within
  * the millisecond the plugin reads times to. One made visible since is shown
  * at the tablet's Location; one hidden or deleted since is hidden there
- * (ADR-0019). Only a Profile the tablet held can be hidden this way. Each is
- * an edit timed by its record, which loses to a later one the tablet had not
- * seen (ADR-0020).
+ * (ADR-0019), one the tablet had hidden and deleted since too, as another
+ * tablet may have shown it there meanwhile. Only a Profile the tablet held
+ * can be hidden this way. Each is an edit timed by its record, which loses to
+ * a later one the tablet had not seen (ADR-0020).
  *
  * Every other record is one the map does not hold yet: one the tablet
  * created, or held before it joined its Location, or was written by a write
@@ -140,8 +146,8 @@ export function profileContent(record: Record<string, unknown>): Record<string, 
  *
  * Last, each record the map holds whose id the list no longer holds
  * (`listed`, every id the reported list holds, read or not) is gone from the
- * tablet. A new or reset tablet's map holds nothing, so it hides nothing
- * (ADR-0019).
+ * tablet, and hidden at its Location, as deleting it there does. A new or
+ * reset tablet's map holds nothing, so it hides nothing (ADR-0019).
  */
 export function planProfileIntake(
   reported: readonly ReportedProfile[],
@@ -162,9 +168,12 @@ export function planProfileIntake(
     if (mine) {
       const newer = mine.updatedAt === null || profile.updatedAt.getTime() > mine.updatedAt.getTime();
       // Times are read to the millisecond, so one as old that was shown or hidden since was changed within it.
-      const sameTime = mine.updatedAt !== null && profile.updatedAt.getTime() === mine.updatedAt.getTime() && profile.visible !== mine.visible;
+      const sameTime =
+        mine.updatedAt !== null && profile.updatedAt.getTime() === mine.updatedAt.getTime() && (profile.visible !== mine.visible || profile.deleted !== mine.deleted);
       if (newer || sameTime) {
-        steps.push({ kind: "update", profileId: profile.id, profile, ...(profile.visible === mine.visible ? {} : { shown: profile.visible }) });
+        // Deleted since it was hidden is hidden still, as an edit: another tablet may have shown it meanwhile.
+        const shown = profile.visible !== mine.visible ? profile.visible : profile.deleted && !mine.deleted ? false : undefined;
+        steps.push({ kind: "update", profileId: profile.id, profile, ...(shown === undefined ? {} : { shown }) });
       }
       if (!decided && profile.bundled) steps.push({ kind: "decide", profileId: profile.id, shown: profile.visible, at: profile.updatedAt });
       continue;
@@ -176,7 +185,7 @@ export function planProfileIntake(
   }
   for (const profile of mapped) {
     if (!listed.has(profile.profileId)) {
-      steps.push({ kind: "delete", profileId: profile.profileId, updatedAt: profile.updatedAt, ...(profile.visible ? { shown: false as const } : {}) });
+      steps.push({ kind: "delete", profileId: profile.profileId, updatedAt: profile.updatedAt, shown: false });
     }
   }
   return steps;

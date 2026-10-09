@@ -259,15 +259,17 @@ Decaid's delete marks a user's Profile with, and hides a bundled one.
   its `visibility` and an `updatedAt` the plugin could place) is ignored.
 - A record the map holds replaces the one known when it is newer, or as old
   but of another visibility. Made visible since, the Profile is shown at the
-  tablet's Location; hidden or deleted since, it is hidden there (ADR-0019).
-  Only a Profile the tablet held can be hidden this way. Each is an edit timed
-  by the record. One from a tablet whose record had seen the Location's last
-  decision of the Profile (`seen_at`, above) applies. Otherwise, as from a
-  tablet that was offline, one timed before the edit that decided the
-  Location's state loses to it (ADR-0020), and the Location's state is written
-  back to that tablet. One that applies decides it again even when it leaves
-  it shown or hidden as it was, so an earlier edit that arrives later cannot
-  undo it. Conflicts, which will keep the losing edit, come with ticket #84.
+  tablet's Location; hidden or deleted since, it is hidden there (ADR-0019),
+  as is one the tablet had hidden and deleted since, since another tablet may
+  have shown it there meanwhile. Only a Profile the tablet held can be hidden
+  this way. Each is an edit timed by the record. One from a tablet whose
+  record had seen the Location's last decision of the Profile (`seen_at`,
+  above) applies. Otherwise, as from a tablet that was offline, one timed
+  before the edit that decided the Location's state loses to it (ADR-0020),
+  and the Location's state is written back to that tablet. One that applies
+  decides it again even when it leaves it shown or hidden as it was, so an
+  earlier edit that arrives later cannot undo it. Conflicts, which will keep
+  the losing edit, come with ticket #84.
 - Any other record is one the map does not hold yet: the tablet created it,
   held it before it joined the Location, or was written it by a write whose
   answer was lost. If the Library has its id, it is that Profile; otherwise it
@@ -292,9 +294,10 @@ Decaid's delete marks a user's Profile with, and hides a bundled one.
   Location has it: hidden there, as it belonged to the Location the tablet
   held it at (ADR-0008), until it is shown there.
 - A record the map holds whose id the list no longer holds, as when Decaid
-  replaced it or a purge removed it, is gone: if the tablet held it visible,
-  it is hidden at its Location, and the map holds it no more. A new or reset
-  tablet's map holds nothing, so it hides nothing.
+  replaced it or a purge removed it, is gone: it is hidden at its Location, as
+  deleting it there does, whether the tablet held it visible or not, and the
+  map holds it no more. A new or reset tablet's map holds nothing, so it hides
+  nothing.
 
 So hiding, deleting or replacing a Profile on a tablet hides it at that
 tablet's Location only, and a Profile whose steps changed is a new Profile,

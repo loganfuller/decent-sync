@@ -51,8 +51,9 @@ export async function takeInProfiles(
   if (locationId === null) return null;
   const reported = readReportedProfiles(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
-  const mapped = await tx.$queryRaw<{ profileId: string; updatedAt: Date | null; visible: boolean; seenAt: Date | null }[]>`
-    SELECT profile_id AS "profileId", record_updated_at AS "updatedAt", (record ->> 'visibility') = 'visible' AS visible, ${seenAtSql(locationId)} AS "seenAt"
+  const mapped = await tx.$queryRaw<{ profileId: string; updatedAt: Date | null; visible: boolean; deleted: boolean; seenAt: Date | null }[]>`
+    SELECT profile_id AS "profileId", record_updated_at AS "updatedAt", (record ->> 'visibility') = 'visible' AS visible,
+      (record ->> 'visibility') = 'deleted' AS deleted, ${seenAtSql(locationId)} AS "seenAt"
     FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid`;
   /** The Location's latest decision of each Profile that the tablet's record the map holds has seen there: one decided by then, the tablet had seen. */
   const seenAt = new Map(mapped.map((profile) => [profile.profileId, profile.seenAt]));
@@ -82,9 +83,7 @@ export async function takeInProfiles(
   for (const step of steps) {
     if (step.kind === "delete") {
       await tx.$executeRaw`DELETE FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid AND profile_id = ${step.profileId}`;
-      if (step.shown === false) {
-        await showProfileAt(tx, step.profileId, locationId, false, deletedAt(await transactionTime(tx), step.updatedAt), seenAt.get(step.profileId) ?? null);
-      }
+      await showProfileAt(tx, step.profileId, locationId, false, deletedAt(await transactionTime(tx), step.updatedAt), seenAt.get(step.profileId) ?? null);
       writesDue = true;
       continue;
     }
