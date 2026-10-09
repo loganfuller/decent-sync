@@ -64,8 +64,13 @@ describe("Edits of the Library", { timeout: 60_000 }, () => {
    * polling every 5 s (0.1 s here) unless given otherwise, its Decaid's
    * Library empty, as on a fresh install.
    */
-  function load(machine: CreatedMachine, serial: string, options: { instance?: TestServer; pollSeconds?: number } = {}): SimulatedTablet {
+  function load(
+    machine: CreatedMachine,
+    serial: string,
+    options: { instance?: TestServer; pollSeconds?: number; decaidClockOffsetMs?: number } = {},
+  ): SimulatedTablet {
     const tablet = SimulatedTablet.load({
+      decaidClockOffsetMs: options.decaidClockOffsetMs,
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
       api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] },
       timeScale: 50,
@@ -238,6 +243,29 @@ describe("Edits of the Library", { timeout: 60_000 }, () => {
     expect(heldBean(two, bean.id)).toMatchObject({ notes: "Edited on group 2" });
     expect(await beanContent(bean.id)).toMatchObject({ notes: "Edited on group 2" });
     expect(await conflictsOf(bean.id)).toMatchObject([{ field: "notes", value: "Edited on group 1", source: { machine: { name: "Unreported 1" } } }]);
+  });
+
+  it("writes the Library's value back, on the same connection, over a barista's unreported edit that lost", async () => {
+    const lab = await api.createLocation("Losing lab", "America/Chicago");
+    const first = await api.createMachine("Losing 1", lab.id);
+    const second = await api.createMachine("Losing 2", lab.id);
+    // Its Decaid's clock runs 10 minutes fast, so its edit is timed after the other tablet's.
+    const one = load(first, "19091", { decaidClockOffsetMs: 10 * 60_000 });
+    // Polls once an hour (every 72 s here), so what is entered on it is not reported within the test.
+    const two = load(second, "19092", { pollSeconds: 3600 });
+    await online(first, second);
+    const record = await one.addBean({ roaster: "Roux", name: "Losing Guji", notes: "Peach" });
+    const bean = await libraryBean("Losing Guji");
+    await holds(two, bean.id, { notes: "Peach" });
+
+    await two.editBean(heldBean(two, bean.id)!.id, { notes: "Edited on group 2" });
+    await one.editBean(record.id, { notes: "Edited on group 1" });
+    // The plugin keeps group 2's edit as it writes group 1's notes; its answer brings it in, and it loses.
+    await expect.poll(async () => (await conflictsOf(bean.id)).map((conflict) => conflict.value), { timeout: 10_000 }).toEqual(["Edited on group 2"]);
+    expect(await beanContent(bean.id)).toMatchObject({ notes: "Edited on group 1" });
+    // The Library's value is then written to group 2, though the write before it named the same fields.
+    await holds(two, bean.id, { notes: "Edited on group 1" });
+    expect(two.received.filter((frame) => (frame as { type?: unknown }).type === "welcome")).toHaveLength(1);
   });
 
   it("renames a Profile renamed on one tablet on every tablet that holds it", async () => {

@@ -577,7 +577,8 @@ connection's reports. A record that does not carry the item's global id, or
 whose local id the map holds as another item, is not recorded.
 
 A refusal, an answer that cannot be recorded, no answer within 300 s, or an
-item due again with the same fields it was last written, found due at every
+item due again with the same fields it was last written, expecting the record
+to hold the same values, found due at every
 look since, which writing again would not change, skips that item for the
 rest of the connection; the other writes go on, and the tablet's next
 connection tries it again. An update Decaid answers with 404 found the record
@@ -586,7 +587,9 @@ deletes a bean with its batches and a report of the batches, read after the
 delete, comes before one of the beans: it is skipped the same way, but not
 taken for a refusal, as the tablet's next report shows the delete. An item due
 again with other fields, as when the second request of a batch's create
-failed or the Location changed the item meanwhile, is written again. An
+failed or the Location changed the item meanwhile, or expecting other values,
+as when the plugin left a field the tablet had changed as it was and that
+change lost, is written again. An
 answer to no write its connection awaits, such as one arriving after its
 write timed out, or one the plugin's outbox held across a reconnect, is
 recorded too, so the server's own write is not read back from the next report

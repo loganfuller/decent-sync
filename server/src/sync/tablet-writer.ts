@@ -87,10 +87,13 @@ export class TabletWriter {
   private readonly skipped = new Set<string>();
   /**
    * The fields last written to each item on this connection, by `writeKey`,
-   * kept while every look since has found the item due, whatever was written
-   * between: due again with those fields, writing it changed nothing. A look
-   * the writer skips while it waits for a report of the batches cannot tell,
-   * so it keeps them.
+   * with the values the write expected the record to hold, kept while every
+   * look since has found the item due, whatever was written between: due
+   * again with those fields and expecting the same, writing it changed
+   * nothing. One expecting other values finds the record changed, as when the
+   * plugin left a field the tablet had changed meanwhile as it was, which its
+   * answer brought in, and is written again. A look the writer skips while it
+   * waits for a report of the batches cannot tell, so it keeps them.
    */
   private readonly lastWritten = new Map<string, string>();
   /**
@@ -212,7 +215,7 @@ export class TabletWriter {
       }
       const key = writeKey(due.kind, due.globalId);
       const item = `${KIND_NAMES[due.kind]} ${due.globalId}`;
-      const fields = JSON.stringify(due.fields);
+      const fields = JSON.stringify({ fields: due.fields, expected: due.expected ?? null });
       if (this.lastWritten.get(key) === fields) {
         this.log.warn(`Tablet ${this.tablet.tabletId} is still due ${item} once written; it is tried again once the tablet reconnects`);
         this.skipped.add(key);
