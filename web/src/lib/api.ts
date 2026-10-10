@@ -364,6 +364,31 @@ export interface ShotSummary {
   barista: string | null;
   peakPressure: number | null;
   peakFlow: number | null;
+  /** The Library's Bean Batch it used, through its tablet's ids; null until its tablet's batch is in the Library. */
+  beanBatch: BatchLink | null;
+  /** The Library's Grinder it used, the same way. */
+  grinder: GrinderLink | null;
+  /** The Library's Profile it was pulled with: the one its Workflow's profile hashes to, as Decaid's ids do. */
+  profile: ProfileLink | null;
+}
+
+/** A Library Bean Batch a Shot is linked to: its Bean and roast date, as the Bean Batches list names them. */
+export interface BatchLink {
+  id: string;
+  bean: { id: string; roaster: string | null; name: string | null };
+  roastDate: string | null;
+}
+
+/** A Library Grinder a Shot is linked to. */
+export interface GrinderLink {
+  id: string;
+  model: string | null;
+}
+
+/** A Library Profile a Shot was pulled with. */
+export interface ProfileLink {
+  id: string;
+  title: string | null;
 }
 
 /** One page of a Shots list, and how many Shots the whole list has. */
@@ -386,6 +411,10 @@ export interface ShotFilterOptions {
   beans: { coffeeRoaster: string | null; coffeeName: string | null }[];
   baristas: (string | null)[];
   profiles: (string | null)[];
+  /** The Library's Bean Batches listed Shots are linked to; null stands for Shots linked to none. */
+  beanBatches: (BatchLink | null)[];
+  /** The Library's Grinders listed Shots are linked to, each with its Location; null stands for Shots linked to none. */
+  grinders: ((GrinderLink & { location: Location | null }) | null)[];
 }
 
 /** A Steam Record as the Steam Records list shows it: what it measured and how it was credited, without its record or curves. */

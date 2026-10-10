@@ -3,6 +3,7 @@ import { ConflictException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
+import { shotLinkedSql, stepsKeySql } from "../shots/links.js";
 import { INTAKE_TRANSACTION, lockTablet } from "./intake.js";
 import { lockLocation } from "./location-state.js";
 
@@ -11,11 +12,12 @@ import { lockLocation } from "./location-state.js";
 // holds it, the one thing the server deletes from tablets. A Bean goes with
 // its batches, as Decaid refuses to delete a bean that has any. A Shot names a
 // batch or Grinder by its id on the tablet that pulled it, so an item whose
-// record has that id on any tablet's map is named; a Bean is named when one
-// of its batches is. A Shot names a Profile by the steps it executed, which
-// its Workflow records with the rest of its profile, or by the profile id a
-// skin recorded there. Decaid's bundled Profiles, which every tablet has and
-// Decaid refuses to delete, are never deleted.
+// record has that id on any tablet's map is named, as is one a Shot is linked
+// to (shots/links.ts), whose record may have left the map since; a Bean is
+// named when one of its batches is. A Shot names a Profile by the steps it
+// executed, which its Workflow records with the rest of its profile, or by
+// the profile id a skin recorded there. Decaid's bundled Profiles, which
+// every tablet has and Decaid refuses to delete, are never deleted.
 //
 // The item is gone from the Library at once, with its versions, Conflicts
 // and each Location's state of it. Its global id is kept (`deleted_items`),
@@ -66,11 +68,17 @@ const NAMES: Readonly<Record<DeletedKind, string>> = { bean: "Bean", beanBatch: 
  * sets the Workflow's profile's target weight to the Shot's yield, so a
  * Shot pulled with a Profile can hold other targets. Refusing more deletes
  * than Shots used is the safe side. PostgreSQL compares JSON numbers by
- * value, so a whole double Decaid writes as `92.0` equals 92.
+ * value, so a whole double Decaid writes as `92.0` equals 92, and steps are
+ * compared as they identify a profile, each step's temperature left out and
+ * a limiter of value 0 as none, as a skin overrides or sends them
+ * (`stepsKeySql`), so every Shot linked to the Profile names it. The id a
+ * skin recorded is stale once another skin loads a profile, which only
+ * refuses more deletes.
  */
 export function shotNamesProfileSql(id: Prisma.Sql, steps: Prisma.Sql): Prisma.Sql {
   return Prisma.sql`EXISTS (
-    SELECT 1 FROM shots WHERE shots.profile_id = ${id} OR shots.record -> 'workflow' -> 'profile' -> 'steps' = ${steps}
+    SELECT 1 FROM shots WHERE shots.profile_id = ${id}
+      OR ${stepsKeySql(Prisma.sql`shots.record -> 'workflow' -> 'profile' -> 'steps'`)} = ${stepsKeySql(steps)}
   )`;
 }
 
@@ -140,10 +148,11 @@ async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: s
   const stillDeleted = (await deletedWith(tx, kind, id))?.map((item) => item.id).sort() ?? [];
   if (stillDeleted.join() !== items.map((item) => item.id).sort().join()) return false;
 
-  // Read under the tablets' locks, which every change to their maps takes.
+  // Read under the tablets' locks, which every change to their maps takes, and which linking a Shot to one waits for.
   const [named] = await tx.$queryRaw<{ named: boolean }[]>`
     SELECT EXISTS (SELECT 1 FROM shots JOIN tablet_bean_batches AS held ON held.local_id = shots.bean_batch_id WHERE held.batch_id = ANY(${batches}::uuid[]))
       OR EXISTS (SELECT 1 FROM shots JOIN tablet_grinders AS held ON held.local_id = shots.grinder_id WHERE held.grinder_id = ANY(${grinders}::uuid[]))
+      OR ${shotLinkedSql("beanBatch", batches)} OR ${shotLinkedSql("grinder", grinders)}
       OR EXISTS (
         SELECT 1 FROM profiles WHERE id = ANY(${profiles}::text[])
           AND ${shotNamesProfileSql(Prisma.sql`profiles.id`, Prisma.sql`profiles.content -> 'profile' -> 'steps'`)}

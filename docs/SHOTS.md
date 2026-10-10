@@ -109,6 +109,78 @@ an Admin's hard delete of a Library item a Shot names is refused
 Workflow's `profile`'s steps, indexed by hash, or by the `profile_id` a skin
 recorded in its Workflow, indexed too.
 
+## Links to the Library
+
+Ticket [#92](https://github.com/loganfuller/decent-sync/issues/92) links each
+Shot to the Library's Bean Batch, Grinder and Profile it used
+(`server/src/shots/links.ts`):
+
+- **Bean Batch and Grinder.** A Shot keeps the tablet that reported the
+  metadata stored (`tablet_id`), whose ids `bean_batch_id` and `grinder_id`
+  are. They resolve through that tablet's map (`tablet_bean_batches`,
+  `tablet_grinders`, `LIBRARY.md`) to the Library's items, stored as the
+  Shot's links (`library_batch_id`, `library_grinder_id`). A Shot stored
+  before Shots kept their tablet takes the tablet whose `shotIndex` lists
+  it, as only a tablet holding a Shot lists it, and is linked through that
+  tablet's map then (`claimListed`, under the tablet's row lock): so once
+  each tablet's plugin loads again and scans its Shots. One no tablet holds
+  any more, as one deleted there or on a tablet whose Decaid data was
+  reset, stays unlinked.
+  Links are set as each delivery's metadata is stored,
+  and, for a Shot whose ids the map does not hold yet, as the map gains the
+  id (`linkShots`, called wherever a map saves a record), so a Shot reported
+  before its batch joined the Library is linked once it does. A link stays
+  when the tablet's record leaves its map, as when a barista deletes it
+  there, while each delivery of the Shot names the same id; a delivery
+  naming another id is linked by that one, or unlinked until the map gains
+  it. A link refuses its item's hard delete. Every change to a map holds
+  the tablet's row lock, and storing a Shot's metadata holds that row for
+  share while it resolves, reading the Shot's links under it, so neither
+  misses the other on any instance. A Shot whose ids no map holds stays
+  unlinked, and is listed as any other.
+- **Profile.** A Profile's id is Decaid's, a hash of what the machine
+  executes (`ProfileHash` in
+  `decaid:lib/src/models/data/profile_hash.dart`), which a Shot's Workflow
+  holds as its `profile` but does not name. What a barista overrides in a
+  skin as they pull a Shot is their input to it, not another profile:
+  streamline-js's side panel writes the yield into the profile it loads as
+  its target weight, and the temperature into every step, and its
+  `updateWorkflow` sends a step's limiter of value 0, which is no limiter,
+  as null, while the profile's record keeps it
+  (`streamline-js:src/modules/ui.js`, `src/modules/api.js`). The dose is
+  the Workflow's, outside the profile. So a Shot's candidates are the
+  Library Profiles with its steps, but for each step's temperature and with
+  a limiter of value 0 as none (`profile_steps_key`, in the migration,
+  which the indexes on the steps use), and its version, beverage type, tank
+  temperature and volume targets, compared as JSON so `92.0` equals 92. Of
+  those, the Shot was pulled with the one whose title it recorded, as a
+  skin loads a Profile under its own; then the one whose step temperatures
+  and target weight, both or either, it holds; then the one whose steps it
+  holds as they are, limiters included, as a copy saved of a profile a skin
+  loaded keeps its limiters as the skin sent them. Two alike in all of that
+  leave it linked to neither. So a Shot pulled with a Profile, its
+  temperature and yield changed, is that Profile's, even where the Library
+  has a copy saved at that temperature under another title, while a Shot
+  pulled with the copy is the copy's. A copy saved under the same title, as
+  streamline-js's profile editor saves an edited Profile, ties with it on
+  the title, so a Shot overridden to the copy's temperature is the copy's.
+  The hard delete's check of whether a Shot names a Profile, and the
+  plugin's, compare steps the same way, temperatures left out. The link is
+  read, not stored, so it follows the Library: a Profile joining
+  that ties with a Shot's own leaves that Shot linked to neither, and a
+  Profile's title edited since leaves its earlier Shots naming the old one,
+  so once a second Profile matches them their overrides decide between the
+  two.
+- **The skin's profile id is not used.** The profile id the WorkFlow skin
+  (`Sabotage1/WorkFlow-Skin`) records in the Workflow
+  (`context.extras.workflowSkin.selectedProfileId`, kept as `profile_id`)
+  is the Profile picked in that skin. Decaid merges a Workflow's changes
+  into it (`deepMergeJson` in `decaid:lib/src/models/data/json_utils.dart`),
+  so it stays as it was when another skin loads another profile: the test
+  tablet's Shot names the bundled Adaptive v3 there, picked in the WorkFlow
+  skin before streamline-js loaded the Londonium it was pulled with. A hard
+  delete still counts it, which only refuses more.
+
 Decaid writes a Shot's `timestamp` and sample times in the tablet's local time
 without an offset, and `createdAt` in UTC as it saves the Shot, just after the
 last sample. `extractCurves` takes the tablet's offset from that gap, rounded
@@ -133,7 +205,10 @@ All endpoints require a signed-in account, Admin or Staff.
   was pulled (`locationId`, and `location: { id, name, timeZone }`, null when
   unknown), and `locationInferred`, true when that Location came through an
   inferred Machine. Correcting the Machine's Location History changes these,
-  never the stored record.
+  never the stored record. Each row names the Library items it is linked to
+  (Links to the Library, above), each null when none: `beanBatch` (`{ id,
+  bean: { id, roaster, name }, roastDate }`), `grinder` (`{ id, model }`)
+  and `profile` (`{ id, title }`).
 - Filters, each given at most once and combined with AND
   (`server/src/shots/filters.ts`; the Machine, Location and date filters are
   `server/src/record-filters.ts`, which Steam Records lists share):
@@ -142,9 +217,14 @@ All endpoints require a signed-in account, Admin or Staff.
   - `coffeeRoaster` and `coffeeName` (together, a Bean as each Shot recorded
     it, so the same Bean is found across Machines), `barista` and
     `profileTitle`: exact matches on what the Shot recorded. An empty value
-    matches Shots that recorded none. There is no Bean Batch filter yet:
-    each tablet has its own id for the same batch, which Shots will be linked
-    to the Library's through (ticket #92, ADR-0006).
+    matches Shots that recorded none.
+  - `beanBatchId` and `grinderId`: Shots linked to that Library Bean Batch
+    or Grinder (Links to the Library, above), whichever tablet's id for it
+    they recorded, so a batch is compared across Machines and Locations;
+    `none` for Shots linked to none. `beanId`: Shots linked to any of that
+    Bean's batches. `profileId`: Shots pulled with that Library Profile.
+    Each item's page lists its Shots through these. A malformed id is a
+    404.
   - `from` and `to`: a local date (`2026-10-05`) or date and time
     (`2026-10-05T06:00`) without an offset, read on each Shot's own
     Location's wall clock, or UTC for a Shot with no Location. `from` is the
@@ -152,10 +232,14 @@ All endpoints require a signed-in account, Admin or Staff.
     date alone includes the whole of that day. So a day is 23 or 25 hours
     across a daylight-saving change, and an hour the clocks repeat is listed
     twice. Shots whose time is unknown match no time filter.
-- `GET /api/shots/filters` returns `{ beans, baristas, profiles }`: the
-  distinct Beans (`{ coffeeRoaster, coffeeName }`), Baristas and profile
-  titles listed Shots recorded, sorted ignoring case, with null for Shots
-  that recorded none.
+- `GET /api/shots/filters` returns `{ beans, baristas, profiles,
+  beanBatches, grinders }`: the distinct Beans (`{ coffeeRoaster, coffeeName
+  }`), Baristas and profile titles listed Shots recorded, sorted ignoring
+  case, with null for Shots that recorded none; and the Library's Bean
+  Batches (`{ id, bean: { id, roaster, name }, roastDate }`, as the Bean
+  Batches list orders them) and Grinders (`{ id, model, location }`, by
+  model, then Location) listed Shots are linked to, with null last for
+  Shots linked to none.
 - `GET /api/shots/:id` returns `{ shot }`, including the stored Decaid metadata
   in `shot.record`, without measurements, and `shot.previousShot`
   (`{ id, pulledAt }` or null): the listed Shot just before it on the same
@@ -181,13 +265,19 @@ daylight-saving changes, and previous Shots.
 ## Management interface
 
 `/shots` lists Shots with the REST filters in its address, so a filtered
-list can be shared or reloaded; `/shots/:id` shows a Shot's curves (pressure,
+list can be shared or reloaded, the Bean Batch and Grinder among them;
+`/shots/:id` shows a Shot's curves (pressure,
 flow, weight and basket temperature, with the targets its profile set),
-everything its record holds, its credit, and a comparison with its previous
-Shot. Times are shown in each Shot's Location's time zone, or UTC, labelled,
-for a Shot with no Location. `web/src/lib/curves.ts` turns Decaid's
+everything its record holds, its credit, the Library's Bean Batch, Grinder
+and Profile it is linked to, each linking to its page, and a comparison with
+its previous Shot. Each Bean's, Bean Batch's, Grinder's and Profile's page
+lists its Shots, ten at a time (`web/src/components/item-shots.tsx`).
+Times are shown in each Shot's Location's time zone, or UTC, labelled, for a
+Shot with no Location. `web/src/lib/curves.ts` turns Decaid's
 measurements into curves, counting time as `elapsedSeconds` does.
-`e2e/shots.spec.ts` covers them with Shots seeded through simulated tablets.
+`e2e/shots.spec.ts` covers them with Shots seeded through simulated tablets,
+and `e2e/shot-links.spec.ts` a batch's Shots and the Bean Batch and Grinder
+filters.
 
 `server/test/shots.test.ts` verifies the built plugin through Seam 1, REST
 reads, and two server instances sharing PostgreSQL. It includes 205-record
@@ -198,4 +288,5 @@ unacknowledged edits, deletion, late full records, edits that clear fields,
 replays, precise version ordering, restart, hardware attribution, dismissal
 and adoption, identity mismatch, transient and persistent API failures, ignored
 legacy imports, incompatible records and their warnings, and lists while the measurements
-table is locked.
+table is locked. `server/test/shot-links.test.ts` covers the links to the
+Library the same way, at two Locations on two instances.

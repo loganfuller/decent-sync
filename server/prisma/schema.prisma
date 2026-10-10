@@ -368,6 +368,7 @@ model Tablet {
   leftOut      TabletLeftOut[]
   refusals     TabletRefusal[]
   lastApplied  TabletLastApplied?
+  shots        Shot[]
 
   @@map("tablets")
 }
@@ -464,6 +465,18 @@ model Shot {
   /// named by the Shot, and is never hard-deleted.
   beanBatchId      String?           @map("bean_batch_id")
   grinderId        String?           @map("grinder_id")
+  /// The tablet that reported the metadata stored, whose ids `beanBatchId`
+  /// and `grinderId` are; null for a Shot stored before Shots kept it, until
+  /// a tablet's index lists it, as only a tablet holding it does.
+  tabletId         String?           @map("tablet_id") @db.Uuid
+  tablet           Tablet?           @relation(fields: [tabletId], references: [id], onDelete: SetNull)
+  /// The Library's Bean Batch and Grinder those ids resolve to through that
+  /// tablet's map, once it holds them, kept when the tablet's record leaves
+  /// it (server/src/shots/links.ts). A Shot linked to an item names it.
+  libraryBatchId   String?           @map("library_batch_id") @db.Uuid
+  libraryBatch     BeanBatch?        @relation(fields: [libraryBatchId], references: [id], onDelete: SetNull)
+  libraryGrinderId String?           @map("library_grinder_id") @db.Uuid
+  libraryGrinder   Grinder?          @relation(fields: [libraryGrinderId], references: [id], onDelete: SetNull)
   coffeeName       String?           @map("coffee_name")
   coffeeRoaster    String?           @map("coffee_roaster")
   profileTitle     String?           @map("profile_title")
@@ -486,8 +499,11 @@ model Shot {
   @@index([beanBatchId])
   @@index([grinderId])
   @@index([profileId])
+  @@index([libraryBatchId])
+  @@index([libraryGrinderId])
   /// The migration also indexes the steps of its Workflow's profile, by
-  /// hash, which a Profile's hard delete looks for; Prisma cannot express it.
+  /// hash, which a Profile's hard delete looks for, and the ids of the Shots
+  /// not linked yet, partially; Prisma cannot express either.
   @@map("shots")
 }
 
@@ -795,6 +811,7 @@ model BeanBatch {
   tablets   TabletBeanBatch[]
   versions  ItemVersion[]
   conflicts Conflict[]
+  shots     Shot[]
 
   @@index([beanId])
   @@map("bean_batches")
@@ -893,6 +910,7 @@ model Grinder {
   tablets   TabletGrinder[]
   versions  ItemVersion[]
   conflicts Conflict[]
+  shots     Shot[]
 
   @@index([locationId])
   @@map("grinders")
@@ -956,6 +974,8 @@ model Profile {
   versions  ItemVersion[]
   conflicts Conflict[]
 
+  /// The migration indexes its content's steps, by hash, which a Shot's
+  /// Profile is found by (server/src/shots/links.ts); Prisma cannot express it.
   @@map("profiles")
 }
 

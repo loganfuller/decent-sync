@@ -393,7 +393,7 @@ function row(page: Page, time: string): Locator {
 }
 
 async function choose(page: Page, filter: string, option: string) {
-  await page.getByRole("region", { name: "Filters" }).getByRole("combobox", { name: filter }).click();
+  await page.getByRole("region", { name: "Filters" }).getByRole("combobox", { name: filter, exact: true }).click();
   await page.getByRole("option", { name: option, exact: true }).click();
 }
 

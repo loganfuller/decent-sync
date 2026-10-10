@@ -2,6 +2,7 @@ import { GLOBAL_ID_KEY, globalIdOf, isRecordId } from "@decent-sync/protocol";
 import type { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
+import { linkShots } from "../shots/links.js";
 import { archivingInAnswer } from "./bean-intake.js";
 import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined } from "./content-edits.js";
 import { type ReportedGrinder, grinderContent, planGrinderIntake, readReportedGrinders } from "./grinder-intake.js";
@@ -239,4 +240,6 @@ async function saveRecord(
     VALUES (${tabletId}::uuid, ${grinderId}::uuid, ${localId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz, ${contentSeen}::timestamptz)
     ON CONFLICT (tablet_id, grinder_id) DO UPDATE SET
       local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at, ${keepContentSeenSql("tablet_grinders")}`;
+  // The Shots that name the record by this id are linked to the item, if they were not yet (shots/links.ts).
+  await linkShots(tx, "grinder", tabletId, grinderId, localId);
 }

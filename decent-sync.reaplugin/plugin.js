@@ -909,7 +909,13 @@ var __decentSync = (() => {
     }
   }
   function stepsKey(profile) {
-    return isObject2(profile) && Array.isArray(profile.steps) ? stableJson(profile.steps) : null;
+    if (!isObject2(profile) || !Array.isArray(profile.steps)) return null;
+    const steps = profile.steps.map((step) => {
+      if (!isObject2(step)) return step;
+      const { temperature: _, ...rest } = step;
+      return isObject2(rest.limiter) && rest.limiter.value === 0 ? { ...rest, limiter: null } : rest;
+    });
+    return stableJson(steps);
   }
   function stableJson(value) {
     if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
 import { GrinderBadges, grinderLocationText, grinderName } from "@/components/grinders";
+import { ItemShotsCard } from "@/components/item-shots";
 import { ArchiveButton, ContentForm, DeleteButton, GRINDER_FIELDS, useMayChangeAt } from "@/components/library-forms";
 import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
@@ -169,6 +170,8 @@ function GrinderDetails({ id }: { id: string }) {
           </CardContent>
         </Card>
       </div>
+
+      <ItemShotsCard kind="grinder" id={id} />
 
       <ItemHistoryCard key={changes} kind="grinder" id={id} />
     </section>

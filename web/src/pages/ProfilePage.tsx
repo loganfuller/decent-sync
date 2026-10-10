@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
+import { ItemShotsCard } from "@/components/item-shots";
 import { formatTime } from "@/components/machines";
 import { ArchiveButton, DeleteButton } from "@/components/library-forms";
 import { ProfileBadges, ProfileLocationsCard, profilePath, profileTitle } from "@/components/profiles";
@@ -174,6 +175,8 @@ function ProfileDetails({ id }: { id: string }) {
           </Table>
         </CardContent>
       </Card>
+
+      <ItemShotsCard kind="profile" id={id} />
 
       <ItemHistoryCard key={changes} kind="profile" id={id} />
     </section>
