@@ -10,9 +10,12 @@ import type { PluginStorage } from "./storage.js";
 // keeps a plugin's whole storage in memory (a Hive box). So the deliveries
 // kept go in a ring of MAX_KEPT keys, `outbox.0` to `outbox.1999`, reused in
 // turn, each holding one delivery and its sequence number, `{ seq, delivery }`.
-// The key `outbox` holds the sequence numbers kept, `{ first, next }`: the
-// deliveries numbered from `first` up to `next`, which is never more than
-// MAX_KEPT apart. A delivery acknowledged, or dropped, is overwritten by its
+// The key `outbox` holds the sequence numbers kept, `{ first, next, token }`:
+// the deliveries numbered from `first` up to `next`, which is never more than
+// MAX_KEPT apart, and a hash of the token they were made under. They belong
+// to that token's Machine, so a load with another token, as after a barista
+// enters another Machine's token, sends none of them: the server would
+// credit them to that Machine. A delivery acknowledged, or dropped, is overwritten by its
 // number alone, `{ seq }`, so storage holds no more than what is kept, and
 // one at the head also moves `first` past it. A key holding another number
 // than expected, as after a write that failed or one that landed before the
@@ -53,11 +56,16 @@ export class KeptDeliveries {
   private readonly numbers = new Map<string, number>();
   private characters = 0;
   private stopped = false;
+  /** The hash of the token this load connects with, never the token itself. */
+  private readonly token: string;
 
   constructor(
     private readonly storage: PluginStorage,
     private readonly log: (message: string) => void,
-  ) {}
+    token: string,
+  ) {
+    this.token = tokenHash(token);
+  }
 
   /**
    * The deliveries kept, oldest first. Rejects, saying why, if Decaid
@@ -69,11 +77,22 @@ export class KeptDeliveries {
     this.numbers.clear();
     this.characters = 0;
     const sequence = parseSequence(await this.storage.read(SEQUENCE_KEY, "a read of the deliveries kept"));
+    if (sequence.token !== undefined && sequence.token !== this.token && sequence.first < sequence.next) {
+      this.log("Not sending the Workflow and machine state events kept from before the plugin last unloaded: they were made under another token.");
+      for (let seq = sequence.first; seq < sequence.next; seq++) this.writeRemoved(seq);
+      this.first = this.next = sequence.next;
+      this.writeSequence().catch((error: unknown) => this.failed("record the deliveries kept", error));
+      return [];
+    }
     const deliveries: KeptDelivery[] = [];
     let unread = 0;
     for (let seq = sequence.first; seq < sequence.next; seq++) {
       const text = await this.readSlot(seq);
-      if (text === undefined) unread++;
+      if (text === undefined) {
+        unread++;
+        // So storage no longer holds it either.
+        this.writeRemoved(seq);
+      }
       const delivery = parseSlot(text, seq);
       if (!delivery) continue;
       this.add(seq, delivery.id, (text as string).length);
@@ -174,7 +193,7 @@ export class KeptDeliveries {
   }
 
   private writeSequence(): Promise<void> {
-    return this.storage.write(SEQUENCE_KEY, JSON.stringify({ first: this.first, next: this.next }), "the write of the deliveries kept");
+    return this.storage.write(SEQUENCE_KEY, JSON.stringify({ first: this.first, next: this.next, token: this.token }), "the write of the deliveries kept");
   }
 
   private failed(what: string, error: unknown): void {
@@ -187,13 +206,27 @@ function slotKey(seq: number): string {
   return `${SEQUENCE_KEY}.${seq % MAX_KEPT}`;
 }
 
-/** The sequence numbers kept, as written at SEQUENCE_KEY: none if it was never written, or holds something else. */
-function parseSequence(value: unknown): { first: number; next: number } {
+/** The sequence numbers kept, and the hash of their token, as written at SEQUENCE_KEY: none if it was never written, or holds something else. */
+function parseSequence(value: unknown): { first: number; next: number; token?: string } {
   const parsed = parse(value);
   const first = parsed?.first;
   const next = parsed?.next;
   if (!isCount(first) || !isCount(next) || first > next || next - first > MAX_KEPT) return { first: 0, next: 0 };
-  return { first, next };
+  return { first, next, token: typeof parsed?.token === "string" ? parsed.token : "" };
+}
+
+/**
+ * A 32-bit FNV-1a hash of the token, in hex: enough to tell one Machine's
+ * token from another's, and nothing that helps anyone guess a token of 32
+ * random bytes.
+ */
+function tokenHash(token: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < token.length; index++) {
+    hash ^= token.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
 }
 
 /** The delivery a key holds, if it holds one numbered `seq` that the server would take. */

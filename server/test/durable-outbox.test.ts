@@ -228,6 +228,78 @@ describe("The durable outbox", () => {
     expect((await workflowEvents(machine)).total).toBe(2);
   });
 
+  it("sends nothing kept under another token, after the token in the plugin's settings changed", async () => {
+    const lab = await api.createMachine("Kept under the lab's token");
+    const cafe = await api.createMachine("Loaded with the cafe's token");
+    const storage = new PluginStorage();
+    const decaid = derivedDe1Pro({ serial: "93007" });
+    const first = await offline(lab, storage, decaid);
+    const dialledIn = derivedWorkflow({ targetYield: 39 });
+    first.setWorkflow(dialledIn);
+    first.reportState("espresso", "pouring");
+    await first.unload();
+    const kept = machineEventsSent(first).map((frame) => frame.id!);
+
+    // The tablet moved to the cafe's machine, and its token entered: changing a setting reloads the plugin with it.
+    const second = load(cafe, storage, { ...derivedDe1Pro({ serial: "93010" }), "/workflow": dialledIn });
+    await expect.poll(() => machineEventsSent(second).length).toBe(2);
+    await acknowledged(second);
+    expect(second.logs).toContain("Not sending the Workflow and machine state events kept from before the plugin last unloaded: they were made under another token.");
+    expect(machineEventsSent(second).map((frame) => frame.type)).toEqual(["workflow", "workflow"]);
+    expect((await workflowEvents(cafe)).total).toBe(1);
+    expect((await stateEvents(cafe)).total).toBe(0);
+    expect((await workflowEvents(lab)).total).toBe(1);
+    // Plugin storage no longer holds them.
+    const held = (storage.readThroughApi(undefined) as string[]).map((key) => String(storage.read(key)));
+    expect(held.some((value) => value.includes('"workflow"') || value.includes('"machineState"'))).toBe(false);
+    expect(kept.length).toBe(2);
+  });
+
+  it("gives up on a kept delivery Decaid cannot read, sending the others", async () => {
+    const machine = await api.createMachine("One kept delivery unreadable");
+    const storage = new PluginStorage();
+    const decaid = derivedDe1Pro({ serial: "93008" });
+    const first = await offline(machine, storage, decaid);
+    first.reportState("espresso", "preinfusion");
+    first.reportState("espresso", "pouring");
+    await first.unload();
+    // Decaid fails both reads of the key holding the first.
+    const key = (storage.readThroughApi(undefined) as string[]).find((name) => String(storage.read(name)).includes('"preinfusion"'))!;
+    storage.failNextReads(2, key);
+
+    const second = load(machine, storage, decaid);
+    await expect.poll(() => transitions(machine)).toEqual([["espresso", "pouring"]]);
+    await acknowledged(second);
+    expect(second.logs).toContain("Decaid's plugin storage did not answer the reads of 1 of the deliveries kept, so they are lost.");
+    expect(second.logs).toContain("Sending 1 Workflow and machine state event kept from before the plugin last unloaded.");
+    expect(String(storage.read(key))).not.toContain('"preinfusion"');
+  });
+
+  it("holds new events in memory only for a load that cannot read what was kept, leaving it for the next load", async () => {
+    const machine = await api.createMachine("Kept deliveries unreadable");
+    const storage = new PluginStorage();
+    const decaid = derivedDe1Pro({ serial: "93009" });
+    const first = await offline(machine, storage, decaid);
+    first.reportState("espresso", "pouring");
+    await first.unload();
+
+    // Decaid fails every read of what was kept, three times over, and the load gives up on them.
+    storage.failNextReads(3, "outbox");
+    const second = load(machine, storage, decaid);
+    await second.waitForLog(/^Could not read the Workflow and machine state events kept in Decaid's plugin storage, so they wait for the plugin's next load/);
+    expect(second.logs.filter((log) => log.startsWith("Could not read the deliveries kept"))).toHaveLength(2);
+    // It still sends what happens meanwhile.
+    second.reportState("idle", "idle");
+    await expect.poll(() => transitions(machine)).toEqual([["idle", "idle"]]);
+    await acknowledged(second);
+    await second.unload();
+
+    const third = load(machine, storage, decaid);
+    await expect.poll(() => transitions(machine)).toEqual([["idle", "idle"], ["espresso", "pouring"]]);
+    await acknowledged(third);
+    expect(third.logs).toContain("Sending 1 Workflow and machine state event kept from before the plugin last unloaded.");
+  });
+
   it(`keeps at most the newest ${MAX_KEPT} while the server is unreachable, in plugin storage and across a reload`, { timeout: 120_000 }, async () => {
     const machine = await api.createMachine("Most kept");
     const storage = new PluginStorage();
@@ -248,7 +320,7 @@ describe("The durable outbox", () => {
     const second = load(machine, storage, decaid);
     const stored = MAX_KEPT - 2;
     await expect.poll(async () => (await stateEvents(machine)).total, { timeout: 60_000 }).toBe(stored);
-    expect(second.logs).toContain(`Sending ${MAX_KEPT} Workflow and machine state events kept from before the plugin last unloaded.`);
+    expect(second.logs).toContain(`Sending ${stored} Workflow and machine state events kept from before the plugin last unloaded.`);
     expect(second.logs.filter((log) => DROPPED_LOG.test(log))).toHaveLength(1);
     await expect.poll(() => machineEventsSent(second).length, { timeout: 10_000 }).toBe(stored + 2);
     await acknowledged(second);

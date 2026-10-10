@@ -53,6 +53,7 @@ export class PluginStorage {
    * does not answer in time; it may still have written it.
    */
   async write(key: string, data: string, what: string): Promise<void> {
+    // A read of the key queued between the two would read the later data. Nothing reads a key it is writing.
     const queued = this.queue.find((command) => command.command.type === "write" && command.command.key === key);
     if (!queued || this.stopped) {
       await this.run({ type: "write", key, data }, what, "storageWrite", (payload) => payload === data);

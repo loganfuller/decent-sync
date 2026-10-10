@@ -776,7 +776,7 @@ var __decentSync = (() => {
     return delivery.type === "workflow" || delivery.type === "machineState";
   }
   var KeptDeliveries = class {
-    constructor(storage, log) {
+    constructor(storage, log, token) {
       __publicField(this, "storage", storage);
       __publicField(this, "log", log);
       /** The lowest sequence number kept, or `next` if none is. */
@@ -789,6 +789,9 @@ var __decentSync = (() => {
       __publicField(this, "numbers", /* @__PURE__ */ new Map());
       __publicField(this, "characters", 0);
       __publicField(this, "stopped", false);
+      /** The hash of the token this load connects with, never the token itself. */
+      __publicField(this, "token");
+      this.token = tokenHash(token);
     }
     /**
      * The deliveries kept, oldest first. Rejects, saying why, if Decaid
@@ -800,11 +803,21 @@ var __decentSync = (() => {
       this.numbers.clear();
       this.characters = 0;
       const sequence = parseSequence(await this.storage.read(SEQUENCE_KEY, "a read of the deliveries kept"));
+      if (sequence.token !== void 0 && sequence.token !== this.token && sequence.first < sequence.next) {
+        this.log("Not sending the Workflow and machine state events kept from before the plugin last unloaded: they were made under another token.");
+        for (let seq = sequence.first; seq < sequence.next; seq++) this.writeRemoved(seq);
+        this.first = this.next = sequence.next;
+        this.writeSequence().catch((error) => this.failed("record the deliveries kept", error));
+        return [];
+      }
       const deliveries = [];
       let unread = 0;
       for (let seq = sequence.first; seq < sequence.next; seq++) {
         const text = await this.readSlot(seq);
-        if (text === void 0) unread++;
+        if (text === void 0) {
+          unread++;
+          this.writeRemoved(seq);
+        }
         const delivery = parseSlot(text, seq);
         if (!delivery) continue;
         this.add(seq, delivery.id, text.length);
@@ -892,7 +905,7 @@ var __decentSync = (() => {
       this.storage.write(slotKey(seq), JSON.stringify({ seq }), "the write of a delivery no longer kept").catch((error) => this.failed("record a delivery no longer kept", error));
     }
     writeSequence() {
-      return this.storage.write(SEQUENCE_KEY, JSON.stringify({ first: this.first, next: this.next }), "the write of the deliveries kept");
+      return this.storage.write(SEQUENCE_KEY, JSON.stringify({ first: this.first, next: this.next, token: this.token }), "the write of the deliveries kept");
     }
     failed(what, error) {
       if (!this.stopped) this.log(`Could not ${what} in Decaid's plugin storage: ${error instanceof Error ? error.message : String(error)}.`);
@@ -906,7 +919,15 @@ var __decentSync = (() => {
     const first = parsed2?.first;
     const next = parsed2?.next;
     if (!isCount(first) || !isCount(next) || first > next || next - first > MAX_KEPT) return { first: 0, next: 0 };
-    return { first, next };
+    return { first, next, token: typeof parsed2?.token === "string" ? parsed2.token : "" };
+  }
+  function tokenHash(token) {
+    let hash = 2166136261;
+    for (let index = 0; index < token.length; index++) {
+      hash ^= token.charCodeAt(index);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    return hash.toString(16).padStart(8, "0");
   }
   function parseSlot(value, seq) {
     const parsed2 = parse(value);
@@ -1445,6 +1466,7 @@ var __decentSync = (() => {
   var RECORD_NAMES = { shot: "Shot", steam: "Steam Record" };
   var SHORT_OUTBOX = 4;
   var RESTORE_RETRY_MS = 5e3;
+  var RESTORE_ATTEMPTS = 3;
   var Outbox = class {
     constructor(log, readers, kept) {
       __publicField(this, "log", log);
@@ -1468,6 +1490,9 @@ var __decentSync = (() => {
       /** Set until the deliveries kept by earlier loads are read back, and nothing is sent meanwhile. */
       __publicField(this, "restoring", true);
       __publicField(this, "restoreTimer");
+      __publicField(this, "restoreAttempts", 0);
+      /** Whether Workflow and machine state deliveries are kept in plugin storage: not once reading them back failed for good. */
+      __publicField(this, "keeping", true);
       /** Deliveries kept whose writes to Decaid's plugin storage are not yet answered; each waits for them before it is sent. */
       __publicField(this, "unwritten", /* @__PURE__ */ new Set());
       /** Whether dropping the oldest deliveries kept was logged since the last welcome. */
@@ -1475,8 +1500,11 @@ var __decentSync = (() => {
     }
     /**
      * Reads back the deliveries earlier loads kept, and queues them ahead of
-     * everything queued since, which is kept after them. Trying again until
-     * Decaid answers, it sends nothing meanwhile.
+     * everything queued since, which is kept after them. It sends nothing
+     * meanwhile, trying again if Decaid fails to answer. After
+     * RESTORE_ATTEMPTS failures it gives up for this load, leaving them in
+     * storage for the next, and keeps nothing more there: everything is then
+     * held in memory, as before deliveries were kept.
      */
     async restore() {
       let restored;
@@ -1484,7 +1512,15 @@ var __decentSync = (() => {
         restored = await this.kept.load();
       } catch (error) {
         if (this.stopped) return;
-        this.log(`Could not read the deliveries kept in Decaid's plugin storage, trying again in ${RESTORE_RETRY_MS / 1e3} s: ${error instanceof Error ? error.message : String(error)}.`);
+        const problem = error instanceof Error ? error.message : String(error);
+        if (++this.restoreAttempts >= RESTORE_ATTEMPTS) {
+          this.log(`Could not read the Workflow and machine state events kept in Decaid's plugin storage, so they wait for the plugin's next load, and new ones are held in memory only: ${problem}.`);
+          this.keeping = false;
+          this.restoring = false;
+          this.pump();
+          return;
+        }
+        this.log(`Could not read the deliveries kept in Decaid's plugin storage, trying again in ${RESTORE_RETRY_MS / 1e3} s: ${problem}.`);
         this.restoreTimer = setTimeout(() => {
           this.restoreTimer = void 0;
           void this.restore();
@@ -1496,8 +1532,9 @@ var __decentSync = (() => {
       this.queued.clear();
       for (const delivery of [...restored, ...since]) this.queued.set(delivery.id, delivery);
       this.restoring = false;
-      if (restored.length > 0) this.log(`Sending ${restored.length} Workflow and machine state ${restored.length === 1 ? "event" : "events"} kept from before the plugin last unloaded.`);
       for (const delivery of since) if (isKept(delivery)) this.keep(delivery);
+      const sending = restored.filter((delivery) => this.queued.has(delivery.id)).length;
+      if (sending > 0) this.log(`Sending ${sending} Workflow and machine state ${sending === 1 ? "event" : "events"} kept from before the plugin last unloaded.`);
       this.pump();
     }
     /** Whether a welcomed connection is sending. */
@@ -1526,7 +1563,7 @@ var __decentSync = (() => {
     enqueue(delivery) {
       this.queued.set(delivery.id, delivery);
       for (const watcher of this.watchers) watcher(delivery);
-      if (!this.restoring && isKept(delivery)) this.keep(delivery);
+      if (!this.restoring && this.keeping && isKept(delivery)) this.keep(delivery);
       this.pump();
     }
     acknowledge(id) {
@@ -2235,7 +2272,7 @@ var __decentSync = (() => {
           shot: (id, deliveryId) => this.shots.read(id, deliveryId),
           steam: (id, deliveryId) => this.steams.read(id, deliveryId)
         },
-        new KeptDeliveries(this.storage, log)
+        new KeptDeliveries(this.storage, log, settings.token)
       );
       this.shots = new ShotCapture(this.outbox, log);
       this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1e3, log);

@@ -169,7 +169,7 @@ export class SyncConnection {
         shot: (id, deliveryId) => this.shots.read(id, deliveryId),
         steam: (id, deliveryId) => this.steams.read(id, deliveryId),
       },
-      new KeptDeliveries(this.storage, log),
+      new KeptDeliveries(this.storage, log, settings.token),
     );
     this.shots = new ShotCapture(this.outbox, log);
     this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1000, log);
