@@ -322,9 +322,10 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     // Moved to a Location offering no batches or Grinders yet, its tablet brings its own, which join the Library.
     const location = await api.createLocation("Before cafe", "America/Chicago");
     expect((await api.call("POST", `/machines/${machine.machine.id}/location-history`, { locationId: location.id })).status).toBe(201);
+    // Its batches and grinders are reported, and so taken in, one list at a time.
     await poll(async () => (await viewShot("before-shot")).beanBatch?.bean.name).toBe("Before Ethiopia Generic 100g Sample");
+    await poll(async () => (await viewShot("before-shot")).grinder?.model).toBe("DF64 v2");
     const linked = await viewShot("before-shot");
-    expect(linked.grinder).toMatchObject({ model: "DF64 v2" });
     expect(await listed(`beanBatchId=${linked.beanBatch!.id}`)).toEqual(["before-shot"]);
   });
 
