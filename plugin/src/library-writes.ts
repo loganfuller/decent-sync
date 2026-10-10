@@ -308,19 +308,23 @@ async function purgeProfile(remove: LibraryDelete, namedByShot: (kind: NamedKind
 }
 
 /**
- * A profile's steps, as text that is the same for the same steps, its keys
- * sorted, as a Shot's Workflow and a profile's record hold them alike; null
- * if it has none. A step's limiter of value 0, which is no limiter, is read
- * as none, as streamline-js sends a profile it loads into the Workflow so
- * while the record keeps it, and as the server compares them. Its other
- * fields are not compared, as the server does not compare them: a skin sets
- * the Workflow's profile's targets for the Shot.
+ * A profile's steps as they identify it, as text that is the same for the
+ * same steps, its keys sorted, as a Shot's Workflow and a profile's record
+ * hold them alike; null if it has none. As the server compares them
+ * (`profile_steps_key`), each step's temperature is left out and a limiter
+ * of value 0, which is no limiter, is read as none: a skin overrides the
+ * temperature in the profile it loads into the Workflow, and streamline-js
+ * sends such a limiter as null while the record keeps it. Its other fields
+ * are not compared, as the server does not compare them: a skin sets the
+ * Workflow's profile's targets for the Shot.
  */
 function stepsKey(profile: unknown): string | null {
   if (!isObject(profile) || !Array.isArray(profile.steps)) return null;
-  const steps = profile.steps.map((step: unknown) =>
-    isObject(step) && isObject(step.limiter) && step.limiter.value === 0 ? { ...step, limiter: null } : step,
-  );
+  const steps = profile.steps.map((step: unknown) => {
+    if (!isObject(step)) return step;
+    const { temperature: _, ...rest } = step;
+    return isObject(rest.limiter) && rest.limiter.value === 0 ? { ...rest, limiter: null } : rest;
+  });
   return stableJson(steps);
 }
 

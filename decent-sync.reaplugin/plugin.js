@@ -910,9 +910,11 @@ var __decentSync = (() => {
   }
   function stepsKey(profile) {
     if (!isObject2(profile) || !Array.isArray(profile.steps)) return null;
-    const steps = profile.steps.map(
-      (step) => isObject2(step) && isObject2(step.limiter) && step.limiter.value === 0 ? { ...step, limiter: null } : step
-    );
+    const steps = profile.steps.map((step) => {
+      if (!isObject2(step)) return step;
+      const { temperature: _, ...rest } = step;
+      return isObject2(rest.limiter) && rest.limiter.value === 0 ? { ...rest, limiter: null } : rest;
+    });
     return stableJson(steps);
   }
   function stableJson(value) {

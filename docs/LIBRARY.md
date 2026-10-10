@@ -438,8 +438,9 @@ refuses to delete one; they are hidden at Locations or Archived instead.
   deleted itself has left its map, so a Shot naming only that record counts
   only if it was linked to the item before. A Shot names a Profile whose
   steps its Workflow's `profile` has, compared as JSON so a whole double
-  Decaid writes as `92.0` equals 92, and a step's limiter of value 0 as
-  none, as streamline-js sends it (`SHOTS.md`, Links to the Library), or by
+  Decaid writes as `92.0` equals 92, with each step's temperature left out
+  and a step's limiter of value 0 as none, as a skin overrides or sends them
+  (`SHOTS.md`, Links to the Library), or by
   the profile id a skin recorded in its Workflow (`shots.profile_id`);
   Decaid itself records none. Only the steps are compared, not the rest of
   what Decaid hashes for a Profile's id: a skin sets the Workflow's

@@ -36,6 +36,11 @@ function withLimiter(profile: Record_, limiter: Record_ | null): Record_ {
   return { ...profile, steps: (profile.steps as Record_[]).map((step, index) => (index === 1 ? { ...step, limiter } : step)) };
 }
 
+/** The profile with every step's temperature as given, as streamline-js's temperature setting writes it. */
+function withTemperature(profile: Record_, temperature: number): Record_ {
+  return { ...profile, steps: (profile.steps as Record_[]).map((step) => ({ ...step, temperature })) };
+}
+
 /** The bundled Profile the WorkFlow skin had selected on the test tablet, which its Shot was not pulled with. */
 const SKIN_SELECTED = "profile:98fa00c191551b435845";
 /** The bundled Profile the test tablet's Shot was pulled with, which streamline-js loaded into its Workflow. */
@@ -188,7 +193,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     expect((await api.call("GET", "/shots?grinderId=not-an-id")).status).toBe(404);
   });
 
-  it("links a Shot to the one of two Profiles differing only in target weight that its own matches, and to neither when its own matches neither", async () => {
+  it("links a Shot to the one of two Profiles differing only in target weight whose title or target weight it holds, and to neither when it holds neither", async () => {
     const location = await api.createLocation("Weighed cafe", "America/Chicago");
     const machine = await api.createMachine("Weighed cafe 1", location.id);
     const tablet = load(machine, "26041");
@@ -203,14 +208,17 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
 
     tablet.pullShot(shotWith("weighed-36", "26041", {}, lighter));
     tablet.pullShot(shotWith("weighed-40", "26041", {}, heavier));
-    // A skin set its target weight to its yield: either Profile could be it, so it is linked to neither.
+    // A skin set its target weight to its yield: the yield is an override of the Profile it loaded, which it names.
     tablet.pullShot(shotWith("weighed-yield", "26041", {}, { ...lighter, target_weight: 37.5 }));
-    for (const id of ["weighed-36", "weighed-40", "weighed-yield"]) await poll(async () => (await api.call("GET", `/shots/${id}`)).status).toBe(200);
+    // Under a title neither has, either could be it, so it is linked to neither.
+    tablet.pullShot(shotWith("weighed-untitled", "26041", {}, { ...lighter, title: "Weighed bloom renamed", target_weight: 37.5 }));
+    for (const id of ["weighed-36", "weighed-40", "weighed-yield", "weighed-untitled"]) await poll(async () => (await api.call("GET", `/shots/${id}`)).status).toBe(200);
 
     expect((await viewShot("weighed-36")).profile).toEqual({ id: lighterId, title: "Weighed bloom 36" });
     expect((await viewShot("weighed-40")).profile).toEqual({ id: heavierId, title: "Weighed bloom 40" });
-    expect((await viewShot("weighed-yield")).profile).toBeNull();
-    expect(await listed(`profileId=${encodeURIComponent(lighterId)}`)).toEqual(["weighed-36"]);
+    expect((await viewShot("weighed-yield")).profile?.id).toBe(lighterId);
+    expect((await viewShot("weighed-untitled")).profile).toBeNull();
+    expect(new Set(await listed(`profileId=${encodeURIComponent(lighterId)}`))).toEqual(new Set(["weighed-36", "weighed-yield"]));
     expect(await listed(`profileId=${encodeURIComponent(heavierId)}`)).toEqual(["weighed-40"]);
   });
 
@@ -259,18 +267,47 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     expect(await listed(`profileId=${encodeURIComponent(keptId)}`)).toEqual(["copied-kept"]);
     expect(new Set(await listed(`profileId=${encodeURIComponent(copiedId)}`))).toEqual(new Set(["copied-copy", "copied-copy-yield"]));
 
-    // A copy saved with another target weight: a Shot holding the copy's steps and the original's target weight is the
-    // original's, as streamline-js sends every profile it loads with its value-0 limiters null.
+    // A copy saved with another target weight. A Shot holding the copy's steps and title with the original's target
+    // weight is the copy's, with its yield overridden. Under a title neither has, it is the original's: a target weight
+    // the Shot holds counts before its steps as they are, as streamline-js sends every profile it loads with its value-0
+    // limiters null.
     const original = (await tablet.addProfile({ ...withLimiter(derivedProfile("Weighed copy bloom", 4.45), { value: 0, range: 0.6 }), target_weight: 36 })).profile as Record_;
     const reweighed = (await tablet.addProfile({ ...withLimiter(original, null), title: "Weighed copy bloom 40", target_weight: 40 })).profile as Record_;
     const originalId = await libraryProfileId("Weighed copy bloom");
-    await libraryProfileId("Weighed copy bloom 40");
-    tablet.pullShot(shotWith("copied-original-weight", "26061", {}, { ...reweighed, target_weight: 36 }));
-    await poll(async () => (await api.call("GET", "/shots/copied-original-weight")).status).toBe(200);
+    const reweighedId = await libraryProfileId("Weighed copy bloom 40");
+    tablet.pullShot(shotWith("copied-reweighed-yield", "26061", {}, { ...reweighed, target_weight: 36 }));
+    tablet.pullShot(shotWith("copied-original-weight", "26061", {}, { ...reweighed, title: "Weighed copy bloom renamed", target_weight: 36 }));
+    for (const id of ["copied-reweighed-yield", "copied-original-weight"]) await poll(async () => (await api.call("GET", `/shots/${id}`)).status).toBe(200);
+    expect((await viewShot("copied-reweighed-yield")).profile?.id).toBe(reweighedId);
     expect((await viewShot("copied-original-weight")).profile?.id).toBe(originalId);
   });
 
-  it("refuses to hard-delete a Profile a Shot pulled through streamline-js used, on the server and on the tablet that has yet to send the Shot", async () => {
+  it("links a Shot whose temperature and yield a barista overrode to the Profile it was pulled with, and one a barista saved at that temperature to that one", async () => {
+    const location = await api.createLocation("Warmed cafe", "America/Chicago");
+    const machine = await api.createMachine("Warmed cafe 1", location.id);
+    const tablet = load(machine, "26091");
+    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    const pulled = (await tablet.addProfile(withLimiter(derivedProfile("Warmed bloom", 4.55), { value: 0, range: 0.6 }))).profile as Record_;
+    const pulledId = await libraryProfileId("Warmed bloom");
+
+    // streamline-js's side panel: 94 degrees written into every step, the yield as its target weight, the limiter as none.
+    tablet.pullShot(shotWith("warmed-overridden", "26091", {}, { ...withTemperature(withLimiter(pulled, null), 94), target_weight: 41 }));
+    await poll(async () => (await api.call("GET", "/shots/warmed-overridden")).status).toBe(200);
+    expect((await viewShot("warmed-overridden")).profile).toEqual({ id: pulledId, title: "Warmed bloom" });
+
+    // A barista saves it at 94 degrees as a Profile of its own: a Shot pulled with that one is its, and the overridden
+    // Shot, which names the first, is still the first's.
+    const saved = (await tablet.addProfile({ ...withTemperature(pulled, 94), title: "Warmed bloom 94" })).profile as Record_;
+    const savedId = await libraryProfileId("Warmed bloom 94");
+    tablet.pullShot(shotWith("warmed-saved", "26091", {}, withLimiter(saved, null)));
+    await poll(async () => (await api.call("GET", "/shots/warmed-saved")).status).toBe(200);
+    expect((await viewShot("warmed-saved")).profile?.id).toBe(savedId);
+    expect((await viewShot("warmed-overridden")).profile?.id).toBe(pulledId);
+    expect(await listed(`profileId=${encodeURIComponent(pulledId)}`)).toEqual(["warmed-overridden"]);
+    expect(await listed(`profileId=${encodeURIComponent(savedId)}`)).toEqual(["warmed-saved"]);
+  });
+
+  it("refuses to hard-delete a Profile a Shot pulled through streamline-js used, its overrides and all, on the server and on the tablet that has yet to send the Shot", async () => {
     const location = await api.createLocation("Zeroed cafe", "America/Chicago");
     const machine = await api.createMachine("Zeroed cafe 1", location.id);
     let slowShots = false;
@@ -282,8 +319,8 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     const sentId = await libraryProfileId("Zeroed bloom");
     const unsentId = await libraryProfileId("Zeroed unsent bloom");
 
-    // The server has the Shot, whose Workflow holds the profile with that limiter null.
-    tablet.pullShot(shotWith("zeroed-sent", "26071", {}, withLimiter(sent, null)));
+    // The server has the Shot, whose Workflow holds the profile with that limiter null and another temperature in every step.
+    tablet.pullShot(shotWith("zeroed-sent", "26071", {}, withTemperature(withLimiter(sent, null), 95)));
     await poll(async () => (await api.call("GET", "/shots/zeroed-sent")).status).toBe(200);
     const refused = await api.call("DELETE", `/profiles/${encodeURIComponent(sentId)}`);
     expect(refused.status).toBe(409);
@@ -291,7 +328,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
 
     // The tablet has yet to send the Shot when the delete reaches it.
     slowShots = true;
-    tablet.pullShot(shotWith("zeroed-unsent", "26071", {}, withLimiter(unsent, null)));
+    tablet.pullShot(shotWith("zeroed-unsent", "26071", {}, withTemperature(withLimiter(unsent, null), 95)));
     expect((await api.call("DELETE", `/profiles/${encodeURIComponent(unsentId)}`)).status).toBe(204);
     await expect
       .poll(() => server.output(), { timeout: 20_000 })

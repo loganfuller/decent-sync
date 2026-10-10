@@ -18,22 +18,27 @@ CREATE INDEX "shots_library_grinder_id_idx" ON "shots"("library_grinder_id");
 CREATE INDEX "shots_unlinked_batch_idx" ON "shots"("bean_batch_id") WHERE "library_batch_id" IS NULL;
 CREATE INDEX "shots_unlinked_grinder_idx" ON "shots"("grinder_id") WHERE "library_grinder_id" IS NULL;
 
--- A profile's steps as they are compared: a step's limiter of value 0, which
--- is no limiter (de1app's own sentinel), as null. streamline-js sends every
--- profile it loads into the Workflow so (`updateWorkflow` in
--- streamline-js:src/modules/api.js), while the profile's record keeps it.
+-- A profile's steps as they identify it, leaving out what a skin overrides
+-- in the profile it loads into the Workflow, which is the barista's input to
+-- the Shot rather than another profile: each step's temperature, which
+-- streamline-js's temperature setting writes into every step, and a step's
+-- limiter of value 0, which is no limiter (de1app's own sentinel), and which
+-- streamline-js sends as null (`updateWorkflow` in
+-- streamline-js:src/modules/api.js) while the profile's record keeps it.
 CREATE FUNCTION "profile_steps_key"(steps JSONB) RETURNS JSONB
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
   SELECT CASE WHEN jsonb_typeof(steps) = 'array' THEN (
     SELECT coalesce(jsonb_agg(
-      CASE WHEN jsonb_typeof(step -> 'limiter') = 'object' AND step -> 'limiter' -> 'value' = '0'::jsonb
-        THEN jsonb_set(step, '{limiter}', 'null'::jsonb) ELSE step END
+      CASE WHEN jsonb_typeof(step) = 'object' THEN
+        (CASE WHEN jsonb_typeof(step -> 'limiter') = 'object' AND step -> 'limiter' -> 'value' = '0'::jsonb
+          THEN jsonb_set(step, '{limiter}', 'null'::jsonb) ELSE step END) - 'temperature'
+      ELSE step END
       ORDER BY position), '[]'::jsonb)
     FROM jsonb_array_elements(steps) WITH ORDINALITY AS listed(step, position)
   ) ELSE steps END
 $$;
 
--- A Shot's Workflow's profile is found by its steps as they are compared.
+-- A Shot's Workflow's profile is found by its steps as they identify it.
 DROP INDEX "shots_profile_steps_idx";
 CREATE INDEX "shots_profile_steps_idx" ON "shots" USING hash (profile_steps_key("record" -> 'workflow' -> 'profile' -> 'steps'));
 

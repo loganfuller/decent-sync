@@ -16,16 +16,18 @@ import { Prisma } from "../generated/prisma/client.js";
 // machine executes (`ProfileHash.calculateProfileHash` in
 // decaid:lib/src/models/data/profile_hash.dart), which a Shot's Workflow
 // records as its profile, but not the id itself. So a Shot's Profile is read,
-// with nothing stored, as the Library Profile whose id that profile hashes
-// to: the one holding the same of what Decaid hashes, compared as JSON so a
-// whole double Decaid writes as `92.0` equals 92, and a step's limiter of
-// value 0 as none, as a skin may send it (`shotProfileSql`, `stepsKeySql`).
-// A skin's other changes to the profile it loads, such as streamline-js's
-// saved brew temperature written into every step, make a profile of their
-// own, which the Library may lack. The profile id a skin records in the
-// Workflow is not used: the WorkFlow skin (Sabotage1/WorkFlow-Skin) records
-// the Profile picked in it, which stays as it was when another skin loads
-// another profile, as Decaid merges a Workflow's changes into it.
+// with nothing stored, from that profile (`shotProfileSql`). What a skin
+// overrides in the profile it loads is the barista's input to the Shot, not
+// another profile: the yield, which streamline-js writes as its target
+// weight, the temperature, which it writes into every step, and a limiter of
+// value 0, which it sends as none. So a Shot's candidates are the Library
+// Profiles holding the rest of what Decaid hashes (`stepsKeySql`), compared
+// as JSON so a whole double Decaid writes as `92.0` equals 92, and of those
+// it is the one whose title it recorded, then the one it holds most of as it
+// is. The profile id a skin records in the Workflow is not used: the
+// WorkFlow skin (Sabotage1/WorkFlow-Skin) records the Profile picked in it,
+// which stays as it was when another skin loads another profile, as Decaid
+// merges a Workflow's changes into it.
 //
 // Every change to a tablet's map holds the tablet's row lock, and links the
 // Shots it can then (`linkShots`); storing a Shot's metadata holds that row
@@ -122,16 +124,16 @@ export function shotLinkedSql(kind: LinkedKind, ids: readonly string[]): Prisma.
 }
 
 /**
- * A profile's steps as they are compared, through the indexes on them: a
- * step's limiter of value 0, which is no limiter, as null
- * (`profile_steps_key`, in the migration). streamline-js sends every profile
- * it loads into the Workflow so, while the profile's record keeps the limiter.
+ * A profile's steps as they identify it, through the indexes on them
+ * (`profile_steps_key`, in the migration): without each step's temperature,
+ * and with a limiter of value 0, which is no limiter, as none, as a skin
+ * overrides or sends them in the profile it loads into the Workflow.
  */
 export function stepsKeySql(steps: Prisma.Sql): Prisma.Sql {
   return Prisma.sql`profile_steps_key(${steps})`;
 }
 
-/** What Decaid hashes for a Profile's id, but its target weight and steps, which `shotProfileSql` compares on their own. */
+/** What Decaid hashes for a Profile's id but its steps and target weight, which a skin may override. */
 const HASHED = ["version", "beverage_type", "tank_temperature", "target_volume", "target_volume_count_start"] as const;
 
 /** A Shot's Workflow's profile, of `shots` aliased `alias`. */
@@ -141,43 +143,46 @@ function workflowProfileSql(alias: string): Prisma.Sql {
 
 /**
  * The id of the Library Profile the Shot of `shots` aliased `alias` was
- * pulled with, or null: the one whose id its Workflow's profile hashes to,
- * holding the same steps (`stepsKeySql`) and the rest of what Decaid hashes.
- * A Profile with the Shot's target weight comes first, the one whose steps
- * are the Shot's as they are, limiters of value 0 and all, before one whose
- * steps are only compared alike, as a copy of a profile a skin loaded keeps
- * the limiters as the skin sent them. Failing that, the only Profile whose
- * steps are the Shot's as they are; failing that, the only Profile
- * matching: a skin sets the Workflow's profile's target weight to the
- * Shot's yield. Steps the same as they are weigh less than the target
- * weight, as streamline-js sends every profile it loads with its value-0
- * limiters null. The Profiles' steps are found through their index.
+ * pulled with, or null: of those holding its Workflow's profile's steps as
+ * they identify it (`stepsKeySql`) and the rest of what Decaid hashes but
+ * the target weight, the one whose title the Shot recorded, as a skin loads
+ * a Profile under its own; then the one whose step temperatures and target
+ * weight, both or either, the Shot holds, as overrides of neither; then the
+ * one whose steps it holds as they are, limiters of value 0 and all, as a
+ * copy saved of a profile a skin loaded keeps them as the skin sent them.
+ * Two alike in all of that leave the Shot linked to neither. The Profiles'
+ * steps are found through their index.
  */
 export function shotProfileSql(alias: string): Prisma.Sql {
   const shot = workflowProfileSql(alias);
   const same = HASHED.map((field) => Prisma.sql`p.content -> 'profile' -> ${field} IS NOT DISTINCT FROM ${shot} -> ${field}`);
+  const temperatures = (profile: Prisma.Sql) => Prisma.sql`jsonb_path_query_array(${profile} -> 'steps', '$[*].temperature')`;
   return Prisma.sql`(
-    SELECT candidate.id FROM (
-      SELECT p.id,
-        coalesce(p.content -> 'profile' -> 'steps' = ${shot} -> 'steps', false) AS "sameSteps",
-        coalesce(p.content -> 'profile' -> 'target_weight' = ${shot} -> 'target_weight', false) AS "sameWeight",
-        count(*) OVER () AS candidates,
-        count(*) FILTER (WHERE p.content -> 'profile' -> 'steps' = ${shot} -> 'steps') OVER () AS "sameStepsCandidates"
-      FROM profiles AS p
-      WHERE ${stepsKeySql(Prisma.sql`p.content -> 'profile' -> 'steps'`)} = ${stepsKeySql(Prisma.sql`${shot} -> 'steps'`)}
-        AND ${Prisma.join(same, " AND ")}
-    ) AS candidate
-    WHERE candidate."sameWeight" OR (candidate."sameSteps" AND candidate."sameStepsCandidates" = 1) OR candidate.candidates = 1
-    ORDER BY candidate."sameSteps" AND candidate."sameWeight" DESC, candidate."sameWeight" DESC, candidate."sameSteps" DESC, candidate.id
-    LIMIT 1
+    SELECT CASE WHEN best.tied = 1 THEN best.id END FROM (
+      SELECT ranked.id, count(*) OVER (PARTITION BY ranked."sameTitle", ranked."sameTemperatures", ranked."sameWeight", ranked."sameSteps") AS tied,
+        ranked."sameTitle", ranked."sameTemperatures", ranked."sameWeight", ranked."sameSteps"
+      FROM (
+        SELECT p.id,
+          coalesce(p.content -> 'profile' -> 'title' = ${shot} -> 'title', false) AS "sameTitle",
+          coalesce(${temperatures(Prisma.sql`p.content -> 'profile'`)} = ${temperatures(shot)}, false) AS "sameTemperatures",
+          coalesce(p.content -> 'profile' -> 'target_weight' = ${shot} -> 'target_weight', false) AS "sameWeight",
+          coalesce(p.content -> 'profile' -> 'steps' = ${shot} -> 'steps', false) AS "sameSteps"
+        FROM profiles AS p
+        WHERE ${stepsKeySql(Prisma.sql`p.content -> 'profile' -> 'steps'`)} = ${stepsKeySql(Prisma.sql`${shot} -> 'steps'`)}
+          AND ${Prisma.join(same, " AND ")}
+      ) AS ranked
+      ORDER BY ranked."sameTitle" DESC, ranked."sameTemperatures" AND ranked."sameWeight" DESC, ranked."sameTemperatures" DESC,
+        ranked."sameWeight" DESC, ranked."sameSteps" DESC, ranked.id
+      LIMIT 1
+    ) AS best
   )`;
 }
 
 /**
  * Whether the Shot of `shots` aliased `alias` was pulled with the Library
  * Profile (`shotProfileSql`), decided only for the Shots holding that
- * Profile's steps, as compared, and the rest of what Decaid hashes, found
- * through the index on the Shots' steps.
+ * Profile's steps as they identify it and the rest of what Decaid hashes but
+ * the target weight, found through the index on the Shots' steps.
  */
 export function shotPulledWithSql(alias: string, profileId: string): Prisma.Sql {
   const shot = workflowProfileSql(alias);

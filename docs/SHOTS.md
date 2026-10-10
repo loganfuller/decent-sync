@@ -141,32 +141,30 @@ Shot to the Library's Bean Batch, Grinder and Profile it used
 - **Profile.** A Profile's id is Decaid's, a hash of what the machine
   executes (`ProfileHash` in
   `decaid:lib/src/models/data/profile_hash.dart`), which a Shot's Workflow
-  holds as its `profile` but does not name. A Shot was pulled with the
-  Library Profile its Workflow's profile hashes to: the one with the same
-  steps, version, beverage type, tank temperature and volume targets,
-  compared as JSON so `92.0` equals 92, and the same target weight, or any
-  target weight when only one Profile matches but for it, as a skin sets the
-  Workflow's target weight to the Shot's yield. A step's limiter of value 0,
-  which is no limiter, is compared as none (`profile_steps_key`, in the
-  migration, which the indexes on the steps use): streamline-js sends every
-  profile it loads into the Workflow so (`updateWorkflow` in
-  `streamline-js:src/modules/api.js`), while the profile's record keeps it,
-  and sets its target weight to the yield. Among the Profiles matching, one
-  with the Shot's target weight comes first, the one whose steps are the
-  Shot's as they are, limiters included, before one only compared alike;
-  failing that, the only one whose steps are the Shot's as they are;
-  failing that, the only one. A copy saved of a profile streamline-js
-  loaded keeps its limiters as null, so where the Library has both such a
-  copy and the profile it was made from, a Shot pulled through
-  streamline-js with either is linked to the one with its target weight,
-  and to the copy when both have it, as the two record the same. The hard
-  delete's check of whether a Shot names a Profile, and the plugin's,
-  compare steps the same way. A skin's other changes, such as
-  streamline-js's saved brew temperature written into every step, make a
-  profile the Library may lack, and the Shot is linked to none. The link is
-  read, not stored, so it follows the Library: a Profile joining that
-  matches a Shot as closely as its own but for the target weight leaves
-  that Shot linked to neither.
+  holds as its `profile` but does not name. What a barista overrides in a
+  skin as they pull a Shot is their input to it, not another profile:
+  streamline-js's side panel writes the yield into the profile it loads as
+  its target weight, and the temperature into every step, and its
+  `updateWorkflow` sends a step's limiter of value 0, which is no limiter,
+  as null, while the profile's record keeps it
+  (`streamline-js:src/modules/ui.js`, `src/modules/api.js`). The dose is
+  the Workflow's, outside the profile. So a Shot's candidates are the
+  Library Profiles with its steps, but for each step's temperature and with
+  a limiter of value 0 as none (`profile_steps_key`, in the migration,
+  which the indexes on the steps use), and its version, beverage type, tank
+  temperature and volume targets, compared as JSON so `92.0` equals 92. Of
+  those, the Shot was pulled with the one whose title it recorded, as a
+  skin loads a Profile under its own; then the one whose step temperatures
+  and target weight, both or either, it holds; then the one whose steps it
+  holds as they are, limiters included, as a copy saved of a profile a skin
+  loaded keeps its limiters as the skin sent them. Two alike in all of that
+  leave it linked to neither. So a Shot pulled with a Profile, its
+  temperature and yield changed, is that Profile's, even where the Library
+  has a copy saved at that temperature, while a Shot pulled with the copy
+  is the copy's. The hard delete's check of whether a Shot names a Profile,
+  and the plugin's, compare steps the same way, temperatures left out. The
+  link is read, not stored, so it follows the Library: a Profile joining
+  that ties with a Shot's own leaves that Shot linked to neither.
 - **The skin's profile id is not used.** The profile id the WorkFlow skin
   (`Sabotage1/WorkFlow-Skin`) records in the Workflow
   (`context.extras.workflowSkin.selectedProfileId`, kept as `profile_id`)

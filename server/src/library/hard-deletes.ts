@@ -68,10 +68,12 @@ const NAMES: Readonly<Record<DeletedKind, string>> = { bean: "Bean", beanBatch: 
  * sets the Workflow's profile's target weight to the Shot's yield, so a
  * Shot pulled with a Profile can hold other targets. Refusing more deletes
  * than Shots used is the safe side. PostgreSQL compares JSON numbers by
- * value, so a whole double Decaid writes as `92.0` equals 92, and a step's
- * limiter of value 0 is compared as none, as a skin may send it
- * (`stepsKeySql`). The id a skin recorded is stale once another skin loads
- * a profile, which only refuses more deletes.
+ * value, so a whole double Decaid writes as `92.0` equals 92, and steps are
+ * compared as they identify a profile, each step's temperature left out and
+ * a limiter of value 0 as none, as a skin overrides or sends them
+ * (`stepsKeySql`), so every Shot linked to the Profile names it. The id a
+ * skin recorded is stale once another skin loads a profile, which only
+ * refuses more deletes.
  */
 export function shotNamesProfileSql(id: Prisma.Sql, steps: Prisma.Sql): Prisma.Sql {
   return Prisma.sql`EXISTS (
