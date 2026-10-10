@@ -191,8 +191,12 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
     // Archived, it is due to neither tablet, and its refusal is forgotten.
     expect((await api.call("PUT", `/beans/${refused.id}/archived`, { archived: true })).status).toBe(200);
     await expect.poll(async () => (await statusOf(second)).refused, { timeout: 10_000 }).toEqual([]);
-    // Wait for the tablet that held it to archive it, so the restore below is the next change.
+    // Wait for the tablet that held it to archive it, so the restore below is the next change, and for the refusing
+    // tablet to take a Bean offered after the archive, so its writer has looked since.
     await expect.poll(() => one.beans().find((bean) => bean.name === "Archived While Refused")?.archived, { timeout: 10_000 }).toBe(true);
+    await one.addBean({ roaster: "Roux", name: "After the Archive" });
+    const after = await libraryBean("After the Archive");
+    await expect.poll(() => heldAs(two, "After the Archive"), { timeout: 10_000 }).toEqual([after.id]);
 
     // Restored while the refusing tablet is offline, it is due again just as it was refused, and waits.
     two.loseNetwork();

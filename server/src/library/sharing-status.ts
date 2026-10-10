@@ -60,9 +60,12 @@ export function changeSignature(change: PlannedChange): string {
  * Records that the tablet refused a change, with Decaid's HTTP status, or
  * null if it gave none, as when it did not answer, the plugin did not ask it,
  * or the server could not take in what it answered; and its answer, or why,
- * without the NUL characters PostgreSQL's text cannot hold.
+ * without the NUL characters PostgreSQL's text cannot hold. A status no HTTP
+ * answer has is kept as none, so a plugin's mistake cannot fail the insert
+ * every time its answer is sent.
  */
-export async function recordRefused(prisma: PrismaService, tabletId: string, refused: TabletChange & { signature: string }, status: number | null, answer: string): Promise<void> {
+export async function recordRefused(prisma: PrismaService, tabletId: string, refused: TabletChange & { signature: string }, answered: number | null, answer: string): Promise<void> {
+  const status = answered !== null && answered >= 100 && answered <= 599 ? answered : null;
   const error = answer.replaceAll("\u0000", "");
   await prisma.$executeRaw`
     INSERT INTO tablet_refusals (tablet_id, change_key, change, kind, item_id, local_id, signature, status, error)
