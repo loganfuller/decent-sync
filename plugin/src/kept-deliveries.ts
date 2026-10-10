@@ -6,7 +6,7 @@ import type { PluginStorage } from "./storage.js";
 // (ticket #93). Shots, Steam Records and collections are not kept: the
 // indices and collections every load sends recover them.
 //
-// Decaid stores no null, so a key once written is never deleted, and it
+// Decaid stores no null, so the plugin can delete no key it wrote, and it
 // keeps a plugin's whole storage in memory (a Hive box). So the deliveries
 // kept go in a ring of MAX_KEPT keys, `outbox.0` to `outbox.1999`, reused in
 // turn, each holding one delivery and its sequence number, `{ seq, delivery }`.
@@ -21,7 +21,8 @@ import type { PluginStorage } from "./storage.js";
 // than expected, as after a write that failed or one that landed before the
 // sequence numbers did, is skipped. A delivery is sent only once Decaid has
 // answered both the write of its key and that of the sequence numbers, in
-// whichever order they land (storage.ts).
+// whichever order they land, or failed to, or, while Decaid leaves writes
+// unanswered, once they are sent (storage.ts).
 //
 // While the server is unreachable for long, at most MAX_KEPT deliveries,
 // about a busy day of a Machine's state transitions, and MAX_KEPT_CHARACTERS

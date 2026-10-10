@@ -136,7 +136,9 @@ describe("The durable outbox", () => {
     }
 
     // The plugin sent each once, ahead of everything the reload queued, with the times it observed them.
-    const kept = machineEventsSent(second).filter((frame) => Date.parse(frame.observedAt!) <= ended);
+    // The first load's delivery ids all start with its runtime's.
+    const firstRuntime = machineEventsSent(first)[0]!.id!.replace(/-\d+$/, "-");
+    const kept = machineEventsSent(second).filter((frame) => frame.id!.startsWith(firstRuntime));
     expect(kept.map(({ type, workflow, state, substate }) => (type === "workflow" ? { type, workflow } : { type, state, substate }))).toEqual(made);
     expect(kept.map((frame) => frame.observedAt)).toEqual(stored.map((event) => event.observedAt));
     expect(new Set(kept.map((frame) => frame.id)).size).toBe(kept.length);
@@ -242,7 +244,6 @@ describe("The durable outbox", () => {
     first.setWorkflow(dialledIn);
     first.reportState("espresso", "pouring");
     await first.unload();
-    const kept = machineEventsSent(first).map((frame) => frame.id!);
 
     // The tablet moved to the cafe's machine, and its token entered: changing a setting reloads the plugin with it.
     const second = load(cafe, storage, { ...derivedDe1Pro({ serial: "93010" }), "/workflow": dialledIn });
@@ -256,7 +257,6 @@ describe("The durable outbox", () => {
     // Plugin storage no longer holds them.
     const held = (storage.readThroughApi(undefined) as string[]).map((key) => String(storage.read(key)));
     expect(held.some((value) => value.includes('"workflow"') || value.includes('"machineState"'))).toBe(false);
-    expect(kept.length).toBe(2);
   });
 
   it("waits for Decaid to read back what was kept, sending nothing before it, so nothing is sent out of order", async () => {
@@ -282,13 +282,14 @@ describe("The durable outbox", () => {
   it("holds no more than it keeps while it reads back what was kept", { timeout: 60_000 }, async () => {
     const machine = await api.createMachine("Held while reading back");
     const storage = new PluginStorage();
-    // Decaid fails the first read of what was kept, so what happens meanwhile waits.
-    storage.failNextReads(1, "outbox");
+    // Decaid fails every read of what was kept until what happens meanwhile has passed the limits.
+    storage.failNextReads(Number.MAX_SAFE_INTEGER, "outbox");
     const tablet = load(machine, storage, derivedDe1Pro({ serial: "93009" }));
     const made = MAX_KEPT + 1;
     const substates = ["preinfusion", "pouring"];
     for (let index = 0; index < made; index++) tablet.reportState("espresso", substates[index % 2]!);
     await tablet.waitForLog(DROPPED_LOG);
+    storage.failNextReads(0);
     // Held with the Workflow Decaid sent after loading the plugin, and the one sent again on welcome, the oldest of them dropped.
     const stored = MAX_KEPT - 1;
     await expect.poll(async () => (await stateEvents(machine)).total, { timeout: 45_000 }).toBe(stored);

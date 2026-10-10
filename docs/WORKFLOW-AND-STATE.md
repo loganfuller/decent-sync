@@ -88,7 +88,7 @@ acknowledges it (`plugin/src/kept-deliveries.ts`, through the commands of
   cannot read the plugin's storage as the plugin loads cannot read the
   tablet's id either, without which the plugin does not connect. Workflow
   and machine state deliveries queued meanwhile, for the time 2,001 reads at
-  most take, are held to the limits below, and kept once the reading back
+  most take, or longer while Decaid fails them, are held to the limits below, and kept once the reading back
   ends: an unload before then loses them. Nothing kept sends nothing extra.
 - **Under the token they were made with.** Deliveries belong to the token's
   Machine, and the server records each delivery id per Machine, so the key
@@ -96,7 +96,7 @@ acknowledges it (`plugin/src/kept-deliveries.ts`, through the commands of
   with another token, as after a barista enters another Machine's token,
   which reloads the plugin, sends none of what was kept, logs it, and
   overwrites it.
-- **Bounded.** Decaid stores no null, so a key it holds is never deleted, and
+- **Bounded.** Decaid stores no null, so `host.storage` deletes no key, and
   it keeps a plugin's whole storage in memory. So deliveries are kept in a
   ring of 2,000 keys, `outbox.0` to `outbox.1999`, reused in turn, each
   holding one delivery with its sequence number, and the key `outbox` holds

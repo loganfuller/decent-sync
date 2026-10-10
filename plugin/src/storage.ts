@@ -12,8 +12,8 @@ import type { PluginHost, StorageCommand } from "./host.js";
 // keys. A write Decaid leaves unanswered has the writes after it sent without
 // waiting for answers, until Decaid answers anything again, so a Decaid that
 // fails every write does not hold up each delivery waiting to be kept.
-// Decaid stores a value only if it is not null, so nothing is ever
-// deleted: a key once written stays until written again. A write sent as the
+// Decaid stores a value only if it is not null, so no command deletes a
+// key: a key once written stays until written again. A write sent as the
 // plugin unloads still lands, as Decaid finishes a retiring generation's
 // writes before the next one loads, so `stop` sends the writes still waiting
 // their turn.
