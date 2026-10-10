@@ -3,6 +3,7 @@ import { ConflictException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
+import { shotLinkedSql } from "../shots/links.js";
 import { INTAKE_TRANSACTION, lockTablet } from "./intake.js";
 import { lockLocation } from "./location-state.js";
 
@@ -11,11 +12,12 @@ import { lockLocation } from "./location-state.js";
 // holds it, the one thing the server deletes from tablets. A Bean goes with
 // its batches, as Decaid refuses to delete a bean that has any. A Shot names a
 // batch or Grinder by its id on the tablet that pulled it, so an item whose
-// record has that id on any tablet's map is named; a Bean is named when one
-// of its batches is. A Shot names a Profile by the steps it executed, which
-// its Workflow records with the rest of its profile, or by the profile id a
-// skin recorded there. Decaid's bundled Profiles, which every tablet has and
-// Decaid refuses to delete, are never deleted.
+// record has that id on any tablet's map is named, as is one a Shot is linked
+// to (shots/links.ts), whose record may have left the map since; a Bean is
+// named when one of its batches is. A Shot names a Profile by the steps it
+// executed, which its Workflow records with the rest of its profile, or by
+// the profile id a skin recorded there. Decaid's bundled Profiles, which
+// every tablet has and Decaid refuses to delete, are never deleted.
 //
 // The item is gone from the Library at once, with its versions, Conflicts
 // and each Location's state of it. Its global id is kept (`deleted_items`),
@@ -140,10 +142,11 @@ async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: s
   const stillDeleted = (await deletedWith(tx, kind, id))?.map((item) => item.id).sort() ?? [];
   if (stillDeleted.join() !== items.map((item) => item.id).sort().join()) return false;
 
-  // Read under the tablets' locks, which every change to their maps takes.
+  // Read under the tablets' locks, which every change to their maps takes, and which linking a Shot to one waits for.
   const [named] = await tx.$queryRaw<{ named: boolean }[]>`
     SELECT EXISTS (SELECT 1 FROM shots JOIN tablet_bean_batches AS held ON held.local_id = shots.bean_batch_id WHERE held.batch_id = ANY(${batches}::uuid[]))
       OR EXISTS (SELECT 1 FROM shots JOIN tablet_grinders AS held ON held.local_id = shots.grinder_id WHERE held.grinder_id = ANY(${grinders}::uuid[]))
+      OR ${shotLinkedSql("beanBatch", batches)} OR ${shotLinkedSql("grinder", grinders)}
       OR EXISTS (
         SELECT 1 FROM profiles WHERE id = ANY(${profiles}::text[])
           AND ${shotNamesProfileSql(Prisma.sql`profiles.id`, Prisma.sql`profiles.content -> 'profile' -> 'steps'`)}

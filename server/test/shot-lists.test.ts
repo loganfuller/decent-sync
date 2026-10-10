@@ -259,7 +259,7 @@ describe("Shots lists", () => {
     for (const path of ["/shots?barista=Ann", "/shots/filters"]) expect((await api.call("GET", path, undefined, {})).status).toBe(401);
   });
 
-  it("offers the Beans, Baristas and profiles listed Shots recorded, as filters", async () => {
+  it("offers the Beans, Baristas and profiles listed Shots recorded, and the Library items they are linked to, as filters", async () => {
     const response = await api.call("GET", "/shots/filters");
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
@@ -272,6 +272,9 @@ describe("Shots lists", () => {
       ],
       baristas: ["Ann", "Ben", "Cat", "Dee", "Fixture Barista", null],
       profiles: ["Blooming", "Londonium"],
+      // These Shots' tablets hold no Library batch or Grinder.
+      beanBatches: [null],
+      grinders: [null],
     });
   });
 

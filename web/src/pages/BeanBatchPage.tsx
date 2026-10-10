@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router";
 import { BatchBadges, batchName, roastDateText } from "@/components/bean-batches";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
+import { ItemShotsCard } from "@/components/item-shots";
 import { ArchiveButton, BATCH_FIELDS, BatchLocationsCard, ContentForm, DeleteButton } from "@/components/library-forms";
 import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
@@ -166,6 +167,8 @@ function BeanBatchDetails({ id }: { id: string }) {
           </CardContent>
         </Card>
       </div>
+
+      <ItemShotsCard kind="beanBatch" id={id} />
 
       <ItemHistoryCard key={changes} kind="beanBatch" id={id} />
     </section>

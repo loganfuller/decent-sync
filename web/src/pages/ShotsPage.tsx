@@ -2,6 +2,8 @@ import { useEffect, useId, useState } from "react";
 import { Link } from "react-router";
 import { LocationCredit, MachineCredit, OrNone, numberText, secondsText } from "@/components/records";
 import { ANY, ListPagination, type ListState, NONE, RECORD_FILTERS, RecordFilters, type RecordList, useRecordList } from "@/components/record-lists";
+import { batchName } from "@/components/bean-batches";
+import { grinderName } from "@/components/grinders";
 import { beanText, gramsText, shotTime } from "@/components/shots";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Field, FieldLabel } from "@/components/ui/field";
@@ -10,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { api, type ShotFilterOptions, type ShotPage } from "@/lib/api";
 
 /** The list's query parameters, which are the REST API's: the page's address is a list anyone can share. */
-const FILTERS = [...RECORD_FILTERS, "coffeeRoaster", "coffeeName", "barista", "profileTitle"] as const;
+const FILTERS = [...RECORD_FILTERS, "coffeeRoaster", "coffeeName", "barista", "profileTitle", "beanBatchId", "grinderId"] as const;
 
 /**
  * Every Shot, newest first, across every Location, with filters. Times are
@@ -128,7 +130,7 @@ function beanChoice(roaster: string | null, name: string | null): string {
   return JSON.stringify([roaster, name]);
 }
 
-/** The filters every record list has, and those by what Shots recorded: Bean, Barista and profile. */
+/** The filters every record list has, those by what Shots recorded: Bean, Barista and profile, and those by the Library's Bean Batch and Grinder they are linked to. */
 function ShotFilters({ list }: { list: RecordList<ShotPage> }) {
   const id = useId();
   const [options, setOptions] = useState<ShotFilterOptions>();
@@ -178,6 +180,24 @@ function ShotFilters({ list }: { list: RecordList<ShotPage> }) {
         </Select>
       </Field>
 
+      <LinkFilter
+        id={`${id}-batch`}
+        label="Bean Batch"
+        any="Any Bean Batch"
+        none="Not linked to a Bean Batch"
+        value={params.get("beanBatchId")}
+        options={options?.beanBatches.map((batch) => batch && { id: batch.id, name: batchName(batch) })}
+        onChange={(beanBatchId) => list.filter({ beanBatchId })}
+      />
+      <LinkFilter
+        id={`${id}-grinder`}
+        label="Grinder"
+        any="Any Grinder"
+        none="Not linked to a Grinder"
+        value={params.get("grinderId")}
+        options={options?.grinders.map((grinder) => grinder && { id: grinder.id, name: `${grinderName(grinder)}${grinder.location ? `, ${grinder.location.name}` : ""}` })}
+        onChange={(grinderId) => list.filter({ grinderId })}
+      />
       <TextFilter
         id={`${id}-barista`}
         label="Barista"
@@ -228,6 +248,55 @@ function TextFilter({
               {option ?? "None recorded"}
             </SelectItem>
           ))}
+        </SelectContent>
+      </Select>
+    </Field>
+  );
+}
+
+/**
+ * A filter by the Library item Shots are linked to: any, one of the items
+ * listed, by its id, or none (`none`, as the REST API takes it). An item
+ * linked to no listed Shot, as one opened from its page, is still named.
+ */
+function LinkFilter({
+  id,
+  label,
+  any,
+  none,
+  value,
+  options,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  any: string;
+  none: string;
+  value: string | null;
+  options: ({ id: string; name: string } | null)[] | undefined;
+  onChange(value: string | null): void;
+}) {
+  const items = options ?? [];
+  return (
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Select value={value ?? ANY} onValueChange={(choice) => onChange(choice === ANY ? null : choice)}>
+        <SelectTrigger id={id} className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ANY}>{any}</SelectItem>
+          {items.map((option) =>
+            option === null ? null : (
+              <SelectItem key={option.id} value={option.id}>
+                {option.name}
+              </SelectItem>
+            ),
+          )}
+          {value !== null && value !== NONE && !items.some((option) => option?.id === value) && (
+            <SelectItem value={value}>{options ? `No Shots linked to this ${label}` : label}</SelectItem>
+          )}
+          {(items.includes(null) || value === NONE) && <SelectItem value={NONE}>{none}</SelectItem>}
         </SelectContent>
       </Select>
     </Field>

@@ -13,7 +13,7 @@ import {
   numberText,
   secondsText,
 } from "@/components/records";
-import { beanText, gramsText, shotTime } from "@/components/shots";
+import { ShotBatch, ShotGrinder, ShotProfile, beanText, gramsText, shotTime } from "@/components/shots";
 import { amount, present, record, text, workflowFields } from "@/components/workflow";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -157,10 +157,16 @@ function ShotDetails({ id }: { id: string }) {
                 <LocationCredit record={shot} />
               </Field>
               <Field term="Profile">
-                <OrNone>{shot.profileTitle ?? undefined}</OrNone>
+                <ShotProfile shot={shot} />
               </Field>
               <Field term="Bean">
                 <OrNone>{beanText(shot)}</OrNone>
+              </Field>
+              <Field term="Bean Batch">
+                <ShotBatch shot={shot} />
+              </Field>
+              <Field term="Grinder">
+                <ShotGrinder shot={shot} />
               </Field>
               <Field term="Dose">
                 <OrNone>{gramsText(shot.actualDose, shot.targetDose)}</OrNone>

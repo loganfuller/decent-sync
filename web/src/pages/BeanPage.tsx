@@ -4,6 +4,7 @@ import { atText, batchName } from "@/components/bean-batches";
 import { BeanBadges, beanName, offeredAtText } from "@/components/beans";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
+import { ItemShotsCard } from "@/components/item-shots";
 import { ArchiveButton, BEAN_FIELDS, ContentForm, DeleteButton, NewBatchDialog } from "@/components/library-forms";
 import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
@@ -227,6 +228,8 @@ function BeanDetails({ id }: { id: string }) {
           </CardContent>
         </Card>
       )}
+
+      <ItemShotsCard kind="bean" id={id} />
 
       <ItemHistoryCard key={changes} kind="bean" id={id} />
     </section>

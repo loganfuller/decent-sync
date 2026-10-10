@@ -109,6 +109,44 @@ an Admin's hard delete of a Library item a Shot names is refused
 Workflow's `profile`'s steps, indexed by hash, or by the `profile_id` a skin
 recorded in its Workflow, indexed too.
 
+## Links to the Library
+
+Ticket [#92](https://github.com/loganfuller/decent-sync/issues/92) links each
+Shot to the Library's Bean Batch, Grinder and Profile it used
+(`server/src/shots/links.ts`):
+
+- **Bean Batch and Grinder.** A Shot keeps the tablet that reported the
+  metadata stored (`tablet_id`), whose ids `bean_batch_id` and `grinder_id`
+  are. They resolve through that tablet's map (`tablet_bean_batches`,
+  `tablet_grinders`, `LIBRARY.md`) to the Library's items, stored as the
+  Shot's links (`library_batch_id`, `library_grinder_id`). A Shot stored
+  before Shots kept their tablet resolves through the first tablet seen on
+  its Machine (`machine_tablets`), where its ids match; the migration links
+  those it can at once. Links are set as each delivery's metadata is stored,
+  and, for a Shot whose ids the map does not hold yet, as the map gains the
+  id (`linkShots`, called wherever a map saves a record), so a Shot reported
+  before its batch joined the Library is linked once it does. A link stays
+  when the tablet's record leaves its map, as when a barista deletes it
+  there, as long as the Shot names the same id; it goes only with a hard
+  delete, which a link refuses. Every change to a map holds the tablet's row
+  lock, and storing a Shot's metadata holds that row for share while it
+  resolves, so neither misses the other on any instance. A Shot whose ids no
+  map holds stays unlinked, and is listed as any other.
+- **Profile.** A Profile's id is Decaid's, a hash of what the machine
+  executes (`ProfileHash` in
+  `decaid:lib/src/models/data/profile_hash.dart`), which a Shot's Workflow
+  holds as its `profile` but does not name. A Shot was pulled with the
+  Library Profile its Workflow's profile hashes to: the one with the same
+  steps, version, beverage type, tank temperature and volume targets,
+  compared as JSON so `92.0` equals 92, and the same target weight, or any
+  target weight when only one Profile matches but for it, as a skin sets the
+  Workflow's target weight to the Shot's yield. It is read, not stored, so it
+  follows the Library. The profile id a skin records in the Workflow
+  (`profile_id`) is not used: on the test tablet's Shot it names a bundled
+  Profile other than the Londonium the Shot was pulled with. A Shot pulled
+  with a profile the Library lacks, such as that one, whose steps differ
+  from the tablet's Londonium, is linked to none.
+
 Decaid writes a Shot's `timestamp` and sample times in the tablet's local time
 without an offset, and `createdAt` in UTC as it saves the Shot, just after the
 last sample. `extractCurves` takes the tablet's offset from that gap, rounded
@@ -133,7 +171,10 @@ All endpoints require a signed-in account, Admin or Staff.
   was pulled (`locationId`, and `location: { id, name, timeZone }`, null when
   unknown), and `locationInferred`, true when that Location came through an
   inferred Machine. Correcting the Machine's Location History changes these,
-  never the stored record.
+  never the stored record. Each row names the Library items it is linked to
+  (Links to the Library, above), each null when none: `beanBatch` (`{ id,
+  bean: { id, roaster, name }, roastDate }`), `grinder` (`{ id, model }`)
+  and `profile` (`{ id, title }`).
 - Filters, each given at most once and combined with AND
   (`server/src/shots/filters.ts`; the Machine, Location and date filters are
   `server/src/record-filters.ts`, which Steam Records lists share):
@@ -142,9 +183,14 @@ All endpoints require a signed-in account, Admin or Staff.
   - `coffeeRoaster` and `coffeeName` (together, a Bean as each Shot recorded
     it, so the same Bean is found across Machines), `barista` and
     `profileTitle`: exact matches on what the Shot recorded. An empty value
-    matches Shots that recorded none. There is no Bean Batch filter yet:
-    each tablet has its own id for the same batch, which Shots will be linked
-    to the Library's through (ticket #92, ADR-0006).
+    matches Shots that recorded none.
+  - `beanBatchId` and `grinderId`: Shots linked to that Library Bean Batch
+    or Grinder (Links to the Library, above), whichever tablet's id for it
+    they recorded, so a batch is compared across Machines and Locations;
+    `none` for Shots linked to none. `beanId`: Shots linked to any of that
+    Bean's batches. `profileId`: Shots pulled with that Library Profile.
+    Each item's page lists its Shots through these. A malformed id is a
+    404.
   - `from` and `to`: a local date (`2026-10-05`) or date and time
     (`2026-10-05T06:00`) without an offset, read on each Shot's own
     Location's wall clock, or UTC for a Shot with no Location. `from` is the
@@ -152,10 +198,14 @@ All endpoints require a signed-in account, Admin or Staff.
     date alone includes the whole of that day. So a day is 23 or 25 hours
     across a daylight-saving change, and an hour the clocks repeat is listed
     twice. Shots whose time is unknown match no time filter.
-- `GET /api/shots/filters` returns `{ beans, baristas, profiles }`: the
-  distinct Beans (`{ coffeeRoaster, coffeeName }`), Baristas and profile
-  titles listed Shots recorded, sorted ignoring case, with null for Shots
-  that recorded none.
+- `GET /api/shots/filters` returns `{ beans, baristas, profiles,
+  beanBatches, grinders }`: the distinct Beans (`{ coffeeRoaster, coffeeName
+  }`), Baristas and profile titles listed Shots recorded, sorted ignoring
+  case, with null for Shots that recorded none; and the Library's Bean
+  Batches (`{ id, bean: { id, roaster, name }, roastDate }`, as the Bean
+  Batches list orders them) and Grinders (`{ id, model, location }`, by
+  model, then Location) listed Shots are linked to, with null last for
+  Shots linked to none.
 - `GET /api/shots/:id` returns `{ shot }`, including the stored Decaid metadata
   in `shot.record`, without measurements, and `shot.previousShot`
   (`{ id, pulledAt }` or null): the listed Shot just before it on the same
@@ -181,13 +231,18 @@ daylight-saving changes, and previous Shots.
 ## Management interface
 
 `/shots` lists Shots with the REST filters in its address, so a filtered
-list can be shared or reloaded; `/shots/:id` shows a Shot's curves (pressure,
+list can be shared or reloaded, the Bean Batch and Grinder among them;
+`/shots/:id` shows a Shot's curves (pressure,
 flow, weight and basket temperature, with the targets its profile set),
-everything its record holds, its credit, and a comparison with its previous
-Shot. Times are shown in each Shot's Location's time zone, or UTC, labelled,
+everything its record holds, its credit, the Library's Bean Batch, Grinder
+and Profile it is linked to, each linking to its page, and a comparison with
+its previous Shot. Each Bean's, Bean Batch's, Grinder's and Profile's page
+lists its Shots, ten at a time (`web/src/components/item-shots.tsx`). Times are shown in each Shot's Location's time zone, or UTC, labelled,
 for a Shot with no Location. `web/src/lib/curves.ts` turns Decaid's
 measurements into curves, counting time as `elapsedSeconds` does.
-`e2e/shots.spec.ts` covers them with Shots seeded through simulated tablets.
+`e2e/shots.spec.ts` covers them with Shots seeded through simulated tablets,
+and `e2e/shot-links.spec.ts` a batch's Shots and the Bean Batch and Grinder
+filters.
 
 `server/test/shots.test.ts` verifies the built plugin through Seam 1, REST
 reads, and two server instances sharing PostgreSQL. It includes 205-record
@@ -198,4 +253,5 @@ unacknowledged edits, deletion, late full records, edits that clear fields,
 replays, precise version ordering, restart, hardware attribution, dismissal
 and adoption, identity mismatch, transient and persistent API failures, ignored
 legacy imports, incompatible records and their warnings, and lists while the measurements
-table is locked.
+table is locked. `server/test/shot-links.test.ts` covers the links to the
+Library the same way, at two Locations on two instances.

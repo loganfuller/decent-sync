@@ -37,7 +37,10 @@ an Admin turn a Machine's sharing off, making it a Capture-only Machine,
 and back on, which joins its Location again (Who takes part, below), and
 has a joining Machine bring nothing of its own to a Location that offers
 items of that kind already, archiving or hiding them on its tablet
-instead. It follows ADR-0003, ADR-0006, ADR-0008, ADR-0014, ADR-0016,
+instead. Ticket [#92](https://github.com/loganfuller/decent-sync/issues/92)
+links each Shot to the Bean Batch, Grinder and Profile it used, through its
+tablet's map, so Shots are filtered by them and each item's page lists its
+Shots (`SHOTS.md`, Links to the Library). It follows ADR-0003, ADR-0006, ADR-0008, ADR-0014, ADR-0016,
 ADR-0018, ADR-0019 and ADR-0020.
 
 ## Who takes part
@@ -429,10 +432,11 @@ refuses to delete one; they are hidden at Locations or Archived instead.
 - **Named by a Shot.** A Shot names its batch and Grinder by their ids on the
   tablet that pulled it (`shots.bean_batch_id` and `shots.grinder_id`, from
   its Workflow's context). An item whose record has such an id on any
-  tablet's map is named, and a Bean is named when one of its batches is: its
+  tablet's map is named, and so is one a Shot is linked to (`SHOTS.md`,
+  Links to the Library), and a Bean is named when one of its batches is: its
   delete is refused, and it can be Archived instead. A record a tablet
-  deleted itself has left its map, so a Shot naming only that record does not
-  count. A Shot names a Profile whose steps its Workflow's `profile` has,
+  deleted itself has left its map, so a Shot naming only that record counts
+  only if it was linked to the item before. A Shot names a Profile whose steps its Workflow's `profile` has,
   compared as JSON so a whole double Decaid writes as `92.0` equals 92, or
   by the profile id a skin recorded in its Workflow (`shots.profile_id`);
   Decaid itself records none. Only the steps are compared, not the rest of
@@ -1363,6 +1367,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   record's `updatedAt` in UTC, a delete on a tablet when the server learned
   of it; and when the server took it in, by PostgreSQL's clock. The first is
   the item joining the Library. 404 if the Library does not have the item.
+- Each item's Shots are the Shots list's, filtered by it: `GET
+  /api/shots?beanId=`, `beanBatchId=`, `grinderId=` or `profileId=`
+  (`SHOTS.md`).
 - `GET /api/conflicts` returns `{ conflicts }`, the open Conflicts, the
   latest first, each `{ id, item, field, value, location, source, editedAt,
   createdAt, state, current, resolvable }`: the item `{ kind, id, name }`,
@@ -1453,7 +1460,7 @@ the Locations it is at with its remaining weight at each, and where it was
 finished, each Grinder's page its Location and what it is, and each
 Profile's page where it is shown, its steps and the Profile it was saved
 from. Each item's page notes its open Conflicts, if it has any, and shows its
-history, and the Library's Conflicts page lists every open Conflict, the
+Shots (`web/src/components/item-shots.tsx`) and its history, and the Library's Conflicts page lists every open Conflict, the
 latest first, with the losing value and the value now, and where and when
 each came from. A Conflict is used or dismissed from either, by an account
 that may (`web/src/components/conflicts.tsx`). Each Location's page
@@ -1477,8 +1484,6 @@ and Archives or restores it, and, for an Admin, deletes one not bundled
 with Decaid.
 
 ## Not yet
-
-- Linking Shots to the Library's batches and Grinders: ticket #92.
 
 Decaid hides a bundled Profile a release no longer bundles, or bundles anew
 under another id (`_retireStaleDefaults` in
