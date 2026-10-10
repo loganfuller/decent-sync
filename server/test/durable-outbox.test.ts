@@ -244,7 +244,7 @@ describe("The durable outbox", () => {
     const second = load(cafe, storage, { ...derivedDe1Pro({ serial: "93010" }), "/workflow": dialledIn });
     await expect.poll(() => machineEventsSent(second).length).toBe(2);
     await acknowledged(second);
-    expect(second.logs).toContain("Not sending the Workflow and machine state events kept from before the plugin last unloaded: they were made under another token.");
+    expect(second.logs).toContain("Not sending the Workflow and machine state events kept from before the plugin last unloaded, at most 2: they were made under another token.");
     expect(machineEventsSent(second).map((frame) => frame.type)).toEqual(["workflow", "workflow"]);
     expect((await workflowEvents(cafe)).total).toBe(1);
     expect((await stateEvents(cafe)).total).toBe(0);
@@ -275,7 +275,7 @@ describe("The durable outbox", () => {
     expect(String(storage.read(key))).not.toContain('"preinfusion"');
   });
 
-  it("holds new events in memory only for a load that cannot read what was kept, leaving it for the next load", async () => {
+  it("gives up on what it cannot read back after three tries, so it is never sent after newer events, and keeps new ones afresh", async () => {
     const machine = await api.createMachine("Kept deliveries unreadable");
     const storage = new PluginStorage();
     const decaid = derivedDe1Pro({ serial: "93009" });
@@ -283,21 +283,25 @@ describe("The durable outbox", () => {
     first.reportState("espresso", "pouring");
     await first.unload();
 
-    // Decaid fails every read of what was kept, three times over, and the load gives up on them.
+    // Decaid fails every read of what was kept, three times over.
     storage.failNextReads(3, "outbox");
     const second = load(machine, storage, decaid);
-    await second.waitForLog(/^Could not read the Workflow and machine state events kept in Decaid's plugin storage, so they wait for the plugin's next load/);
+    await second.waitForLog(/^Could not read the Workflow and machine state events kept in Decaid's plugin storage, so they are lost, and new ones are kept afresh: /);
     expect(second.logs.filter((log) => log.startsWith("Could not read the deliveries kept"))).toHaveLength(2);
-    // It still sends what happens meanwhile.
     second.reportState("idle", "idle");
     await expect.poll(() => transitions(machine)).toEqual([["idle", "idle"]]);
     await acknowledged(second);
+    // Kept afresh while the server is unreachable.
+    second.loseNetwork();
+    await second.waitForLog(/^Disconnected: /);
+    second.reportState("espresso", "preinfusion");
     await second.unload();
 
     const third = load(machine, storage, decaid);
-    await expect.poll(() => transitions(machine)).toEqual([["idle", "idle"], ["espresso", "pouring"]]);
+    await expect.poll(() => transitions(machine)).toEqual([["idle", "idle"], ["espresso", "preinfusion"]]);
     await acknowledged(third);
     expect(third.logs).toContain("Sending 1 Workflow and machine state event kept from before the plugin last unloaded.");
+    expect(machineEventsSent(third).some((frame) => frame.substate === "pouring")).toBe(false);
   });
 
   it(`keeps at most the newest ${MAX_KEPT} while the server is unreachable, in plugin storage and across a reload`, { timeout: 120_000 }, async () => {

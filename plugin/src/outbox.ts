@@ -48,7 +48,7 @@ export type RecordReader = (id: string, deliveryId: string) => Promise<Delivery 
 const SHORT_OUTBOX = 4;
 /** How long to wait before reading the deliveries kept again, after Decaid failed to answer. */
 const RESTORE_RETRY_MS = 5_000;
-/** How many times to try reading the deliveries kept before giving up for this load. */
+/** How many times to try reading the deliveries kept before giving up on them. */
 const RESTORE_ATTEMPTS = 3;
 
 /**
@@ -87,8 +87,6 @@ export class Outbox {
   private restoring = true;
   private restoreTimer?: number;
   private restoreAttempts = 0;
-  /** Whether Workflow and machine state deliveries are kept in plugin storage: not once reading them back failed for good. */
-  private keeping = true;
   /** Deliveries kept whose writes to Decaid's plugin storage are not yet answered; each waits for them before it is sent. */
   private readonly unwritten = new Set<string>();
   /** Whether dropping the oldest deliveries kept was logged since the last welcome. */
@@ -104,9 +102,8 @@ export class Outbox {
    * Reads back the deliveries earlier loads kept, and queues them ahead of
    * everything queued since, which is kept after them. It sends nothing
    * meanwhile, trying again if Decaid fails to answer. After
-   * RESTORE_ATTEMPTS failures it gives up for this load, leaving them in
-   * storage for the next, and keeps nothing more there: everything is then
-   * held in memory, as before deliveries were kept.
+   * RESTORE_ATTEMPTS failures it gives up on them, so they are never sent
+   * after newer ones, and keeps deliveries afresh.
    */
   async restore(): Promise<void> {
     let restored: Delivery[];
@@ -115,19 +112,17 @@ export class Outbox {
     } catch (error) {
       if (this.stopped) return;
       const problem = error instanceof Error ? error.message : String(error);
-      if (++this.restoreAttempts >= RESTORE_ATTEMPTS) {
-        this.log(`Could not read the Workflow and machine state events kept in Decaid's plugin storage, so they wait for the plugin's next load, and new ones are held in memory only: ${problem}.`);
-        this.keeping = false;
-        this.restoring = false;
-        this.pump();
+      if (++this.restoreAttempts < RESTORE_ATTEMPTS) {
+        this.log(`Could not read the deliveries kept in Decaid's plugin storage, trying again in ${RESTORE_RETRY_MS / 1000} s: ${problem}.`);
+        this.restoreTimer = setTimeout(() => {
+          this.restoreTimer = undefined;
+          void this.restore();
+        }, RESTORE_RETRY_MS);
         return;
       }
-      this.log(`Could not read the deliveries kept in Decaid's plugin storage, trying again in ${RESTORE_RETRY_MS / 1000} s: ${problem}.`);
-      this.restoreTimer = setTimeout(() => {
-        this.restoreTimer = undefined;
-        void this.restore();
-      }, RESTORE_RETRY_MS);
-      return;
+      this.log(`Could not read the Workflow and machine state events kept in Decaid's plugin storage, so they are lost, and new ones are kept afresh: ${problem}.`);
+      this.kept.startAfresh();
+      restored = [];
     }
     if (this.stopped) return;
     const since = [...this.queued.values()];
@@ -170,7 +165,7 @@ export class Outbox {
     this.queued.set(delivery.id, delivery);
     for (const watcher of this.watchers) watcher(delivery);
     // One queued while restoring is kept once those kept earlier are read back, after them.
-    if (!this.restoring && this.keeping && isKept(delivery)) this.keep(delivery);
+    if (!this.restoring && isKept(delivery)) this.keep(delivery);
     this.pump();
   }
 

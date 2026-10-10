@@ -37,6 +37,8 @@ export const MAX_KEPT_CHARACTERS = 2 * 1024 * 1024;
 
 /** The key holding the sequence numbers kept. */
 const SEQUENCE_KEY = "outbox";
+/** Reads of the deliveries' keys that may fail one after another before loading gives up. */
+const UNREAD_IN_A_ROW = 3;
 
 export type KeptDelivery = WorkflowDelivery | MachineStateDelivery;
 
@@ -69,8 +71,10 @@ export class KeptDeliveries {
 
   /**
    * The deliveries kept, oldest first. Rejects, saying why, if Decaid
-   * refuses or does not answer a read in time, so a read that failed is
-   * never taken for nothing kept; loading again retries.
+   * refuses or does not answer the read of the sequence numbers in time, or
+   * of UNREAD_IN_A_ROW deliveries' keys one after another, so a read that
+   * failed is never taken for nothing kept; loading again retries. A single
+   * key Decaid cannot read loses its delivery rather than holding up the rest.
    */
   async load(): Promise<KeptDelivery[]> {
     this.kept.clear();
@@ -78,32 +82,51 @@ export class KeptDeliveries {
     this.characters = 0;
     const sequence = parseSequence(await this.storage.read(SEQUENCE_KEY, "a read of the deliveries kept"));
     if (sequence.token !== undefined && sequence.token !== this.token && sequence.first < sequence.next) {
-      this.log("Not sending the Workflow and machine state events kept from before the plugin last unloaded: they were made under another token.");
+      this.log(`Not sending the Workflow and machine state events kept from before the plugin last unloaded, at most ${sequence.next - sequence.first}: they were made under another token.`);
       for (let seq = sequence.first; seq < sequence.next; seq++) this.writeRemoved(seq);
       this.first = this.next = sequence.next;
       this.writeSequence().catch((error: unknown) => this.failed("record the deliveries kept", error));
       return [];
     }
     const deliveries: KeptDelivery[] = [];
-    let unread = 0;
+    const unread: number[] = [];
+    let inARow = 0;
     for (let seq = sequence.first; seq < sequence.next; seq++) {
       const text = await this.readSlot(seq);
       if (text === undefined) {
-        unread++;
-        // So storage no longer holds it either.
-        this.writeRemoved(seq);
+        unread.push(seq);
+        if (++inARow >= UNREAD_IN_A_ROW) throw new Error(`Decaid's plugin storage did not answer ${UNREAD_IN_A_ROW} reads of the deliveries kept one after another`);
+        continue;
       }
+      inARow = 0;
       const delivery = parseSlot(text, seq);
       if (!delivery) continue;
       this.add(seq, delivery.id, (text as string).length);
       deliveries.push(delivery);
     }
-    // One key Decaid cannot read loses its delivery rather than holding up the others for good.
-    if (unread > 0) this.log(`Decaid's plugin storage did not answer the reads of ${unread} of the deliveries kept, so they are lost.`);
+    if (unread.length > 0) {
+      this.log(`Decaid's plugin storage did not answer the reads of ${unread.length} of the deliveries kept, so they are lost.`);
+      // So storage no longer holds them either.
+      for (const seq of unread) this.writeRemoved(seq);
+    }
     this.first = sequence.first;
     this.next = sequence.next;
     this.skipRemoved();
     return deliveries;
+  }
+
+  /**
+   * Gives up on what earlier loads kept, which could not be read, and keeps
+   * deliveries from now on numbered afresh, from a random sequence number far
+   * past any used so far, so no key earlier loads wrote matches what is kept
+   * now, and the next load reads back only those kept from now on.
+   */
+  startAfresh(): void {
+    this.kept.clear();
+    this.numbers.clear();
+    this.characters = 0;
+    this.first = this.next = 2 ** 40 + Math.floor(Math.random() * 2 ** 40);
+    this.writeSequence().catch((error: unknown) => this.failed("record the deliveries kept", error));
   }
 
   /**

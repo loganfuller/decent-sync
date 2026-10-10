@@ -76,19 +76,24 @@ acknowledges it (`plugin/src/kept-deliveries.ts`, through the commands of
   server's handling of each delivery once still applies (below), as for a
   reconnect. A read of the range kept that Decaid fails or leaves unanswered
   is tried again after 5 s, never taken for nothing kept, and nothing is sent
-  meanwhile; after three failures the load gives up, logs it, leaves what was
-  kept for the next load, and holds new deliveries in memory only. A
-  delivery's own key that Decaid fails to answer twice is given up on,
-  overwritten and logged, so one unreadable key cannot hold up the rest.
-  Nothing kept sends nothing extra.
+  meanwhile; so is the load when Decaid fails to answer three deliveries'
+  keys one after another, twice each. After three failed attempts the load
+  gives up on what was kept and logs it, so it is never sent after newer
+  deliveries, and keeps deliveries afresh, numbered from a random sequence
+  number far past any used before, so no key written earlier matches what is
+  kept from then on; until those keys are reused, storage may hold the stale
+  deliveries too, at most twice the bound below. A single delivery's key that
+  Decaid fails to answer twice is given up on, overwritten once the load ends,
+  and logged, so one unreadable key cannot hold up the rest. Nothing kept
+  sends nothing extra. Deliveries queued while the plugin reads back what
+  was kept, usually a fraction of a second, are kept only once it has: an
+  unload meanwhile loses them.
 - **Under the token they were made with.** Deliveries belong to the token's
   Machine, and the server records each delivery id per Machine, so the key
   `outbox` also holds a 32-bit hash of the token, never the token. A load
   with another token, as after a barista enters another Machine's token,
   which reloads the plugin, sends none of what was kept, logs it, and
-  overwrites it. Deliveries queued while the plugin reads back what
-  was kept, usually a fraction of a second, are kept only once it has: an
-  unload meanwhile loses them.
+  overwrites it.
 - **Bounded.** Decaid stores no null, so a key it holds is never deleted, and
   it keeps a plugin's whole storage in memory. So deliveries are kept in a
   ring of 2,000 keys, `outbox.0` to `outbox.1999`, reused in turn, each
