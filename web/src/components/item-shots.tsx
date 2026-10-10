@@ -61,6 +61,11 @@ export function ItemShotsCard({ kind, id }: { kind: keyof typeof KINDS; id: stri
           </Alert>
         )}
         {data?.total === 0 && <p className="text-muted-foreground">No Shots yet.</p>}
+        {data && data.total > 0 && data.shots.length === 0 && (
+          <Button variant="outline" size="sm" className="justify-self-start" onClick={() => setOffset(0)}>
+            Back to the newest Shots
+          </Button>
+        )}
         {data && data.shots.length > 0 && (
           <>
             <div className="rounded-lg border">
@@ -127,13 +132,13 @@ export function ItemShotsCard({ kind, id }: { kind: keyof typeof KINDS; id: stri
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-muted-foreground" aria-live="polite">
-                Shots {offset + 1}–{offset + data.shots.length} of {data.total}
+                Shots {data.offset + 1}–{data.offset + data.shots.length} of {data.total}
               </p>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
+                <Button variant="outline" size="sm" disabled={data.offset === 0} onClick={() => setOffset(Math.max(0, data.offset - PAGE_SIZE))}>
                   Newer
                 </Button>
-                <Button variant="outline" size="sm" disabled={offset + PAGE_SIZE >= data.total} onClick={() => setOffset(offset + PAGE_SIZE)}>
+                <Button variant="outline" size="sm" disabled={data.offset + PAGE_SIZE >= data.total} onClick={() => setOffset(data.offset + PAGE_SIZE)}>
                   Older
                 </Button>
               </div>

@@ -8,7 +8,7 @@ import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
 import { extractCurves, extractShot, object, shotHardware, shotVersion, string } from "./extraction.js";
 import { type ShotFilters, shotFilterSql } from "./filters.js";
-import { type ShotLinks, resolveLinks, shotProfileSql } from "./links.js";
+import { resolveLinks, shotProfileSql } from "./links.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
 const SHOT_LOCK = 4_000_003;
@@ -36,12 +36,9 @@ export class ShotsService {
       // until credit is resolved: hardware adoption can finish while we wait
       // for its hardware lock. Adoption never takes this advisory lock.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SHOT_LOCK}::int, hashtext(${message.shotId}::text))`;
-      const [stored] = await tx.$queryRaw<
-        ({ record: Prisma.JsonObject; hasFullRecord: boolean; duration: number | null; peakPressure: number | null; peakFlow: number | null; pulledAt: Date | null; newer: boolean } & ShotLinks)[]
-      >`
+      const [stored] = await tx.$queryRaw<{ record: Prisma.JsonObject; hasFullRecord: boolean; duration: number | null; peakPressure: number | null; peakFlow: number | null; pulledAt: Date | null; newer: boolean }[]>`
         SELECT record, has_full_record AS "hasFullRecord", duration, peak_pressure AS "peakPressure", peak_flow AS "peakFlow",
-          pulled_at AS "pulledAt", ${version}::timestamptz > version_at AS newer, bean_batch_id AS "beanBatchId", grinder_id AS "grinderId",
-          library_batch_id::text AS "libraryBatchId", library_grinder_id::text AS "libraryGrinderId"
+          pulled_at AS "pulledAt", ${version}::timestamptz > version_at AS newer
         FROM shots WHERE id = ${message.shotId}`;
       if (stored && !stored.newer && (!full || stored.hasFullRecord)) return;
 
@@ -57,7 +54,7 @@ export class ShotsService {
       // that Machine's Location History, or the adoption of a Pending Machine's Shot.
       const credit = full && !stored?.hasFullRecord ? await this.credit(tx, incoming, reporter) : null;
       // Its ids are the reporting tablet's, so they resolve through its map, after the Machine's row lock credit takes.
-      const links = reported ? { tabletId: reporter.tabletId, ...(await resolveLinks(tx, reporter.tabletId, metadata, stored)) } : null;
+      const links = reported ? { tabletId: reporter.tabletId, ...(await resolveLinks(tx, reporter.tabletId, message.shotId, metadata)) } : null;
       const data = {
         ...metadata,
         ...links,

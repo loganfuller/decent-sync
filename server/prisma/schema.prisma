@@ -974,6 +974,8 @@ model Profile {
   versions  ItemVersion[]
   conflicts Conflict[]
 
+  /// The migration indexes its content's steps, by hash, which a Shot's
+  /// Profile is found by (server/src/shots/links.ts); Prisma cannot express it.
   @@map("profiles")
 }
 

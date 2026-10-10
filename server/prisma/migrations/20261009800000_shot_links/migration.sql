@@ -18,6 +18,9 @@ CREATE INDEX "shots_library_grinder_id_idx" ON "shots"("library_grinder_id");
 CREATE INDEX "shots_unlinked_batch_idx" ON "shots"("bean_batch_id") WHERE "library_batch_id" IS NULL;
 CREATE INDEX "shots_unlinked_grinder_idx" ON "shots"("grinder_id") WHERE "library_grinder_id" IS NULL;
 
+-- The Profiles a Shot's Workflow's profile may be, found by their steps.
+CREATE INDEX "profiles_steps_idx" ON "profiles" USING hash (("content" -> 'profile' -> 'steps'));
+
 -- AddForeignKey
 ALTER TABLE "shots" ADD CONSTRAINT "shots_tablet_id_fkey" FOREIGN KEY ("tablet_id") REFERENCES "tablets"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 

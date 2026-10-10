@@ -127,8 +127,9 @@ Shot to the Library's Bean Batch, Grinder and Profile it used
   id (`linkShots`, called wherever a map saves a record), so a Shot reported
   before its batch joined the Library is linked once it does. A link stays
   when the tablet's record leaves its map, as when a barista deletes it
-  there, as long as the Shot names the same id; it goes only with a hard
-  delete, which a link refuses. Every change to a map holds the tablet's row
+  there, while each delivery of the Shot names the same id; a delivery
+  naming another id is linked by that one, or unlinked until the map gains
+  it. A link refuses its item's hard delete. Every change to a map holds the tablet's row
   lock, and storing a Shot's metadata holds that row for share while it
   resolves, so neither misses the other on any instance. A Shot whose ids no
   map holds stays unlinked, and is listed as any other.

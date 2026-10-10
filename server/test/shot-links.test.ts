@@ -32,6 +32,9 @@ interface FilterOptions {
 
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
+/** The bundled Profile the test tablet's skin had selected when it recorded its Shot, which was not pulled with it. */
+const SKIN_SELECTED = "profile:98fa00c191551b435845";
+
 describe("Shots linked to the Library", { timeout: 60_000 }, () => {
   let server: TestServer;
   let other: TestServer;
@@ -97,7 +100,9 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     const cafe = await api.createLocation("Linked cafe", "America/New_York");
     const labMachine = await api.createMachine("Linked lab 1", lab.id);
     const cafeMachine = await api.createMachine("Linked cafe 1", cafe.id);
-    const labTablet = load(labMachine, "26001");
+    // The lab tablet holds the bundled Profile the fixture Shot's skin selected, so it joins the Library.
+    const selected = (derivedDe1Pro({})["/profiles"] as Record_[]).find((record) => record.id === SKIN_SELECTED)!;
+    const labTablet = load(labMachine, "26001", { library: { "/profiles": [selected] } });
     const cafeTablet = load(cafeMachine, "26002", { instance: other });
     for (const { machine } of [labMachine, cafeMachine]) await api.waitForMachine(machine.name, (viewed) => viewed.online);
 
@@ -137,7 +142,9 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
       grinder: { id: labGrinder.id, model: "Linked lab EK43" },
       profile: { id: profileId, title: "Linked bloom" },
     });
-    // The cafe Shot's Workflow holds the fixture's profile, which the Library lacks: the skin's selected id names a Profile it was not pulled with.
+    // The cafe Shot's Workflow holds the fixture's profile, which the Library lacks. The skin's selected id names a
+    // Profile the Library has, which its Workflow's profile is not: it is linked to none.
+    await poll(async () => (await api.call("GET", `/profiles/${encodeURIComponent(SKIN_SELECTED)}`)).status).toBe(200);
     expect(await viewShot("linked-cafe-shot")).toMatchObject({ machine: { id: cafeMachine.machine.id }, beanBatch: { id: batch.id }, grinder: { id: cafeGrinder.id }, profile: null });
 
     // The batch's Shots come from Machines at both Locations; each Grinder's from its own.
@@ -147,6 +154,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     expect(await listed(`grinderId=${cafeGrinder.id}&machineId=${cafeMachine.machine.id}`)).toEqual(["linked-cafe-shot"]);
     expect(new Set(await listed(`profileId=${encodeURIComponent(profileId)}`))).toEqual(new Set(["linked-lab-shot", "linked-yield-shot"]));
     expect(await listed(`grinderId=${cafeGrinder.id}&machineId=${labMachine.machine.id}`)).toEqual([]);
+    expect(await listed(`profileId=${encodeURIComponent(SKIN_SELECTED)}`)).toEqual([]);
 
     const options = await send<FilterOptions>("GET", "/shots/filters");
     expect(options.beanBatches).toContainEqual(expect.objectContaining({ id: batch.id }));
@@ -160,6 +168,32 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     // Malformed ids name nothing, as in a path.
     expect((await api.call("GET", "/shots?beanBatchId=not-an-id")).status).toBe(404);
     expect((await api.call("GET", "/shots?grinderId=not-an-id")).status).toBe(404);
+  });
+
+  it("links a Shot to the one of two Profiles differing only in target weight that its own matches, and to neither when its own matches neither", async () => {
+    const location = await api.createLocation("Weighed cafe", "America/Chicago");
+    const machine = await api.createMachine("Weighed cafe 1", location.id);
+    const tablet = load(machine, "26041");
+    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    const base = derivedProfile("Weighed bloom", 6.5);
+    const lighter = (await tablet.addProfile({ ...base, title: "Weighed bloom 36", target_weight: 36 })).profile as Record_;
+    const heavier = (await tablet.addProfile({ ...base, title: "Weighed bloom 40", target_weight: 40 })).profile as Record_;
+    const libraryId = async (title: string) => (await send<{ profiles: { id: string; title: string }[] }>("GET", "/profiles")).profiles.find((p) => p.title === title)?.id;
+    await poll(() => libraryId("Weighed bloom 40")).toBeTruthy();
+    await poll(() => libraryId("Weighed bloom 36")).toBeTruthy();
+    const [lighterId, heavierId] = [(await libraryId("Weighed bloom 36"))!, (await libraryId("Weighed bloom 40"))!];
+
+    tablet.pullShot(shotWith("weighed-36", "26041", {}, lighter));
+    tablet.pullShot(shotWith("weighed-40", "26041", {}, heavier));
+    // A skin set its target weight to its yield: either Profile could be it, so it is linked to neither.
+    tablet.pullShot(shotWith("weighed-yield", "26041", {}, { ...lighter, target_weight: 37.5 }));
+    for (const id of ["weighed-36", "weighed-40", "weighed-yield"]) await poll(async () => (await api.call("GET", `/shots/${id}`)).status).toBe(200);
+
+    expect((await viewShot("weighed-36")).profile).toEqual({ id: lighterId, title: "Weighed bloom 36" });
+    expect((await viewShot("weighed-40")).profile).toEqual({ id: heavierId, title: "Weighed bloom 40" });
+    expect((await viewShot("weighed-yield")).profile).toBeNull();
+    expect(await listed(`profileId=${encodeURIComponent(lighterId)}`)).toEqual(["weighed-36"]);
+    expect(await listed(`profileId=${encodeURIComponent(heavierId)}`)).toEqual(["weighed-40"]);
   });
 
   it("keeps a Shot whose batch and Grinder the Library lacks unlinked and listed", async () => {
