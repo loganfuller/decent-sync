@@ -359,10 +359,16 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const tablet = load(traveller, "23044", { instance: other });
     await online(traveller);
     const ownProfiles = userProfiles(tablet, true);
+    // One of its grinders, not the one its Workflow names, is archived there.
+    const archived = tablet.grinders().find((grinder) => grinder.id !== context(tablet).grinderId)!;
+    await tablet.editGrinder(archived.id, { archived: true });
     expect((await move(traveller, cafe)).status).toBe(201);
-    // Its Grinders and Profiles join the Library at the cafe, and reach the cafe's tablet.
-    await expect.poll(() => heldIds(cafeTablet.grinders(), false).length, { timeout: 15_000 }).toBe(2);
+    // Its Grinder and Profiles join the Library at the cafe, and reach the cafe's tablet; the grinder it archived stays out.
+    await expect.poll(() => heldIds(cafeTablet.grinders(), false).length, { timeout: 15_000 }).toBe(1);
     await expect.poll(() => heldIds(tablet.grinders(), false), { timeout: 15_000 }).toEqual(heldIds(cafeTablet.grinders(), false));
+    const archivedNow = tablet.grinders().find((grinder) => grinder.id === archived.id)!;
+    expect(archivedNow.archived).toBe(true);
+    expect(globalIdOf(archivedNow)).toBeNull();
     await expect.poll(() => userProfiles(cafeTablet, true), { timeout: 15_000 }).toEqual(ownProfiles);
     // Its coffees are left out, as the cafe offers one, and so are their batches, though the cafe offers none; but the batch
     // of the coffee linked to the cafe's joins the Library there, and reaches the cafe's tablet.

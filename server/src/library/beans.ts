@@ -156,7 +156,8 @@ export async function takeInBeans(
       continue;
     }
     const { bean } = step;
-    if (step.kind === "add" && joining && !bringing) {
+    // A joining tablet brings only what it offers itself: one it archived stays out, to be taken up if un-archived.
+    if (step.kind === "add" && joining && (!bringing || bean.archived)) {
       writesDue = (await leaveOut(tx, tablet.tabletId, "bean", leftOutRecord(bean))) || writesDue;
       continue;
     }

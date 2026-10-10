@@ -134,7 +134,8 @@ export async function takeInBatches(
       continue;
     }
     const { batch } = step;
-    if (step.kind === "add" && joining && !bringing) {
+    // A joining tablet brings only what it offers itself: one it archived stays out, to be taken up if un-archived.
+    if (step.kind === "add" && joining && (!bringing || batch.archived)) {
       writesDue = (await leaveOut(tx, tablet.tabletId, "beanBatch", leftOutRecord(batch))) || writesDue;
       continue;
     }

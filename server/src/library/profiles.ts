@@ -184,8 +184,9 @@ export async function takeInProfiles(
       continue;
     }
     const { profile } = step;
-    // Decaid's bundled Profiles, which every tablet has, are never left out.
-    if (step.kind === "add" && joining && !bringing && !profile.bundled) {
+    // Decaid's bundled Profiles, which every tablet has, are never left out. A joining tablet brings only what it shows
+    // itself: one it hid or deleted stays out, to be taken up if shown.
+    if (step.kind === "add" && joining && (!bringing || !profile.visible) && !profile.bundled) {
       writesDue = (await leaveOut(tx, tablet.tabletId, "profile", leftOutRecord(profile))) || writesDue;
       continue;
     }

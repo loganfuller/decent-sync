@@ -968,8 +968,9 @@ tablet's list of batches to show it does not.
   item's record now, as one a write linked, and is left as it is (`taken`).
   It answers `leftOut`, with `setAside`, `gone` for a record already gone,
   `taken`, or `refused` with Decaid's status and answer, through its outbox
-  as it answers a write; the server forgets the record unless it is
-  refused.
+  as it answers a write. The server records a record set aside as such,
+  so a barista un-archiving or showing it later takes it up, and forgets
+  one `gone` or `taken`; a refusal changes nothing.
 
 The plugin's next report then holds the record as written, which changes
 nothing (ADR-0003). If the connection drops before the answer arrives, the
@@ -1190,7 +1191,9 @@ it.
     it offers no Bean, its batches if no batch, its Grinders if no
     Grinder, and its Profiles if it shows no user's Profile. They join
     the Library there as any new record does (Taking in a tablet's beans,
-    and those after it). It is decided per report, under the Location's
+    and those after it), but for those archived or hidden on the tablet,
+    which are left out as above, so a record left out at one Location
+    does not reach the Library at the next. It is decided per report, under the Location's
     lock, so of two Machines joining at once only the first brings its
     own.
   - **Taken up again.** A record left out stays out of the Library while

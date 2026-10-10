@@ -211,7 +211,7 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
     expect(two.grinders()).toHaveLength(1);
   });
 
-  it("adds the grinders a tablet held before its Machine had a Location, belonging to the Location it joins, Archived if archived there, and writes it the others", async () => {
+  it("adds the grinders a tablet held before its Machine had a Location to the Location it joins, which had none, but not one archived there, and writes it the others", async () => {
     const location = await api.createLocation("Joined lab", "UTC");
     const first = await api.createMachine("Joined lab 1", location.id);
     const second = await api.createMachine("Joined lab 2", location.id);
@@ -225,11 +225,11 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
       expect(grinder.location).toEqual(location);
       await holds(two, grinder.id, { model: record.model, archived: false });
     }
-    const retired = await libraryGrinder(String(archived!.model));
-    expect(retired).toMatchObject({ archived: true, location });
-    // It keeps its global id on the tablet that brought it, and no other tablet is written it.
-    await holds(one, retired.id, { id: archived!.id, archived: true });
-    expect(heldGrinder(two, retired.id)).toEqual([]);
+    // The one it archived stays out of the Library, archived on it with no global id, and no other tablet is written it.
+    expect(await grindersOf(String(archived!.model))).toEqual([]);
+    const kept = one.grinders().find((record) => record.id === archived!.id)!;
+    expect(kept.archived).toBe(true);
+    expect(globalIdOf(kept)).toBeNull();
     expect(grinderWrites(two)).toEqual(["POST /grinders", "POST /grinders"]);
   });
 

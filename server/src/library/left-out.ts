@@ -147,7 +147,10 @@ export async function leaveOutsDue(tx: Prisma.TransactionClient, tabletId: strin
  * Records the plugin's answer to a `leaveOut`: the record is set aside on
  * the tablet now, or the tablet holds no such record, or it carries a global
  * id now, as a Library item's, and is left out no more. A refusal changes
- * nothing; the writer skips it for the rest of its connection.
+ * nothing; the writer skips it for the rest of its connection. Recorded
+ * whether or not the answering connection still holds its Machine, unlike
+ * an answer to a write: it says only what the tablet itself holds, under its
+ * row lock, which its reports take too.
  */
 export async function recordLeftOut(
   prisma: PrismaService,

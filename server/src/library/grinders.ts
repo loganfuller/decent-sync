@@ -123,7 +123,8 @@ export async function takeInGrinders(
       continue;
     }
     const { grinder } = step;
-    if (step.kind === "add" && joining && !bringing) {
+    // A joining tablet brings only what it offers itself: one it archived stays out, to be taken up if un-archived.
+    if (step.kind === "add" && joining && (!bringing || grinder.archived)) {
       writesDue = (await leaveOut(tx, tablet.tabletId, "grinder", leftOutRecord(grinder))) || writesDue;
       continue;
     }
