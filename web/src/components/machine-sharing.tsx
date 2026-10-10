@@ -32,7 +32,7 @@ export function CaptureOnlyBadge({ machine }: { machine: Machine }) {
  * Capture-only Machine, and why: it has no Location, or an Admin turned its
  * sharing off. An Admin turns its sharing off or back on here, once they
  * confirm: turned back on, its tablet joins its Location again, taking on
- * the Location's state.
+ * the Location's state over what it changed or added meanwhile.
  */
 export function MachineSharingCard({ machine, isAdmin, onChanged }: { machine: Machine; isAdmin: boolean; onChanged(): Promise<void> }) {
   const switchId = useId();
@@ -108,10 +108,10 @@ export function MachineSharingCard({ machine, isAdmin, onChanged }: { machine: M
               <AlertDialogDescription>
                 {asked
                   ? location
-                    ? `It joins ${location} again: its tablet is written what ${location} offers and its settings, and what its tablet added meanwhile joins the Library there.`
+                    ? `It joins ${location} again: its tablet is written what ${location} offers and its settings, over what it changed meanwhile, and what it added meanwhile stays out of the Library, archived on it.`
                     : "It shares once it is at a Location."
                   : location
-                    ? "It becomes capture-only: its Shots and Steam Records are still recorded, but nothing more is written to its tablet, and what its tablet adds or changes isn't taken into the Library."
+                    ? "It becomes capture-only: its Shots and Steam Records are still recorded, but nothing more is written to its tablet, and what its tablet adds or changes isn't taken into the Library, then or once sharing is back on."
                     : "It has no Location, so it is capture-only already, and stays so once it is given one."}
               </AlertDialogDescription>
             </AlertDialogHeader>

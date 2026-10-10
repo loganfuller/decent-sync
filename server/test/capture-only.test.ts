@@ -9,19 +9,14 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // it is off, nothing is written to its tablet, and what its tablet adds or
 // changes is captured as in milestone 1 but not taken into the Library.
 // Turned back on, the Machine joins its Location (ADR-0008): its tablet is
-// written the Location's state, and what it added meanwhile joins the
-// Library and is listed on its page (ADR-0018). Only Admins switch it.
+// written the Location's state, over what it changed meanwhile, and what it
+// added meanwhile stays out of the Library, archived on it (ADR-0018), until
+// its barista takes it up again. Only Admins switch it.
 // Through the built plugin in simulated tablets, on two server instances
 // sharing one database, with assertions through the REST API and what each
 // simulated tablet's Decaid holds. Serials are made up, from 25001.
 
 type Record_ = Record<string, unknown>;
-
-interface BroughtView {
-  item: { kind: string; id: string; name: string | null };
-  matched: boolean;
-  location: LocationView | null;
-}
 
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
@@ -80,7 +75,6 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
 
   const read = async <T>(path: string): Promise<T> => (await (await api.call("GET", path)).json()) as T;
   const machineView = async ({ machine }: CreatedMachine) => (await read<{ machine: MachineView }>(`/machines/${machine.id}`)).machine;
-  const brought = async ({ machine }: CreatedMachine) => (await read<{ brought: BroughtView[] }>(`/machines/${machine.id}/brought`)).brought;
   const switchSharing = (created: CreatedMachine, sharing: boolean, as: AdminApi = api) =>
     as.call("PUT", `/machines/${created.machine.id}/sharing`, { sharing });
   /** The Library's Beans named as given, by name. */
@@ -155,22 +149,27 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     expect(tablet.beans().filter((bean) => bean.name !== "Switching Own")).toEqual(held);
     expect((await libraryBeans("Switching")).map((bean) => bean.name)).toEqual(["Switching Before", "Switching Created", "Switching Entered"]);
     expect(setting(sharingTablet, "hotWaterData.volume")).toBe(settings.values["hotWaterData.volume"]);
-    expect(await brought(switched)).toEqual([]);
 
-    // Turned back on, it joins Uptown: it is written Uptown's Beans and settings, and its own Bean joins the Library at Uptown.
+    // Turned back on, it joins Uptown: it is written Uptown's Beans and settings, and its own Bean is archived on it, out of the Library.
     expect(await (await switchSharing(switched, true)).json()).toEqual({ sharing: true });
     expect((await machineView(switched)).captureOnly).toEqual([]);
-    const all = ["Switching Before", "Switching Created", "Switching Entered", "Switching Own"];
-    await expect.poll(() => sharedBeans(tablet), { timeout: 15_000 }).toEqual(all);
-    await expect.poll(() => sharedBeans(sharingTablet), { timeout: 15_000 }).toEqual(all);
+    const uptownBeans = ["Switching Before", "Switching Created", "Switching Entered"];
+    await expect.poll(() => sharedBeans(tablet), { timeout: 15_000 }).toEqual(uptownBeans);
     await expect.poll(() => setting(tablet, "rinseData.flow"), { timeout: 10_000 }).toBe(4.5);
     await expect.poll(() => setting(tablet, "hotWaterData.volume"), { timeout: 10_000 }).toBe(settings.values["hotWaterData.volume"]);
-    const own = (await libraryBeans("Switching Own"))[0]!;
-    expect(own.offeredAt).toEqual([uptown]);
-    expect((await brought(switched)).map(({ item, matched, location }) => ({ id: item.id, kind: item.kind, matched, location }))).toEqual([
-      { id: own.id, kind: "bean", matched: false, location: uptown },
-    ]);
+    const own = () => tablet.beans().find((bean) => bean.name === "Switching Own")!;
+    await expect.poll(() => own().archived, { timeout: 10_000 }).toBe(true);
+    expect(globalIdOf(own())).toBeNull();
+    expect((await libraryBeans("Switching")).map((bean) => bean.name)).toEqual(uptownBeans);
+    expect(sharedBeans(sharingTablet)).toEqual(uptownBeans);
     expect(setting(sharingTablet, "hotWaterData.volume")).toBe(settings.values["hotWaterData.volume"]);
+
+    // Its barista takes the coffee up again: un-archived there, it joins the Library at Uptown as one entered then.
+    await tablet.editBean(own().id, { archived: false });
+    const all = [...uptownBeans, "Switching Own"].sort();
+    await expect.poll(() => sharedBeans(sharingTablet), { timeout: 15_000 }).toEqual(all);
+    expect(sharedBeans(tablet)).toEqual(all);
+    expect((await libraryBeans("Switching Own"))[0]!.offeredAt).toEqual([uptown]);
   });
 
   it("has a Machine join its Location once sharing is back on though its tablet reported nothing meanwhile", async () => {
@@ -192,39 +191,47 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     // Asked for its Workflow and collections afresh, it joins the cafe again, and takes its settings.
     await expect.poll(() => requests(tablet), { timeout: 10_000 }).toBe(asked + 1);
     await expect.poll(() => setting(tablet, "steamSettings.flow"), { timeout: 10_000 }).toBe(2.2);
-    expect(await brought(switched)).toEqual([]);
   });
 
-  it("takes in an edit its tablet made while capture-only as an offline tablet's once sharing is back on, and deletes a Profile hard-deleted meanwhile", async () => {
+  it("writes its Location's state over an edit its tablet made while capture-only once sharing is back on, and deletes a Profile hard-deleted meanwhile", async () => {
     const uptown = await api.createLocation("Offline Uptown", "UTC");
     const switched = await api.createMachine("Offline Uptown 1", uptown.id);
     const tablet = load(switched, "25021", { instance: other });
     await online(switched);
     const bean = await tablet.addBean({ roaster: "Roux", name: "Offline Guji", notes: "Floral" });
+    const grinder = await tablet.addGrinder({ model: "Offline EK43" });
     const profile = await tablet.addProfile(derivedProfile("Offline Espresso", 8.4));
     await expect.poll(() => sharedBeans(tablet), { timeout: 10_000 }).toEqual(["Offline Guji"]);
+    await expect.poll(() => globalIdOf(tablet.grinders().find((record) => record.id === grinder.id)!), { timeout: 10_000 }).not.toBeNull();
     const beanId = globalIdOf(tablet.beans().find((record) => record.id === bean.id)!)!;
     const profilePath = `/profiles/${encodeURIComponent(String(profile.id))}`;
     await expect.poll(async () => (await api.call("GET", profilePath)).status, { timeout: 10_000 }).toBe(200);
     const notes = async () => (await read<{ bean: { content: Record_ } }>(`/beans/${beanId}`)).bean.content.notes;
+    const tabletNotes = () => tablet.beans().find((record) => record.id === bean.id)!.notes;
 
     expect((await switchSharing(switched, false)).status).toBe(200);
-    // Its barista edits the Bean, which is captured but not taken in, and an Admin hard-deletes the Profile, which stays on it.
+    // Its barista edits the Bean and archives the Grinder, which is captured but not taken in, and an Admin hard-deletes the
+    // Profile, which stays on it.
     await tablet.editBean(bean.id, { notes: "Floral, then stone fruit" });
+    await tablet.editGrinder(grinder.id, { archived: true });
     await expect
-      .poll(async () => (await read<{ collection: { value: Record_[] } | null }>(`/machines/${switched.machine.id}/collections/beans`)).collection?.value[0]?.notes, {
+      .poll(async () => (await read<{ collection: { value: Record_[] } | null }>(`/machines/${switched.machine.id}/collections/grinders`)).collection?.value[0]?.archived, {
         timeout: 10_000,
       })
-      .toBe("Floral, then stone fruit");
+      .toBe(true);
     expect(await notes()).toBe("Floral");
     expect((await api.call("DELETE", profilePath)).status).toBe(204);
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(tablet.profiles().some((record) => record.id === profile.id)).toBe(true);
 
-    // Back on, its edit is the latest, so it wins, and the Profile is deleted from it.
+    // Back on, Uptown's state wins: the Bean's notes and the Grinder are written back as the Library has them, with no
+    // Conflict, and the Profile is deleted from it.
     expect((await switchSharing(switched, true)).status).toBe(200);
-    await expect.poll(notes, { timeout: 15_000 }).toBe("Floral, then stone fruit");
+    await expect.poll(tabletNotes, { timeout: 15_000 }).toBe("Floral");
+    await expect.poll(() => tablet.grinders().find((record) => record.id === grinder.id)!.archived, { timeout: 15_000 }).toBe(false);
     await expect.poll(() => tablet.profiles().some((record) => record.id === profile.id), { timeout: 15_000 }).toBe(false);
+    expect(await notes()).toBe("Floral");
+    expect((await read<{ conflicts: unknown[] }>(`/beans/${beanId}/conflicts`)).conflicts).toEqual([]);
   });
 
   it("shows why a Machine is capture-only, and lets only Admins switch it", async () => {

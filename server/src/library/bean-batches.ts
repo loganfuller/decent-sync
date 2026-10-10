@@ -2,7 +2,7 @@ import { GLOBAL_ID_KEY, globalIdOf, isRecordId } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
-import { type LocationEdit, batchContent, editsInAnswer, planBatchIntake, readReportedBatches } from "./batch-intake.js";
+import { type LocationEdit, type ReportedBatch, batchContent, editsInAnswer, planBatchIntake, readReportedBatches } from "./batch-intake.js";
 import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined } from "./content-edits.js";
 import { type EditSource, tabletSource } from "./history.js";
 import {
@@ -19,8 +19,9 @@ import {
   sharingLocation,
 } from "./intake.js";
 import { setAsideDeleted } from "./hard-deletes.js";
-import { brought, standing } from "./join-plan.js";
-import { currentEntry, recordBrought, takenIn } from "./joining.js";
+import { standing } from "./join-plan.js";
+import { currentEntry, takenIn } from "./joining.js";
+import { leaveOut, leftOutIds, offersAny, screenLeftOut } from "./left-out.js";
 import { listedIds } from "./listed.js";
 import { addBatchAt, deletedAt, enterRemainingWeight, finishBatchAt, lockLocation, transactionTime } from "./location-state.js";
 import { changedFields } from "./merge.js";
@@ -28,7 +29,9 @@ import { changedFields } from "./merge.js";
 // The Library's Bean Batches and the tablets that hold them (ADR-0006,
 // ADR-0008, ADR-0018, ADR-0019). A tablet at a Location reports its batches
 // as a collection, after its beans; a new one joins the Library as a batch of
-// the Bean its tablet's record of its bean is, at that Location. On a
+// the Bean its tablet's record of its bean is, at that Location, but for
+// those the Library leaves out as the tablet joins the Location, and the
+// batches of a bean it leaves out (left-out.ts). On a
 // tablet, a batch's `archived` says it is not at the tablet's Location and
 // its `weightRemaining` is the remaining weight there: un-archiving one adds
 // it there, archiving or deleting it finishes it there, and a new
@@ -55,7 +58,7 @@ export async function takeInBatches(
   const takenInAt = standing(entry);
   const read = readReportedBatches(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
-  /** Whether the report is part of the tablet joining the Location: what it brings is listed on its Machine's page. */
+  /** Whether the report is part of the tablet joining the Location, so takes nothing of the tablet's into the Library (left-out.ts). */
   const joining = await takenIn(tx, tablet.tabletId, "beanBatches", entry);
   const mapped = await tx.$queryRaw<
     {
@@ -84,29 +87,57 @@ export async function takeInBatches(
   const mappedIds = new Set(mapped.map((batch) => batch.localId));
   // Records of items an Admin hard-deleted are deleted on the tablet rather than taken in.
   const screened = await setAsideDeleted(tx, tablet.tabletId, "beanBatch", read, listedIds(value), mappedIds);
-  const reported = screened.kept;
+  /** Whether the report joins a Location that offers no batch yet, so brings the tablet's own, decided under the Location's lock. */
+  let bringing = false;
+  if (joining) {
+    await lockLocation(tx, locationId);
+    bringing = !(await offersAny(tx, locationId, "beanBatch"));
+  }
+  const reportedNew = screened.kept.filter((batch) => !mappedIds.has(batch.localId));
+  const left = await screenLeftOut(tx, tablet.tabletId, "beanBatch", reportedNew, leftOutRecord, listedIds(value), mappedIds, joining, bringing);
+  const kept = new Set(left.kept);
+  // A batch of a bean the Library leaves out is left out with it as the tablet joins; otherwise it waits for its bean.
+  const beansLeftOut = joining ? await leftOutIds(tx, tablet.tabletId, "bean") : new Set<string>();
+  let leftOutDue = left.due;
+  for (const batch of left.kept) {
+    if (!beansLeftOut.has(batch.beanLocalId)) continue;
+    kept.delete(batch);
+    leftOutDue = (await leaveOut(tx, tablet.tabletId, "beanBatch", leftOutRecord(batch))) || leftOutDue;
+  }
+  const reported = screened.kept.filter((batch) => mappedIds.has(batch.localId) || kept.has(batch));
   const named = reported.flatMap((batch) => (batch.globalId !== null && !mappedIds.has(batch.localId) ? [batch.globalId] : []));
   const library = named.length === 0 ? [] : await tx.beanBatch.findMany({ where: { id: { in: named } }, select: { id: true } });
   const steps = planBatchIntake(reported, mapped, new Map(beans.map((bean) => [bean.localId, bean.beanId])), library, listedIds(value));
   if (steps.length === 0) {
-    if (screened.due) await notify(tx, "library_changes", locationId);
+    if (screened.due || leftOutDue) await notify(tx, "library_changes", locationId);
     return takenInAt;
   }
   await lockLocation(tx, locationId);
-  await lockItems(tx, "beanBatch", steps.flatMap((step) => (step.kind === "update" && Object.keys(step.content).length > 0 ? [step.batchId] : [])));
+  await lockItems(
+    tx,
+    "beanBatch",
+    steps.flatMap((step) => (step.kind === "update" && !joining && Object.keys(step.content).length > 0 ? [step.batchId] : [])),
+  );
   const source = tabletSource(tablet);
 
   /** Whether the Location's tablets, this one included, may have something to be written. */
-  let writesDue = screened.due;
+  let writesDue = screened.due || leftOutDue;
   for (const step of steps) {
     if (step.kind === "delete") {
       await tx.$executeRaw`DELETE FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid AND batch_id = ${step.batchId}::uuid`;
-      const at = deletedAt(await transactionTime(tx), step.updatedAt);
-      await applyEdits(tx, step.batchId, locationId, step.edits, at, seenAt.get(step.batchId) ?? null, source);
+      // Deleted before the tablet joined, it is written again if the Location offers it.
+      if (!joining) {
+        const at = deletedAt(await transactionTime(tx), step.updatedAt);
+        await applyEdits(tx, step.batchId, locationId, step.edits, at, seenAt.get(step.batchId) ?? null, source);
+      }
       writesDue = true;
       continue;
     }
     const { batch } = step;
+    if (step.kind === "add" && joining && !bringing) {
+      writesDue = (await leaveOut(tx, tablet.tabletId, "beanBatch", leftOutRecord(batch))) || writesDue;
+      continue;
+    }
     let batchId: string;
     if (step.kind === "add") {
       const created = await tx.beanBatch.create({
@@ -115,16 +146,19 @@ export async function takeInBatches(
       });
       batchId = created.id;
       await recordJoined(tx, { kind: "beanBatch", id: batchId }, batchContent(batch.record), batch.updatedAt, source);
-      if (brought(joining, "joined")) await recordBrought(tx, tablet, locationId, { kind: "beanBatch", id: batchId }, false);
     } else {
       batchId = step.batchId;
     }
-    if (step.kind === "add" || step.kind === "map") writesDue = true;
-    if (step.kind === "update") {
+    // What a joining tablet changed before it joined is written over.
+    if (step.kind === "add" || step.kind === "map" || joining) writesDue = true;
+    if (step.kind === "update" && !joining) {
       const edit = { values: step.content, at: batch.updatedAt, seenAt: contentSeenAt.get(batchId) ?? null };
       writesDue = (await editContent(tx, { kind: "beanBatch", id: batchId }, edit, source)).writesDue || writesDue;
     }
-    const applied = step.kind === "map" ? null : await applyEdits(tx, batchId, locationId, step.edits, batch.updatedAt, seenAt.get(batchId) ?? null, source);
+    const applied =
+      step.kind === "map" || (step.kind === "update" && joining)
+        ? null
+        : await applyEdits(tx, batchId, locationId, step.edits, batch.updatedAt, seenAt.get(batchId) ?? null, source);
     if (applied?.changed) writesDue = true;
     // A report shows nothing of what the tablet saw of others' decisions, only of the one its own edit made.
     const decided = applied?.decidedAt ?? null;
@@ -134,6 +168,11 @@ export async function takeInBatches(
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
   return takenInAt;
+}
+
+/** A reported batch as what the Library leaves out is judged: set aside when archived on the tablet. */
+function leftOutRecord(batch: ReportedBatch): { localId: string; setAside: boolean } {
+  return { localId: batch.localId, setAside: batch.archived };
 }
 
 /**

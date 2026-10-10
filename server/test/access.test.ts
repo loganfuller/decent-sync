@@ -76,7 +76,6 @@ const STAFF = [
   "GET /api/machines/:id/machine-state-events",
   "GET /api/machines/:id/collections",
   "GET /api/machines/:id/collections/:name",
-  "GET /api/machines/:id/brought",
   "GET /api/machines/:id/paired-devices",
   "GET /api/machines/:id/set-aside-deliveries",
   "GET /api/pending-machines",

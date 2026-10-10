@@ -17,6 +17,7 @@ import {
 import { shotNamesProfileSql } from "./hard-deletes.js";
 import { standing } from "./join-plan.js";
 import { workflowClearDue } from "./joining.js";
+import { leaveOutsDue } from "./left-out.js";
 import { settingsDue } from "./location-settings.js";
 import { latestDecision, readFieldEdits } from "./merge.js";
 import { profileText } from "./profile-intake.js";
@@ -26,8 +27,9 @@ import { profileText } from "./profile-intake.js";
 // content (holdings.ts), its Workflow to the Location's steam, hot water
 // and rinse settings (location-settings.ts), its Workflow's grinder and
 // batch cleared as it joined a Location that does not offer them
-// (joining.ts), and the deletes of its records
-// of items an Admin hard-deleted (hard-deletes.ts), read from the database
+// (joining.ts), the deletes of its records
+// of items an Admin hard-deleted (hard-deletes.ts), and the setting aside of
+// its records the Library leaves out as it joined (left-out.ts), read from the database
 // each time, so it reflects changes made through any instance.
 
 /** A connection whose tablet is written to: its session, which must still hold its Machine, the Machine and its tablet. */
@@ -43,7 +45,7 @@ export interface TabletDue {
   locationId: string | null;
   /** Where its reports are to be taken in now (`standing`), or null if nowhere. */
   standing: string | null;
-  /** The writes and deletes due, in the order they are made; null while none is planned, as the Machine is not where they were reported. */
+  /** The writes, deletes and records to set aside due, in the order they are made; null while none is planned, as the Machine is not where they were reported. */
   writes: PlannedChange[] | null;
 }
 
@@ -152,7 +154,16 @@ export async function tabletDue(
       // need no item written before them.
       const workflow = [await settingsDue(tx, tablet, locationId), await workflowClearDue(tx, tablet.tabletId, locationId)];
       const writes = workflow.filter((write): write is PlannedWrite => write !== null && !skipped.has(writeKey(write.kind, write.globalId)));
-      return { locationId, standing: where, writes: [...writes, ...(await deletesDue(tx, tablet.tabletId, skipped)), ...plannedWrites(offer, held, skipped)] };
+      return {
+        locationId,
+        standing: where,
+        writes: [
+          ...writes,
+          ...(await deletesDue(tx, tablet.tabletId, skipped)),
+          ...(await leaveOutsDue(tx, tablet.tabletId, skipped)),
+          ...plannedWrites(offer, held, skipped),
+        ],
+      };
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   );

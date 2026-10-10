@@ -1,11 +1,11 @@
 import { WORKFLOW_KIND } from "@decent-sync/protocol";
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
-import type { ItemRef } from "./history.js";
 import type { PlannedWrite } from "./holdings.js";
 import { type AnswerRecorded, type AnsweringTablet, INTAKE_TRANSACTION, type ReportingTablet, lockHeldMachine, lockTablet } from "./intake.js";
 import { type CurrentEntry, type Offered, clearStillDue, joins, sameSharing, workflowClear } from "./join-plan.js";
+import { offersAny } from "./left-out.js";
 import { isObject } from "./listed.js";
 import { lockLocation } from "./location-state.js";
 
@@ -15,14 +15,16 @@ import { lockLocation } from "./location-state.js";
 // and its Workflow, records the Location History entry it was taken in
 // under, and when the Machine's sharing was last turned back on, so the
 // first under another entry or since is known as part of joining
-// (join-plan.ts). What those reports bring
-// that the Library lacks joins it at the Location, and is listed on the
-// Machine's page (`brought_items`). The tablet is written what the Location
-// offers, and what it does not offer is archived or hidden on it, as for any
-// tablet there (holdings.ts); its Workflow's grinder and batch are cleared if
-// the Location does not offer them (`workflow_clears`), and its settings
-// give way to the Location's (location-settings.ts). Under the locks of the
-// report that takes it in: the Machine's row, then the tablet's.
+// (join-plan.ts). The Location's state wins: such a report takes nothing of
+// the tablet's into the Library, but for a kind of item the Location offers
+// none of yet, whose items it brings, and what the Library leaves out is
+// set aside on the tablet (left-out.ts). The tablet is written what the
+// Location offers, and what it does not offer is archived or hidden on it,
+// as for any tablet there (holdings.ts); its Workflow's grinder and batch
+// are cleared if the Location does not offer them (`workflow_clears`), and
+// its settings give way to the Location's (location-settings.ts). Under the
+// locks of the report that takes it in: the Machine's row, then the
+// tablet's.
 
 /** The reports a tablet's Library is taken in from: its Library lists, and its Workflow. */
 export type TakenInReport = "beans" | "beanBatches" | "grinders" | "profiles" | "workflow";
@@ -49,8 +51,8 @@ export async function currentEntry(tx: Prisma.TransactionClient, machineId: stri
  * (`joins`). A report of its bean batches is recorded only once its beans
  * are taken in under the entry, as a batch whose bean the tablet's map does
  * not hold waits for it: until then each of its reports is part of joining,
- * so a batch it brings is listed once its bean is mapped. The tablet's row
- * lock must be held.
+ * so a batch it held as it joined is judged as such once its bean is mapped
+ * or left out. The tablet's row lock must be held.
  */
 export async function takenIn(tx: Prisma.TransactionClient, tabletId: string, report: TakenInReport, entry: CurrentEntry): Promise<boolean> {
   const [last] = await tx.$queryRaw<(CurrentEntry & { remains: boolean })[]>`
@@ -93,31 +95,16 @@ export async function forgetReports(tx: Prisma.TransactionClient, machineId: str
 }
 
 /**
- * Lists the item as one the tablet's Machine brought as it joined the
- * Location (ADR-0018): `matched` to one the Library had, or joining it.
- * Once per Machine and item.
- */
-export async function recordBrought(tx: Prisma.TransactionClient, tablet: ReportingTablet, locationId: string, item: ItemRef, matched: boolean): Promise<void> {
-  const column = { bean: "bean_id", beanBatch: "batch_id", grinder: "grinder_id", profile: "profile_id" }[item.kind as "bean" | "beanBatch" | "grinder" | "profile"];
-  if (column === undefined) return;
-  const id = item.kind === "profile" ? item.id : null;
-  const uuid = item.kind === "profile" ? null : item.id;
-  await tx.$executeRaw`
-    INSERT INTO brought_items (id, machine_id, tablet_id, location_id, bean_id, batch_id, grinder_id, profile_id, matched)
-    VALUES (gen_random_uuid(), ${tablet.machineId}::uuid, ${tablet.tabletId}::uuid, ${locationId}::uuid,
-      ${column === "bean_id" ? uuid : null}::uuid, ${column === "batch_id" ? uuid : null}::uuid, ${column === "grinder_id" ? uuid : null}::uuid,
-      ${id}, ${matched})
-    ON CONFLICT DO NOTHING`;
-}
-
-/**
  * Takes in what a Workflow the tablet reported means for its grinder and
  * batch, under its Machine's and tablet's row locks: reported as the tablet
  * joins the Location (`joining`), those the Location does not offer are to
  * be cleared (`workflowClear`), judged under the Location's lock against
- * the tablet's map, which holds what it held before joining; otherwise a
- * clear still due keeps only what the Workflow still holds as it was
- * (`clearStillDue`). Tells every instance when one is due.
+ * the tablet's map, which holds what it held before joining. One the map
+ * does not hold is not offered if the Library leaves it out, or will as the
+ * Location offers items of its kind already (left-out.ts), a batch's bean
+ * included; otherwise it joins the Library there, and stays. Otherwise a clear still due keeps
+ * only what the Workflow still holds as it was (`clearStillDue`). Tells
+ * every instance when one is due.
  */
 export async function takeInWorkflowContext(
   tx: Prisma.TransactionClient,
@@ -138,13 +125,17 @@ export async function takeInWorkflowContext(
   const batchId = typeof ids.beanBatchId === "string" ? ids.beanBatchId : null;
   if (grinderId === null && batchId === null) return saveClear(tx, tablet.tabletId, locationId, null);
   await lockLocation(tx, locationId);
+  // Unknown to the map, one is left out, or will be, unless the Location offers none of its kind; a batch is with its bean.
+  const unknownGrinder: Offered = grinderId !== null && (await offersAny(tx, locationId, "grinder")) ? "notOffered" : "unknown";
+  const unknownBatch: Offered =
+    batchId !== null && ((await offersAny(tx, locationId, "beanBatch")) || (await offersAny(tx, locationId, "bean"))) ? "notOffered" : "unknown";
   const [offer] = await tx.$queryRaw<{ grinder: Offered; batch: Offered }[]>`
     SELECT
       COALESCE((
         SELECT CASE WHEN grinders.location_id = ${locationId}::uuid AND NOT grinders.archived THEN 'offered' ELSE 'notOffered' END
         FROM tablet_grinders AS held JOIN grinders ON grinders.id = held.grinder_id
         WHERE held.tablet_id = ${tablet.tabletId}::uuid AND held.local_id = ${grinderId}
-      ), 'unknown') AS grinder,
+      ), ${leftOutSql(tablet.tabletId, "grinder", grinderId)}, ${unknownGrinder}) AS grinder,
       COALESCE((
         SELECT CASE WHEN here.added_at IS NOT NULL AND here.finished_at IS NULL AND NOT batch.archived AND NOT bean.archived
           THEN 'offered' ELSE 'notOffered' END
@@ -153,10 +144,17 @@ export async function takeInWorkflowContext(
         JOIN beans AS bean ON bean.id = batch.bean_id
         LEFT JOIN batch_locations AS here ON here.batch_id = batch.id AND here.location_id = ${locationId}::uuid
         WHERE held.tablet_id = ${tablet.tabletId}::uuid AND held.local_id = ${batchId}
-      ), 'unknown') AS batch`;
+      ), ${leftOutSql(tablet.tabletId, "beanBatch", batchId)}, ${unknownBatch}) AS batch`;
   const expected = workflowClear(context, offer!.grinder, offer!.batch);
   await saveClear(tx, tablet.tabletId, locationId, expected);
   if (expected !== null) await notify(tx, "library_changes", locationId);
+}
+
+/** 'notOffered' if the Library leaves out the tablet's record of that kind and id, as SQL; otherwise null. */
+function leftOutSql(tabletId: string, kind: "grinder" | "beanBatch", localId: string | null): Prisma.Sql {
+  return Prisma.sql`(
+    SELECT 'notOffered' FROM tablet_left_out WHERE tablet_id = ${tabletId}::uuid AND kind = ${kind} AND local_id = ${localId}
+  )`;
 }
 
 /** Keeps the clear due on the tablet at the Location, or, null, none. */

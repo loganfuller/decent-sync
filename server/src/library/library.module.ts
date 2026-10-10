@@ -3,8 +3,6 @@ import { BeanBatchesController } from "./bean-batches.controller.js";
 import { BeanBatchesService } from "./bean-batches.service.js";
 import { BeansController } from "./beans.controller.js";
 import { BeansService } from "./beans.service.js";
-import { BroughtController } from "./brought.controller.js";
-import { BroughtService } from "./brought.service.js";
 import { ConflictsController } from "./conflicts.controller.js";
 import { ConflictsService } from "./conflicts.service.js";
 import { GrindersController } from "./grinders.controller.js";
@@ -33,7 +31,6 @@ import { SharingService } from "./sharing.service.js";
     ProfilesController,
     ConflictsController,
     LocationSettingsController,
-    BroughtController,
     SharingController,
   ],
   providers: [
@@ -45,7 +42,6 @@ import { SharingService } from "./sharing.service.js";
     ConflictsService,
     LocationSettingsService,
     LibraryEditsService,
-    BroughtService,
     SharingService,
   ],
 })

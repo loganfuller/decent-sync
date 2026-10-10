@@ -13,7 +13,9 @@ import {
   type ErrorCode,
   type Hello,
   type ItemDeleted,
+  type ItemLeftOut,
   type ItemWritten,
+  type LeaveOut,
   type LibraryDelete,
   type LibraryWrite,
   MISSED_HEARTBEATS,
@@ -42,6 +44,7 @@ import { recordBeanWritten } from "../library/beans.js";
 import { recordGrinderWritten } from "../library/grinders.js";
 import { recordDeleted } from "../library/hard-deletes.js";
 import { recordWorkflowCleared } from "../library/joining.js";
+import { recordLeftOut } from "../library/left-out.js";
 import { recordSettingsWritten } from "../library/location-settings.js";
 import type { SeenDecision } from "../library/intake.js";
 import { recordProfileWritten } from "../library/profiles.js";
@@ -389,6 +392,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       case "deleted":
       case "writeRefused":
         return this.answered(session, message);
+      case "leftOut":
+        return this.leftOut(session, message);
       case "shotIndex": {
         const shotIds = await this.shots.requested(message, session.machine.id);
         return this.acknowledge(session, message.id, { type: "requestShots", shotIds });
@@ -441,6 +446,29 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       const lacking = await store();
       if (lacking !== null) this.logger.warn(`Ignored ${describeRecord(delivery)} from ${this.describe(session)}: its ${delivery.type} delivery has ${lacking}`);
     });
+  }
+
+  /**
+   * Records the plugin's answer to a `leaveOut`, then acknowledges it, and
+   * lets the connection's writer go on, as `answered` does a write's: the
+   * record is set aside on the tablet now, gone, or a Library item's, and so
+   * no longer due, whether or not its request is still awaited. A refusal is
+   * logged, escaped, and the writer skips that record.
+   */
+  private async leftOut(session: Session, answer: ItemLeftOut): Promise<void> {
+    const awaited = session.writer?.awaited(answer.id)?.write.type === "leaveOut";
+    let outcome: WriteOutcome = "refused";
+    if (answer.outcome === "refused") {
+      if (awaited) {
+        const why = answer.status === null || answer.status === undefined ? "Decaid did not answer" : `Decaid answered ${answer.status}`;
+        this.logger.warn(`The tablet of ${this.describe(session)} did not set aside ${quoted(answer.kind)} ${quoted(answer.localId)}: ${why}, ${quoted((answer.error ?? "").slice(0, 200))}`);
+      }
+    } else if (session.writer && isDeletedKind(answer.kind)) {
+      await recordLeftOut(this.prisma, session.live!.tabletId, answer.kind, answer.localId, answer.outcome);
+      if (awaited) outcome = "written";
+    }
+    this.acknowledge(session, answer.id, null);
+    session.writer?.answered(answer.id, outcome);
   }
 
   /**
@@ -505,7 +533,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
           `The tablet of ${this.describe(session)} did not write ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? "Decaid did not answer" : `Decaid answered ${answer.status}`}, ${quoted(answer.error.slice(0, 200))}`,
         );
       }
-    } else if (write) {
+    } else if (awaited && write?.type === "write") {
       // The write it answers names the item, whatever the answer says: its record must carry that item's global id.
       if (await this.recordAnswer(session, write.kind, write.globalId, answer, true, awaited.seen, awaited.contentSeen)) outcome = "written";
     } else if (session.writer && isWrittenKind(answer.kind)) {
@@ -566,8 +594,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     }
   }
 
-  /** Sends a write or delete on the connection, in chunks if it is too large for one frame. */
-  private sendWrite(session: Session, write: LibraryWrite | LibraryDelete): void {
+  /** Sends a write, delete or leave-out on the connection, in chunks if it is too large for one frame. */
+  private sendWrite(session: Session, write: LibraryWrite | LibraryDelete | LeaveOut): void {
     if (session.closing) return;
     for (const frame of frames(encode(write), write.id)) session.socket.send(frame.text);
   }

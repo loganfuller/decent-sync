@@ -17,7 +17,6 @@ import {
   useLocations,
 } from "@/components/machines";
 import { TokenNotice } from "@/components/TokenNotice";
-import { BroughtItemsCard } from "@/components/brought-items";
 import { Field, Fields } from "@/components/fields";
 import { LibraryCard, PairedDevicesCard, SETTINGS, SettingsCard } from "@/components/machine-collections";
 import { CaptureOnlyBadge, MachineSharingCard } from "@/components/machine-sharing";
@@ -314,7 +313,6 @@ function MachineDetails({ id }: { id: string }) {
           )}
           <MachineLocation machine={machine} isAdmin={isAdmin} onChanged={reload} />
           <MachineSharingCard machine={machine} isAdmin={isAdmin} onChanged={reload} />
-          <BroughtItemsCard machineId={machine.id} />
         </>
       )}
     </section>

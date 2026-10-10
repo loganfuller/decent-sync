@@ -2,12 +2,13 @@ import { WORKFLOW_BATCH, WORKFLOW_GRINDER, sameValue } from "@decent-sync/protoc
 import { isObject } from "./listed.js";
 
 // The plan a Machine's tablet follows when it joins a Location (ADR-0008):
-// when a report is part of joining, which records it brought to the Library
-// (ADR-0018), and which of its Workflow's grinder and batch are cleared, as
-// the Location does not offer them. What it is written of the Location's
-// Library and settings is planned as for any tablet there (holdings.ts,
-// settings-intake.ts), the Location's state winning. Pure, so module tests
-// can drive it; joining.ts reads what it needs.
+// when a report is part of joining, and which of its Workflow's grinder and
+// batch are cleared, as the Location does not offer them. What the Library
+// leaves out of what it holds is decided by left-out.ts, and what it is
+// written of the Location's Library and settings is planned as for any
+// tablet there (holdings.ts, settings-intake.ts), the Location's state
+// winning. Pure, so module tests can drive it; joining.ts reads what it
+// needs.
 
 /**
  * An entry of a Machine's Location History, current as a report is taken
@@ -52,26 +53,6 @@ export function standing(entry: CurrentEntry): string {
   return entry.sharingSince === null ? entry.locationId : `${entry.locationId}@${entry.sharingSince.toISOString()}`;
 }
 
-/** How a report's record was taken into the Library. */
-export type Intake =
-  /** It joined the Library as a new item. */
-  | "joined"
-  /** It was matched to an item the Library had: a Bean by roaster and name, a user's Profile by its id. */
-  | "matched"
-  /** Anything else: a record the tablet's map held, or one carrying an item's global id, as one the server wrote. */
-  | "known";
-
-/**
- * Whether a record a report took in was brought by its tablet as its
- * Machine joined the Location, and so is listed on the Machine's page, so
- * an Admin can Archive duplicates (ADR-0018): a record that joined the
- * Library or was matched to an item, in a report that is part of joining,
- * but none of Decaid's bundled Profiles, which every tablet has.
- */
-export function brought(joining: boolean, intake: Intake, bundled = false): boolean {
-  return joining && intake !== "known" && !bundled;
-}
-
 /** Whether the Location offers an item a tablet's Workflow names, by its map; unknown if the map holds no such record. */
 export type Offered = "offered" | "notOffered" | "unknown";
 
@@ -81,9 +62,9 @@ export type Offered = "offered" | "notOffered" | "unknown";
  * expects to find: its grinder's if its Location does not offer the Grinder
  * its `context.grinderId` names, and its batch's if it does not offer that
  * batch. Its profile, dose and yield stay, and so does a grinder or batch it
- * offers, or that the tablet's map does not hold yet, as one entered there
- * that joins the Library at the Location with this report or the next.
- * Null if nothing is to be cleared.
+ * offers, or that is unknown, as one the tablet's map does not hold that
+ * joins the Library at a Location offering none of its kind yet, with this
+ * report or the next. Null if nothing is to be cleared.
  */
 export function workflowClear(context: unknown, grinder: Offered, batch: Offered): Record<string, unknown> | null {
   if (!isObject(context)) return null;

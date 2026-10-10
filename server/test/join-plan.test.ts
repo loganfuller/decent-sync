@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { brought, clearStillDue, joins, standing, workflowClear } from "../src/library/join-plan.js";
+import { clearStillDue, joins, standing, workflowClear } from "../src/library/join-plan.js";
 
 // The plan a Machine's tablet follows when it joins a Location (ADR-0008,
-// ADR-0018): which reports are part of joining, what it brought, and which
-// of its Workflow's grinder and batch are cleared. What it is written of the
-// Location's Library and settings is planned as for any tablet there
-// (holdings.test.ts, settings-intake.test.ts).
+// ADR-0018): which reports are part of joining, and which of its Workflow's
+// grinder and batch are cleared. What it is written of the Location's
+// Library and settings is planned as for any tablet there (holdings.test.ts,
+// settings-intake.test.ts).
 
 const LAB = "0199c0de-0000-7000-8000-00000000000a";
 const BELMONT = "0199c0de-0000-7000-8000-00000000000b";
@@ -57,17 +57,6 @@ describe("Joining a Location", () => {
     expect(standing(turnedOn)).not.toBe(standing(ENTRY));
     expect(standing({ ...turnedOn, id: "0199c0de-0000-7000-8000-000000000002" })).toBe(standing(turnedOn));
     expect(standing({ ...turnedOn, locationId: BELMONT })).not.toBe(standing(turnedOn));
-  });
-
-  it("lists what a joining report added to the Library or matched to an item it had, but not one of Decaid's bundled Profiles", () => {
-    expect(brought(true, "joined")).toBe(true);
-    expect(brought(true, "matched")).toBe(true);
-    expect(brought(true, "joined", true)).toBe(false);
-    // A record the tablet's map held, or one carrying an item's global id, was the Library's already.
-    expect(brought(true, "known")).toBe(false);
-    // A barista's new item after the tablet joined is no item it brought.
-    expect(brought(false, "joined")).toBe(false);
-    expect(brought(false, "matched")).toBe(false);
   });
 });
 

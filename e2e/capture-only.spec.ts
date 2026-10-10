@@ -4,9 +4,9 @@ import { useFreshServer } from "./support/fresh-server.js";
 
 // A Machine's page shows whether it is a Capture-only Machine, and why: it
 // has no Location, or an Admin turned its sharing off, which an Admin does
-// there, and turns back on, so it joins its Location again; Staff see why,
-// but have no switch. A simulated tablet running the built plugin; hardware
-// ids are made up.
+// there, and turns back on, so it joins its Location again, whose state
+// wins; Staff see why, but have no switch. A simulated tablet running the
+// built plugin; hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 // Machine pages poll the server every few seconds.
 const expect = baseExpect.configure({ timeout: 15_000 });
@@ -40,6 +40,13 @@ test("an Admin turns a Machine's sharing off on its page, making it capture-only
   const uptown = await createLocation(page, "Uptown");
   const machine = await createMachine(page, "Uptown group", uptown.id);
   const tablet = await tabletOf(machine.token, "25101");
+  // Uptown offers a coffee of its own.
+  const created = await page.request.post("/api/beans", { data: { content: { roaster: "Roux Bakehouse", name: "House Blend" } } });
+  baseExpect(created.status()).toBe(201);
+  const { bean } = (await created.json()) as { bean: { id: string } };
+  const batch = await page.request.post("/api/bean-batches", { data: { beanId: bean.id, content: { roastDate: "2026-10-05" }, locations: [{ locationId: uptown.id }] } });
+  baseExpect(batch.status()).toBe(201);
+  await expect.poll(() => tablet.beans().map((record) => record.name)).toEqual(["House Blend"]);
   await page.goto(`/machines/${machine.id}`);
   const sharing = page.getByRole("region", { name: "Sharing" });
   await expect(sharing.getByText("Shared at Uptown")).toBeVisible();
@@ -77,17 +84,16 @@ test("an Admin turns a Machine's sharing off on its page, making it capture-only
 
   // A coffee its barista enters meanwhile is captured, but stays out of the Library.
   await tablet.addBean({ roaster: "Roux Bakehouse", name: "Guji Hambela" });
-  await expect.poll(async () => (await reported(page, machine.id, "beans"))?.length).toBe(1);
-  baseExpect(await beanNames(page)).toEqual([]);
+  await expect.poll(async () => (await reported(page, machine.id, "beans"))?.length).toBe(2);
+  baseExpect(await beanNames(page)).toEqual(["House Blend"]);
 
   await sharing.getByRole("switch", { name: "Share the Library" }).click();
   await page.getByRole("alertdialog", { name: "Turn sharing back on for Uptown group?" }).getByRole("button", { name: "Turn sharing on" }).click();
   await expect(sharing.getByText("Shared at Uptown")).toBeVisible();
   await expect(sharing.getByRole("switch", { name: "Share the Library" })).toBeChecked();
-  // It joined Uptown, bringing the coffee, which its page lists once read again.
-  await expect.poll(async () => beanNames(page)).toEqual(["Guji Hambela"]);
-  await page.reload();
-  await expect(page.getByRole("table", { name: "Brought to the Library" }).getByRole("link", { name: "Roux Bakehouse Guji Hambela" })).toBeVisible();
+  // It joined Uptown again, whose state wins: the coffee stays out of the Library, archived on its tablet.
+  await expect.poll(() => tablet.beans().find((record) => record.name === "Guji Hambela")?.archived).toBe(true);
+  baseExpect(await beanNames(page)).toEqual(["House Blend"]);
 });
 
 async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {

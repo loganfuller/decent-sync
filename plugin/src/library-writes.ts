@@ -3,7 +3,9 @@ import {
   SHOTS_STILL_TO_READ,
   GLOBAL_ID_KEY,
   type ItemDeleted,
+  type ItemLeftOut,
   type ItemWritten,
+  type LeaveOut,
   type LibraryDelete,
   type LibraryWrite,
   MAX_REFUSAL_LENGTH,
@@ -39,7 +41,8 @@ import type { Outbox } from "./outbox.js";
 // Workflow's grinder and batch as its Machine joins a Location that does not
 // offer them (ADR-0008). A record of an item an Admin
 // hard-deleted is deleted the same way too, a Profile's purged, the one
-// thing the plugin deletes (ADR-0003).
+// thing the plugin deletes (ADR-0003), and a record the Library leaves out
+// as its Machine joins a Location is archived or hidden (ADR-0018).
 
 interface Route {
   /** The kind's records, archived ones included. */
@@ -199,6 +202,11 @@ export class LibraryWrites {
     if (isObject(skin) && typeof skin.selectedProfileId === "string") this.shotsName.add(`profile:${skin.selectedProfileId}`);
   }
 
+  /** Sets aside a record the Library leaves out once the reads and writes before it are done, and queues its answer. It never rejects. */
+  leaveOut(leave: LeaveOut): Promise<void> {
+    return this.library.run(async () => this.outbox.enqueue(await setAside(leave)));
+  }
+
   /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
   apply(write: LibraryWrite): Promise<void> {
     if (write.kind !== SETTINGS_KIND && write.kind !== WORKFLOW_KIND) return this.library.run(async () => this.outbox.enqueue(await carryOut(write)));
@@ -321,6 +329,48 @@ const SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names th
 
 /** The most Shots still to be read that a delete reads to see whether they name its record. */
 const MAX_SHOTS_READ = 20;
+
+/**
+ * Sets aside the tablet's record the Library leaves out (`LeaveOut`):
+ * archives a bean, bean batch or grinder, or hides a profile, unless it is
+ * so already. Only a record carrying no global id: one that carries one is a
+ * Library item's now (`taken`), as when a write linked a bean of the same
+ * roaster and name to it, and is left as it is. Nothing else of the record
+ * changes: its `extras` are written back as read, since Decaid replaces them
+ * whole. A record already gone is `gone`.
+ */
+async function setAside(leave: LeaveOut): Promise<ItemLeftOut> {
+  const answer = (outcome: ItemLeftOut["outcome"], status?: number | null, error?: string): ItemLeftOut => ({
+    type: "leftOut",
+    id: leave.id,
+    kind: leave.kind,
+    localId: leave.localId,
+    outcome,
+    ...(outcome === "refused" ? { status: status ?? null, error: (error ?? "").slice(0, MAX_REFUSAL_LENGTH) } : {}),
+  });
+  const route = Object.prototype.hasOwnProperty.call(ROUTES, leave.kind) ? ROUTES[leave.kind] : undefined;
+  if (!route && leave.kind !== "profile") return answer("refused", null, `This plugin cannot set aside a ${leave.kind}`);
+  try {
+    const path = `${route ? route.records : "/profiles"}/${encodeURIComponent(leave.localId)}`;
+    const current = await request("GET", path);
+    if (current.status === 404) return answer("gone");
+    const record = current.ok ? parsed(current.text) : undefined;
+    if (!isObject(record)) return answer("refused", current.status, current.text);
+    if (!route) {
+      if (record.visibility !== "visible") return answer("setAside");
+      const hidden = await setVisibility(leave.localId, "hidden");
+      const updated = hidden.ok ? parsed(hidden.text) : undefined;
+      return isObject(updated) && updated.visibility !== "visible" ? answer("setAside") : answer("refused", hidden.status, hidden.text);
+    }
+    if (globalIdOf(record) !== null) return answer("taken");
+    if (record.archived === true) return answer("setAside");
+    const archived = await request("PUT", path, { archived: true, extras: isObject(record.extras) ? record.extras : {} });
+    const updated = archived.ok ? parsed(archived.text) : undefined;
+    return isObject(updated) && updated.archived === true ? answer("setAside") : answer("refused", archived.status, archived.text);
+  } catch (error) {
+    return answer("refused", null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
 
 function deleted(remove: LibraryDelete): ItemDeleted {
   return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
