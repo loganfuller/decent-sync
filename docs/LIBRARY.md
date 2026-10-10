@@ -1013,12 +1013,19 @@ read for the tablet its latest connection came from, connected or not:
   and when, by PostgreSQL's clock (`tablet_last_applied`), whether or not
   its connection still awaited the answer.
 - **The changes refused:** each write, delete or leave-out the tablet
-  refused while its connection awaited the answer, with Decaid's status, or
-  none if Decaid did not answer, and what it answered, the latest refusal
-  of each item or record kept (`tablet_refusals`). One is forgotten once a
-  change of the same item or record is carried out there, and shown only
-  while the item or record is still due, so one no longer due, as when the
-  item stopped being offered, is not shown.
+  refused while its connection awaited the answer, with Decaid's HTTP
+  status and what it answered, the latest refusal of each item or record
+  kept (`tablet_refusals`). The status is null where there is none: Decaid
+  did not answer, or the plugin did not ask it, as for a delete a Shot it
+  has yet to send names. A write the writer skips for another reason is
+  kept the same way, with no status and why, so nothing waits unexplained:
+  one answered with a record that is not the item's or that the server
+  cannot store, and one still due as it was once written, which writing
+  again would not change. A write the plugin does not answer within 300 s
+  is skipped too, but not kept, and counts as waiting. One is forgotten
+  once a change of the same item or record is carried out there, and as
+  the tablet's writer finds it no longer due (`pruneRefusals`), as when the
+  item stopped being offered; until then, one no longer due is not shown.
 
 Everything is in PostgreSQL, so every instance reads the same, whichever
 holds the tablet's connection.
@@ -1127,8 +1134,8 @@ an edit lost (`recordSettingsWritten`).
 
 Decaid refuses (500, `DeviceNotConnectedException`) to change steam, hot
 water or rinse settings while no machine is connected to the tablet, as the
-change goes to the machine: the write is refused, and skipped for the rest
-of the connection, as any refused write is. A tablet often connects before
+change goes to the machine: the write is refused, and skipped until what is
+due changes or the tablet reconnects, as any refused write is. A tablet often connects before
 its machine, and its plugin reconnects once the machine reports its
 hardware. One whose machine goes away, as when it is powered off for the
 night while its tablet stays connected, is seen gone by the plugin's next
@@ -1419,15 +1426,15 @@ Every endpoint requires the account session; Staff read them as Admins do.
   due and has not refused, or null while it is written nothing, as the
   Machine is capture-only or no tablet has connected. `lastApplied` is the
   last change it applied, or null, and `refused` the changes it refused that
-  are still due, the latest refused first, each `{ change, kind, item,
+  are still due, the latest refused first (Sharing status, above), each `{ change, kind, item,
   localId }`: `change` is `write`, `delete` or `leaveOut`; `kind` a Library
   kind, `settings` or `workflow`; `item` the item, `{ kind, id, name }`,
   named as a Conflict's is, or for the Workflow "Grinder and batch", null
   for a record set aside, which is none of the Library's, or an item
   deleted since; and `localId` Decaid's id for the record, null for a
   create, the settings and the Workflow. `lastApplied` adds `appliedAt`,
-  and each refusal `status`, Decaid's HTTP status or null if it did not
-  answer, `error`, what it answered, and `refusedAt`. 404 for no such
+  and each refusal `status`, Decaid's HTTP status or null if it gave none,
+  `error`, what it answered or why, and `refusedAt`. 404 for no such
   Machine.
 - `PUT /api/machines/:id/settings-sharing`, with `{ sharesSettings }`,
   switches whether the Machine shares its Location's settings, and returns

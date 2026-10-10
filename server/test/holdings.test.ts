@@ -368,7 +368,7 @@ describe("plannedWrites", () => {
     ]);
   });
 
-  it("leaves out the items skipped for the connection", () => {
+  it("leaves out the items skipped", () => {
     const skipped = new Set([writeKey("bean", BEANS[0])]);
     expect(plannedWrites(offer([BEANS[0], BEANS[1]]), holding([], []), skipped)).toEqual([
       { kind: "bean", globalId: BEANS[1], localId: null, fields: beanContent, decidedAt: DECIDED, contentDecidedAt: EDITED },

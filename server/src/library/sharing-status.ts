@@ -57,9 +57,10 @@ export function changeSignature(change: PlannedChange): string {
 }
 
 /**
- * Records that the tablet refused a change, with Decaid's status, or null if
- * Decaid did not answer, and its answer, without the NUL characters
- * PostgreSQL's text cannot hold.
+ * Records that the tablet refused a change, with Decaid's HTTP status, or
+ * null if it gave none, as when it did not answer, the plugin did not ask it,
+ * or the server could not take in what it answered; and its answer, or why,
+ * without the NUL characters PostgreSQL's text cannot hold.
  */
 export async function recordRefused(prisma: PrismaService, tabletId: string, refused: TabletChange & { signature: string }, status: number | null, answer: string): Promise<void> {
   const error = answer.replaceAll("\u0000", "");
@@ -81,6 +82,19 @@ export async function recordApplied(prisma: PrismaService, tabletId: string, app
         change = EXCLUDED.change, kind = EXCLUDED.kind, item_id = EXCLUDED.item_id, local_id = EXCLUDED.local_id, applied_at = EXCLUDED.applied_at`,
     prisma.$executeRaw`DELETE FROM tablet_refusals WHERE tablet_id = ${tabletId}::uuid AND change_key = ${applied.key}`,
   ]);
+}
+
+/**
+ * Forgets the tablet's refusals of items and records no longer due to it,
+ * those `due` does not name (`changeKey`), and says how many it still has.
+ * Its writer prunes them as it plans, so one refused before the item stopped
+ * being due is not shown again should it be due once more.
+ */
+export async function pruneRefusals(prisma: PrismaService, tabletId: string, due: readonly string[]): Promise<number> {
+  const [{ remaining }] = await prisma.$queryRaw<[{ remaining: number }]>`
+    WITH gone AS (DELETE FROM tablet_refusals WHERE tablet_id = ${tabletId}::uuid AND change_key <> ALL(${[...due]}::text[]) RETURNING 1)
+    SELECT ((SELECT count(*) FROM tablet_refusals WHERE tablet_id = ${tabletId}::uuid) - (SELECT count(*) FROM gone))::int AS remaining`;
+  return remaining;
 }
 
 /** Forgets a refusal of the item or record the key names, as when the tablet answers that its record is gone. */
@@ -112,9 +126,9 @@ export interface ChangeView {
 
 /** A change the tablet refused. */
 export interface RefusalView extends ChangeView {
-  /** Decaid's HTTP status, or null if Decaid did not answer. */
+  /** Decaid's HTTP status, or null if it gave none: it did not answer, the plugin did not ask it, or the server could not take in its answer. */
   status: number | null;
-  /** What Decaid answered, or why it could not be asked. */
+  /** What Decaid answered, or why it could not be asked or its answer taken in. */
   error: string;
   /** When it was last refused. */
   refusedAt: string;

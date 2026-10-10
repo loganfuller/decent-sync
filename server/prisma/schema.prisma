@@ -1304,9 +1304,10 @@ model TabletRefusal {
   localId   String?  @map("local_id")
   /// What was due as it was refused (`changeSignature`): while the same is due, it is still refused rather than waiting.
   signature String
-  /// Decaid's HTTP status, or null if Decaid did not answer.
+  /// Decaid's HTTP status, or null if it gave none: it did not answer, the
+  /// plugin did not ask it, or the server could not take in its answer.
   status    Int?
-  /// What Decaid answered, or why it could not be asked.
+  /// What Decaid answered, or why it could not be asked or its answer taken in.
   error     String
   /// When it was last refused, by PostgreSQL's clock.
   refusedAt DateTime @default(dbgenerated("transaction_timestamp()")) @map("refused_at") @db.Timestamptz(3)

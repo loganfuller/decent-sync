@@ -185,7 +185,7 @@ export interface SharingStatus {
   waiting: number | null;
   /** The last change it applied, and when; null if none. */
   lastApplied: (TabletChange & { appliedAt: string }) | null;
-  /** The changes it refused that are still due, the latest refused first, each with Decaid's status (null if it did not answer) and answer. */
+  /** The changes it refused that are still due, the latest refused first, each with Decaid's HTTP status, null if it gave none (it did not answer, the plugin did not ask it, or the server could not take in its answer), and its answer or why. */
   refused: (TabletChange & { status: number | null; error: string; refusedAt: string })[];
 }
 

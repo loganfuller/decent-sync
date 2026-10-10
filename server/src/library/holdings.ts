@@ -149,17 +149,17 @@ export interface PlannedLeaveOut {
 /** What the writer does next to a tablet: a write, a delete, or setting aside a record the Library leaves out. */
 export type PlannedChange = PlannedWrite | PlannedDelete | PlannedLeaveOut;
 
-/** The key a planned delete is skipped under, for the rest of a connection. */
+/** The key a planned delete is skipped and its refusal kept under. */
 export function deleteKey(kind: DeletedKind, localId: string): string {
   return `delete:${kind}:${localId}`;
 }
 
-/** The key setting aside a record the Library leaves out is skipped under, for the rest of a connection. */
+/** The key setting aside a record the Library leaves out is skipped and its refusal kept under. */
 export function leaveOutKey(kind: DeletedKind, localId: string): string {
   return `leaveOut:${kind}:${localId}`;
 }
 
-/** The key a write's item is skipped under, for the rest of a connection. */
+/** The key a write's item is skipped and its refusal kept under. */
 export function writeKey(kind: WrittenKind, globalId: string): string {
   return `${kind}:${globalId}`;
 }

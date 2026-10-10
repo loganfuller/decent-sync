@@ -176,6 +176,36 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
     expect((await statusOf(second)).lastApplied).toMatchObject({ change: "write", kind: "bean", item: { id: refused.id, name: "Roux Refused Again" } });
   });
 
+  it("forgets a refusal once its Bean is no longer offered, so the Bean offered again waits rather than showing as refused", async () => {
+    const cafe = await api.createLocation("Archiving cafe", "UTC");
+    const first = await api.createMachine("Archiving group 1", cafe.id);
+    const second = await api.createMachine("Archiving group 2", cafe.id);
+    const one = load(first, "26041");
+    const two = load(second, "26042", other);
+    two.refuseWrites = refusingBeans("Archived While Refused");
+    await online(first, second);
+    await one.addBean({ roaster: "Roux", name: "Archived While Refused" });
+    const refused = await libraryBean("Archived While Refused");
+    await expect.poll(async () => (await statusOf(second)).refused.map((refusal) => refusal.item?.id), { timeout: 10_000 }).toEqual([refused.id]);
+
+    // Archived, it is due to neither tablet, and its refusal is forgotten.
+    expect((await api.call("PUT", `/beans/${refused.id}/archived`, { archived: true })).status).toBe(200);
+    await expect.poll(async () => (await statusOf(second)).refused, { timeout: 10_000 }).toEqual([]);
+    // Wait for the tablet that held it to archive it, so the restore below is the next change.
+    await expect.poll(() => one.beans().find((bean) => bean.name === "Archived While Refused")?.archived, { timeout: 10_000 }).toBe(true);
+
+    // Restored while the refusing tablet is offline, it is due again just as it was refused, and waits.
+    two.loseNetwork();
+    await api.waitForMachine(second.machine.name, (viewed) => !viewed.online);
+    expect((await api.call("PUT", `/beans/${refused.id}/archived`, { archived: false })).status).toBe(200);
+    await expect.poll(async () => (await statusOf(second)).waiting, { timeout: 10_000 }).toBe(1);
+    expect((await statusOf(second)).refused).toEqual([]);
+    two.refuseWrites = undefined;
+    two.restoreNetwork();
+    await expect.poll(() => heldAs(two, "Archived While Refused"), { timeout: 10_000 }).toEqual([refused.id]);
+    await expect.poll(async () => (await statusOf(second)).waiting, { timeout: 10_000 }).toBe(0);
+  });
+
   it("counts the changes queued for a tablet while it is offline as waiting, down to none once it catches up", async () => {
     const cafe = await api.createLocation("Offline cafe", "UTC");
     const first = await api.createMachine("Offline group 1", cafe.id);

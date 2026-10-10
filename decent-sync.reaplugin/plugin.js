@@ -1890,8 +1890,9 @@ var __decentSync = (() => {
        * Set once the machine this connection's `hello` reported is seen gone:
        * no hardware read, or Decaid refusing a write of the shared settings as
        * no machine is connected. Decaid refuses those while it is gone, and the
-       * server skips such a write for the rest of the connection, so once the
-       * same machine is back the plugin reconnects, and is written it again.
+       * server skips such a write until it changes or the tablet reconnects, so
+       * once the same machine is back the plugin reconnects, and is written it
+       * again.
        */
       __publicField(this, "machineAway", false);
       /** Hardware the server dismissed for this token; while set, the plugin does not connect. */

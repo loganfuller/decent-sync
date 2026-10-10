@@ -52,7 +52,8 @@ export interface TabletDue {
 
 /**
  * Where the connection's Machine takes part now, and the writes its tablet
- * is due, leaving out the items in `skipped` (`writeKey`). None is due while
+ * is due, leaving out the changes in `skipped` (`changeKey`), as the deletes
+ * its writer deferred. None is due while
  * it is capture-only, at no Location or with sharing turned off, nor while
  * it does not take part where its tablet's latest reports of its beans, bean
  * batches, grinders and profiles were all taken in (`reportedAt`, a

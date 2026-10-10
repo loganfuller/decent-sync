@@ -63,7 +63,7 @@ import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { hashSecret } from "../secrets.js";
 import { HandledDeliveries, type IndexRequest } from "./handled-deliveries.js";
 import type { Hardware, Identity, Reporter } from "./identity.js";
-import { KIND_NAMES, TabletWriter, type WriteOutcome } from "./tablet-writer.js";
+import { type AwaitedWrite, KIND_NAMES, TabletWriter, type WriteOutcome } from "./tablet-writer.js";
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
 const MAX_PAYLOAD_BYTES = 1 << 20;
@@ -564,11 +564,11 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       }
     } else if (awaited && write?.type === "write") {
       // The write it answers names the item, whatever the answer says: its record must carry that item's global id.
-      if (await this.recordAnswer(session, write.kind, write.globalId, answer, true, awaited.seen, awaited.contentSeen)) outcome = "written";
+      if (await this.recordAnswer(session, write.kind, write.globalId, answer, awaited.change, awaited.seen, awaited.contentSeen)) outcome = "written";
     } else if (session.writer && isWrittenKind(answer.kind)) {
       // What the item's content its write carried the answer repeats; which Location's decision it carried is not known.
       const contentSeen = answer.contentDecidedAt === undefined ? null : new Date(answer.contentDecidedAt);
-      await this.recordAnswer(session, answer.kind, answer.globalId, answer, false, null, contentSeen);
+      await this.recordAnswer(session, answer.kind, answer.globalId, answer, null, null, contentSeen);
     }
     this.acknowledge(session, answer.id, null);
     session.writer?.answered(answer.id, outcome);
@@ -576,8 +576,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
 
   /**
    * Records the record a write's answer holds as the tablet's record of the
-   * item, and says whether it did. A record that is not the item's is logged
-   * when its write was `awaited`. The record has seen the Location's decision
+   * item, and says whether it did. A record that is not the item's, or that
+   * fails to store in a way that would repeat, is logged, and, when its
+   * write was `awaited`, kept with the tablet's refusals: the writer skips
+   * the item as it does a refused one. The record has seen the Location's decision
    * its write carried (`seen`), and the latest edit of the item's content it
    * carried (`contentSeen`), by PostgreSQL's clock; one of a write no longer
    * awaited says nothing new of either.
@@ -587,7 +589,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     kind: string,
     globalId: string,
     answer: ItemWritten,
-    awaited: boolean,
+    awaited: AwaitedWrite["change"] | null,
     seen: SeenDecision | null,
     contentSeen: Date | null,
   ): Promise<boolean> {
@@ -612,6 +614,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
                   : await recordGrinderWritten(this.prisma, tablet, globalId, written, record, updatedAt, contentSeen);
       if (recorded === "notTheItem" && awaited) {
         this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);
+        await recordRefused(this.prisma, tablet.tabletId, awaited, null, `Answered with a record that is not this ${name}'s`);
       }
       if (recorded === "deleted") this.logger.log(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId}, deleted since: its record there is to be deleted`);
       if (recorded !== "recorded") return false;
@@ -619,6 +622,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       const failure = repeatingFailure(error);
       if (!failure) throw error;
       this.logger.warn(`Could not record the ${name} ${globalId} written to the tablet of ${this.describe(session)}: ${failure.message} (${failure.sqlState})`);
+      // Its refusal kept, so the write the server skips does not wait unexplained.
+      if (awaited) await recordRefused(this.prisma, tablet.tabletId, awaited, null, `The server could not take in the record it answered with: ${failure.message} (${failure.sqlState})`);
       return false;
     }
     const localId = kind === "settings" || kind === "workflow" ? null : typeof record.id === "string" ? record.id : null;

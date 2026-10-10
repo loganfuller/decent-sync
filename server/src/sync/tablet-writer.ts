@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { LeaveOut, LibraryDelete, LibraryWrite, WrittenKind } from "@decent-sync/protocol";
 import type { SeenDecision } from "../library/intake.js";
-import { type TabletChange, changeKey, changeSignature, tabletChange } from "../library/sharing-status.js";
+import { type TabletChange, changeKey, changeSignature, pruneRefusals, recordRefused, tabletChange } from "../library/sharing-status.js";
 import { type WrittenTablet, tabletDue } from "../library/tablet-due.js";
 import type { PrismaService } from "../prisma.service.js";
 
@@ -35,6 +35,9 @@ export interface AwaitedWrite {
  * on the same connection a little later.
  */
 export type WriteOutcome = "written" | "refused" | "deferred";
+
+/** Why an item written that is still due as it was is skipped, as its sharing status shows it. */
+export const STILL_DUE_ONCE_WRITTEN = "Written, but its record still differs as it did: writing it again would change nothing";
 
 /** The Library lists whose reports are taken in before anything is written: what the tablet holds. */
 export type TakenInList = "beans" | "beanBatches" | "grinders" | "profiles";
@@ -108,6 +111,12 @@ export class TabletWriter {
    * same is due, and written again once that changes, or it is no longer due.
    */
   private readonly skipped = new Map<string, string>();
+  /**
+   * Whether the tablet may still have refusals kept (`tablet_refusals`):
+   * until a look finds none left, from earlier connections or this one. While
+   * it may, each look forgets those of items no longer due (`pruneRefusals`).
+   */
+  private refusalsKept = true;
   /**
    * The fields last written to each item on this connection, by `writeKey`,
    * with the values the write expected the record to hold, kept while every
@@ -270,6 +279,11 @@ export class TabletWriter {
         const stillDue = new Set(planned.map(changeKey));
         for (const key of this.lastWritten.keys()) if (!stillDue.has(key)) this.lastWritten.delete(key);
         for (const key of this.skipped.keys()) if (!stillDue.has(key)) this.skipped.delete(key);
+        if (this.refusalsKept) {
+          // A deferred delete is left out of what is planned, but still due.
+          this.refusalsKept = (await pruneRefusals(this.prisma, this.tablet.tabletId, [...stillDue, ...this.deferred.keys()])) > 0;
+          if (this.stopped) return;
+        }
       }
       // The first not skipped, or due otherwise than when it was.
       const due = planned?.find((change) => {
@@ -287,6 +301,9 @@ export class TabletWriter {
       if (this.lastWritten.get(key) === fields) {
         this.log.warn(`Tablet ${this.tablet.tabletId} is still due ${item} once written; it is tried again once it changes or the tablet reconnects`);
         this.skipped.set(key, change.signature);
+        // Shown with the tablet's refusals, so it does not wait unexplained.
+        await recordRefused(this.prisma, this.tablet.tabletId, change, null, STILL_DUE_ONCE_WRITTEN);
+        this.refusalsKept = true;
         continue;
       }
       if ("leaveOut" in due) {
@@ -297,7 +314,7 @@ export class TabletWriter {
           this.log.warn(`Tablet ${this.tablet.tabletId} did not answer setting aside ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
         }
         if (outcome === "written") this.lastWritten.set(key, fields);
-        else this.skipped.set(key, change.signature);
+        else this.skip(key, change.signature);
         continue;
       }
       if ("delete" in due) {
@@ -314,7 +331,7 @@ export class TabletWriter {
         }
         if (outcome === "written") this.lastWritten.set(key, fields);
         else if (outcome === "deferred") this.defer(key);
-        else this.skipped.set(key, change.signature);
+        else this.skip(key, change.signature);
         continue;
       }
       const write: LibraryWrite = {
@@ -336,8 +353,14 @@ export class TabletWriter {
         this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the write of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
       }
       if (outcome === "written") this.lastWritten.set(key, fields);
-      else this.skipped.set(key, change.signature);
+      else this.skip(key, change.signature);
     }
+  }
+
+  /** Skips the item while the same is due to it; its refusal, if it was refused, is kept. */
+  private skip(key: string, signature: string): void {
+    this.skipped.set(key, signature);
+    this.refusalsKept = true;
   }
 
   /** Leaves a delete out until `retryDeferredMs` has passed: the writer looks again then (`armRetry`). */

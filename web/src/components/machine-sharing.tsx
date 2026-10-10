@@ -154,7 +154,7 @@ export function MachineSharingCard({ machine, isAdmin, onChanged }: { machine: M
                       <ChangeDescription change={refusal} location={machine.location} />
                     </TableCell>
                     <TableCell className="min-w-48 whitespace-normal wrap-anywhere">
-                      <span className="font-medium">{refusal.status === null ? "No answer" : refusal.status}</span>{" "}
+                      <span className="font-medium">{refusal.status === null ? "No status" : refusal.status}</span>{" "}
                       <span className="font-mono text-muted-foreground">{refusal.error}</span>
                     </TableCell>
                   </TableRow>
