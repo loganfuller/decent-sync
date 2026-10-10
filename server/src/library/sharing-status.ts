@@ -158,13 +158,12 @@ export interface SharingStatusView {
  * connection holding it, unless that connection is mismatched, and
  * otherwise for the tablet its latest connection came from, as a mismatched
  * connection reporting its hardware records its tablet against it: what
- * that tablet is due where the Machine
- * takes part now, as its writer plans it from what the tablet last reported,
- * whether or not it is connected, with each batch to be created once its
- * Bean's record is. A change it refused counts as refused rather than
- * waiting while the same is still due, and so does a batch waiting for a
- * Bean refused; one no longer due is not shown. 404 if there is no such
- * Machine.
+ * that tablet is due where the Machine takes part now, as its writer plans
+ * it from what the tablet last reported, whether or not it is connected,
+ * with each batch to be created once its Bean's record is. A change it
+ * refused counts as refused rather than waiting while the same is still
+ * due, and so does a batch waiting for a Bean refused; one no longer due is
+ * not shown. 404 if there is no such Machine.
  */
 export async function sharingStatus(prisma: PrismaService, machineId: string): Promise<SharingStatusView> {
   return prisma.$transaction(
