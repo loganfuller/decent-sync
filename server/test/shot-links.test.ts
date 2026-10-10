@@ -148,7 +148,8 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     labTablet.pullShot(shotWith("linked-lab-shot", "26001", labLocal, profile));
     // A skin sets the Workflow's profile's target weight to the Shot's yield: still the Profile, as no other matches it but for that.
     labTablet.pullShot(shotWith("linked-yield-shot", "26001", labLocal, { ...profile, target_weight: 41.5 }));
-    cafeTablet.pullShot(shotWith("linked-cafe-shot", "26002", cafeLocal));
+    // The cafe Shot's Workflow holds a profile no tablet saved, while its skin's id names one the Library has.
+    cafeTablet.pullShot(shotWith("linked-cafe-shot", "26002", cafeLocal, derivedProfile("Linked unsaved bloom", 7.6)));
     await poll(async () => (await api.call("GET", "/shots/linked-cafe-shot")).status).toBe(200);
     await poll(async () => (await api.call("GET", "/shots/linked-lab-shot")).status).toBe(200);
     await poll(async () => (await api.call("GET", "/shots/linked-yield-shot")).status).toBe(200);
@@ -159,8 +160,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
       grinder: { id: labGrinder.id, model: "Linked lab EK43" },
       profile: { id: profileId, title: "Linked bloom" },
     });
-    // The cafe Shot's Workflow holds the fixture's profile, which the Library lacks. The skin's selected id names a
-    // Profile the Library has, which its Workflow's profile is not: it is linked to none.
+    // The skin's selected id names a Profile the Library has, which the cafe Shot's Workflow's profile is not: it is linked to none.
     await poll(async () => (await api.call("GET", `/profiles/${encodeURIComponent(SKIN_SELECTED)}`)).status).toBe(200);
     expect(await viewShot("linked-cafe-shot")).toMatchObject({ machine: { id: cafeMachine.machine.id }, beanBatch: { id: batch.id }, grinder: { id: cafeGrinder.id }, profile: null });
 
@@ -234,7 +234,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     expect(await listed(`profileId=${encodeURIComponent(LONDONIUM)}&machineId=${machine.machine.id}`)).toEqual(["streamline-shot"]);
   });
 
-  it("links a Shot to the Profile whose steps are its own as they are before one whose value-0 limiters it holds as none", async () => {
+  it("links a Shot to the Profile with its target weight first, then the one whose steps are its own as they are before one whose value-0 limiters it holds as none", async () => {
     const location = await api.createLocation("Copied cafe", "America/Chicago");
     const machine = await api.createMachine("Copied cafe 1", location.id);
     const tablet = load(machine, "26061");
@@ -257,6 +257,16 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     expect((await viewShot("copied-copy-yield")).profile?.id).toBe(copiedId);
     expect(await listed(`profileId=${encodeURIComponent(keptId)}`)).toEqual(["copied-kept"]);
     expect(new Set(await listed(`profileId=${encodeURIComponent(copiedId)}`))).toEqual(new Set(["copied-copy", "copied-copy-yield"]));
+
+    // A copy saved with another target weight: a Shot holding the copy's steps and the original's target weight is the
+    // original's, as streamline-js sends every profile it loads with its value-0 limiters null.
+    const original = (await tablet.addProfile({ ...withLimiter(derivedProfile("Weighed copy bloom", 4.45), { value: 0, range: 0.6 }), target_weight: 36 })).profile as Record_;
+    const reweighed = (await tablet.addProfile({ ...withLimiter(original, null), title: "Weighed copy bloom 40", target_weight: 40 })).profile as Record_;
+    const originalId = await libraryProfileId("Weighed copy bloom");
+    await libraryProfileId("Weighed copy bloom 40");
+    tablet.pullShot(shotWith("copied-original-weight", "26061", {}, { ...reweighed, target_weight: 36 }));
+    await poll(async () => (await api.call("GET", "/shots/copied-original-weight")).status).toBe(200);
+    expect((await viewShot("copied-original-weight")).profile?.id).toBe(originalId);
   });
 
   it("refuses to hard-delete a Profile a Shot pulled through streamline-js used, on the server and on the tablet that has yet to send the Shot", async () => {

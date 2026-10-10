@@ -146,13 +146,15 @@ Shot to the Library's Bean Batch, Grinder and Profile it used
   migration, which the indexes on the steps use): streamline-js sends every
   profile it loads into the Workflow so (`updateWorkflow` in
   `streamline-js:src/modules/api.js`), while the profile's record keeps it,
-  and sets its target weight to the yield. A Profile whose steps are the
-  Shot's as they are, limiters included, comes before one only compared
-  alike, with the same target weight first, then as the only one: a copy
-  saved of a profile streamline-js loaded keeps its limiters as null. So
-  where the Library has both such a copy and the profile it was made from,
-  with the same target weight, a Shot pulled through streamline-js with
-  either is linked to the copy, as the two record the same. The hard
+  and sets its target weight to the yield. Among the Profiles matching, one
+  with the Shot's target weight comes first, the one whose steps are the
+  Shot's as they are, limiters included, before one only compared alike;
+  failing that, the only one whose steps are the Shot's as they are;
+  failing that, the only one. A copy saved of a profile streamline-js
+  loaded keeps its limiters as null, so where the Library has both such a
+  copy and the profile it was made from, a Shot pulled through
+  streamline-js with either is linked to the one with its target weight,
+  and to the copy when both have it, as the two record the same. The hard
   delete's check of whether a Shot names a Profile, and the plugin's,
   compare steps the same way. A skin's other changes, such as
   streamline-js's saved brew temperature written into every step, make a

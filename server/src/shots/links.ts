@@ -120,14 +120,15 @@ function workflowProfileSql(alias: string): Prisma.Sql {
  * The id of the Library Profile the Shot of `shots` aliased `alias` was
  * pulled with, or null: the one whose id its Workflow's profile hashes to,
  * holding the same steps (`stepsKeySql`) and the rest of what Decaid hashes.
- * A skin sets the Workflow's profile's target weight to the Shot's yield, so
- * a Profile with another target weight is the Shot's when it is the only
- * one matching it but for that. A Profile whose steps are the Shot's as
- * they are, limiters of value 0 and all, is its before one whose steps are
- * only compared alike, as a copy of a profile a skin loaded keeps the
- * limiters as the skin sent them: first with the same target weight, then
- * as the only such Profile. The Profiles' steps are found through their
- * index.
+ * A Profile with the Shot's target weight comes first, the one whose steps
+ * are the Shot's as they are, limiters of value 0 and all, before one whose
+ * steps are only compared alike, as a copy of a profile a skin loaded keeps
+ * the limiters as the skin sent them. Failing that, the only Profile whose
+ * steps are the Shot's as they are; failing that, the only Profile
+ * matching: a skin sets the Workflow's profile's target weight to the
+ * Shot's yield. Steps the same as they are weigh less than the target
+ * weight, as streamline-js sends every profile it loads with its value-0
+ * limiters null. The Profiles' steps are found through their index.
  */
 export function shotProfileSql(alias: string): Prisma.Sql {
   const shot = workflowProfileSql(alias);
