@@ -355,7 +355,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const grinder = own(tablet.grinders())[0]!;
     await tablet.editGrinder(grinder.id, { archived: false });
     await expect.poll(() => heldIds(uptownTablet.grinders(), false).length, { timeout: 15_000 }).toBe(uptownOffers.grinders.length + 1);
-    // Its tablet is written the Grinder's global id apart from Uptown's tablet, once its edit is taken in.
+    // Its tablet is written the Grinder's global id by a write of its own, apart from Uptown's tablet's.
     await alike((held) => heldIds(held.grinders(), false), tablet, uptownTablet);
   });
 
@@ -376,6 +376,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     // report of the grinder archived, not only one read before.
     const archived = tablet.grinders().find((grinder) => grinder.id !== context(tablet).grinderId)!;
     const kept = tablet.grinders().find((grinder) => grinder.id === context(tablet).grinderId)!;
+    expect(archived.model).not.toBe(kept.model);
     await tablet.editGrinder(archived.id, { archived: true });
     await expect.poll(async () => (await captured(traveller, "grinders")).find((grinder) => grinder.id === archived.id)?.archived, { timeout: 10_000 }).toBe(true);
     expect((await move(traveller, cafe)).status).toBe(201);
