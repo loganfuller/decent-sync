@@ -65,10 +65,10 @@ export const KIND_NAMES: Readonly<Record<WrittenKind, string>> = {
  * welcome, nor between a report of its beans and the report of its batches
  * the plugin sends after it, and only while the Machine takes part where
  * the latest reports were all taken in: at their Location, with sharing on
- * since they were. A bean the tablet already holds, entered there or before
- * it joined, is then linked to the Library's Bean rather than written to it
- * again, nor while the connection's latest Workflow was taken in elsewhere
- * (`workflowAt`). Nothing is written while the Machine is capture-only. When it finds
+ * since they were, and where its latest Workflow was taken in too, once it
+ * sent one (`workflowAt`). A bean the tablet already holds, entered there or
+ * before it joined, is then linked to the Library's Bean rather than written
+ * to it again. Nothing is written while the Machine is capture-only. When it finds
  * the Machine taking part elsewhere, as once it has moved, or had sharing
  * turned off and on again, it asks the plugin for its collections afresh
  * (`requestCollections`), once for each place it finds, and writes once
@@ -122,7 +122,8 @@ export class TabletWriter {
   /**
    * Where the connection's latest Workflow was taken in (`standing`), null
    * while its Machine was capture-only, and undefined until one is, as on a
-   * connection whose plugin sends none. Nothing is written while it is not
+   * connection whose plugin sends none, or once one was set aside as it
+   * cannot be stored, which waits for nothing more. Nothing is written while it is not
    * where the lists were taken in, as when the Machine moved between the
    * Workflow and the lists the plugin sends after it on a welcome: the
    * plugin is asked for them afresh, so a joining tablet's Workflow is judged
@@ -208,8 +209,12 @@ export class TabletWriter {
     this.wake();
   }
 
-  /** A Workflow from this connection was stored, and taken in there (`standing`), or nowhere, as its Machine was capture-only. */
-  workflowReported(takenInAt: string | null): void {
+  /**
+   * A Workflow from this connection was stored, and taken in there
+   * (`standing`), or nowhere, as its Machine was capture-only; or,
+   * undefined, set aside as it cannot be stored.
+   */
+  workflowReported(takenInAt: string | null | undefined): void {
     this.workflowAt = takenInAt;
     this.wake();
   }

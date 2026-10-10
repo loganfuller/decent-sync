@@ -789,12 +789,14 @@ batches, grinders and profiles, which the plugin sends on every welcome, have
 been taken in, nor between a report of its beans and the report of its batches the plugin
 sends after it, so a change the tablet made to both, such as deleting a bean
 with its batches, is taken in whole first. It then writes only while the
-connection still holds the Machine and the Machine is at the Location the
-latest reports were all taken in at, and its latest Workflow, once it has
-sent one, was taken in there too: one taken in elsewhere, as when the
-Machine joined a Location between the Workflow and the lists the plugin
-sends after it, has the plugin asked for them afresh, so a joining
-tablet's Workflow is judged there before anything is written. So a bean the tablet holds
+connection still holds the Machine and the Machine takes part where the
+latest reports were all taken in: at their Location, with its sharing not
+turned off and on again since (`standing` in `join-plan.ts`). Its latest
+Workflow, once it has sent one, must have been taken in there too: one taken
+in elsewhere, as when the Machine joined a Location between the Workflow
+and the lists the plugin sends after it, has the plugin asked for them
+afresh, so a joining tablet's Workflow is judged there before anything is
+written. One set aside as it cannot be stored is waited for no more. So a bean the tablet holds
 already, entered there or before it joined, is linked to the Library's Bean
 before anything is written, rather than written to it again. A tablet that
 was offline catches up once its reports on reconnecting are taken in. The
@@ -802,9 +804,10 @@ writer also looks whenever any Library change is notified, on any instance,
 and when the instance listens for notifications again after losing its
 connection.
 
-When the writer finds the Machine at another Location than the one its
-tablet's latest reports were taken in at, as once it has moved, it sends the
-plugin `requestCollections`, once for each Location it finds it at, and the
+When the writer finds the Machine taking part elsewhere than where its
+tablet's latest reports were taken in, as once it has moved or had its
+sharing turned off and on again, it sends the plugin `requestCollections`,
+once for each place it finds it taking part, and the
 plugin sends its latest Workflow again, then reads every collection again
 and sends each in full, as on a welcome. Once those reports are taken in at
 the new Location, the tablet is written what that Location offers, and what

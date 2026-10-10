@@ -292,7 +292,7 @@ function viewSource(
 
 type ItemContent = { content: Prisma.JsonValue } | null;
 
-/** A Library item, or a Location's settings, as a Conflict names it, and as a Machine's page lists what it brought. */
+/** A Library item, or a Location's settings, as a Conflict names it. */
 export function itemView(conflict: {
   beanId: string | null;
   batchId: string | null;

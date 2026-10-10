@@ -17,9 +17,8 @@ import { SharingController } from "./sharing.controller.js";
 import { SharingService } from "./sharing.service.js";
 
 /**
- * The Library's REST API, each Location's shared settings', what each
- * Machine brought as it joined a Location, and each Machine's capture-only
- * switch. Tablets' reports are taken into the Library as
+ * The Library's REST API, each Location's shared settings', and each
+ * Machine's capture-only switch. Tablets' reports are taken into the Library as
  * they are stored (`CollectionsService`), and it is written to tablets by
  * the sync gateway's writers (`TabletWriter`).
  */

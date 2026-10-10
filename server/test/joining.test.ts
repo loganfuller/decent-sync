@@ -535,6 +535,25 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     await expect.poll(() => sent("write").map((write) => (write as { kind?: unknown }).kind), { timeout: 10_000 }).toEqual(["workflow"]);
   });
 
+  it("writes to a joining tablet once a Workflow it sends again is set aside, as it cannot be stored, rather than waiting for it", async () => {
+    const cafe = await api.createLocation("Setting aside cafe", "UTC");
+    const created = (await (await api.call("POST", "/beans", { content: { roaster: "Roux", name: "Setting aside House" } })).json()) as { bean: { id: string } };
+    expect((await api.call("POST", "/bean-batches", { beanId: created.bean.id, content: { roastDate: "2026-10-05" }, locations: [{ locationId: cafe.id }] })).status).toBe(201);
+    const machine = await api.createMachine("Setting aside traveller");
+    const raw = await RawConnection.welcomed(server.url, helloWith(machine.token, { tabletId: randomUUID(), machine: { model: "DE1Pro", serial: "23094" } }));
+    raws.push(raw);
+    const workflow = (context: Record_) => ({ type: "workflow", id: randomUUID(), observedAt: new Date().toISOString(), workflow: { ...workflowFixture(), context } });
+    const report = (name: string) => ({ type: "collection", id: randomUUID(), name, available: true, value: [], updatedAt: [] });
+    const sent = (type: string) => raw.messages.filter((message) => (message as { type?: unknown }).type === type);
+    await raw.deliver(workflow({ targetDoseWeight: 18 }));
+    expect((await move(machine, cafe)).status).toBe(201);
+    for (const name of ["beans", "beanBatches", "grinders", "profiles"]) await raw.deliver(report(name));
+    await expect.poll(() => sent("requestCollections").length, { timeout: 10_000 }).toBe(1);
+    // The Workflow it sends again holds what PostgreSQL refuses to store, so it is set aside, and the cafe's Bean is written.
+    await raw.deliver(workflow({ targetDoseWeight: 18, notes: "Bright\u0000, sweet" }));
+    await expect.poll(() => sent("write").some((write) => (write as { kind?: unknown }).kind === "bean"), { timeout: 10_000 }).toBe(true);
+  });
+
   it("judges the batches a joining tablet holds as joining though its report of them came before its beans'", async () => {
     const uptown = await api.createLocation("Ordering Uptown", "UTC");
     const first = await api.createMachine("Ordering Uptown 1", uptown.id);

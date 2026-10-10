@@ -375,10 +375,17 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       case "steam":
         return this.captureRecord(session, message, text, () => this.steamRecords.store(message, reporter));
       case "workflow":
-        return this.capture(session, message, text, async () => {
-          const takenInAt = await this.machineEvents.storeWorkflow(message, reporter);
-          if (takenInAt !== undefined) session.writer?.workflowReported(takenInAt);
-        });
+        return this.capture(
+          session,
+          message,
+          text,
+          async () => {
+            const takenInAt = await this.machineEvents.storeWorkflow(message, reporter);
+            if (takenInAt !== undefined) session.writer?.workflowReported(takenInAt);
+          },
+          // Set aside, it counts as stored, though taken in nowhere: the writer no longer waits for it.
+          () => session.writer?.workflowReported(undefined),
+        );
       case "machineState":
         return this.capture(session, message, text, () => this.machineEvents.storeMachineState(message, reporter));
       case "collection":
@@ -427,7 +434,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * other failure is thrown, which closes the connection with 1011 and leaves
    * the delivery unacknowledged.
    */
-  private async capture(session: Session, delivery: CaptureDelivery, text: string, store: () => Promise<void>): Promise<void> {
+  private async capture(session: Session, delivery: CaptureDelivery, text: string, store: () => Promise<void>, setAside?: () => void): Promise<void> {
     try {
       await store();
     } catch (error) {
@@ -435,6 +442,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       if (!failure) throw error;
       await this.setAside.record(session.machine!.id, delivery, text, failure);
       this.logger.warn(`Set aside a ${delivery.type} delivery from ${this.describe(session)} that cannot be stored: ${failure.message} (${failure.sqlState})`);
+      setAside?.();
     }
     this.acknowledge(session, delivery.id, null);
   }
@@ -528,7 +536,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         );
       }
     } else if (answer.type === "writeRefused") {
-      if (write && write.localId !== null && answer.status === 404) {
+      if (write?.type === "write" && write.localId !== null && answer.status === 404) {
         // The record is gone from the tablet, as when it was deleted there just as it was written: its next report shows it.
         this.logger.log(`The tablet of ${this.describe(session)} no longer holds ${quoted(answer.kind)} ${answer.globalId}; its next report shows it gone`);
       } else if (write) {
