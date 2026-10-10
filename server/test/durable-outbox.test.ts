@@ -149,7 +149,10 @@ describe("The durable outbox", () => {
     const storage = new PluginStorage();
     const decaid = derivedDe1Pro({ serial: "93002" });
     let stalled = false;
-    const first = load(machine, storage, decaid, { stallUpload: (frame) => stalled && (frame as Frame).type === "machineState" });
+    const later = derivedWorkflow({ targetYield: 41 });
+    // The later change never reaches the server, even if the plugin sends it once it gives up on keeping it.
+    const isLater = (frame: unknown) => (frame as Frame).type === "workflow" && JSON.stringify((frame as Frame).workflow) === JSON.stringify(later);
+    const first = load(machine, storage, decaid, { stallUpload: (frame) => isLater(frame) || (stalled && (frame as Frame).type === "machineState") });
     await expect.poll(() => machineEventsSent(first).length).toBe(2);
     const dialledIn = derivedWorkflow({ targetYield: 40 });
     first.setWorkflow(dialledIn);
@@ -164,13 +167,14 @@ describe("The durable outbox", () => {
     // Decaid stops answering, so the writes recording its acknowledgment wait behind the keeping of a later change, which
     // is unanswered; the plugin sends them only as it unloads.
     first.holdStorageAnswers();
-    const later = derivedWorkflow({ targetYield: 41 });
     first.setWorkflow(later);
     stalled = false;
     first.resumeUpload();
     await expect.poll(() => (first.received as Frame[]).some((reply) => reply.type === "ack" && reply.id === pouring.id)).toBe(true);
+    // Ends the connection, so the unload need not wait for the stalled frame.
+    first.dropConnections();
     await first.unload();
-    const acknowledgedIds = machineEventsSent(first).map((frame) => frame.id!);
+    const acknowledgedIds = machineEventsSent(first).filter((frame) => !isLater(frame)).map((frame) => frame.id!);
     // Plugin storage holds none of them.
     const held = (storage.readThroughApi(undefined) as string[]).map((key) => String(storage.read(key)));
     expect(acknowledgedIds.filter((id) => held.some((value) => value.includes(`"${id}"`)))).toEqual([]);
@@ -316,12 +320,15 @@ describe("The durable outbox", () => {
       "Could not keep a delivery, so it is sent without being kept in Decaid's plugin storage: Decaid's plugin storage did not answer the write of a delivery to keep within 10 s.",
     ]);
 
-    // Once Decaid answers again, deliveries wait for it as before.
+    // Once Decaid answers again, deliveries wait for it as before: one it then leaves unanswered fails again.
     release();
+    await new Promise((resolve) => setImmediate(resolve));
+    const releaseAgain = tablet.holdStorageAnswers();
     tablet.reportState("sleeping", "idle");
+    await tablet.waitForLogs(/^Could not keep a delivery/, 2);
+    releaseAgain();
     await expect.poll(async () => (await transitions(machine)).at(-1)).toEqual(["sleeping", "idle"]);
     await acknowledged(tablet);
-    expect(tablet.logs.filter((log) => log.startsWith("Could not keep"))).toHaveLength(1);
   });
 
   it(`keeps at most the newest ${MAX_KEPT} while the server is unreachable, in plugin storage and across a reload`, { timeout: 120_000 }, async () => {

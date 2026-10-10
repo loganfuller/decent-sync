@@ -34,8 +34,10 @@ export class TabletId {
 
   /**
    * The tablet's id: the one in plugin storage, or, if that key was never
-   * written, a new one, once Decaid has written it there. Rejects, saying
-   * why, if Decaid refuses or does not answer in time; reading again later
+   * written, a new one, once Decaid has written it there, or, while Decaid
+   * leaves writes unanswered (storage.ts), once it is sent: a Decaid that
+   * cannot write it gives the tablet a new id each load. Rejects, saying why,
+   * if Decaid refuses or does not answer in time; reading again later
    * retries.
    */
   read(): Promise<string> {
