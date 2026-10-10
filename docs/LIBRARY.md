@@ -236,6 +236,10 @@ never deleted, so their Shots still find it (Writing to tablets, below).
 - `machines.sharing` and `machines.sharing_since`: whether a Machine takes
   part in the Library at its Location, on unless an Admin turned it off,
   and when it was last turned back on (Who takes part, above).
+- `tablet_refusals` and `tablet_last_applied`: each change a tablet
+  refused, with Decaid's status and answer, until one of the same item or
+  record is carried out there, and the last change it applied, timed by
+  PostgreSQL's clock (Sharing status, below).
 - `conflicts`: each edit of a field that lost to another made without seeing
   it (ADR-0020): the item, the field, the losing value (null where it cleared
   the field), where it came from and when it was made, as a version keeps
@@ -856,13 +860,21 @@ whose local id the map holds as another item, is not recorded.
 A refusal, an answer that cannot be recorded, no answer within 300 s, or an
 item due again with the same fields it was last written, expecting the record
 to hold the same values, found due at every
-look since, which writing again would not change, skips that item for the
-rest of the connection; the other writes go on, and the tablet's next
-connection tries it again. An update Decaid answers with 404 found the record
+look since, which writing again would not change, skips that item while the
+same is due to it: the fields, the values expected, and the decisions of the
+Location's state and of the item's content the write carries
+(`changeSignature` in `sharing-status.ts`). The other writes go on. Once
+anything of that changes, as when the item is edited, the Location changes
+it or the tablet's record changes, or it stops being due, the item is
+written again on the same connection; and the tablet's next connection
+tries it again whatever changed. A refusal of a write, delete or leave-out
+the connection awaits is kept in the tablet's sharing status, with Decaid's
+answer (Sharing status, below). An update Decaid answers with 404 found the record
 gone, deleted on the tablet just as the server wrote it, as when a barista
 deletes a bean with its batches and a report of the batches, read after the
 delete, comes before one of the beans: it is skipped the same way, but not
-taken for a refusal, as the tablet's next report shows the delete. An item due
+taken for a refusal, as the tablet's next report shows the delete, after
+which the item is due otherwise. An item due
 again with other fields, as when the second request of a batch's create
 failed or the Location changed the item meanwhile, or expecting other values,
 as when the plugin left a field the tablet had changed as it was and that
@@ -983,6 +995,44 @@ one through DYE2, which deletes its batches first, then the bean
 (`dye2:dye2-plugin/src/utils/bean-delete.ts`); the server reads the batches
 and the bean gone from the tablet's next reports.
 
+### Sharing status
+
+Each Machine's sharing status (`server/src/library/sharing-status.ts`) is
+read for the tablet of the connection holding it, which its writer writes
+to, unless that connection is mismatched; otherwise, as while it is
+offline, for the tablet its latest connection came from, which may be a
+mismatched connection's that reported its hardware:
+
+- **Changes waiting:** what that tablet is due where its Machine takes part
+  now, planned as its writer plans it (`changesDue` in `tablet-due.ts`),
+  from what the tablet last reported, so changes queued while it is offline
+  count, with each batch to be created once its Bean's record is
+  (`batchesAwaitingBeans` in `holdings.ts`). A change it refused counts as
+  refused rather than waiting while the same is due, and so does a batch
+  waiting for a Bean whose create it refused. None is counted while the
+  Machine is capture-only, or no tablet has connected.
+- **The last change applied:** the last write the server recorded the
+  tablet's answer to, delete it answered `deleted`, or record it set aside,
+  and when, by PostgreSQL's clock (`tablet_last_applied`), whether or not
+  its connection still awaited the answer.
+- **The changes refused:** each write, delete or leave-out the tablet
+  refused while its connection awaited the answer, with Decaid's HTTP
+  status and what it answered, the latest refusal of each item or record
+  kept (`tablet_refusals`). The status is null where there is none: Decaid
+  did not answer, or the plugin did not ask it, as for a delete a Shot it
+  has yet to send names. A write the writer skips for another reason is
+  kept the same way, with no status and why, so nothing waits unexplained:
+  one answered with a record that is not the item's or that the server
+  cannot store, and one still due as it was once written, which writing
+  again would not change. A write the plugin does not answer within 300 s
+  is skipped too, but not kept, and counts as waiting. One is forgotten
+  once a change of the same item or record is carried out there, and as
+  the tablet's writer finds it no longer due (`pruneRefusals`), as when the
+  item stopped being offered; until then, one no longer due is not shown.
+
+Everything is in PostgreSQL, so every instance reads the same, whichever
+holds the tablet's connection.
+
 ## Steam, hot water and rinse settings
 
 A Machine's Workflow stays its own, but for its steam, hot water and rinse
@@ -1087,8 +1137,8 @@ an edit lost (`recordSettingsWritten`).
 
 Decaid refuses (500, `DeviceNotConnectedException`) to change steam, hot
 water or rinse settings while no machine is connected to the tablet, as the
-change goes to the machine: the write is refused, and skipped for the rest
-of the connection, as any refused write is. A tablet often connects before
+change goes to the machine: the write is refused, and skipped until what is
+due changes or the tablet reconnects, as any refused write is. A tablet often connects before
 its machine, and its plugin reconnects once the machine reports its
 hardware. One whose machine goes away, as when it is powered off for the
 night while its tablet stays connected, is seen gone by the plugin's next
@@ -1372,6 +1422,23 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `GET /api/machines/:id` and `GET /api/machines` give each Machine's
   `sharing`, and `captureOnly`, why it is a Capture-only Machine:
   `noLocation`, `sharingOff` or both, none while it takes part.
+- `GET /api/machines/:id/sharing-status` returns `{ status }`, the
+  Machine's sharing status (above): `{ tabletId, waiting, lastApplied,
+  refused }`. `tabletId` is the tablet it is read for, or null if none has
+  connected. `waiting` is how many changes that tablet is
+  due and has not refused, or null while it is written nothing, as the
+  Machine is capture-only or no tablet has connected. `lastApplied` is the
+  last change it applied, or null, and `refused` the changes it refused that
+  are still due, the latest refused first (Sharing status, above), each `{ change, kind, item,
+  localId }`: `change` is `write`, `delete` or `leaveOut`; `kind` a Library
+  kind, `settings` or `workflow`; `item` the item, `{ kind, id, name }`,
+  named as a Conflict's is, or for the Workflow "Grinder and batch", null
+  for a record set aside, which is none of the Library's, or an item
+  deleted since; and `localId` Decaid's id for the record, null for a
+  create, the settings and the Workflow. `lastApplied` adds `appliedAt`,
+  and each refusal `status`, Decaid's HTTP status or null if it gave none,
+  `error`, what it answered or why, and `refusedAt`. 404 for no such
+  Machine.
 - `PUT /api/machines/:id/settings-sharing`, with `{ sharesSettings }`,
   switches whether the Machine shares its Location's settings, and returns
   the same. 400 without a boolean, 404 for no such Machine, 403 for Staff
@@ -1395,8 +1462,10 @@ Admin, or Staff working there, changes, with their Conflicts and history,
 and its Machines, each with a switch for sharing them, a capture-only one
 flagged (`web/src/components/location-settings.tsx`). A Machine's page says whether
 it shares the Library at its Location or is capture-only, and why, with a
-switch an Admin turns its sharing off and on with, once they confirm
-(`web/src/components/machine-sharing.tsx`). The Beans, Bean Batches and
+switch an Admin turns its sharing off and on with, once they confirm, and
+its sharing status, loaded as often as its own status: the changes waiting
+for its tablet, the last it applied, and those it refused, with Decaid's
+answer (`web/src/components/machine-sharing.tsx`). The Beans, Bean Batches and
 Grinders lists create them, and each item's page edits it, Archives or
 restores it, and, for an Admin, deletes it; a batch's page adds it at each
 Location and finishes it there, and sets its remaining weight there
@@ -1409,7 +1478,6 @@ with Decaid.
 
 ## Not yet
 
-- Recording refused writes, and each Machine's sharing status: ticket #91.
 - Linking Shots to the Library's batches and Grinders: ticket #92.
 
 Decaid hides a bundled Profile a release no longer bundles, or bundles anew
@@ -1428,7 +1496,8 @@ Profiles.
 `server/test/library-management.test.ts`,
 `server/test/library-profile-management.test.ts`,
 `server/test/location-settings.test.ts`, `server/test/joining.test.ts` and
-`server/test/capture-only.test.ts` cover this through Seam 1, with the
+`server/test/capture-only.test.ts` and `server/test/sharing-status.test.ts`
+cover this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL;
 `server/test/bean-intake.test.ts`, `server/test/batch-intake.test.ts`,
 `server/test/grinder-intake.test.ts`, `server/test/profile-intake.test.ts`,
@@ -1446,5 +1515,5 @@ against those recorded on Decaid's Linux release
 `profile-writes-v0.8.7/` and `workflow-writes-v0.8.7/`); and
 `e2e/library.spec.ts`, `e2e/library-management.spec.ts`,
 `e2e/profile-management.spec.ts`, `e2e/conflicts.spec.ts`,
-`e2e/location-settings.spec.ts` and `e2e/capture-only.spec.ts` the
-management interface.
+`e2e/location-settings.spec.ts`, `e2e/capture-only.spec.ts` and
+`e2e/sharing-status.spec.ts` the management interface.

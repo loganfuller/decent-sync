@@ -546,6 +546,13 @@ export class SimulatedTablet {
   peakPendingOutboundBytes = 0;
   /** Sends refused for going past the pending outbound limit. */
   refusedSends = 0;
+  /**
+   * Picks the plugin's writes (any request but a `GET`) Decaid refuses,
+   * changing nothing, as a Decaid that cannot take a record does: answered
+   * with the status and body returned, or carried out as Decaid does where
+   * it returns undefined. Undefined carries out every write.
+   */
+  refuseWrites?: (request: { method: string; route: string; body: unknown }) => DecaidAnswer | undefined;
   /** The plugin's id, which names its storage in Decaid's store API. */
   private readonly pluginId: string;
   private readonly timeScale: number;
@@ -978,7 +985,11 @@ export class SimulatedTablet {
     this.requests.push(route);
     // Decaid's fetch sends a request's method, headers and body as given (plugin_manager.dart).
     const { method = "GET", headers = {}, body } = (init ?? {}) as { method?: string; headers?: Record<string, string>; body?: unknown };
-    if (method.toUpperCase() !== "GET") this.writes.push(`${method.toUpperCase()} ${route}`);
+    if (method.toUpperCase() !== "GET") {
+      this.writes.push(`${method.toUpperCase()} ${route}`);
+      const refusal = this.refuseWrites?.({ method: method.toUpperCase(), route, body: typeof body === "string" ? JSON.parse(body) : body });
+      if (refusal) return Promise.resolve(response(refusal.status, JSON.stringify(refusal.body)));
+    }
     return this.answer(url, method.toUpperCase(), headers, body);
   }
 

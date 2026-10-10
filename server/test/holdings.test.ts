@@ -1,6 +1,15 @@
 import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { type HeldRecord, type LocationBatch, type LocationOffer, type ShownProfile, type TabletHoldings, plannedWrites, writeKey } from "../src/library/holdings.js";
+import {
+  type HeldRecord,
+  type LocationBatch,
+  type LocationOffer,
+  type ShownProfile,
+  type TabletHoldings,
+  batchesAwaitingBeans,
+  plannedWrites,
+  writeKey,
+} from "../src/library/holdings.js";
 
 // What a tablet should hold for its Location (ADR-0008), through the pure
 // module's interface: the writes, in order, that bring a tablet's Beans,
@@ -359,10 +368,20 @@ describe("plannedWrites", () => {
     ]);
   });
 
-  it("leaves out the items skipped for the connection", () => {
+  it("leaves out the items skipped", () => {
     const skipped = new Set([writeKey("bean", BEANS[0])]);
     expect(plannedWrites(offer([BEANS[0], BEANS[1]]), holding([], []), skipped)).toEqual([
       { kind: "bean", globalId: BEANS[1], localId: null, fields: beanContent, decidedAt: DECIDED, contentDecidedAt: EDITED },
     ]);
+  });
+});
+
+describe("batchesAwaitingBeans", () => {
+  it("names the Bean of each batch the Location offers that waits for the tablet's record of its Bean, and none it holds or does not offer", () => {
+    const offered = offer([BEANS[0], BEANS[1]], [batch(BATCHES[0]), batch(BATCHES[1], { beanId: BEANS[1] }), batch("9c0d1e2f-3a4b-4c5d-8e6f-7a8b9c0d1e2f", { offered: false })]);
+    expect(batchesAwaitingBeans(offered, holding([], []))).toEqual([BEANS[0], BEANS[1]]);
+    // A batch whose Bean the tablet holds is planned itself, and one it holds is written as any record.
+    expect(batchesAwaitingBeans(offered, holding([heldBean(BEANS[0])], []))).toEqual([BEANS[1]]);
+    expect(batchesAwaitingBeans(offered, holding([], [heldBatch(BATCHES[0])]))).toEqual([BEANS[1]]);
   });
 });

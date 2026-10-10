@@ -294,6 +294,16 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     expect(writes.map((write) => write.globalId)).toEqual([(await libraryBean("Refused")).id, (await libraryBean("Answered Wrongly")).id, next.id]);
     expect(server.output()).toContain(`did not write "bean" ${refused!.globalId}: Decaid answered 400`);
     expect(server.output()).toContain(`answered the write of Bean ${wrong!.globalId} with a record that is not that Bean's`);
+    // Both are kept in its Machine's sharing status, the refusal with Decaid's answer.
+    const { status } = (await (await api.call("GET", `/machines/${second.machine.id}/sharing-status`)).json()) as {
+      status: { refused: { item: { id: string } | null; status: number | null; error: string }[] };
+    };
+    expect(status.refused.map(({ item, status, error }) => ({ id: item?.id, status, error })).sort((a, b) => String(a.id).localeCompare(String(b.id)))).toEqual(
+      [
+        { id: refused!.globalId, status: 400, error: JSON.stringify({ error: "type 'Null' is not a subtype of type 'String' in type cast" }) },
+        { id: wrong!.globalId, status: null, error: "Answered with a record that is not this Bean's" },
+      ].sort((a, b) => a.id.localeCompare(b.id)),
+    );
     await raw.close();
 
     // The same tablet reconnects, and is asked for both again, each once the one before it is answered.

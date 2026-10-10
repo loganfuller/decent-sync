@@ -149,17 +149,17 @@ export interface PlannedLeaveOut {
 /** What the writer does next to a tablet: a write, a delete, or setting aside a record the Library leaves out. */
 export type PlannedChange = PlannedWrite | PlannedDelete | PlannedLeaveOut;
 
-/** The key a planned delete is skipped under, for the rest of a connection. */
+/** The key a planned delete is skipped and its refusal kept under. */
 export function deleteKey(kind: DeletedKind, localId: string): string {
   return `delete:${kind}:${localId}`;
 }
 
-/** The key setting aside a record the Library leaves out is skipped under, for the rest of a connection. */
+/** The key setting aside a record the Library leaves out is skipped and its refusal kept under. */
 export function leaveOutKey(kind: DeletedKind, localId: string): string {
   return `leaveOut:${kind}:${localId}`;
 }
 
-/** The key a write's item is skipped under, for the rest of a connection. */
+/** The key a write's item is skipped and its refusal kept under. */
 export function writeKey(kind: WrittenKind, globalId: string): string {
   return `${kind}:${globalId}`;
 }
@@ -255,6 +255,18 @@ export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skippe
     pushUpdate(writes, "profile", record.itemId, record, record.record.visibility === "visible" ? { visibility: "hidden" } : {}, record.decidedAt ?? null);
   }
   return writes.filter((write) => !skipped.has(writeKey(write.kind, write.globalId)));
+}
+
+/**
+ * The Bean of each batch the Location offers that the tablet lacks while it
+ * lacks the Bean's record too, one for each such batch: `plannedWrites`
+ * plans the batch once the Bean's record is written, so it is waiting on
+ * that write.
+ */
+export function batchesAwaitingBeans(offer: LocationOffer, held: TabletHoldings): string[] {
+  const beans = new Set(held.beans.map((record) => record.itemId));
+  const batches = new Set(held.batches.map((record) => record.itemId));
+  return offer.batches.filter((batch) => batch.offered && !batches.has(batch.id) && !beans.has(batch.beanId)).map((batch) => batch.beanId);
 }
 
 /**

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { LeaveOut, LibraryDelete, LibraryWrite, WrittenKind } from "@decent-sync/protocol";
-import { type PlannedChange, deleteKey, leaveOutKey, writeKey } from "../library/holdings.js";
 import type { SeenDecision } from "../library/intake.js";
+import { type TabletChange, changeKey, changeSignature, pruneRefusals, recordRefused, tabletChange } from "../library/sharing-status.js";
 import { type WrittenTablet, tabletDue } from "../library/tablet-due.js";
 import type { PrismaService } from "../prisma.service.js";
 
@@ -18,12 +18,15 @@ const ANSWER_TIMEOUT_MS = 300_000;
  * A write awaiting its answer, with what the record it answers with has seen
  * once written, as it was planned (`PlannedWrite`): the Location's decision
  * its record holds, and that Location; and the latest edit of the item's
- * content, which its record holds.
+ * content, which its record holds. With the change it makes, as the
+ * tablet's sharing status records it, and what was due as it was planned
+ * (`changeSignature`), which a refusal is kept with.
  */
 export interface AwaitedWrite {
   write: LibraryWrite | LibraryDelete | LeaveOut;
   seen: SeenDecision | null;
   contentSeen: Date | null;
+  change: TabletChange & { signature: string };
 }
 
 /**
@@ -32,6 +35,9 @@ export interface AwaitedWrite {
  * on the same connection a little later.
  */
 export type WriteOutcome = "written" | "refused" | "deferred";
+
+/** Why an item written that is still due as it was is skipped, as its sharing status shows it. */
+export const STILL_DUE_ONCE_WRITTEN = "Written, but its record still differs as it did: writing it again would change nothing";
 
 /** The Library lists whose reports are taken in before anything is written: what the tablet holds. */
 export type TakenInList = "beans" | "beanBatches" | "grinders" | "profiles";
@@ -80,7 +86,8 @@ export const KIND_NAMES: Readonly<Record<WrittenKind, string>> = {
  * Only the connection holding its Machine writes, and only a write its
  * connection awaits is answered, so a tablet is written one item at a
  * time. A write Decaid refuses, or the plugin does not answer in time, is
- * skipped for the rest of the connection, and tried again when the tablet
+ * skipped while the same is due to its item (`changeSignature`), and tried
+ * again once that changes, as when the item is edited, or when the tablet
  * reconnects; the other writes go on. So is one due again with the same
  * fields it was last written, found due at every look since, which writing
  * again would not change; an item due again with other fields, as when a second
@@ -98,10 +105,18 @@ export class TabletWriter {
    */
   private waiting: (AwaitedWrite & { settle: (outcome: WriteOutcome | "stopped" | "timedOut") => void }) | undefined;
   /**
-   * Items whose write, delete or leave-out was refused, or not answered, on this connection, or that writing did not change, by
-   * `writeKey`, `deleteKey` or `leaveOutKey`.
+   * Items whose write, delete or leave-out was refused, or not answered, on
+   * this connection, or that writing did not change, by `changeKey`, with
+   * what was due to them then (`changeSignature`): each is skipped while the
+   * same is due, and written again once that changes, or it is no longer due.
    */
-  private readonly skipped = new Set<string>();
+  private readonly skipped = new Map<string, string>();
+  /**
+   * Whether the tablet may still have refusals kept (`tablet_refusals`):
+   * until a look finds none left, from earlier connections or this one. While
+   * it may, each look forgets those of items no longer due (`pruneRefusals`).
+   */
+  private refusalsKept = true;
   /**
    * The fields last written to each item on this connection, by `writeKey`,
    * with the values the write expected the record to hold, kept while every
@@ -221,7 +236,9 @@ export class TabletWriter {
 
   /** The write with this id, if it awaits its answer, and what its answer has seen. */
   awaited(id: string): AwaitedWrite | undefined {
-    return this.waiting?.write.id === id ? { write: this.waiting.write, seen: this.waiting.seen, contentSeen: this.waiting.contentSeen } : undefined;
+    if (this.waiting?.write.id !== id) return undefined;
+    const { write, seen, contentSeen, change } = this.waiting;
+    return { write, seen, contentSeen, change };
   }
 
   /** The plugin answered a write, and its answer is recorded. Answers to other writes, such as late ones, are ignored. */
@@ -245,9 +262,8 @@ export class TabletWriter {
       const reportedAt = reports.every((at) => at === reports[0]) ? reports[0] : undefined;
       const now = Date.now();
       for (const [key, until] of this.deferred) if (until <= now) this.deferred.delete(key);
-      const excluded = this.deferred.size === 0 ? this.skipped : new Set([...this.skipped, ...this.deferred.keys()]);
       const found =
-        reports.includes(undefined) || this.awaitingBatches ? null : await tabletDue(this.prisma, this.tablet, reportedAt ?? null, excluded);
+        reports.includes(undefined) || this.awaitingBatches ? null : await tabletDue(this.prisma, this.tablet, reportedAt ?? null, new Set(this.deferred.keys()));
       if (this.stopped) return;
       /** Whether the connection's latest Workflow was taken in elsewhere than where the Machine takes part now. */
       const workflowBehind = found !== null && this.workflowAt !== undefined && this.workflowAt !== found.standing;
@@ -259,32 +275,46 @@ export class TabletWriter {
       // A report of the tablet's beans may have been taken in while this was read: what is due waits for its batches.
       const planned = this.awaitingBatches || workflowBehind ? null : (found?.writes ?? null);
       if (planned) {
-        // An item no longer due has not stayed due since it was written.
+        // An item no longer due has not stayed due since it was written, nor is it still refused.
         const stillDue = new Set(planned.map(changeKey));
         for (const key of this.lastWritten.keys()) if (!stillDue.has(key)) this.lastWritten.delete(key);
+        for (const key of this.skipped.keys()) if (!stillDue.has(key)) this.skipped.delete(key);
+        if (this.refusalsKept) {
+          // A deferred delete is left out of what is planned, but still due.
+          this.refusalsKept = (await pruneRefusals(this.prisma, this.tablet.tabletId, [...stillDue, ...this.deferred.keys()])) > 0;
+          if (this.stopped) return;
+        }
       }
-      const due = planned?.[0];
+      // The first not skipped, or due otherwise than when it was.
+      const due = planned?.find((change) => {
+        const skipped = this.skipped.get(changeKey(change));
+        return skipped === undefined || skipped !== changeSignature(change);
+      });
       if (!due) {
         if (this.again) continue;
         return;
       }
       const key = changeKey(due);
+      const change = { ...tabletChange(due), signature: changeSignature(due) };
       const item = "leaveOut" in due ? `${KIND_NAMES[due.kind]} record ${due.localId}` : `${KIND_NAMES[due.kind]} ${due.globalId}`;
       const fields = "delete" in due ? "delete" : "leaveOut" in due ? "leaveOut" : JSON.stringify({ fields: due.fields, expected: due.expected ?? null });
       if (this.lastWritten.get(key) === fields) {
-        this.log.warn(`Tablet ${this.tablet.tabletId} is still due ${item} once written; it is tried again once the tablet reconnects`);
-        this.skipped.add(key);
+        this.log.warn(`Tablet ${this.tablet.tabletId} is still due ${item} once written; it is tried again once it changes or the tablet reconnects`);
+        this.skipped.set(key, change.signature);
+        // Shown with the tablet's refusals, so it does not wait unexplained.
+        await recordRefused(this.prisma, this.tablet.tabletId, change, null, STILL_DUE_ONCE_WRITTEN);
+        this.refusalsKept = true;
         continue;
       }
       if ("leaveOut" in due) {
         // Its answer removes it from what the tablet is due, so it is not due again once set aside.
-        const outcome = await this.ask({ write: { type: "leaveOut", id: randomUUID(), kind: due.kind, localId: due.localId }, seen: null, contentSeen: null });
+        const outcome = await this.ask({ write: { type: "leaveOut", id: randomUUID(), kind: due.kind, localId: due.localId }, seen: null, contentSeen: null, change });
         if (outcome === "stopped") return;
         if (outcome === "timedOut") {
-          this.log.warn(`Tablet ${this.tablet.tabletId} did not answer setting aside ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once the tablet reconnects`);
+          this.log.warn(`Tablet ${this.tablet.tabletId} did not answer setting aside ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
         }
         if (outcome === "written") this.lastWritten.set(key, fields);
-        else this.skipped.add(key);
+        else this.skip(key, change.signature);
         continue;
       }
       if ("delete" in due) {
@@ -293,14 +323,15 @@ export class TabletWriter {
           write: { type: "delete", id: randomUUID(), kind: due.kind, globalId: due.globalId, localId: due.localId },
           seen: null,
           contentSeen: null,
+          change,
         });
         if (outcome === "stopped") return;
         if (outcome === "timedOut") {
-          this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the delete of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once the tablet reconnects`);
+          this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the delete of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
         }
         if (outcome === "written") this.lastWritten.set(key, fields);
         else if (outcome === "deferred") this.defer(key);
-        else this.skipped.add(key);
+        else this.skip(key, change.signature);
         continue;
       }
       const write: LibraryWrite = {
@@ -316,14 +347,20 @@ export class TabletWriter {
       // What the write carries was decided at the Location it was planned for.
       const plannedFor = found?.locationId ?? null;
       const seen = due.decidedAt === null || plannedFor === null ? null : { at: due.decidedAt, locationId: plannedFor };
-      const outcome = await this.ask({ write, seen, contentSeen: due.contentDecidedAt });
+      const outcome = await this.ask({ write, seen, contentSeen: due.contentDecidedAt, change });
       if (outcome === "stopped") return;
       if (outcome === "timedOut") {
-        this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the write of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once the tablet reconnects`);
+        this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the write of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
       }
       if (outcome === "written") this.lastWritten.set(key, fields);
-      else this.skipped.add(key);
+      else this.skip(key, change.signature);
     }
+  }
+
+  /** Skips the item while the same is due to it; its refusal, if it was refused, is kept. */
+  private skip(key: string, signature: string): void {
+    this.skipped.set(key, signature);
+    this.refusalsKept = true;
   }
 
   /** Leaves a delete out until `retryDeferredMs` has passed: the writer looks again then (`armRetry`). */
@@ -365,8 +402,3 @@ export class TabletWriter {
   }
 }
 
-/** The key a planned write, delete or leave-out is skipped and remembered under. */
-function changeKey(change: PlannedChange): string {
-  if ("delete" in change) return deleteKey(change.kind, change.localId);
-  return "leaveOut" in change ? leaveOutKey(change.kind, change.localId) : writeKey(change.kind, change.globalId);
-}

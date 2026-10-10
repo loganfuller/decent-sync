@@ -166,6 +166,29 @@ export interface Machine {
 /** Why a Machine is a Capture-only Machine: it has no Location, or an Admin turned its sharing off. */
 export type CaptureOnlyReason = "noLocation" | "sharingOff";
 
+/** A change the server makes to a tablet: a write of an item, the shared settings or the Workflow, a delete, or setting aside a record. */
+export interface TabletChange {
+  change: "write" | "delete" | "leaveOut";
+  /** A Library kind, `settings` (a Location's steam, hot water and rinse settings) or `workflow` (its Workflow's grinder and batch). */
+  kind: ItemKind | "workflow";
+  /** The item, named as Conflicts name it; null for a record set aside, which is none of the Library's, or an item deleted since. */
+  item: { kind: ItemKind | "workflow"; id: string; name: string | null } | null;
+  /** Decaid's id for the tablet's record; null for a create, the settings and the Workflow. */
+  localId: string | null;
+}
+
+/** How a Machine's sharing is going, for the tablet of the connection holding it, or else of its latest connection. */
+export interface SharingStatus {
+  /** That tablet, or null if none has connected. */
+  tabletId: string | null;
+  /** The changes waiting for it, offline or not, but those it refused; null while it is written nothing, as it is capture-only. */
+  waiting: number | null;
+  /** The last change it applied, and when; null if none. */
+  lastApplied: (TabletChange & { appliedAt: string }) | null;
+  /** The changes it refused that are still due, the latest refused first, each with Decaid's HTTP status, null if it gave none (it did not answer, the plugin did not ask it, or the server could not take in its answer), and its answer or why. */
+  refused: (TabletChange & { status: number | null; error: string; refusedAt: string })[];
+}
+
 /** One tablet taking a Machine over from another, both connected with its token. */
 export interface Takeover {
   /** When the connection that took over was accepted. */

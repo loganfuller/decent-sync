@@ -50,8 +50,11 @@ Shot names, from every tablet too. A Machine adopted at a Location, moved
 there, or whose sharing an Admin turns back on after making it capture-only
 takes on that Location's Library and settings: what its tablet held of its
 own stays out of the Library, archived or hidden on it, unless the Location
-had none of that kind yet. Everything else is captured without being written
-to tablets.
+had none of that kind yet. A write a tablet refuses is skipped, and tried
+again once its item changes or the tablet reconnects, while the others go on;
+each Machine's page shows its sharing status: the changes waiting for its
+tablet, the last it applied, and the writes it refused, with Decaid's answer.
+Everything else is captured without being written to tablets.
 
 Releases publish the server image and the plugin ZIP, starting with
 [v0.1.0](https://github.com/loganfuller/decent-sync/releases/tag/v0.1.0).
