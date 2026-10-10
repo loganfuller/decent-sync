@@ -58,8 +58,11 @@ acknowledges it (`plugin/src/kept-deliveries.ts`, through the commands of
 
 - **Written before it is sent.** A delivery is written to plugin storage, and
   the record of what is kept after it, and is sent only once Decaid has
-  answered both. One acknowledged, or replaced as the Workflow sent on the
-  last `welcome` is, is removed from what is kept. Decaid answers each
+  answered both, in whichever order they land: a write still waiting its
+  turn takes the data of a later write to the same key, so the queue of
+  writes stays bounded however slow Decaid is. One acknowledged, or replaced
+  as the Workflow sent on the last `welcome` is, is removed from what is
+  kept, its key overwritten by its sequence number alone. Decaid answers each
   command with an event, one at a time; a write it leaves unanswered for
   10 s counts as failed, is logged, and the delivery is sent anyway, perhaps
   kept only in memory. As the plugin unloads, it sends the writes still waiting
@@ -71,14 +74,19 @@ acknowledges it (`plugin/src/kept-deliveries.ts`, through the commands of
   ahead of everything queued since, such as the Workflow Decaid sends after
   loading it. Each goes with its original delivery id and `observedAt`, so the
   server's handling of each delivery once still applies (below), as for a
-  reconnect. A read Decaid fails or leaves unanswered is tried again after 5
-  s, never taken for nothing kept; nothing is sent meanwhile. Nothing kept
-  sends nothing extra.
+  reconnect. A read of the range kept that Decaid fails or leaves unanswered
+  is tried again after 5 s, never taken for nothing kept, and nothing is sent
+  meanwhile; a delivery's own key that Decaid fails to answer twice is given
+  up on and logged, so one unreadable key cannot hold up the rest. Nothing
+  kept sends nothing extra. Deliveries queued while the plugin reads back what
+  was kept, usually a fraction of a second, are kept only once it has: an
+  unload meanwhile loses them.
 - **Bounded.** Decaid stores no null, so a key it holds is never deleted, and
   it keeps a plugin's whole storage in memory. So deliveries are kept in a
   ring of 2,000 keys, `outbox.0` to `outbox.1999`, reused in turn, each
   holding one delivery with its sequence number, and the key `outbox` holds
-  the range of sequence numbers kept. At most 2,000 deliveries are kept, about
+  the range of sequence numbers kept; a key whose delivery is acknowledged or
+  dropped holds only its sequence number. At most 2,000 deliveries are kept, about
   a busy day of a Machine's state transitions, and at most 2 Mi characters of
   their JSON (`MAX_KEPT` and `MAX_KEPT_CHARACTERS`), which a few hundred
   Workflows reach first. Keeping one more past either drops the oldest, from
@@ -86,9 +94,10 @@ acknowledges it (`plugin/src/kept-deliveries.ts`, through the commands of
   some once per connection. The server's history then has a gap before the
   oldest it receives, and the Workflow and state sent on the next `welcome`
   still bring the current ones. In memory too, the outbox holds no more of
-  them than it keeps, and it holds new Shots and Steam Records by their ids
-  until it sends them (`SHOTS.md`, `STEAM_RECORDS.md`), so what it holds
-  stays bounded however long the server is unreachable.
+  them than it keeps, but for one sent and awaiting its acknowledgment, and
+  it holds new Shots and Steam Records by their ids until it sends them
+  (`SHOTS.md`, `STEAM_RECORDS.md`), so what it holds stays bounded however
+  long the server is unreachable.
 - **Not kept.** Shots, Steam Records, their indices and collections keep
   milestone 1's recovery: every load scans and indexes the tablet's records,
   the server requests what it lacks, and every `welcome` sends each

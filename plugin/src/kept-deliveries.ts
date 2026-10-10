@@ -12,11 +12,13 @@ import type { PluginStorage } from "./storage.js";
 // turn, each holding one delivery and its sequence number, `{ seq, delivery }`.
 // The key `outbox` holds the sequence numbers kept, `{ first, next }`: the
 // deliveries numbered from `first` up to `next`, which is never more than
-// MAX_KEPT apart. A delivery acknowledged at the head moves `first` past it,
-// and one acknowledged elsewhere is overwritten by its number alone, `{ seq }`.
-// A key holding another number than expected, as after a write that failed,
-// is skipped. A delivery is written to its key, then the sequence numbers, and
-// is sent only once both are answered.
+// MAX_KEPT apart. A delivery acknowledged, or dropped, is overwritten by its
+// number alone, `{ seq }`, so storage holds no more than what is kept, and
+// one at the head also moves `first` past it. A key holding another number
+// than expected, as after a write that failed or one that landed before the
+// sequence numbers did, is skipped. A delivery is sent only once Decaid has
+// answered both the write of its key and that of the sequence numbers, in
+// whichever order they land (storage.ts).
 //
 // While the server is unreachable for long, at most MAX_KEPT deliveries,
 // about a busy day of a Machine's state transitions, and MAX_KEPT_CHARACTERS
@@ -68,15 +70,20 @@ export class KeptDeliveries {
     this.characters = 0;
     const sequence = parseSequence(await this.storage.read(SEQUENCE_KEY, "a read of the deliveries kept"));
     const deliveries: KeptDelivery[] = [];
+    let unread = 0;
     for (let seq = sequence.first; seq < sequence.next; seq++) {
-      const text = await this.storage.read(slotKey(seq), "a read of a delivery kept");
+      const text = await this.readSlot(seq);
+      if (text === undefined) unread++;
       const delivery = parseSlot(text, seq);
       if (!delivery) continue;
       this.add(seq, delivery.id, (text as string).length);
       deliveries.push(delivery);
     }
+    // One key Decaid cannot read loses its delivery rather than holding up the others for good.
+    if (unread > 0) this.log(`Decaid's plugin storage did not answer the reads of ${unread} of the deliveries kept, so they are lost.`);
     this.first = sequence.first;
     this.next = sequence.next;
+    this.skipRemoved();
     return deliveries;
   }
 
@@ -96,6 +103,8 @@ export class KeptDeliveries {
       if (oldest) {
         this.delete(this.first, oldest);
         dropped.push(oldest.id);
+        // Unless the new delivery takes its key.
+        if (slotKey(this.first) !== slotKey(seq)) this.writeRemoved(this.first);
       }
       this.first++;
     }
@@ -115,14 +124,10 @@ export class KeptDeliveries {
     const seq = this.numbers.get(id);
     if (seq === undefined) return;
     this.delete(seq, this.kept.get(seq)!);
-    if (seq === this.first) {
-      this.skipRemoved();
-      this.writeSequence().catch((error: unknown) => this.failed("record a delivery acknowledged", error));
-    } else {
-      this.storage
-        .write(slotKey(seq), JSON.stringify({ seq }), "the write of a delivery acknowledged")
-        .catch((error: unknown) => this.failed("record a delivery acknowledged", error));
-    }
+    this.writeRemoved(seq);
+    if (seq !== this.first) return;
+    this.skipRemoved();
+    this.writeSequence().catch((error: unknown) => this.failed("record a delivery acknowledged", error));
   }
 
   stop(): void {
@@ -144,6 +149,28 @@ export class KeptDeliveries {
   /** Moves `first` past the sequence numbers no longer kept. */
   private skipRemoved(): void {
     while (this.first < this.next && !this.kept.has(this.first)) this.first++;
+  }
+
+  /** Reads the key of a delivery kept, asking again once if Decaid fails to answer: undefined if it fails twice. */
+  private async readSlot(seq: number): Promise<unknown> {
+    try {
+      return await this.storage.read(slotKey(seq), "a read of a delivery kept");
+    } catch (error) {
+      if (this.stopped) throw error;
+    }
+    try {
+      return await this.storage.read(slotKey(seq), "a read of a delivery kept");
+    } catch (error) {
+      if (this.stopped) throw error;
+      return undefined;
+    }
+  }
+
+  /** Overwrites the key of a delivery no longer kept with its number alone, so storage no longer holds it. */
+  private writeRemoved(seq: number): void {
+    this.storage
+      .write(slotKey(seq), JSON.stringify({ seq }), "the write of a delivery no longer kept")
+      .catch((error: unknown) => this.failed("record a delivery no longer kept", error));
   }
 
   private writeSequence(): Promise<void> {

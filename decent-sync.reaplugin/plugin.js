@@ -801,15 +801,19 @@ var __decentSync = (() => {
       this.characters = 0;
       const sequence = parseSequence(await this.storage.read(SEQUENCE_KEY, "a read of the deliveries kept"));
       const deliveries = [];
+      let unread = 0;
       for (let seq = sequence.first; seq < sequence.next; seq++) {
-        const text = await this.storage.read(slotKey(seq), "a read of a delivery kept");
+        const text = await this.readSlot(seq);
+        if (text === void 0) unread++;
         const delivery = parseSlot(text, seq);
         if (!delivery) continue;
         this.add(seq, delivery.id, text.length);
         deliveries.push(delivery);
       }
+      if (unread > 0) this.log(`Decaid's plugin storage did not answer the reads of ${unread} of the deliveries kept, so they are lost.`);
       this.first = sequence.first;
       this.next = sequence.next;
+      this.skipRemoved();
       return deliveries;
     }
     /**
@@ -828,6 +832,7 @@ var __decentSync = (() => {
         if (oldest) {
           this.delete(this.first, oldest);
           dropped.push(oldest.id);
+          if (slotKey(this.first) !== slotKey(seq)) this.writeRemoved(this.first);
         }
         this.first++;
       }
@@ -846,12 +851,10 @@ var __decentSync = (() => {
       const seq = this.numbers.get(id);
       if (seq === void 0) return;
       this.delete(seq, this.kept.get(seq));
-      if (seq === this.first) {
-        this.skipRemoved();
-        this.writeSequence().catch((error) => this.failed("record a delivery acknowledged", error));
-      } else {
-        this.storage.write(slotKey(seq), JSON.stringify({ seq }), "the write of a delivery acknowledged").catch((error) => this.failed("record a delivery acknowledged", error));
-      }
+      this.writeRemoved(seq);
+      if (seq !== this.first) return;
+      this.skipRemoved();
+      this.writeSequence().catch((error) => this.failed("record a delivery acknowledged", error));
     }
     stop() {
       this.stopped = true;
@@ -869,6 +872,24 @@ var __decentSync = (() => {
     /** Moves `first` past the sequence numbers no longer kept. */
     skipRemoved() {
       while (this.first < this.next && !this.kept.has(this.first)) this.first++;
+    }
+    /** Reads the key of a delivery kept, asking again once if Decaid fails to answer: undefined if it fails twice. */
+    async readSlot(seq) {
+      try {
+        return await this.storage.read(slotKey(seq), "a read of a delivery kept");
+      } catch (error) {
+        if (this.stopped) throw error;
+      }
+      try {
+        return await this.storage.read(slotKey(seq), "a read of a delivery kept");
+      } catch (error) {
+        if (this.stopped) throw error;
+        return void 0;
+      }
+    }
+    /** Overwrites the key of a delivery no longer kept with its number alone, so storage no longer holds it. */
+    writeRemoved(seq) {
+      this.storage.write(slotKey(seq), JSON.stringify({ seq }), "the write of a delivery no longer kept").catch((error) => this.failed("record a delivery no longer kept", error));
     }
     writeSequence() {
       return this.storage.write(SEQUENCE_KEY, JSON.stringify({ first: this.first, next: this.next }), "the write of the deliveries kept");

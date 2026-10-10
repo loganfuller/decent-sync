@@ -4,6 +4,7 @@ import {
   type DecaidApi,
   PluginStorage,
   SimulatedTablet,
+  type SimulatedTabletOptions,
   derivedDe1Pro,
   derivedWorkflow,
   settingsFor,
@@ -48,8 +49,8 @@ describe("The durable outbox", () => {
   });
 
   /** Loads the plugin on the tablet whose plugin storage this is, with the Machine's token and Decaid's API. */
-  function load(machine: CreatedMachine, storage: PluginStorage, decaid: DecaidApi) {
-    const tablet = SimulatedTablet.load({ settings: settingsFor(machine), storage, api: decaid, timeScale: 50 });
+  function load(machine: CreatedMachine, storage: PluginStorage, decaid: DecaidApi, options: Pick<SimulatedTabletOptions, "stallUpload"> = {}) {
+    const tablet = SimulatedTablet.load({ settings: settingsFor(machine), storage, api: decaid, timeScale: 50, ...options });
     tablets.push(tablet);
     return tablet;
   }
@@ -143,31 +144,47 @@ describe("The durable outbox", () => {
     expect(delivered.slice(0, kept.length)).toEqual(kept);
   });
 
-  it("does not send again after a reload what the server acknowledged before the unload", async () => {
+  it("does not send again after a reload, or keep in plugin storage, what the server acknowledged before the unload", async () => {
     const machine = await api.createMachine("Acknowledged before the unload");
     const storage = new PluginStorage();
     const decaid = derivedDe1Pro({ serial: "93002" });
-    const first = load(machine, storage, decaid);
-    await first.waitForLog(/^Connected to /);
+    let stalled = false;
+    const first = load(machine, storage, decaid, { stallUpload: (frame) => stalled && (frame as Frame).type === "machineState" });
+    await expect.poll(() => machineEventsSent(first).length).toBe(2);
     const dialledIn = derivedWorkflow({ targetYield: 40 });
     first.setWorkflow(dialledIn);
-    first.reportState("espresso", "pouring");
-    await expect.poll(() => transitions(machine)).toEqual([["espresso", "pouring"]]);
     await expect.poll(async () => (await workflowEvents(machine)).total).toBe(2);
-    // Unloaded as soon as the plugin has every acknowledgment, before it may have recorded them all in plugin storage.
     await acknowledged(first);
+
+    // A state change, sent once kept, and held on its way to the server.
+    stalled = true;
+    first.reportState("espresso", "pouring");
+    await expect.poll(() => machineEventsSent(first).some((frame) => frame.type === "machineState")).toBe(true);
+    const pouring = machineEventsSent(first).find((frame) => frame.type === "machineState")!;
+    // Decaid stops answering, so the writes recording its acknowledgment wait behind the keeping of a later change, which
+    // is unanswered; the plugin sends them only as it unloads.
+    first.holdStorageAnswers();
+    const later = derivedWorkflow({ targetYield: 41 });
+    first.setWorkflow(later);
+    stalled = false;
+    first.resumeUpload();
+    await expect.poll(() => (first.received as Frame[]).some((reply) => reply.type === "ack" && reply.id === pouring.id)).toBe(true);
     await first.unload();
-    const sentBefore = new Set(machineEventsSent(first).map((frame) => frame.id));
+    const acknowledgedIds = machineEventsSent(first).map((frame) => frame.id!);
+    // Plugin storage holds none of them.
+    const held = (storage.readThroughApi(undefined) as string[]).map((key) => String(storage.read(key)));
+    expect(acknowledgedIds.filter((id) => held.some((value) => value.includes(`"${id}"`)))).toEqual([]);
 
     const reloaded = Date.now();
-    const second = load(machine, storage, { ...decaid, "/workflow": dialledIn });
-    // Anything kept would be sent before the Workflow Decaid sends after loading the plugin, and again on welcome.
+    const second = load(machine, storage, { ...decaid, "/workflow": later });
+    // Anything kept is sent before the Workflow Decaid sends after loading the plugin, and again on welcome.
     await expect.poll(() => machineEventsSent(second).filter((frame) => Date.parse(frame.observedAt!) >= reloaded).length).toBe(2);
     await acknowledged(second);
-    expect(machineEventsSent(second).filter((frame) => sentBefore.has(frame.id))).toEqual([]);
-    expect(second.logs.filter((log) => KEPT_LOG.test(log))).toEqual([]);
-    expect((await workflowEvents(machine)).total).toBe(2);
-    expect((await stateEvents(machine)).total).toBe(1);
+    expect(second.logs).toContain("Sending 1 Workflow and machine state event kept from before the plugin last unloaded.");
+    expect(machineEventsSent(second).filter((frame) => acknowledgedIds.includes(frame.id!))).toEqual([]);
+    expect(machineEventsSent(second)[0]).toMatchObject({ type: "workflow", workflow: later });
+    expect((await workflowEvents(machine)).total).toBe(3);
+    expect(await transitions(machine)).toEqual([["espresso", "pouring"]]);
   });
 
   it("sends nothing extra after a reload with nothing kept", async () => {
