@@ -803,6 +803,51 @@ export interface ItemDeleted {
   localId: string;
 }
 
+/**
+ * Asks the plugin to set aside a tablet's record the Library leaves out, as
+ * its Machine joined a Location that offers items of that kind already
+ * (ADR-0018): to archive a bean, bean batch or grinder, or hide a profile,
+ * so the tablet offers only what its Location does. The record carries no
+ * global id, and is never deleted, so the tablet's Shots still find it. The
+ * server sends it as it sends a `write`, one at a time with them, and it is
+ * answered with `leftOut`. The plugin sets aside only a record without a
+ * global id, and changes nothing else of it.
+ */
+export interface LeaveOut {
+  type: "leaveOut";
+  /** Names this request, which its answer repeats. */
+  id: string;
+  /** One of DELETED_KINDS, the kinds a tablet holds records of. A plugin answers a kind it does not know as `refused`. */
+  kind: string;
+  /** The tablet's record to set aside. */
+  localId: string;
+}
+
+/**
+ * What became of a `leaveOut`: the record is archived or hidden now, as it
+ * was or as the plugin set it (`setAside`); the tablet holds no such record
+ * (`gone`); it carries a global id now, as one a write made a Library
+ * item's record (`taken`); or Decaid refused, or could not be asked
+ * (`refused`).
+ */
+export const LEFT_OUT_OUTCOMES = ["setAside", "gone", "taken", "refused"] as const;
+
+export type LeftOutOutcome = (typeof LEFT_OUT_OUTCOMES)[number];
+
+/** The plugin's answer to a `leaveOut`, sent as `written` is, through the outbox, behind every report read before it. */
+export interface ItemLeftOut {
+  type: "leftOut";
+  /** The request's id. */
+  id: string;
+  kind: string;
+  localId: string;
+  outcome: LeftOutOutcome;
+  /** For `refused`: Decaid's HTTP status, or null if Decaid did not answer. */
+  status?: number | null;
+  /** For `refused`: what Decaid answered, or why it could not be asked, cut to MAX_REFUSAL_LENGTH. */
+  error?: string;
+}
+
 /** The most of Decaid's answer a `writeRefused` repeats, in UTF-16 code units. */
 export const MAX_REFUSAL_LENGTH = 1000;
 
@@ -841,6 +886,7 @@ export type PluginMessage =
   | CollectionDelivery
   | ItemWritten
   | ItemDeleted
+  | ItemLeftOut
   | WriteRefused;
 /** Messages the server sends, each in a frame of its own or, a `write` too large for one, in chunks. */
 export type ServerMessage =
@@ -853,7 +899,8 @@ export type ServerMessage =
   | Ack
   | ChunkReceived
   | LibraryWrite
-  | LibraryDelete;
+  | LibraryDelete
+  | LeaveOut;
 
 export type Decoded<T> =
   | { ok: true; message: T }
@@ -1020,6 +1067,15 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         fields.itemId("globalId", object.kind);
         fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
       });
+    case "leftOut":
+      return check<ItemLeftOut>(object, "leftOut", (fields) => {
+        fields.id();
+        fields.string("kind", { nonEmpty: true });
+        fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+        fields.oneOf("outcome", LEFT_OUT_OUTCOMES);
+        if (object.status !== undefined && object.status !== null) fields.integer("status", { nonNegative: true });
+        if (object.error !== undefined) fields.string("error", { maxLength: MAX_REFUSAL_LENGTH });
+      });
     case "writeRefused":
       return check<WriteRefused>(object, "writeRefused", (fields) => {
         fields.id();
@@ -1107,6 +1163,12 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
         fields.itemId("globalId", object.kind);
         fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
       });
+    case "leaveOut":
+      return check<LeaveOut>(object, "leaveOut", (fields) => {
+        fields.id();
+        fields.string("kind", { nonEmpty: true });
+        fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+      });
     default:
       return invalid("Unknown message type");
   }
@@ -1186,6 +1248,11 @@ class FieldChecker {
     if (typeof value !== "number" || !Number.isInteger(value)) this.problem(key, "must be a whole number");
     else if (options.positive && value <= 0) this.problem(key, "must be positive");
     else if (options.nonNegative && value < 0) this.problem(key, "must not be negative");
+  }
+
+  /** One of `values`. */
+  oneOf(key: string, values: readonly string[]): void {
+    if (!values.includes(this.object[key] as string)) this.problem(key, `must be one of ${values.join(", ")}`);
   }
 
   boolean(key: string): void {

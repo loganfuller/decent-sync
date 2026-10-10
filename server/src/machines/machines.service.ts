@@ -73,6 +73,13 @@ export interface MachineView {
   location: LocationView | null;
   /** Where it has been, oldest first. Each entry lasts until the next one's time. */
   locationHistory: LocationHistoryEntryView[];
+  /** Whether it shares the Library at its Location: on unless an Admin turned it off, making it a Capture-only Machine. */
+  sharing: boolean;
+  /**
+   * Why it is a Capture-only Machine, taking no part in the Library: it has
+   * no Location, or its sharing is turned off, or both. Empty while it takes part.
+   */
+  captureOnly: CaptureOnlyReason[];
   /**
    * The tablet its latest connection came from, or null before any; a reset
    * or replaced tablet is a new one. Its connections are those resolved to
@@ -83,6 +90,9 @@ export interface MachineView {
   /** The tablets its connections came from before, the one whose connection was accepted most recently first. */
   earlierTablets: TabletView[];
 }
+
+/** Why a Machine is a Capture-only Machine: it has no Location, or an Admin turned its sharing off. */
+export type CaptureOnlyReason = "noLocation" | "sharingOff";
 
 /** A machine state as Decaid names it, and when the plugin observed it, by the tablet's clock. */
 export interface MachineStateView {
@@ -556,6 +566,11 @@ export class MachinesService {
         lastShot: lastByMachine.get(machine.id) ?? null,
         machineState: stateByMachine.get(machine.id) ?? null,
         ...viewLocationHistory(machine.locationHistory),
+        sharing: machine.sharing,
+        captureOnly: [
+          ...(machine.locationHistory.length === 0 ? (["noLocation"] as const) : []),
+          ...(machine.sharing ? [] : (["sharingOff"] as const)),
+        ],
         tablet: tablets.get(machine.id)![0] ?? null,
         earlierTablets: tablets.get(machine.id)!.slice(1),
       };

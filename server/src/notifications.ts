@@ -16,7 +16,8 @@ import type { Prisma } from "./generated/prisma/client.js";
  *   its content changed in the management interface, which every
  *   Location's tablets may hold;
  * - `machine_locations`, a Machine's id: the Location it is at now has
- *   changed, so its tablet's Library is to be taken in afresh.
+ *   changed, or its sharing was turned off or on, so its tablet's Library is
+ *   to be taken in afresh, or no longer.
  */
 export type Channel = "machine_access" | "library_changes" | "machine_locations";
 

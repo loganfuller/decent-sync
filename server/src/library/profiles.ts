@@ -9,20 +9,29 @@ import {
   INTAKE_TRANSACTION,
   type ReportingTablet,
   type SeenDecision,
-  currentLocation,
   keepContentSeenSql,
   keepSeenSql,
   lockHeldMachine,
   lockTablet,
   seenAtSql,
+  sharingLocation,
 } from "./intake.js";
 import { setAsideDeleted } from "./hard-deletes.js";
-import { brought } from "./join-plan.js";
-import { currentEntry, recordBrought, takenIn } from "./joining.js";
+import { standing } from "./join-plan.js";
+import { currentEntry, takenIn } from "./joining.js";
+import { leaveOut, offersAny, screenLeftOut } from "./left-out.js";
 import { listedIds } from "./listed.js";
 import { decideProfileAt, deletedAt, lockLocation, showProfileAt, transactionTime } from "./location-state.js";
 import { changedFields } from "./merge.js";
-import { type ProfileIntakeStep, planProfileIntake, profileContent, profileText, readReportedProfiles, visibilityInAnswer } from "./profile-intake.js";
+import {
+  type ProfileIntakeStep,
+  type ReportedProfile,
+  planProfileIntake,
+  profileContent,
+  profileText,
+  readReportedProfiles,
+  visibilityInAnswer,
+} from "./profile-intake.js";
 
 // The Library's Profiles and the tablets that hold them (ADR-0003, ADR-0006,
 // ADR-0008, ADR-0018, ADR-0019). A Profile keeps Decaid's id, a hash of what
@@ -30,7 +39,8 @@ import { type ProfileIntakeStep, planProfileIntake, profileContent, profileText,
 // Profile created on two tablets is one Profile, and one whose steps change
 // is a new Profile under a new id. A tablet at a Location reports its
 // profiles, hidden and deleted ones included, as a collection; new ones join
-// the Library, shown at that Location only. Hiding, deleting or replacing
+// the Library, shown at that Location only, but for those the Library leaves
+// out as the tablet joins the Location (left-out.ts). Hiding, deleting or replacing
 // one on the tablet hides it at that Location, and making it visible shows it
 // there (location-state.ts). Decaid's bundled Profiles join the Library as
 // any other, so whether each is shown is per Location too, but are never
@@ -48,8 +58,8 @@ const PROFILE_JOINING_LOCK = 4_000_008;
  * takes its beans, in the transaction storing the report. A report with
  * profiles new to the tablet's map holds one advisory lock while it reads and
  * adds to the Library's, so two tablets reporting the same new Profile at
- * once make one, at whichever Location first. Returns the Location the report
- * was taken in at, or null if none.
+ * once make one, at whichever Location first. Returns where the report was
+ * taken in (`standing`), or null if nowhere.
  */
 export async function takeInProfiles(
   tx: Prisma.TransactionClient,
@@ -60,9 +70,11 @@ export async function takeInProfiles(
   const entry = await currentEntry(tx, tablet.machineId);
   if (entry === null) return null;
   const { locationId } = entry;
+  /** Where it is taken in, which its writer compares with where the Machine takes part as it looks. */
+  const takenInAt = standing(entry);
   const read = readReportedProfiles(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
-  /** Whether the report is part of the tablet joining the Location: what it brings is listed on its Machine's page. */
+  /** Whether the report is part of the tablet joining the Location, so takes nothing of the tablet's into the Library (left-out.ts). */
   const joining = await takenIn(tx, tablet.tabletId, "profiles", entry);
   // A record of a Profile an Admin hard-deleted is deleted on the tablet rather than taken in again, while the Library lacks
   // it: once the Profile joins the Library again, as when a barista saves the same profile, the record is that Profile's.
@@ -77,7 +89,7 @@ export async function takeInProfiles(
     listedIds(value),
     new Set(),
   );
-  const reported = screened.kept.map((record) => record.profile);
+  const screenedProfiles = screened.kept.map((record) => record.profile);
   const mapped = await tx.$queryRaw<
     {
       profileId: string;
@@ -99,15 +111,21 @@ export async function takeInProfiles(
   /** The Location's latest decision of each Profile that the tablet's record the map holds has seen there: one decided by then, the tablet had seen. */
   const seenAt = new Map(mapped.map((profile) => [profile.profileId, profile.seenAt]));
   const mappedIds = new Set(mapped.map((profile) => profile.profileId));
+  const reportedNew = screenedProfiles.filter((profile) => !mappedIds.has(profile.id));
+  if (reportedNew.length > 0) await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PROFILE_JOINING_LOCK}::bigint)`;
+  if (screenedProfiles.length === 0 && mapped.length === 0) return takenInAt;
+  // Whether the Location shows each Profile reported that it has decided, when and by whose edit that was decided, read under its lock.
+  await lockLocation(tx, locationId);
+  /** Whether the report joins a Location that shows no user's Profile yet, so brings the tablet's own. */
+  const bringing = joining && !(await offersAny(tx, locationId, "profile"));
+  const left = await screenLeftOut(tx, tablet.tabletId, "profile", reportedNew, leftOutRecord, listedIds(value), mappedIds, joining);
+  const kept = new Set(left.kept);
+  const reported = screenedProfiles.filter((profile) => mappedIds.has(profile.id) || kept.has(profile));
   const unmapped = reported.flatMap((profile) => (mappedIds.has(profile.id) ? [] : [profile.id]));
-  if (unmapped.length > 0) await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PROFILE_JOINING_LOCK}::bigint)`;
   // The Library Profiles the new records are.
   const library =
     unmapped.length === 0 ? [] : await tx.$queryRaw<{ id: string; bundled: boolean }[]>`SELECT id, bundled FROM profiles WHERE id = ANY(${unmapped}::text[])`;
   const bundled = new Set(library.flatMap((profile) => (profile.bundled ? [profile.id] : [])));
-  if (reported.length === 0 && mapped.length === 0) return locationId;
-  // Whether the Location shows each Profile reported that it has decided, when and by whose edit that was decided, read under its lock.
-  await lockLocation(tx, locationId);
   const located = await tx.$queryRaw<{ profileId: string; shown: boolean; changedAt: Date; decidedAt: Date; byTablet: boolean }[]>`
     SELECT profile_id AS "profileId", shown, changed_at AS "changedAt", decided_at AS "decidedAt",
       COALESCE(decided_by_tablet_id = ${tablet.tabletId}::uuid, false) AS "byTablet"
@@ -123,23 +141,32 @@ export async function takeInProfiles(
     unmapped.length === 0 ? null : await joinedAt(tx, tablet),
     listedIds(value),
   );
-  if (steps.length === 0) return locationId;
-  /** Whether a record the map did not hold is of a user's Profile the Library has: linked to it, it takes its title, author and notes. */
+  if (steps.length === 0) {
+    if (left.due) await notify(tx, "library_changes", locationId);
+    return takenInAt;
+  }
+  /**
+   * Whether a record the map did not hold is of a user's Profile the Library has: linked to it, it takes its title, author
+   * and notes, each it held otherwise kept as a Conflict, but as the tablet joins the Location, whose state wins.
+   */
   const linking = (step: ProfileIntakeStep): step is Extract<ProfileIntakeStep, { kind: "map" }> =>
-    step.kind === "map" && !step.profile.bundled && !bundled.has(step.profileId);
+    step.kind === "map" && !joining && !step.profile.bundled && !bundled.has(step.profileId);
   await lockItems(
     tx,
     "profile",
-    steps.flatMap((step) => ((step.kind === "update" && Object.keys(step.content).length > 0) || linking(step) ? [step.profileId] : [])),
+    steps.flatMap((step) => ((step.kind === "update" && !joining && Object.keys(step.content).length > 0) || linking(step) ? [step.profileId] : [])),
   );
   const source = tabletSource(tablet);
 
   /** Whether the Location's tablets, this one included, may have something to be written. */
-  let writesDue = false;
+  let writesDue = left.due;
   for (const step of steps) {
     if (step.kind === "delete") {
       await tx.$executeRaw`DELETE FROM tablet_profiles WHERE tablet_id = ${tablet.tabletId}::uuid AND profile_id = ${step.profileId}`;
-      await showProfileAt(tx, step.profileId, locationId, source, false, deletedAt(await transactionTime(tx), step.updatedAt), seenAt.get(step.profileId) ?? null);
+      // Deleted before the tablet joined, it is written again if the Location shows it.
+      if (!joining) {
+        await showProfileAt(tx, step.profileId, locationId, source, false, deletedAt(await transactionTime(tx), step.updatedAt), seenAt.get(step.profileId) ?? null);
+      }
       writesDue = true;
       continue;
     }
@@ -157,30 +184,36 @@ export async function takeInProfiles(
       continue;
     }
     const { profile } = step;
+    // Decaid's bundled Profiles, which every tablet has, are never left out. A joining tablet brings only what it shows
+    // itself: one it hid or deleted stays out, to be taken up if shown.
+    if (step.kind === "add" && joining && (!bringing || !profile.visible) && !profile.bundled) {
+      writesDue = (await leaveOut(tx, tablet.tabletId, "profile", leftOutRecord(profile))) || writesDue;
+      continue;
+    }
     if (step.kind === "add") {
       const added = await tx.$executeRaw`
         INSERT INTO profiles (id, content, bundled, created_location_id)
         VALUES (${profile.id}, ${JSON.stringify(profileContent(profile.record))}::jsonb, ${profile.bundled}, ${locationId}::uuid)
         ON CONFLICT (id) DO NOTHING`;
       if (added > 0) await recordJoined(tx, { kind: "profile", id: profile.id }, profileText(profile.record), profile.updatedAt, source);
-      // Added at once by another report, as from another tablet, it was matched to the Profile that report added.
-      if (brought(joining, "joined", profile.bundled)) await recordBrought(tx, tablet, locationId, { kind: "profile", id: profile.id }, added === 0);
     }
     // A user's Profile the Library has takes its title, author and notes: each the record held otherwise is kept as a Conflict (ADR-0018).
-    if (linking(step)) {
-      await recordLinked(tx, { kind: "profile", id: profile.id }, profileText(profile.record), profile.updatedAt, source);
-      if (brought(joining, "matched")) await recordBrought(tx, tablet, locationId, { kind: "profile", id: profile.id }, true);
-    }
+    if (linking(step)) await recordLinked(tx, { kind: "profile", id: profile.id }, profileText(profile.record), profile.updatedAt, source);
     /** When the record's own edit decided the Profile's state at the Location, which it has seen then; null if it did not. */
     let decided: Date | null = null;
-    if (step.kind === "update") {
+    if (step.kind === "update" && joining) {
+      // What it changed before it joined is written over.
+      writesDue = true;
+    } else if (step.kind === "update") {
       if (step.shown !== undefined) decided = await showProfileAt(tx, profile.id, locationId, source, step.shown, profile.updatedAt, seenAt.get(profile.id) ?? null);
       writesDue = decided !== null || writesDue;
       const edit = { values: step.content, at: profile.updatedAt, seenAt: contentSeenAt.get(profile.id) ?? null };
       writesDue = (await editContent(tx, { kind: "profile", id: profile.id }, edit, source)).writesDue || writesDue;
     } else {
-      // The tablet holds it as the Location has it, or is written so; the Location's other tablets may lack it.
-      if (step.decide !== undefined) decided = await decideProfileAt(tx, profile.id, locationId, source, step.decide, profile.updatedAt);
+      // The tablet holds it as the Location has it, or is written so; the Location's other tablets may lack it. A user's
+      // Profile a joining tablet holds is not shown at a Location that shows others already, unless it brings its own.
+      const deciding = !joining || bringing || profile.bundled || bundled.has(profile.id);
+      if (step.decide !== undefined && deciding) decided = await decideProfileAt(tx, profile.id, locationId, source, step.decide, profile.updatedAt);
       // The map did not hold it, so only its time tells whether the tablet saw the Location's state, unless its own edit decided that.
       if (step.kind === "map" && step.shown) {
         decided = (await showProfileAt(tx, profile.id, locationId, source, true, profile.updatedAt, ownDecision.get(profile.id) ?? null)) ?? decided;
@@ -191,7 +224,12 @@ export async function takeInProfiles(
     await saveRecord(tx, tablet.tabletId, profile.id, profile.record, profile.updatedAt, decided === null ? null : { at: decided, locationId }, null);
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
-  return locationId;
+  return takenInAt;
+}
+
+/** A reported profile as what the Library leaves out is judged: set aside when hidden or deleted on the tablet. */
+function leftOutRecord(profile: ReportedProfile): { localId: string; setAside: boolean } {
+  return { localId: profile.id, setAside: !profile.visible };
 }
 
 /**
@@ -239,7 +277,7 @@ export async function recordProfileWritten(
         ON CONFLICT DO NOTHING`;
       return "deleted";
     }
-    const here = await currentLocation(tx, tablet.machineId);
+    const here = await sharingLocation(tx, tablet.machineId);
     const at = updatedAt === null ? null : new Date(updatedAt);
     const [known] = await tx.$queryRaw<{ record: Record<string, unknown>; contentSeenAt: Date | null; seenAt: Date | null }[]>`
       SELECT record, content_seen_at AS "contentSeenAt", ${seenAtSql(here)} AS "seenAt"
@@ -278,16 +316,18 @@ function stepsOf(record: Record<string, unknown>): unknown {
 }
 
 /**
- * When the tablet joined its Machine's Location: the later of when the
- * Machine arrived there, by its Location History, and when the tablet first
- * connected as that Machine. What the tablet changed after that it changed
- * there; what it holds from before, it brought.
+ * When the tablet joined its Machine's Location: the latest of when the
+ * Machine arrived there, by its Location History, when its sharing was last
+ * turned back on, and when the tablet first connected as that Machine. What
+ * the tablet changed after that it changed there; what it holds from before,
+ * it held as it joined.
  */
 async function joinedAt(tx: Prisma.TransactionClient, tablet: ReportingTablet): Promise<Date | null> {
   const [row] = await tx.$queryRaw<{ joinedAt: Date | null }[]>`
     SELECT GREATEST(
       (SELECT first_seen_at FROM machine_tablets WHERE tablet_id = ${tablet.tabletId}::uuid AND machine_id = ${tablet.machineId}::uuid),
-      (SELECT effective_from FROM location_assignments WHERE machine_id = ${tablet.machineId}::uuid ORDER BY effective_from DESC LIMIT 1)
+      (SELECT effective_from FROM location_assignments WHERE machine_id = ${tablet.machineId}::uuid ORDER BY effective_from DESC LIMIT 1),
+      (SELECT sharing_since FROM machines WHERE id = ${tablet.machineId}::uuid)
     ) AS "joinedAt"`;
   return row?.joinedAt ?? null;
 }

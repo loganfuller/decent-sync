@@ -2,7 +2,7 @@ import { GLOBAL_ID_KEY, globalIdOf, isRecordId } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
-import { archivingInAnswer, beanContent, planIntake, readReportedBeans } from "./bean-intake.js";
+import { type ReportedBean, archivingInAnswer, beanContent, planIntake, readReportedBeans } from "./bean-intake.js";
 import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
 import { tabletSource } from "./history.js";
 import {
@@ -11,16 +11,17 @@ import {
   INTAKE_TRANSACTION,
   type ReportingTablet,
   type SeenDecision,
-  currentLocation,
   keepContentSeenSql,
   keepSeenSql,
   lockHeldMachine,
   lockTablet,
   seenAtSql,
+  sharingLocation,
 } from "./intake.js";
 import { setAsideDeleted } from "./hard-deletes.js";
-import { brought } from "./join-plan.js";
-import { currentEntry, recordBrought, takenIn } from "./joining.js";
+import { standing } from "./join-plan.js";
+import { currentEntry, takenIn } from "./joining.js";
+import { leaveOut, offersAny, screenLeftOut } from "./left-out.js";
 import { listedIds } from "./listed.js";
 import { deletedAt, lockLocation, offerBeanAt, takeBeanFrom, transactionTime } from "./location-state.js";
 import { changedFields } from "./merge.js";
@@ -28,7 +29,8 @@ import { changedFields } from "./merge.js";
 // The Library's Beans and the tablets that hold them (ADR-0003, ADR-0006,
 // ADR-0008, ADR-0018, ADR-0019). A tablet at a Location reports its beans as
 // a collection; new ones join the Library at that Location, or are linked to
-// a Library Bean with the same roaster and name. Archiving or deleting one
+// a Library Bean with the same roaster and name, but for those the Library
+// leaves out as the tablet joins the Location (left-out.ts). Archiving or deleting one
 // on the tablet takes it away from that Location, and un-archiving it offers
 // it there again (location-state.ts). The instance holding each of a
 // Location's tablets' connections writes it what the Location offers
@@ -56,12 +58,13 @@ export async function lockBeanMatching(tx: Prisma.TransactionClient): Promise<vo
 }
 
 /**
- * Takes a tablet's report of its beans into the Library, if its Machine is
- * at a Location: a Machine without one is capture-only. Runs in the
- * transaction storing the report, holding the Machine's row lock, which
- * Location History changes take too. Tells every instance when the tablets
- * at its Location have something to be written. Returns the Location the
- * report was taken in at, or null if none.
+ * Takes a tablet's report of its beans into the Library, if its Machine
+ * takes part: a Machine at no Location, or with sharing turned off, is
+ * capture-only. Runs in the transaction storing the report, holding the
+ * Machine's row lock, which Location History changes and the capture-only
+ * switch take too. Tells every instance when the tablets at its Location
+ * have something to be written. Returns where the report was taken in
+ * (`standing`), or null if nowhere.
  */
 export async function takeInBeans(
   tx: Prisma.TransactionClient,
@@ -72,9 +75,11 @@ export async function takeInBeans(
   const entry = await currentEntry(tx, tablet.machineId);
   if (entry === null) return null;
   const { locationId } = entry;
+  /** Where it is taken in, which its writer compares with where the Machine takes part as it looks. */
+  const takenInAt = standing(entry);
   const read = readReportedBeans(value, updatedAt);
   await lockTablet(tx, tablet.tabletId);
-  /** Whether the report is part of the tablet joining the Location: what it brings is listed on its Machine's page. */
+  /** Whether the report is part of the tablet joining the Location, so takes nothing of the tablet's into the Library (left-out.ts). */
   const joining = await takenIn(tx, tablet.tabletId, "beans", entry);
   const mapped = await tx.$queryRaw<
     {
@@ -99,9 +104,19 @@ export async function takeInBeans(
   const mappedIds = new Set(mapped.map((bean) => bean.localId));
   // Records of items an Admin hard-deleted are deleted on the tablet rather than taken in.
   const screened = await setAsideDeleted(tx, tablet.tabletId, "bean", read, listedIds(value), mappedIds);
-  const reported = screened.kept;
+  const reportedNew = screened.kept.filter((bean) => !mappedIds.has(bean.localId));
+  /** Whether the report joins a Location that offers no Bean yet, so brings the tablet's own, decided under the Location's lock. */
+  let bringing = false;
+  if (joining) {
+    if (reportedNew.length > 0) await lockBeanMatching(tx);
+    await lockLocation(tx, locationId);
+    bringing = !(await offersAny(tx, locationId, "bean"));
+  }
+  const left = await screenLeftOut(tx, tablet.tabletId, "bean", reportedNew, leftOutRecord, listedIds(value), mappedIds, joining);
+  const kept = new Set(left.kept);
+  const reported = screened.kept.filter((bean) => mappedIds.has(bean.localId) || kept.has(bean));
   const unmapped = reported.filter((bean) => !mappedIds.has(bean.localId));
-  if (unmapped.length > 0) await lockBeanMatching(tx);
+  if (unmapped.length > 0 && !joining) await lockBeanMatching(tx);
   // The Beans the new records may name: by their global ids, or by roaster and name, the oldest first.
   const library =
     unmapped.length === 0
@@ -118,8 +133,8 @@ export async function takeInBeans(
         });
   const steps = planIntake(reported, mapped, library, listedIds(value));
   if (steps.length === 0) {
-    if (screened.due) await notify(tx, "library_changes", locationId);
-    return locationId;
+    if (screened.due || left.due) await notify(tx, "library_changes", locationId);
+    return takenInAt;
   }
   await lockLocation(tx, locationId);
   // The Beans whose content the report edits, or that records link to, compared with their content.
@@ -131,15 +146,21 @@ export async function takeInBeans(
   const source = tabletSource(tablet);
 
   /** Whether the Location's tablets, this one included, may have something to be written. */
-  let writesDue = screened.due;
+  let writesDue = screened.due || left.due;
   for (const step of steps) {
     if (step.kind === "delete") {
       await tx.$executeRaw`DELETE FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid AND bean_id = ${step.beanId}::uuid`;
-      await takeBeanFrom(tx, step.beanId, locationId, deletedAt(await transactionTime(tx), step.updatedAt), seenAt.get(step.beanId) ?? null, source);
+      // Deleted before the tablet joined, it is written again if the Location offers it.
+      if (!joining) await takeBeanFrom(tx, step.beanId, locationId, deletedAt(await transactionTime(tx), step.updatedAt), seenAt.get(step.beanId) ?? null, source);
       writesDue = true;
       continue;
     }
     const { bean } = step;
+    // A joining tablet brings only what it offers itself: one it archived stays out, to be taken up if un-archived.
+    if (step.kind === "add" && joining && (!bringing || bean.archived)) {
+      writesDue = (await leaveOut(tx, tablet.tabletId, "bean", leftOutRecord(bean))) || writesDue;
+      continue;
+    }
     let beanId: string;
     if (step.kind === "add") {
       const created = await tx.bean.create({
@@ -151,21 +172,19 @@ export async function takeInBeans(
     } else {
       beanId = step.beanId;
     }
-    if (brought(joining, step.kind === "add" ? "joined" : step.kind === "link" ? "matched" : "known")) {
-      await recordBrought(tx, tablet, locationId, { kind: "bean", id: beanId }, step.kind === "link");
-    }
-    // A linked record takes the Bean's content: each field it held otherwise is kept as a Conflict (ADR-0018).
-    if (step.kind === "link") await recordLinked(tx, { kind: "bean", id: beanId }, beanContent(bean.record), bean.updatedAt, source);
-    if (step.kind === "update") {
+    // A linked record takes the Bean's content: each field it held otherwise is kept as a Conflict (ADR-0018), but as the
+    // tablet joins the Location, whose state wins.
+    if (step.kind === "link" && !joining) await recordLinked(tx, { kind: "bean", id: beanId }, beanContent(bean.record), bean.updatedAt, source);
+    if (step.kind === "update" && !joining) {
       const edit = { values: step.content, at: bean.updatedAt, seenAt: contentSeenAt.get(beanId) ?? null };
       writesDue = (await editContent(tx, { kind: "bean", id: beanId }, edit, source)).writesDue || writesDue;
     }
-    if (step.kind === "add" || step.kind === "link") {
+    if (step.kind === "add" || (step.kind === "link" && (bringing || !joining))) {
       // One archived on the tablet joins the Library, but is not offered at its Location.
       if (!bean.archived) await offerBeanAt(tx, beanId, locationId);
       writesDue = true;
-    } else if (step.kind === "map") {
-      // The tablet holds it as the Location has it, or is written so.
+    } else if (step.kind === "map" || step.kind === "link" || joining) {
+      // The tablet holds it as the Location has it, or is written so: what it changed before it joined is written over.
       writesDue = true;
     } else if (step.archived === true) {
       writesDue = (await takeBeanFrom(tx, beanId, locationId, bean.updatedAt, seenAt.get(beanId) ?? null, source)) || writesDue;
@@ -179,7 +198,12 @@ export async function takeInBeans(
     if (bean.globalId !== beanId) writesDue = true;
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
-  return locationId;
+  return takenInAt;
+}
+
+/** A reported bean as what the Library leaves out is judged: set aside when archived on the tablet. */
+function leftOutRecord(bean: ReportedBean): { localId: string; setAside: boolean } {
+  return { localId: bean.localId, setAside: bean.archived };
 }
 
 /**
@@ -225,7 +249,7 @@ export async function recordBeanWritten(
     if ((await tx.bean.count({ where: { id: beanId } })) === 0) return "notTheItem";
     const other = await tx.tabletBean.findUnique({ where: { tabletId_localId: { tabletId: tablet.tabletId, localId } }, select: { beanId: true } });
     if (other && other.beanId !== beanId) return "notTheItem";
-    const locationId = await currentLocation(tx, tablet.machineId);
+    const locationId = await sharingLocation(tx, tablet.machineId);
     const [known] = await tx.$queryRaw<{ archived: boolean; seenAt: Date | null; record: Record<string, unknown>; contentSeenAt: Date | null }[]>`
       SELECT (record ->> 'archived') = 'true' AS archived, ${seenAtSql(locationId)} AS "seenAt", record, content_seen_at AS "contentSeenAt"
       FROM tablet_beans WHERE tablet_id = ${tablet.tabletId}::uuid AND bean_id = ${beanId}::uuid`;

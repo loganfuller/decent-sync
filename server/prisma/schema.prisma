@@ -177,7 +177,6 @@ model Location {
   itemVersions    ItemVersion[]
   conflicts       Conflict[]
   workflowClears  WorkflowClear[]
-  brought         BroughtItem[]
 
   @@map("locations")
 }
@@ -219,6 +218,15 @@ model Machine {
   pluginVersion      String?               @map("plugin_version")
   decaidVersion      String?               @map("decaid_version")
   remoteAddress      String?               @map("remote_address")
+  /// Whether it takes part in the Library at its Location: on unless an
+  /// Admin turned sharing off, making it a Capture-only Machine, whose
+  /// records are captured but whose tablet is written nothing and whose
+  /// Library changes are not taken in.
+  sharing            Boolean               @default(true)
+  /// When an Admin last turned sharing back on, by PostgreSQL's clock; null
+  /// if never. Each of its tablet's reports records it (`tablet_reports`),
+  /// so the first report since is part of joining its Location (ADR-0008).
+  sharingSince       DateTime?             @map("sharing_since") @db.Timestamptz(3)
   /// Whether its tablet shares its Location's steam, hot water and rinse
   /// settings (ADR-0014): with sharing turned off, nothing of them is taken
   /// from it or written to it, and with sharing turned back on it takes the
@@ -259,7 +267,6 @@ model Machine {
   itemVersions       ItemVersion[]
   conflicts          Conflict[]
   takeover           Takeover?
-  brought            BroughtItem[]
 
   /// One Machine per piece of hardware. Unbound Machines (nulls) never clash.
   @@unique([model, serial])
@@ -358,7 +365,7 @@ model Tablet {
   deletions    TabletDeletion[]
   reports      TabletReport[]
   workflow     WorkflowClear?
-  brought      BroughtItem[]
+  leftOut      TabletLeftOut[]
 
   @@map("tablets")
 }
@@ -695,7 +702,6 @@ model Bean {
   tablets   TabletBean[]
   batches   BeanBatch[]
   versions  ItemVersion[]
-  brought   BroughtItem[]
   conflicts Conflict[]
 
   @@index([matchKey])
@@ -786,7 +792,6 @@ model BeanBatch {
   locations BatchLocation[]
   tablets   TabletBeanBatch[]
   versions  ItemVersion[]
-  brought   BroughtItem[]
   conflicts Conflict[]
 
   @@index([beanId])
@@ -885,7 +890,6 @@ model Grinder {
 
   tablets   TabletGrinder[]
   versions  ItemVersion[]
-  brought   BroughtItem[]
   conflicts Conflict[]
 
   @@index([locationId])
@@ -948,7 +952,6 @@ model Profile {
   locations ProfileLocation[]
   tablets   TabletProfile[]
   versions  ItemVersion[]
-  brought   BroughtItem[]
   conflicts Conflict[]
 
   @@map("profiles")
@@ -1215,13 +1218,35 @@ model TabletDeletion {
   @@map("tablet_deletions")
 }
 
+/// A tablet's record the Library leaves out (ADR-0018): one without a global
+/// id that the tablet held as its Machine joined a Location offering items
+/// of its kind already, and that matched none the Library has. Its writer
+/// archives it there, or hides a profile, until it is set aside; it stays
+/// out of the Library until a barista un-archives or shows it there once it
+/// was, or the tablet no longer reports it.
+model TabletLeftOut {
+  tabletId String  @map("tablet_id") @db.Uuid
+  tablet   Tablet  @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  /// `bean`, `beanBatch`, `grinder` or `profile`.
+  kind     String
+  /// Decaid's id for the record on that tablet.
+  localId  String  @map("local_id")
+  /// Whether the tablet has reported it, or the plugin answered it, archived or hidden.
+  setAside Boolean @map("set_aside")
+
+  @@id([tabletId, kind, localId])
+  @@map("tablet_left_out")
+}
+
 /// Where each of a tablet's reports was last taken into the Library: its
 /// beans, bean batches, grinders and profiles, and its Workflow, each under
 /// the entry of its Machine's Location History current then, and that
-/// entry's Location. A report taken in under another entry or Location, or
-/// the tablet's first, is part of the tablet joining that Location
-/// (ADR-0008): its Machine was adopted or moved there, or the tablet is new
-/// there (server/src/library/joining.ts). Neither is a foreign key: an entry
+/// entry's Location, and when its Machine's sharing was last turned back on
+/// then. A report taken in under another entry or Location, or since sharing
+/// was turned back on, or the tablet's first, is part of the tablet joining
+/// that Location (ADR-0008): its Machine was adopted or moved there, had
+/// sharing turned back on, or the tablet is new there
+/// (server/src/library/joining.ts). Neither is a foreign key: an entry
 /// removed since still differs from the one current.
 model TabletReport {
   tabletId     String @map("tablet_id") @db.Uuid
@@ -1230,6 +1255,7 @@ model TabletReport {
   report       String
   assignmentId String @map("assignment_id") @db.Uuid
   locationId   String @map("location_id") @db.Uuid
+  sharingSince DateTime? @map("sharing_since") @db.Timestamptz(3)
 
   @@id([tabletId, report])
   @@map("tablet_reports")
@@ -1252,48 +1278,4 @@ model WorkflowClear {
 
   @@index([locationId])
   @@map("workflow_clears")
-}
-
-/// An item a Machine's tablet brought to the Library as the Machine joined a
-/// Location (ADR-0018): a record it held without a global id, in the first
-/// report of its kind taken in there, that joined the Library or was matched
-/// to an item the Library had, a Bean by roaster and name or a user's
-/// Profile by its id. Its Machine's page lists them, so an Admin can Archive
-/// duplicates. Each names exactly one item, and goes with it, once per
-/// Machine.
-model BroughtItem {
-  id         String     @id @default(uuid(7)) @db.Uuid
-  machineId  String     @map("machine_id") @db.Uuid
-  machine    Machine    @relation(fields: [machineId], references: [id], onDelete: Cascade)
-  tabletId   String     @map("tablet_id") @db.Uuid
-  tablet     Tablet     @relation(fields: [tabletId], references: [id], onDelete: Cascade)
-  /// The Location it joined.
-  locationId String?    @map("location_id") @db.Uuid
-  location   Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  beanId     String?    @map("bean_id") @db.Uuid
-  bean       Bean?      @relation(fields: [beanId], references: [id], onDelete: Cascade)
-  batchId    String?    @map("batch_id") @db.Uuid
-  batch      BeanBatch? @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  grinderId  String?    @map("grinder_id") @db.Uuid
-  grinder    Grinder?   @relation(fields: [grinderId], references: [id], onDelete: Cascade)
-  profileId  String?    @map("profile_id")
-  profile    Profile?   @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  /// Matched to an item the Library had, rather than joining it.
-  matched    Boolean
-  /// When it was taken in, by PostgreSQL's clock.
-  broughtAt  DateTime   @default(dbgenerated("transaction_timestamp()")) @map("brought_at") @db.Timestamptz(3)
-  /// The order it was taken in, which `broughtAt` cannot tell apart within one transaction.
-  seq        BigInt     @default(autoincrement())
-
-  @@unique([machineId, beanId])
-  @@unique([machineId, batchId])
-  @@unique([machineId, grinderId])
-  @@unique([machineId, profileId])
-  @@index([tabletId])
-  @@index([locationId])
-  @@index([beanId])
-  @@index([batchId])
-  @@index([grinderId])
-  @@index([profileId])
-  @@map("brought_items")
 }

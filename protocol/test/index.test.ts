@@ -7,9 +7,12 @@ import {
   GLOBAL_ID_KEY,
   type Hello,
   type ItemDeleted,
+  type ItemLeftOut,
   type ItemWritten,
+  LEFT_OUT_OUTCOMES,
   LIBRARY_KINDS,
   LIBRARY_LISTS,
+  type LeaveOut,
   type LibraryDelete,
   type LibraryWrite,
   MAX_HARDWARE_LENGTH,
@@ -532,6 +535,29 @@ describe("Library writes", () => {
     expect(decodeServerMessage(frame({ ...profile, globalId: "profile:\u0000" })).ok).toBe(false);
   });
 
+  it("reads a leave-out of a record the Library leaves out, and its answer", () => {
+    const leave: LeaveOut = { type: "leaveOut", id: "leave-1", kind: "grinder", localId: "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca" };
+    const setAside: ItemLeftOut = { type: "leftOut", id: "leave-1", kind: "grinder", localId: leave.localId, outcome: "setAside" };
+    const refusedOne: ItemLeftOut = { ...setAside, outcome: "refused", status: 500, error: "Decaid failed" };
+    expect(decodeServerMessage(frame(leave))).toEqual({ ok: true, message: leave });
+    expect(decodePluginMessage(frame(setAside))).toEqual({ ok: true, message: setAside });
+    expect(decodePluginMessage(frame(refusedOne))).toEqual({ ok: true, message: refusedOne });
+    expect(decodePluginMessage(frame({ ...refusedOne, status: null }))).toMatchObject({ ok: true });
+    expect(LEFT_OUT_OUTCOMES).toEqual(["setAside", "gone", "taken", "refused"]);
+    expect(decodePluginMessage(frame({ ...setAside, outcome: "archived" }))).toMatchObject({
+      ok: false,
+      problem: "leftOut.outcome must be one of setAside, gone, taken, refused",
+    });
+    expect(decodePluginMessage(frame({ ...refusedOne, error: "a".repeat(MAX_REFUSAL_LENGTH + 1) })).ok).toBe(false);
+    for (const localId of [undefined, null, "", "a".repeat(MAX_RECORD_ID_LENGTH + 1)]) {
+      expect(decodeServerMessage(frame({ ...leave, localId })).ok).toBe(false);
+      expect(decodePluginMessage(frame({ ...setAside, localId })).ok).toBe(false);
+    }
+    // A Profile's record is named by Decaid's id.
+    const profile: LeaveOut = { type: "leaveOut", id: "leave-2", kind: "profile", localId: "profile:bf1ca48b9c7389c7d146" };
+    expect(decodeServerMessage(frame(profile))).toEqual({ ok: true, message: profile });
+  });
+
   it("names a Profile by Decaid's id, which is the same on every tablet, and every other kind by a global id", () => {
     const profileId = "profile:bf1ca48b9c7389c7d146";
     const profile: LibraryWrite = { type: "write", id: "write-2", kind: "profile", globalId: profileId, localId: profileId, fields: { visibility: "hidden" } };
@@ -590,6 +616,7 @@ describe("Delivery ids", () => {
     { type: "written", kind: "bean", globalId: "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d", record: {}, updatedAt: null, writtenFields: [] },
     { type: "writeRefused", kind: "bean", globalId: "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d", status: 400, error: "" },
     { type: "deleted", kind: "bean", globalId: "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d", localId: "8ac511b9-81a6-4066-9a5e-5b67da092efc" },
+    { type: "leftOut", kind: "bean", localId: "8ac511b9-81a6-4066-9a5e-5b67da092efc", outcome: "gone" },
   ];
 
   it("are at most MAX_ID_LENGTH characters on every delivery, and a longer one is refused without being repeated", () => {

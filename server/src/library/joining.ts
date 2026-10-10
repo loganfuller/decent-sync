@@ -1,34 +1,48 @@
 import { WORKFLOW_KIND } from "@decent-sync/protocol";
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
-import type { ItemRef } from "./history.js";
 import type { PlannedWrite } from "./holdings.js";
 import { type AnswerRecorded, type AnsweringTablet, INTAKE_TRANSACTION, type ReportingTablet, lockHeldMachine, lockTablet } from "./intake.js";
-import { type CurrentEntry, type Offered, clearStillDue, joins, workflowClear } from "./join-plan.js";
+import { type CurrentEntry, type Offered, clearStillDue, joins, sameSharing, workflowClear } from "./join-plan.js";
+import { offersAny } from "./left-out.js";
 import { isObject } from "./listed.js";
 import { lockLocation } from "./location-state.js";
 
 // A Machine's tablet joining a Location (ADR-0008, ADR-0018): its Machine
-// was adopted there, moved there, or the tablet is new there. Each of the
-// tablet's reports, of its Library lists and its Workflow, records the
-// Location History entry it was taken in under, so the first under another
-// entry is known as part of joining (join-plan.ts). What those reports bring
-// that the Library lacks joins it at the Location, and is listed on the
-// Machine's page (`brought_items`). The tablet is written what the Location
-// offers, and what it does not offer is archived or hidden on it, as for any
-// tablet there (holdings.ts); its Workflow's grinder and batch are cleared if
-// the Location does not offer them (`workflow_clears`), and its settings
-// give way to the Location's (location-settings.ts). Under the locks of the
-// report that takes it in: the Machine's row, then the tablet's.
+// was adopted there, moved there, or had sharing turned back on, or the
+// tablet is new there. Each of the tablet's reports, of its Library lists
+// and its Workflow, records the Location History entry it was taken in
+// under, and when the Machine's sharing was last turned back on, so the
+// first under another entry or since is known as part of joining
+// (join-plan.ts). The Location's state wins: such a report takes nothing of
+// the tablet's into the Library, but for a kind of item the Location offers
+// none of yet, whose items it brings, and what the Library leaves out is
+// set aside on the tablet (left-out.ts). The tablet is written what the
+// Location offers, and what it does not offer is archived or hidden on it,
+// as for any tablet there (holdings.ts); its Workflow's grinder and batch
+// are cleared if the Location does not offer them (`workflow_clears`), and
+// its settings give way to the Location's (location-settings.ts). Under the
+// locks of the report that takes it in: the Machine's row, then the
+// tablet's.
 
 /** The reports a tablet's Library is taken in from: its Library lists, and its Workflow. */
 export type TakenInReport = "beans" | "beanBatches" | "grinders" | "profiles" | "workflow";
 
-/** The Machine's current Location History entry: the latest, with its Location; null without one, when it is capture-only. */
+/**
+ * The Machine's current Location History entry: the latest, with its
+ * Location, and when its sharing was last turned back on; null when it is
+ * capture-only, at no Location or with sharing turned off.
+ */
 export async function currentEntry(tx: Prisma.TransactionClient, machineId: string): Promise<CurrentEntry | null> {
-  const latest = await tx.locationAssignment.findFirst({ where: { machineId }, orderBy: { effectiveFrom: "desc" }, select: { id: true, locationId: true } });
-  return latest;
+  const [entry] = await tx.$queryRaw<CurrentEntry[]>`
+    SELECT latest.id, latest.location_id AS "locationId", machines.sharing_since AS "sharingSince"
+    FROM machines
+    CROSS JOIN LATERAL (
+      SELECT id, location_id FROM location_assignments WHERE machine_id = machines.id ORDER BY effective_from DESC LIMIT 1
+    ) AS latest
+    WHERE machines.id = ${machineId}::uuid AND machines.sharing`;
+  return entry ?? null;
 }
 
 /**
@@ -37,25 +51,28 @@ export async function currentEntry(tx: Prisma.TransactionClient, machineId: stri
  * (`joins`). A report of its bean batches is recorded only once its beans
  * are taken in under the entry, as a batch whose bean the tablet's map does
  * not hold waits for it: until then each of its reports is part of joining,
- * so a batch it brings is listed once its bean is mapped. The tablet's row
- * lock must be held.
+ * so a batch it held as it joined is judged as such once its bean is mapped
+ * or left out. The tablet's row lock must be held.
  */
 export async function takenIn(tx: Prisma.TransactionClient, tabletId: string, report: TakenInReport, entry: CurrentEntry): Promise<boolean> {
-  const [last] = await tx.$queryRaw<{ id: string; locationId: string; remains: boolean }[]>`
-    SELECT assignment_id AS id, location_id AS "locationId", EXISTS (SELECT 1 FROM location_assignments WHERE id = assignment_id) AS remains
+  const [last] = await tx.$queryRaw<(CurrentEntry & { remains: boolean })[]>`
+    SELECT assignment_id AS id, location_id AS "locationId", sharing_since AS "sharingSince",
+      EXISTS (SELECT 1 FROM location_assignments WHERE id = assignment_id) AS remains
     FROM tablet_reports WHERE tablet_id = ${tabletId}::uuid AND report = ${report}`;
   const joining = joins(last ?? null, entry, last?.remains ?? false);
   if (joining && report === "beanBatches") {
     const [beans] = await tx.$queryRaw<unknown[]>`
-      SELECT 1 FROM tablet_reports WHERE tablet_id = ${tabletId}::uuid AND report = 'beans' AND assignment_id = ${entry.id}::uuid AND location_id = ${entry.locationId}::uuid`;
+      SELECT 1 FROM tablet_reports WHERE tablet_id = ${tabletId}::uuid AND report = 'beans' AND assignment_id = ${entry.id}::uuid
+        AND location_id = ${entry.locationId}::uuid AND sharing_since IS NOT DISTINCT FROM ${entry.sharingSince}::timestamptz`;
     if (!beans) return true;
   }
   // Kept to the current entry, joining or not, so a later move away and back is told from a removed entry.
-  if (last?.id !== entry.id || last.locationId !== entry.locationId) {
+  if (last?.id !== entry.id || last.locationId !== entry.locationId || !sameSharing(last, entry)) {
     await tx.$executeRaw`
-      INSERT INTO tablet_reports (tablet_id, report, assignment_id, location_id)
-      VALUES (${tabletId}::uuid, ${report}, ${entry.id}::uuid, ${entry.locationId}::uuid)
-      ON CONFLICT (tablet_id, report) DO UPDATE SET assignment_id = EXCLUDED.assignment_id, location_id = EXCLUDED.location_id`;
+      INSERT INTO tablet_reports (tablet_id, report, assignment_id, location_id, sharing_since)
+      VALUES (${tabletId}::uuid, ${report}, ${entry.id}::uuid, ${entry.locationId}::uuid, ${entry.sharingSince})
+      ON CONFLICT (tablet_id, report) DO UPDATE SET
+        assignment_id = EXCLUDED.assignment_id, location_id = EXCLUDED.location_id, sharing_since = EXCLUDED.sharing_since`;
   }
   return joining;
 }
@@ -78,31 +95,16 @@ export async function forgetReports(tx: Prisma.TransactionClient, machineId: str
 }
 
 /**
- * Lists the item as one the tablet's Machine brought as it joined the
- * Location (ADR-0018): `matched` to one the Library had, or joining it.
- * Once per Machine and item.
- */
-export async function recordBrought(tx: Prisma.TransactionClient, tablet: ReportingTablet, locationId: string, item: ItemRef, matched: boolean): Promise<void> {
-  const column = { bean: "bean_id", beanBatch: "batch_id", grinder: "grinder_id", profile: "profile_id" }[item.kind as "bean" | "beanBatch" | "grinder" | "profile"];
-  if (column === undefined) return;
-  const id = item.kind === "profile" ? item.id : null;
-  const uuid = item.kind === "profile" ? null : item.id;
-  await tx.$executeRaw`
-    INSERT INTO brought_items (id, machine_id, tablet_id, location_id, bean_id, batch_id, grinder_id, profile_id, matched)
-    VALUES (gen_random_uuid(), ${tablet.machineId}::uuid, ${tablet.tabletId}::uuid, ${locationId}::uuid,
-      ${column === "bean_id" ? uuid : null}::uuid, ${column === "batch_id" ? uuid : null}::uuid, ${column === "grinder_id" ? uuid : null}::uuid,
-      ${id}, ${matched})
-    ON CONFLICT DO NOTHING`;
-}
-
-/**
  * Takes in what a Workflow the tablet reported means for its grinder and
  * batch, under its Machine's and tablet's row locks: reported as the tablet
  * joins the Location (`joining`), those the Location does not offer are to
  * be cleared (`workflowClear`), judged under the Location's lock against
- * the tablet's map, which holds what it held before joining; otherwise a
- * clear still due keeps only what the Workflow still holds as it was
- * (`clearStillDue`). Tells every instance when one is due.
+ * the tablet's map, which holds what it held before joining. One the map
+ * does not hold is not offered if the Library leaves it out, or will as the
+ * Location offers items of its kind already (left-out.ts), a batch's bean
+ * included; otherwise it joins the Library there, and stays. Otherwise a clear still due keeps
+ * only what the Workflow still holds as it was (`clearStillDue`). Tells
+ * every instance when one is due.
  */
 export async function takeInWorkflowContext(
   tx: Prisma.TransactionClient,
@@ -123,13 +125,17 @@ export async function takeInWorkflowContext(
   const batchId = typeof ids.beanBatchId === "string" ? ids.beanBatchId : null;
   if (grinderId === null && batchId === null) return saveClear(tx, tablet.tabletId, locationId, null);
   await lockLocation(tx, locationId);
+  // Unknown to the map, one is left out, or will be, unless the Location offers none of its kind; a batch is with its bean.
+  const unknownGrinder: Offered = grinderId !== null && (await offersAny(tx, locationId, "grinder")) ? "notOffered" : "unknown";
+  const unknownBatch: Offered =
+    batchId !== null && ((await offersAny(tx, locationId, "beanBatch")) || (await offersAny(tx, locationId, "bean"))) ? "notOffered" : "unknown";
   const [offer] = await tx.$queryRaw<{ grinder: Offered; batch: Offered }[]>`
     SELECT
       COALESCE((
         SELECT CASE WHEN grinders.location_id = ${locationId}::uuid AND NOT grinders.archived THEN 'offered' ELSE 'notOffered' END
         FROM tablet_grinders AS held JOIN grinders ON grinders.id = held.grinder_id
         WHERE held.tablet_id = ${tablet.tabletId}::uuid AND held.local_id = ${grinderId}
-      ), 'unknown') AS grinder,
+      ), ${leftOutSql(tablet.tabletId, "grinder", grinderId)}, ${unknownGrinder}) AS grinder,
       COALESCE((
         SELECT CASE WHEN here.added_at IS NOT NULL AND here.finished_at IS NULL AND NOT batch.archived AND NOT bean.archived
           THEN 'offered' ELSE 'notOffered' END
@@ -138,10 +144,17 @@ export async function takeInWorkflowContext(
         JOIN beans AS bean ON bean.id = batch.bean_id
         LEFT JOIN batch_locations AS here ON here.batch_id = batch.id AND here.location_id = ${locationId}::uuid
         WHERE held.tablet_id = ${tablet.tabletId}::uuid AND held.local_id = ${batchId}
-      ), 'unknown') AS batch`;
+      ), ${leftOutSql(tablet.tabletId, "beanBatch", batchId)}, ${unknownBatch}) AS batch`;
   const expected = workflowClear(context, offer!.grinder, offer!.batch);
   await saveClear(tx, tablet.tabletId, locationId, expected);
   if (expected !== null) await notify(tx, "library_changes", locationId);
+}
+
+/** 'notOffered' if the Library leaves out the tablet's record of that kind and id, as SQL; otherwise null. */
+function leftOutSql(tabletId: string, kind: "grinder" | "beanBatch", localId: string | null): Prisma.Sql {
+  return Prisma.sql`(
+    SELECT 'notOffered' FROM tablet_left_out WHERE tablet_id = ${tabletId}::uuid AND kind = ${kind} AND local_id = ${localId}
+  )`;
 }
 
 /** Keeps the clear due on the tablet at the Location, or, null, none. */

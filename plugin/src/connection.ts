@@ -391,6 +391,10 @@ export class SyncConnection {
         // Answered as a write is, through the outbox.
         void this.writes.remove(message);
         break;
+      case "leaveOut":
+        // Answered as a write is, through the outbox.
+        void this.writes.leaveOut(message);
+        break;
       case "heartbeat":
         // Its arrival is what counts.
         break;

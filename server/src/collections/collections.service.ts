@@ -77,8 +77,8 @@ export class CollectionsService {
   /**
    * Stores a collection delivery. For a report of the tablet's beans, bean
    * batches, grinders or profiles from a connection that is not mismatched, stored
-   * now, returns which it was and the Location it was taken in at, null for a
-   * Machine at none, or undefined if it was unavailable and so not taken in;
+   * now, returns which it was and where it was taken in (`standing`), null for
+   * a capture-only Machine, or undefined if it was unavailable and so not taken in;
    * otherwise, as for a delivery handled before, undefined.
    */
   async store(message: CollectionDelivery, reporter: Reporter): Promise<{ list: TakenInList; takenInAt: string | null | undefined } | undefined> {

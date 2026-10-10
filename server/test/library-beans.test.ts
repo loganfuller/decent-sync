@@ -209,14 +209,12 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const own = await beansEnteredOffline({ roaster: "roux ", name: "Already Here", notes: "Entered on group 2" });
     const two = load(second, "14112", { beans: own });
     await expect.poll(() => two.beans().map(globalIdOf), { timeout: 10_000 }).toEqual([bean.id]);
-    // Linked, it takes the Bean's content in the same write, and what it held otherwise is kept as Conflicts.
+    // Linked, it takes the Bean's content in the same write: the Location's state wins over what it held as it joined.
     expect(two.beans()[0]).toMatchObject({ id: own[0]!.id, roaster: "Roux", country: "Ethiopia" });
     expect(two.beans()[0]).not.toHaveProperty("notes");
-    expect(two.writes).toEqual([`PUT /beans/${String(own[0]!.id)}`]);
-    expect(await conflictsOf(bean.id)).toEqual([
-      { field: "notes", value: "Entered on group 2", machine: "Joining 2" },
-      { field: "roaster", value: "roux ", machine: "Joining 2" },
-    ]);
+    // Its Workflow's batch, one of its own the lab leaves out, is cleared too.
+    expect(two.writes.filter((write) => write !== "PUT /workflow")).toEqual([`PUT /beans/${String(own[0]!.id)}`]);
+    expect(await conflictsOf(bean.id)).toEqual([]);
     expect(await beansNamed("Already Here")).toHaveLength(1);
     // Its first write came only once its report of its beans was acknowledged, so taken in.
     const report = two.sent.find((frame) => (frame as { type?: unknown; name?: unknown }).type === "collection" && (frame as { name?: unknown }).name === "beans") as {

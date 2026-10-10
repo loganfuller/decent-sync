@@ -54,11 +54,17 @@ export interface MachineStateEventView extends MachineStateView {
 export class MachineEventsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async storeWorkflow(message: WorkflowDelivery, reporter: Reporter): Promise<void> {
+  /**
+   * Stores a Workflow delivery, and returns where it was taken into its
+   * Location's settings (`takeInWorkflow`): a `standing`, null if nowhere, as
+   * its Machine is capture-only, or undefined if it was not taken in, as a
+   * delivery handled before, or a mismatched connection's.
+   */
+  async storeWorkflow(message: WorkflowDelivery, reporter: Reporter): Promise<string | null | undefined> {
     const workflow = JSON.stringify(message.workflow);
-    await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       const credit = await creditFirstDelivery(tx, reporter, message.id);
-      if (!credit) return;
+      if (!credit) return undefined;
       await tx.$executeRaw`
         INSERT INTO workflow_events (machine_id, pending_machine_id, observed_at, workflow)
         SELECT ${credit.machineId}::uuid, ${credit.pendingMachineId}::uuid, ${message.observedAt}::timestamptz, ${workflow}::jsonb
@@ -68,8 +74,9 @@ export class MachineEventsService {
         )`;
       // A mismatched connection's tablet is not its token's Machine's, so it takes no part in the Library (ADR-0004).
       if (reporter.identity.kind !== "mismatch" && credit.machineId === reporter.machineId) {
-        await takeInWorkflow(tx, { machineId: reporter.machineId, tabletId: reporter.tabletId }, message.workflow, message.observedAt);
+        return takeInWorkflow(tx, { machineId: reporter.machineId, tabletId: reporter.tabletId }, message.workflow, message.observedAt);
       }
+      return undefined;
     }, INTAKE_TRANSACTION);
   }
 

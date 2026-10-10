@@ -11,8 +11,9 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // Grinders and its steam, hot water and rinse settings; what only its old
 // Location offered is archived or hidden on it; its Workflow's grinder and
 // batch are cleared when the new Location does not offer them. What its
-// tablet held of its own joins the Library at the Location, a Bean matching
-// one the Library has linked to it, and its Machine's page lists it
+// tablet held of its own stays out of the Library, archived or hidden on it,
+// but for a Bean matching one the Library has, which is linked to it, and
+// for a kind of item the Location offers none of yet, which it brings
 // (ADR-0018). A Machine moved to no Location is written nothing more.
 // Through the built plugin in simulated tablets, on two server instances
 // sharing one database, with assertions through the REST API and what each
@@ -24,14 +25,6 @@ type Parts = Record<string, Record_>;
 interface SettingsView {
   id: string | null;
   values: Record<string, number | null>;
-}
-
-interface BroughtView {
-  item: { kind: string; id: string; name: string | null };
-  matched: boolean;
-  archived: boolean;
-  location: LocationView | null;
-  tabletId: string;
 }
 
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
@@ -126,8 +119,9 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     );
   }
   const context = (tablet: SimulatedTablet) => tablet.workflow().context as Record_;
-  /** What the Machine's page lists it brought to the Library. */
-  const brought = async ({ machine }: CreatedMachine) => (await read<{ brought: BroughtView[] }>(`/machines/${machine.id}/brought`)).brought;
+  /** The names of the Library's Beans begun with `prefix`, sorted. */
+  const libraryBeans = async (prefix: string) =>
+    (await read<{ beans: { name: string }[] }>("/beans")).beans.map((bean) => bean.name).filter((name) => name.startsWith(prefix)).sort();
   const machineView = async ({ machine }: CreatedMachine) => (await read<{ machine: MachineView }>(`/machines/${machine.id}`)).machine;
   const move = (created: CreatedMachine, location: LocationView) =>
     api.call("POST", `/machines/${created.machine.id}/location-history`, { locationId: location.id });
@@ -189,9 +183,8 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
       expect(beanOf.get(batch.beanId)).toBe(uptownBeanOf.get(same.beanId));
       expect(batch.weightRemaining).toBe(same.weightRemaining);
     }
-    // Uptown's settings are as they were, and the fresh tablet brought nothing: Decaid's bundled Profiles are on every tablet.
+    // Uptown's settings are as they were.
     expect((await settingsAt(uptown)).values).toEqual(values);
-    expect(await brought(second)).toEqual([]);
   });
 
   it("writes the lab's Machine moved to Belmont Belmont's state, archives or hides what only the lab offered, and clears its Workflow's grinder and batch", async () => {
@@ -234,10 +227,9 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const { context: _after, steamSettings: _steam, hotWaterData: _water, rinseData: _rinse, ...restNow } = labTablet.workflow();
     const { steamSettings: _s, hotWaterData: _w, rinseData: _r, ...restBefore } = rest;
     expect(restNow).toEqual(restBefore);
-    // The lab's items are still offered at the lab only, and the move brought nothing new to the Library.
+    // The lab's items are still offered at the lab only.
     const labBean = await read<{ bean: { offeredAt: LocationView[] } }>(`/beans/${labOffers.beans[0]}`);
     expect(labBean.bean.offeredAt).toEqual([lab]);
-    expect((await brought(labMachine)).every((item) => item.location?.id === lab.id)).toBe(true);
   });
 
   it("keeps the Workflow's grinder and batch when the new Location offers them", async () => {
@@ -300,22 +292,22 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     );
   });
 
-  it("adds a joining Machine's own Beans, batches, Grinders and Profiles, links a Bean matching one the Library has, and lists them on its page", async () => {
-    const uptown = await api.createLocation("Bringing Uptown", "America/Chicago");
-    const uptownMachine = await api.createMachine("Bringing Uptown 1", uptown.id);
+  it("leaves a joining Machine's own Beans, batches, Grinders and Profiles out of the Library, archived or hidden on it, but links a Bean matching one the Library has", async () => {
+    const uptown = await api.createLocation("Left out Uptown", "America/Chicago");
+    const uptownMachine = await api.createMachine("Left out Uptown 1", uptown.id);
     const uptownTablet = load(uptownMachine, "23041", { fresh: true });
     await online(uptownMachine);
-    // Its tablet has joined once its first report of its beans is taken in, which the collection is stored with.
-    await expect
-      .poll(async () => (await read<{ collection: unknown }>(`/machines/${uptownMachine.machine.id}/collections/beans`)).collection, { timeout: 10_000 })
-      .not.toBeNull();
-    // Uptown enters a coffee the joining tablet holds too, after its own tablet joined: it brought nothing.
-    await uptownTablet.addBean({ roaster: "roux bakehouse ", name: "Bringing traveller Roest #24 Eth", notes: "Uptown's notes" });
+    // Uptown offers a coffee the joining tablet holds too, a batch of it, a Grinder and a Profile of its own.
+    const coffee = await uptownTablet.addBean({ roaster: "roux bakehouse ", name: "Left out traveller Roest #24 Eth", notes: "Uptown's notes" });
+    await uptownTablet.addBatch(coffee.id, { roastDate: "2026-10-05", weight: 1000 });
+    await uptownTablet.addGrinder({ model: "Uptown EK43" });
+    await uptownTablet.addProfile(derivedProfile("Left out Espresso", 8.6));
     await mapped(uptownTablet);
     const [uptownBean] = heldIds(uptownTablet.beans(), false);
+    const uptownOffers = offered(uptownTablet);
 
     // A Machine with no Location connects, its tablet holding its own Library, which is captured but not taken in.
-    const traveller = await api.createMachine("Bringing traveller");
+    const traveller = await api.createMachine("Left out traveller");
     const tablet = load(traveller, "23042", { instance: other });
     await online(traveller);
     await expect
@@ -324,30 +316,101 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
       })
       .toBe(2);
     expect(tablet.writes).toEqual([]);
-    const workflow = tablet.workflow();
+    const ownBeans = tablet.beans().length;
+    const ownProfiles = userProfiles(tablet, true);
 
     expect((await move(traveller, uptown)).status).toBe(201);
-    await mapped(tablet);
-    // Its coffee of the same roaster and name is Uptown's Bean, and everything else it held joined the Library at Uptown.
-    const roest24 = tablet.beans().find((bean) => bean.name === "Bringing traveller Roest #24 Eth")!;
+    // It is written what Uptown offers, and its coffee of the same roaster and name is Uptown's Bean, with Uptown's notes.
+    await expect.poll(() => offered(tablet), { timeout: 15_000 }).toEqual(uptownOffers);
+    const roest24 = tablet.beans().find((bean) => bean.name === "Left out traveller Roest #24 Eth")!;
     expect(globalIdOf(roest24)).toBe(uptownBean);
     expect(roest24.notes).toBe("Uptown's notes");
-    await expect.poll(() => offered(uptownTablet), { timeout: 15_000 }).toEqual(offered(tablet));
-    const listed = await brought(traveller);
-    const kinds = (kind: string) => listed.filter((item) => item.item.kind === kind);
-    expect(kinds("bean")).toHaveLength(9);
-    expect(kinds("beanBatch")).toHaveLength(7);
-    expect(kinds("grinder")).toHaveLength(2);
-    expect(kinds("profile").map((item) => item.item.id).sort()).toEqual(userProfiles(tablet, true));
-    // Its user Profiles may be in the Library already, from another test's tablet: each is then matched by its id.
-    expect(listed.filter((item) => item.matched && item.item.kind !== "profile").map((item) => item.item)).toEqual([
-      expect.objectContaining({ kind: "bean", id: uptownBean }),
-    ]);
-    const tabletId = (await machineView(traveller)).tablet!.id;
-    expect(listed.every((item) => item.location?.id === uptown.id && !item.archived && item.tabletId === tabletId)).toBe(true);
-    // Its grinder and batch joined Uptown, so its Workflow keeps them.
-    expect(GRINDER_AND_BATCH.every((field) => (tablet.workflow().context as Record_)[field] === (workflow.context as Record_)[field])).toBe(true);
-    expect(await brought(uptownMachine)).toEqual([]);
+    expect((await read<{ conflicts: unknown[] }>(`/beans/${uptownBean}/conflicts`)).conflicts).toEqual([]);
+    // Everything else it held stays out of the Library, archived or hidden on it, never deleted.
+    const own = (records: Record_[]) => records.filter((record) => globalIdOf(record) === null);
+    await expect.poll(() => own(tablet.beans()).filter((bean) => bean.archived !== true).length, { timeout: 15_000 }).toBe(0);
+    await expect.poll(() => own(tablet.batches()).filter((batch) => batch.archived !== true).length, { timeout: 15_000 }).toBe(0);
+    await expect.poll(() => own(tablet.grinders()).filter((grinder) => grinder.archived !== true).length, { timeout: 15_000 }).toBe(0);
+    expect(own(tablet.beans())).toHaveLength(ownBeans - 1);
+    expect(own(tablet.grinders())).toHaveLength(2);
+    expect(userProfiles(tablet, false)).toEqual(expect.arrayContaining(ownProfiles));
+    expect(await libraryBeans("Left out traveller")).toEqual(["Left out traveller Roest #24 Eth"]);
+    expect(offered(uptownTablet)).toEqual(uptownOffers);
+    // Uptown offers neither its grinder nor its batch, which are cleared.
+    await expect.poll(() => GRINDER_AND_BATCH.filter((field) => field in context(tablet)), { timeout: 10_000 }).toEqual([]);
+
+    // Its barista takes up one of its grinders again: un-archived there, it joins the Library at Uptown, as one entered then.
+    const grinder = own(tablet.grinders())[0]!;
+    await tablet.editGrinder(grinder.id, { archived: false });
+    await expect.poll(() => heldIds(uptownTablet.grinders(), false).length, { timeout: 15_000 }).toBe(uptownOffers.grinders.length + 1);
+    expect(heldIds(tablet.grinders(), false)).toEqual(heldIds(uptownTablet.grinders(), false));
+  });
+
+  it("brings a joining Machine's own items of each kind its Location offers none of yet", async () => {
+    const cafe = await api.createLocation("Bringing cafe", "UTC");
+    const cafeMachine = await api.createMachine("Bringing cafe 1", cafe.id);
+    const cafeTablet = load(cafeMachine, "23043", { fresh: true });
+    await online(cafeMachine);
+    // The cafe offers a coffee the joining tablet holds too, but no batch, Grinder or user's Profile.
+    await cafeTablet.addBean({ roaster: "Roux Bakehouse", name: "Bringing traveller Roest #24 Eth" });
+    await mapped(cafeTablet);
+
+    const traveller = await api.createMachine("Bringing traveller");
+    const tablet = load(traveller, "23044", { instance: other });
+    await online(traveller);
+    const ownProfiles = userProfiles(tablet, true);
+    // One of its grinders, not the one its Workflow names, is archived there.
+    const archived = tablet.grinders().find((grinder) => grinder.id !== context(tablet).grinderId)!;
+    await tablet.editGrinder(archived.id, { archived: true });
+    expect((await move(traveller, cafe)).status).toBe(201);
+    // Its Grinder and Profiles join the Library at the cafe, and reach the cafe's tablet; the grinder it archived stays out.
+    await expect.poll(() => heldIds(cafeTablet.grinders(), false).length, { timeout: 15_000 }).toBe(1);
+    await expect.poll(() => heldIds(tablet.grinders(), false), { timeout: 15_000 }).toEqual(heldIds(cafeTablet.grinders(), false));
+    const archivedNow = tablet.grinders().find((grinder) => grinder.id === archived.id)!;
+    expect(archivedNow.archived).toBe(true);
+    expect(globalIdOf(archivedNow)).toBeNull();
+    await expect.poll(() => userProfiles(cafeTablet, true), { timeout: 15_000 }).toEqual(ownProfiles);
+    // Its coffees are left out, as the cafe offers one, and so are their batches, though the cafe offers none; but the batch
+    // of the coffee linked to the cafe's joins the Library there, and reaches the cafe's tablet.
+    await expect.poll(() => tablet.beans().filter((bean) => globalIdOf(bean) === null && bean.archived !== true).length, { timeout: 15_000 }).toBe(0);
+    const roest24 = tablet.beans().find((bean) => bean.name === "Bringing traveller Roest #24 Eth")!;
+    await expect.poll(() => heldIds(cafeTablet.batches(), false).length, { timeout: 15_000 }).toBe(1);
+    await expect.poll(() => heldIds(tablet.batches(), false), { timeout: 15_000 }).toEqual(heldIds(cafeTablet.batches(), false));
+    expect(tablet.batches().filter((batch) => batch.archived !== true).map((batch) => batch.beanId)).toEqual([roest24.id]);
+    expect(await libraryBeans("Bringing traveller")).toEqual(["Bringing traveller Roest #24 Eth"]);
+    // Its grinder joined the cafe, so its Workflow keeps it; its batch, whose coffee is left out, is cleared.
+    await expect.poll(() => GRINDER_AND_BATCH.filter((field) => field in context(tablet)), { timeout: 10_000 }).toEqual(["grinderId", "grinderModel"]);
+  });
+
+  it("links a record left out at one join to the Library's item at a later join", async () => {
+    const uptown = await api.createLocation("Relinking Uptown", "UTC");
+    const belmont = await api.createLocation("Relinking Belmont", "UTC");
+    const uptownMachine = await api.createMachine("Relinking Uptown 1", uptown.id);
+    const uptownTablet = load(uptownMachine, "23045", { fresh: true });
+    await online(uptownMachine);
+    await uptownTablet.addBean({ roaster: "Roux", name: "Relinking Uptown House" });
+    await mapped(uptownTablet);
+    const traveller = await api.createMachine("Relinking traveller");
+    const tablet = load(traveller, "23046", { instance: other });
+    await online(traveller);
+    const record = () => tablet.beans().filter((bean) => bean.name === "Relinking traveller Roest #24 Eth");
+    const [roest24] = record();
+
+    // At Uptown, which has no such coffee, it is left out, archived on the tablet.
+    expect((await move(traveller, uptown)).status).toBe(201);
+    await expect.poll(() => record()[0]!.archived, { timeout: 15_000 }).toBe(true);
+    expect(globalIdOf(record()[0]!)).toBeNull();
+    // Belmont gets that coffee, and the Machine moves there: its record is Belmont's Bean, written as Belmont offers it.
+    const created = (await (await api.call("POST", "/beans", { content: { roaster: "Roux Bakehouse", name: "Relinking traveller Roest #24 Eth" } })).json()) as {
+      bean: { id: string };
+    };
+    expect((await api.call("POST", "/bean-batches", { beanId: created.bean.id, content: { roastDate: "2026-10-05" }, locations: [{ locationId: belmont.id }] })).status).toBe(
+      201,
+    );
+    expect((await move(traveller, belmont)).status).toBe(201);
+    await expect.poll(() => globalIdOf(record()[0]!), { timeout: 15_000 }).toBe(created.bean.id);
+    await expect.poll(() => record()[0]!.archived, { timeout: 15_000 }).toBe(false);
+    expect(record().map((bean) => bean.id)).toEqual([roest24!.id]);
   });
 
   it("lets a Machine joining a Location that has no settings yet set them", async () => {
@@ -447,30 +510,80 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     expect(toBelmont!.location.id).toBe(belmont.id);
     expect((await api.call("DELETE", `/machines/${traveller.machine.id}/location-history/${toBelmont!.id}`)).status).toBe(200);
     expect((await machineView(traveller)).locationHistory.map((entry) => entry.location.id)).toEqual([lab.id]);
-    // A change its barista makes then is an edit at the lab, not given way to the lab's settings, and a coffee entered is no item it brought.
+    // A change its barista makes then is an edit at the lab, not given way to the lab's settings, and a coffee entered joins the Library.
     await tablet.changeSettings({ steamSettings: { flow: 2.1 } });
     await expect.poll(async () => (await settingsAt(lab)).values["steamSettings.flow"], { timeout: 10_000 }).toBe(2.1);
     await tablet.addBean({ roaster: "Roux", name: "Mistaken Later" });
     await expect.poll(() => held(false), { timeout: 10_000 }).toEqual(["Mistaken Later"]);
-    expect(await brought(traveller)).toEqual([]);
     expect(requests()).toBe(asked);
     expect(tabletSettings(tablet)["steamSettings.flow"]).toBe(2.1);
   });
 
-  it("lists the batches a joining tablet brought though its report of them came before its beans'", async () => {
+  it("asks a joining tablet again for its Workflow taken in before it joined, though its lists came after, and writes nothing until it is judged there", async () => {
+    const cafe = await api.createLocation("Asking cafe", "UTC");
+    const created = (await (await api.call("POST", "/beans", { content: { roaster: "Roux", name: "Asking House" } })).json()) as { bean: { id: string } };
+    expect((await api.call("POST", "/bean-batches", { beanId: created.bean.id, content: { roastDate: "2026-10-05" }, locations: [{ locationId: cafe.id }] })).status).toBe(201);
+    const machine = await api.createMachine("Asking traveller");
+    const raw = await RawConnection.welcomed(server.url, helloWith(machine.token, { tabletId: randomUUID(), machine: { model: "DE1Pro", serial: "23093" } }));
+    raws.push(raw);
+    const workflow = () => ({ type: "workflow", id: randomUUID(), observedAt: new Date().toISOString(), workflow: workflowFixture() });
+    const report = (name: string) => ({ type: "collection", id: randomUUID(), name, available: true, value: [], updatedAt: [] });
+    const sent = (type: string) => raw.messages.filter((message) => (message as { type?: unknown }).type === type);
+    // Its Workflow is taken in while it is capture-only; it is then adopted at the cafe before its lists arrive.
+    await raw.deliver(workflow());
+    expect((await move(machine, cafe)).status).toBe(201);
+    for (const name of ["beans", "beanBatches", "grinders", "profiles"]) await raw.deliver(report(name));
+    await expect.poll(() => sent("requestCollections").length, { timeout: 10_000 }).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(sent("write")).toEqual([]);
+    // Once its Workflow is taken in at the cafe, it is judged as joining: the batch it names, its own, is cleared first.
+    await raw.deliver(workflow());
+    await expect.poll(() => sent("write").map((write) => (write as { kind?: unknown }).kind), { timeout: 10_000 }).toEqual(["workflow"]);
+  });
+
+  it("writes to a joining tablet once a Workflow it sends again is set aside, as it cannot be stored, rather than waiting for it", async () => {
+    const cafe = await api.createLocation("Setting aside cafe", "UTC");
+    const created = (await (await api.call("POST", "/beans", { content: { roaster: "Roux", name: "Setting aside House" } })).json()) as { bean: { id: string } };
+    expect((await api.call("POST", "/bean-batches", { beanId: created.bean.id, content: { roastDate: "2026-10-05" }, locations: [{ locationId: cafe.id }] })).status).toBe(201);
+    const machine = await api.createMachine("Setting aside traveller");
+    const raw = await RawConnection.welcomed(server.url, helloWith(machine.token, { tabletId: randomUUID(), machine: { model: "DE1Pro", serial: "23094" } }));
+    raws.push(raw);
+    const workflow = (context: Record_) => ({ type: "workflow", id: randomUUID(), observedAt: new Date().toISOString(), workflow: { ...workflowFixture(), context } });
+    const report = (name: string) => ({ type: "collection", id: randomUUID(), name, available: true, value: [], updatedAt: [] });
+    const sent = (type: string) => raw.messages.filter((message) => (message as { type?: unknown }).type === type);
+    await raw.deliver(workflow({ targetDoseWeight: 18 }));
+    expect((await move(machine, cafe)).status).toBe(201);
+    for (const name of ["beans", "beanBatches", "grinders", "profiles"]) await raw.deliver(report(name));
+    await expect.poll(() => sent("requestCollections").length, { timeout: 10_000 }).toBe(1);
+    // The Workflow it sends again holds what PostgreSQL refuses to store, so it is set aside, and the cafe's Bean is written.
+    await raw.deliver(workflow({ targetDoseWeight: 18, notes: "Bright\u0000, sweet" }));
+    await expect.poll(() => sent("write").some((write) => (write as { kind?: unknown }).kind === "bean"), { timeout: 10_000 }).toBe(true);
+  });
+
+  it("judges the batches a joining tablet holds as joining though its report of them came before its beans'", async () => {
     const uptown = await api.createLocation("Ordering Uptown", "UTC");
-    const machine = await api.createMachine("Ordering Uptown 1", uptown.id);
-    const beans = beansNamed("Ordering");
+    const first = await api.createMachine("Ordering Uptown 1", uptown.id);
+    const second = await api.createMachine("Ordering Uptown 2", uptown.id);
     const batches = derivedDe1Pro({})["/bean-batches"] as Record_[];
     const report = (name: string, value: Record_[]) => ({ type: "collection", id: randomUUID(), name, available: true, value, updatedAt: value.map(() => "2026-10-07T15:00:00.000Z") });
-    const raw = await RawConnection.welcomed(server.url, helloWith(machine.token, { tabletId: randomUUID(), machine: { model: "DE1Pro", serial: "23091" } }));
-    raws.push(raw);
-    // Its batches first, as when its read of the beans failed: none can join before its bean is known.
-    await raw.deliver(report("beanBatches", batches));
-    await raw.deliver(report("beans", beans));
-    await raw.deliver(report("beanBatches", batches));
-    const listed = await brought(machine);
-    expect(listed.filter((item) => item.item.kind === "bean")).toHaveLength(beans.length);
-    expect(listed.filter((item) => item.item.kind === "beanBatch")).toHaveLength(batches.length);
+    const atUptown = async () =>
+      (await read<{ batches: { locations: { location: LocationView }[] }[] }>("/bean-batches")).batches.filter((batch) =>
+        batch.locations.some((here) => here.location.id === uptown.id),
+      ).length;
+    /** A tablet of the Machine reporting its batches first, as when its read of the beans failed: none can join before its bean is known. */
+    async function joinWith(machine: CreatedMachine, serial: string, prefix: string): Promise<void> {
+      const raw = await RawConnection.welcomed(server.url, helloWith(machine.token, { tabletId: randomUUID(), machine: { model: "DE1Pro", serial } }));
+      raws.push(raw);
+      await raw.deliver(report("beanBatches", batches));
+      await raw.deliver(report("beans", beansNamed(prefix)));
+      await raw.deliver(report("beanBatches", batches));
+    }
+    // The first brings its batches to Uptown, which offered none.
+    await joinWith(first, "23091", "Ordering first");
+    const brought = await atUptown();
+    expect(brought).toBeGreaterThan(0);
+    // The second holds the same coffees, which are linked to Uptown's, but its batches are left out, as Uptown offers batches now.
+    await joinWith(second, "23092", "Ordering first");
+    expect(await atUptown()).toBe(brought);
   });
 });

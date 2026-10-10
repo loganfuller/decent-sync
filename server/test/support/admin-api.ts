@@ -25,6 +25,8 @@ export interface MachineView {
   machineState: { state: string; substate: string; observedAt: string } | null;
   location: LocationView | null;
   locationHistory: { id: string; location: LocationView; effectiveFrom: string }[];
+  sharing: boolean;
+  captureOnly: ("noLocation" | "sharingOff")[];
   tablet: TabletView | null;
   earlierTablets: TabletView[];
 }

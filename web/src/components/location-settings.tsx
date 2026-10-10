@@ -2,6 +2,7 @@ import { type FormEvent, useId, useState } from "react";
 import { Link } from "react-router";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -170,6 +171,12 @@ function SharingMachines({ settings, onChanged }: { settings: LocationSettings; 
                 <Link to={`/machines/${machine.id}`} className="underline-offset-4 hover:underline">
                   {machine.name}
                 </Link>
+                {/* Capture-only, it shares nothing, whatever its switch here, which applies once its sharing is back on. */}
+                {!machine.sharing && (
+                  <Badge variant="secondary" className="ml-2">
+                    Capture-only
+                  </Badge>
+                )}
               </TableCell>
               <TableCell>{machine.model ?? <span className="text-muted-foreground">Not reported yet</span>}</TableCell>
               <TableCell>

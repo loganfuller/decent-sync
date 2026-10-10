@@ -345,6 +345,12 @@ var __decentSync = (() => {
           fields.itemId("globalId", object3.kind);
           fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
         });
+      case "leaveOut":
+        return check(object3, "leaveOut", (fields) => {
+          fields.id();
+          fields.string("kind", { nonEmpty: true });
+          fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+        });
       default:
         return invalid("Unknown message type");
     }
@@ -390,6 +396,10 @@ var __decentSync = (() => {
       if (typeof value !== "number" || !Number.isInteger(value)) this.problem(key, "must be a whole number");
       else if (options.positive && value <= 0) this.problem(key, "must be positive");
       else if (options.nonNegative && value < 0) this.problem(key, "must not be negative");
+    }
+    /** One of `values`. */
+    oneOf(key, values) {
+      if (!values.includes(this.object[key])) this.problem(key, `must be one of ${values.join(", ")}`);
     }
     boolean(key) {
       if (typeof this.object[key] !== "boolean") this.problem(key, "must be true or false");
@@ -828,6 +838,10 @@ var __decentSync = (() => {
       const skin = isObject2(context.extras) ? context.extras.workflowSkin : void 0;
       if (isObject2(skin) && typeof skin.selectedProfileId === "string") this.shotsName.add(`profile:${skin.selectedProfileId}`);
     }
+    /** Sets aside a record the Library leaves out once the reads and writes before it are done, and queues its answer. It never rejects. */
+    leaveOut(leave) {
+      return this.library.run(async () => this.outbox.enqueue(await setAside(leave)));
+    }
     /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
     apply(write) {
       if (write.kind !== SETTINGS_KIND && write.kind !== WORKFLOW_KIND) return this.library.run(async () => this.outbox.enqueue(await carryOut(write)));
@@ -904,6 +918,38 @@ var __decentSync = (() => {
   }
   var SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches";
   var MAX_SHOTS_READ = 20;
+  async function setAside(leave) {
+    const answer = (outcome, status, error) => ({
+      type: "leftOut",
+      id: leave.id,
+      kind: leave.kind,
+      localId: leave.localId,
+      outcome,
+      ...outcome === "refused" ? { status: status ?? null, error: (error ?? "").slice(0, MAX_REFUSAL_LENGTH) } : {}
+    });
+    const route = Object.prototype.hasOwnProperty.call(ROUTES, leave.kind) ? ROUTES[leave.kind] : void 0;
+    if (!route && leave.kind !== "profile") return answer("refused", null, `This plugin cannot set aside a ${leave.kind}`);
+    try {
+      const path = `${route ? route.records : "/profiles"}/${encodeURIComponent(leave.localId)}`;
+      const current = await request("GET", path);
+      if (current.status === 404) return answer("gone");
+      const record = current.ok ? parsed(current.text) : void 0;
+      if (!isObject2(record)) return answer("refused", current.status, current.text);
+      if (!route) {
+        if (record.visibility !== "visible") return answer("setAside");
+        const hidden = await setVisibility(leave.localId, "hidden");
+        const updated2 = hidden.ok ? parsed(hidden.text) : void 0;
+        return isObject2(updated2) && updated2.visibility !== "visible" ? answer("setAside") : answer("refused", hidden.status, hidden.text);
+      }
+      if (globalIdOf(record) !== null) return answer("taken");
+      if (record.archived === true) return answer("setAside");
+      const archived = await request("PUT", path, { archived: true, extras: isObject2(record.extras) ? record.extras : {} });
+      const updated = archived.ok ? parsed(archived.text) : void 0;
+      return isObject2(updated) && updated.archived === true ? answer("setAside") : answer("refused", archived.status, archived.text);
+    } catch (error) {
+      return answer("refused", null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   function deleted(remove) {
     return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
   }
@@ -2076,6 +2122,9 @@ var __decentSync = (() => {
           break;
         case "delete":
           void this.writes.remove(message);
+          break;
+        case "leaveOut":
+          void this.writes.leaveOut(message);
           break;
         case "heartbeat":
           break;

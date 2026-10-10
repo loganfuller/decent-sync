@@ -153,11 +153,18 @@ export interface Machine {
   location: Location | null;
   /** Where it has been, oldest first. Each entry lasts until the next one's time. */
   locationHistory: LocationHistoryEntry[];
+  /** Whether it shares the Library at its Location: on unless an Admin turned it off, making it a Capture-only Machine. */
+  sharing: boolean;
+  /** Why it is a Capture-only Machine, taking no part in the Library; empty while it takes part. */
+  captureOnly: CaptureOnlyReason[];
   /** The tablet its latest connection came from, or null before any. A reset or replaced tablet is a new one. */
   tablet: Tablet | null;
   /** The tablets its connections came from before, the one whose connection was accepted most recently first. */
   earlierTablets: Tablet[];
 }
+
+/** Why a Machine is a Capture-only Machine: it has no Location, or an Admin turned its sharing off. */
+export type CaptureOnlyReason = "noLocation" | "sharingOff";
 
 /** One tablet taking a Machine over from another, both connected with its token. */
 export interface Takeover {
@@ -512,19 +519,6 @@ export type LibraryKind = "bean" | "beanBatch" | "grinder" | "profile";
 /** What has versions and Conflicts: Library items, and each Location's steam, hot water and rinse settings (`settings`). */
 export type ItemKind = LibraryKind | "settings";
 
-/** An item a Machine's tablet brought to the Library as the Machine joined a Location. */
-export interface BroughtItem {
-  /** The item, named as a Conflict names it: a Bean's roaster and name, a batch's Bean and roast date, a Grinder's model or a Profile's title. */
-  item: { kind: LibraryKind; id: string; name: string | null };
-  /** Matched to an item the Library had (a Bean by roaster and name, a Profile by its id), rather than joining it. */
-  matched: boolean;
-  archived: boolean;
-  /** The Location the Machine joined, or null if it no longer exists. */
-  location: Location | null;
-  tabletId: string;
-  broughtAt: string;
-}
-
 /** A Location's steam, hot water and rinse settings, shared by its Machines whatever their model. */
 export interface LocationSettings {
   /** Null while no Machine there sharing them has reported its Workflow, so none is set. */
@@ -532,7 +526,7 @@ export interface LocationSettings {
   /** Each setting, by its part and name, such as `steamSettings.flow`; null while unset. */
   values: Record<string, number | null>;
   /** The Location's Machines now, each with its model, if known, and whether it shares them. */
-  machines: { id: string; name: string; model: string | null; sharesSettings: boolean }[];
+  machines: { id: string; name: string; model: string | null; sharesSettings: boolean; sharing: boolean }[];
   /** Whether the signed-in account may change them, and switch its Machines' sharing. */
   editable: boolean;
 }

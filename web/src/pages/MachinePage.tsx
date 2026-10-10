@@ -17,9 +17,9 @@ import {
   useLocations,
 } from "@/components/machines";
 import { TokenNotice } from "@/components/TokenNotice";
-import { BroughtItemsCard } from "@/components/brought-items";
 import { Field, Fields } from "@/components/fields";
 import { LibraryCard, PairedDevicesCard, SETTINGS, SettingsCard } from "@/components/machine-collections";
+import { CaptureOnlyBadge, MachineSharingCard } from "@/components/machine-sharing";
 import { SetAsideDeliveriesCard } from "@/components/set-aside-deliveries";
 import { workflowFields } from "@/components/workflow";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -175,6 +175,7 @@ function MachineDetails({ id }: { id: string }) {
             <h1 className="text-2xl font-semibold">{machine.name}</h1>
             <StatusBadge machine={machine} />
             <IdentificationBadge identification={machine.identification} />
+            <CaptureOnlyBadge machine={machine} />
           </div>
 
           {machine.lastRefusal && (
@@ -311,7 +312,7 @@ function MachineDetails({ id }: { id: string }) {
             </>
           )}
           <MachineLocation machine={machine} isAdmin={isAdmin} onChanged={reload} />
-          <BroughtItemsCard machineId={machine.id} />
+          <MachineSharingCard machine={machine} isAdmin={isAdmin} onChanged={reload} />
         </>
       )}
     </section>

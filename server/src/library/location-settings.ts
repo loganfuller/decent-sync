@@ -6,6 +6,7 @@ import { type EditOutcome, type ItemEdit, decisionTime } from "./content-edits.j
 import { type EditSource, type ItemRef, recordConflict, recordReplaced, recordVersion, tabletSource } from "./history.js";
 import type { PlannedWrite } from "./holdings.js";
 import { type AnswerRecorded, type AnsweringTablet, INTAKE_TRANSACTION, type ReportingTablet, lockHeldMachine, lockTablet } from "./intake.js";
+import { standing } from "./join-plan.js";
 import { currentEntry, takeInWorkflowContext, takenIn } from "./joining.js";
 import { transactionTime } from "./location-state.js";
 import { type FieldEdits, editsAfter, latestDecision, mergeEdit, readFieldEdits } from "./merge.js";
@@ -40,7 +41,7 @@ interface HeldSettings {
   contentSeenAt: Date | null;
 }
 
-/** Whether a Machine's tablet shares its Location's settings: on, unless an account turned its sharing off. */
+/** Whether a Machine's tablet shares its Location's settings: on, unless an account turned its sharing of them off, or an Admin its sharing. */
 async function sharesSettings(tx: Prisma.TransactionClient, machineId: string): Promise<boolean> {
   return (await sharing(tx, machineId)).shares;
 }
@@ -55,7 +56,7 @@ async function sharesSettings(tx: Prisma.TransactionClient, machineId: string): 
  */
 async function sharing(tx: Prisma.TransactionClient, machineId: string, observedAt?: Date): Promise<{ shares: boolean; sharedThen: boolean }> {
   const [row] = await tx.$queryRaw<{ shares: boolean; since: Date | null }[]>`
-    SELECT shares_settings AS shares, shares_settings_since AS since FROM machines WHERE id = ${machineId}::uuid`;
+    SELECT shares_settings AND sharing AS shares, shares_settings_since AS since FROM machines WHERE id = ${machineId}::uuid`;
   const shares = row?.shares ?? false;
   const sharedThen = shares && (observedAt === undefined || row!.since === null || observedAt.getTime() >= row!.since.getTime());
   return { shares, sharedThen };
@@ -148,18 +149,22 @@ export async function editSettings(tx: Prisma.TransactionClient, settingsId: str
  * and its grinder and batch are cleared if the Location does not offer them
  * (`takeInWorkflowContext`), whether or not its Machine shares the settings.
  * Tells every instance when the Location's tablets, this one included, are
- * to be written.
+ * to be written. Returns where it was taken in (`standing`), or null if
+ * nowhere, as its Machine is capture-only.
  */
-export async function takeInWorkflow(tx: Prisma.TransactionClient, tablet: ReportingTablet, workflow: unknown, observedAt: string): Promise<void> {
-  const reported = sharedSettingsOf(workflow);
-  if (reported === null) return;
+export async function takeInWorkflow(tx: Prisma.TransactionClient, tablet: ReportingTablet, workflow: unknown, observedAt: string): Promise<string | null> {
   const entry = await currentEntry(tx, tablet.machineId);
-  if (entry === null) return;
+  // Capture-only: its settings as last had are kept as they were, stale until it joins. The writer writes nothing until
+  // a Workflow is taken in where its lists were (`TabletWriter`), so the joining Workflow replaces them before any write.
+  if (entry === null) return null;
   const { locationId } = entry;
+  const takenInAt = standing(entry);
   await lockTablet(tx, tablet.tabletId);
   const joining = await takenIn(tx, tablet.tabletId, "workflow", entry);
   // Before the settings' row lock: it may take the Location's lock, which comes first.
   await takeInWorkflowContext(tx, tablet, workflow, locationId, joining);
+  const reported = sharedSettingsOf(workflow);
+  if (reported === null) return takenInAt;
   const settings = await lockSettingsAt(tx, locationId);
   const held = await heldSettings(tx, tablet.tabletId);
   const known = !joining && held?.settingsId === settings.id ? held : null;
@@ -168,7 +173,7 @@ export async function takeInWorkflow(tx: Prisma.TransactionClient, tablet: Repor
     await saveHeld(tx, tablet.tabletId, settings.id, reported, null);
     // Sharing turned on since it was made: the tablet is to take the Location's, which turning it on may have found it held already.
     if (shares && settingsToWrite(settings.values, reported) !== null) await notify(tx, "library_changes", locationId);
-    return;
+    return takenInAt;
   }
   const values = settingsEdits(known?.values ?? null, reported, settings.fieldEdits);
   const edit = { values, at: new Date(observedAt), seenAt: known?.contentSeenAt ?? null };
@@ -176,6 +181,7 @@ export async function takeInWorkflow(tx: Prisma.TransactionClient, tablet: Repor
   await saveHeld(tx, tablet.tabletId, settings.id, reported, null);
   const now = edited.writesDue ? (await lockSettings(tx, settings.id))!.values : settings.values;
   if (edited.writesDue || settingsToWrite(now, reported) !== null) await notify(tx, "library_changes", locationId);
+  return takenInAt;
 }
 
 /**

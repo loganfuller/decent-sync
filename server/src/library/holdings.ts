@@ -139,12 +139,24 @@ export interface PlannedDelete {
   localId: string;
 }
 
-/** What the writer does next to a tablet: a write, or a delete. */
-export type PlannedChange = PlannedWrite | PlannedDelete;
+/** A tablet's record the Library leaves out, to be set aside there, archived or hidden (left-out.ts): its kind, and its id on the tablet. */
+export interface PlannedLeaveOut {
+  leaveOut: true;
+  kind: DeletedKind;
+  localId: string;
+}
+
+/** What the writer does next to a tablet: a write, a delete, or setting aside a record the Library leaves out. */
+export type PlannedChange = PlannedWrite | PlannedDelete | PlannedLeaveOut;
 
 /** The key a planned delete is skipped under, for the rest of a connection. */
 export function deleteKey(kind: DeletedKind, localId: string): string {
   return `delete:${kind}:${localId}`;
+}
+
+/** The key setting aside a record the Library leaves out is skipped under, for the rest of a connection. */
+export function leaveOutKey(kind: DeletedKind, localId: string): string {
+  return `leaveOut:${kind}:${localId}`;
 }
 
 /** The key a write's item is skipped under, for the rest of a connection. */

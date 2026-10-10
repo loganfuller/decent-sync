@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { LibraryDelete, LibraryWrite, WrittenKind } from "@decent-sync/protocol";
-import { type PlannedChange, deleteKey, writeKey } from "../library/holdings.js";
+import type { LeaveOut, LibraryDelete, LibraryWrite, WrittenKind } from "@decent-sync/protocol";
+import { type PlannedChange, deleteKey, leaveOutKey, writeKey } from "../library/holdings.js";
 import type { SeenDecision } from "../library/intake.js";
 import { type WrittenTablet, tabletDue } from "../library/tablet-due.js";
 import type { PrismaService } from "../prisma.service.js";
@@ -21,7 +21,7 @@ const ANSWER_TIMEOUT_MS = 300_000;
  * content, which its record holds.
  */
 export interface AwaitedWrite {
-  write: LibraryWrite | LibraryDelete;
+  write: LibraryWrite | LibraryDelete | LeaveOut;
   seen: SeenDecision | null;
   contentSeen: Date | null;
 }
@@ -63,16 +63,19 @@ export const KIND_NAMES: Readonly<Record<WrittenKind, string>> = {
  * Nothing is written until the connection's reports of the tablet's beans,
  * bean batches, grinders and profiles are taken in, which the plugin sends on every
  * welcome, nor between a report of its beans and the report of its batches
- * the plugin sends after it, and only while the Machine is at the Location
- * the latest reports were all taken in at. A bean the tablet already holds,
- * entered there or before it joined, is then linked to the Library's Bean
- * rather than written to it again. When it finds the Machine at another Location
- * than that, as once it has moved, it asks the plugin for its collections
- * afresh (`requestCollections`), once for each Location it finds, and writes
- * once those reports are taken in there. A move is notified to every instance,
- * which wakes the writers of the Machine's connections, and every writer
- * looks again after its instance listens anew, so a move missed meanwhile is
- * found too.
+ * the plugin sends after it, and only while the Machine takes part where
+ * the latest reports were all taken in: at their Location, with sharing on
+ * since they were, and where its latest Workflow was taken in too, once it
+ * sent one (`workflowAt`). A bean the tablet already holds, entered there or
+ * before it joined, is then linked to the Library's Bean rather than written
+ * to it again. Nothing is written while the Machine is capture-only. When it finds
+ * the Machine taking part elsewhere, as once it has moved, or had sharing
+ * turned off and on again, it asks the plugin for its collections afresh
+ * (`requestCollections`), once for each place it finds, and writes once
+ * those reports are taken in there. A move or a switch of sharing is
+ * notified to every instance, which wakes the writers of the Machine's
+ * connections, and every writer looks again after its instance listens
+ * anew, so one missed meanwhile is found too.
  *
  * Only the connection holding its Machine writes, and only a write its
  * connection awaits is answered, so a tablet is written one item at a
@@ -94,7 +97,10 @@ export class TabletWriter {
    * written (`AwaitedWrite`).
    */
   private waiting: (AwaitedWrite & { settle: (outcome: WriteOutcome | "stopped" | "timedOut") => void }) | undefined;
-  /** Items whose write or delete was refused, or not answered, on this connection, or that writing did not change, by `writeKey` or `deleteKey`. */
+  /**
+   * Items whose write, delete or leave-out was refused, or not answered, on this connection, or that writing did not change, by
+   * `writeKey`, `deleteKey` or `leaveOutKey`.
+   */
   private readonly skipped = new Set<string>();
   /**
    * The fields last written to each item on this connection, by `writeKey`,
@@ -108,10 +114,22 @@ export class TabletWriter {
    */
   private readonly lastWritten = new Map<string, string>();
   /**
-   * The Location the connection's latest report of each list was taken in
-   * at: null while the Machine was at none, and absent until one is.
+   * Where the connection's latest report of each list was taken in
+   * (`standing`): its Location, and when the Machine's sharing was last
+   * turned back on; null while it was capture-only, and absent until one is.
    */
   private readonly reportedAt = new Map<TakenInList, string | null>();
+  /**
+   * Where the connection's latest Workflow was taken in (`standing`), null
+   * while its Machine was capture-only, and undefined until one is, as on a
+   * connection whose plugin sends none, or once one was set aside as it
+   * cannot be stored, which waits for nothing more. Nothing is written while it is not
+   * where the lists were taken in, as when the Machine moved between the
+   * Workflow and the lists the plugin sends after it on a welcome: the
+   * plugin is asked for them afresh, so a joining tablet's Workflow is judged
+   * there (`takeInWorkflow`) before anything is written to it.
+   */
+  private workflowAt: string | null | undefined;
   /**
    * Set from when a report of the tablet's beans begins to be stored until
    * the report of its bean batches the plugin sends after it arrives: nothing
@@ -123,9 +141,9 @@ export class TabletWriter {
    */
   private awaitingBatches = false;
   /**
-   * The Location the plugin was last asked to report the tablet's collections
-   * afresh for, until the writer finds the Machine at the Location of its
-   * latest report. A report taken in just before a move, after the request,
+   * Where (`standing`) the plugin was last asked to report the tablet's
+   * collections afresh for, until the writer finds the Machine taking part
+   * where its latest report was taken in. A report taken in just before a move, after the request,
    * does not clear it, so the plugin is not asked twice. The cost: should the
    * Machine move back, have the reply taken in there, and move to that
    * Location again before the writer next looks, it is not asked again, and
@@ -144,8 +162,8 @@ export class TabletWriter {
   constructor(
     private readonly tablet: WrittenTablet,
     private readonly prisma: PrismaService,
-    /** Sends a write or delete on the connection, in chunks if it is too large for one frame. */
-    private readonly send: (write: LibraryWrite | LibraryDelete) => void,
+    /** Sends a write, delete or leave-out on the connection, in chunks if it is too large for one frame. */
+    private readonly send: (write: LibraryWrite | LibraryDelete | LeaveOut) => void,
     /** Asks the plugin for every collection afresh, as on a welcome. */
     private readonly requestCollections: () => void,
     private readonly log: { warn(message: string): void; error(message: string): void },
@@ -180,14 +198,24 @@ export class TabletWriter {
 
   /**
    * A report of the tablet's beans, bean batches, grinders or profiles from this
-   * connection was stored, and taken in with its Machine at that Location,
-   * or at none; or, undefined, not taken in, as when it was unavailable or
-   * set aside. One of its bean batches ends the wait a report of its beans
-   * began.
+   * connection was stored, and taken in there (`standing`), or nowhere, as
+   * its Machine was capture-only; or, undefined, not taken in, as when it was
+   * unavailable or set aside. One of its bean batches ends the wait a report
+   * of its beans began.
    */
-  reported(list: TakenInList, locationId: string | null | undefined): void {
-    if (locationId !== undefined) this.reportedAt.set(list, locationId);
+  reported(list: TakenInList, takenInAt: string | null | undefined): void {
+    if (takenInAt !== undefined) this.reportedAt.set(list, takenInAt);
     if (list === "beanBatches") this.awaitingBatches = false;
+    this.wake();
+  }
+
+  /**
+   * A Workflow from this connection was stored, and taken in there
+   * (`standing`), or nowhere, as its Machine was capture-only; or,
+   * undefined, set aside as it cannot be stored.
+   */
+  workflowReported(takenInAt: string | null | undefined): void {
+    this.workflowAt = takenInAt;
     this.wake();
   }
 
@@ -213,7 +241,7 @@ export class TabletWriter {
       this.again = false;
       // Until the connection's first reports are taken in, which its welcome brings, nothing is due.
       const reports = TAKEN_IN.map((list) => this.reportedAt.get(list));
-      /** Where all were taken in, or undefined while they were not, or were at different Locations, as across a move. */
+      /** Where all were taken in, or undefined while they were not, or were in different places, as across a move. */
       const reportedAt = reports.every((at) => at === reports[0]) ? reports[0] : undefined;
       const now = Date.now();
       for (const [key, until] of this.deferred) if (until <= now) this.deferred.delete(key);
@@ -221,13 +249,15 @@ export class TabletWriter {
       const found =
         reports.includes(undefined) || this.awaitingBatches ? null : await tabletDue(this.prisma, this.tablet, reportedAt ?? null, excluded);
       if (this.stopped) return;
-      if (found && found.locationId === reportedAt) this.requestedFor = undefined;
-      else if (found && found.locationId !== null && found.locationId !== this.requestedFor) {
-        this.requestedFor = found.locationId;
+      /** Whether the connection's latest Workflow was taken in elsewhere than where the Machine takes part now. */
+      const workflowBehind = found !== null && this.workflowAt !== undefined && this.workflowAt !== found.standing;
+      if (found && found.standing === reportedAt && !workflowBehind) this.requestedFor = undefined;
+      else if (found && found.standing !== null && found.standing !== this.requestedFor) {
+        this.requestedFor = found.standing;
         this.requestCollections();
       }
       // A report of the tablet's beans may have been taken in while this was read: what is due waits for its batches.
-      const planned = this.awaitingBatches ? null : (found?.writes ?? null);
+      const planned = this.awaitingBatches || workflowBehind ? null : (found?.writes ?? null);
       if (planned) {
         // An item no longer due has not stayed due since it was written.
         const stillDue = new Set(planned.map(changeKey));
@@ -239,11 +269,22 @@ export class TabletWriter {
         return;
       }
       const key = changeKey(due);
-      const item = `${KIND_NAMES[due.kind]} ${due.globalId}`;
-      const fields = "delete" in due ? "delete" : JSON.stringify({ fields: due.fields, expected: due.expected ?? null });
+      const item = "leaveOut" in due ? `${KIND_NAMES[due.kind]} record ${due.localId}` : `${KIND_NAMES[due.kind]} ${due.globalId}`;
+      const fields = "delete" in due ? "delete" : "leaveOut" in due ? "leaveOut" : JSON.stringify({ fields: due.fields, expected: due.expected ?? null });
       if (this.lastWritten.get(key) === fields) {
         this.log.warn(`Tablet ${this.tablet.tabletId} is still due ${item} once written; it is tried again once the tablet reconnects`);
         this.skipped.add(key);
+        continue;
+      }
+      if ("leaveOut" in due) {
+        // Its answer removes it from what the tablet is due, so it is not due again once set aside.
+        const outcome = await this.ask({ write: { type: "leaveOut", id: randomUUID(), kind: due.kind, localId: due.localId }, seen: null, contentSeen: null });
+        if (outcome === "stopped") return;
+        if (outcome === "timedOut") {
+          this.log.warn(`Tablet ${this.tablet.tabletId} did not answer setting aside ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once the tablet reconnects`);
+        }
+        if (outcome === "written") this.lastWritten.set(key, fields);
+        else this.skipped.add(key);
         continue;
       }
       if ("delete" in due) {
@@ -324,7 +365,8 @@ export class TabletWriter {
   }
 }
 
-/** The key a planned write or delete is skipped and remembered under. */
+/** The key a planned write, delete or leave-out is skipped and remembered under. */
 function changeKey(change: PlannedChange): string {
-  return "delete" in change ? deleteKey(change.kind, change.localId) : writeKey(change.kind, change.globalId);
+  if ("delete" in change) return deleteKey(change.kind, change.localId);
+  return "leaveOut" in change ? leaveOutKey(change.kind, change.localId) : writeKey(change.kind, change.globalId);
 }
