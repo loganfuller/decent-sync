@@ -112,7 +112,7 @@ export async function takeInBeans(
     await lockLocation(tx, locationId);
     bringing = !(await offersAny(tx, locationId, "bean"));
   }
-  const left = await screenLeftOut(tx, tablet.tabletId, "bean", reportedNew, leftOutRecord, listedIds(value), mappedIds, joining, bringing);
+  const left = await screenLeftOut(tx, tablet.tabletId, "bean", reportedNew, leftOutRecord, listedIds(value), mappedIds, joining);
   const kept = new Set(left.kept);
   const reported = screened.kept.filter((bean) => mappedIds.has(bean.localId) || kept.has(bean));
   const unmapped = reported.filter((bean) => !mappedIds.has(bean.localId));

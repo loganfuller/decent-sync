@@ -86,7 +86,7 @@ export async function takeInGrinders(
     bringing = !(await offersAny(tx, locationId, "grinder"));
   }
   const reportedNew = screened.kept.filter((grinder) => !mappedIds.has(grinder.localId));
-  const left = await screenLeftOut(tx, tablet.tabletId, "grinder", reportedNew, leftOutRecord, listedIds(value), mappedIds, joining, bringing);
+  const left = await screenLeftOut(tx, tablet.tabletId, "grinder", reportedNew, leftOutRecord, listedIds(value), mappedIds, joining);
   const kept = new Set(left.kept);
   const reported = screened.kept.filter((grinder) => mappedIds.has(grinder.localId) || kept.has(grinder));
   const named = reported.flatMap((grinder) => (grinder.globalId !== null && !mappedIds.has(grinder.localId) ? [grinder.globalId] : []));

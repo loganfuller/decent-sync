@@ -351,8 +351,8 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const cafeMachine = await api.createMachine("Bringing cafe 1", cafe.id);
     const cafeTablet = load(cafeMachine, "23043", { fresh: true });
     await online(cafeMachine);
-    // The cafe offers a coffee of its own, but no batch, Grinder or user's Profile.
-    await cafeTablet.addBean({ roaster: "Roux", name: "Bringing cafe House" });
+    // The cafe offers a coffee the joining tablet holds too, but no batch, Grinder or user's Profile.
+    await cafeTablet.addBean({ roaster: "Roux Bakehouse", name: "Bringing traveller Roest #24 Eth" });
     await mapped(cafeTablet);
 
     const traveller = await api.createMachine("Bringing traveller");
@@ -364,12 +364,47 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     await expect.poll(() => heldIds(cafeTablet.grinders(), false).length, { timeout: 15_000 }).toBe(2);
     await expect.poll(() => heldIds(tablet.grinders(), false), { timeout: 15_000 }).toEqual(heldIds(cafeTablet.grinders(), false));
     await expect.poll(() => userProfiles(cafeTablet, true), { timeout: 15_000 }).toEqual(ownProfiles);
-    // Its coffees are left out, as the cafe offers one, and so are their batches, though the cafe offers none.
+    // Its coffees are left out, as the cafe offers one, and so are their batches, though the cafe offers none; but the batch
+    // of the coffee linked to the cafe's joins the Library there, and reaches the cafe's tablet.
     await expect.poll(() => tablet.beans().filter((bean) => globalIdOf(bean) === null && bean.archived !== true).length, { timeout: 15_000 }).toBe(0);
-    await expect.poll(() => tablet.batches().filter((batch) => batch.archived !== true).length, { timeout: 15_000 }).toBe(0);
-    expect(await libraryBeans("Bringing traveller")).toEqual([]);
+    const roest24 = tablet.beans().find((bean) => bean.name === "Bringing traveller Roest #24 Eth")!;
+    await expect.poll(() => heldIds(cafeTablet.batches(), false).length, { timeout: 15_000 }).toBe(1);
+    await expect.poll(() => heldIds(tablet.batches(), false), { timeout: 15_000 }).toEqual(heldIds(cafeTablet.batches(), false));
+    expect(tablet.batches().filter((batch) => batch.archived !== true).map((batch) => batch.beanId)).toEqual([roest24.id]);
+    expect(await libraryBeans("Bringing traveller")).toEqual(["Bringing traveller Roest #24 Eth"]);
     // Its grinder joined the cafe, so its Workflow keeps it; its batch, whose coffee is left out, is cleared.
     await expect.poll(() => GRINDER_AND_BATCH.filter((field) => field in context(tablet)), { timeout: 10_000 }).toEqual(["grinderId", "grinderModel"]);
+  });
+
+  it("links a record left out at one join to the Library's item at a later join", async () => {
+    const uptown = await api.createLocation("Relinking Uptown", "UTC");
+    const belmont = await api.createLocation("Relinking Belmont", "UTC");
+    const uptownMachine = await api.createMachine("Relinking Uptown 1", uptown.id);
+    const uptownTablet = load(uptownMachine, "23045", { fresh: true });
+    await online(uptownMachine);
+    await uptownTablet.addBean({ roaster: "Roux", name: "Relinking Uptown House" });
+    await mapped(uptownTablet);
+    const traveller = await api.createMachine("Relinking traveller");
+    const tablet = load(traveller, "23046", { instance: other });
+    await online(traveller);
+    const record = () => tablet.beans().filter((bean) => bean.name === "Relinking traveller Roest #24 Eth");
+    const [roest24] = record();
+
+    // At Uptown, which has no such coffee, it is left out, archived on the tablet.
+    expect((await move(traveller, uptown)).status).toBe(201);
+    await expect.poll(() => record()[0]!.archived, { timeout: 15_000 }).toBe(true);
+    expect(globalIdOf(record()[0]!)).toBeNull();
+    // Belmont gets that coffee, and the Machine moves there: its record is Belmont's Bean, written as Belmont offers it.
+    const created = (await (await api.call("POST", "/beans", { content: { roaster: "Roux Bakehouse", name: "Relinking traveller Roest #24 Eth" } })).json()) as {
+      bean: { id: string };
+    };
+    expect((await api.call("POST", "/bean-batches", { beanId: created.bean.id, content: { roastDate: "2026-10-05" }, locations: [{ locationId: belmont.id }] })).status).toBe(
+      201,
+    );
+    expect((await move(traveller, belmont)).status).toBe(201);
+    await expect.poll(() => globalIdOf(record()[0]!), { timeout: 15_000 }).toBe(created.bean.id);
+    await expect.poll(() => record()[0]!.archived, { timeout: 15_000 }).toBe(false);
+    expect(record().map((bean) => bean.id)).toEqual([roest24!.id]);
   });
 
   it("lets a Machine joining a Location that has no settings yet set them", async () => {
@@ -500,9 +535,8 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     await joinWith(first, "23091", "Ordering first");
     const brought = await atUptown();
     expect(brought).toBeGreaterThan(0);
-    // The second's are left out, as Uptown offers batches now.
-    await joinWith(second, "23092", "Ordering second");
+    // The second holds the same coffees, which are linked to Uptown's, but its batches are left out, as Uptown offers batches now.
+    await joinWith(second, "23092", "Ordering first");
     expect(await atUptown()).toBe(brought);
-    expect(await libraryBeans("Ordering second")).toEqual([]);
   });
 });

@@ -118,7 +118,7 @@ export async function takeInProfiles(
   await lockLocation(tx, locationId);
   /** Whether the report joins a Location that shows no user's Profile yet, so brings the tablet's own. */
   const bringing = joining && !(await offersAny(tx, locationId, "profile"));
-  const left = await screenLeftOut(tx, tablet.tabletId, "profile", reportedNew, leftOutRecord, listedIds(value), mappedIds, joining, bringing);
+  const left = await screenLeftOut(tx, tablet.tabletId, "profile", reportedNew, leftOutRecord, listedIds(value), mappedIds, joining);
   const kept = new Set(left.kept);
   const reported = screenedProfiles.filter((profile) => mappedIds.has(profile.id) || kept.has(profile));
   const unmapped = reported.flatMap((profile) => (mappedIds.has(profile.id) ? [] : [profile.id]));

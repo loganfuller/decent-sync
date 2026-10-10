@@ -94,7 +94,7 @@ export async function takeInBatches(
     bringing = !(await offersAny(tx, locationId, "beanBatch"));
   }
   const reportedNew = screened.kept.filter((batch) => !mappedIds.has(batch.localId));
-  const left = await screenLeftOut(tx, tablet.tabletId, "beanBatch", reportedNew, leftOutRecord, listedIds(value), mappedIds, joining, bringing);
+  const left = await screenLeftOut(tx, tablet.tabletId, "beanBatch", reportedNew, leftOutRecord, listedIds(value), mappedIds, joining);
   const kept = new Set(left.kept);
   // A batch of a bean the Library leaves out is left out with it as the tablet joins; otherwise it waits for its bean.
   const beansLeftOut = joining ? await leftOutIds(tx, tablet.tabletId, "bean") : new Set<string>();

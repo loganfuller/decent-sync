@@ -60,13 +60,14 @@ export async function offersAny(tx: Prisma.TransactionClient, locationId: string
 /**
  * Sets apart the reported records of a kind that the map does not hold and
  * the Library leaves out, under the tablet's row lock: each stays out, and
- * is set aside on the tablet if it is not, unless it was set aside and a
- * barista un-archived or showed it since, in a report that is not part of
- * joining, or the tablet joins a Location that offers none of its kind
- * (`bringing`): it is then taken in as any new record. One the list
- * (`listed`, every id it holds) no longer holds, or that the map holds now,
- * as a write made it a Library item's, is forgotten. Returns the rest, and
- * whether a record is newly due to be set aside.
+ * is set aside on the tablet if it is not, unless a barista un-archived or
+ * showed it there once it was set aside, which takes it in as any new
+ * record. A report that is part of joining judges every record afresh, so
+ * one the Library has come to hold since, as a Bean of its roaster and name,
+ * is linked, and the rest are left out again. One the list (`listed`, every
+ * id it holds) no longer holds, or that the map holds now, as a write made
+ * it a Library item's, is forgotten. Returns the rest, and whether a record
+ * is newly due to be set aside.
  */
 export async function screenLeftOut<T>(
   tx: Prisma.TransactionClient,
@@ -77,7 +78,6 @@ export async function screenLeftOut<T>(
   listed: ReadonlySet<string>,
   mapped: ReadonlySet<string>,
   joining: boolean,
-  bringing: boolean,
 ): Promise<{ kept: T[]; due: boolean }> {
   const rows = await tx.$queryRaw<{ localId: string; setAside: boolean }[]>`
     SELECT local_id AS "localId", set_aside AS "setAside" FROM tablet_left_out WHERE tablet_id = ${tabletId}::uuid AND kind = ${kind}`;
@@ -94,7 +94,7 @@ export async function screenLeftOut<T>(
       kept.push(record);
       continue;
     }
-    if (bringing || (wasSetAside && !setAside && !joining)) {
+    if (joining || (wasSetAside && !setAside)) {
       released.push(localId);
       kept.push(record);
       continue;

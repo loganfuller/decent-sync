@@ -1143,7 +1143,10 @@ it.
   hold, one of the tablet's own, is cleared if the Library leaves it out,
   or will, as the Location offers Grinders, or batches or Beans, already
   (What it holds of its own, below); otherwise it joins the Library at
-  the Location with its reports there, and stays. The clear is kept (`workflow_clears`) and
+  the Location with its reports there, and stays. The Workflow is judged
+  before the lists are taken in, so a batch whose bean is then linked to
+  one of the Location's, and that joins the Library as the Location offers
+  no batch yet, is cleared all the same. The clear is kept (`workflow_clears`) and
   written whether or not the Machine shares the settings, as a `write` of
   the `workflow` kind, after the settings and before anything else: the
   plugin clears the grinder, and the batch, each whole, only while the
@@ -1171,7 +1174,9 @@ it.
   stays out of the Library, and the writer sets it aside on the tablet, a
   bean, bean batch or grinder archived, a profile hidden, never deleted,
   so the tablet's Shots still find it; so is a batch of a bean left out.
-  Decaid's bundled Profiles, which every tablet has, are never left out.
+  Decaid's bundled Profiles, which every tablet has, are never left out,
+  and one the Location has not decided is shown there or not as the
+  joining tablet holds it, as on any tablet's first report there.
   - **A Location that offers none of a kind yet**, as a cafe's first
     Machine joins it, takes the joining tablet's own items of that kind,
     as a Location with no settings yet takes its settings: its Beans if
@@ -1184,8 +1189,10 @@ it.
   - **Taken up again.** A record left out stays out of the Library while
     the tablet holds it. Once it is set aside, as the plugin answers or a
     report shows it archived or hidden, a barista who un-archives or shows
-    it there takes it up: the next report, not part of joining, takes it
-    in as a new record, as if entered then. One the tablet deletes is
+    it there takes it up: the next report takes it in as a new record, as
+    if entered then; a batch whose bean is still left out waits for it. A
+    later join judges it afresh, so one the Library has come to hold, as a
+    Bean of its roaster and name, is linked then. One the tablet deletes is
     forgotten, and so is one a write made a Library item's record.
   - What the tablet held at its old Location its map holds, so it stays
     offered only there, and is archived or hidden on it. Its old
