@@ -513,6 +513,28 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     expect(tabletSettings(tablet)["steamSettings.flow"]).toBe(2.1);
   });
 
+  it("asks a joining tablet again for its Workflow taken in before it joined, though its lists came after, and writes nothing until it is judged there", async () => {
+    const cafe = await api.createLocation("Asking cafe", "UTC");
+    const created = (await (await api.call("POST", "/beans", { content: { roaster: "Roux", name: "Asking House" } })).json()) as { bean: { id: string } };
+    expect((await api.call("POST", "/bean-batches", { beanId: created.bean.id, content: { roastDate: "2026-10-05" }, locations: [{ locationId: cafe.id }] })).status).toBe(201);
+    const machine = await api.createMachine("Asking traveller");
+    const raw = await RawConnection.welcomed(server.url, helloWith(machine.token, { tabletId: randomUUID(), machine: { model: "DE1Pro", serial: "23093" } }));
+    raws.push(raw);
+    const workflow = () => ({ type: "workflow", id: randomUUID(), observedAt: new Date().toISOString(), workflow: workflowFixture() });
+    const report = (name: string) => ({ type: "collection", id: randomUUID(), name, available: true, value: [], updatedAt: [] });
+    const sent = (type: string) => raw.messages.filter((message) => (message as { type?: unknown }).type === type);
+    // Its Workflow is taken in while it is capture-only; it is then adopted at the cafe before its lists arrive.
+    await raw.deliver(workflow());
+    expect((await move(machine, cafe)).status).toBe(201);
+    for (const name of ["beans", "beanBatches", "grinders", "profiles"]) await raw.deliver(report(name));
+    await expect.poll(() => sent("requestCollections").length, { timeout: 10_000 }).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(sent("write")).toEqual([]);
+    // Once its Workflow is taken in at the cafe, it is judged as joining: the batch it names, its own, is cleared first.
+    await raw.deliver(workflow());
+    await expect.poll(() => sent("write").map((write) => (write as { kind?: unknown }).kind), { timeout: 10_000 }).toEqual(["workflow"]);
+  });
+
   it("judges the batches a joining tablet holds as joining though its report of them came before its beans'", async () => {
     const uptown = await api.createLocation("Ordering Uptown", "UTC");
     const first = await api.createMachine("Ordering Uptown 1", uptown.id);

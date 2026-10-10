@@ -67,7 +67,8 @@ export const KIND_NAMES: Readonly<Record<WrittenKind, string>> = {
  * the latest reports were all taken in: at their Location, with sharing on
  * since they were. A bean the tablet already holds, entered there or before
  * it joined, is then linked to the Library's Bean rather than written to it
- * again. Nothing is written while the Machine is capture-only. When it finds
+ * again, nor while the connection's latest Workflow was taken in elsewhere
+ * (`workflowAt`). Nothing is written while the Machine is capture-only. When it finds
  * the Machine taking part elsewhere, as once it has moved, or had sharing
  * turned off and on again, it asks the plugin for its collections afresh
  * (`requestCollections`), once for each place it finds, and writes once
@@ -118,6 +119,16 @@ export class TabletWriter {
    * turned back on; null while it was capture-only, and absent until one is.
    */
   private readonly reportedAt = new Map<TakenInList, string | null>();
+  /**
+   * Where the connection's latest Workflow was taken in (`standing`), null
+   * while its Machine was capture-only, and undefined until one is, as on a
+   * connection whose plugin sends none. Nothing is written while it is not
+   * where the lists were taken in, as when the Machine moved between the
+   * Workflow and the lists the plugin sends after it on a welcome: the
+   * plugin is asked for them afresh, so a joining tablet's Workflow is judged
+   * there (`takeInWorkflow`) before anything is written to it.
+   */
+  private workflowAt: string | null | undefined;
   /**
    * Set from when a report of the tablet's beans begins to be stored until
    * the report of its bean batches the plugin sends after it arrives: nothing
@@ -197,6 +208,12 @@ export class TabletWriter {
     this.wake();
   }
 
+  /** A Workflow from this connection was stored, and taken in there (`standing`), or nowhere, as its Machine was capture-only. */
+  workflowReported(takenInAt: string | null): void {
+    this.workflowAt = takenInAt;
+    this.wake();
+  }
+
   /** The write with this id, if it awaits its answer, and what its answer has seen. */
   awaited(id: string): AwaitedWrite | undefined {
     return this.waiting?.write.id === id ? { write: this.waiting.write, seen: this.waiting.seen, contentSeen: this.waiting.contentSeen } : undefined;
@@ -227,13 +244,15 @@ export class TabletWriter {
       const found =
         reports.includes(undefined) || this.awaitingBatches ? null : await tabletDue(this.prisma, this.tablet, reportedAt ?? null, excluded);
       if (this.stopped) return;
-      if (found && found.standing === reportedAt) this.requestedFor = undefined;
+      /** Whether the connection's latest Workflow was taken in elsewhere than where the Machine takes part now. */
+      const workflowBehind = found !== null && this.workflowAt !== undefined && this.workflowAt !== found.standing;
+      if (found && found.standing === reportedAt && !workflowBehind) this.requestedFor = undefined;
       else if (found && found.standing !== null && found.standing !== this.requestedFor) {
         this.requestedFor = found.standing;
         this.requestCollections();
       }
       // A report of the tablet's beans may have been taken in while this was read: what is due waits for its batches.
-      const planned = this.awaitingBatches ? null : (found?.writes ?? null);
+      const planned = this.awaitingBatches || workflowBehind ? null : (found?.writes ?? null);
       if (planned) {
         // An item no longer due has not stayed due since it was written.
         const stillDue = new Set(planned.map(changeKey));

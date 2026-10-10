@@ -168,7 +168,7 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     await tablet.editBean(own().id, { archived: false });
     const all = [...uptownBeans, "Switching Own"].sort();
     await expect.poll(() => sharedBeans(sharingTablet), { timeout: 15_000 }).toEqual(all);
-    expect(sharedBeans(tablet)).toEqual(all);
+    await expect.poll(() => sharedBeans(tablet), { timeout: 10_000 }).toEqual(all);
     expect((await libraryBeans("Switching Own"))[0]!.offeredAt).toEqual([uptown]);
   });
 

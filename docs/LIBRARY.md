@@ -790,7 +790,11 @@ been taken in, nor between a report of its beans and the report of its batches t
 sends after it, so a change the tablet made to both, such as deleting a bean
 with its batches, is taken in whole first. It then writes only while the
 connection still holds the Machine and the Machine is at the Location the
-latest reports were all taken in at. So a bean the tablet holds
+latest reports were all taken in at, and its latest Workflow, once it has
+sent one, was taken in there too: one taken in elsewhere, as when the
+Machine joined a Location between the Workflow and the lists the plugin
+sends after it, has the plugin asked for them afresh, so a joining
+tablet's Workflow is judged there before anything is written. So a bean the tablet holds
 already, entered there or before it joined, is linked to the Library's Bean
 before anything is written, rather than written to it again. A tablet that
 was offline catches up once its reports on reconnecting are taken in. The

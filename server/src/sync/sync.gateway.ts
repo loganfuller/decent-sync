@@ -375,7 +375,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       case "steam":
         return this.captureRecord(session, message, text, () => this.steamRecords.store(message, reporter));
       case "workflow":
-        return this.capture(session, message, text, () => this.machineEvents.storeWorkflow(message, reporter));
+        return this.capture(session, message, text, async () => {
+          const takenInAt = await this.machineEvents.storeWorkflow(message, reporter);
+          if (takenInAt !== undefined) session.writer?.workflowReported(takenInAt);
+        });
       case "machineState":
         return this.capture(session, message, text, () => this.machineEvents.storeMachineState(message, reporter));
       case "collection":
