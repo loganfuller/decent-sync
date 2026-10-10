@@ -65,10 +65,14 @@ acknowledges it (`plugin/src/kept-deliveries.ts`, through the commands of
   kept, its key overwritten by its sequence number alone. Decaid answers each
   command with an event, one at a time; a write it leaves unanswered for
   10 s counts as failed, is logged, and the delivery is sent anyway, perhaps
-  kept only in memory. As the plugin unloads, it sends the writes still waiting
-  their turn without waiting for answers, as Decaid finishes a retiring
-  generation's writes, so an acknowledgment that arrives just before an
-  unload is recorded and its delivery not sent again.
+  kept only in memory. From then on, until Decaid answers anything again,
+  writes are sent without waiting for answers, so a Decaid failing every
+  write holds up no delivery and logs once. As the plugin unloads, it sends
+  the writes still waiting their turn without waiting for answers, the one
+  awaiting an answer again first, as Decaid finishes a retiring generation's
+  writes but drops one it received just before if it handles the unload
+  first; so an acknowledgment that arrives just before an unload is recorded
+  and its delivery not sent again.
 - **Sent first after a reload.** As it loads, before it sends anything, the
   plugin reads back what earlier loads kept and queues it, oldest first,
   ahead of everything queued since, such as the Workflow Decaid sends after

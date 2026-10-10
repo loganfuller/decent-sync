@@ -316,8 +316,8 @@ up as a new tablet.
 The plugin also keeps the Workflow changes and machine state transitions the
 server has not yet acknowledged in Decaid's plugin storage, so disabling the
 plugin, changing its settings or restarting Decaid while the server can't be
-reached loses none of them: the next load sends them first, unless another
-Machine's token was entered meanwhile. While the server
+reached loses none of them: the next load sends them first, unless the token
+was changed meanwhile. While the server
 is unreachable for long, it keeps the newest 2,000 of them, up to 2 Mi
 characters, dropping the oldest. Shots and Steam Records need no keeping:
 every load sends the server an index of the tablet's records, and the server

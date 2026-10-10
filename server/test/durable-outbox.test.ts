@@ -295,6 +295,35 @@ describe("The durable outbox", () => {
     expect([oldest.substate, newest.substate]).toEqual([substates[(made - stored) % 2], substates[(made - 1) % 2]]);
   });
 
+  it("sends what it could not keep once Decaid stops answering, without waiting on Decaid again until it answers", async () => {
+    const machine = await api.createMachine("Decaid not answering");
+    const storage = new PluginStorage();
+    const tablet = load(machine, storage, derivedDe1Pro({ serial: "93011" }));
+    await expect.poll(() => machineEventsSent(tablet).length).toBe(2);
+    await acknowledged(tablet);
+
+    // Decaid carries out the plugin's storage commands but answers none, as one whose writes fail.
+    const release = tablet.holdStorageAnswers();
+    const dialledIn = derivedWorkflow({ targetYield: 44 });
+    tablet.setWorkflow(dialledIn);
+    await expect.poll(async () => (await workflowEvents(machine)).events[0]?.workflow).toEqual(dialledIn);
+    // The next are sent without waiting on Decaid.
+    const shot: [string, string][] = [["espresso", "preinfusion"], ["espresso", "pouring"], ["idle", "idle"]];
+    for (const [state, substate] of shot) tablet.reportState(state, substate);
+    await expect.poll(() => transitions(machine)).toEqual(shot);
+    await acknowledged(tablet);
+    expect(tablet.logs.filter((log) => log.startsWith("Could not keep"))).toEqual([
+      "Could not keep a delivery, so it is sent without being kept in Decaid's plugin storage: Decaid's plugin storage did not answer the write of a delivery to keep within 10 s.",
+    ]);
+
+    // Once Decaid answers again, deliveries wait for it as before.
+    release();
+    tablet.reportState("sleeping", "idle");
+    await expect.poll(async () => (await transitions(machine)).at(-1)).toEqual(["sleeping", "idle"]);
+    await acknowledged(tablet);
+    expect(tablet.logs.filter((log) => log.startsWith("Could not keep"))).toHaveLength(1);
+  });
+
   it(`keeps at most the newest ${MAX_KEPT} while the server is unreachable, in plugin storage and across a reload`, { timeout: 120_000 }, async () => {
     const machine = await api.createMachine("Most kept");
     const storage = new PluginStorage();
@@ -310,13 +339,15 @@ describe("The durable outbox", () => {
     // The deliveries kept, their sequence numbers and the tablet's id.
     expect((storage.readThroughApi(undefined) as string[]).length).toBe(MAX_KEPT + 2);
 
-    // The Workflow Decaid sends after loading the plugin, and again on welcome, are kept after those read back, so the
-    // two oldest of those are dropped before they are sent.
+    // The Workflow Decaid sends after loading the plugin is kept after those read back, dropping the oldest of them,
+    // and so is the one sent again on welcome, dropping the next. The server stays unreachable until they are read
+    // back, so the welcome comes after.
     const second = load(machine, storage, decaid);
+    second.loseNetwork();
+    await second.waitForLog(new RegExp(`^Sending ${MAX_KEPT - 1} Workflow and machine state events kept from before the plugin last unloaded\\.$`));
+    second.restoreNetwork();
     const stored = MAX_KEPT - 2;
     await expect.poll(async () => (await stateEvents(machine)).total, { timeout: 60_000 }).toBe(stored);
-    expect(second.logs).toContain(`Sending ${stored} Workflow and machine state events kept from before the plugin last unloaded.`);
-    expect(second.logs.filter((log) => DROPPED_LOG.test(log))).toHaveLength(1);
     await expect.poll(() => machineEventsSent(second).length, { timeout: 10_000 }).toBe(stored + 2);
     await acknowledged(second);
     const oldest = (await stateEvents(machine, stored - 1)).events[0]!;
