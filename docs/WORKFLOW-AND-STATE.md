@@ -77,13 +77,15 @@ acknowledges it (`plugin/src/kept-deliveries.ts`, through the commands of
   reconnect. Reading them back stops at any read Decaid fails or leaves
   unanswered, never taking it for nothing kept, logs it, and starts again
   after 5 s, doubling to at most 5 minutes, until it succeeds. Nothing is
-  sent meanwhile, so nothing kept is ever sent after a newer delivery; a
-  Decaid that cannot read the plugin's storage cannot read the tablet's id
-  either, without which the plugin does not connect, so the wait holds up
-  nothing more. Workflow and machine state deliveries queued meanwhile,
-  usually for a fraction of a second, are held to the limits below, and kept
-  once the reading back ends: an unload before then loses them. Nothing kept
-  sends nothing extra.
+  sent meanwhile, Shots and collections included, so nothing kept is ever
+  sent after a newer delivery. This rests on Decaid's reads failing all
+  together: it reads the plugin's storage from memory, so a read fails only
+  when its store does, or when it does not answer in 10 s, and a Decaid that
+  cannot read the plugin's storage as the plugin loads cannot read the
+  tablet's id either, without which the plugin does not connect. Workflow
+  and machine state deliveries queued meanwhile, for the time 2,001 reads at
+  most take, are held to the limits below, and kept once the reading back
+  ends: an unload before then loses them. Nothing kept sends nothing extra.
 - **Under the token they were made with.** Deliveries belong to the token's
   Machine, and the server records each delivery id per Machine, so the key
   `outbox` also holds a 32-bit hash of the token, never the token. A load
@@ -104,9 +106,10 @@ acknowledges it (`plugin/src/kept-deliveries.ts`, through the commands of
   oldest it receives, and the Workflow and state sent on the next `welcome`
   still bring the current ones. In memory too, the outbox holds no more of
   them than it keeps, but for one sent and awaiting its acknowledgment, and
-  it holds new Shots and Steam Records by their ids until it sends them
-  (`SHOTS.md`, `STEAM_RECORDS.md`), so what it holds stays bounded however
-  long the server is unreachable.
+  while it reads back what was kept, those read back as well as those held
+  meanwhile. It holds new Shots and Steam Records by their ids until it sends
+  them (`SHOTS.md`, `STEAM_RECORDS.md`); only Shot edits, one per edit, are
+  held whole, as before.
 - **Not kept.** Shots, Steam Records, their indices and collections keep
   milestone 1's recovery: every load scans and indexes the tablet's records,
   the server requests what it lacks, and every `welcome` sends each

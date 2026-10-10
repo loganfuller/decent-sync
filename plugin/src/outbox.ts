@@ -104,9 +104,10 @@ export class Outbox {
    * Reads back the deliveries earlier loads kept, and queues them ahead of
    * everything queued since, which is kept after them. It sends nothing
    * meanwhile, so none is sent after a newer one, trying again, with
-   * backoff, until Decaid answers. A Decaid that cannot read the plugin's
-   * storage cannot read the tablet's id either, without which the plugin
-   * does not connect, so the wait holds up nothing more. The Workflow and
+   * backoff, until Decaid answers. Decaid reads the plugin's storage from
+   * memory, so its reads fail all together, and one that cannot read it as
+   * the plugin loads cannot read the tablet's id either, without which the
+   * plugin does not connect. The Workflow and
    * machine state deliveries queued meanwhile are held to the limits on
    * those kept (`holdWhileRestoring`).
    */
