@@ -20,11 +20,10 @@ import { Prisma } from "../generated/prisma/client.js";
 // value 0 as none, as a skin may send it (`shotProfileSql`, `stepsKeySql`).
 // A skin's other changes to the profile it loads, such as streamline-js's
 // saved brew temperature written into every step, make a profile of their
-// own, which the Library may lack. The
-// profile id a skin records in the Workflow is not used: the WorkFlow skin
-// (Sabotage1/WorkFlow-Skin) records the Profile picked in it, which stays as
-// it was when another skin loads another profile, as Decaid merges a
-// Workflow's changes into it.
+// own, which the Library may lack. The profile id a skin records in the
+// Workflow is not used: the WorkFlow skin (Sabotage1/WorkFlow-Skin) records
+// the Profile picked in it, which stays as it was when another skin loads
+// another profile, as Decaid merges a Workflow's changes into it.
 //
 // Every change to a tablet's map holds the tablet's row lock, and links the
 // Shots it can then (`linkShots`); storing a Shot's metadata holds that row
@@ -120,48 +119,46 @@ function workflowProfileSql(alias: string): Prisma.Sql {
 /**
  * The id of the Library Profile the Shot of `shots` aliased `alias` was
  * pulled with, or null: the one whose id its Workflow's profile hashes to,
- * holding the same steps and the rest of what Decaid hashes. A skin sets the
- * Workflow's profile's target weight to the Shot's yield, so a Profile with
- * another target weight is the Shot's when no other Profile matches it but
- * for that. The Profiles' steps are found through their index.
+ * holding the same steps (`stepsKeySql`) and the rest of what Decaid hashes.
+ * A skin sets the Workflow's profile's target weight to the Shot's yield, so
+ * a Profile with another target weight is the Shot's when it is the only
+ * one matching it but for that. A Profile whose steps are the Shot's as
+ * they are, limiters of value 0 and all, is its before one whose steps are
+ * only compared alike, as a copy of a profile a skin loaded keeps the
+ * limiters as the skin sent them: first with the same target weight, then
+ * as the only such Profile. The Profiles' steps are found through their
+ * index.
  */
 export function shotProfileSql(alias: string): Prisma.Sql {
   const shot = workflowProfileSql(alias);
   const same = HASHED.map((field) => Prisma.sql`p.content -> 'profile' -> ${field} IS NOT DISTINCT FROM ${shot} -> ${field}`);
   return Prisma.sql`(
     SELECT candidate.id FROM (
-      SELECT p.id, coalesce(p.content -> 'profile' -> 'target_weight' = ${shot} -> 'target_weight', false) AS exact, count(*) OVER () AS candidates
+      SELECT p.id,
+        coalesce(p.content -> 'profile' -> 'steps' = ${shot} -> 'steps', false) AS "sameSteps",
+        coalesce(p.content -> 'profile' -> 'target_weight' = ${shot} -> 'target_weight', false) AS "sameWeight",
+        count(*) OVER () AS candidates,
+        count(*) FILTER (WHERE p.content -> 'profile' -> 'steps' = ${shot} -> 'steps') OVER () AS "sameStepsCandidates"
       FROM profiles AS p
-      WHERE ${stepsKeySql(Prisma.sql`p.content -> 'profile' -> 'steps'`)} = ${stepsKeySql(Prisma.sql`${shot} -> 'steps'`)} AND ${Prisma.join(same, " AND ")}
+      WHERE ${stepsKeySql(Prisma.sql`p.content -> 'profile' -> 'steps'`)} = ${stepsKeySql(Prisma.sql`${shot} -> 'steps'`)}
+        AND ${Prisma.join(same, " AND ")}
     ) AS candidate
-    WHERE candidate.exact OR candidate.candidates = 1
-    ORDER BY candidate.exact DESC, candidate.id LIMIT 1
+    WHERE candidate."sameWeight" OR (candidate."sameSteps" AND candidate."sameStepsCandidates" = 1) OR candidate.candidates = 1
+    ORDER BY candidate."sameSteps" AND candidate."sameWeight" DESC, candidate."sameWeight" DESC, candidate."sameSteps" DESC, candidate.id
+    LIMIT 1
   )`;
 }
 
 /**
  * Whether the Shot of `shots` aliased `alias` was pulled with the Library
- * Profile, as `shotProfileSql` decides, without deciding it for each Shot:
- * the Shot holds the Profile's steps, found through the index on the
- * Shot's, and the rest of what Decaid hashes, and either its target weight,
- * unless a Profile listed before matches it as closely, or the Profile is the
- * only one matching it but for that. Which Profiles match it so is the same
- * for every such Shot, so it is counted once.
+ * Profile (`shotProfileSql`), decided only for the Shots holding that
+ * Profile's steps, as compared, and the rest of what Decaid hashes, found
+ * through the index on the Shots' steps.
  */
 export function shotPulledWithSql(alias: string, profileId: string): Prisma.Sql {
   const shot = workflowProfileSql(alias);
   const target = Prisma.sql`(SELECT content -> 'profile' FROM profiles WHERE id = ${profileId})`;
-  const shotSame = HASHED.map((field) => Prisma.sql`${shot} -> ${field} IS NOT DISTINCT FROM ${target} -> ${field}`);
-  const rival = (p: string) => Prisma.join(
-    [Prisma.sql`${stepsKeySql(Prisma.sql`${Prisma.raw(p)}.content -> 'profile' -> 'steps'`)} = ${stepsKeySql(Prisma.sql`${target} -> 'steps'`)}`,
-      ...HASHED.map((field) => Prisma.sql`${Prisma.raw(p)}.content -> 'profile' -> ${field} IS NOT DISTINCT FROM ${target} -> ${field}`)],
-    " AND ",
-  );
+  const same = HASHED.map((field) => Prisma.sql`${shot} -> ${field} IS NOT DISTINCT FROM ${target} -> ${field}`);
   return Prisma.sql`${stepsKeySql(Prisma.sql`${Prisma.raw(alias)}.record -> 'workflow' -> 'profile' -> 'steps'`)} = ${stepsKeySql(Prisma.sql`${target} -> 'steps'`)}
-    AND ${Prisma.join(shotSame, " AND ")}
-    AND (
-      (SELECT count(*) FROM profiles AS p WHERE ${rival("p")}) = 1
-      OR (${shot} -> 'target_weight' = ${target} -> 'target_weight'
-        AND NOT EXISTS (SELECT 1 FROM profiles AS p WHERE ${rival("p")} AND p.id < ${profileId} AND p.content -> 'profile' -> 'target_weight' = ${shot} -> 'target_weight'))
-    )`;
+    AND ${Prisma.join(same, " AND ")} AND ${shotProfileSql(alias)} = ${profileId}`;
 }

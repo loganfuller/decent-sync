@@ -128,10 +128,11 @@ Shot to the Library's Bean Batch, Grinder and Profile it used
   when the tablet's record leaves its map, as when a barista deletes it
   there, while each delivery of the Shot names the same id; a delivery
   naming another id is linked by that one, or unlinked until the map gains
-  it. A link refuses its item's hard delete. Every change to a map holds the tablet's row
-  lock, and storing a Shot's metadata holds that row for share while it
-  resolves, so neither misses the other on any instance. A Shot whose ids no
-  map holds stays unlinked, and is listed as any other.
+  it. A link refuses its item's hard delete. Every change to a map holds
+  the tablet's row lock, and storing a Shot's metadata holds that row for
+  share while it resolves, reading the Shot's links under it, so neither
+  misses the other on any instance. A Shot whose ids no map holds stays
+  unlinked, and is listed as any other.
 - **Profile.** A Profile's id is Decaid's, a hash of what the machine
   executes (`ProfileHash` in
   `decaid:lib/src/models/data/profile_hash.dart`), which a Shot's Workflow
@@ -145,13 +146,20 @@ Shot to the Library's Bean Batch, Grinder and Profile it used
   migration, which the indexes on the steps use): streamline-js sends every
   profile it loads into the Workflow so (`updateWorkflow` in
   `streamline-js:src/modules/api.js`), while the profile's record keeps it,
-  and sets its target weight to the yield. The hard delete's check of
-  whether a Shot names a Profile, and the plugin's, compare steps the same
-  way. A skin's other changes, such as streamline-js's saved brew
-  temperature written into every step, make a profile the Library may lack,
-  and the Shot is linked to none. The link is read, not stored, so it
-  follows the Library: a Profile joining that matches a Shot as closely as
-  its own but for the target weight leaves that Shot linked to neither.
+  and sets its target weight to the yield. A Profile whose steps are the
+  Shot's as they are, limiters included, comes before one only compared
+  alike, with the same target weight first, then as the only one: a copy
+  saved of a profile streamline-js loaded keeps its limiters as null. So
+  where the Library has both such a copy and the profile it was made from,
+  with the same target weight, a Shot pulled through streamline-js with
+  either is linked to the copy, as the two record the same. The hard
+  delete's check of whether a Shot names a Profile, and the plugin's,
+  compare steps the same way. A skin's other changes, such as
+  streamline-js's saved brew temperature written into every step, make a
+  profile the Library may lack, and the Shot is linked to none. The link is
+  read, not stored, so it follows the Library: a Profile joining that
+  matches a Shot as closely as its own but for the target weight leaves
+  that Shot linked to neither.
 - **The skin's profile id is not used.** The profile id the WorkFlow skin
   (`Sabotage1/WorkFlow-Skin`) records in the Workflow
   (`context.extras.workflowSkin.selectedProfileId`, kept as `profile_id`)
@@ -252,8 +260,9 @@ flow, weight and basket temperature, with the targets its profile set),
 everything its record holds, its credit, the Library's Bean Batch, Grinder
 and Profile it is linked to, each linking to its page, and a comparison with
 its previous Shot. Each Bean's, Bean Batch's, Grinder's and Profile's page
-lists its Shots, ten at a time (`web/src/components/item-shots.tsx`). Times are shown in each Shot's Location's time zone, or UTC, labelled,
-for a Shot with no Location. `web/src/lib/curves.ts` turns Decaid's
+lists its Shots, ten at a time (`web/src/components/item-shots.tsx`).
+Times are shown in each Shot's Location's time zone, or UTC, labelled, for a
+Shot with no Location. `web/src/lib/curves.ts` turns Decaid's
 measurements into curves, counting time as `elapsedSeconds` does.
 `e2e/shots.spec.ts` covers them with Shots seeded through simulated tablets,
 and `e2e/shot-links.spec.ts` a batch's Shots and the Bean Batch and Grinder

@@ -31,6 +31,11 @@ interface FilterOptions {
 
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
+/** The profile with its pouring step's limiter as given: a limiter of value 0 is none, which streamline-js sends as null. */
+function withLimiter(profile: Record_, limiter: Record_ | null): Record_ {
+  return { ...profile, steps: (profile.steps as Record_[]).map((step, index) => (index === 1 ? { ...step, limiter } : step)) };
+}
+
 /** The bundled Profile the WorkFlow skin had selected on the test tablet, which its Shot was not pulled with. */
 const SKIN_SELECTED = "profile:98fa00c191551b435845";
 /** The bundled Profile the test tablet's Shot was pulled with, which streamline-js loaded into its Workflow. */
@@ -54,10 +59,15 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
   });
 
   /** The built plugin on a tablet of the Machine, polling every 5 s (0.1 s here), its Decaid's Library as given, empty by default. */
-  function load(machine: CreatedMachine, serial: string, options: { instance?: TestServer; library?: Record_ } = {}): SimulatedTablet {
+  function load(
+    machine: CreatedMachine,
+    serial: string,
+    options: { instance?: TestServer; library?: Record_; apiDelayMs?: (method: string, path: string) => number } = {},
+  ): SimulatedTablet {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
       api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...options.library },
+      apiDelayMs: options.apiDelayMs,
       timeScale: 50,
     });
     tablets.push(tablet);
@@ -72,6 +82,12 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
   const poll = <T>(read: () => T) => expect.poll(read, { timeout: 10_000 });
   const held = (records: Record_[], id: string) => records.find((record) => globalIdOf(record) === id);
   const viewShot = async (id: string) => (await send<{ shot: ShotView }>("GET", `/shots/${id}`)).shot;
+  /** Resolves with the id of the Library's Profile of that title, once it has one. */
+  async function libraryProfileId(title: string): Promise<string> {
+    const find = async () => (await send<{ profiles: { id: string; title: string }[] }>("GET", "/profiles")).profiles.find((p) => p.title === title)?.id;
+    await poll(find).toBeTruthy();
+    return (await find())!;
+  }
   /** The ids of the Shots a filtered list holds, in list order. */
   const listed = async (query: string) => (await send<{ shots: ShotView[] }>("GET", `/shots?${query}`)).shots.map((shot) => shot.id);
 
@@ -216,6 +232,62 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     await poll(async () => (await api.call("GET", "/shots/streamline-shot")).status).toBe(200);
     expect((await viewShot("streamline-shot")).profile).toEqual({ id: LONDONIUM, title: "Londonium" });
     expect(await listed(`profileId=${encodeURIComponent(LONDONIUM)}&machineId=${machine.machine.id}`)).toEqual(["streamline-shot"]);
+  });
+
+  it("links a Shot to the Profile whose steps are its own as they are before one whose value-0 limiters it holds as none", async () => {
+    const location = await api.createLocation("Copied cafe", "America/Chicago");
+    const machine = await api.createMachine("Copied cafe 1", location.id);
+    const tablet = load(machine, "26061");
+    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    // A profile with a limiter of value 0, and the copy a barista saved of it as streamline-js loaded it, with that limiter null.
+    const kept = (await tablet.addProfile(withLimiter(derivedProfile("Copied bloom", 4.15), { value: 0, range: 0.6 }))).profile as Record_;
+    const copied = (await tablet.addProfile({ ...withLimiter(kept, null), title: "Copied bloom copy" })).profile as Record_;
+    const keptId = await libraryProfileId("Copied bloom");
+    const copiedId = await libraryProfileId("Copied bloom copy");
+    expect(keptId).not.toBe(copiedId);
+
+    tablet.pullShot(shotWith("copied-kept", "26061", {}, kept));
+    tablet.pullShot(shotWith("copied-copy", "26061", {}, copied));
+    // A skin set the copy's target weight to the yield: the copy is still the only Profile with its steps as they are.
+    tablet.pullShot(shotWith("copied-copy-yield", "26061", {}, { ...copied, target_weight: 37.5 }));
+    for (const id of ["copied-kept", "copied-copy", "copied-copy-yield"]) await poll(async () => (await api.call("GET", `/shots/${id}`)).status).toBe(200);
+
+    expect((await viewShot("copied-kept")).profile?.id).toBe(keptId);
+    expect((await viewShot("copied-copy")).profile?.id).toBe(copiedId);
+    expect((await viewShot("copied-copy-yield")).profile?.id).toBe(copiedId);
+    expect(await listed(`profileId=${encodeURIComponent(keptId)}`)).toEqual(["copied-kept"]);
+    expect(new Set(await listed(`profileId=${encodeURIComponent(copiedId)}`))).toEqual(new Set(["copied-copy", "copied-copy-yield"]));
+  });
+
+  it("refuses to hard-delete a Profile a Shot pulled through streamline-js used, on the server and on the tablet that has yet to send the Shot", async () => {
+    const location = await api.createLocation("Zeroed cafe", "America/Chicago");
+    const machine = await api.createMachine("Zeroed cafe 1", location.id);
+    let slowShots = false;
+    // Decaid is slow to read a Shot, so the server plans a delete before it has the Shot just pulled.
+    const tablet = load(machine, "26071", { apiDelayMs: (method, path) => (slowShots && method === "GET" && path.startsWith("/shots/") ? 3_000 : 0) });
+    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    const sent = (await tablet.addProfile(withLimiter(derivedProfile("Zeroed bloom", 4.25), { value: 0, range: 0.6 }))).profile as Record_;
+    const unsent = (await tablet.addProfile(withLimiter(derivedProfile("Zeroed unsent bloom", 4.35), { value: 0, range: 0.6 }))).profile as Record_;
+    const sentId = await libraryProfileId("Zeroed bloom");
+    const unsentId = await libraryProfileId("Zeroed unsent bloom");
+
+    // The server has the Shot, whose Workflow holds the profile with that limiter null.
+    tablet.pullShot(shotWith("zeroed-sent", "26071", {}, withLimiter(sent, null)));
+    await poll(async () => (await api.call("GET", "/shots/zeroed-sent")).status).toBe(200);
+    const refused = await api.call("DELETE", `/profiles/${encodeURIComponent(sentId)}`);
+    expect(refused.status).toBe(409);
+    expect(await refused.text()).toMatch(/A Shot names this Profile/);
+
+    // The tablet has yet to send the Shot when the delete reaches it.
+    slowShots = true;
+    tablet.pullShot(shotWith("zeroed-unsent", "26071", {}, withLimiter(unsent, null)));
+    expect((await api.call("DELETE", `/profiles/${encodeURIComponent(unsentId)}`)).status).toBe(204);
+    await expect
+      .poll(() => server.output(), { timeout: 20_000 })
+      .toMatch(/did not delete "profile" .*A Shot this plugin has queued or has yet to send names the record/);
+    await poll(async () => (await api.call("GET", "/shots/zeroed-unsent")).status).toBe(200);
+    expect(tablet.profiles().some((record) => record.id === unsentId)).toBe(true);
+    expect(tablet.writes.filter((write) => write.startsWith("DELETE "))).toEqual([]);
   });
 
   it("keeps a Shot whose batch and Grinder the Library lacks unlinked and listed", async () => {

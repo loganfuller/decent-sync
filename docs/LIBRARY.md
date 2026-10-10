@@ -40,8 +40,8 @@ items of that kind already, archiving or hiding them on its tablet
 instead. Ticket [#92](https://github.com/loganfuller/decent-sync/issues/92)
 links each Shot to the Bean Batch, Grinder and Profile it used, through its
 tablet's map, so Shots are filtered by them and each item's page lists its
-Shots (`SHOTS.md`, Links to the Library). It follows ADR-0003, ADR-0006, ADR-0008, ADR-0014, ADR-0016,
-ADR-0018, ADR-0019 and ADR-0020.
+Shots (`SHOTS.md`, Links to the Library). It follows ADR-0003, ADR-0006,
+ADR-0008, ADR-0014, ADR-0016, ADR-0018, ADR-0019 and ADR-0020.
 
 ## Who takes part
 
@@ -1462,10 +1462,11 @@ the Locations it is at with its remaining weight at each, and where it was
 finished, each Grinder's page its Location and what it is, and each
 Profile's page where it is shown, its steps and the Profile it was saved
 from. Each item's page notes its open Conflicts, if it has any, and shows its
-Shots (`web/src/components/item-shots.tsx`) and its history, and the Library's Conflicts page lists every open Conflict, the
-latest first, with the losing value and the value now, and where and when
-each came from. A Conflict is used or dismissed from either, by an account
-that may (`web/src/components/conflicts.tsx`). Each Location's page
+Shots (`web/src/components/item-shots.tsx`) and its history, and the
+Library's Conflicts page lists every open Conflict, the latest first, with
+the losing value and the value now, and where and when each came from. A
+Conflict is used or dismissed from either, by an account that may
+(`web/src/components/conflicts.tsx`). Each Location's page
 (`/locations/:id`) shows its steam, hot water and rinse settings, which an
 Admin, or Staff working there, changes, with their Conflicts and history,
 and its Machines, each with a switch for sharing them, a capture-only one
