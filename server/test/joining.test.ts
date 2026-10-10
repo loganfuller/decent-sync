@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView } from "./support/admin-api.js";
@@ -148,6 +149,17 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
       .poll(() => [...tablet.beans(), ...tablet.batches(), ...tablet.grinders()].filter((record) => globalIdOf(record) === null).length, { timeout: 15_000 })
       .toBe(0);
   }
+  /**
+   * Resolves once both tablets hold the same, as `held` reads it. Both are
+   * read again on each attempt, as either may still be written to while it
+   * waits.
+   */
+  async function alike(held: (tablet: SimulatedTablet) => unknown, one: SimulatedTablet, another: SimulatedTablet): Promise<void> {
+    await expect.poll(() => [held(one), held(another)], { timeout: 15_000 }).toSatisfy(([mine, theirs]) => isDeepStrictEqual(mine, theirs), "the same on both tablets");
+  }
+  /** What the server last took in of the tablet's list, as it reported it. */
+  const captured = async ({ machine }: CreatedMachine, name: string) =>
+    (await read<{ collection: { value: Record_[] } | null }>(`/machines/${machine.id}/collections/${name}`)).collection?.value ?? [];
   /** What the tablet holds that a Location offers it: its unarchived Beans, batches and Grinders, and its visible user Profiles. */
   const offered = (tablet: SimulatedTablet) => ({
     beans: heldIds(tablet.beans(), false),
@@ -343,7 +355,8 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const grinder = own(tablet.grinders())[0]!;
     await tablet.editGrinder(grinder.id, { archived: false });
     await expect.poll(() => heldIds(uptownTablet.grinders(), false).length, { timeout: 15_000 }).toBe(uptownOffers.grinders.length + 1);
-    expect(heldIds(tablet.grinders(), false)).toEqual(heldIds(uptownTablet.grinders(), false));
+    // Its tablet is written the Grinder's global id by a write of its own, apart from Uptown's tablet's.
+    await alike((held) => heldIds(held.grinders(), false), tablet, uptownTablet);
   });
 
   it("brings a joining Machine's own items of each kind its Location offers none of yet", async () => {
@@ -359,23 +372,29 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const tablet = load(traveller, "23044", { instance: other });
     await online(traveller);
     const ownProfiles = userProfiles(tablet, true);
-    // One of its grinders, not the one its Workflow names, is archived there.
+    // One of its grinders, not the one its Workflow names, is archived there before it joins: the server has taken in its
+    // report of the grinder archived, not only one read before.
     const archived = tablet.grinders().find((grinder) => grinder.id !== context(tablet).grinderId)!;
+    const kept = tablet.grinders().find((grinder) => grinder.id === context(tablet).grinderId)!;
+    expect(archived.model).not.toBe(kept.model);
     await tablet.editGrinder(archived.id, { archived: true });
+    await expect.poll(async () => (await captured(traveller, "grinders")).find((grinder) => grinder.id === archived.id)?.archived, { timeout: 10_000 }).toBe(true);
     expect((await move(traveller, cafe)).status).toBe(201);
     // Its Grinder and Profiles join the Library at the cafe, and reach the cafe's tablet; the grinder it archived stays out.
-    await expect.poll(() => heldIds(cafeTablet.grinders(), false).length, { timeout: 15_000 }).toBe(1);
-    await expect.poll(() => heldIds(tablet.grinders(), false), { timeout: 15_000 }).toEqual(heldIds(cafeTablet.grinders(), false));
+    await expect.poll(() => cafeTablet.grinders().filter((grinder) => grinder.archived !== true).map((grinder) => grinder.model), { timeout: 15_000 }).toEqual([kept.model]);
+    await alike((held) => heldIds(held.grinders(), false), tablet, cafeTablet);
     const archivedNow = tablet.grinders().find((grinder) => grinder.id === archived.id)!;
     expect(archivedNow.archived).toBe(true);
     expect(globalIdOf(archivedNow)).toBeNull();
+    const atCafe = (await read<{ grinders: { model: string | null; location: LocationView | null }[] }>("/grinders")).grinders.filter((grinder) => grinder.location?.id === cafe.id);
+    expect(atCafe.map((grinder) => grinder.model)).toEqual([kept.model]);
     await expect.poll(() => userProfiles(cafeTablet, true), { timeout: 15_000 }).toEqual(ownProfiles);
     // Its coffees are left out, as the cafe offers one, and so are their batches, though the cafe offers none; but the batch
     // of the coffee linked to the cafe's joins the Library there, and reaches the cafe's tablet.
     await expect.poll(() => tablet.beans().filter((bean) => globalIdOf(bean) === null && bean.archived !== true).length, { timeout: 15_000 }).toBe(0);
     const roest24 = tablet.beans().find((bean) => bean.name === "Bringing traveller Roest #24 Eth")!;
     await expect.poll(() => heldIds(cafeTablet.batches(), false).length, { timeout: 15_000 }).toBe(1);
-    await expect.poll(() => heldIds(tablet.batches(), false), { timeout: 15_000 }).toEqual(heldIds(cafeTablet.batches(), false));
+    await alike((held) => heldIds(held.batches(), false), tablet, cafeTablet);
     expect(tablet.batches().filter((batch) => batch.archived !== true).map((batch) => batch.beanId)).toEqual([roest24.id]);
     expect(await libraryBeans("Bringing traveller")).toEqual(["Bringing traveller Roest #24 Eth"]);
     // Its grinder joined the cafe, so its Workflow keeps it; its batch, whose coffee is left out, is cleared.
