@@ -10,6 +10,7 @@ import {
   type PlannedDelete,
   type PlannedWrite,
   type ShownProfile,
+  batchesAwaitingBeans,
   deleteKey,
   plannedWrites,
   writeKey,
@@ -81,92 +82,114 @@ export async function tabletDue(
       if (!holder.sharing || id === null || locationId === null) return { locationId: null, standing: null, writes: null };
       const where = standing({ id, locationId, sharingSince });
       if (where !== reportedAt) return { locationId, standing: where, writes: null };
-      // Each with the latest decision of whether any of its batches is there: a write to the Bean carries it.
-      const beans = await tx.$queryRaw<(Omit<OfferedBean, "contentDecidedAt"> & Edited)[]>`
-        SELECT beans.id, beans.content, ${presenceDecidedSql(Prisma.raw("beans.id"), locationId)} AS "decidedAt", beans.field_edits AS "fieldEdits" FROM beans
-        WHERE NOT beans.archived AND (
-          EXISTS (SELECT 1 FROM bean_origins AS origin WHERE origin.bean_id = beans.id AND origin.location_id = ${locationId}::uuid)
-          OR EXISTS (
-            SELECT 1 FROM bean_batches AS batch
-            JOIN batch_locations AS here ON here.batch_id = batch.id AND here.location_id = ${locationId}::uuid
-            WHERE batch.bean_id = beans.id AND NOT batch.archived AND here.added_at IS NOT NULL AND here.finished_at IS NULL
-          )
-        )
-        ORDER BY beans.created_at, beans.id`;
-      // The batches the Location offers, then the others the tablet holds, each with its state there.
-      const batches = await tx.$queryRaw<(Omit<LocationBatch, "remainingWeight" | "contentDecidedAt"> & Edited & { remainingWeight: number | null; entered: boolean })[]>`
-        SELECT batch.id, batch.bean_id AS "beanId", batch.content, batch.field_edits AS "fieldEdits",
-          (here.added_at IS NOT NULL AND here.finished_at IS NULL AND NOT batch.archived AND NOT bean.archived) AS offered,
-          here.remaining_weight AS "remainingWeight", here.remaining_weight_at IS NOT NULL AS entered, here.presence_decided_at AS "decidedAt"
-        FROM bean_batches AS batch
-        JOIN beans AS bean ON bean.id = batch.bean_id
-        LEFT JOIN batch_locations AS here ON here.batch_id = batch.id AND here.location_id = ${locationId}::uuid
-        WHERE (here.added_at IS NOT NULL AND here.finished_at IS NULL AND NOT batch.archived AND NOT bean.archived)
-          OR EXISTS (SELECT 1 FROM tablet_bean_batches AS held WHERE held.batch_id = batch.id AND held.tablet_id = ${tablet.tabletId}::uuid)
-        ORDER BY 5 DESC, batch.created_at, batch.id`;
-      // Each record the tablet holds, with its item's content, which a write to it carries.
-      const heldBeans = await tx.$queryRaw<HeldRow[]>`
-        SELECT held.bean_id AS "itemId", held.local_id AS "localId", held.record, ${presenceDecidedSql(Prisma.raw("held.bean_id"), locationId)} AS "decidedAt",
-          beans.content, beans.field_edits AS "fieldEdits"
-        FROM tablet_beans AS held JOIN beans ON beans.id = held.bean_id WHERE held.tablet_id = ${tablet.tabletId}::uuid ORDER BY held.bean_id`;
-      const heldBatches = await tx.$queryRaw<HeldRow[]>`
-        SELECT held.batch_id AS "itemId", held.local_id AS "localId", held.record, batch.content, batch.field_edits AS "fieldEdits"
-        FROM tablet_bean_batches AS held JOIN bean_batches AS batch ON batch.id = held.batch_id
-        WHERE held.tablet_id = ${tablet.tabletId}::uuid ORDER BY held.batch_id`;
-      const grinders = await tx.$queryRaw<(Omit<OfferedGrinder, "contentDecidedAt"> & Edited)[]>`
-        SELECT id, content, field_edits AS "fieldEdits" FROM grinders WHERE location_id = ${locationId}::uuid AND NOT archived ORDER BY created_at, id`;
-      const heldGrinders = await tx.$queryRaw<HeldRow[]>`
-        SELECT held.grinder_id AS "itemId", held.local_id AS "localId", held.record, grinders.content, grinders.field_edits AS "fieldEdits"
-        FROM tablet_grinders AS held JOIN grinders ON grinders.id = held.grinder_id WHERE held.tablet_id = ${tablet.tabletId}::uuid ORDER BY held.grinder_id`;
-      // Each Profile's content only where the tablet lacks it, to create its record with: what a Location shows is many and large.
-      const profiles = await tx.$queryRaw<(Omit<ShownProfile, "contentDecidedAt"> & Edited)[]>`
-        SELECT profiles.id, profiles.bundled, here.decided_at AS "decidedAt", profiles.field_edits AS "fieldEdits",
-          CASE WHEN held.profile_id IS NULL AND NOT profiles.bundled THEN profiles.content END AS content
-        FROM profiles
-        JOIN profile_locations AS here ON here.profile_id = profiles.id AND here.location_id = ${locationId}::uuid AND here.shown
-        LEFT JOIN tablet_profiles AS held ON held.profile_id = profiles.id AND held.tablet_id = ${tablet.tabletId}::uuid
-        WHERE NOT profiles.archived
-        ORDER BY profiles.created_at, profiles.id`;
-      // Each with when the Location last decided whether it shows it: a write hiding it carries that decision. Only a Profile's
-      // visibility and its title, author and notes are compared, of each record and of a user's Profile's content.
-      const heldProfiles = await tx.$queryRaw<HeldRow[]>`
-        SELECT held.profile_id AS "itemId", held.profile_id AS "localId",
-          jsonb_build_object('visibility', held.record -> 'visibility', 'profile', ${profileTextSql(Prisma.raw("held.record"))}) AS record,
-          here.decided_at AS "decidedAt", CASE WHEN NOT profiles.bundled THEN jsonb_build_object('profile', ${profileTextSql(Prisma.raw("profiles.content"))}) END AS content,
-          profiles.field_edits AS "fieldEdits"
-        FROM tablet_profiles AS held
-        JOIN profiles ON profiles.id = held.profile_id
-        LEFT JOIN profile_locations AS here ON here.profile_id = held.profile_id AND here.location_id = ${locationId}::uuid
-        WHERE held.tablet_id = ${tablet.tabletId}::uuid ORDER BY held.profile_id`;
-      const offer = {
-        beans: beans.map(edited),
-        batches: batches.map(({ entered, remainingWeight, ...batch }) => ({ ...edited(batch), remainingWeight: entered ? remainingWeight : undefined })),
-        grinders: grinders.map(edited),
-        profiles: profiles.map(edited),
-      };
-      const held = {
-        beans: heldBeans.map((row) => heldRecord(row)),
-        batches: heldBatches.map((row) => heldRecord(row)),
-        grinders: heldGrinders.map((row) => heldRecord(row)),
-        profiles: heldProfiles.map((row) => heldRecord(row, (content) => profileText(content))),
-      };
-      // The Location's settings first, then the clearing of the Workflow's grinder and batch as the tablet joined it: they
-      // need no item written before them.
-      const workflow = [await settingsDue(tx, tablet, locationId), await workflowClearDue(tx, tablet.tabletId, locationId)];
-      const writes = workflow.filter((write): write is PlannedWrite => write !== null && !skipped.has(writeKey(write.kind, write.globalId)));
-      return {
-        locationId,
-        standing: where,
-        writes: [
-          ...writes,
-          ...(await deletesDue(tx, tablet.tabletId, skipped)),
-          ...(await leaveOutsDue(tx, tablet.tabletId, skipped)),
-          ...plannedWrites(offer, held, skipped),
-        ],
-      };
+      return { locationId, standing: where, writes: (await changesDue(tx, tablet, locationId, skipped)).changes };
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   );
+}
+
+/** What is due to a tablet at a Location. */
+export interface ChangesDue {
+  /** The writes, deletes and records to set aside due, in the order they are made. */
+  changes: PlannedChange[];
+  /** The Bean of each batch to be created once its Bean's record is (`batchesAwaitingBeans`). */
+  batchesAwaitingBeans: string[];
+}
+
+/**
+ * The writes, deletes and records to set aside due to the tablet at the
+ * Location, in the order they are made, leaving out those in `skipped`, and
+ * the batches waiting for their Bean's record to be written first. Read in
+ * the caller's transaction, which reads in one snapshot.
+ */
+export async function changesDue(
+  tx: Prisma.TransactionClient,
+  tablet: { machineId: string; tabletId: string },
+  locationId: string,
+  skipped: ReadonlySet<string>,
+): Promise<ChangesDue> {
+  // Each with the latest decision of whether any of its batches is there: a write to the Bean carries it.
+  const beans = await tx.$queryRaw<(Omit<OfferedBean, "contentDecidedAt"> & Edited)[]>`
+    SELECT beans.id, beans.content, ${presenceDecidedSql(Prisma.raw("beans.id"), locationId)} AS "decidedAt", beans.field_edits AS "fieldEdits" FROM beans
+    WHERE NOT beans.archived AND (
+      EXISTS (SELECT 1 FROM bean_origins AS origin WHERE origin.bean_id = beans.id AND origin.location_id = ${locationId}::uuid)
+      OR EXISTS (
+        SELECT 1 FROM bean_batches AS batch
+        JOIN batch_locations AS here ON here.batch_id = batch.id AND here.location_id = ${locationId}::uuid
+        WHERE batch.bean_id = beans.id AND NOT batch.archived AND here.added_at IS NOT NULL AND here.finished_at IS NULL
+      )
+    )
+    ORDER BY beans.created_at, beans.id`;
+  // The batches the Location offers, then the others the tablet holds, each with its state there.
+  const batches = await tx.$queryRaw<(Omit<LocationBatch, "remainingWeight" | "contentDecidedAt"> & Edited & { remainingWeight: number | null; entered: boolean })[]>`
+    SELECT batch.id, batch.bean_id AS "beanId", batch.content, batch.field_edits AS "fieldEdits",
+      (here.added_at IS NOT NULL AND here.finished_at IS NULL AND NOT batch.archived AND NOT bean.archived) AS offered,
+      here.remaining_weight AS "remainingWeight", here.remaining_weight_at IS NOT NULL AS entered, here.presence_decided_at AS "decidedAt"
+    FROM bean_batches AS batch
+    JOIN beans AS bean ON bean.id = batch.bean_id
+    LEFT JOIN batch_locations AS here ON here.batch_id = batch.id AND here.location_id = ${locationId}::uuid
+    WHERE (here.added_at IS NOT NULL AND here.finished_at IS NULL AND NOT batch.archived AND NOT bean.archived)
+      OR EXISTS (SELECT 1 FROM tablet_bean_batches AS held WHERE held.batch_id = batch.id AND held.tablet_id = ${tablet.tabletId}::uuid)
+    ORDER BY 5 DESC, batch.created_at, batch.id`;
+  // Each record the tablet holds, with its item's content, which a write to it carries.
+  const heldBeans = await tx.$queryRaw<HeldRow[]>`
+    SELECT held.bean_id AS "itemId", held.local_id AS "localId", held.record, ${presenceDecidedSql(Prisma.raw("held.bean_id"), locationId)} AS "decidedAt",
+      beans.content, beans.field_edits AS "fieldEdits"
+    FROM tablet_beans AS held JOIN beans ON beans.id = held.bean_id WHERE held.tablet_id = ${tablet.tabletId}::uuid ORDER BY held.bean_id`;
+  const heldBatches = await tx.$queryRaw<HeldRow[]>`
+    SELECT held.batch_id AS "itemId", held.local_id AS "localId", held.record, batch.content, batch.field_edits AS "fieldEdits"
+    FROM tablet_bean_batches AS held JOIN bean_batches AS batch ON batch.id = held.batch_id
+    WHERE held.tablet_id = ${tablet.tabletId}::uuid ORDER BY held.batch_id`;
+  const grinders = await tx.$queryRaw<(Omit<OfferedGrinder, "contentDecidedAt"> & Edited)[]>`
+    SELECT id, content, field_edits AS "fieldEdits" FROM grinders WHERE location_id = ${locationId}::uuid AND NOT archived ORDER BY created_at, id`;
+  const heldGrinders = await tx.$queryRaw<HeldRow[]>`
+    SELECT held.grinder_id AS "itemId", held.local_id AS "localId", held.record, grinders.content, grinders.field_edits AS "fieldEdits"
+    FROM tablet_grinders AS held JOIN grinders ON grinders.id = held.grinder_id WHERE held.tablet_id = ${tablet.tabletId}::uuid ORDER BY held.grinder_id`;
+  // Each Profile's content only where the tablet lacks it, to create its record with: what a Location shows is many and large.
+  const profiles = await tx.$queryRaw<(Omit<ShownProfile, "contentDecidedAt"> & Edited)[]>`
+    SELECT profiles.id, profiles.bundled, here.decided_at AS "decidedAt", profiles.field_edits AS "fieldEdits",
+      CASE WHEN held.profile_id IS NULL AND NOT profiles.bundled THEN profiles.content END AS content
+    FROM profiles
+    JOIN profile_locations AS here ON here.profile_id = profiles.id AND here.location_id = ${locationId}::uuid AND here.shown
+    LEFT JOIN tablet_profiles AS held ON held.profile_id = profiles.id AND held.tablet_id = ${tablet.tabletId}::uuid
+    WHERE NOT profiles.archived
+    ORDER BY profiles.created_at, profiles.id`;
+  // Each with when the Location last decided whether it shows it: a write hiding it carries that decision. Only a Profile's
+  // visibility and its title, author and notes are compared, of each record and of a user's Profile's content.
+  const heldProfiles = await tx.$queryRaw<HeldRow[]>`
+    SELECT held.profile_id AS "itemId", held.profile_id AS "localId",
+      jsonb_build_object('visibility', held.record -> 'visibility', 'profile', ${profileTextSql(Prisma.raw("held.record"))}) AS record,
+      here.decided_at AS "decidedAt", CASE WHEN NOT profiles.bundled THEN jsonb_build_object('profile', ${profileTextSql(Prisma.raw("profiles.content"))}) END AS content,
+      profiles.field_edits AS "fieldEdits"
+    FROM tablet_profiles AS held
+    JOIN profiles ON profiles.id = held.profile_id
+    LEFT JOIN profile_locations AS here ON here.profile_id = held.profile_id AND here.location_id = ${locationId}::uuid
+    WHERE held.tablet_id = ${tablet.tabletId}::uuid ORDER BY held.profile_id`;
+  const offer = {
+    beans: beans.map(edited),
+    batches: batches.map(({ entered, remainingWeight, ...batch }) => ({ ...edited(batch), remainingWeight: entered ? remainingWeight : undefined })),
+    grinders: grinders.map(edited),
+    profiles: profiles.map(edited),
+  };
+  const held = {
+    beans: heldBeans.map((row) => heldRecord(row)),
+    batches: heldBatches.map((row) => heldRecord(row)),
+    grinders: heldGrinders.map((row) => heldRecord(row)),
+    profiles: heldProfiles.map((row) => heldRecord(row, (content) => profileText(content))),
+  };
+  // The Location's settings first, then the clearing of the Workflow's grinder and batch as the tablet joined it: they
+  // need no item written before them.
+  const workflow = [await settingsDue(tx, tablet, locationId), await workflowClearDue(tx, tablet.tabletId, locationId)];
+  const writes = workflow.filter((write): write is PlannedWrite => write !== null && !skipped.has(writeKey(write.kind, write.globalId)));
+  return {
+    changes: [
+      ...writes,
+      ...(await deletesDue(tx, tablet.tabletId, skipped)),
+      ...(await leaveOutsDue(tx, tablet.tabletId, skipped)),
+      ...plannedWrites(offer, held, skipped),
+    ],
+    batchesAwaitingBeans: batchesAwaitingBeans(offer, held),
+  };
 }
 
 /** An item's fields' latest edits, as read with it. */

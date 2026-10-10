@@ -258,6 +258,18 @@ export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skippe
 }
 
 /**
+ * The Bean of each batch the Location offers that the tablet lacks while it
+ * lacks the Bean's record too, one for each such batch: `plannedWrites`
+ * plans the batch once the Bean's record is written, so it is waiting on
+ * that write.
+ */
+export function batchesAwaitingBeans(offer: LocationOffer, held: TabletHoldings): string[] {
+  const beans = new Set(held.beans.map((record) => record.itemId));
+  const batches = new Set(held.batches.map((record) => record.itemId));
+  return offer.batches.filter((batch) => batch.offered && !batches.has(batch.id) && !beans.has(batch.beanId)).map((batch) => batch.beanId);
+}
+
+/**
  * The Profiles in the order given, but each to be created after the Profile
  * it was saved from where that is to be created too: Decaid refuses a parent
  * it lacks, so the plugin would create it without one. Only Profiles to be

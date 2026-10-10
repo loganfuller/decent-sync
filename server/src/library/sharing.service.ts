@@ -3,6 +3,7 @@ import { machineNotFound } from "../machines/input.js";
 import { lockMachine } from "../machines/machines.service.js";
 import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
+import { type SharingStatusView, sharingStatus } from "./sharing-status.js";
 
 // The capture-only switch: whether a Machine takes part in the Library at its
 // Location. Turned off, by an Admin, it is a Capture-only Machine, as one at
@@ -15,6 +16,11 @@ import { PrismaService } from "../prisma.service.js";
 @Injectable()
 export class SharingService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** The Machine's sharing status (sharing-status.ts); 404 if there is no such Machine. */
+  status(machineId: string): Promise<SharingStatusView> {
+    return sharingStatus(this.prisma, machineId);
+  }
 
   /**
    * Turns the Machine's sharing on or off, under its row lock, which taking

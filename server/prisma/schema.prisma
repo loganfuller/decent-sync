@@ -366,6 +366,8 @@ model Tablet {
   reports      TabletReport[]
   workflow     WorkflowClear?
   leftOut      TabletLeftOut[]
+  refusals     TabletRefusal[]
+  lastApplied  TabletLastApplied?
 
   @@map("tablets")
 }
@@ -1278,4 +1280,53 @@ model WorkflowClear {
 
   @@index([locationId])
   @@map("workflow_clears")
+}
+
+/// A change a tablet refused (Decaid answered a write, delete or leave-out
+/// with a refusal, or could not be asked), shown in its Machine's sharing
+/// status with Decaid's answer, until a change of the same item, or of the
+/// same record for a delete or a leave-out, is carried out there. Its writer
+/// skips the item while what is due to it stays as it was refused, and asks
+/// again once that changes or the tablet reconnects.
+model TabletRefusal {
+  tabletId  String   @map("tablet_id") @db.Uuid
+  tablet    Tablet   @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  /// What the writer skips it under: `writeKey`, `deleteKey` or `leaveOutKey` (holdings.ts).
+  changeKey String   @map("change_key")
+  /// `write`, `delete` or `leaveOut`.
+  change    String
+  /// A Library kind, `settings` or `workflow`.
+  kind      String
+  /// The item's global id, a Profile's id, the settings' id or the tablet's
+  /// id for a Workflow; null for a leave-out, whose record has none.
+  itemId    String?  @map("item_id")
+  /// Decaid's id for the record written, deleted or set aside; null for a create.
+  localId   String?  @map("local_id")
+  /// What was due as it was refused (`changeSignature`): while the same is due, it is still refused rather than waiting.
+  signature String
+  /// Decaid's HTTP status, or null if Decaid did not answer.
+  status    Int?
+  /// What Decaid answered, or why it could not be asked.
+  error     String
+  /// When it was last refused, by PostgreSQL's clock.
+  refusedAt DateTime @default(dbgenerated("transaction_timestamp()")) @map("refused_at") @db.Timestamptz(3)
+
+  @@id([tabletId, changeKey])
+  @@map("tablet_refusals")
+}
+
+/// The last change a tablet applied, as its plugin answered it: a write
+/// recorded, a record deleted, or one set aside.
+model TabletLastApplied {
+  tabletId  String   @id @map("tablet_id") @db.Uuid
+  tablet    Tablet   @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  /// `write`, `delete` or `leaveOut`.
+  change    String
+  kind      String
+  itemId    String?  @map("item_id")
+  localId   String?  @map("local_id")
+  /// When its answer was recorded, by PostgreSQL's clock.
+  appliedAt DateTime @map("applied_at") @db.Timestamptz(3)
+
+  @@map("tablet_last_applied")
 }

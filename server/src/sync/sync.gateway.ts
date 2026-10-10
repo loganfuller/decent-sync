@@ -48,6 +48,8 @@ import { recordLeftOut } from "../library/left-out.js";
 import { recordSettingsWritten } from "../library/location-settings.js";
 import type { SeenDecision } from "../library/intake.js";
 import { recordProfileWritten } from "../library/profiles.js";
+import { deleteKey, leaveOutKey, writeKey } from "../library/holdings.js";
+import { forgetRefusal, recordApplied, recordRefused } from "../library/sharing-status.js";
 import { MachineEventsService } from "../machine-events/machine-events.service.js";
 import { type LiveConnection, LiveConnections } from "../machines/connections.js";
 import { MachinesService, type Refusal } from "../machines/machines.service.js";
@@ -463,19 +465,27 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * Records the plugin's answer to a `leaveOut`, then acknowledges it, and
    * lets the connection's writer go on, as `answered` does a write's: the
    * record is set aside on the tablet now, gone, or a Library item's, and so
-   * no longer due, whether or not its request is still awaited. A refusal is
-   * logged, escaped, and the writer skips that record.
+   * no longer due, whether or not its request is still awaited; set aside,
+   * it is the last change the tablet applied. A refusal of one awaited is
+   * logged, escaped, and kept in the tablet's sharing status with Decaid's
+   * answer, and the writer skips that record.
    */
   private async leftOut(session: Session, answer: ItemLeftOut): Promise<void> {
-    const awaited = session.writer?.awaited(answer.id)?.write.type === "leaveOut";
+    const awaitedWrite = session.writer?.awaited(answer.id);
+    const awaited = awaitedWrite?.write.type === "leaveOut";
     let outcome: WriteOutcome = "refused";
     if (answer.outcome === "refused") {
       if (awaited) {
         const why = answer.status === null || answer.status === undefined ? "Decaid did not answer" : `Decaid answered ${answer.status}`;
         this.logger.warn(`The tablet of ${this.describe(session)} did not set aside ${quoted(answer.kind)} ${quoted(answer.localId)}: ${why}, ${quoted((answer.error ?? "").slice(0, 200))}`);
+        await recordRefused(this.prisma, session.live!.tabletId, awaitedWrite!.change, answer.status ?? null, answer.error ?? "");
       }
     } else if (session.writer && isDeletedKind(answer.kind)) {
-      await recordLeftOut(this.prisma, session.live!.tabletId, answer.kind, answer.localId, answer.outcome);
+      const tabletId = session.live!.tabletId;
+      await recordLeftOut(this.prisma, tabletId, answer.kind, answer.localId, answer.outcome);
+      const key = leaveOutKey(answer.kind, answer.localId);
+      if (answer.outcome === "setAside") await recordApplied(this.prisma, tabletId, { key, change: "leaveOut", kind: answer.kind, itemId: null, localId: answer.localId });
+      else await forgetRefusal(this.prisma, tabletId, key);
       if (awaited) outcome = "written";
     }
     this.acknowledge(session, answer.id, null);
@@ -488,7 +498,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * record of the item from now on, with any change the tablet made at its
    * Location that it shows besides the fields the write set, which the
    * answer names. A refusal is logged, escaped, as it repeats what Decaid
-   * answered; the writer skips that item. An update Decaid answers with 404
+   * answered, and one the connection awaits is kept in the tablet's sharing
+   * status with Decaid's answer; the writer skips that item while the same
+   * is due to it. A record recorded, or deleted, is the last change the
+   * tablet applied, and ends any refusal of it. An update Decaid answers with 404
    * found the record gone, deleted on the tablet as it was written, which
    * the tablet's next report shows: it is skipped the same way, but not
    * logged as a refusal. A record that fails to store in a
@@ -518,7 +531,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     if (answer.type === "deleted") {
       // The tablet holds the record no more, whether or not its delete is still awaited.
       if (session.writer && isDeletedKind(answer.kind)) {
-        await recordDeleted(this.prisma, session.live!.tabletId, answer.kind, answer.localId);
+        const tabletId = session.live!.tabletId;
+        await recordDeleted(this.prisma, tabletId, answer.kind, answer.localId);
+        const applied = { key: deleteKey(answer.kind, answer.localId), change: "delete", kind: answer.kind, itemId: answer.globalId, localId: answer.localId } as const;
+        await recordApplied(this.prisma, tabletId, applied);
         if (write) outcome = "written";
       }
     } else if (write?.type === "delete") {
@@ -534,6 +550,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         this.logger.warn(
           `The tablet of ${this.describe(session)} did not delete ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? quoted(answer.error.slice(0, 200)) : `Decaid answered ${answer.status}, ${quoted(answer.error.slice(0, 200))}`}`,
         );
+        await recordRefused(this.prisma, session.live!.tabletId, awaited!.change, answer.status, answer.error);
       }
     } else if (answer.type === "writeRefused") {
       if (write?.type === "write" && write.localId !== null && answer.status === 404) {
@@ -543,6 +560,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         this.logger.warn(
           `The tablet of ${this.describe(session)} did not write ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? "Decaid did not answer" : `Decaid answered ${answer.status}`}, ${quoted(answer.error.slice(0, 200))}`,
         );
+        await recordRefused(this.prisma, session.live!.tabletId, awaited!.change, answer.status, answer.error);
       }
     } else if (awaited && write?.type === "write") {
       // The write it answers names the item, whatever the answer says: its record must carry that item's global id.
@@ -576,10 +594,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     // Only a kind the server writes is ever answered for.
     if (!isWrittenKind(kind)) return false;
     const name = KIND_NAMES[kind];
+    const tablet = { sessionId: session.id, machineId: session.machine!.id, tabletId: session.live!.tabletId };
+    const { record, updatedAt } = answer;
     try {
-      const tablet = { sessionId: session.id, machineId: session.machine!.id, tabletId: session.live!.tabletId };
       const written = new Set(answer.writtenFields);
-      const { record, updatedAt } = answer;
       const recorded =
         kind === "workflow"
           ? await recordWorkflowCleared(this.prisma, tablet, globalId, record)
@@ -596,13 +614,16 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);
       }
       if (recorded === "deleted") this.logger.log(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId}, deleted since: its record there is to be deleted`);
-      return recorded === "recorded";
+      if (recorded !== "recorded") return false;
     } catch (error) {
       const failure = repeatingFailure(error);
       if (!failure) throw error;
       this.logger.warn(`Could not record the ${name} ${globalId} written to the tablet of ${this.describe(session)}: ${failure.message} (${failure.sqlState})`);
       return false;
     }
+    const localId = kind === "settings" || kind === "workflow" ? null : typeof record.id === "string" ? record.id : null;
+    await recordApplied(this.prisma, tablet.tabletId, { key: writeKey(kind, globalId), change: "write", kind, itemId: globalId, localId });
+    return true;
   }
 
   /** Sends a write, delete or leave-out on the connection, in chunks if it is too large for one frame. */
