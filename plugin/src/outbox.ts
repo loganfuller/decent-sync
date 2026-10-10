@@ -46,10 +46,9 @@ export type RecordReader = (id: string, deliveryId: string) => Promise<Delivery 
 
 /** Index pages wait while this many deliveries are queued. */
 const SHORT_OUTBOX = 4;
-/** How long to wait before reading the deliveries kept again, after Decaid failed to answer. */
+/** How long to wait before reading the deliveries kept again after Decaid first fails to answer, doubling each time to at most RESTORE_RETRY_MAX_MS. */
 const RESTORE_RETRY_MS = 5_000;
-/** How many times to try reading the deliveries kept before giving up on them. */
-const RESTORE_ATTEMPTS = 3;
+const RESTORE_RETRY_MAX_MS = 5 * 60_000;
 
 /**
  * The plugin's one at-least-once outbox, for Shots, Steam Records and their
@@ -86,7 +85,10 @@ export class Outbox {
   /** Set until the deliveries kept by earlier loads are read back, and nothing is sent meanwhile. */
   private restoring = true;
   private restoreTimer?: number;
-  private restoreAttempts = 0;
+  private restoreDelayMs = RESTORE_RETRY_MS;
+  /** The Workflow and machine state deliveries queued while restoring, oldest first, with the length of their JSON. */
+  private readonly whileRestoring = new Map<string, number>();
+  private whileRestoringCharacters = 0;
   /** Deliveries kept whose writes to Decaid's plugin storage are not yet answered; each waits for them before it is sent. */
   private readonly unwritten = new Set<string>();
   /** Whether dropping the oldest deliveries kept was logged since the last welcome. */
@@ -101,9 +103,12 @@ export class Outbox {
   /**
    * Reads back the deliveries earlier loads kept, and queues them ahead of
    * everything queued since, which is kept after them. It sends nothing
-   * meanwhile, trying again if Decaid fails to answer. After
-   * RESTORE_ATTEMPTS failures it gives up on them, so they are never sent
-   * after newer ones, and keeps deliveries afresh.
+   * meanwhile, so none is sent after a newer one, trying again, with
+   * backoff, until Decaid answers. A Decaid that cannot read the plugin's
+   * storage cannot read the tablet's id either, without which the plugin
+   * does not connect, so the wait holds up nothing more. The Workflow and
+   * machine state deliveries queued meanwhile are held to the limits on
+   * those kept (`holdWhileRestoring`).
    */
   async restore(): Promise<void> {
     let restored: Delivery[];
@@ -111,20 +116,18 @@ export class Outbox {
       restored = await this.kept.load();
     } catch (error) {
       if (this.stopped) return;
-      const problem = error instanceof Error ? error.message : String(error);
-      if (++this.restoreAttempts < RESTORE_ATTEMPTS) {
-        this.log(`Could not read the deliveries kept in Decaid's plugin storage, trying again in ${RESTORE_RETRY_MS / 1000} s: ${problem}.`);
-        this.restoreTimer = setTimeout(() => {
-          this.restoreTimer = undefined;
-          void this.restore();
-        }, RESTORE_RETRY_MS);
-        return;
-      }
-      this.log(`Could not read the Workflow and machine state events kept in Decaid's plugin storage, so they are lost, and new ones are kept afresh: ${problem}.`);
-      this.kept.startAfresh();
-      restored = [];
+      const delay = this.restoreDelayMs;
+      this.restoreDelayMs = Math.min(delay * 2, RESTORE_RETRY_MAX_MS);
+      this.log(`Could not read the deliveries kept in Decaid's plugin storage, trying again in ${delay / 1000} s: ${error instanceof Error ? error.message : String(error)}.`);
+      this.restoreTimer = setTimeout(() => {
+        this.restoreTimer = undefined;
+        void this.restore();
+      }, delay);
+      return;
     }
     if (this.stopped) return;
+    this.whileRestoring.clear();
+    this.whileRestoringCharacters = 0;
     const since = [...this.queued.values()];
     this.queued.clear();
     for (const delivery of [...restored, ...since]) this.queued.set(delivery.id, delivery);
@@ -165,7 +168,10 @@ export class Outbox {
     this.queued.set(delivery.id, delivery);
     for (const watcher of this.watchers) watcher(delivery);
     // One queued while restoring is kept once those kept earlier are read back, after them.
-    if (!this.restoring && isKept(delivery)) this.keep(delivery);
+    if (isKept(delivery)) {
+      if (this.restoring) this.holdWhileRestoring(delivery);
+      else this.keep(delivery);
+    }
     this.pump();
   }
 
@@ -287,18 +293,44 @@ export class Outbox {
       this.queued.delete(id);
       this.unwritten.delete(id);
     }
-    if (dropped.length > 0 && !this.droppedLogged) {
-      this.droppedLogged = true;
-      this.log(`Dropping the oldest Workflow and machine state events not yet sent: at most ${MAX_KEPT} are kept, of at most ${MAX_KEPT_CHARACTERS / (1024 * 1024)} Mi characters.`);
-    }
+    if (dropped.length > 0) this.logDropping();
     void written.then(() => {
       this.unwritten.delete(delivery.id);
       this.pump();
     });
   }
 
+  /**
+   * Holds a Workflow or machine state delivery queued while restoring, to be
+   * kept once those kept earlier are read back, dropping the oldest held if
+   * that takes them past the limits on those kept.
+   */
+  private holdWhileRestoring(delivery: KeptDelivery): void {
+    const characters = JSON.stringify(delivery).length;
+    this.whileRestoring.set(delivery.id, characters);
+    this.whileRestoringCharacters += characters;
+    while (this.whileRestoring.size > 1 && (this.whileRestoring.size > MAX_KEPT || this.whileRestoringCharacters > MAX_KEPT_CHARACTERS)) {
+      const [oldest, size] = this.whileRestoring.entries().next().value!;
+      this.whileRestoring.delete(oldest);
+      this.whileRestoringCharacters -= size;
+      this.queued.delete(oldest);
+      this.logDropping();
+    }
+  }
+
+  private logDropping(): void {
+    if (this.droppedLogged) return;
+    this.droppedLogged = true;
+    this.log(`Dropping the oldest Workflow and machine state events not yet sent: at most ${MAX_KEPT} are kept, of at most ${MAX_KEPT_CHARACTERS / (1024 * 1024)} Mi characters.`);
+  }
+
   /** Forgets a delivery, in memory and in Decaid's plugin storage. */
   private forget(id: string): void {
+    const held = this.whileRestoring.get(id);
+    if (held !== undefined) {
+      this.whileRestoring.delete(id);
+      this.whileRestoringCharacters -= held;
+    }
     this.queued.delete(id);
     this.handed.delete(id);
     this.unwritten.delete(id);

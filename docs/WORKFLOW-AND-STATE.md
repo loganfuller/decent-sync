@@ -74,20 +74,16 @@ acknowledges it (`plugin/src/kept-deliveries.ts`, through the commands of
   ahead of everything queued since, such as the Workflow Decaid sends after
   loading it. Each goes with its original delivery id and `observedAt`, so the
   server's handling of each delivery once still applies (below), as for a
-  reconnect. A read of the range kept that Decaid fails or leaves unanswered
-  is tried again after 5 s, never taken for nothing kept, and nothing is sent
-  meanwhile; so is the load when Decaid fails to answer three deliveries'
-  keys one after another, twice each. After three failed attempts the load
-  gives up on what was kept and logs it, so it is never sent after newer
-  deliveries, and keeps deliveries afresh, numbered from a random sequence
-  number far past any used before, so no key written earlier matches what is
-  kept from then on; until those keys are reused, storage may hold the stale
-  deliveries too, at most twice the bound below. A single delivery's key that
-  Decaid fails to answer twice is given up on, overwritten once the load ends,
-  and logged, so one unreadable key cannot hold up the rest. Nothing kept
-  sends nothing extra. Deliveries queued while the plugin reads back what
-  was kept, usually a fraction of a second, are kept only once it has: an
-  unload meanwhile loses them.
+  reconnect. Reading them back stops at any read Decaid fails or leaves
+  unanswered, never taking it for nothing kept, logs it, and starts again
+  after 5 s, doubling to at most 5 minutes, until it succeeds. Nothing is
+  sent meanwhile, so nothing kept is ever sent after a newer delivery; a
+  Decaid that cannot read the plugin's storage cannot read the tablet's id
+  either, without which the plugin does not connect, so the wait holds up
+  nothing more. Workflow and machine state deliveries queued meanwhile,
+  usually for a fraction of a second, are held to the limits below, and kept
+  once the reading back ends: an unload before then loses them. Nothing kept
+  sends nothing extra.
 - **Under the token they were made with.** Deliveries belong to the token's
   Machine, and the server records each delivery id per Machine, so the key
   `outbox` also holds a 32-bit hash of the token, never the token. A load
