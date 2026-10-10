@@ -108,7 +108,7 @@ export function MachineSharingCard({ machine, isAdmin, onChanged }: { machine: M
               <AlertDialogDescription>
                 {asked
                   ? location
-                    ? `It joins ${location} again: its tablet is written what ${location} offers and its settings, over what it changed meanwhile, and what it added meanwhile stays out of the Library, archived on it.`
+                    ? `It joins ${location} again: its tablet is written what ${location} offers and its settings, over what it changed meanwhile, and what it added meanwhile stays out of the Library, archived or hidden on it.`
                     : "It shares once it is at a Location."
                   : location
                     ? "It becomes capture-only: its Shots and Steam Records are still recorded, but nothing more is written to its tablet, and what its tablet adds or changes isn't taken into the Library, then or once sharing is back on."

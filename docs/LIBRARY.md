@@ -1191,9 +1191,9 @@ it.
     it offers no Bean, its batches if no batch, its Grinders if no
     Grinder, and its Profiles if it shows no user's Profile. They join
     the Library there as any new record does (Taking in a tablet's beans,
-    and those after it), but for those archived or hidden on the tablet,
-    which are left out as above, so a record left out at one Location
-    does not reach the Library at the next. It is decided per report, under the Location's
+    and those after it). Those archived or hidden on the tablet are left
+    out as above, so a record left out at one Location does not reach the
+    Library at the next. It is decided per report, under the Location's
     lock, so of two Machines joining at once only the first brings its
     own.
   - **Taken up again.** A record left out stays out of the Library while
