@@ -909,7 +909,11 @@ var __decentSync = (() => {
     }
   }
   function stepsKey(profile) {
-    return isObject2(profile) && Array.isArray(profile.steps) ? stableJson(profile.steps) : null;
+    if (!isObject2(profile) || !Array.isArray(profile.steps)) return null;
+    const steps = profile.steps.map(
+      (step) => isObject2(step) && isObject2(step.limiter) && step.limiter.value === 0 ? { ...step, limiter: null } : step
+    );
+    return stableJson(steps);
   }
   function stableJson(value) {
     if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;

@@ -2,9 +2,9 @@ import { Prisma } from "../generated/prisma/client.js";
 
 // Shots linked to the Library (ticket #92). A Shot names its Bean Batch and
 // Grinder by their ids on the tablet that reported it, which resolve to the
-// Library's items through that tablet's map (ADR-0006); a Shot stored before
-// Shots kept their tablet resolves through the first tablet seen on its
-// Machine. Each link is stored on the Shot once its tablet's map holds the
+// Library's items through that tablet's map (ADR-0006). A Shot stored before
+// Shots kept their tablet is not linked: data stored before v1 need not
+// carry over. Each link is stored on the Shot once its tablet's map holds the
 // id, as the Shot is stored or as the map gains the id later, so a Shot
 // reported before its batch joined the Library is linked once it does. A
 // link stays when the tablet's record leaves its map, as when a barista
@@ -16,10 +16,15 @@ import { Prisma } from "../generated/prisma/client.js";
 // records as its profile, but not the id itself. So a Shot's Profile is read,
 // with nothing stored, as the Library Profile whose id that profile hashes
 // to: the one holding the same of what Decaid hashes, compared as JSON so a
-// whole double Decaid writes as `92.0` equals 92 (`shotProfileSql`). The
-// profile id a skin records in the Workflow is not used: it names the
-// Profile the skin last selected, which need not be the one the Shot was
-// pulled with.
+// whole double Decaid writes as `92.0` equals 92, and a step's limiter of
+// value 0 as none, as a skin may send it (`shotProfileSql`, `stepsKeySql`).
+// A skin's other changes to the profile it loads, such as streamline-js's
+// saved brew temperature written into every step, make a profile of their
+// own, which the Library may lack. The
+// profile id a skin records in the Workflow is not used: the WorkFlow skin
+// (Sabotage1/WorkFlow-Skin) records the Profile picked in it, which stays as
+// it was when another skin loads another profile, as Decaid merges a
+// Workflow's changes into it.
 //
 // Every change to a tablet's map holds the tablet's row lock, and links the
 // Shots it can then (`linkShots`); storing a Shot's metadata holds that row
@@ -42,19 +47,6 @@ interface ShotLinks {
   grinderId: string | null;
   libraryBatchId: string | null;
   libraryGrinderId: string | null;
-}
-
-/**
- * The tablet whose map resolves the ids of `shots` aliased `alias`: the one
- * that reported its metadata, or, for a Shot stored before Shots kept it,
- * the first tablet seen on its Machine.
- */
-export function resolvingTabletSql(alias: string): Prisma.Sql {
-  const shot = (column: string) => Prisma.raw(`${alias}.${column}`);
-  return Prisma.sql`coalesce(${shot("tablet_id")}, (
-    SELECT first.tablet_id FROM machine_tablets AS first WHERE first.machine_id = ${shot("machine_id")}
-    ORDER BY first.first_seen_at, first.id LIMIT 1
-  ))`;
 }
 
 /**
@@ -90,21 +82,31 @@ export async function resolveLinks(
 }
 
 /**
- * Links each Shot not linked yet that names the tablet's record by its id
- * there, and resolves its ids through that tablet, to the item: called as the
- * tablet's map comes to hold the record under that id, with the tablet's row
- * lock held, which storing a Shot's metadata waits for.
+ * Links each Shot not linked yet that the tablet reported naming its record
+ * by its id there to the item: called as the tablet's map comes to hold the
+ * record under that id, with the tablet's row lock held, which storing a
+ * Shot's metadata waits for.
  */
 export async function linkShots(tx: Prisma.TransactionClient, kind: LinkedKind, tabletId: string, itemId: string, localId: string): Promise<void> {
   const { local, link } = KINDS[kind];
   await tx.$executeRaw`
     UPDATE shots AS s SET ${Prisma.raw(link)} = ${itemId}::uuid
-    WHERE s.${Prisma.raw(local)} = ${localId} AND s.${Prisma.raw(link)} IS NULL AND ${resolvingTabletSql("s")} = ${tabletId}::uuid`;
+    WHERE s.${Prisma.raw(local)} = ${localId} AND s.${Prisma.raw(link)} IS NULL AND s.tablet_id = ${tabletId}::uuid`;
 }
 
 /** Whether a Shot is linked to any of the items, under the locks of the tablets whose maps hold them. */
 export function shotLinkedSql(kind: LinkedKind, ids: readonly string[]): Prisma.Sql {
   return Prisma.sql`EXISTS (SELECT 1 FROM shots WHERE ${Prisma.raw(KINDS[kind].link)} = ANY(${ids}::uuid[]))`;
+}
+
+/**
+ * A profile's steps as they are compared, through the indexes on them: a
+ * step's limiter of value 0, which is no limiter, as null
+ * (`profile_steps_key`, in the migration). streamline-js sends every profile
+ * it loads into the Workflow so, while the profile's record keeps the limiter.
+ */
+export function stepsKeySql(steps: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`profile_steps_key(${steps})`;
 }
 
 /** What Decaid hashes for a Profile's id, but its target weight and steps, which `shotProfileSql` compares on their own. */
@@ -130,7 +132,7 @@ export function shotProfileSql(alias: string): Prisma.Sql {
     SELECT candidate.id FROM (
       SELECT p.id, coalesce(p.content -> 'profile' -> 'target_weight' = ${shot} -> 'target_weight', false) AS exact, count(*) OVER () AS candidates
       FROM profiles AS p
-      WHERE p.content -> 'profile' -> 'steps' = ${shot} -> 'steps' AND ${Prisma.join(same, " AND ")}
+      WHERE ${stepsKeySql(Prisma.sql`p.content -> 'profile' -> 'steps'`)} = ${stepsKeySql(Prisma.sql`${shot} -> 'steps'`)} AND ${Prisma.join(same, " AND ")}
     ) AS candidate
     WHERE candidate.exact OR candidate.candidates = 1
     ORDER BY candidate.exact DESC, candidate.id LIMIT 1
@@ -151,11 +153,12 @@ export function shotPulledWithSql(alias: string, profileId: string): Prisma.Sql 
   const target = Prisma.sql`(SELECT content -> 'profile' FROM profiles WHERE id = ${profileId})`;
   const shotSame = HASHED.map((field) => Prisma.sql`${shot} -> ${field} IS NOT DISTINCT FROM ${target} -> ${field}`);
   const rival = (p: string) => Prisma.join(
-    [Prisma.sql`${Prisma.raw(p)}.content -> 'profile' -> 'steps' = ${target} -> 'steps'`,
+    [Prisma.sql`${stepsKeySql(Prisma.sql`${Prisma.raw(p)}.content -> 'profile' -> 'steps'`)} = ${stepsKeySql(Prisma.sql`${target} -> 'steps'`)}`,
       ...HASHED.map((field) => Prisma.sql`${Prisma.raw(p)}.content -> 'profile' -> ${field} IS NOT DISTINCT FROM ${target} -> ${field}`)],
     " AND ",
   );
-  return Prisma.sql`${Prisma.raw(alias)}.record -> 'workflow' -> 'profile' -> 'steps' = ${target} -> 'steps' AND ${Prisma.join(shotSame, " AND ")}
+  return Prisma.sql`${stepsKeySql(Prisma.sql`${Prisma.raw(alias)}.record -> 'workflow' -> 'profile' -> 'steps'`)} = ${stepsKeySql(Prisma.sql`${target} -> 'steps'`)}
+    AND ${Prisma.join(shotSame, " AND ")}
     AND (
       (SELECT count(*) FROM profiles AS p WHERE ${rival("p")}) = 1
       OR (${shot} -> 'target_weight' = ${target} -> 'target_weight'

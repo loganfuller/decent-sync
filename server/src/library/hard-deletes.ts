@@ -3,7 +3,7 @@ import { ConflictException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
-import { shotLinkedSql } from "../shots/links.js";
+import { shotLinkedSql, stepsKeySql } from "../shots/links.js";
 import { INTAKE_TRANSACTION, lockTablet } from "./intake.js";
 import { lockLocation } from "./location-state.js";
 
@@ -68,11 +68,15 @@ const NAMES: Readonly<Record<DeletedKind, string>> = { bean: "Bean", beanBatch: 
  * sets the Workflow's profile's target weight to the Shot's yield, so a
  * Shot pulled with a Profile can hold other targets. Refusing more deletes
  * than Shots used is the safe side. PostgreSQL compares JSON numbers by
- * value, so a whole double Decaid writes as `92.0` equals 92.
+ * value, so a whole double Decaid writes as `92.0` equals 92, and a step's
+ * limiter of value 0 is compared as none, as a skin may send it
+ * (`stepsKeySql`). The id a skin recorded is stale once another skin loads
+ * a profile, which only refuses more deletes.
  */
 export function shotNamesProfileSql(id: Prisma.Sql, steps: Prisma.Sql): Prisma.Sql {
   return Prisma.sql`EXISTS (
-    SELECT 1 FROM shots WHERE shots.profile_id = ${id} OR shots.record -> 'workflow' -> 'profile' -> 'steps' = ${steps}
+    SELECT 1 FROM shots WHERE shots.profile_id = ${id}
+      OR ${stepsKeySql(Prisma.sql`shots.record -> 'workflow' -> 'profile' -> 'steps'`)} = ${stepsKeySql(steps)}
   )`;
 }
 

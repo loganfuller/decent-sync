@@ -120,9 +120,8 @@ Shot to the Library's Bean Batch, Grinder and Profile it used
   are. They resolve through that tablet's map (`tablet_bean_batches`,
   `tablet_grinders`, `LIBRARY.md`) to the Library's items, stored as the
   Shot's links (`library_batch_id`, `library_grinder_id`). A Shot stored
-  before Shots kept their tablet resolves through the first tablet seen on
-  its Machine (`machine_tablets`), where its ids match; the migration links
-  those it can at once. Links are set as each delivery's metadata is stored,
+  before Shots kept their tablet is not linked, as data stored before v1
+  need not carry over. Links are set as each delivery's metadata is stored,
   and, for a Shot whose ids the map does not hold yet, as the map gains the
   id (`linkShots`, called wherever a map saves a record), so a Shot reported
   before its batch joined the Library is linked once it does. A link stays
@@ -141,12 +140,27 @@ Shot to the Library's Bean Batch, Grinder and Profile it used
   steps, version, beverage type, tank temperature and volume targets,
   compared as JSON so `92.0` equals 92, and the same target weight, or any
   target weight when only one Profile matches but for it, as a skin sets the
-  Workflow's target weight to the Shot's yield. It is read, not stored, so it
-  follows the Library. The profile id a skin records in the Workflow
-  (`profile_id`) is not used: on the test tablet's Shot it names a bundled
-  Profile other than the Londonium the Shot was pulled with. A Shot pulled
-  with a profile the Library lacks, such as that one, whose steps differ
-  from the tablet's Londonium, is linked to none.
+  Workflow's target weight to the Shot's yield. A step's limiter of value 0,
+  which is no limiter, is compared as none (`profile_steps_key`, in the
+  migration, which the indexes on the steps use): streamline-js sends every
+  profile it loads into the Workflow so (`updateWorkflow` in
+  `streamline-js:src/modules/api.js`), while the profile's record keeps it,
+  and sets its target weight to the yield. The hard delete's check of
+  whether a Shot names a Profile, and the plugin's, compare steps the same
+  way. A skin's other changes, such as streamline-js's saved brew
+  temperature written into every step, make a profile the Library may lack,
+  and the Shot is linked to none. The link is read, not stored, so it
+  follows the Library: a Profile joining that matches a Shot as closely as
+  its own but for the target weight leaves that Shot linked to neither.
+- **The skin's profile id is not used.** The profile id the WorkFlow skin
+  (`Sabotage1/WorkFlow-Skin`) records in the Workflow
+  (`context.extras.workflowSkin.selectedProfileId`, kept as `profile_id`)
+  is the Profile picked in that skin. Decaid merges a Workflow's changes
+  into it (`deepMergeJson` in `decaid:lib/src/models/data/json_utils.dart`),
+  so it stays as it was when another skin loads another profile: the test
+  tablet's Shot names the bundled Adaptive v3 there, picked in the WorkFlow
+  skin before streamline-js loaded the Londonium it was pulled with. A hard
+  delete still counts it, which only refuses more.
 
 Decaid writes a Shot's `timestamp` and sample times in the tablet's local time
 without an offset, and `createdAt` in UTC as it saves the Shot, just after the

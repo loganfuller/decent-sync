@@ -8,9 +8,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // Seam 1 for ticket #92: each Shot is linked to the Library's Bean Batch and
 // Grinder it used, through the map of the tablet that reported it, and to the
 // Profile it was pulled with, so Shots are filtered by them and each item
-// lists its Shots. Shots captured before Shots kept their tablet resolve
-// through the first tablet seen on their Machine, and a Shot reported before
-// its batch joined the Library is linked once its tablet's map holds it.
+// lists its Shots. A Shot reported before its batch joined the Library is
+// linked once its tablet's map holds it.
 // Through the built plugin in simulated tablets, on two server instances
 // sharing one database, with assertions through the REST API. Serials are
 // made up, from 26001.
@@ -32,8 +31,10 @@ interface FilterOptions {
 
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
-/** The bundled Profile the test tablet's skin had selected when it recorded its Shot, which was not pulled with it. */
+/** The bundled Profile the WorkFlow skin had selected on the test tablet, which its Shot was not pulled with. */
 const SKIN_SELECTED = "profile:98fa00c191551b435845";
+/** The bundled Profile the test tablet's Shot was pulled with, which streamline-js loaded into its Workflow. */
+const LONDONIUM = "profile:729d284747718d27c93a";
 
 describe("Shots linked to the Library", { timeout: 60_000 }, () => {
   let server: TestServer;
@@ -196,6 +197,27 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     expect(await listed(`profileId=${encodeURIComponent(heavierId)}`)).toEqual(["weighed-40"]);
   });
 
+  it("links the test tablet's Shot to the Londonium it was pulled with, which streamline-js sent with its value-0 limiter as none and its yield as target", async () => {
+    const location = await api.createLocation("Streamline cafe", "America/Chicago");
+    const machine = await api.createMachine("Streamline cafe 1", location.id);
+    const londonium = (derivedDe1Pro({})["/profiles"] as Record_[]).find((record) => record.id === LONDONIUM)!;
+    const tablet = load(machine, "26051", { library: { "/profiles": [londonium] } });
+    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    await poll(async () => (await api.call("GET", `/profiles/${encodeURIComponent(LONDONIUM)}`)).status).toBe(200);
+
+    // The Shot's Workflow's Londonium is not the record's: one step's limiter of value 0 is null, and its target weight is the yield.
+    const recorded = (shotFixture().workflow as { profile: { steps: { limiter: unknown }[]; target_weight: number } }).profile;
+    const kept = (londonium.profile as { steps: { limiter: unknown }[]; target_weight: number });
+    expect(recorded.steps[0]!.limiter).toBeNull();
+    expect(kept.steps[0]!.limiter).toEqual({ value: 0, range: 0.6 });
+    expect(recorded.target_weight).not.toBe(kept.target_weight);
+
+    tablet.pullShot(shotWith("streamline-shot", "26051", {}));
+    await poll(async () => (await api.call("GET", "/shots/streamline-shot")).status).toBe(200);
+    expect((await viewShot("streamline-shot")).profile).toEqual({ id: LONDONIUM, title: "Londonium" });
+    expect(await listed(`profileId=${encodeURIComponent(LONDONIUM)}&machineId=${machine.machine.id}`)).toEqual(["streamline-shot"]);
+  });
+
   it("keeps a Shot whose batch and Grinder the Library lacks unlinked and listed", async () => {
     const location = await api.createLocation("Unlinked cafe", "America/Chicago");
     const machine = await api.createMachine("Unlinked cafe 1", location.id);
@@ -204,7 +226,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
 
     tablet.pullShot(shotWith("unlinked-shot", "26011", { beanBatchId: "batch-the-library-lacks", grinderId: "grinder-the-library-lacks" }));
     await poll(async () => (await api.call("GET", "/shots/unlinked-shot")).status).toBe(200);
-    expect(await viewShot("unlinked-shot")).toMatchObject({ beanBatch: null, grinder: null, profile: null });
+    expect(await viewShot("unlinked-shot")).toMatchObject({ beanBatch: null, grinder: null });
     expect(await listed(`machineId=${machine.machine.id}`)).toEqual(["unlinked-shot"]);
     expect(await listed(`machineId=${machine.machine.id}&beanBatchId=none&grinderId=none`)).toEqual(["unlinked-shot"]);
     const options = await send<FilterOptions>("GET", "/shots/filters");
@@ -212,7 +234,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     expect(options.grinders).toContain(null);
   });
 
-  it("links Shots reported before their batch joined the Library once the tablet's map holds it, those stored without their tablet through the first tablet seen on their Machine", async () => {
+  it("links a Shot reported before its batch and Grinder joined the Library once the tablet's map holds them", async () => {
     // The Machine is at no Location, so its tablet's batch and Grinder stay out of the Library.
     const machine = await api.createMachine("Before 1");
     const library = derivedDe1Pro({});
@@ -222,17 +244,8 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
 
     // The test tablet's Shot names one of its batches and grinders.
     tablet.pullShot(shotWith("before-shot", "26021", {}));
-    tablet.pullShot(shotWith("before-untabled-shot", "26021", {}));
-    await poll(async () => (await api.call("GET", "/shots/before-untabled-shot")).status).toBe(200);
     await poll(async () => (await api.call("GET", "/shots/before-shot")).status).toBe(200);
     expect(await viewShot("before-shot")).toMatchObject({ beanBatch: null, grinder: null });
-    // As stored before Shots kept the tablet that reported them.
-    const database = await server.connectDatabase();
-    try {
-      await database.query("UPDATE shots SET tablet_id = NULL WHERE id = $1", ["before-untabled-shot"]);
-    } finally {
-      await database.end();
-    }
 
     // Moved to a Location offering no batches or Grinders yet, its tablet brings its own, which join the Library.
     const location = await api.createLocation("Before cafe", "America/Chicago");
@@ -240,9 +253,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     await poll(async () => (await viewShot("before-shot")).beanBatch?.bean.name).toBe("Before Ethiopia Generic 100g Sample");
     const linked = await viewShot("before-shot");
     expect(linked.grinder).toMatchObject({ model: "DF64 v2" });
-    await poll(async () => (await viewShot("before-untabled-shot")).beanBatch?.id).toBe(linked.beanBatch!.id);
-    expect((await viewShot("before-untabled-shot")).grinder?.id).toBe(linked.grinder!.id);
-    expect(new Set(await listed(`beanBatchId=${linked.beanBatch!.id}`))).toEqual(new Set(["before-shot", "before-untabled-shot"]));
+    expect(await listed(`beanBatchId=${linked.beanBatch!.id}`)).toEqual(["before-shot"]);
   });
 
   it("keeps a Shot's link when the tablet deletes its record, and refuses to hard-delete what it is linked to", async () => {

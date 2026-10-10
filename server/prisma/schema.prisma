@@ -467,7 +467,7 @@ model Shot {
   grinderId        String?           @map("grinder_id")
   /// The tablet that reported the metadata stored, whose ids `beanBatchId`
   /// and `grinderId` are; null for a Shot stored before Shots kept it, which
-  /// resolves through the first tablet seen on its Machine.
+  /// is not linked.
   tabletId         String?           @map("tablet_id") @db.Uuid
   tablet           Tablet?           @relation(fields: [tabletId], references: [id], onDelete: SetNull)
   /// The Library's Bean Batch and Grinder those ids resolve to through that
