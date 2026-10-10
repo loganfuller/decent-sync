@@ -88,8 +88,9 @@ acknowledges it (`plugin/src/kept-deliveries.ts`, through the commands of
   cannot read the plugin's storage as the plugin loads cannot read the
   tablet's id either, without which the plugin does not connect. Workflow
   and machine state deliveries queued meanwhile, for the time 2,001 reads at
-  most take, or longer while Decaid fails them, are held to the limits below, and kept once the reading back
-  ends: an unload before then loses them. Nothing kept sends nothing extra.
+  most take, or longer while Decaid fails them, are held to the limits
+  below, and kept once the reading back ends: an unload before then loses
+  them. Nothing kept sends nothing extra.
 - **Under the token they were made with.** Deliveries belong to the token's
   Machine, and the server records each delivery id per Machine, so the key
   `outbox` also holds a 32-bit hash of the token, never the token. A load

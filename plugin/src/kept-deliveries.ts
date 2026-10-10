@@ -21,8 +21,8 @@ import type { PluginStorage } from "./storage.js";
 // than expected, as after a write that failed or one that landed before the
 // sequence numbers did, is skipped. A delivery is sent only once Decaid has
 // answered both the write of its key and that of the sequence numbers, in
-// whichever order they land, or failed to, or, while Decaid leaves writes
-// unanswered, once they are sent (storage.ts).
+// whichever order they land, or the plugin has given up waiting on them, or,
+// while Decaid leaves writes unanswered, once they are sent (storage.ts).
 //
 // While the server is unreachable for long, at most MAX_KEPT deliveries,
 // about a busy day of a Machine's state transitions, and MAX_KEPT_CHARACTERS
