@@ -1,8 +1,8 @@
 import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { shotFixture } from "./support/shot-fixtures.js";
-import { SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
+import { shotFixture, withShots } from "./support/shot-fixtures.js";
+import { PluginStorage, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #92: each Shot is linked to the Library's Bean Batch and
@@ -62,12 +62,13 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
   function load(
     machine: CreatedMachine,
     serial: string,
-    options: { instance?: TestServer; library?: Record_; apiDelayMs?: (method: string, path: string) => number } = {},
+    options: { instance?: TestServer; library?: Record_; storage?: PluginStorage; apiDelayMs?: (method: string, path: string) => number } = {},
   ): SimulatedTablet {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
       api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...options.library },
       apiDelayMs: options.apiDelayMs,
+      storage: options.storage,
       timeScale: 50,
     });
     tablets.push(tablet);
@@ -339,6 +340,40 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     expect(await listed(`beanBatchId=${linked.beanBatch!.id}`)).toEqual(["before-shot"]);
   });
 
+  it("links a Shot stored without its tablet once that tablet's plugin loads again and lists it", async () => {
+    const location = await api.createLocation("Listed cafe", "America/Chicago");
+    const machine = await api.createMachine("Listed cafe 1", location.id);
+    const library = derivedDe1Pro({});
+    const beans = (library["/beans"] as Record_[]).map((bean) => ({ ...bean, name: `Listed ${String(bean.name)}` }));
+    const decaid = {
+      library: { ...withShots({ "/beans": beans, "/bean-batches": library["/bean-batches"], "/grinders": library["/grinders"] }, [shotWith("listed-shot", "26081", {})]) },
+      storage: new PluginStorage(),
+      instance: other,
+    };
+    const tablet = load(machine, "26081", decaid);
+    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    // The Location offered none, so the tablet's own batches and grinders join the Library, and the Shot it sent is linked.
+    await poll(async () => (await api.call("GET", "/shots/listed-shot")).status).toBe(200);
+    await poll(async () => (await viewShot("listed-shot")).beanBatch?.bean.name).toBe("Listed Ethiopia Generic 100g Sample");
+    await poll(async () => (await viewShot("listed-shot")).grinder?.model).toBe("DF64 v2");
+    const linked = await viewShot("listed-shot");
+
+    // As stored before Shots kept the tablet that reported them.
+    await tablet.unload();
+    const database = await server.connectDatabase();
+    try {
+      await database.query("UPDATE shots SET tablet_id = NULL, library_batch_id = NULL, library_grinder_id = NULL WHERE id = $1", ["listed-shot"]);
+    } finally {
+      await database.end();
+    }
+    expect(await viewShot("listed-shot")).toMatchObject({ beanBatch: null, grinder: null });
+
+    // Loaded again, the plugin's index lists the Shot, which it holds, so its ids are that tablet's.
+    load(machine, "26081", decaid);
+    await poll(async () => (await viewShot("listed-shot")).beanBatch?.id).toBe(linked.beanBatch!.id);
+    expect((await viewShot("listed-shot")).grinder?.id).toBe(linked.grinder!.id);
+  });
+
   it("keeps a Shot's link when the tablet deletes its record, and refuses to hard-delete what it is linked to", async () => {
     const location = await api.createLocation("Kept cafe", "America/Chicago");
     const machine = await api.createMachine("Kept cafe 1", location.id);
@@ -354,7 +389,9 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     await poll(async () => (await api.call("GET", "/shots/kept-shot")).status).toBe(200);
     expect((await viewShot("kept-shot")).beanBatch?.id).toBe(batch.id);
 
-    // A barista deletes the batch on the tablet, finishing it there, then rates the Shot.
+    // Once the tablet has answered every write, so its record has seen the batch added there, a barista deletes the
+    // batch on it, finishing it there, then rates the Shot.
+    await poll(async () => (await send<{ status: { waiting: number | null } }>("GET", `/machines/${machine.machine.id}/sharing-status`)).status.waiting).toBe(0);
     expect((await tablet.callApi("DELETE", `/bean-batches/${String(localId)}`)).status).toBeLessThan(300);
     await poll(async () => (await send<{ batch: { locations: unknown[] } }>("GET", `/bean-batches/${batch.id}`)).batch.locations).toEqual([]);
     const { measurements: _, ...metadata } = shot;

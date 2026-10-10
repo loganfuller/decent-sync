@@ -1,7 +1,7 @@
 -- Shots linked to the Library (ticket #92): each Shot keeps the tablet that
 -- reported its metadata, and the Library's Bean Batch and Grinder its ids on
 -- that tablet resolve to through the tablet's map. A Shot stored before this
--- has no tablet, and is not linked.
+-- has no tablet until a tablet's index lists it (server/src/shots/links.ts).
 
 -- AlterTable
 ALTER TABLE "shots" ADD COLUMN     "tablet_id" UUID,

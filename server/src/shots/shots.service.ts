@@ -8,7 +8,7 @@ import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
 import { extractCurves, extractShot, object, shotHardware, shotVersion, string } from "./extraction.js";
 import { type ShotFilters, shotFilterSql } from "./filters.js";
-import { resolveLinks, shotProfileSql } from "./links.js";
+import { claimListed, resolveLinks, shotProfileSql } from "./links.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
 const SHOT_LOCK = 4_000_003;
@@ -91,12 +91,14 @@ export class ShotsService {
    * stored without their full record (even if their edits have already
    * arrived) or at an older version, in the index's order. A Shot whose
    * delivery from this Machine was set aside counts as known, and one whose id
-   * the server cannot store is never requested.
+   * the server cannot store is never requested. Those stored without a
+   * tablet take this one, which holds them, and are linked (`claimListed`).
    */
-  async requested(index: ShotIndex, machineId: string): Promise<string[]> {
+  async requested(index: ShotIndex, machineId: string, tabletId: string): Promise<string[]> {
     const offered = index.shots.filter((shot) => isRecordId(shot.id));
     if (offered.length === 0) return [];
     const ids = offered.map((shot) => shot.id);
+    await this.prisma.$transaction((tx) => claimListed(tx, tabletId, ids));
     // Null in a reconnect's ids-only index.
     const versions = offered.map((shot) => shotVersion(shot));
     const missing = await this.prisma.$queryRaw<{ id: string }[]>`

@@ -120,8 +120,12 @@ Shot to the Library's Bean Batch, Grinder and Profile it used
   are. They resolve through that tablet's map (`tablet_bean_batches`,
   `tablet_grinders`, `LIBRARY.md`) to the Library's items, stored as the
   Shot's links (`library_batch_id`, `library_grinder_id`). A Shot stored
-  before Shots kept their tablet is not linked, as data stored before v1
-  need not carry over. Links are set as each delivery's metadata is stored,
+  before Shots kept their tablet takes the tablet whose `shotIndex` lists
+  it, as only a tablet holding a Shot lists it, and is linked through that
+  tablet's map then (`claimListed`, under the tablet's row lock): so once
+  each tablet's plugin loads again and scans its Shots. One no tablet holds
+  any more, as one deleted there or held by a reset tablet, stays unlinked.
+  Links are set as each delivery's metadata is stored,
   and, for a Shot whose ids the map does not hold yet, as the map gains the
   id (`linkShots`, called wherever a map saves a record), so a Shot reported
   before its batch joined the Library is linked once it does. A link stays

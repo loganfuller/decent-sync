@@ -407,7 +407,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       case "leftOut":
         return this.leftOut(session, message);
       case "shotIndex": {
-        const shotIds = await this.shots.requested(message, session.machine.id);
+        const shotIds = await this.shots.requested(message, session.machine.id, reporter.tabletId);
         return this.acknowledge(session, message.id, { type: "requestShots", shotIds });
       }
       case "steamIndex": {

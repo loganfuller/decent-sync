@@ -3,8 +3,10 @@ import { Prisma } from "../generated/prisma/client.js";
 // Shots linked to the Library (ticket #92). A Shot names its Bean Batch and
 // Grinder by their ids on the tablet that reported it, which resolve to the
 // Library's items through that tablet's map (ADR-0006). A Shot stored before
-// Shots kept their tablet is not linked: data stored before v1 need not
-// carry over. Each link is stored on the Shot once its tablet's map holds the
+// Shots kept their tablet takes the tablet whose index lists it, as only a
+// tablet holding the Shot lists it (`claimListed`), and is linked then: so
+// once each tablet's plugin loads again, but for Shots no tablet holds any
+// more. Each link is stored on the Shot once its tablet's map holds the
 // id, as the Shot is stored or as the map gains the id later, so a Shot
 // reported before its batch joined the Library is linked once it does. A
 // link stays when the tablet's record leaves its map, as when a barista
@@ -91,6 +93,22 @@ export async function linkShots(tx: Prisma.TransactionClient, kind: LinkedKind, 
   await tx.$executeRaw`
     UPDATE shots AS s SET ${Prisma.raw(link)} = ${itemId}::uuid
     WHERE s.${Prisma.raw(local)} = ${localId} AND s.${Prisma.raw(link)} IS NULL AND s.tablet_id = ${tabletId}::uuid`;
+}
+
+/**
+ * Gives the Shots the tablet's index lists that have no tablet, as stored
+ * before Shots kept the tablet reporting them, that tablet, and links them
+ * through its map: a tablet listing a Shot holds it, so its ids are that
+ * tablet's. Holds the tablet's row for share, as storing a Shot's metadata
+ * does, so a map gaining an id meanwhile links them either way.
+ */
+export async function claimListed(tx: Prisma.TransactionClient, tabletId: string, shotIds: readonly string[]): Promise<void> {
+  await tx.$queryRaw`SELECT 1 FROM tablets WHERE id = ${tabletId}::uuid FOR SHARE`;
+  await tx.$executeRaw`
+    UPDATE shots AS s SET tablet_id = ${tabletId}::uuid,
+      library_batch_id = (SELECT batch_id FROM tablet_bean_batches WHERE tablet_id = ${tabletId}::uuid AND local_id = s.bean_batch_id),
+      library_grinder_id = (SELECT grinder_id FROM tablet_grinders WHERE tablet_id = ${tabletId}::uuid AND local_id = s.grinder_id)
+    WHERE s.id = ANY(${shotIds}::text[]) AND s.tablet_id IS NULL`;
 }
 
 /** Whether a Shot is linked to any of the items, under the locks of the tablets whose maps hold them. */
