@@ -177,7 +177,7 @@ export interface TabletChange {
   localId: string | null;
 }
 
-/** How a Machine's sharing is going, for the tablet its latest connection came from. */
+/** How a Machine's sharing is going, for the tablet of the connection holding it, or else of its latest connection. */
 export interface SharingStatus {
   /** That tablet, or null if none has connected. */
   tabletId: string | null;

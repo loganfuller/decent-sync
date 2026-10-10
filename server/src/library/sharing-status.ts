@@ -139,7 +139,7 @@ export interface RefusalView extends ChangeView {
 
 /** A Machine's sharing status, as the REST API returns it. */
 export interface SharingStatusView {
-  /** The tablet its latest connection came from, whose status this is; null if none has connected. */
+  /** The tablet whose status this is: the connection holding it's, or else its latest connection's; null if none has connected. */
   tabletId: string | null;
   /**
    * How many changes its tablet is due and has not refused, offline or not;
@@ -154,8 +154,11 @@ export interface SharingStatusView {
 }
 
 /**
- * The Machine's sharing status, read in one snapshot, for the tablet its
- * latest connection came from: what that tablet is due where the Machine
+ * The Machine's sharing status, read in one snapshot, for the tablet of the
+ * connection holding it, unless that connection is mismatched, and
+ * otherwise for the tablet its latest connection came from, as a mismatched
+ * connection reporting its hardware records its tablet against it: what
+ * that tablet is due where the Machine
  * takes part now, as its writer plans it from what the tablet last reported,
  * whether or not it is connected, with each batch to be created once its
  * Bean's record is. A change it refused counts as refused rather than
@@ -169,7 +172,11 @@ export async function sharingStatus(prisma: PrismaService, machineId: string): P
       const [machine] = await tx.$queryRaw<{ sharing: boolean; locationId: string | null; tabletId: string | null }[]>`
         SELECT machines.sharing,
           (SELECT location_id FROM location_assignments WHERE machine_id = machines.id ORDER BY effective_from DESC LIMIT 1) AS "locationId",
-          (SELECT tablet_id FROM machine_tablets WHERE machine_id = machines.id ORDER BY last_hello DESC NULLS LAST LIMIT 1) AS "tabletId"
+          COALESCE(
+            -- The tablet of the connection holding it, which its writer writes to, but a mismatched one's, written nothing.
+            CASE WHEN machines.identification <> 'MISMATCH' THEN machines.connected_tablet_id END,
+            (SELECT tablet_id FROM machine_tablets WHERE machine_id = machines.id ORDER BY last_hello DESC NULLS LAST LIMIT 1)
+          ) AS "tabletId"
         FROM machines WHERE machines.id = ${machineId}::uuid`;
       if (!machine) throw machineNotFound();
       const { tabletId, locationId } = machine;

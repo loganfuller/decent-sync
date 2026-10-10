@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
-import { SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
+import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #91: a write the tablet refuses doesn't stop the others,
@@ -45,6 +46,7 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
   let other: TestServer;
   let api: AdminApi;
   const tablets: SimulatedTablet[] = [];
+  const raws: RawConnection[] = [];
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -53,6 +55,7 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
   }, 60_000);
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await Promise.all(raws.map((raw) => raw.terminate()));
     await other?.stop();
     await server?.stop();
   });
@@ -165,7 +168,9 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
     // Refused again on its next connection, it stays refused, timed by the latest refusal.
     const firstRefusedAt = (await statusOf(second)).refused[0]!.refusedAt;
     two.dropConnections();
-    await expect.poll(async () => (await statusOf(second)).refused[0]?.refusedAt, { timeout: 10_000 }).not.toBe(firstRefusedAt);
+    await expect
+      .poll(async () => (await statusOf(second)).refused.map((refusal) => refusal.refusedAt !== firstRefusedAt && refusal.item?.id), { timeout: 10_000 })
+      .toEqual([refused.id]);
     expect(heldAs(two, "Refused Again")).toEqual([]);
 
     // Decaid takes it once the tablet reconnects.
@@ -236,6 +241,25 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
     await expect.poll(() => queued.map((bean) => heldAs(two, bean.name)), { timeout: 10_000 }).toEqual(queued.map((bean) => [bean.id]));
     await expect.poll(async () => (await statusOf(second)).waiting, { timeout: 10_000 }).toBe(0);
     expect(two.beans().find((bean) => bean.name === "Before Offline")).toMatchObject({ notes: "Edited while offline" });
+  });
+
+  it("reads a Machine's status for the tablet its own connection comes from, not one a mismatched connection reporting its hardware came from", async () => {
+    const cafe = await api.createLocation("Mismatch cafe", "UTC");
+    const owner = await api.createMachine("Mismatch owner", cafe.id);
+    const tablet = load(owner, "26051");
+    await online(owner);
+    await tablet.addBean({ roaster: "Roux", name: "Owner's Coffee" });
+    await libraryBean("Owner's Coffee");
+    await expect.poll(async () => (await statusOf(owner)).lastApplied?.item?.name, { timeout: 10_000 }).toBe("Roux Owner's Coffee");
+    const own = await statusOf(owner);
+    expect(own).toMatchObject({ waiting: 0, refused: [] });
+
+    // Another Machine's token reports the owner's hardware: its tablet is recorded against the owner, and written nothing.
+    const borrowed = await api.createMachine("Mismatch borrower");
+    const raw = await RawConnection.welcomed(server.url, helloWith(borrowed.token, { tabletId: randomUUID(), machine: { model: "DE1Pro", serial: "26051" } }));
+    raws.push(raw);
+    await api.waitForMachine(borrowed.machine.name, (viewed) => viewed.identification === "mismatch");
+    expect(await statusOf(owner)).toEqual(own);
   });
 
   it("shows nothing waiting for a Machine whose tablet is written nothing, and 404 for no Machine", async () => {

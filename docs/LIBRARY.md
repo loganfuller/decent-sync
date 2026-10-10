@@ -998,7 +998,10 @@ and the bean gone from the tablet's next reports.
 ### Sharing status
 
 Each Machine's sharing status (`server/src/library/sharing-status.ts`) is
-read for the tablet its latest connection came from, connected or not:
+read for the tablet of the connection holding it, which its writer writes
+to, unless that connection is mismatched; otherwise, as while it is
+offline, for the tablet its latest connection came from, which may be a
+mismatched connection's that reported its hardware:
 
 - **Changes waiting:** what that tablet is due where its Machine takes part
   now, planned as its writer plans it (`changesDue` in `tablet-due.ts`),
@@ -1421,8 +1424,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `noLocation`, `sharingOff` or both, none while it takes part.
 - `GET /api/machines/:id/sharing-status` returns `{ status }`, the
   Machine's sharing status (above): `{ tabletId, waiting, lastApplied,
-  refused }`. `tabletId` is the tablet its latest connection came from, or
-  null if none has connected. `waiting` is how many changes that tablet is
+  refused }`. `tabletId` is the tablet it is read for, or null if none has
+  connected. `waiting` is how many changes that tablet is
   due and has not refused, or null while it is written nothing, as the
   Machine is capture-only or no tablet has connected. `lastApplied` is the
   last change it applied, or null, and `refused` the changes it refused that
