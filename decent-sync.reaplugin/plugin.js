@@ -278,6 +278,27 @@ var __decentSync = (() => {
   function encode(message) {
     return JSON.stringify(message);
   }
+  function decodeMachineEvent(text) {
+    const object3 = parseObject(text);
+    if (typeof object3 === "string") return invalid(object3);
+    if (object3.type !== "workflow" && object3.type !== "machineState") return invalid("Not a Workflow or machine state delivery");
+    return checkMachineEvent(object3);
+  }
+  function checkMachineEvent(object3) {
+    if (object3.type === "workflow") {
+      return check(object3, "workflow", (fields) => {
+        fields.id();
+        fields.instant("observedAt");
+        fields.objectField("workflow");
+      });
+    }
+    return check(object3, "machineState", (fields) => {
+      fields.id();
+      fields.instant("observedAt");
+      fields.string("state", { nonEmpty: true });
+      fields.string("substate", { nonEmpty: true });
+    });
+  }
   function decodeServerFrame(frame) {
     const object3 = parseObject(frame);
     if (typeof object3 === "string") return invalid(object3);
@@ -745,6 +766,144 @@ var __decentSync = (() => {
     if (reading.kind !== "value" || !source.select) return reading;
     const value = source.select(reading.value);
     return value === null ? { kind: "unavailable" } : { ...reading, value };
+  }
+
+  // src/kept-deliveries.ts
+  var MAX_KEPT = 2e3;
+  var MAX_KEPT_CHARACTERS = 2 * 1024 * 1024;
+  var SEQUENCE_KEY = "outbox";
+  function isKept(delivery) {
+    return delivery.type === "workflow" || delivery.type === "machineState";
+  }
+  var KeptDeliveries = class {
+    constructor(storage, log) {
+      __publicField(this, "storage", storage);
+      __publicField(this, "log", log);
+      /** The lowest sequence number kept, or `next` if none is. */
+      __publicField(this, "first", 0);
+      /** The sequence number the next delivery kept is given. */
+      __publicField(this, "next", 0);
+      /** The deliveries kept, by sequence number: their ids and the length of their JSON. */
+      __publicField(this, "kept", /* @__PURE__ */ new Map());
+      /** Their sequence numbers, by delivery id. */
+      __publicField(this, "numbers", /* @__PURE__ */ new Map());
+      __publicField(this, "characters", 0);
+      __publicField(this, "stopped", false);
+    }
+    /**
+     * The deliveries kept, oldest first. Rejects, saying why, if Decaid
+     * refuses or does not answer a read in time, so a read that failed is
+     * never taken for nothing kept; loading again retries.
+     */
+    async load() {
+      this.kept.clear();
+      this.numbers.clear();
+      this.characters = 0;
+      const sequence = parseSequence(await this.storage.read(SEQUENCE_KEY, "a read of the deliveries kept"));
+      const deliveries = [];
+      for (let seq = sequence.first; seq < sequence.next; seq++) {
+        const text = await this.storage.read(slotKey(seq), "a read of a delivery kept");
+        const delivery = parseSlot(text, seq);
+        if (!delivery) continue;
+        this.add(seq, delivery.id, text.length);
+        deliveries.push(delivery);
+      }
+      this.first = sequence.first;
+      this.next = sequence.next;
+      return deliveries;
+    }
+    /**
+     * Keeps a delivery, after those `load` found, dropping the oldest kept if
+     * that takes them past either limit. Returns the ids of those dropped,
+     * and a promise that settles once Decaid has answered the writes, or
+     * failed to: the delivery is then sent either way.
+     */
+    keep(delivery) {
+      const seq = this.next++;
+      const text = JSON.stringify({ seq, delivery });
+      this.add(seq, delivery.id, text.length);
+      const dropped = [];
+      while (this.first < seq && (this.next - this.first > MAX_KEPT || this.characters > MAX_KEPT_CHARACTERS)) {
+        const oldest = this.kept.get(this.first);
+        if (oldest) {
+          this.delete(this.first, oldest);
+          dropped.push(oldest.id);
+        }
+        this.first++;
+      }
+      this.skipRemoved();
+      const written2 = Promise.all([
+        this.storage.write(slotKey(seq), text, "the write of a delivery to keep"),
+        this.writeSequence()
+      ]).then(
+        () => void 0,
+        (error) => this.failed("keep a delivery, so it is sent without being kept", error)
+      );
+      return { written: written2, dropped };
+    }
+    /** Stops keeping a delivery, once acknowledged or no longer to be sent. Does nothing for one not kept. */
+    remove(id) {
+      const seq = this.numbers.get(id);
+      if (seq === void 0) return;
+      this.delete(seq, this.kept.get(seq));
+      if (seq === this.first) {
+        this.skipRemoved();
+        this.writeSequence().catch((error) => this.failed("record a delivery acknowledged", error));
+      } else {
+        this.storage.write(slotKey(seq), JSON.stringify({ seq }), "the write of a delivery acknowledged").catch((error) => this.failed("record a delivery acknowledged", error));
+      }
+    }
+    stop() {
+      this.stopped = true;
+    }
+    add(seq, id, characters) {
+      this.kept.set(seq, { id, characters });
+      this.numbers.set(id, seq);
+      this.characters += characters;
+    }
+    delete(seq, entry) {
+      this.kept.delete(seq);
+      this.numbers.delete(entry.id);
+      this.characters -= entry.characters;
+    }
+    /** Moves `first` past the sequence numbers no longer kept. */
+    skipRemoved() {
+      while (this.first < this.next && !this.kept.has(this.first)) this.first++;
+    }
+    writeSequence() {
+      return this.storage.write(SEQUENCE_KEY, JSON.stringify({ first: this.first, next: this.next }), "the write of the deliveries kept");
+    }
+    failed(what, error) {
+      if (!this.stopped) this.log(`Could not ${what} in Decaid's plugin storage: ${error instanceof Error ? error.message : String(error)}.`);
+    }
+  };
+  function slotKey(seq) {
+    return `${SEQUENCE_KEY}.${seq % MAX_KEPT}`;
+  }
+  function parseSequence(value) {
+    const parsed2 = parse(value);
+    const first = parsed2?.first;
+    const next = parsed2?.next;
+    if (!isCount(first) || !isCount(next) || first > next || next - first > MAX_KEPT) return { first: 0, next: 0 };
+    return { first, next };
+  }
+  function parseSlot(value, seq) {
+    const parsed2 = parse(value);
+    if (parsed2?.seq !== seq || parsed2.delivery === void 0) return void 0;
+    const decoded = decodeMachineEvent(JSON.stringify(parsed2.delivery));
+    return decoded.ok ? decoded.message : void 0;
+  }
+  function parse(value) {
+    if (typeof value !== "string") return void 0;
+    try {
+      const parsed2 = JSON.parse(value);
+      return typeof parsed2 === "object" && parsed2 !== null && !Array.isArray(parsed2) ? parsed2 : void 0;
+    } catch {
+      return void 0;
+    }
+  }
+  function isCount(value) {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
   }
 
   // src/library-writes.ts
@@ -1264,10 +1423,12 @@ var __decentSync = (() => {
   // src/outbox.ts
   var RECORD_NAMES = { shot: "Shot", steam: "Steam Record" };
   var SHORT_OUTBOX = 4;
+  var RESTORE_RETRY_MS = 5e3;
   var Outbox = class {
-    constructor(log, readers) {
+    constructor(log, readers, kept) {
       __publicField(this, "log", log);
       __publicField(this, "readers", readers);
+      __publicField(this, "kept", kept);
       __publicField(this, "queued", /* @__PURE__ */ new Map());
       __publicField(this, "watchers", []);
       __publicField(this, "requested", /* @__PURE__ */ new Map());
@@ -1283,6 +1444,40 @@ var __decentSync = (() => {
       __publicField(this, "working", false);
       __publicField(this, "stopped", false);
       __publicField(this, "retryTimer");
+      /** Set until the deliveries kept by earlier loads are read back, and nothing is sent meanwhile. */
+      __publicField(this, "restoring", true);
+      __publicField(this, "restoreTimer");
+      /** Deliveries kept whose writes to Decaid's plugin storage are not yet answered; each waits for them before it is sent. */
+      __publicField(this, "unwritten", /* @__PURE__ */ new Set());
+      /** Whether dropping the oldest deliveries kept was logged since the last welcome. */
+      __publicField(this, "droppedLogged", false);
+    }
+    /**
+     * Reads back the deliveries earlier loads kept, and queues them ahead of
+     * everything queued since, which is kept after them. Trying again until
+     * Decaid answers, it sends nothing meanwhile.
+     */
+    async restore() {
+      let restored;
+      try {
+        restored = await this.kept.load();
+      } catch (error) {
+        if (this.stopped) return;
+        this.log(`Could not read the deliveries kept in Decaid's plugin storage, trying again in ${RESTORE_RETRY_MS / 1e3} s: ${error instanceof Error ? error.message : String(error)}.`);
+        this.restoreTimer = setTimeout(() => {
+          this.restoreTimer = void 0;
+          void this.restore();
+        }, RESTORE_RETRY_MS);
+        return;
+      }
+      if (this.stopped) return;
+      const since = [...this.queued.values()];
+      this.queued.clear();
+      for (const delivery of [...restored, ...since]) this.queued.set(delivery.id, delivery);
+      this.restoring = false;
+      if (restored.length > 0) this.log(`Sending ${restored.length} Workflow and machine state ${restored.length === 1 ? "event" : "events"} kept from before the plugin last unloaded.`);
+      for (const delivery of since) if (isKept(delivery)) this.keep(delivery);
+      this.pump();
     }
     /** Whether a welcomed connection is sending. */
     get connected() {
@@ -1292,6 +1487,7 @@ var __decentSync = (() => {
       this.sendMessage = send;
       this.connections++;
       this.sent = void 0;
+      this.droppedLogged = false;
       this.pump();
     }
     disconnected() {
@@ -1302,16 +1498,18 @@ var __decentSync = (() => {
     stop() {
       this.stopped = true;
       this.disconnected();
+      this.kept.stop();
       if (this.retryTimer !== void 0) clearTimeout(this.retryTimer);
+      if (this.restoreTimer !== void 0) clearTimeout(this.restoreTimer);
     }
     enqueue(delivery) {
       this.queued.set(delivery.id, delivery);
       for (const watcher of this.watchers) watcher(delivery);
+      if (!this.restoring && isKept(delivery)) this.keep(delivery);
       this.pump();
     }
     acknowledge(id) {
-      this.queued.delete(id);
-      this.handed.delete(id);
+      this.forget(id);
       if (this.sent === id) this.sent = void 0;
       this.pump();
     }
@@ -1325,9 +1523,7 @@ var __decentSync = (() => {
     }
     /** Drops a queued delivery that a newer one makes unnecessary; one being sent now stays, to be acknowledged. */
     discard(id) {
-      if (this.sent === id) return;
-      this.queued.delete(id);
-      this.handed.delete(id);
+      if (this.sent !== id) this.forget(id);
     }
     /**
      * Drops a queued delivery that a newer one makes unnecessary, unless it
@@ -1337,7 +1533,7 @@ var __decentSync = (() => {
      * it can never be stored after the newer one.
      */
     supersede(id) {
-      if (!this.handed.has(id)) this.queued.delete(id);
+      if (!this.handed.has(id)) this.forget(id);
     }
     /**
      * Records to read and send: requested by the server, after those already
@@ -1364,7 +1560,9 @@ var __decentSync = (() => {
       return `${this.runtimeId}-${++this.sequence}`;
     }
     pump() {
-      if (this.retryTimer !== void 0 || this.working || this.stopped || !this.sendMessage || this.sent !== void 0 || this.queued.size === 0 && this.requested.size === 0) return;
+      if (this.restoring || this.retryTimer !== void 0 || this.working || this.stopped || !this.sendMessage || this.sent !== void 0 || this.queued.size === 0 && this.requested.size === 0) return;
+      const next = this.queued.keys().next();
+      if (!next.done && this.unwritten.has(next.value)) return;
       this.working = true;
       void this.work().catch(() => {
         this.log("Delivery interrupted; unacknowledged data remains queued.");
@@ -1399,9 +1597,39 @@ var __decentSync = (() => {
       const next = this.queued.entries().next().value;
       if (!next) return;
       const [id, message] = next;
+      if (this.unwritten.has(id)) return;
       this.sent = id;
       this.handed.add(id);
       await this.sendMessage(message);
+    }
+    /**
+     * Keeps a Workflow or machine state delivery in Decaid's plugin storage,
+     * sending it once written there, and drops the oldest kept, unless handed
+     * to a connection already, if that takes them past the limits.
+     */
+    keep(delivery) {
+      this.unwritten.add(delivery.id);
+      const { written: written2, dropped } = this.kept.keep(delivery);
+      for (const id of dropped) {
+        if (this.handed.has(id)) continue;
+        this.queued.delete(id);
+        this.unwritten.delete(id);
+      }
+      if (dropped.length > 0 && !this.droppedLogged) {
+        this.droppedLogged = true;
+        this.log(`Dropping the oldest Workflow and machine state events not yet sent: at most ${MAX_KEPT} are kept, of at most ${MAX_KEPT_CHARACTERS / (1024 * 1024)} Mi characters.`);
+      }
+      void written2.then(() => {
+        this.unwritten.delete(delivery.id);
+        this.pump();
+      });
+    }
+    /** Forgets a delivery, in memory and in Decaid's plugin storage. */
+    forget(id) {
+      this.queued.delete(id);
+      this.handed.delete(id);
+      this.unwritten.delete(id);
+      this.kept.remove(id);
     }
     retry() {
       if (this.stopped || this.retryTimer !== void 0) return;
@@ -1741,20 +1969,117 @@ var __decentSync = (() => {
     }
   };
 
+  // src/storage.ts
+  var STORAGE_TIMEOUT_MS = 1e4;
+  var PluginStorage = class {
+    constructor(host) {
+      __publicField(this, "host", host);
+      /** Commands waiting their turn, in order. */
+      __publicField(this, "queue", []);
+      /** The command sent and awaiting Decaid's answer. */
+      __publicField(this, "waiting");
+      __publicField(this, "stopped", false);
+    }
+    /** The value at `key`, null if it was never written. Rejects, saying why, if Decaid refuses or does not answer in time. */
+    async read(key, what) {
+      const answer = await this.run({ type: "read", key }, what, "storageRead", (payload) => {
+        return typeof payload === "object" && payload !== null && payload.key === key;
+      });
+      return answer.value ?? null;
+    }
+    /**
+     * Writes `data` at `key`, or a later write's data to the same key, made
+     * while this one waited its turn. Rejects, saying why, if Decaid refuses or
+     * does not answer in time; it may still have written it.
+     */
+    async write(key, data, what) {
+      const queued = this.queue.find((command) => command.command.type === "write" && command.command.key === key);
+      if (!queued || this.stopped) {
+        await this.run({ type: "write", key, data }, what, "storageWrite", (payload) => payload === data);
+        return;
+      }
+      queued.command = { type: "write", key, data };
+      queued.what = what;
+      queued.answers = (payload) => payload === data;
+      await new Promise((resolve, reject) => queued.waiting.push({ resolve, reject }));
+    }
+    /** A Decaid event, which may answer the command awaiting one. */
+    answered(name, payload) {
+      const waiting = this.waiting;
+      if (!waiting || name !== waiting.command.event || !waiting.command.answers(payload)) return;
+      this.settle();
+      for (const waiter of waiting.command.waiting) waiter.resolve(payload);
+      this.next();
+    }
+    /**
+     * Sends the writes still waiting their turn, without waiting for Decaid's
+     * answers, which it no longer sends once the plugin has unloaded, and
+     * gives up on the reads.
+     */
+    stop() {
+      if (this.stopped) return;
+      this.stopped = true;
+      const unloading = new Error("the plugin is unloading");
+      const sent = this.settle();
+      if (sent) fail(sent.command, unloading);
+      for (const command of this.queue.splice(0)) {
+        if (command.command.type === "write") {
+          try {
+            this.host.storage(command.command);
+          } catch {
+          }
+        }
+        fail(command, unloading);
+      }
+    }
+    run(command, what, event, answers) {
+      if (this.stopped) return Promise.reject(new Error("the plugin is unloading"));
+      return new Promise((resolve, reject) => {
+        this.queue.push({ command, what, event, answers, waiting: [{ resolve, reject }] });
+        if (!this.waiting) this.next();
+      });
+    }
+    /** Sends the next command waiting its turn, if any. */
+    next() {
+      const command = this.queue.shift();
+      if (!command) return;
+      const timer = setTimeout(() => {
+        this.settle();
+        fail(command, new Error(`Decaid's plugin storage did not answer ${command.what} within ${STORAGE_TIMEOUT_MS / 1e3} s`));
+        this.next();
+      }, STORAGE_TIMEOUT_MS);
+      this.waiting = { command, timer };
+      try {
+        this.host.storage(command.command);
+      } catch (error) {
+        this.settle();
+        fail(command, new Error(`Decaid refused ${command.what}: ${error instanceof Error ? error.message : String(error)}`));
+        this.next();
+      }
+    }
+    /** Stops waiting for the answer to the command sent, returning what waited. */
+    settle() {
+      const waiting = this.waiting;
+      if (waiting) clearTimeout(waiting.timer);
+      this.waiting = void 0;
+      return waiting;
+    }
+  };
+  function fail(command, error) {
+    for (const waiter of command.waiting) waiter.reject(error);
+  }
+
   // src/tablet-id.ts
   var KEY = "tabletId";
-  var STORAGE_TIMEOUT_MS = 1e4;
   var BACKUP_RETRY_MS = 3e4;
   var TabletId = class {
-    constructor(host, log) {
-      __publicField(this, "host", host);
+    constructor(storage, log) {
+      __publicField(this, "storage", storage);
       __publicField(this, "log", log);
       /** Known once read or made, for as long as this load lasts. */
       __publicField(this, "id");
       /** The read of the id under way, shared by callers meanwhile. */
       __publicField(this, "reading");
-      /** Commands go one at a time. */
-      __publicField(this, "waiting");
       /** The next attempt to have Decaid's backups include the id, while one is due. */
       __publicField(this, "backupRetry");
       __publicField(this, "stopped", false);
@@ -1772,26 +2097,15 @@ var __decentSync = (() => {
       }));
       return this.reading;
     }
-    /** A Decaid event, which may answer the storage command awaiting one. */
-    answered(name, payload) {
-      const waiting = this.waiting;
-      if (!waiting || name !== waiting.event || !waiting.answers(payload)) return;
-      this.settle();
-      waiting.resolve(payload);
-    }
     stop() {
       this.stopped = true;
       if (this.backupRetry !== void 0) clearTimeout(this.backupRetry);
-      this.settle()?.reject(new Error("the plugin is unloading"));
     }
     async readOrMake() {
-      const read = await this.command("a read of this tablet's id", { type: "read", key: KEY }, "storageRead", (payload) => {
-        return typeof payload === "object" && payload !== null && payload.key === KEY;
-      });
-      const stored = read.value ?? null;
+      const stored = await this.storage.read(KEY, "a read of this tablet's id");
       if (isTabletId(stored)) return this.known(stored);
       const made = newTabletId();
-      await this.command("the write of this tablet's new id", { type: "write", key: KEY, data: made }, "storageWrite", (payload) => payload === made);
+      await this.storage.write(KEY, made, "the write of this tablet's new id");
       this.log(
         stored === null ? `This tablet had no id in Decaid's plugin storage, so it was given one: ${made}.` : `This tablet's id in Decaid's plugin storage was not a UUID, so it was given a new one: ${made}.`
       );
@@ -1810,32 +2124,6 @@ var __decentSync = (() => {
         this.backupRetry = void 0;
         void this.keepInBackups();
       }, BACKUP_RETRY_MS);
-    }
-    /**
-     * Sends a storage command, `what` for the log, and resolves with the
-     * payload of the `event` that `answers` it.
-     */
-    command(what, command, event, answers) {
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          this.settle();
-          reject(new Error(`Decaid's plugin storage did not answer ${what} within ${STORAGE_TIMEOUT_MS / 1e3} s`));
-        }, STORAGE_TIMEOUT_MS);
-        this.waiting = { event, answers, resolve, reject, timer };
-        try {
-          this.host.storage(command);
-        } catch (error) {
-          this.settle();
-          reject(new Error(`Decaid refused ${what}: ${error instanceof Error ? error.message : String(error)}`));
-        }
-      });
-    }
-    /** Stops waiting for the answer to the command, returning what waited. */
-    settle() {
-      const waiting = this.waiting;
-      if (waiting) clearTimeout(waiting.timer);
-      this.waiting = void 0;
-      return waiting;
     }
   };
   function newTabletId() {
@@ -1905,7 +2193,9 @@ var __decentSync = (() => {
       __publicField(this, "dismissedHardware", null);
       /** Set once another tablet replaced this one, until a `yielding` hello is welcomed. */
       __publicField(this, "yielding", false);
-      /** Everything awaiting the server's acknowledgment, kept across reconnects in this runtime. */
+      /** Decaid's plugin storage, where the tablet's id and the outbox's Workflow and machine state events are kept. */
+      __publicField(this, "storage");
+      /** Everything awaiting the server's acknowledgment, kept across reconnects, and its Workflow and machine state events across unloads. */
       __publicField(this, "outbox");
       __publicField(this, "shots");
       __publicField(this, "steams");
@@ -1917,10 +2207,15 @@ var __decentSync = (() => {
       __publicField(this, "tabletId");
       __publicField(this, "checkingHardware", false);
       __publicField(this, "hardwareCooldown", false);
-      this.outbox = new Outbox(log, {
-        shot: (id, deliveryId) => this.shots.read(id, deliveryId),
-        steam: (id, deliveryId) => this.steams.read(id, deliveryId)
-      });
+      this.storage = new PluginStorage(host);
+      this.outbox = new Outbox(
+        log,
+        {
+          shot: (id, deliveryId) => this.shots.read(id, deliveryId),
+          steam: (id, deliveryId) => this.steams.read(id, deliveryId)
+        },
+        new KeptDeliveries(this.storage, log)
+      );
       this.shots = new ShotCapture(this.outbox, log);
       this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1e3, log);
       this.machineEvents = new MachineEvents(this.outbox);
@@ -1929,10 +2224,14 @@ var __decentSync = (() => {
       this.writes = new LibraryWrites(library, this.outbox, this.machineEvents, () => {
         if (this.sentHardware !== null) this.machineAway = true;
       });
-      this.tabletId = new TabletId(host, log);
+      this.tabletId = new TabletId(this.storage, log);
     }
-    /** Connects from a timer, so the caller (onLoad) returns at once. */
+    /**
+     * Reads back the outbox's deliveries kept by earlier loads, and connects,
+     * from timers, so the caller (onLoad) returns at once.
+     */
     start() {
+      this.setTimer("restore", 0, () => void this.outbox.restore());
       this.setTimer("reconnect", 0, () => void this.connect());
       this.scheduleHardwarePoll();
       this.steams.start();
@@ -1955,7 +2254,7 @@ var __decentSync = (() => {
     }
     /** Decaid's answer to a command to its plugin storage. */
     storageEvent(name, payload) {
-      this.tabletId.answered(name, payload);
+      this.storage.answered(name, payload);
     }
     stop() {
       this.stopped = true;
@@ -1964,6 +2263,7 @@ var __decentSync = (() => {
       this.steams.stop();
       this.collections.stop();
       this.tabletId.stop();
+      this.storage.stop();
       for (const id of this.timers.values()) clearTimeout(id);
       this.timers.clear();
       this.closeHandle();
