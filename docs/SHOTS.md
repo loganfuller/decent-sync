@@ -160,11 +160,16 @@ Shot to the Library's Bean Batch, Grinder and Profile it used
   loaded keeps its limiters as the skin sent them. Two alike in all of that
   leave it linked to neither. So a Shot pulled with a Profile, its
   temperature and yield changed, is that Profile's, even where the Library
-  has a copy saved at that temperature, while a Shot pulled with the copy
-  is the copy's. The hard delete's check of whether a Shot names a Profile,
+  has a copy saved at that temperature under another title, while a Shot
+  pulled with the copy is the copy's. A copy saved under the same title, as
+  streamline-js's profile editor saves an edited Profile, ties with it on
+  the title, so a Shot overridden to the copy's temperature is the copy's. The hard delete's check of whether a Shot names a Profile,
   and the plugin's, compare steps the same way, temperatures left out. The
   link is read, not stored, so it follows the Library: a Profile joining
-  that ties with a Shot's own leaves that Shot linked to neither.
+  that ties with a Shot's own leaves that Shot linked to neither, and a
+  Profile's title edited since leaves its earlier Shots naming the old one,
+  so once a second Profile matches them their overrides decide between the
+  two.
 - **The skin's profile id is not used.** The profile id the WorkFlow skin
   (`Sabotage1/WorkFlow-Skin`) records in the Workflow
   (`context.extras.workflowSkin.selectedProfileId`, kept as `profile_id`)
