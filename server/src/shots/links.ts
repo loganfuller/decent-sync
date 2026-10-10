@@ -31,7 +31,12 @@ import { Prisma } from "../generated/prisma/client.js";
 // Shots it can then (`linkShots`); storing a Shot's metadata holds that row
 // for share as it resolves its ids (`resolveLinks`). So either the map's
 // change commits first, and the Shot's resolution finds it, or the Shot is
-// stored first, and the map's change links it.
+// stored first, and the map's change links it. Linking several Shots at once
+// (`linkShots`, `claimListed`) locks their rows in no set order, as crediting
+// a Machine's Shots to Locations and handing them over do: two of those
+// touching the same Shots may deadlock, and PostgreSQL ends one. A delivery
+// ended so is sent again on reconnect, and a request so fails, so either is
+// tried again, rather than ordering every such update.
 
 /** The kinds a Shot names by their ids on its tablet. */
 export type LinkedKind = "beanBatch" | "grinder";
