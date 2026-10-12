@@ -7,6 +7,7 @@ import {
   type ItemWritten,
   type LeaveOut,
   type LibraryDelete,
+  type LibraryKind,
   type LibraryWrite,
   MAX_REFUSAL_LENGTH,
   SETTINGS_KIND,
@@ -16,8 +17,11 @@ import {
   WORKFLOW_GRINDER,
   WORKFLOW_KIND,
   type WriteRefused,
+  type WrittenKind,
   beanMatchKey,
+  childKinds,
   globalIdOf,
+  isLibraryKind,
   sameValue,
   settingsParts,
   steamIsOn,
@@ -46,6 +50,7 @@ import { forgetInStreamline, rememberInStreamline } from "./streamline.js";
 // thing the plugin deletes (ADR-0003), and a record the Library leaves out
 // as its Machine joins a Location is archived or hidden (ADR-0018).
 
+/** Where a kind's records live in Decaid's API, for the kinds whose records the plugin writes as they are (`recordWriter`). */
 interface Route {
   /** The kind's records, archived ones included. */
   list: string;
@@ -61,10 +66,50 @@ interface Route {
    * Grinders never are.
    */
   sameItem(record: Record<string, unknown>, fields: Record<string, unknown>): boolean;
+  /** Whether a Shot names a record of the kind by its id, so one a Shot this plugin has yet to send names is not deleted (`namedByShot`). */
+  namedByShots: boolean;
+  /**
+   * For a kind whose records are made under another's (`parentKind`), where
+   * those under the record at `parentPath` are listed, archived ones
+   * included: they are deleted before it, as Decaid refuses to delete a bean
+   * that has batches.
+   */
+  listUnder?(parentPath: string): string;
 }
 
-/** Where each kind of record lives in Decaid's API (v0.8.7, rest_v1.yml). */
-const ROUTES: Readonly<Record<string, Route>> = {
+/**
+ * How the plugin carries out the server's changes of one kind on the
+ * tablet, each kind described once (`WRITERS`, and `LIBRARY.md`, Adding a
+ * Library kind).
+ */
+interface KindWriter {
+  /** Carries out a write, and answers it. It may throw, as when Decaid does not answer. */
+  write(write: LibraryWrite, log: (message: string) => void): Promise<WriteAnswer>;
+  /**
+   * Whether its writes change the tablet's Workflow: the change of the
+   * Workflow a write causes is held back until its answer is queued, so the
+   * server takes it as the plugin's own write rather than the tablet's edit.
+   */
+  changesWorkflow?: true;
+}
+
+/** How the plugin carries out the server's changes of a kind of Library item, whose records the tablet lists. */
+interface LibraryKindWriter extends KindWriter {
+  /** Where Decaid's API lists the kind's records, archived or hidden ones included, which the plugin reports (`CollectionCapture`). */
+  list: string;
+  /** Deletes the tablet's record of a hard-deleted item (`carryOutDelete`), and answers it. It may throw, as `write` may. */
+  remove(remove: LibraryDelete, namedByShot: NamedByShot): Promise<DeleteAnswer>;
+  /** Sets aside a record the Library leaves out (`setAside`): what to answer, from the record as Decaid holds it at `path`. */
+  setAside(leave: LeaveOut, record: Record<string, unknown>, path: string): Promise<ItemLeftOut["outcome"] | Answer>;
+  /** Where each record is found under its id. */
+  records: string;
+}
+
+/** Whether a Shot this plugin queued since it loaded, or has yet to send, names one of a kind's records (`LibraryWrites.namedByShot`). */
+type NamedByShot = (kind: LibraryKind, ids: ReadonlySet<string>) => Promise<boolean | "tooMany">;
+
+/** Where the kinds whose records the plugin writes as they are live in Decaid's API (v0.8.7, rest_v1.yml). */
+const ROUTES = {
   bean: {
     list: "/beans?includeArchived=true",
     records: "/beans",
@@ -76,6 +121,7 @@ const ROUTES: Readonly<Record<string, Route>> = {
       typeof fields.roaster === "string" &&
       typeof fields.name === "string" &&
       beanMatchKey(record.roaster, record.name) === beanMatchKey(fields.roaster, fields.name),
+    namedByShots: false,
   },
   beanBatch: {
     list: "/bean-batches?includeArchived=true",
@@ -84,6 +130,8 @@ const ROUTES: Readonly<Record<string, Route>> = {
     create: (fields) => (typeof fields.beanId === "string" && fields.beanId !== "" ? `/beans/${encodeURIComponent(fields.beanId)}/batches` : null),
     deferred: ["archived", "weightRemaining"],
     sameItem: () => false,
+    namedByShots: true,
+    listUnder: (parentPath) => `${parentPath}/batches?includeArchived=true`,
   },
   grinder: {
     list: "/grinders?includeArchived=true",
@@ -91,8 +139,64 @@ const ROUTES: Readonly<Record<string, Route>> = {
     create: () => "/grinders",
     deferred: ["archived"],
     sameItem: () => false,
+    namedByShots: true,
   },
+} satisfies Readonly<Record<string, Route>>;
+
+/**
+ * Each kind the server writes, described once: the Library's kinds
+ * (`LIBRARY_ITEM_KINDS`), a Location's shared settings, and the clearing of
+ * a Workflow's grinder and batch.
+ */
+const WRITERS: { readonly [K in WrittenKind]: K extends LibraryKind ? LibraryKindWriter : KindWriter } = {
+  bean: recordWriter("bean", ROUTES.bean),
+  beanBatch: recordWriter("beanBatch", ROUTES.beanBatch),
+  grinder: recordWriter("grinder", ROUTES.grinder),
+  profile: {
+    list: "/profiles?includeHidden=true",
+    records: "/profiles",
+    write: writeProfile,
+    remove: purgeProfile,
+    setAside: hideProfile,
+  },
+  [SETTINGS_KIND]: { write: writeSettings, changesWorkflow: true },
+  [WORKFLOW_KIND]: { write: clearWorkflow, changesWorkflow: true },
 };
+
+/** How the plugin carries out the server's changes of a kind, or undefined for a kind it does not know. */
+function writerOf(kind: string): KindWriter | undefined {
+  return Object.prototype.hasOwnProperty.call(WRITERS, kind) ? WRITERS[kind as WrittenKind] : undefined;
+}
+
+/** How the plugin carries out the server's changes of a kind of Library item, or undefined for a kind it does not know. */
+function libraryWriterOf(kind: string): LibraryKindWriter | undefined {
+  return isLibraryKind(kind) ? WRITERS[kind] : undefined;
+}
+
+/** Where a kind written through a route (`ROUTES`) lives in Decaid's API, or undefined for one that is not. */
+function routeOf(kind: string): Route | undefined {
+  return Object.prototype.hasOwnProperty.call(ROUTES, kind) ? ROUTES[kind as keyof typeof ROUTES] : undefined;
+}
+
+/** Where Decaid's API lists a kind's records, archived or hidden ones included. */
+export function libraryListPath(kind: LibraryKind): string {
+  return WRITERS[kind].list;
+}
+
+/** A kind whose records the plugin writes as they are, through its route. */
+function recordWriter(kind: LibraryKind, route: Route): LibraryKindWriter {
+  return {
+    list: route.list,
+    records: route.records,
+    write: async (write) => {
+      if (write.localId === null) return await create(route, write);
+      const updated = await update(route, write, write.localId);
+      return answerTo(write, updated.answer, updated.written);
+    },
+    remove: (remove, namedByShot) => deleteRecord(kind, route, remove, namedByShot),
+    setAside: archiveRecord,
+  };
+}
 
 /** What becomes of a write: the record Decaid returned, or why it did not write one. */
 export type WriteAnswer = ItemWritten | WriteRefused;
@@ -179,7 +283,7 @@ export class LibraryWrites {
    * and so could not keep the record for it. A Shot still to be read, as the
    * outbox reads a new Shot only as it sends it, is read here once.
    */
-  private async namedByShot(kind: NamedKind, ids: ReadonlySet<string>): Promise<boolean | "tooMany"> {
+  private async namedByShot(kind: LibraryKind, ids: ReadonlySet<string>): Promise<boolean | "tooMany"> {
     const unread = this.outbox.requestedIds("shot").filter((id) => !this.shotsRead.has(id));
     // As during a backfill: reading them all would hold up every write behind this one, so the server asks again later.
     if (unread.length > MAX_SHOTS_READ) return "tooMany";
@@ -212,7 +316,7 @@ export class LibraryWrites {
 
   /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
   apply(write: LibraryWrite): Promise<void> {
-    if (write.kind !== SETTINGS_KIND && write.kind !== WORKFLOW_KIND) {
+    if (!writerOf(write.kind)?.changesWorkflow) {
       return this.library.run(async () => this.outbox.enqueue(await carryOut(write, this.log)));
     }
     return this.library.run(async () => {
@@ -228,61 +332,63 @@ export class LibraryWrites {
   }
 }
 
-/** The kinds of record a Shot names. */
-type NamedKind = "beanBatch" | "grinder" | "profile";
-
 /**
- * Deletes the tablet's record of a hard-deleted item (`LibraryDelete`),
- * unless it carries another item's global id: one the server mapped may
- * carry none yet, as when the write of its global id was still due. A record
- * already gone is deleted. A bean's batches, archived ones included, are
- * deleted first, as DYE2 does (dye2:dye2-plugin/src/utils/bean-delete.ts),
- * since Decaid refuses to delete a bean that has any. A batch or Grinder
- * record, or a bean one of whose batches is, that a Shot this plugin queued
- * since it loaded, or has yet to read and send, names (`namedByShot`) is not
- * deleted: the server keeps such a record once it has the Shot, and
- * otherwise asks again on the tablet's next connection. Nor is anything while
- * more Shots than MAX_SHOTS_READ are still to be read (SHOTS_STILL_TO_READ),
- * as during a backfill, which the server asks again for soon, on the same
- * connection.
+ * Deletes the tablet's record of a hard-deleted item (`LibraryDelete`), as
+ * its kind deletes one (`LibraryKindWriter.remove`). A record already gone is
+ * deleted. Nothing is deleted while more Shots than MAX_SHOTS_READ are still
+ * to be read (SHOTS_STILL_TO_READ), as during a backfill, which the server
+ * asks again for soon, on the same connection.
  */
-async function carryOutDelete(
-  remove: LibraryDelete,
-  namedByShot: (kind: NamedKind, ids: ReadonlySet<string>) => Promise<boolean | "tooMany">,
-): Promise<DeleteAnswer> {
-  if (remove.kind === "profile") return purgeProfile(remove, namedByShot);
-  const route = Object.prototype.hasOwnProperty.call(ROUTES, remove.kind) ? ROUTES[remove.kind] : undefined;
-  if (!route) return refused(remove, null, `This plugin cannot delete a ${remove.kind}`);
+async function carryOutDelete(remove: LibraryDelete, namedByShot: NamedByShot): Promise<DeleteAnswer> {
+  const writer = libraryWriterOf(remove.kind);
+  if (!writer) return refused(remove, null, `This plugin cannot delete a ${remove.kind}`);
   try {
-    const path = `${route.records}/${encodeURIComponent(remove.localId)}`;
-    const current = await request("GET", path);
-    if (current.status === 404) return deleted(remove);
-    const record = current.ok ? parsed(current.text) : undefined;
-    if (!isObject(record)) return refused(remove, current.status, current.text);
-    const carried = globalIdOf(record);
-    if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
-    if (remove.kind === "beanBatch" || remove.kind === "grinder") {
-      const named = await namedByShot(remove.kind, new Set([remove.localId]));
-      if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
-    }
-    if (remove.kind === "bean") {
-      const listed = await request("GET", `${path}/batches?includeArchived=true`);
-      const batches = listed.ok ? parsed(listed.text) : undefined;
-      if (!Array.isArray(batches)) return refused(remove, listed.status, listed.text);
-      const ids = new Set(batches.filter(isObject).flatMap((batch) => (typeof batch.id === "string" ? [batch.id] : [])));
-      const named = await namedByShot("beanBatch", ids);
-      if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
-      for (const batch of batches.filter(isObject)) {
-        if (typeof batch.id !== "string") continue;
-        const gone = await request("DELETE", `/bean-batches/${encodeURIComponent(batch.id)}`);
-        if (!gone.ok && gone.status !== 404) return refused(remove, gone.status, gone.text);
-      }
-    }
-    const answer = await request("DELETE", path);
-    return answer.ok || answer.status === 404 ? deleted(remove) : refused(remove, answer.status, answer.text);
+    return await writer.remove(remove, namedByShot);
   } catch (error) {
     return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+/**
+ * Deletes the tablet's record of a hard-deleted item of a kind written
+ * through its route, unless it carries another item's global id: one the
+ * server mapped may carry none yet, as when the write of its global id was
+ * still due. A record's records of the kinds made under it, archived ones
+ * included, such as a bean's batches, are deleted first, as DYE2 does
+ * (dye2:dye2-plugin/src/utils/bean-delete.ts), since Decaid refuses to
+ * delete a bean that has any. A record, or one of those under it, that a
+ * Shot this plugin queued since it loaded, or has yet to read and send,
+ * names (`namedByShot`) is not deleted: the server keeps such a record once
+ * it has the Shot, and otherwise asks again on the tablet's next connection.
+ */
+async function deleteRecord(kind: LibraryKind, route: Route, remove: LibraryDelete, namedByShot: NamedByShot): Promise<DeleteAnswer> {
+  const path = `${route.records}/${encodeURIComponent(remove.localId)}`;
+  const current = await request("GET", path);
+  if (current.status === 404) return deleted(remove);
+  const record = current.ok ? parsed(current.text) : undefined;
+  if (!isObject(record)) return refused(remove, current.status, current.text);
+  const carried = globalIdOf(record);
+  if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
+  if (route.namedByShots) {
+    const named = await namedByShot(kind, new Set([remove.localId]));
+    if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
+  }
+  for (const child of childKinds(kind)) {
+    const under = routeOf(child)?.listUnder;
+    if (!under) return refused(remove, null, `This plugin cannot delete the ${child} records under a ${kind}`);
+    const listed = await request("GET", under(path));
+    const children = listed.ok ? parsed(listed.text) : undefined;
+    if (!Array.isArray(children)) return refused(remove, listed.status, listed.text);
+    const ids = new Set(children.filter(isObject).flatMap((record) => (typeof record.id === "string" ? [record.id] : [])));
+    const named = await namedByShot(child, ids);
+    if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
+    for (const id of ids) {
+      const gone = await request("DELETE", `${WRITERS[child].records}/${encodeURIComponent(id)}`);
+      if (!gone.ok && gone.status !== 404) return refused(remove, gone.status, gone.text);
+    }
+  }
+  const answer = await request("DELETE", path);
+  return answer.ok || answer.status === 404 ? deleted(remove) : refused(remove, answer.status, answer.text);
 }
 
 /**
@@ -294,22 +400,18 @@ async function carryOutDelete(
  * tablet. A record already gone is deleted. Decaid refuses to purge one of
  * its bundled profiles, which the server never deletes.
  */
-async function purgeProfile(remove: LibraryDelete, namedByShot: (kind: NamedKind, ids: ReadonlySet<string>) => Promise<boolean | "tooMany">): Promise<DeleteAnswer> {
-  try {
-    const path = `/profiles/${encodeURIComponent(remove.localId)}`;
-    const current = await request("GET", path);
-    if (current.status === 404) return deleted(remove);
-    const record = current.ok ? parsed(current.text) : undefined;
-    if (!isObject(record)) return refused(remove, current.status, current.text);
-    const steps = stepsKey(record.profile);
-    const named = await namedByShot("profile", new Set(steps === null ? [remove.localId] : [remove.localId, steps]));
-    if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
-    const answer = await request("DELETE", `${path}/purge`);
-    // Decaid answers a purge of a profile it no longer holds, as one replaced since it was read, with 400.
-    return answer.ok || (answer.status === 400 && answer.text.includes("Profile not found")) ? deleted(remove) : refused(remove, answer.status, answer.text);
-  } catch (error) {
-    return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
-  }
+async function purgeProfile(remove: LibraryDelete, namedByShot: NamedByShot): Promise<DeleteAnswer> {
+  const path = `/profiles/${encodeURIComponent(remove.localId)}`;
+  const current = await request("GET", path);
+  if (current.status === 404) return deleted(remove);
+  const record = current.ok ? parsed(current.text) : undefined;
+  if (!isObject(record)) return refused(remove, current.status, current.text);
+  const steps = stepsKey(record.profile);
+  const named = await namedByShot("profile", new Set(steps === null ? [remove.localId] : [remove.localId, steps]));
+  if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
+  const answer = await request("DELETE", `${path}/purge`);
+  // Decaid answers a purge of a profile it no longer holds, as one replaced since it was read, with 400.
+  return answer.ok || (answer.status === 400 && answer.text.includes("Profile not found")) ? deleted(remove) : refused(remove, answer.status, answer.text);
 }
 
 /**
@@ -347,13 +449,10 @@ const SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names th
 const MAX_SHOTS_READ = 20;
 
 /**
- * Sets aside the tablet's record the Library leaves out (`LeaveOut`):
- * archives a bean, bean batch or grinder, or hides a profile, unless it is
- * so already. Only a record carrying no global id: one that carries one is a
- * Library item's now (`taken`), as when a write linked a bean of the same
- * roaster and name to it, and is left as it is. Nothing else of the record
- * changes: its `extras` are written back as read, since Decaid replaces them
- * whole. A record already gone is `gone`.
+ * Sets aside the tablet's record the Library leaves out (`LeaveOut`), as its
+ * kind does (`LibraryKindWriter.setAside`): archives a bean, bean batch or
+ * grinder, or hides a profile, unless it is so already. A record already
+ * gone is `gone`.
  */
 async function setAside(leave: LeaveOut): Promise<ItemLeftOut> {
   const answer = (outcome: ItemLeftOut["outcome"], status?: number | null, error?: string): ItemLeftOut => ({
@@ -364,46 +463,55 @@ async function setAside(leave: LeaveOut): Promise<ItemLeftOut> {
     outcome,
     ...(outcome === "refused" ? { status: status ?? null, error: (error ?? "").slice(0, MAX_REFUSAL_LENGTH) } : {}),
   });
-  const route = Object.prototype.hasOwnProperty.call(ROUTES, leave.kind) ? ROUTES[leave.kind] : undefined;
-  if (!route && leave.kind !== "profile") return answer("refused", null, `This plugin cannot set aside a ${leave.kind}`);
+  const writer = libraryWriterOf(leave.kind);
+  if (!writer) return answer("refused", null, `This plugin cannot set aside a ${leave.kind}`);
   try {
-    const path = `${route ? route.records : "/profiles"}/${encodeURIComponent(leave.localId)}`;
+    const path = `${writer.records}/${encodeURIComponent(leave.localId)}`;
     const current = await request("GET", path);
     if (current.status === 404) return answer("gone");
     const record = current.ok ? parsed(current.text) : undefined;
     if (!isObject(record)) return answer("refused", current.status, current.text);
-    if (!route) {
-      if (record.visibility !== "visible") return answer("setAside");
-      const hidden = await setVisibility(leave.localId, "hidden");
-      const updated = hidden.ok ? parsed(hidden.text) : undefined;
-      return isObject(updated) && updated.visibility !== "visible" ? answer("setAside") : answer("refused", hidden.status, hidden.text);
-    }
-    if (globalIdOf(record) !== null) return answer("taken");
-    if (record.archived === true) return answer("setAside");
-    const archived = await request("PUT", path, { archived: true, extras: isObject(record.extras) ? record.extras : {} });
-    const updated = archived.ok ? parsed(archived.text) : undefined;
-    return isObject(updated) && updated.archived === true ? answer("setAside") : answer("refused", archived.status, archived.text);
+    const outcome = await writer.setAside(leave, record, path);
+    return typeof outcome === "string" ? answer(outcome) : answer("refused", outcome.status, outcome.text);
   } catch (error) {
     return answer("refused", null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+/**
+ * Archives a record the Library leaves out, of a kind written through its
+ * route. Only a record carrying no global id: one that carries one is a
+ * Library item's now (`taken`), as when a write linked a bean of the same
+ * roaster and name to it, and is left as it is. Nothing else of the record
+ * changes: its `extras` are written back as read, since Decaid replaces them
+ * whole.
+ */
+async function archiveRecord(_leave: LeaveOut, record: Record<string, unknown>, path: string): Promise<ItemLeftOut["outcome"] | Answer> {
+  if (globalIdOf(record) !== null) return "taken";
+  if (record.archived === true) return "setAside";
+  const archived = await request("PUT", path, { archived: true, extras: isObject(record.extras) ? record.extras : {} });
+  const updated = archived.ok ? parsed(archived.text) : undefined;
+  return isObject(updated) && updated.archived === true ? "setAside" : archived;
+}
+
+/** Hides a profile the Library leaves out, unless it is hidden or deleted already. Its record carries no global id, its id being Decaid's. */
+async function hideProfile(leave: LeaveOut, record: Record<string, unknown>): Promise<ItemLeftOut["outcome"] | Answer> {
+  if (record.visibility !== "visible") return "setAside";
+  const hidden = await setVisibility(leave.localId, "hidden");
+  const updated = hidden.ok ? parsed(hidden.text) : undefined;
+  return isObject(updated) && updated.visibility !== "visible" ? "setAside" : hidden;
 }
 
 function deleted(remove: LibraryDelete): ItemDeleted {
   return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
 }
 
+/** Carries out a write, as its kind does (`KindWriter.write`). */
 async function carryOut(write: LibraryWrite, log: (message: string) => void): Promise<WriteAnswer> {
-  const route = Object.prototype.hasOwnProperty.call(ROUTES, write.kind) ? ROUTES[write.kind] : undefined;
-  if (!route && write.kind !== "profile" && write.kind !== SETTINGS_KIND && write.kind !== WORKFLOW_KIND) {
-    return refused(write, null, `This plugin cannot write a ${write.kind}`);
-  }
+  const writer = writerOf(write.kind);
+  if (!writer) return refused(write, null, `This plugin cannot write a ${write.kind}`);
   try {
-    if (write.kind === SETTINGS_KIND) return await writeSettings(write, log);
-    if (write.kind === WORKFLOW_KIND) return await clearWorkflow(write);
-    if (!route) return await writeProfile(write);
-    if (write.localId === null) return await create(route, write);
-    const updated = await update(route, write, write.localId);
-    return answerTo(write, updated.answer, updated.written);
+    return await writer.write(write, log);
   } catch (error) {
     return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
   }

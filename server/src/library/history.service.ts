@@ -1,13 +1,13 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import type { VersionedKind } from "@decent-sync/protocol";
+import { type VersionedKind, isLibraryKind } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
-import type { BatchLocation, ConflictState, Prisma, ProfileLocation } from "../generated/prisma/client.js";
+import type { ConflictState, Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
-import type { ItemRef } from "./history.js";
 import { mayResolve } from "./conflict-access.js";
+import { type ItemRef, itemKey } from "./history.js";
+import { KINDS, type LocationStateDescription, type StateValue, type VersionedItem, isVersionedKind, versionedKind } from "./kinds.js";
 import { isObject } from "./listed.js";
-import { readFieldEdits } from "./merge.js";
 
 /**
  * Where a version or a Conflict came from: a Machine's tablet, or an account
@@ -96,25 +96,6 @@ export interface CurrentValueView {
 
 const withSource = { machine: { select: { id: true, name: true } }, account: { select: { name: true } }, location: true } as const;
 
-/** The column each kind of item is named by in a version or Conflict. */
-const ITEM_WHERE: Readonly<
-  Record<VersionedKind, (id: string) => { beanId?: string; batchId?: string; grinderId?: string; profileId?: string; settingsId?: string }>
-> = {
-  bean: (id) => ({ beanId: id }),
-  beanBatch: (id) => ({ batchId: id }),
-  grinder: (id) => ({ grinderId: id }),
-  profile: (id) => ({ profileId: id }),
-  settings: (id) => ({ settingsId: id }),
-};
-
-const KIND_NAMES: Readonly<Record<VersionedKind, string>> = {
-  bean: "Bean",
-  beanBatch: "Bean Batch",
-  grinder: "Grinder",
-  profile: "Profile",
-  settings: "Location settings",
-};
-
 /** Each Library item's history and its Conflicts (ADR-0020), which Staff read as Admins do. */
 @Injectable()
 export class HistoryService {
@@ -123,10 +104,10 @@ export class HistoryService {
   /** The item's versions, the latest taken in first; 404 if the Library does not have it. */
   async versions(item: ItemRef, scope: Scope): Promise<VersionView[]> {
     const [versions, exists] = await Promise.all([
-      this.prisma.itemVersion.findMany({ where: ITEM_WHERE[item.kind](item.id), include: withSource, orderBy: [{ receivedAt: "desc" }, { seq: "desc" }] }),
+      this.prisma.itemVersion.findMany({ where: itemKey(item), include: withSource, orderBy: [{ receivedAt: "desc" }, { seq: "desc" }] }),
       this.exists(item),
     ]);
-    if (!exists) throw new NotFoundException(`No such ${KIND_NAMES[item.kind]}`);
+    if (!exists) throw new NotFoundException(`No such ${versionedKind(item.kind).name}`);
     return versions.map((version) => ({
       id: version.id,
       fields: isObject(version.fields) ? version.fields : {},
@@ -139,8 +120,8 @@ export class HistoryService {
 
   /** The open Conflicts, the latest first: all of them, or those about one item, 404 if the Library does not have it. */
   async openConflicts(scope: Scope, item?: ItemRef): Promise<ConflictView[]> {
-    if (item && !(await this.exists(item))) throw new NotFoundException(`No such ${KIND_NAMES[item.kind]}`);
-    return this.conflicts({ state: "OPEN", ...(item ? ITEM_WHERE[item.kind](item.id) : {}) }, scope);
+    if (item && !(await this.exists(item))) throw new NotFoundException(`No such ${versionedKind(item.kind).name}`);
+    return this.conflicts({ state: "OPEN", ...(item ? itemKey(item) : {}) }, scope);
   }
 
   /** One Conflict, open or not; 404 if there is no such Conflict. */
@@ -151,20 +132,11 @@ export class HistoryService {
   }
 
   private async conflicts(where: Prisma.ConflictWhereInput, scope: Scope): Promise<ConflictView[]> {
-    const conflicts = await this.prisma.conflict.findMany({
-      where,
-      include: {
-        ...withSource,
-        bean: { select: { content: true, fieldEdits: true } },
-        batch: { select: { content: true, fieldEdits: true, bean: { select: { content: true } } } },
-        grinder: { select: { content: true, fieldEdits: true, archived: true, locationId: true } },
-        profile: { select: { content: true, fieldEdits: true } },
-        settings: { select: { values: true, fieldEdits: true } },
-      },
-      orderBy: [{ createdAt: "desc" }, { seq: "desc" }],
-    });
-    const states = await this.locationStates(conflicts);
-    const currents = conflicts.map((conflict) => currentValue(conflict, states));
+    const conflicts = (
+      await this.prisma.conflict.findMany({ where, include: withSource, orderBy: [{ createdAt: "desc" }, { seq: "desc" }] })
+    ).filter((conflict): conflict is typeof conflict & { kind: VersionedKind } => isVersionedKind(conflict.kind));
+    const items = await readItems(this.prisma, conflicts);
+    const currents = await currentValues(this.prisma, conflicts, items);
     const versionIds = [...new Set(currents.flatMap((current) => (current.versionId === null ? [] : [current.versionId])))];
     const versions = new Map(
       (
@@ -177,9 +149,10 @@ export class HistoryService {
     return conflicts.map((conflict, index) => {
       const { value, versionId } = currents[index]!;
       const version = versionId === null ? undefined : versions.get(versionId);
+      const item = items.get(`${conflict.kind}:${conflict.itemId}`);
       return {
         id: conflict.id,
-        item: itemView(conflict),
+        item: { kind: conflict.kind, id: conflict.itemId, name: item?.name ?? null },
         field: conflict.field,
         value: conflict.value,
         location: conflict.location ? viewLocation(conflict.location) : null,
@@ -193,91 +166,74 @@ export class HistoryService {
           editedAt: version ? version.editedAt.toISOString() : null,
           versionId: version ? version.id : null,
         },
-        resolvable: mayResolve(scope, { locationId: conflict.locationId, field: conflict.field, grinderLocationId: conflict.grinder?.locationId }),
+        resolvable: mayResolve(scope, { locationId: conflict.locationId, field: conflict.field, itemLocationId: item?.locationId }),
       };
     });
   }
 
-  /** Each Location's state of the batches and Profiles the Conflicts about a Location's state are about. */
-  private async locationStates(conflicts: { batchId: string | null; profileId: string | null; locationId: string | null }[]): Promise<LocationStates> {
-    const at = conflicts.filter((conflict) => conflict.locationId !== null);
-    const batches = at.flatMap(({ batchId, locationId }) => (batchId === null ? [] : [{ batchId, locationId: locationId! }]));
-    const profiles = at.flatMap(({ profileId, locationId }) => (profileId === null ? [] : [{ profileId, locationId: locationId! }]));
-    const [batchRows, profileRows] = await Promise.all([
-      batches.length === 0 ? [] : this.prisma.batchLocation.findMany({ where: { OR: batches } }),
-      profiles.length === 0 ? [] : this.prisma.profileLocation.findMany({ where: { OR: profiles } }),
-    ]);
-    return {
-      batches: new Map(batchRows.map((row) => [`${row.batchId}/${row.locationId}`, row])),
-      profiles: new Map(profileRows.map((row) => [`${row.profileId}/${row.locationId}`, row])),
-    };
-  }
-
+  /** Whether the Library has the item, or the Location's settings exist: they keep versions while they do (`versioned_items`). */
   private async exists(item: ItemRef): Promise<boolean> {
-    const where = { where: { id: item.id } };
-    switch (item.kind) {
-      case "bean":
-        return (await this.prisma.bean.count(where)) > 0;
-      case "beanBatch":
-        return (await this.prisma.beanBatch.count(where)) > 0;
-      case "grinder":
-        return (await this.prisma.grinder.count(where)) > 0;
-      case "profile":
-        return (await this.prisma.profile.count(where)) > 0;
-      case "settings":
-        return (await this.prisma.locationSettings.count(where)) > 0;
-    }
+    return (await this.prisma.versionedItem.count({ where: itemKey(item) })) > 0;
   }
 }
 
 const STATES: Readonly<Record<ConflictState, ConflictView["state"]>> = { OPEN: "open", USED: "used", DISMISSED: "dismissed" };
 
-interface LocationStates {
-  batches: Map<string, BatchLocation>;
-  profiles: Map<string, ProfileLocation>;
+/** A Conflict as its item and its field's value now are read for it. */
+interface ConflictAbout {
+  kind: VersionedKind;
+  itemId: string;
+  field: string;
+  locationId: string | null;
 }
 
-type EditedContent = { content: Prisma.JsonValue; fieldEdits: Prisma.JsonValue } | null;
+/** The items the Conflicts are about, each as its kind reads it, by `kind:id`; an item the server no longer has is absent. */
+async function readItems(db: PrismaService, conflicts: readonly ConflictAbout[]): Promise<Map<string, VersionedItem>> {
+  const items = new Map<string, VersionedItem>();
+  for (const [kind, ids] of grouped(conflicts, (conflict) => conflict.kind)) {
+    const read = await versionedKind(kind).read(db, [...new Set(ids.map((conflict) => conflict.itemId))]);
+    for (const [id, item] of read) items.set(`${kind}:${id}`, item);
+  }
+  return items;
+}
 
-/** A Conflict's field's value now, and the version that set it, if one is known. */
-function currentValue(
-  conflict: {
-    field: string;
-    locationId: string | null;
-    beanId: string | null;
-    batchId: string | null;
-    grinderId: string | null;
-    profileId: string | null;
-    bean: EditedContent;
-    batch: EditedContent;
-    grinder: (EditedContent & { archived: boolean }) | null;
-    profile: EditedContent;
-    settings: { values: Prisma.JsonValue; fieldEdits: Prisma.JsonValue } | null;
-  },
-  states: LocationStates,
-): { value: unknown; versionId: string | null } {
-  const { field, locationId } = conflict;
-  if (conflict.settings) {
-    const edits = readFieldEdits(conflict.settings.fieldEdits);
-    const versionId = Object.prototype.hasOwnProperty.call(edits, field) ? edits[field]!.versionId : null;
-    return { value: fields(conflict.settings.values)[field] ?? null, versionId };
+/**
+ * Each Conflict's field's value now, and the version that set it, if one is
+ * known, in order: of a Location's state of its item, for a kind that has
+ * one (`LocationStateDescription`), at the Location it names; otherwise of
+ * its item's content, or a Location's settings.
+ */
+async function currentValues(db: PrismaService, conflicts: readonly ConflictAbout[], items: ReadonlyMap<string, VersionedItem>): Promise<StateValue[]> {
+  const values: StateValue[] = conflicts.map((conflict) => {
+    const item = items.get(`${conflict.kind}:${conflict.itemId}`);
+    const versionId = item && Object.prototype.hasOwnProperty.call(item.fieldEdits, conflict.field) ? item.fieldEdits[conflict.field]!.versionId : null;
+    return { value: item?.values[conflict.field] ?? null, versionId };
+  });
+  const atLocations = conflicts.flatMap((conflict, index) => {
+    const state = conflict.locationId === null ? undefined : versionedState(conflict.kind);
+    return state ? [{ index, state, itemId: conflict.itemId, locationId: conflict.locationId!, field: conflict.field }] : [];
+  });
+  for (const [state, wanted] of grouped(atLocations, (conflict) => conflict.state)) {
+    const current = await state.current(db, wanted);
+    wanted.forEach(({ index }, at) => (values[index] = current[at]!));
   }
-  if (locationId !== null) {
-    if (conflict.profileId !== null) {
-      const here = states.profiles.get(`${conflict.profileId}/${locationId}`);
-      return { value: here?.shown ?? false, versionId: here?.versionId ?? null };
-    }
-    const here = states.batches.get(`${conflict.batchId}/${locationId}`);
-    if (field === "remainingWeight") return { value: here?.remainingWeight ?? null, versionId: here?.remainingWeightVersionId ?? null };
-    return { value: here !== undefined && here.addedAt !== null && here.finishedAt === null, versionId: here?.presenceVersionId ?? null };
+  return values;
+}
+
+/** A kind's Location's state, if it is a Library kind that has one. */
+function versionedState(kind: VersionedKind): LocationStateDescription | undefined {
+  return isLibraryKind(kind) ? KINDS[kind].state : undefined;
+}
+
+/** Values grouped by a key, in the order each key is first met. */
+function grouped<T, K>(values: readonly T[], key: (value: T) => K): Map<K, T[]> {
+  const groups = new Map<K, T[]>();
+  for (const value of values) {
+    const group = groups.get(key(value));
+    if (group) group.push(value);
+    else groups.set(key(value), [value]);
   }
-  const item = conflict.bean ?? conflict.batch ?? conflict.grinder ?? conflict.profile;
-  const edits = readFieldEdits(item?.fieldEdits);
-  const versionId = Object.prototype.hasOwnProperty.call(edits, field) ? edits[field]!.versionId : null;
-  if (conflict.grinder && field === "archived") return { value: conflict.grinder.archived, versionId };
-  const content = fields(item?.content);
-  const values = conflict.profile ? fields(content.profile) : content;
-  return { value: values[field] ?? null, versionId };
+  return groups;
 }
 
 function viewSource(
@@ -288,48 +244,4 @@ function viewSource(
   // Other accounts' names are personal information that Staff do not see.
   const name = scope.kind === "everything" ? (row.account?.name ?? null) : null;
   return { machine: row.machine, tabletId: row.tabletId, account: { id: row.accountId, name } };
-}
-
-type ItemContent = { content: Prisma.JsonValue } | null;
-
-/** A Library item, or a Location's settings, as a Conflict names it. */
-export function itemView(conflict: {
-  beanId: string | null;
-  batchId: string | null;
-  grinderId: string | null;
-  profileId: string | null;
-  bean: ItemContent;
-  batch: { content: Prisma.JsonValue; bean: { content: Prisma.JsonValue } } | null;
-  grinder: ItemContent;
-  profile: ItemContent;
-  settingsId: string | null;
-}): ConflictItemView {
-  if (conflict.settingsId !== null) return { kind: "settings", id: conflict.settingsId, name: "Steam, hot water and rinse" };
-  if (conflict.beanId !== null) {
-    const bean = fields(conflict.bean?.content);
-    return { kind: "bean", id: conflict.beanId, name: joined([text(bean.roaster), text(bean.name)]) };
-  }
-  if (conflict.batchId !== null) {
-    // As the Bean Batches list names it: its Bean, and the day a barista picked as its roast date.
-    const bean = text(fields(conflict.batch?.bean.content).name);
-    const roastDate = text(fields(conflict.batch?.content).roastDate);
-    const roasted = roastDate !== null && /^\d{4}-\d\d-\d\d/.test(roastDate) ? `roasted ${roastDate.slice(0, 10)}` : null;
-    return { kind: "beanBatch", id: conflict.batchId, name: bean === null && roasted === null ? null : `${bean ?? "Unnamed Bean"}, ${roasted ?? "no roast date"}` };
-  }
-  if (conflict.grinderId !== null) return { kind: "grinder", id: conflict.grinderId, name: text(fields(conflict.grinder?.content).model) };
-  const profile = fields(fields(conflict.profile?.content).profile);
-  return { kind: "profile", id: conflict.profileId!, name: text(profile.title) };
-}
-
-function fields(value: unknown): Record<string, unknown> {
-  return isObject(value) ? value : {};
-}
-
-function text(value: unknown): string | null {
-  return typeof value === "string" && value !== "" ? value : null;
-}
-
-function joined(parts: (string | null)[]): string | null {
-  const present = parts.filter((part) => part !== null);
-  return present.length === 0 ? null : present.join(" ");
 }

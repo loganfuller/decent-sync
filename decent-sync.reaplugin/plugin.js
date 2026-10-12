@@ -232,16 +232,47 @@ var __decentSync = (() => {
     const id = isObject(extras) ? extras[GLOBAL_ID_KEY] : void 0;
     return isGlobalId(id) ? id.toLowerCase() : null;
   }
-  var LIBRARY_LISTS = ["beans", "beanBatches", "grinders", "profiles"];
+  var GLOBAL_ITEM_ID = { test: isGlobalId, problem: "must be a UUID" };
+  var LIBRARY_ITEM_KINDS = {
+    bean: { list: "beans", id: GLOBAL_ITEM_ID },
+    beanBatch: { list: "beanBatches", id: GLOBAL_ITEM_ID, under: "bean" },
+    grinder: { list: "grinders", id: GLOBAL_ITEM_ID },
+    profile: { list: "profiles", id: { test: isRecordId, problem: `must be a Profile's id of 1 to ${MAX_RECORD_ID_LENGTH} characters without NUL` } }
+  };
+  var LIBRARY_KINDS = Object.keys(LIBRARY_ITEM_KINDS);
+  function isLibraryKind(kind) {
+    return Object.prototype.hasOwnProperty.call(LIBRARY_ITEM_KINDS, kind);
+  }
+  var LIBRARY_LISTS = LIBRARY_KINDS.map((kind) => LIBRARY_ITEM_KINDS[kind].list);
   function isLibraryList(name) {
     return LIBRARY_LISTS.includes(name);
   }
+  function listKind(list) {
+    return LIBRARY_KINDS.find((kind) => LIBRARY_ITEM_KINDS[kind].list === list);
+  }
+  function parentKind(kind) {
+    const { under } = LIBRARY_ITEM_KINDS[kind];
+    if (under === void 0) return void 0;
+    const parent = isLibraryKind(under) ? LIBRARY_ITEM_KINDS[under] : void 0;
+    if (!isLibraryKind(under) || LIBRARY_KINDS.indexOf(under) >= LIBRARY_KINDS.indexOf(kind) || parent?.under !== void 0) {
+      throw new Error(`A ${kind}'s records are made under ${under}, which is no kind listed before it whose records are made under none`);
+    }
+    return under;
+  }
+  function childKinds(kind) {
+    return LIBRARY_KINDS.filter((child) => parentKind(child) === kind);
+  }
+  function parentList(list) {
+    const parent = parentKind(listKind(list));
+    return parent === void 0 ? void 0 : LIBRARY_ITEM_KINDS[parent].list;
+  }
+  var REMOVAL_ORDER = LIBRARY_KINDS.filter((kind) => parentKind(kind) === void 0).flatMap((kind) => [...childKinds(kind), kind]);
   var SETTINGS_KIND = "settings";
   var WORKFLOW_KIND = "workflow";
   var WORKFLOW_GRINDER = ["context.grinderId", "context.grinderModel"];
   var WORKFLOW_BATCH = ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"];
-  function isItemId(kind, value) {
-    return kind === "profile" ? isRecordId(value) : isGlobalId(value);
+  function itemIdRule(kind) {
+    return isLibraryKind(kind) ? LIBRARY_ITEM_KINDS[kind].id : GLOBAL_ITEM_ID;
   }
   var SETTINGS_PARTS = ["steamSettings", "hotWaterData", "rinseData"];
   var SHARED_SETTINGS = [
@@ -398,11 +429,10 @@ var __decentSync = (() => {
     uuid(key) {
       if (!isTabletId(this.object[key])) this.problem(key, "must be a UUID");
     }
-    /** The id of a Library item of the kind given (`isItemId`): a Profile's id, or another kind's global id, a UUID. */
+    /** The id of an item of the kind given, as that kind declares its ids (`itemIdRule`). */
     itemId(key, kind) {
-      if (!isItemId(String(kind), this.object[key])) {
-        this.problem(key, kind === "profile" ? `must be a Profile's id of 1 to ${MAX_RECORD_ID_LENGTH} characters without NUL` : "must be a UUID");
-      }
+      const rule = itemIdRule(String(kind));
+      if (!rule.test(this.object[key])) this.problem(key, rule.problem);
     }
     optionalString(key, options = {}) {
       const value = this.object[key];
@@ -666,15 +696,540 @@ var __decentSync = (() => {
     return (offset.startsWith("-") ? -1 : 1) * (hours * 60 + minutes);
   }
 
+  // src/streamline.ts
+  var NAMESPACE = "streamline-app";
+  var REMEMBERED = {
+    "steamSettings.duration": { key: "last-steam-duration" },
+    "steamSettings.flow": { key: "last-steam-flow" },
+    // Only a stop that is on: 0 is off (`setStopAtTemperature`).
+    "steamSettings.stopAtTemperature": { key: "last-milk-stop", remembers: (value) => value > 0 },
+    // The temperature Streamline turns steam back on at (`steamHeaterFor`), so never one that is off.
+    "steamSettings.targetTemperature": { key: "last-steam-temp", remembers: (value) => value >= STEAM_ON_FROM },
+    "hotWaterData.volume": { key: "last-hot-water-volume" },
+    "hotWaterData.targetTemperature": { key: "last-hot-water-temp" },
+    "rinseData.duration": { key: "last-flush-duration" }
+  };
+  async function rememberInStreamline(fields, log) {
+    const changes = [];
+    for (const [field, value] of Object.entries(fields)) {
+      const remembered = Object.prototype.hasOwnProperty.call(REMEMBERED, field) ? REMEMBERED[field] : void 0;
+      if (!remembered || typeof value !== "number" || !Number.isFinite(value) || remembered.remembers?.(value) === false) continue;
+      const { key } = remembered;
+      const path = `/store/${NAMESPACE}/${encodeURIComponent(key)}`;
+      try {
+        const held = await request("GET", path);
+        if (!held.ok) {
+          log(`Could not read Streamline's ${key}: Decaid answered ${held.status}. Streamline may set it back.`);
+          continue;
+        }
+        const stored = parsed(held.text);
+        if (stored === null || stored === value) continue;
+        if (typeof stored !== "number" || !Number.isFinite(stored)) {
+          log(`Streamline's ${key} holds something other than a number, so it is left as it is.`);
+          continue;
+        }
+        const set = await request("POST", path, value);
+        if (set.ok) changes.push({ key, before: stored, after: value });
+        else log(`Could not set Streamline's ${key}: Decaid answered ${set.status}. Streamline may set it back.`);
+      } catch (error) {
+        log(`Could not set Streamline's ${key} or the rest: Decaid did not answer (${error instanceof Error ? error.message : String(error)}). Streamline may set them back.`);
+        break;
+      }
+    }
+    return changes;
+  }
+  async function forgetInStreamline(changes, log) {
+    for (const { key, before, after } of changes) {
+      const path = `/store/${NAMESPACE}/${encodeURIComponent(key)}`;
+      try {
+        const held = await request("GET", path);
+        if (!held.ok || parsed(held.text) !== after) continue;
+        const set = await request("POST", path, before);
+        if (!set.ok) log(`Could not set Streamline's ${key} back: Decaid answered ${set.status}. Streamline may push a value the Workflow was refused.`);
+      } catch (error) {
+        log(`Could not set Streamline's ${key} or the rest back: Decaid did not answer (${error instanceof Error ? error.message : String(error)}). Streamline may push values the Workflow was refused.`);
+        return;
+      }
+    }
+  }
+  function parsed(text) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return void 0;
+    }
+  }
+
+  // src/library-writes.ts
+  var ROUTES = {
+    bean: {
+      list: "/beans?includeArchived=true",
+      records: "/beans",
+      create: () => "/beans",
+      deferred: ["archived"],
+      sameItem: (record, fields) => typeof record.roaster === "string" && typeof record.name === "string" && typeof fields.roaster === "string" && typeof fields.name === "string" && beanMatchKey(record.roaster, record.name) === beanMatchKey(fields.roaster, fields.name),
+      namedByShots: false
+    },
+    beanBatch: {
+      list: "/bean-batches?includeArchived=true",
+      records: "/bean-batches",
+      // Under the tablet's record of its bean, which `beanId` names; the path decides it, and Decaid ignores the field.
+      create: (fields) => typeof fields.beanId === "string" && fields.beanId !== "" ? `/beans/${encodeURIComponent(fields.beanId)}/batches` : null,
+      deferred: ["archived", "weightRemaining"],
+      sameItem: () => false,
+      namedByShots: true,
+      listUnder: (parentPath) => `${parentPath}/batches?includeArchived=true`
+    },
+    grinder: {
+      list: "/grinders?includeArchived=true",
+      records: "/grinders",
+      create: () => "/grinders",
+      deferred: ["archived"],
+      sameItem: () => false,
+      namedByShots: true
+    }
+  };
+  var WRITERS = {
+    bean: recordWriter("bean", ROUTES.bean),
+    beanBatch: recordWriter("beanBatch", ROUTES.beanBatch),
+    grinder: recordWriter("grinder", ROUTES.grinder),
+    profile: {
+      list: "/profiles?includeHidden=true",
+      records: "/profiles",
+      write: writeProfile,
+      remove: purgeProfile,
+      setAside: hideProfile
+    },
+    [SETTINGS_KIND]: { write: writeSettings, changesWorkflow: true },
+    [WORKFLOW_KIND]: { write: clearWorkflow, changesWorkflow: true }
+  };
+  function writerOf(kind) {
+    return Object.prototype.hasOwnProperty.call(WRITERS, kind) ? WRITERS[kind] : void 0;
+  }
+  function libraryWriterOf(kind) {
+    return isLibraryKind(kind) ? WRITERS[kind] : void 0;
+  }
+  function routeOf(kind) {
+    return Object.prototype.hasOwnProperty.call(ROUTES, kind) ? ROUTES[kind] : void 0;
+  }
+  function libraryListPath(kind) {
+    return WRITERS[kind].list;
+  }
+  function recordWriter(kind, route) {
+    return {
+      list: route.list,
+      records: route.records,
+      write: async (write) => {
+        if (write.localId === null) return await create(route, write);
+        const updated = await update(route, write, write.localId);
+        return answerTo(write, updated.answer, updated.written);
+      },
+      remove: (remove, namedByShot) => deleteRecord(kind, route, remove, namedByShot),
+      setAside: archiveRecord
+    };
+  }
+  var LibraryAccess = class {
+    constructor() {
+      __publicField(this, "queue", Promise.resolve());
+    }
+    /** Runs `work` once everything asked for before it is done, and resolves or rejects as it does. */
+    run(work) {
+      const done = this.queue.then(work);
+      this.queue = done.catch(() => {
+      });
+      return done;
+    }
+  };
+  var LibraryWrites = class {
+    constructor(library, outbox, workflow, machineMissing, log) {
+      __publicField(this, "library", library);
+      __publicField(this, "outbox", outbox);
+      __publicField(this, "workflow", workflow);
+      __publicField(this, "machineMissing", machineMissing);
+      __publicField(this, "log", log);
+      /**
+       * The batch, Grinder and profile records the Shots this plugin queued since
+       * it loaded name, as `kind:id`: a few per batch, Grinder and profile used.
+       * A profile is named by its steps (`stepsKey`), as a skin sets the
+       * Workflow's profile's targets for the Shot, and by the id a skin recorded,
+       * if one did.
+       */
+      __publicField(this, "shotsName", /* @__PURE__ */ new Set());
+      /** The Shots still to be sent that `namedByShot` read. */
+      __publicField(this, "shotsRead", /* @__PURE__ */ new Set());
+      outbox.watch((delivery) => {
+        if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shot);
+      });
+    }
+    /** Deletes a record of a hard-deleted item once the reads and writes before it are done, and queues its answer. It never rejects. */
+    remove(remove) {
+      return this.library.run(async () => this.outbox.enqueue(await carryOutDelete(remove, (kind, ids) => this.namedByShot(kind, ids))));
+    }
+    /**
+     * Whether a Shot this plugin queued since it loaded, or has yet to read and
+     * send, names one of the records, as one pulled while the tablet was
+     * offline: the server may have planned the delete before it had the Shot,
+     * and so could not keep the record for it. A Shot still to be read, as the
+     * outbox reads a new Shot only as it sends it, is read here once.
+     */
+    async namedByShot(kind, ids) {
+      const unread = this.outbox.requestedIds("shot").filter((id) => !this.shotsRead.has(id));
+      if (unread.length > MAX_SHOTS_READ) return "tooMany";
+      for (const id of unread) {
+        const shot = await readShot(id);
+        this.shotsRead.add(id);
+        if (shot) this.noteShot(shot);
+      }
+      return [...ids].some((id) => this.shotsName.has(`${kind}:${id}`));
+    }
+    /** Notes the batch, Grinder and profile records a Shot names. */
+    noteShot(shot) {
+      const workflow = shot.workflow;
+      if (!isObject2(workflow)) return;
+      const steps = stepsKey(workflow.profile);
+      if (steps !== null) this.shotsName.add(`profile:${steps}`);
+      const context = workflow.context;
+      if (!isObject2(context)) return;
+      if (typeof context.beanBatchId === "string") this.shotsName.add(`beanBatch:${context.beanBatchId}`);
+      if (typeof context.grinderId === "string") this.shotsName.add(`grinder:${context.grinderId}`);
+      const skin = isObject2(context.extras) ? context.extras.workflowSkin : void 0;
+      if (isObject2(skin) && typeof skin.selectedProfileId === "string") this.shotsName.add(`profile:${skin.selectedProfileId}`);
+    }
+    /** Sets aside a record the Library leaves out once the reads and writes before it are done, and queues its answer. It never rejects. */
+    leaveOut(leave) {
+      return this.library.run(async () => this.outbox.enqueue(await setAside(leave)));
+    }
+    /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
+    apply(write) {
+      if (!writerOf(write.kind)?.changesWorkflow) {
+        return this.library.run(async () => this.outbox.enqueue(await carryOut(write, this.log)));
+      }
+      return this.library.run(async () => {
+        this.workflow.hold();
+        try {
+          const answer = await carryOut(write, this.log);
+          if (answer.type === "writeRefused" && answer.status === 500 && answer.error.includes("DeviceNotConnectedException")) this.machineMissing();
+          this.outbox.enqueue(answer);
+        } finally {
+          this.workflow.release();
+        }
+      });
+    }
+  };
+  async function carryOutDelete(remove, namedByShot) {
+    const writer = libraryWriterOf(remove.kind);
+    if (!writer) return refused(remove, null, `This plugin cannot delete a ${remove.kind}`);
+    try {
+      return await writer.remove(remove, namedByShot);
+    } catch (error) {
+      return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  async function deleteRecord(kind, route, remove, namedByShot) {
+    const path = `${route.records}/${encodeURIComponent(remove.localId)}`;
+    const current = await request("GET", path);
+    if (current.status === 404) return deleted(remove);
+    const record = current.ok ? parsed2(current.text) : void 0;
+    if (!isObject2(record)) return refused(remove, current.status, current.text);
+    const carried = globalIdOf(record);
+    if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
+    if (route.namedByShots) {
+      const named = await namedByShot(kind, /* @__PURE__ */ new Set([remove.localId]));
+      if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
+    }
+    for (const child of childKinds(kind)) {
+      const under = routeOf(child)?.listUnder;
+      if (!under) return refused(remove, null, `This plugin cannot delete the ${child} records under a ${kind}`);
+      const listed = await request("GET", under(path));
+      const children = listed.ok ? parsed2(listed.text) : void 0;
+      if (!Array.isArray(children)) return refused(remove, listed.status, listed.text);
+      const ids = new Set(children.filter(isObject2).flatMap((record2) => typeof record2.id === "string" ? [record2.id] : []));
+      const named = await namedByShot(child, ids);
+      if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
+      for (const id of ids) {
+        const gone = await request("DELETE", `${WRITERS[child].records}/${encodeURIComponent(id)}`);
+        if (!gone.ok && gone.status !== 404) return refused(remove, gone.status, gone.text);
+      }
+    }
+    const answer = await request("DELETE", path);
+    return answer.ok || answer.status === 404 ? deleted(remove) : refused(remove, answer.status, answer.text);
+  }
+  async function purgeProfile(remove, namedByShot) {
+    const path = `/profiles/${encodeURIComponent(remove.localId)}`;
+    const current = await request("GET", path);
+    if (current.status === 404) return deleted(remove);
+    const record = current.ok ? parsed2(current.text) : void 0;
+    if (!isObject2(record)) return refused(remove, current.status, current.text);
+    const steps = stepsKey(record.profile);
+    const named = await namedByShot("profile", new Set(steps === null ? [remove.localId] : [remove.localId, steps]));
+    if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
+    const answer = await request("DELETE", `${path}/purge`);
+    return answer.ok || answer.status === 400 && answer.text.includes("Profile not found") ? deleted(remove) : refused(remove, answer.status, answer.text);
+  }
+  function stepsKey(profile) {
+    if (!isObject2(profile) || !Array.isArray(profile.steps)) return null;
+    const steps = profile.steps.map((step) => {
+      if (!isObject2(step)) return step;
+      const { temperature: _, ...rest } = step;
+      return isObject2(rest.limiter) && rest.limiter.value === 0 ? { ...rest, limiter: null } : rest;
+    });
+    return stableJson(steps);
+  }
+  function stableJson(value) {
+    if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+    if (isObject2(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+    return JSON.stringify(value ?? null);
+  }
+  var SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches";
+  var MAX_SHOTS_READ = 20;
+  async function setAside(leave) {
+    const answer = (outcome, status, error) => ({
+      type: "leftOut",
+      id: leave.id,
+      kind: leave.kind,
+      localId: leave.localId,
+      outcome,
+      ...outcome === "refused" ? { status: status ?? null, error: (error ?? "").slice(0, MAX_REFUSAL_LENGTH) } : {}
+    });
+    const writer = libraryWriterOf(leave.kind);
+    if (!writer) return answer("refused", null, `This plugin cannot set aside a ${leave.kind}`);
+    try {
+      const path = `${writer.records}/${encodeURIComponent(leave.localId)}`;
+      const current = await request("GET", path);
+      if (current.status === 404) return answer("gone");
+      const record = current.ok ? parsed2(current.text) : void 0;
+      if (!isObject2(record)) return answer("refused", current.status, current.text);
+      const outcome = await writer.setAside(leave, record, path);
+      return typeof outcome === "string" ? answer(outcome) : answer("refused", outcome.status, outcome.text);
+    } catch (error) {
+      return answer("refused", null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  async function archiveRecord(_leave, record, path) {
+    if (globalIdOf(record) !== null) return "taken";
+    if (record.archived === true) return "setAside";
+    const archived = await request("PUT", path, { archived: true, extras: isObject2(record.extras) ? record.extras : {} });
+    const updated = archived.ok ? parsed2(archived.text) : void 0;
+    return isObject2(updated) && updated.archived === true ? "setAside" : archived;
+  }
+  async function hideProfile(leave, record) {
+    if (record.visibility !== "visible") return "setAside";
+    const hidden = await setVisibility(leave.localId, "hidden");
+    const updated = hidden.ok ? parsed2(hidden.text) : void 0;
+    return isObject2(updated) && updated.visibility !== "visible" ? "setAside" : hidden;
+  }
+  function deleted(remove) {
+    return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
+  }
+  async function carryOut(write, log) {
+    const writer = writerOf(write.kind);
+    if (!writer) return refused(write, null, `This plugin cannot write a ${write.kind}`);
+    try {
+      return await writer.write(write, log);
+    } catch (error) {
+      return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  async function writeProfile(write) {
+    const visibility = write.fields.visibility;
+    if (write.localId !== null) return await updateProfile(write, write.localId);
+    const held = await heldProfile(write.globalId);
+    if ("refused" in held) return refused(write, held.refused.status, held.refused.text);
+    let record = held.record;
+    const writtenFields = [];
+    if (!record) {
+      const { parentId, metadata } = write.fields;
+      const parent = typeof parentId === "string" ? await heldProfile(parentId) : void 0;
+      if (parent && "refused" in parent) return refused(write, parent.refused.status, parent.refused.text);
+      const body = { profile: write.fields.profile, ...parent?.record ? { parentId } : {}, ...isObject2(metadata) ? { metadata } : {} };
+      const made = await request("POST", "/profiles", body);
+      const created = made.ok ? parsed2(made.text) : void 0;
+      if (!isObject2(created) || typeof created.id !== "string") return refused(write, made.status, made.text);
+      record = created;
+      writtenFields.push(...Object.keys(body));
+    }
+    if (record.id !== write.globalId || typeof visibility !== "string" || record.visibility === visibility) return written(write, record, writtenFields);
+    const again = await setVisibility(write.globalId, visibility).catch(() => void 0);
+    const updated = again?.ok ? parsed2(again.text) : void 0;
+    if (!isObject2(updated) || updated.id !== write.globalId) return written(write, record, writtenFields);
+    return written(write, updated, [...writtenFields, "visibility"]);
+  }
+  async function writeSettings(write, log) {
+    const current = await request("GET", "/workflow");
+    const workflow = current.ok ? parsed2(current.text) : void 0;
+    if (!isObject2(workflow)) return refused(write, current.status, current.text);
+    const held = (field) => {
+      const [part, name] = field.split(".");
+      const values = workflow[part];
+      return isObject2(values) ? values[name] : void 0;
+    };
+    const steamOn = steamIsOn({ "steamSettings.targetTemperature": held("steamSettings.targetTemperature") });
+    const fields = Object.fromEntries(
+      Object.entries(settable(write, held)).filter(([field]) => steamOn || !STEAM_SETTINGS.includes(field))
+    );
+    if (Object.keys(fields).length === 0) return written(write, workflowSettings(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
+    const remembered = await rememberInStreamline(fields, log);
+    const answer = await request("PUT", "/workflow", settingsParts(fields));
+    if (!answer.ok) await forgetInStreamline(remembered, log);
+    const updated = answer.ok ? parsed2(answer.text) : void 0;
+    if (!isObject2(updated)) return refused(write, answer.status, answer.text);
+    return written(write, workflowSettings(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
+  }
+  async function clearWorkflow(write) {
+    const current = await request("GET", "/workflow");
+    const workflow = current.ok ? parsed2(current.text) : void 0;
+    if (!isObject2(workflow)) return refused(write, current.status, current.text);
+    const context = isObject2(workflow.context) ? workflow.context : {};
+    const fields = Object.fromEntries(
+      [WORKFLOW_GRINDER, WORKFLOW_BATCH].flatMap((group) => {
+        const [id] = group;
+        const named = group.filter((field) => field in write.fields);
+        const expected = write.expected?.[id];
+        const holds = named.includes(id) && expected !== void 0 && expected !== null && sameValue(context[id.slice("context.".length)], expected);
+        return holds ? named.map((field) => [field, null]) : [];
+      })
+    );
+    if (Object.keys(fields).length === 0) return written(write, workflowContext(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
+    const answer = await request("PUT", "/workflow", settingsParts(fields));
+    const updated = answer.ok ? parsed2(answer.text) : void 0;
+    if (!isObject2(updated)) return refused(write, answer.status, answer.text);
+    return written(write, workflowContext(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
+  }
+  function workflowContext(workflow) {
+    return { context: isObject2(workflow.context) ? workflow.context : {} };
+  }
+  function workflowSettings(workflow) {
+    return Object.fromEntries(SETTINGS_PARTS.flatMap((part) => part in workflow ? [[part, workflow[part]]] : []));
+  }
+  var PROFILE_TEXT = ["title", "author", "notes"];
+  async function updateProfile(write, id) {
+    const held = await heldProfile(id);
+    if ("refused" in held) return refused(write, held.refused.status, held.refused.text);
+    if (!held.record) return refused(write, 404, "Profile not found");
+    let record = held.record;
+    const fields = settable(write, (field) => field === "visibility" ? record.visibility : isObject2(record.profile) ? record.profile[field] : void 0);
+    const writtenFields = [];
+    const text = PROFILE_TEXT.filter((field) => field in fields);
+    if (text.length > 0) {
+      const profile = { ...isObject2(record.profile) ? record.profile : {} };
+      for (const field of text) {
+        if (fields[field] === null) delete profile[field];
+        else profile[field] = fields[field];
+      }
+      const answer = await request("PUT", `/profiles/${encodeURIComponent(id)}`, { profile });
+      const updated = answer.ok ? parsed2(answer.text) : void 0;
+      if (!isObject2(updated) || typeof updated.id !== "string") return refused(write, answer.status, answer.text);
+      if (updated.id !== id) return written(write, updated, text);
+      record = updated;
+      writtenFields.push(...text);
+    }
+    if ("visibility" in fields) {
+      if (record.visibility !== fields.visibility) {
+        const answer = await setVisibility(id, fields.visibility).catch((error) => {
+          if (writtenFields.length === 0) throw error;
+          return void 0;
+        });
+        const updated = answer?.ok ? parsed2(answer.text) : void 0;
+        if (!isObject2(updated) || updated.id !== id) {
+          return writtenFields.length === 0 ? refused(write, answer?.status ?? null, answer?.text ?? "") : written(write, record, writtenFields);
+        }
+        record = updated;
+      }
+      writtenFields.push("visibility");
+    }
+    return written(write, record, writtenFields);
+  }
+  function settable(write, current) {
+    const expected = write.expected;
+    return Object.fromEntries(
+      Object.entries(write.fields).filter(([field]) => !expected || !(field in expected) || sameValue(current(field), expected[field]))
+    );
+  }
+  async function heldProfile(id) {
+    const answer = await request("GET", `/profiles/${encodeURIComponent(id)}`);
+    if (answer.status === 404) return { record: void 0 };
+    const record = answer.ok ? parsed2(answer.text) : void 0;
+    return isObject2(record) && record.id === id ? { record } : { refused: answer };
+  }
+  function setVisibility(id, visibility) {
+    return request("PUT", `/profiles/${encodeURIComponent(id)}/visibility`, { visibility });
+  }
+  async function create(route, write) {
+    const listed = await request("GET", route.list);
+    if (!listed.ok) return refused(write, listed.status, listed.text);
+    const parsedList = parsed2(listed.text);
+    const records = Array.isArray(parsedList) ? parsedList.filter(isObject2) : [];
+    const held = records.find((record2) => globalIdOf(record2) === write.globalId.toLowerCase());
+    if (held) return written(write, held, []);
+    const same = records.find((record2) => globalIdOf(record2) === null && record2.archived !== true && route.sameItem(record2, write.fields));
+    if (same && typeof same.id === "string") {
+      const answer = answerTo(write, (await update(route, { ...write, fields: {} }, same.id)).answer, []);
+      return answer.type === "written" ? { ...answer, linked: true } : answer;
+    }
+    const path = route.create(write.fields);
+    if (path === null) return refused(write, null, `A ${write.kind} to create must name what it belongs to`);
+    const body = { ...write.fields, extras: { [GLOBAL_ID_KEY]: write.globalId } };
+    for (const field of route.deferred) delete body[field];
+    const made = await request("POST", path, body);
+    const record = made.ok ? parsed2(made.text) : void 0;
+    if (!isObject2(record) || typeof record.id !== "string") return refused(write, made.status, made.text);
+    const later = Object.fromEntries(route.deferred.flatMap((field) => field in write.fields && write.fields[field] !== (record[field] ?? null) ? [[field, write.fields[field]]] : []));
+    const writtenFields = Object.keys(write.fields);
+    if (Object.keys(later).length === 0) return written(write, record, writtenFields);
+    const again = await request("PUT", `${route.records}/${encodeURIComponent(record.id)}`, later).catch(() => void 0);
+    const updated = again?.ok ? parsed2(again.text) : void 0;
+    return written(write, isObject2(updated) && typeof updated.id === "string" ? updated : record, writtenFields);
+  }
+  async function update(route, write, localId) {
+    const path = `${route.records}/${encodeURIComponent(localId)}`;
+    const current = await request("GET", path);
+    if (!current.ok) return { answer: current, written: [] };
+    const parsedRecord = parsed2(current.text);
+    const record = isObject2(parsedRecord) ? parsedRecord : {};
+    const extras = isObject2(record.extras) ? record.extras : {};
+    const fields = settable(write, (field) => record[field]);
+    return { answer: await request("PUT", path, { ...fields, extras: { ...extras, [GLOBAL_ID_KEY]: write.globalId } }), written: Object.keys(fields) };
+  }
+  function answerTo(write, answer, writtenFields) {
+    const record = answer.ok ? parsed2(answer.text) : void 0;
+    if (isObject2(record) && typeof record.id === "string") return written(write, record, writtenFields);
+    return refused(write, answer.status, answer.text);
+  }
+  function written(write, record, writtenFields, at) {
+    return {
+      type: "written",
+      id: write.id,
+      kind: write.kind,
+      globalId: write.globalId,
+      record,
+      updatedAt: at ?? utcTime(record.updatedAt),
+      writtenFields,
+      ...write.contentDecidedAt === void 0 ? {} : { contentDecidedAt: write.contentDecidedAt }
+    };
+  }
+  function refused(write, status, error) {
+    return { type: "writeRefused", id: write.id, kind: write.kind, globalId: write.globalId, status, error: error.slice(0, MAX_REFUSAL_LENGTH) };
+  }
+  function parsed2(text) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return void 0;
+    }
+  }
+  function isObject2(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
   // src/collections.ts
   var SOURCES = [
-    { name: "beans", path: "/beans?includeArchived=true" },
-    { name: "beanBatches", path: "/bean-batches?includeArchived=true" },
-    { name: "grinders", path: "/grinders?includeArchived=true" },
-    { name: "profiles", path: "/profiles?includeHidden=true" },
-    { name: "dye2Recipes", path: "/store/dye2.reaplugin/recipes" },
-    { name: "dye2Equipment", path: "/store/dye2.reaplugin/equipment" },
-    { name: "dye2Baskets", path: "/store/dye2.reaplugin/baskets" },
+    ...LIBRARY_KINDS.map((kind) => ({ name: LIBRARY_ITEM_KINDS[kind].list, path: libraryListPath(kind) })),
+    // Read here until a kind of Library item is reported in it, as milestone 3's are in DYE2's keys.
+    ...[
+      { name: "dye2Recipes", path: "/store/dye2.reaplugin/recipes" },
+      { name: "dye2Equipment", path: "/store/dye2.reaplugin/equipment" },
+      { name: "dye2Baskets", path: "/store/dye2.reaplugin/baskets" }
+    ].filter((source) => !isLibraryList(source.name)),
     { name: "appSettings", path: "/settings" },
     { name: "machineSettings", path: "/machine/settings" },
     { name: "advancedSettings", path: "/machine/settings/advanced" },
@@ -682,7 +1237,7 @@ var __decentSync = (() => {
     { name: "scaleInfo", path: "/scale/info" },
     { name: "sensors", path: "/sensors" }
   ];
-  var WRITTEN_LISTS = /* @__PURE__ */ new Set(["beans", "beanBatches", "grinders", "profiles"]);
+  var WRITTEN_LISTS = new Set(LIBRARY_LISTS);
   var CollectionCapture = class {
     constructor(outbox, library, pollMs) {
       __publicField(this, "outbox", outbox);
@@ -727,11 +1282,12 @@ var __decentSync = (() => {
         while (this.wanted !== void 0 && !this.stopped) {
           const full = this.wanted === "full";
           this.wanted = void 0;
-          let beansSent = false;
+          const sentLists = /* @__PURE__ */ new Set();
           for (const source of SOURCES) {
             if (this.stopped) return;
-            const sent = await (WRITTEN_LISTS.has(source.name) ? this.library.run(() => this.capture(source, full || source.name === "beanBatches" && beansSent)) : this.capture(source, full));
-            if (source.name === "beans") beansSent = sent;
+            const parent = isLibraryList(source.name) ? parentList(source.name) : void 0;
+            const sent = await (WRITTEN_LISTS.has(source.name) ? this.library.run(() => this.capture(source, full || parent !== void 0 && sentLists.has(parent))) : this.capture(source, full));
+            if (sent) sentLists.add(source.name);
           }
         }
       } finally {
@@ -926,492 +1482,6 @@ var __decentSync = (() => {
   }
   function isCount(value) {
     return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-  }
-
-  // src/streamline.ts
-  var NAMESPACE = "streamline-app";
-  var REMEMBERED = {
-    "steamSettings.duration": { key: "last-steam-duration" },
-    "steamSettings.flow": { key: "last-steam-flow" },
-    // Only a stop that is on: 0 is off (`setStopAtTemperature`).
-    "steamSettings.stopAtTemperature": { key: "last-milk-stop", remembers: (value) => value > 0 },
-    // The temperature Streamline turns steam back on at (`steamHeaterFor`), so never one that is off.
-    "steamSettings.targetTemperature": { key: "last-steam-temp", remembers: (value) => value >= STEAM_ON_FROM },
-    "hotWaterData.volume": { key: "last-hot-water-volume" },
-    "hotWaterData.targetTemperature": { key: "last-hot-water-temp" },
-    "rinseData.duration": { key: "last-flush-duration" }
-  };
-  async function rememberInStreamline(fields, log) {
-    const changes = [];
-    for (const [field, value] of Object.entries(fields)) {
-      const remembered = Object.prototype.hasOwnProperty.call(REMEMBERED, field) ? REMEMBERED[field] : void 0;
-      if (!remembered || typeof value !== "number" || !Number.isFinite(value) || remembered.remembers?.(value) === false) continue;
-      const { key } = remembered;
-      const path = `/store/${NAMESPACE}/${encodeURIComponent(key)}`;
-      try {
-        const held = await request("GET", path);
-        if (!held.ok) {
-          log(`Could not read Streamline's ${key}: Decaid answered ${held.status}. Streamline may set it back.`);
-          continue;
-        }
-        const stored = parsed(held.text);
-        if (stored === null || stored === value) continue;
-        if (typeof stored !== "number" || !Number.isFinite(stored)) {
-          log(`Streamline's ${key} holds something other than a number, so it is left as it is.`);
-          continue;
-        }
-        const set = await request("POST", path, value);
-        if (set.ok) changes.push({ key, before: stored, after: value });
-        else log(`Could not set Streamline's ${key}: Decaid answered ${set.status}. Streamline may set it back.`);
-      } catch (error) {
-        log(`Could not set Streamline's ${key} or the rest: Decaid did not answer (${error instanceof Error ? error.message : String(error)}). Streamline may set them back.`);
-        break;
-      }
-    }
-    return changes;
-  }
-  async function forgetInStreamline(changes, log) {
-    for (const { key, before, after } of changes) {
-      const path = `/store/${NAMESPACE}/${encodeURIComponent(key)}`;
-      try {
-        const held = await request("GET", path);
-        if (!held.ok || parsed(held.text) !== after) continue;
-        const set = await request("POST", path, before);
-        if (!set.ok) log(`Could not set Streamline's ${key} back: Decaid answered ${set.status}. Streamline may push a value the Workflow was refused.`);
-      } catch (error) {
-        log(`Could not set Streamline's ${key} or the rest back: Decaid did not answer (${error instanceof Error ? error.message : String(error)}). Streamline may push values the Workflow was refused.`);
-        return;
-      }
-    }
-  }
-  function parsed(text) {
-    try {
-      return JSON.parse(text);
-    } catch {
-      return void 0;
-    }
-  }
-
-  // src/library-writes.ts
-  var ROUTES = {
-    bean: {
-      list: "/beans?includeArchived=true",
-      records: "/beans",
-      create: () => "/beans",
-      deferred: ["archived"],
-      sameItem: (record, fields) => typeof record.roaster === "string" && typeof record.name === "string" && typeof fields.roaster === "string" && typeof fields.name === "string" && beanMatchKey(record.roaster, record.name) === beanMatchKey(fields.roaster, fields.name)
-    },
-    beanBatch: {
-      list: "/bean-batches?includeArchived=true",
-      records: "/bean-batches",
-      // Under the tablet's record of its bean, which `beanId` names; the path decides it, and Decaid ignores the field.
-      create: (fields) => typeof fields.beanId === "string" && fields.beanId !== "" ? `/beans/${encodeURIComponent(fields.beanId)}/batches` : null,
-      deferred: ["archived", "weightRemaining"],
-      sameItem: () => false
-    },
-    grinder: {
-      list: "/grinders?includeArchived=true",
-      records: "/grinders",
-      create: () => "/grinders",
-      deferred: ["archived"],
-      sameItem: () => false
-    }
-  };
-  var LibraryAccess = class {
-    constructor() {
-      __publicField(this, "queue", Promise.resolve());
-    }
-    /** Runs `work` once everything asked for before it is done, and resolves or rejects as it does. */
-    run(work) {
-      const done = this.queue.then(work);
-      this.queue = done.catch(() => {
-      });
-      return done;
-    }
-  };
-  var LibraryWrites = class {
-    constructor(library, outbox, workflow, machineMissing, log) {
-      __publicField(this, "library", library);
-      __publicField(this, "outbox", outbox);
-      __publicField(this, "workflow", workflow);
-      __publicField(this, "machineMissing", machineMissing);
-      __publicField(this, "log", log);
-      /**
-       * The batch, Grinder and profile records the Shots this plugin queued since
-       * it loaded name, as `kind:id`: a few per batch, Grinder and profile used.
-       * A profile is named by its steps (`stepsKey`), as a skin sets the
-       * Workflow's profile's targets for the Shot, and by the id a skin recorded,
-       * if one did.
-       */
-      __publicField(this, "shotsName", /* @__PURE__ */ new Set());
-      /** The Shots still to be sent that `namedByShot` read. */
-      __publicField(this, "shotsRead", /* @__PURE__ */ new Set());
-      outbox.watch((delivery) => {
-        if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shot);
-      });
-    }
-    /** Deletes a record of a hard-deleted item once the reads and writes before it are done, and queues its answer. It never rejects. */
-    remove(remove) {
-      return this.library.run(async () => this.outbox.enqueue(await carryOutDelete(remove, (kind, ids) => this.namedByShot(kind, ids))));
-    }
-    /**
-     * Whether a Shot this plugin queued since it loaded, or has yet to read and
-     * send, names one of the records, as one pulled while the tablet was
-     * offline: the server may have planned the delete before it had the Shot,
-     * and so could not keep the record for it. A Shot still to be read, as the
-     * outbox reads a new Shot only as it sends it, is read here once.
-     */
-    async namedByShot(kind, ids) {
-      const unread = this.outbox.requestedIds("shot").filter((id) => !this.shotsRead.has(id));
-      if (unread.length > MAX_SHOTS_READ) return "tooMany";
-      for (const id of unread) {
-        const shot = await readShot(id);
-        this.shotsRead.add(id);
-        if (shot) this.noteShot(shot);
-      }
-      return [...ids].some((id) => this.shotsName.has(`${kind}:${id}`));
-    }
-    /** Notes the batch, Grinder and profile records a Shot names. */
-    noteShot(shot) {
-      const workflow = shot.workflow;
-      if (!isObject2(workflow)) return;
-      const steps = stepsKey(workflow.profile);
-      if (steps !== null) this.shotsName.add(`profile:${steps}`);
-      const context = workflow.context;
-      if (!isObject2(context)) return;
-      if (typeof context.beanBatchId === "string") this.shotsName.add(`beanBatch:${context.beanBatchId}`);
-      if (typeof context.grinderId === "string") this.shotsName.add(`grinder:${context.grinderId}`);
-      const skin = isObject2(context.extras) ? context.extras.workflowSkin : void 0;
-      if (isObject2(skin) && typeof skin.selectedProfileId === "string") this.shotsName.add(`profile:${skin.selectedProfileId}`);
-    }
-    /** Sets aside a record the Library leaves out once the reads and writes before it are done, and queues its answer. It never rejects. */
-    leaveOut(leave) {
-      return this.library.run(async () => this.outbox.enqueue(await setAside(leave)));
-    }
-    /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
-    apply(write) {
-      if (write.kind !== SETTINGS_KIND && write.kind !== WORKFLOW_KIND) {
-        return this.library.run(async () => this.outbox.enqueue(await carryOut(write, this.log)));
-      }
-      return this.library.run(async () => {
-        this.workflow.hold();
-        try {
-          const answer = await carryOut(write, this.log);
-          if (answer.type === "writeRefused" && answer.status === 500 && answer.error.includes("DeviceNotConnectedException")) this.machineMissing();
-          this.outbox.enqueue(answer);
-        } finally {
-          this.workflow.release();
-        }
-      });
-    }
-  };
-  async function carryOutDelete(remove, namedByShot) {
-    if (remove.kind === "profile") return purgeProfile(remove, namedByShot);
-    const route = Object.prototype.hasOwnProperty.call(ROUTES, remove.kind) ? ROUTES[remove.kind] : void 0;
-    if (!route) return refused(remove, null, `This plugin cannot delete a ${remove.kind}`);
-    try {
-      const path = `${route.records}/${encodeURIComponent(remove.localId)}`;
-      const current = await request("GET", path);
-      if (current.status === 404) return deleted(remove);
-      const record = current.ok ? parsed2(current.text) : void 0;
-      if (!isObject2(record)) return refused(remove, current.status, current.text);
-      const carried = globalIdOf(record);
-      if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
-      if (remove.kind === "beanBatch" || remove.kind === "grinder") {
-        const named = await namedByShot(remove.kind, /* @__PURE__ */ new Set([remove.localId]));
-        if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
-      }
-      if (remove.kind === "bean") {
-        const listed = await request("GET", `${path}/batches?includeArchived=true`);
-        const batches = listed.ok ? parsed2(listed.text) : void 0;
-        if (!Array.isArray(batches)) return refused(remove, listed.status, listed.text);
-        const ids = new Set(batches.filter(isObject2).flatMap((batch) => typeof batch.id === "string" ? [batch.id] : []));
-        const named = await namedByShot("beanBatch", ids);
-        if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
-        for (const batch of batches.filter(isObject2)) {
-          if (typeof batch.id !== "string") continue;
-          const gone = await request("DELETE", `/bean-batches/${encodeURIComponent(batch.id)}`);
-          if (!gone.ok && gone.status !== 404) return refused(remove, gone.status, gone.text);
-        }
-      }
-      const answer = await request("DELETE", path);
-      return answer.ok || answer.status === 404 ? deleted(remove) : refused(remove, answer.status, answer.text);
-    } catch (error) {
-      return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  async function purgeProfile(remove, namedByShot) {
-    try {
-      const path = `/profiles/${encodeURIComponent(remove.localId)}`;
-      const current = await request("GET", path);
-      if (current.status === 404) return deleted(remove);
-      const record = current.ok ? parsed2(current.text) : void 0;
-      if (!isObject2(record)) return refused(remove, current.status, current.text);
-      const steps = stepsKey(record.profile);
-      const named = await namedByShot("profile", new Set(steps === null ? [remove.localId] : [remove.localId, steps]));
-      if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
-      const answer = await request("DELETE", `${path}/purge`);
-      return answer.ok || answer.status === 400 && answer.text.includes("Profile not found") ? deleted(remove) : refused(remove, answer.status, answer.text);
-    } catch (error) {
-      return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  function stepsKey(profile) {
-    if (!isObject2(profile) || !Array.isArray(profile.steps)) return null;
-    const steps = profile.steps.map((step) => {
-      if (!isObject2(step)) return step;
-      const { temperature: _, ...rest } = step;
-      return isObject2(rest.limiter) && rest.limiter.value === 0 ? { ...rest, limiter: null } : rest;
-    });
-    return stableJson(steps);
-  }
-  function stableJson(value) {
-    if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-    if (isObject2(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
-    return JSON.stringify(value ?? null);
-  }
-  var SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches";
-  var MAX_SHOTS_READ = 20;
-  async function setAside(leave) {
-    const answer = (outcome, status, error) => ({
-      type: "leftOut",
-      id: leave.id,
-      kind: leave.kind,
-      localId: leave.localId,
-      outcome,
-      ...outcome === "refused" ? { status: status ?? null, error: (error ?? "").slice(0, MAX_REFUSAL_LENGTH) } : {}
-    });
-    const route = Object.prototype.hasOwnProperty.call(ROUTES, leave.kind) ? ROUTES[leave.kind] : void 0;
-    if (!route && leave.kind !== "profile") return answer("refused", null, `This plugin cannot set aside a ${leave.kind}`);
-    try {
-      const path = `${route ? route.records : "/profiles"}/${encodeURIComponent(leave.localId)}`;
-      const current = await request("GET", path);
-      if (current.status === 404) return answer("gone");
-      const record = current.ok ? parsed2(current.text) : void 0;
-      if (!isObject2(record)) return answer("refused", current.status, current.text);
-      if (!route) {
-        if (record.visibility !== "visible") return answer("setAside");
-        const hidden = await setVisibility(leave.localId, "hidden");
-        const updated2 = hidden.ok ? parsed2(hidden.text) : void 0;
-        return isObject2(updated2) && updated2.visibility !== "visible" ? answer("setAside") : answer("refused", hidden.status, hidden.text);
-      }
-      if (globalIdOf(record) !== null) return answer("taken");
-      if (record.archived === true) return answer("setAside");
-      const archived = await request("PUT", path, { archived: true, extras: isObject2(record.extras) ? record.extras : {} });
-      const updated = archived.ok ? parsed2(archived.text) : void 0;
-      return isObject2(updated) && updated.archived === true ? answer("setAside") : answer("refused", archived.status, archived.text);
-    } catch (error) {
-      return answer("refused", null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  function deleted(remove) {
-    return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
-  }
-  async function carryOut(write, log) {
-    const route = Object.prototype.hasOwnProperty.call(ROUTES, write.kind) ? ROUTES[write.kind] : void 0;
-    if (!route && write.kind !== "profile" && write.kind !== SETTINGS_KIND && write.kind !== WORKFLOW_KIND) {
-      return refused(write, null, `This plugin cannot write a ${write.kind}`);
-    }
-    try {
-      if (write.kind === SETTINGS_KIND) return await writeSettings(write, log);
-      if (write.kind === WORKFLOW_KIND) return await clearWorkflow(write);
-      if (!route) return await writeProfile(write);
-      if (write.localId === null) return await create(route, write);
-      const updated = await update(route, write, write.localId);
-      return answerTo(write, updated.answer, updated.written);
-    } catch (error) {
-      return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  async function writeProfile(write) {
-    const visibility = write.fields.visibility;
-    if (write.localId !== null) return await updateProfile(write, write.localId);
-    const held = await heldProfile(write.globalId);
-    if ("refused" in held) return refused(write, held.refused.status, held.refused.text);
-    let record = held.record;
-    const writtenFields = [];
-    if (!record) {
-      const { parentId, metadata } = write.fields;
-      const parent = typeof parentId === "string" ? await heldProfile(parentId) : void 0;
-      if (parent && "refused" in parent) return refused(write, parent.refused.status, parent.refused.text);
-      const body = { profile: write.fields.profile, ...parent?.record ? { parentId } : {}, ...isObject2(metadata) ? { metadata } : {} };
-      const made = await request("POST", "/profiles", body);
-      const created = made.ok ? parsed2(made.text) : void 0;
-      if (!isObject2(created) || typeof created.id !== "string") return refused(write, made.status, made.text);
-      record = created;
-      writtenFields.push(...Object.keys(body));
-    }
-    if (record.id !== write.globalId || typeof visibility !== "string" || record.visibility === visibility) return written(write, record, writtenFields);
-    const again = await setVisibility(write.globalId, visibility).catch(() => void 0);
-    const updated = again?.ok ? parsed2(again.text) : void 0;
-    if (!isObject2(updated) || updated.id !== write.globalId) return written(write, record, writtenFields);
-    return written(write, updated, [...writtenFields, "visibility"]);
-  }
-  async function writeSettings(write, log) {
-    const current = await request("GET", "/workflow");
-    const workflow = current.ok ? parsed2(current.text) : void 0;
-    if (!isObject2(workflow)) return refused(write, current.status, current.text);
-    const held = (field) => {
-      const [part, name] = field.split(".");
-      const values = workflow[part];
-      return isObject2(values) ? values[name] : void 0;
-    };
-    const steamOn = steamIsOn({ "steamSettings.targetTemperature": held("steamSettings.targetTemperature") });
-    const fields = Object.fromEntries(
-      Object.entries(settable(write, held)).filter(([field]) => steamOn || !STEAM_SETTINGS.includes(field))
-    );
-    if (Object.keys(fields).length === 0) return written(write, workflowSettings(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
-    const remembered = await rememberInStreamline(fields, log);
-    const answer = await request("PUT", "/workflow", settingsParts(fields));
-    if (!answer.ok) await forgetInStreamline(remembered, log);
-    const updated = answer.ok ? parsed2(answer.text) : void 0;
-    if (!isObject2(updated)) return refused(write, answer.status, answer.text);
-    return written(write, workflowSettings(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
-  }
-  async function clearWorkflow(write) {
-    const current = await request("GET", "/workflow");
-    const workflow = current.ok ? parsed2(current.text) : void 0;
-    if (!isObject2(workflow)) return refused(write, current.status, current.text);
-    const context = isObject2(workflow.context) ? workflow.context : {};
-    const fields = Object.fromEntries(
-      [WORKFLOW_GRINDER, WORKFLOW_BATCH].flatMap((group) => {
-        const [id] = group;
-        const named = group.filter((field) => field in write.fields);
-        const expected = write.expected?.[id];
-        const holds = named.includes(id) && expected !== void 0 && expected !== null && sameValue(context[id.slice("context.".length)], expected);
-        return holds ? named.map((field) => [field, null]) : [];
-      })
-    );
-    if (Object.keys(fields).length === 0) return written(write, workflowContext(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
-    const answer = await request("PUT", "/workflow", settingsParts(fields));
-    const updated = answer.ok ? parsed2(answer.text) : void 0;
-    if (!isObject2(updated)) return refused(write, answer.status, answer.text);
-    return written(write, workflowContext(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
-  }
-  function workflowContext(workflow) {
-    return { context: isObject2(workflow.context) ? workflow.context : {} };
-  }
-  function workflowSettings(workflow) {
-    return Object.fromEntries(SETTINGS_PARTS.flatMap((part) => part in workflow ? [[part, workflow[part]]] : []));
-  }
-  var PROFILE_TEXT = ["title", "author", "notes"];
-  async function updateProfile(write, id) {
-    const held = await heldProfile(id);
-    if ("refused" in held) return refused(write, held.refused.status, held.refused.text);
-    if (!held.record) return refused(write, 404, "Profile not found");
-    let record = held.record;
-    const fields = settable(write, (field) => field === "visibility" ? record.visibility : isObject2(record.profile) ? record.profile[field] : void 0);
-    const writtenFields = [];
-    const text = PROFILE_TEXT.filter((field) => field in fields);
-    if (text.length > 0) {
-      const profile = { ...isObject2(record.profile) ? record.profile : {} };
-      for (const field of text) {
-        if (fields[field] === null) delete profile[field];
-        else profile[field] = fields[field];
-      }
-      const answer = await request("PUT", `/profiles/${encodeURIComponent(id)}`, { profile });
-      const updated = answer.ok ? parsed2(answer.text) : void 0;
-      if (!isObject2(updated) || typeof updated.id !== "string") return refused(write, answer.status, answer.text);
-      if (updated.id !== id) return written(write, updated, text);
-      record = updated;
-      writtenFields.push(...text);
-    }
-    if ("visibility" in fields) {
-      if (record.visibility !== fields.visibility) {
-        const answer = await setVisibility(id, fields.visibility).catch((error) => {
-          if (writtenFields.length === 0) throw error;
-          return void 0;
-        });
-        const updated = answer?.ok ? parsed2(answer.text) : void 0;
-        if (!isObject2(updated) || updated.id !== id) {
-          return writtenFields.length === 0 ? refused(write, answer?.status ?? null, answer?.text ?? "") : written(write, record, writtenFields);
-        }
-        record = updated;
-      }
-      writtenFields.push("visibility");
-    }
-    return written(write, record, writtenFields);
-  }
-  function settable(write, current) {
-    const expected = write.expected;
-    return Object.fromEntries(
-      Object.entries(write.fields).filter(([field]) => !expected || !(field in expected) || sameValue(current(field), expected[field]))
-    );
-  }
-  async function heldProfile(id) {
-    const answer = await request("GET", `/profiles/${encodeURIComponent(id)}`);
-    if (answer.status === 404) return { record: void 0 };
-    const record = answer.ok ? parsed2(answer.text) : void 0;
-    return isObject2(record) && record.id === id ? { record } : { refused: answer };
-  }
-  function setVisibility(id, visibility) {
-    return request("PUT", `/profiles/${encodeURIComponent(id)}/visibility`, { visibility });
-  }
-  async function create(route, write) {
-    const listed = await request("GET", route.list);
-    if (!listed.ok) return refused(write, listed.status, listed.text);
-    const parsedList = parsed2(listed.text);
-    const records = Array.isArray(parsedList) ? parsedList.filter(isObject2) : [];
-    const held = records.find((record2) => globalIdOf(record2) === write.globalId.toLowerCase());
-    if (held) return written(write, held, []);
-    const same = records.find((record2) => globalIdOf(record2) === null && record2.archived !== true && route.sameItem(record2, write.fields));
-    if (same && typeof same.id === "string") {
-      const answer = answerTo(write, (await update(route, { ...write, fields: {} }, same.id)).answer, []);
-      return answer.type === "written" ? { ...answer, linked: true } : answer;
-    }
-    const path = route.create(write.fields);
-    if (path === null) return refused(write, null, `A ${write.kind} to create must name what it belongs to`);
-    const body = { ...write.fields, extras: { [GLOBAL_ID_KEY]: write.globalId } };
-    for (const field of route.deferred) delete body[field];
-    const made = await request("POST", path, body);
-    const record = made.ok ? parsed2(made.text) : void 0;
-    if (!isObject2(record) || typeof record.id !== "string") return refused(write, made.status, made.text);
-    const later = Object.fromEntries(route.deferred.flatMap((field) => field in write.fields && write.fields[field] !== (record[field] ?? null) ? [[field, write.fields[field]]] : []));
-    const writtenFields = Object.keys(write.fields);
-    if (Object.keys(later).length === 0) return written(write, record, writtenFields);
-    const again = await request("PUT", `${route.records}/${encodeURIComponent(record.id)}`, later).catch(() => void 0);
-    const updated = again?.ok ? parsed2(again.text) : void 0;
-    return written(write, isObject2(updated) && typeof updated.id === "string" ? updated : record, writtenFields);
-  }
-  async function update(route, write, localId) {
-    const path = `${route.records}/${encodeURIComponent(localId)}`;
-    const current = await request("GET", path);
-    if (!current.ok) return { answer: current, written: [] };
-    const parsedRecord = parsed2(current.text);
-    const record = isObject2(parsedRecord) ? parsedRecord : {};
-    const extras = isObject2(record.extras) ? record.extras : {};
-    const fields = settable(write, (field) => record[field]);
-    return { answer: await request("PUT", path, { ...fields, extras: { ...extras, [GLOBAL_ID_KEY]: write.globalId } }), written: Object.keys(fields) };
-  }
-  function answerTo(write, answer, writtenFields) {
-    const record = answer.ok ? parsed2(answer.text) : void 0;
-    if (isObject2(record) && typeof record.id === "string") return written(write, record, writtenFields);
-    return refused(write, answer.status, answer.text);
-  }
-  function written(write, record, writtenFields, at) {
-    return {
-      type: "written",
-      id: write.id,
-      kind: write.kind,
-      globalId: write.globalId,
-      record,
-      updatedAt: at ?? utcTime(record.updatedAt),
-      writtenFields,
-      ...write.contentDecidedAt === void 0 ? {} : { contentDecidedAt: write.contentDecidedAt }
-    };
-  }
-  function refused(write, status, error) {
-    return { type: "writeRefused", id: write.id, kind: write.kind, globalId: write.globalId, status, error: error.slice(0, MAX_REFUSAL_LENGTH) };
-  }
-  function parsed2(text) {
-    try {
-      return JSON.parse(text);
-    } catch {
-      return void 0;
-    }
-  }
-  function isObject2(value) {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
   // src/machine-events.ts

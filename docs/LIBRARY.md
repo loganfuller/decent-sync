@@ -43,9 +43,12 @@ tablet's map, so Shots are filtered by them and each item's page lists its
 Shots (`SHOTS.md`, Links to the Library). Ticket
 [#130](https://github.com/loganfuller/decent-sync/issues/130) has the plugin
 set the values Streamline remembers of the settings it writes, so Streamline
-keeps the Location's (Steam, hot water and rinse settings, below). It
-follows ADR-0003, ADR-0006, ADR-0008, ADR-0014, ADR-0016, ADR-0018, ADR-0019,
-ADR-0020 and ADR-0021.
+keeps the Location's (Steam, hot water and rinse settings, below). Ticket
+[#135](https://github.com/loganfuller/decent-sync/issues/135) describes each
+kind of Library item once on each side, so milestone 3's kinds are each
+added in one place (Adding a Library kind, below). It follows ADR-0003,
+ADR-0006, ADR-0008, ADR-0014, ADR-0016, ADR-0018, ADR-0019, ADR-0020 and
+ADR-0021.
 
 ## Who takes part
 
@@ -225,8 +228,19 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   item's content has no Location; one of a Location's state of it names that
   Location, and only those fields: `atLocation` and `remainingWeight` for a
   batch, `shown` for a Profile. Joining the Library is an item's first
-  version. Each names exactly one item, and goes with it. Versions taken in
-  together keep the order they were taken in (`seq`), and so do Conflicts.
+  version. Each names its item by kind and id (`kind`, `item_id`), and goes
+  with it. Versions taken in together keep the order they were taken in
+  (`seq`), and so do Conflicts.
+- `versioned_items`: every item that keeps versions and Conflicts, each
+  Library item and each Location's settings, by kind and id, which versions
+  and Conflicts reference, so a new kind needs no column of its own in them.
+  Triggers on each kind's table keep it, as its migration created them
+  (`versioned_item_added`, `versioned_item_renamed`,
+  `versioned_item_removed` and `versioned_items_truncated`, each given the
+  kind): a row is added as an item is, follows a change of its id, and is
+  deleted as the item is, or with every row of the kind as its table is
+  truncated, taking its versions and Conflicts with it, as a foreign key to
+  the item would.
 - `location_settings` and `tablet_settings`: each Location's steam, hot water
   and rinse settings, and each tablet's as it last had them
   (Steam, hot water and rinse settings, below).
@@ -1533,6 +1547,67 @@ a switch that shows or hides the Profile there, for an Admin or Staff
 working there (`ProfileLocationsCard` in `web/src/components/profiles.tsx`),
 and Archives or restores it, and, for an Admin, deletes one not bundled
 with Decaid.
+
+## Adding a Library kind
+
+Each kind of Library item is described once on each side, and what treats
+every kind alike reads that description: its versions and Conflicts, edits
+of its content, what a tablet is due and holds, the writer's waits and the
+gateway's answers, joining, hard deletes and sharing status on the server;
+the lists the plugin reports and how it writes, deletes and sets aside
+records; and history, Conflicts and sharing status in the management
+interface. A new kind, such as milestone 3's Recipe, Basket and Tool,
+needs:
+
+1. **The protocol** (`protocol/src/index.ts`): an entry in
+   `LIBRARY_ITEM_KINDS`, in the order its list is read and written, after
+   the kind its records are made under, if any, whose own records are made
+   under none, as records nest one deep: the
+   tablet's list its records are reported in, one of `COLLECTION_NAMES`;
+   what its ids are (`ItemIdRule`), `GLOBAL_ITEM_ID` for a global id or a
+   rule of its own for ids that are not UUIDs, which every message naming
+   one of its items is checked against (`itemIdRule`); and the kind its
+   records are made under on a tablet, if any (`under`), whose list is then
+   reported before its own and taken in first, and whose records are
+   deleted after its own (`REMOVAL_ORDER`). `LIBRARY_KINDS`,
+   `LIBRARY_LISTS` and `DELETED_KINDS` follow from it.
+2. **The plugin** (`plugin/src/library-writes.ts`): an entry in `WRITERS`:
+   where Decaid's API lists its records, which `CollectionCapture` reads and
+   reports, and how a write, a delete and setting aside a record are carried
+   out, through a route for records Decaid keeps as it keeps beans
+   (`ROUTES`, `recordWriter`), or by functions of its own. If a Shot names
+   its records, its route sets `namedByShots`, and `LibraryWrites.noteShot`
+   notes the ids a Shot's Workflow names, so a record a Shot not yet sent
+   names is not deleted.
+3. **The schema and its migration**: its table, with `content`, `archived`
+   and `field_edits` as the other kinds have them; each tablet's map of its
+   records; a Location's state of it, if it has one; and its table's four
+   triggers keeping `versioned_items` (Storage, above), without which its
+   items can have no versions or Conflicts.
+4. **The server** (`server/src/library/kinds.ts`): an entry in `KINDS`
+   (`LibraryKindDescription`): its name, table, id type and map; its content
+   as edits merge it, from the Library's content and from a tablet's
+   record; what the management interface may set of it; its part of what a
+   Location offers and a tablet holds (`holdings`), and the writes that
+   bring a tablet's records to it (`plan`, in `holdings.ts`); whether a
+   Location offers any, as a joining tablet's are judged; what its hard
+   delete reads and keeps; a Location's state of it, if any, as Conflicts
+   about it read and use it; and its own modules' intake of a report
+   (`takeIn`) and record of a write's answer (`recordWritten`).
+5. **Its own modules**: taking in a report of its list and recording an
+   answer, as `beans.ts` does, with a pure planning module and its module
+   tests, as `bean-intake.ts` has; the changes of a Location's state of it,
+   if any (`location-state.ts`); its REST API, with each new route named in
+   `server/test/access.test.ts`; and, if a Shot names it, its columns on a
+   Shot (`shotLink`) and how a Shot's metadata names it
+   (`server/src/shots/links.ts`).
+6. **The management interface** (`web/src/lib/library-kinds.ts`): an entry
+   in `LIBRARY_KINDS`, its name, pages, REST API and Shots filter, which
+   history, Conflicts and sharing status read; and its pages.
+7. **Tests**: the simulated tablet carrying out the writes of its records
+   as Decaid, or DYE2, does (`server/test/support/simulated-tablet.ts`),
+   Seam 1 tests of it through the built plugin, and Seam 2 specs of its
+   pages.
 
 ## Not yet
 

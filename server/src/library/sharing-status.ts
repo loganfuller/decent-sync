@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import type { WrittenKind } from "@decent-sync/protocol";
+import { type WrittenKind, isWrittenKind } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { machineNotFound } from "../machines/input.js";
 import type { PrismaService } from "../prisma.service.js";
-import { itemView } from "./history.service.js";
 import { type PlannedChange, deleteKey, leaveOutKey, writeKey } from "./holdings.js";
+import { writtenKind } from "./kinds.js";
 import { changesDue } from "./tablet-due.js";
 
 // Each Machine's sharing status (stories 48 and 56 of milestone 2): the
@@ -217,26 +217,15 @@ export async function sharingStatus(prisma: PrismaService, machineId: string): P
   );
 }
 
-/** The items the changes were of, by kind and id, as `ChangedItemView` names them; an item deleted since is absent. */
+/** The items the changes were of, by kind and id, as `ChangedItemView` names them, each as its kind does (`itemNames`); an item deleted since is absent. */
 async function itemNames(tx: Prisma.TransactionClient, changes: readonly Omit<TabletChange, "key">[]): Promise<Map<string, ChangedItemView>> {
-  const ids = (kind: WrittenKind) => [...new Set(changes.filter((change) => change.kind === kind && change.itemId !== null).map((change) => change.itemId!))];
-  const empty = { beanId: null, batchId: null, grinderId: null, profileId: null, bean: null, batch: null, grinder: null, profile: null, settingsId: null };
   const named = new Map<string, ChangedItemView>();
-  const add = (view: ChangedItemView) => named.set(`${view.kind}:${view.id}`, view);
-  const uuids = (kind: WrittenKind) => ids(kind).filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
-  for (const bean of await tx.bean.findMany({ where: { id: { in: uuids("bean") } }, select: { id: true, content: true } })) {
-    add(itemView({ ...empty, beanId: bean.id, bean }) as ChangedItemView);
+  for (const kind of new Set(changes.map((change) => change.kind))) {
+    // Every kind kept was written by this server, which knows it.
+    if (!isWrittenKind(kind)) continue;
+    const ids = [...new Set(changes.filter((change) => change.kind === kind && change.itemId !== null).map((change) => change.itemId!))];
+    if (ids.length === 0) continue;
+    for (const [id, name] of await writtenKind(kind).itemNames(tx, ids)) named.set(`${kind}:${id}`, { kind, id, name });
   }
-  for (const batch of await tx.beanBatch.findMany({ where: { id: { in: uuids("beanBatch") } }, select: { id: true, content: true, bean: { select: { content: true } } } })) {
-    add(itemView({ ...empty, batchId: batch.id, batch }) as ChangedItemView);
-  }
-  for (const grinder of await tx.grinder.findMany({ where: { id: { in: uuids("grinder") } }, select: { id: true, content: true } })) {
-    add(itemView({ ...empty, grinderId: grinder.id, grinder }) as ChangedItemView);
-  }
-  for (const profile of await tx.profile.findMany({ where: { id: { in: ids("profile") } }, select: { id: true, content: true } })) {
-    add(itemView({ ...empty, profileId: profile.id, profile }) as ChangedItemView);
-  }
-  for (const id of ids("settings")) add({ kind: "settings", id, name: "Steam, hot water and rinse" });
-  for (const id of ids("workflow")) add({ kind: "workflow", id, name: "Grinder and batch" });
   return named;
 }

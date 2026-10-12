@@ -716,11 +716,9 @@ model Bean {
   /// its version (server/src/library/content-edits.ts).
   fieldEdits        Json      @default("{}") @map("field_edits") @db.JsonB
 
-  origins   BeanOrigin[]
-  tablets   TabletBean[]
-  batches   BeanBatch[]
-  versions  ItemVersion[]
-  conflicts Conflict[]
+  origins BeanOrigin[]
+  tablets TabletBean[]
+  batches BeanBatch[]
 
   @@index([matchKey])
   @@map("beans")
@@ -809,8 +807,6 @@ model BeanBatch {
 
   locations BatchLocation[]
   tablets   TabletBeanBatch[]
-  versions  ItemVersion[]
-  conflicts Conflict[]
   shots     Shot[]
 
   @@index([beanId])
@@ -907,10 +903,8 @@ model Grinder {
   /// `Bean.fieldEdits` keeps a Bean's.
   fieldEdits Json      @default("{}") @map("field_edits") @db.JsonB
 
-  tablets   TabletGrinder[]
-  versions  ItemVersion[]
-  conflicts Conflict[]
-  shots     Shot[]
+  tablets TabletGrinder[]
+  shots   Shot[]
 
   @@index([locationId])
   @@map("grinders")
@@ -971,8 +965,6 @@ model Profile {
 
   locations ProfileLocation[]
   tablets   TabletProfile[]
-  versions  ItemVersion[]
-  conflicts Conflict[]
 
   /// The migration indexes its content's steps, by hash, which a Shot's
   /// Profile is found by (server/src/shots/links.ts); Prisma cannot express it.
@@ -1038,54 +1030,66 @@ model TabletProfile {
   @@map("tablet_profiles")
 }
 
+/// Each item that keeps versions and Conflicts (ADR-0020): every Library
+/// item and each Location's steam, hot water and rinse settings, by its kind
+/// and id, as `ItemVersion` and `Conflict` name it, so a new kind needs no
+/// column of its own. A trigger on each kind's table adds its row as the
+/// item is inserted, follows a change of its id, and deletes it as the item
+/// is, taking the item's versions and Conflicts with it, as a foreign key to
+/// the item would, and empties the kind's rows as its table is truncated;
+/// the migration creates them (`versioned_item_added`,
+/// `versioned_item_renamed`, `versioned_item_removed` and
+/// `versioned_items_truncated`), and
+/// server/src/library/kinds.ts names each kind's table.
+model VersionedItem {
+  /// One of LIBRARY_KINDS (protocol/), or `settings`.
+  kind      String
+  /// The item's id as text: a global id, a Profile's id, or the settings' id.
+  itemId    String        @map("item_id")
+  versions  ItemVersion[]
+  conflicts Conflict[]
+
+  @@id([kind, itemId])
+  @@map("versioned_items")
+}
+
 /// One accepted edit of a Library item (ADR-0020): the fields it changed,
 /// with their values, where it came from, and when. An edit of the item's
 /// content has no Location; one of a Location's state of it (a batch at the
 /// Location, its remaining weight there, a Profile shown there) names that
 /// Location, and only those fields. Joining the Library is the item's first
-/// version. Exactly one item column is set. See
-/// server/src/library/history.ts.
+/// version. See server/src/library/history.ts.
 model ItemVersion {
-  id         String     @id @default(uuid(7)) @db.Uuid
-  beanId     String?    @map("bean_id") @db.Uuid
-  bean       Bean?      @relation(fields: [beanId], references: [id], onDelete: Cascade)
-  batchId    String?    @map("batch_id") @db.Uuid
-  batch      BeanBatch? @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  grinderId  String?    @map("grinder_id") @db.Uuid
-  grinder    Grinder?   @relation(fields: [grinderId], references: [id], onDelete: Cascade)
-  profileId  String?    @map("profile_id")
-  profile    Profile?   @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  /// A Location's steam, hot water and rinse settings, which it names as
-  /// `locationId`.
-  settingsId String?           @map("settings_id") @db.Uuid
-  settings   LocationSettings? @relation(fields: [settingsId], references: [id], onDelete: Cascade)
-  locationId String?    @map("location_id") @db.Uuid
-  location   Location?  @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  id         String        @id @default(uuid(7)) @db.Uuid
+  /// The item's kind and id (`VersionedItem`).
+  kind       String
+  itemId     String        @map("item_id")
+  item       VersionedItem @relation(fields: [kind, itemId], references: [kind, itemId], onDelete: Cascade)
+  /// The Location whose state of the item it changed; a Location's settings,
+  /// which keep versions as items do, always name their Location.
+  locationId String?       @map("location_id") @db.Uuid
+  location   Location?     @relation(fields: [locationId], references: [id], onDelete: Cascade)
   /// The fields it set, by Decaid's names or a Location's state's
   /// (`atLocation`, `remainingWeight`, `shown`, or a shared setting such as
   /// `steamSettings.flow`), each with its value.
-  fields     Json       @db.JsonB
+  fields     Json          @db.JsonB
   /// The Machine whose tablet made it, if one did.
-  machineId  String?    @map("machine_id") @db.Uuid
-  machine    Machine?   @relation(fields: [machineId], references: [id], onDelete: SetNull)
-  tabletId   String?    @map("tablet_id") @db.Uuid
-  tablet     Tablet?    @relation(fields: [tabletId], references: [id], onDelete: SetNull)
+  machineId  String?       @map("machine_id") @db.Uuid
+  machine    Machine?      @relation(fields: [machineId], references: [id], onDelete: SetNull)
+  tabletId   String?       @map("tablet_id") @db.Uuid
+  tablet     Tablet?       @relation(fields: [tabletId], references: [id], onDelete: SetNull)
   /// The account that made it in the management interface, if one did.
-  accountId  String?    @map("account_id") @db.Uuid
-  account    Account?   @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  accountId  String?       @map("account_id") @db.Uuid
+  account    Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
   /// When it was made: a tablet's by its record's `updatedAt` in UTC, a
   /// delete, which Decaid does not time, by PostgreSQL's clock (ADR-0020).
-  editedAt   DateTime   @map("edited_at") @db.Timestamptz(3)
+  editedAt   DateTime      @map("edited_at") @db.Timestamptz(3)
   /// When the server took it in, by PostgreSQL's clock.
-  receivedAt DateTime   @default(dbgenerated("transaction_timestamp()")) @map("received_at") @db.Timestamptz(3)
+  receivedAt DateTime      @default(dbgenerated("transaction_timestamp()")) @map("received_at") @db.Timestamptz(3)
   /// The order it was taken in, which `receivedAt` cannot tell apart within one transaction.
-  seq        BigInt     @default(autoincrement())
+  seq        BigInt        @default(autoincrement())
 
-  @@index([beanId, receivedAt])
-  @@index([batchId, receivedAt])
-  @@index([grinderId, receivedAt])
-  @@index([profileId, receivedAt])
-  @@index([settingsId, receivedAt])
+  @@index([kind, itemId, receivedAt])
   @@index([locationId])
   @@index([machineId])
   @@index([tabletId])
@@ -1106,20 +1110,14 @@ enum ConflictState {
 /// An edit to a field of a Library item that lost to another edit of the
 /// same field made without seeing it (ADR-0020), kept until someone uses its
 /// value or dismisses it: the item, the field, the losing value, where it
-/// came from, and when it was made. Like `ItemVersion`, a field of a
-/// Location's state names that Location. Exactly one item column is set.
+/// came from, and when it was made. Like `ItemVersion`, it names its item by
+/// kind and id, and a field of a Location's state names that Location.
 model Conflict {
   id         String        @id @default(uuid(7)) @db.Uuid
-  beanId     String?       @map("bean_id") @db.Uuid
-  bean       Bean?         @relation(fields: [beanId], references: [id], onDelete: Cascade)
-  batchId    String?       @map("batch_id") @db.Uuid
-  batch      BeanBatch?    @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  grinderId  String?       @map("grinder_id") @db.Uuid
-  grinder    Grinder?      @relation(fields: [grinderId], references: [id], onDelete: Cascade)
-  profileId  String?       @map("profile_id")
-  profile    Profile?      @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  settingsId String?           @map("settings_id") @db.Uuid
-  settings   LocationSettings? @relation(fields: [settingsId], references: [id], onDelete: Cascade)
+  /// The item's kind and id (`VersionedItem`).
+  kind       String
+  itemId     String        @map("item_id")
+  item       VersionedItem @relation(fields: [kind, itemId], references: [kind, itemId], onDelete: Cascade)
   locationId String?       @map("location_id") @db.Uuid
   location   Location?     @relation(fields: [locationId], references: [id], onDelete: Cascade)
   field      String
@@ -1140,11 +1138,7 @@ model Conflict {
   state      ConflictState @default(OPEN)
 
   @@index([state, createdAt])
-  @@index([beanId])
-  @@index([batchId])
-  @@index([grinderId])
-  @@index([profileId])
-  @@index([settingsId])
+  @@index([kind, itemId])
   @@index([locationId])
   @@index([machineId])
   @@index([tabletId])
@@ -1169,9 +1163,7 @@ model LocationSettings {
   /// When the first Machine there reported them, by PostgreSQL's clock.
   createdAt  DateTime @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
 
-  tablets   TabletSettings[]
-  versions  ItemVersion[]
-  conflicts Conflict[]
+  tablets TabletSettings[]
 
   @@map("location_settings")
 }
@@ -1219,22 +1211,22 @@ model DeletedItem {
 /// there, which that tablet's writer deletes. Gone once the plugin answers
 /// the delete, or once a report no longer lists the record.
 model TabletDeletion {
-  tabletId String @map("tablet_id") @db.Uuid
-  tablet   Tablet @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  tabletId     String  @map("tablet_id") @db.Uuid
+  tablet       Tablet  @relation(fields: [tabletId], references: [id], onDelete: Cascade)
   /// `bean`, `beanBatch`, `grinder` or `profile`.
-  kind     String
+  kind         String
   /// Decaid's id for the record on that tablet.
-  localId  String @map("local_id")
+  localId      String  @map("local_id")
   /// The deleted item's global id, which the record carries, or a
   /// Profile's id, which is Decaid's.
-  itemId   String @map("item_id")
+  itemId       String  @map("item_id")
   /// For a batch's record, the id there of its bean's record, which is
   /// deleted only once the batch's is, as the plugin deletes a bean's
   /// batches with it.
-  beanLocalId String? @map("bean_local_id")
+  beanLocalId  String? @map("bean_local_id")
   /// For a Profile's record, its steps, which a Shot that used it recorded
   /// in its Workflow (`shotNamesProfileSql`).
-  profileSteps Json?  @map("profile_steps") @db.JsonB
+  profileSteps Json?   @map("profile_steps") @db.JsonB
 
   @@id([tabletId, kind, localId])
   @@map("tablet_deletions")
@@ -1271,12 +1263,12 @@ model TabletLeftOut {
 /// (server/src/library/joining.ts). Neither is a foreign key: an entry
 /// removed since still differs from the one current.
 model TabletReport {
-  tabletId     String @map("tablet_id") @db.Uuid
-  tablet       Tablet @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  tabletId     String    @map("tablet_id") @db.Uuid
+  tablet       Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
   /// `beans`, `beanBatches`, `grinders`, `profiles` or `workflow`.
   report       String
-  assignmentId String @map("assignment_id") @db.Uuid
-  locationId   String @map("location_id") @db.Uuid
+  assignmentId String    @map("assignment_id") @db.Uuid
+  locationId   String    @map("location_id") @db.Uuid
   sharingSince DateTime? @map("sharing_since") @db.Timestamptz(3)
 
   @@id([tabletId, report])

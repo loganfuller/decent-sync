@@ -1,15 +1,17 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { type LibraryKind, SETTINGS_KIND, type VersionedKind, isLibraryKind } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { mayResolve } from "./conflict-access.js";
-import { ITEM_TABLES, editContent, lockItems } from "./content-edits.js";
+import { editContent, lockItems } from "./content-edits.js";
 import { type ConflictView, HistoryService } from "./history.service.js";
 import { type EditSource, type LibraryItemRef, accountSource } from "./history.js";
 import { INTAKE_TRANSACTION } from "./intake.js";
 import { editSettings, lockSettings } from "./location-settings.js";
-import { addBatchAt, enterRemainingWeight, finishBatchAt, lockLocation, showProfileAt } from "./location-state.js";
+import { KINDS, idSql, isVersionedKind } from "./kinds.js";
+import { lockLocation } from "./location-state.js";
 
 // Resolving a Conflict (ADR-0020): using its value, which makes it a new edit
 // in the management interface, timed by PostgreSQL's clock (ADR-0016), and
@@ -25,16 +27,11 @@ import { addBatchAt, enterRemainingWeight, finishBatchAt, lockLocation, showProf
 /** A Conflict as resolving it reads it, under its row lock. */
 interface LockedConflict {
   state: "OPEN" | "USED" | "DISMISSED";
+  kind: string;
+  itemId: string;
   field: string;
   value: unknown;
   locationId: string | null;
-  beanId: string | null;
-  batchId: string | null;
-  grinderId: string | null;
-  profileId: string | null;
-  settingsId: string | null;
-  /** The Location of the Grinder it is about, if it is about one. */
-  grinderLocationId: string | null;
 }
 
 /** Uses Conflicts' values and dismisses them, for Admins and for Staff on items they can edit. */
@@ -71,22 +68,34 @@ export class ConflictsService {
     return this.history.conflict(id, scope);
   }
 
-  /** The open Conflict, under its row lock: 404 if there is none, 403 if the account may not resolve it, 409 if it is closed already. */
-  private async lockOpen(tx: Prisma.TransactionClient, id: string, scope: Scope): Promise<LockedConflict> {
+  /**
+   * The open Conflict, under its row lock: 404 if there is none, 403 if the
+   * account may not resolve it, 409 if it is closed already. With the
+   * Location its item belongs to, for a kind whose items belong to one
+   * (`belongsToLocation`): a Grinder's Location never changes.
+   */
+  private async lockOpen(tx: Prisma.TransactionClient, id: string, scope: Scope): Promise<LockedConflict & { kind: VersionedKind; itemLocationId?: string | null }> {
     const [conflict] = await tx.$queryRaw<LockedConflict[]>`
-      SELECT conflict.state::text AS state, conflict.field, conflict.value, conflict.location_id AS "locationId", conflict.bean_id AS "beanId",
-        conflict.batch_id AS "batchId", conflict.grinder_id AS "grinderId", conflict.profile_id AS "profileId", conflict.settings_id AS "settingsId", grinder.location_id AS "grinderLocationId"
-      FROM conflicts AS conflict LEFT JOIN grinders AS grinder ON grinder.id = conflict.grinder_id
-      WHERE conflict.id = ${id}::uuid
-      FOR UPDATE OF conflict`;
-    if (!conflict) throw new NotFoundException("No such Conflict");
-    const grinderLocationId = conflict.grinderId === null ? undefined : conflict.grinderLocationId;
-    if (!mayResolve(scope, { locationId: conflict.locationId, field: conflict.field, grinderLocationId })) {
+      SELECT state::text AS state, kind, item_id AS "itemId", field, value, location_id AS "locationId"
+      FROM conflicts WHERE id = ${id}::uuid
+      FOR UPDATE`;
+    if (!conflict || !isVersionedKind(conflict.kind)) throw new NotFoundException("No such Conflict");
+    const kind = conflict.kind;
+    const itemLocationId = isLibraryKind(kind) && KINDS[kind].belongsToLocation ? await itemLocation(tx, kind, conflict.itemId) : undefined;
+    if (!mayResolve(scope, { locationId: conflict.locationId, field: conflict.field, itemLocationId })) {
       throw new ForbiddenException("Staff resolve Conflicts about a Location's state or a Grinder only at their own Locations");
     }
     if (conflict.state !== "OPEN") throw new ConflictException(`This Conflict was ${conflict.state === "USED" ? "used" : "dismissed"} already`);
-    return conflict;
+    return { ...conflict, kind, itemLocationId };
   }
+}
+
+/** The Location an item of a kind that belongs to one belongs to, null if it has none or no longer exists. */
+async function itemLocation(tx: Prisma.TransactionClient, kind: LibraryKind, id: string): Promise<string | null> {
+  const description = KINDS[kind];
+  const [row] = await tx.$queryRaw<{ locationId: string | null }[]>`
+    SELECT location_id AS "locationId" FROM ${Prisma.raw(description.table)} WHERE id = ${idSql(description, id)}`;
+  return row?.locationId ?? null;
 }
 
 /**
@@ -94,63 +103,47 @@ export class ConflictsService {
  * value version `seen` set, and tells every instance its tablets are to be
  * written.
  */
-async function useValue(tx: Prisma.TransactionClient, conflict: LockedConflict, seen: string | null, source: EditSource): Promise<void> {
+async function useValue(
+  tx: Prisma.TransactionClient,
+  conflict: LockedConflict & { kind: VersionedKind; itemLocationId?: string | null },
+  seen: string | null,
+  source: EditSource,
+): Promise<void> {
   const { field, value, locationId } = conflict;
   // Timed by PostgreSQL's clock (ADR-0016), as the version's `received_at` is, to the millisecond it keeps.
   const [{ at }] = await tx.$queryRaw<[{ at: Date }]>`SELECT now()::timestamptz(3) AS at`;
-  if (conflict.settingsId !== null) {
+  if (conflict.kind === SETTINGS_KIND) {
     // A Location's settings are edited under their own row lock, as a tablet's edits of them are.
-    const settings = await lockSettings(tx, conflict.settingsId);
+    const settings = await lockSettings(tx, conflict.itemId);
     if (!settings) throw new NotFoundException("No such Conflict");
     checkSeen(Object.prototype.hasOwnProperty.call(settings.fieldEdits, field) ? settings.fieldEdits[field]!.versionId : null, seen);
     const edited = await editSettings(tx, settings.id, { values: { [field]: value ?? null }, at, seenAt: "everything" }, source);
     if (edited.writesDue) await notify(tx, "library_changes", settings.locationId);
     return;
   }
-  const item = itemOf(conflict);
-  if (locationId === null) {
-    // A Grinder's Archived state changes only under its Location's lock. A Grinder's Location never changes.
-    if (conflict.grinderLocationId !== null) await lockLocation(tx, conflict.grinderLocationId);
+  const item: LibraryItemRef = { kind: conflict.kind, id: conflict.itemId };
+  const description = KINDS[item.kind];
+  const state = locationId === null ? undefined : description.state;
+  if (state === undefined) {
+    // The Archived state of an item that belongs to a Location changes only under that Location's lock, which never changes.
+    if (conflict.itemLocationId !== undefined && conflict.itemLocationId !== null) await lockLocation(tx, conflict.itemLocationId);
     await lockItems(tx, item.kind, [item.id]);
-    const { table, cast } = ITEM_TABLES[item.kind];
     const [row] = await tx.$queryRaw<{ versionId: string | null }[]>`
-      SELECT field_edits -> ${field} ->> 'versionId' AS "versionId" FROM ${Prisma.raw(table)} WHERE id = ${item.id}::${Prisma.raw(cast)}`;
+      SELECT field_edits -> ${field} ->> 'versionId' AS "versionId" FROM ${Prisma.raw(description.table)} WHERE id = ${idSql(description, item.id)}`;
     checkSeen(row?.versionId ?? null, seen);
     const edited = await editContent(tx, item, { values: { [field]: value ?? null }, at, seenAt: "everything" }, source);
     // Every Location's tablets may hold the item; each writer reads what its tablet is due.
     if (edited.writesDue) await notify(tx, "library_changes", item.id);
     return;
   }
-  await lockLocation(tx, locationId);
-  checkSeen(await stateVersion(tx, item, field, locationId), seen);
+  await lockLocation(tx, locationId!);
+  const [current] = await state.current(tx, [{ itemId: item.id, locationId: locationId!, field }]);
+  checkSeen(current!.versionId, seen);
   // Under the Location's lock, every decision of its state was made before now, and the account was shown the latest.
   const [{ seenAt }] = await tx.$queryRaw<[{ seenAt: Date }]>`SELECT clock_timestamp() AS "seenAt"`;
-  if (item.kind === "profile" && field === "shown" && typeof value === "boolean") {
-    await showProfileAt(tx, item.id, locationId, source, value, at, seenAt);
-  } else if (item.kind === "beanBatch" && field === "atLocation" && typeof value === "boolean") {
-    await (value ? addBatchAt : finishBatchAt)(tx, item.id, locationId, at, seenAt, source);
-  } else if (item.kind === "beanBatch" && field === "remainingWeight" && (typeof value === "number" || value === null)) {
-    const [here] = await tx.$queryRaw<{ weight: number | null }[]>`
-      SELECT remaining_weight AS weight FROM batch_locations WHERE batch_id = ${item.id}::uuid AND location_id = ${locationId}::uuid`;
-    await enterRemainingWeight(tx, item.id, locationId, { value, had: here?.weight ?? null }, at, source);
-  } else {
-    // Conflicts of a Location's state are only ever about these fields.
-    throw new Error(`A Conflict about ${field} at a Location cannot be used`);
-  }
-  await notify(tx, "library_changes", locationId);
-}
-
-/** The version that set a Location's state of the item that the field is, or null if none is known. */
-async function stateVersion(tx: Prisma.TransactionClient, item: LibraryItemRef, field: string, locationId: string): Promise<string | null> {
-  if (item.kind === "profile") {
-    const [here] = await tx.$queryRaw<{ versionId: string | null }[]>`
-      SELECT version_id AS "versionId" FROM profile_locations WHERE profile_id = ${item.id} AND location_id = ${locationId}::uuid`;
-    return here?.versionId ?? null;
-  }
-  const [here] = await tx.$queryRaw<{ presence: string | null; weight: string | null }[]>`
-    SELECT presence_version_id AS presence, remaining_weight_version_id AS weight
-    FROM batch_locations WHERE batch_id = ${item.id}::uuid AND location_id = ${locationId}::uuid`;
-  return (field === "remainingWeight" ? here?.weight : here?.presence) ?? null;
+  // Conflicts of a Location's state are only ever about values its fields take.
+  await state.use(tx, item.id, locationId!, field, value, at, seenAt, source);
+  await notify(tx, "library_changes", locationId!);
 }
 
 /** Refuses to use a value over one the account was not shown: the field was decided since. */
@@ -170,13 +163,6 @@ export function readSeen(body: unknown): string | null {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function itemOf(conflict: LockedConflict): LibraryItemRef {
-  if (conflict.beanId !== null) return { kind: "bean", id: conflict.beanId };
-  if (conflict.batchId !== null) return { kind: "beanBatch", id: conflict.batchId };
-  if (conflict.grinderId !== null) return { kind: "grinder", id: conflict.grinderId };
-  return { kind: "profile", id: conflict.profileId! };
-}
 
 export function readConflictId(id: string): string {
   if (!UUID.test(id)) throw new NotFoundException("No such Conflict");

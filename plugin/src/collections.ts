@@ -1,7 +1,15 @@
-import { type CollectionDelivery, type CollectionName, isLibraryList } from "@decent-sync/protocol";
+import {
+  type CollectionDelivery,
+  type CollectionName,
+  LIBRARY_ITEM_KINDS,
+  LIBRARY_KINDS,
+  LIBRARY_LISTS,
+  isLibraryList,
+  parentList,
+} from "@decent-sync/protocol";
 import { type Fingerprint, type Reading, decide, ifNoneMatch, pairedDevices } from "./change-detection.js";
 import { readCollection } from "./decaid.js";
-import type { LibraryAccess } from "./library-writes.js";
+import { type LibraryAccess, libraryListPath } from "./library-writes.js";
 import { utcTime } from "./local-time.js";
 import type { Outbox } from "./outbox.js";
 
@@ -14,19 +22,20 @@ interface Source {
 }
 
 /**
- * Where each collection is read, in Decaid v0.8.7's API (rest_v1.yml). The
- * library's lists send ETags; the rest are compared by content. DYE2's keys
- * are only ever read: DYE2 is their only writer until Location sharing
- * (ADR-0005).
+ * Where each collection is read, in Decaid v0.8.7's API (rest_v1.yml): the
+ * Library's lists first, each where its kind's records are written
+ * (`libraryListPath`). The library's lists send ETags; the rest are compared
+ * by content. DYE2's keys are only ever read: DYE2 is their only writer
+ * until Location sharing (ADR-0005).
  */
 const SOURCES: readonly Source[] = [
-  { name: "beans", path: "/beans?includeArchived=true" },
-  { name: "beanBatches", path: "/bean-batches?includeArchived=true" },
-  { name: "grinders", path: "/grinders?includeArchived=true" },
-  { name: "profiles", path: "/profiles?includeHidden=true" },
-  { name: "dye2Recipes", path: "/store/dye2.reaplugin/recipes" },
-  { name: "dye2Equipment", path: "/store/dye2.reaplugin/equipment" },
-  { name: "dye2Baskets", path: "/store/dye2.reaplugin/baskets" },
+  ...LIBRARY_KINDS.map((kind) => ({ name: LIBRARY_ITEM_KINDS[kind].list, path: libraryListPath(kind) })),
+  // Read here until a kind of Library item is reported in it, as milestone 3's are in DYE2's keys.
+  ...([
+    { name: "dye2Recipes", path: "/store/dye2.reaplugin/recipes" },
+    { name: "dye2Equipment", path: "/store/dye2.reaplugin/equipment" },
+    { name: "dye2Baskets", path: "/store/dye2.reaplugin/baskets" },
+  ] as const satisfies readonly Source[]).filter((source) => !isLibraryList(source.name)),
   { name: "appSettings", path: "/settings" },
   { name: "machineSettings", path: "/machine/settings" },
   { name: "advancedSettings", path: "/machine/settings/advanced" },
@@ -40,7 +49,8 @@ const SOURCES: readonly Source[] = [
  * (`LibraryAccess`): a report of one of them must hold each write that began
  * before it.
  */
-const WRITTEN_LISTS: ReadonlySet<CollectionName> = new Set(["beans", "beanBatches", "grinders", "profiles"]);
+const WRITTEN_LISTS: ReadonlySet<CollectionName> = new Set(LIBRARY_LISTS);
+
 
 /**
  * The tablet's library, settings and paired devices, through the outbox.
@@ -53,10 +63,11 @@ const WRITTEN_LISTS: ReadonlySet<CollectionName> = new Set(["beans", "beanBatche
  *
  * A Library list the server writes to is read, and its report queued,
  * between the server's writes to the tablet (`LibraryAccess`), so a report
- * holds each write that began before it. And whenever the beans were sent, the bean batches are
- * sent in full after them, changed or not: the server takes in a batch only
- * once it knows its bean, which may have been added since the batches were
- * last sent.
+ * holds each write that began before it. And whenever a list was sent, the
+ * lists of the kinds made under it (`childLists`) are sent in full after it,
+ * changed or not: whenever the beans were, the bean batches are, as the
+ * server takes in a batch only once it knows its bean, which may have been
+ * added since the batches were last sent.
  */
 export class CollectionCapture {
   /** What was last queued for each collection. */
@@ -110,13 +121,14 @@ export class CollectionCapture {
       while (this.wanted !== undefined && !this.stopped) {
         const full = this.wanted === "full";
         this.wanted = undefined;
-        let beansSent = false;
+        const sentLists = new Set<CollectionName>();
         for (const source of SOURCES) {
           if (this.stopped) return;
+          const parent = isLibraryList(source.name) ? parentList(source.name) : undefined;
           const sent = await (WRITTEN_LISTS.has(source.name)
-            ? this.library.run(() => this.capture(source, full || (source.name === "beanBatches" && beansSent)))
+            ? this.library.run(() => this.capture(source, full || (parent !== undefined && sentLists.has(parent))))
             : this.capture(source, full));
-          if (source.name === "beans") beansSent = sent;
+          if (sent) sentLists.add(source.name);
         }
       }
     } finally {

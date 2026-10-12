@@ -1,8 +1,9 @@
-import type { DeletedKind } from "@decent-sync/protocol";
-import { Prisma } from "../generated/prisma/client.js";
+import { type DeletedKind, REMOVAL_ORDER } from "@decent-sync/protocol";
+import type { Prisma } from "../generated/prisma/client.js";
 import type { PrismaService } from "../prisma.service.js";
 import { type PlannedLeaveOut, leaveOutKey } from "./holdings.js";
 import { lockTablet } from "./intake.js";
+import { KINDS } from "./kinds.js";
 
 // What a Machine's tablet holds as it joins a Location that the Library
 // leaves out (ADR-0008, ADR-0018). The Location's state wins: a report that
@@ -32,28 +33,7 @@ export interface ReportedRecord {
  * only the first brings them.
  */
 export async function offersAny(tx: Prisma.TransactionClient, locationId: string, kind: DeletedKind): Promise<boolean> {
-  const query = {
-    bean: Prisma.sql`
-      SELECT 1 FROM beans WHERE NOT beans.archived AND (
-        EXISTS (SELECT 1 FROM bean_origins AS origin WHERE origin.bean_id = beans.id AND origin.location_id = ${locationId}::uuid)
-        OR EXISTS (
-          SELECT 1 FROM bean_batches AS batch
-          JOIN batch_locations AS here ON here.batch_id = batch.id AND here.location_id = ${locationId}::uuid
-          WHERE batch.bean_id = beans.id AND NOT batch.archived AND here.added_at IS NOT NULL AND here.finished_at IS NULL
-        )
-      ) LIMIT 1`,
-    beanBatch: Prisma.sql`
-      SELECT 1 FROM bean_batches AS batch
-      JOIN beans AS bean ON bean.id = batch.bean_id
-      JOIN batch_locations AS here ON here.batch_id = batch.id AND here.location_id = ${locationId}::uuid
-      WHERE here.added_at IS NOT NULL AND here.finished_at IS NULL AND NOT batch.archived AND NOT bean.archived LIMIT 1`,
-    grinder: Prisma.sql`SELECT 1 FROM grinders WHERE location_id = ${locationId}::uuid AND NOT archived LIMIT 1`,
-    profile: Prisma.sql`
-      SELECT 1 FROM profiles
-      JOIN profile_locations AS here ON here.profile_id = profiles.id AND here.location_id = ${locationId}::uuid AND here.shown
-      WHERE NOT profiles.archived AND NOT profiles.bundled LIMIT 1`,
-  }[kind];
-  const [found] = await tx.$queryRaw<unknown[]>(query);
+  const [found] = await tx.$queryRaw<unknown[]>(KINDS[kind].offersAnySql(locationId));
   return found !== undefined;
 }
 
@@ -130,16 +110,15 @@ export async function leaveOut(tx: Prisma.TransactionClient, tabletId: string, k
 
 /**
  * The tablet's records the Library leaves out that are still to be set aside
- * there, but those in `skipped` (`leaveOutKey`): batches before beans, as a
- * barista sees them, then grinders and profiles.
+ * there, but those in `skipped` (`leaveOutKey`), in REMOVAL_ORDER: batches
+ * before beans, as a barista sees them, then grinders and profiles.
  */
 export async function leaveOutsDue(tx: Prisma.TransactionClient, tabletId: string, skipped: ReadonlySet<string>): Promise<PlannedLeaveOut[]> {
-  const order: readonly DeletedKind[] = ["beanBatch", "bean", "grinder", "profile"];
   const rows = await tx.$queryRaw<{ kind: DeletedKind; localId: string }[]>`
     SELECT kind, local_id AS "localId" FROM tablet_left_out WHERE tablet_id = ${tabletId}::uuid AND NOT set_aside ORDER BY local_id`;
   return rows
-    .filter((row) => order.includes(row.kind) && !skipped.has(leaveOutKey(row.kind, row.localId)))
-    .sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))
+    .filter((row) => REMOVAL_ORDER.includes(row.kind) && !skipped.has(leaveOutKey(row.kind, row.localId)))
+    .sort((a, b) => REMOVAL_ORDER.indexOf(a.kind) - REMOVAL_ORDER.indexOf(b.kind))
     .map((row) => ({ leaveOut: true, kind: row.kind, localId: row.localId }));
 }
 

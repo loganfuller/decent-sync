@@ -1,10 +1,8 @@
-import { globalIdOf, sameValue } from "@decent-sync/protocol";
+import { LIBRARY_KINDS, globalIdOf, sameValue } from "@decent-sync/protocol";
 import type { DeletedKind, LibraryKind, WrittenKind } from "@decent-sync/protocol";
-import { batchContent, weightOf } from "./batch-intake.js";
-import { beanContent } from "./bean-intake.js";
-import { grinderContent } from "./grinder-intake.js";
+import { weightOf } from "./batch-intake.js";
+import { KINDS } from "./kinds.js";
 import { isObject } from "./listed.js";
-import { PROFILE_TEXT, profileText } from "./profile-intake.js";
 
 // What a tablet should hold for its Location (ADR-0008), and the writes that
 // bring it there. A tablet holds only what its Location offers: each Bean,
@@ -13,8 +11,9 @@ import { PROFILE_TEXT, profileText } from "./profile-intake.js";
 // that the Location does not offer is archived or hidden on it, never
 // deleted, so its Shots still find it. Every record it holds is written the
 // item's content where it differs, so an edit reaches every tablet that
-// holds the item, at every Location (ADR-0020). Pure, so module tests can
-// drive it; tablet-due.ts reads what it needs.
+// holds the item, at every Location (ADR-0020). It does no database work,
+// reading each kind's content and planner from its description (kinds.ts),
+// so module tests can drive it; tablet-due.ts reads what it needs.
 
 /** A Bean a Location offers, with its content. */
 export interface OfferedBean {
@@ -165,27 +164,35 @@ export function writeKey(kind: WrittenKind, globalId: string): string {
 }
 
 /**
- * The writes due, in the order they are made: first each Bean the Location
- * offers that the tablet lacks, holds archived, or holds without its global
- * id; then each batch the tablet lacks, or holds archived, without its
- * global id or with another remaining weight than the Location's; then
- * each batch the tablet holds that the Location does not offer, archived,
- * and each Bean the same way. Beans so come before their batches, and
- * batches are archived before their Beans. Then each Grinder the Location
- * offers that the tablet lacks, holds archived, or holds without its global
- * id, and each the tablet holds that it does not offer, archived. Last, each
- * Profile the Location shows that the tablet lacks, created, unless it is one
- * of Decaid's bundled Profiles, after the Profile it was saved from if that
- * is created too, so the tablet keeps its parent; or that the tablet holds
- * hidden or deleted, made visible. Then each the tablet holds visible that
- * the Location does not show, hidden. Items in `skipped`
- * (`writeKey`) are left out, and so is a batch whose Bean the tablet holds
- * no record of yet: its Bean is written first. Every record the tablet holds
- * whose content differs from the item's, offered there or not, is written the
- * item's content, in the same update. Every update sets only the fields that
- * differ, writing the global id beside them; a Profile's records carry none.
+ * The writes due, in the order they are made: each kind's, in the order of
+ * LIBRARY_ITEM_KINDS, as its description plans them (`plan`, in kinds.ts):
+ * first each Bean the Location offers that the tablet lacks, holds archived,
+ * or holds without its global id; then each batch the tablet lacks, or holds
+ * archived, without its global id or with another remaining weight than the
+ * Location's; then each batch the tablet holds that the Location does not
+ * offer, archived, and each Bean the same way. Beans so come before their
+ * batches, and batches are archived before their Beans. Then each Grinder
+ * the Location offers that the tablet lacks, holds archived, or holds
+ * without its global id, and each the tablet holds that it does not offer,
+ * archived. Last, each Profile the Location shows that the tablet lacks,
+ * created, unless it is one of Decaid's bundled Profiles, after the Profile
+ * it was saved from if that is created too, so the tablet keeps its parent;
+ * or that the tablet holds hidden or deleted, made visible. Then each the
+ * tablet holds visible that the Location does not show, hidden. Items in
+ * `skipped` (`writeKey`) are left out, and so is a batch whose Bean the
+ * tablet holds no record of yet: its Bean is written first. Every record the
+ * tablet holds whose content differs from the item's, offered there or not,
+ * is written the item's content, in the same update. Every update sets only
+ * the fields that differ, writing the global id beside them; a Profile's
+ * records carry none.
  */
 export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skipped: ReadonlySet<string> = new Set()): PlannedWrite[] {
+  const writes = LIBRARY_KINDS.flatMap((kind) => KINDS[kind].plan?.(offer, held) ?? []);
+  return writes.filter((write) => !skipped.has(writeKey(write.kind, write.globalId)));
+}
+
+/** The writes of Beans and of their batches, which interleave: Beans before their batches are created, batches archived before their Beans. */
+export function beanWrites(offer: LocationOffer, held: TabletHoldings): PlannedWrite[] {
   const beans = new Map(held.beans.map((record) => [record.itemId, record]));
   const batches = new Map(held.batches.map((record) => [record.itemId, record]));
   const offeredBeans = new Set(offer.beans.map((bean) => bean.id));
@@ -222,6 +229,12 @@ export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skippe
   for (const record of held.beans) {
     if (!offeredBeans.has(record.itemId)) pushUpdate(writes, "bean", record.itemId, record, record.record.archived === true ? {} : { archived: true }, record.decidedAt ?? null);
   }
+  return writes;
+}
+
+/** The writes of Grinders, each of which belongs to one Location. */
+export function grinderWrites(offer: LocationOffer, held: TabletHoldings): PlannedWrite[] {
+  const writes: PlannedWrite[] = [];
   const grinders = new Map(held.grinders.map((record) => [record.itemId, record]));
   const offeredGrinders = new Set(offer.grinders.map((grinder) => grinder.id));
   for (const grinder of offer.grinders) {
@@ -232,6 +245,12 @@ export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skippe
   for (const record of held.grinders) {
     if (!offeredGrinders.has(record.itemId)) pushUpdate(writes, "grinder", record.itemId, record, record.record.archived === true ? {} : { archived: true }, null);
   }
+  return writes;
+}
+
+/** The writes of Profiles, shown or hidden at the Location. */
+export function profileWrites(offer: LocationOffer, held: TabletHoldings): PlannedWrite[] {
+  const writes: PlannedWrite[] = [];
   const profiles = new Map(held.profiles.map((record) => [record.itemId, record]));
   const shownProfiles = new Set(offer.profiles.map((profile) => profile.id));
   for (const profile of parentsFirst(offer.profiles)) {
@@ -254,7 +273,7 @@ export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skippe
     // One hidden or deleted on the tablet is not shown there already.
     pushUpdate(writes, "profile", record.itemId, record, record.record.visibility === "visible" ? { visibility: "hidden" } : {}, record.decidedAt ?? null);
   }
-  return writes.filter((write) => !skipped.has(writeKey(write.kind, write.globalId)));
+  return writes;
 }
 
 /**
@@ -298,14 +317,14 @@ function profileToCreate(content: Record<string, unknown>): Record<string, unkno
 }
 
 /**
- * Adds an update of the tablet's record, if it lacks its global id (but a
- * Profile's, which carries none), any of `location`, the fields of its
- * Location's state to set, or the item's content where it differs, with the
- * value the record holds for each field to set.
+ * Adds an update of the tablet's record, if it lacks its global id (but for
+ * a kind whose records carry none, a Profile), any of `location`, the fields
+ * of its Location's state to set, or the item's content where it differs,
+ * with the value the record holds for each field to set.
  */
 function pushUpdate(writes: PlannedWrite[], kind: LibraryKind, globalId: string, record: HeldRecord, location: Record<string, unknown>, decidedAt: Date | null): void {
   const fields = { ...contentToWrite(kind, record), ...location };
-  const lacksId = kind !== "profile" && globalIdOf(record.record) !== globalId.toLowerCase();
+  const lacksId = KINDS[kind].carriesGlobalId && globalIdOf(record.record) !== globalId.toLowerCase();
   if (Object.keys(fields).length === 0 && !lacksId) return;
   const expected = Object.fromEntries(Object.keys(fields).map((field) => [field, heldValue(kind, record.record, field)]));
   writes.push({ kind, globalId, localId: record.localId, fields, expected, decidedAt, contentDecidedAt: record.contentDecidedAt });
@@ -314,7 +333,8 @@ function pushUpdate(writes: PlannedWrite[], kind: LibraryKind, globalId: string,
 /** The item's content where the tablet's record of it differs: each field the record is to be written, with the item's value, null to clear it. */
 function contentToWrite(kind: LibraryKind, held: HeldRecord): Record<string, unknown> {
   if (!held.content) return {};
-  const tablet = recordContent(kind, held.record);
+  // A tablet's record's content, as edits merge it.
+  const tablet = KINDS[kind].recordValues(held.record);
   const fields: Record<string, unknown> = {};
   for (const field of new Set([...Object.keys(held.content), ...Object.keys(tablet)])) {
     if (!sameValue(held.content[field], tablet[field])) fields[field] = held.content[field] ?? null;
@@ -322,22 +342,14 @@ function contentToWrite(kind: LibraryKind, held: HeldRecord): Record<string, unk
   return fields;
 }
 
-/** A tablet's record's content, as edits merge it. */
-function recordContent(kind: LibraryKind, record: Record<string, unknown>): Record<string, unknown> {
-  switch (kind) {
-    case "bean":
-      return beanContent(record);
-    case "beanBatch":
-      return batchContent(record);
-    case "grinder":
-      return grinderContent(record);
-    case "profile":
-      return profileText(record);
-  }
-}
-
-/** The value a tablet's record holds for a field a write sets, as Decaid names it: a Profile's title, author and notes are in its `profile`. */
+/**
+ * The value a tablet's record holds for a field a write sets, as Decaid
+ * names it: a field edits merge is in the record's field that holds them
+ * (`editedIn`), as a Profile's title, author and notes are in its `profile`.
+ */
 function heldValue(kind: LibraryKind, record: Record<string, unknown>, field: string): unknown {
-  if (kind === "profile" && (PROFILE_TEXT as readonly string[]).includes(field)) return (isObject(record.profile) ? record.profile[field] : undefined) ?? null;
-  return record[field] ?? null;
+  const { editedIn, recordValues } = KINDS[kind];
+  if (editedIn === null || !(field in recordValues(record))) return record[field] ?? null;
+  const values = record[editedIn];
+  return (isObject(values) ? values[field] : undefined) ?? null;
 }

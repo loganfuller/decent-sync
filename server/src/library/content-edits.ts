@@ -1,9 +1,9 @@
-import { type LibraryKind, beanMatchKey } from "@decent-sync/protocol";
+import type { LibraryKind } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { type EditSource, type LibraryItemRef as ItemRef, recordConflict, recordReplaced, recordVersion } from "./history.js";
+import { KINDS, idSql, idsSql } from "./kinds.js";
 import { isObject } from "./listed.js";
 import { type FieldEdits, changedFields, editsAfter, latestDecision, mergeEdit, readFieldEdits } from "./merge.js";
-import { profileText } from "./profile-intake.js";
 
 // Edits of Library items' content, merged per field with the latest edit
 // winning (ADR-0020): a Bean's, a Bean Batch's and a Grinder's record fields,
@@ -16,14 +16,6 @@ import { profileText } from "./profile-intake.js";
 // Location's locks; a report's items are locked together, in id order, so two
 // reports editing the same items never wait on each other in turn.
 
-/** The table holding each kind of item. */
-export const ITEM_TABLES: Readonly<Record<LibraryKind, { table: string; cast: string }>> = {
-  bean: { table: "beans", cast: "uuid" },
-  beanBatch: { table: "bean_batches", cast: "uuid" },
-  grinder: { table: "grinders", cast: "uuid" },
-  profile: { table: "profiles", cast: "text" },
-};
-
 /**
  * Holds the row locks of the items until the transaction ends, in id order,
  * so their edits are decided one report or answer at a time. Taken after the
@@ -31,34 +23,34 @@ export const ITEM_TABLES: Readonly<Record<LibraryKind, { table: string; cast: st
  */
 export async function lockItems(tx: Prisma.TransactionClient, kind: LibraryKind, ids: readonly string[]): Promise<void> {
   if (ids.length === 0) return;
-  const { table, cast } = ITEM_TABLES[kind];
+  const description = KINDS[kind];
   await tx.$queryRaw`
-    SELECT 1 FROM ${Prisma.raw(table)} WHERE id = ANY(${[...new Set(ids)]}::${Prisma.raw(cast)}[]) ORDER BY id FOR NO KEY UPDATE`;
+    SELECT 1 FROM ${Prisma.raw(description.table)} WHERE id = ANY(${idsSql(description, [...new Set(ids)])}) ORDER BY id FOR NO KEY UPDATE`;
 }
 
 /** An item's content as edits merge it, and its fields' latest edits. */
 interface EditedItem {
   content: Record<string, unknown>;
-  /** A Grinder's Archived state, a field of its own; null for other kinds. */
+  /** Its Archived state, for a kind where it is a field of its content (`archivedIsContent`), as a Grinder's is; null for other kinds. */
   archived: boolean | null;
   fieldEdits: FieldEdits;
 }
 
 /** Reads an item under its row lock, or null if the Library no longer has it. */
 async function readItem(tx: Prisma.TransactionClient, item: ItemRef): Promise<EditedItem | null> {
-  const { table, cast } = ITEM_TABLES[item.kind];
-  const archived = item.kind === "grinder" ? Prisma.sql`archived` : Prisma.sql`NULL::boolean`;
+  const description = KINDS[item.kind];
+  const archived = description.archivedIsContent ? Prisma.sql`archived` : Prisma.sql`NULL::boolean`;
   const [row] = await tx.$queryRaw<{ content: unknown; archived: boolean | null; fieldEdits: unknown }[]>`
-    SELECT content, ${archived} AS archived, field_edits AS "fieldEdits" FROM ${Prisma.raw(table)}
-    WHERE id = ${item.id}::${Prisma.raw(cast)} FOR NO KEY UPDATE`;
+    SELECT content, ${archived} AS archived, field_edits AS "fieldEdits" FROM ${Prisma.raw(description.table)}
+    WHERE id = ${idSql(description, item.id)} FOR NO KEY UPDATE`;
   if (!row) return null;
   return { content: isObject(row.content) ? row.content : {}, archived: row.archived, fieldEdits: readFieldEdits(row.fieldEdits) };
 }
 
-/** The values edits of an item merge: its content's fields, a Grinder's Archived state, a Profile's title, author and notes. */
+/** The values edits of an item merge: its content's (`values`), and its Archived state where that is one of them. */
 function mergedValues(kind: LibraryKind, item: EditedItem): Record<string, unknown> {
-  if (kind === "profile") return profileText(item.content);
-  return item.archived === null ? item.content : { ...item.content, archived: item.archived };
+  const values = KINDS[kind].values(item.content);
+  return item.archived === null ? values : { ...values, archived: item.archived };
 }
 
 /**
@@ -80,24 +72,22 @@ async function saveItem(
   applied: Readonly<Record<string, unknown>>,
   fieldEdits: Readonly<Record<string, unknown>>,
 ): Promise<void> {
-  const { table, cast } = ITEM_TABLES[item.kind];
+  const description = KINDS[item.kind];
   const { archived, ...fields } = applied;
   const content: Record<string, unknown> = { ...current.content };
   // Decaid leaves out a field it holds no value for, and so does the content.
-  const target = item.kind === "profile" ? { ...(isObject(content.profile) ? content.profile : {}) } : content;
-  for (const [field, value] of Object.entries(item.kind === "grinder" ? fields : applied)) {
+  const { editedIn } = description;
+  const target = editedIn === null ? content : { ...(isObject(content[editedIn]) ? content[editedIn] : {}) };
+  for (const [field, value] of Object.entries(description.archivedIsContent ? fields : applied)) {
     if (value === null) delete target[field];
     else target[field] = value;
   }
-  if (item.kind === "profile") content.profile = target;
-  const grinderArchived = item.kind === "grinder" && typeof archived === "boolean" ? Prisma.sql`, archived = ${archived}` : Prisma.empty;
-  const matchKey =
-    item.kind === "bean" && typeof content.roaster === "string" && typeof content.name === "string"
-      ? Prisma.sql`, match_key = ${beanMatchKey(content.roaster, content.name)}`
-      : Prisma.empty;
+  if (editedIn !== null) content[editedIn] = target;
+  const archivedColumn = description.archivedIsContent && typeof archived === "boolean" ? Prisma.sql`, archived = ${archived}` : Prisma.empty;
   await tx.$executeRaw`
-    UPDATE ${Prisma.raw(table)} SET content = ${JSON.stringify(content)}::jsonb, field_edits = ${JSON.stringify(fieldEdits)}::jsonb ${grinderArchived} ${matchKey}
-    WHERE id = ${item.id}::${Prisma.raw(cast)}`;
+    UPDATE ${Prisma.raw(description.table)}
+    SET content = ${JSON.stringify(content)}::jsonb, field_edits = ${JSON.stringify(fieldEdits)}::jsonb ${archivedColumn} ${description.keptColumns(content)}
+    WHERE id = ${idSql(description, item.id)}`;
 }
 
 /**
@@ -156,8 +146,8 @@ export async function recordJoined(tx: Prisma.TransactionClient, item: ItemRef, 
   const versionId = await recordVersion(tx, item, null, values, source, at);
   const decidedAt = await decisionTime(tx, {});
   const fieldEdits = editsAfter({}, values, { at, tabletId: source.tabletId }, decidedAt, versionId);
-  const { table, cast } = ITEM_TABLES[item.kind];
-  await tx.$executeRaw`UPDATE ${Prisma.raw(table)} SET field_edits = ${JSON.stringify(fieldEdits)}::jsonb WHERE id = ${item.id}::${Prisma.raw(cast)}`;
+  const description = KINDS[item.kind];
+  await tx.$executeRaw`UPDATE ${Prisma.raw(description.table)} SET field_edits = ${JSON.stringify(fieldEdits)}::jsonb WHERE id = ${idSql(description, item.id)}`;
 }
 
 /**
@@ -197,9 +187,8 @@ export async function holdsWrittenContent(
   edited: EditOutcome | null,
 ): Promise<boolean> {
   if (edited !== null) return !edited.lost;
-  const { table, cast } = ITEM_TABLES[item.kind];
-  const [row] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM ${Prisma.raw(table)} WHERE id = ${item.id}::${Prisma.raw(cast)}`;
+  const description = KINDS[item.kind];
+  const [row] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM ${Prisma.raw(description.table)} WHERE id = ${idSql(description, item.id)}`;
   if (!row) return false;
-  const content = isObject(row.content) ? row.content : {};
-  return Object.keys(changedFields(item.kind === "profile" ? profileText(content) : content, values)).length === 0;
+  return Object.keys(changedFields(description.values(isObject(row.content) ? row.content : {}), values)).length === 0;
 }
