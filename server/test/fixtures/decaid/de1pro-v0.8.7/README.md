@@ -69,6 +69,13 @@ Decaid's bundled ones) and the DYE2 recipe's Barista is replaced with
 `Fixture Barista`. Nothing on this tablet was archived or hidden, and DYE2 had
 never written its `equipment` key, which Decaid then answers with `null`
 (`KvStoreHandler` in `decaid:lib/src/services/webserver/kv_store_handler.dart`);
-`simulated-devices-v0.8.7/` has archived and hidden records. Its paired scale
+`simulated-devices-v0.8.7/` has archived and hidden records. The DYE2
+recipe and basket are in an older DYE2's shape than v0.1.19's
+(`dye2-v0.1.19/`): the recipe has no `profileSnapshot`, and its
+`dashboardVariables` no grinder model, basket or tools, and the basket has
+no size. On 2026-10-12, running Decaid 0.8.8 and DYE2 0.1.19, the tablet
+answered its three DYE2 keys as these files hold them, but for the Barista
+replaced, so nothing newer was
+read from it. Its paired scale
 was off: `devices.json` lists it as Decaid remembers it, `disconnected` and not
 `available`.

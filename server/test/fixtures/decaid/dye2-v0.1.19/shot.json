@@ -1,0 +1,3552 @@
+{
+  "pulled": {
+    "request": {
+      "method": "GET",
+      "path": "/shots/f6c40936-7f42-431d-a496-8cf3e351536c"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "f6c40936-7f42-431d-a496-8cf3e351536c",
+        "timestamp": "2026-10-12T20:26:30.107429",
+        "createdAt": "2026-10-12T20:27:09.102524Z",
+        "updatedAt": "2026-10-12T20:27:09.102524Z",
+        "measurements": [
+          {
+            "machine": {
+              "timestamp": "2026-10-12T20:26:30.107212",
+              "state": {
+                "state": "espresso",
+                "substate": "preparingForShot"
+              },
+              "flow": 4.619999999999999,
+              "pressure": 0.2474466108981124,
+              "targetFlow": 8,
+              "targetPressure": 0,
+              "mixTemperature": 92,
+              "groupTemperature": 93,
+              "targetMixTemperature": 93,
+              "targetGroupTemperature": 93,
+              "profileFrame": 0,
+              "steamTemperature": 133
+            },
+            "scale": {
+              "timestamp": "2026-10-12T20:26:29.972866",
+              "weight": 0,
+              "weightFlow": 0,
+              "battery": 100,
+              "timerValue": null
+            },
+            "volume": 0
+          },
+          {
+            "machine": {
+              "timestamp": "2026-10-12T20:26:34.999855",
+              "state": {
+                "state": "espresso",
+                "substate": "preinfusion"
+              },
+              "flow": 7.999999997700301,
+              "pressure": 3.3666319012700843,
+              "targetFlow": 8,
+              "targetPressure": 0,
+              "mixTemperature": 88.54695866562096,
+              "groupTemperature": 89.54695866562096,
+              "targetMixTemperature": 93,
+              "targetGroupTemperature": 93,
+              "profileFrame": 2,
+              "steamTemperature": 133
+            },
+            "scale": {
+              "timestamp": "2026-10-12T20:26:34.987752",
+              "weight": 0,
+              "weightFlow": 0,
+              "battery": 100,
+              "timerValue": 4483
+            },
+            "volume": 0
+          },
+          {
+            "machine": {
+              "timestamp": "2026-10-12T20:26:47.303614",
+              "state": {
+                "state": "espresso",
+                "substate": "pouring"
+              },
+              "flow": 3.7892888676911,
+              "pressure": 10.303468276641127,
+              "targetFlow": 0,
+              "targetPressure": 11,
+              "mixTemperature": 86.94277386681647,
+              "groupTemperature": 87.94277386681647,
+              "targetMixTemperature": 88,
+              "targetGroupTemperature": 88,
+              "profileFrame": 5,
+              "steamTemperature": 133
+            },
+            "scale": {
+              "timestamp": "2026-10-12T20:26:47.176939",
+              "weight": 2.027593425901809,
+              "weightFlow": 0.8787011793399992,
+              "battery": 100,
+              "timerValue": 16672
+            },
+            "volume": 4.661851614518507
+          },
+          {
+            "machine": {
+              "timestamp": "2026-10-12T20:27:04.899101",
+              "state": {
+                "state": "espresso",
+                "substate": "pouring"
+              },
+              "flow": 2.0771428571428574,
+              "pressure": 5.682974059037135,
+              "targetFlow": 2.0833333333333335,
+              "targetPressure": 0,
+              "mixTemperature": 86.99983791850242,
+              "groupTemperature": 87.99983791850242,
+              "targetMixTemperature": 88,
+              "targetGroupTemperature": 88,
+              "profileFrame": 6,
+              "steamTemperature": 133
+            },
+            "scale": {
+              "timestamp": "2026-10-12T20:27:04.775501",
+              "weight": 33.437472098597624,
+              "weightFlow": 2.0246555539447924,
+              "battery": 100,
+              "timerValue": 34271
+            },
+            "volume": 35.935079478624594
+          }
+        ],
+        "workflow": {
+          "id": "43151609-647b-45ec-811d-45ab76431e22",
+          "name": "Workflow",
+          "description": "Description",
+          "profile": {
+            "version": "2",
+            "title": "Adaptive v3",
+            "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+            "author": "Decent",
+            "beverage_type": "espresso",
+            "steps": [
+              {
+                "name": "Prefill",
+                "pump": "flow",
+                "transition": "fast",
+                "exit": null,
+                "volume": 100,
+                "seconds": 5,
+                "weight": 0,
+                "temperature": 93,
+                "sensor": "coffee",
+                "flow": 8,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Fill",
+                "pump": "flow",
+                "transition": "fast",
+                "exit": {
+                  "type": "pressure",
+                  "condition": "over",
+                  "value": 3
+                },
+                "volume": 100,
+                "seconds": 12,
+                "weight": 0,
+                "temperature": 93,
+                "sensor": "coffee",
+                "flow": 8,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Compressing",
+                "pump": "pressure",
+                "transition": "fast",
+                "exit": {
+                  "type": "flow",
+                  "condition": "under",
+                  "value": 3
+                },
+                "volume": 100,
+                "seconds": 12,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "pressure": 3,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Dripping",
+                "pump": "pressure",
+                "transition": "fast",
+                "exit": null,
+                "volume": 0,
+                "seconds": 6,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "pressure": 0.1,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Pressurize",
+                "pump": "pressure",
+                "transition": "smooth",
+                "exit": {
+                  "type": "pressure",
+                  "condition": "over",
+                  "value": 7.7
+                },
+                "volume": 100,
+                "seconds": 6,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "pressure": 11,
+                "limiter": {
+                  "value": 3.5,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Extraction start",
+                "pump": "flow",
+                "transition": "fast",
+                "exit": {
+                  "type": "pressure",
+                  "condition": "over",
+                  "value": 0
+                },
+                "volume": 0,
+                "seconds": 0,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "flow": 1.5,
+                "limiter": {
+                  "value": 8.6,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Extraction",
+                "pump": "flow",
+                "transition": "smooth",
+                "exit": null,
+                "volume": 100,
+                "seconds": 60,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "flow": 3.5,
+                "limiter": {
+                  "value": 8.6,
+                  "range": 0.6
+                }
+              }
+            ],
+            "target_volume": 36,
+            "target_weight": 36,
+            "target_volume_count_start": 3,
+            "tank_temperature": 0
+          },
+          "context": {
+            "targetDoseWeight": 18.5,
+            "targetYield": 36,
+            "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+            "grinderModel": "Fixture Grinder 64",
+            "grinderSetting": "2.7",
+            "baristaName": "Fixture Barista",
+            "drinkerName": "Fixture Drinker",
+            "extras": {
+              "rpm": 900,
+              "basketId": "1749fba2-86b3-43e2-badf-97af64ae888b",
+              "basketName": "Fixture 20g High-flow"
+            }
+          },
+          "steamSettings": {
+            "targetTemperature": 150,
+            "duration": 30,
+            "flow": 0,
+            "stopAtTemperature": 0
+          },
+          "hotWaterData": {
+            "targetTemperature": 88,
+            "duration": 30,
+            "volume": 0,
+            "flow": 10
+          },
+          "rinseData": {
+            "targetTemperature": 90,
+            "duration": 5,
+            "flow": 6
+          },
+          "machine": {
+            "provenanceStatus": "captured",
+            "flowCalibration": 1,
+            "serialNumber": "mock-de1",
+            "model": "DE1Pro",
+            "firmwareVersion": "1337"
+          }
+        },
+        "annotations": {
+          "actualDoseWeight": 18.5,
+          "actualYield": 34.1
+        },
+        "stopReason": "targetWeight"
+      }
+    }
+  },
+  "openEditShot": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/workflow"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "43151609-647b-45ec-811d-45ab76431e22",
+          "name": "Workflow",
+          "description": "Description",
+          "profile": {
+            "version": "2",
+            "title": "Adaptive v3",
+            "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+            "author": "Decent",
+            "beverage_type": "espresso",
+            "steps": [
+              {
+                "name": "Prefill",
+                "pump": "flow",
+                "transition": "fast",
+                "exit": null,
+                "volume": 100,
+                "seconds": 5,
+                "weight": 0,
+                "temperature": 93,
+                "sensor": "coffee",
+                "flow": 8,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Fill",
+                "pump": "flow",
+                "transition": "fast",
+                "exit": {
+                  "type": "pressure",
+                  "condition": "over",
+                  "value": 3
+                },
+                "volume": 100,
+                "seconds": 12,
+                "weight": 0,
+                "temperature": 93,
+                "sensor": "coffee",
+                "flow": 8,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Compressing",
+                "pump": "pressure",
+                "transition": "fast",
+                "exit": {
+                  "type": "flow",
+                  "condition": "under",
+                  "value": 3
+                },
+                "volume": 100,
+                "seconds": 12,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "pressure": 3,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Dripping",
+                "pump": "pressure",
+                "transition": "fast",
+                "exit": null,
+                "volume": 0,
+                "seconds": 6,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "pressure": 0.1,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Pressurize",
+                "pump": "pressure",
+                "transition": "smooth",
+                "exit": {
+                  "type": "pressure",
+                  "condition": "over",
+                  "value": 7.7
+                },
+                "volume": 100,
+                "seconds": 6,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "pressure": 11,
+                "limiter": {
+                  "value": 3.5,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Extraction start",
+                "pump": "flow",
+                "transition": "fast",
+                "exit": {
+                  "type": "pressure",
+                  "condition": "over",
+                  "value": 0
+                },
+                "volume": 0,
+                "seconds": 0,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "flow": 1.5,
+                "limiter": {
+                  "value": 8.6,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Extraction",
+                "pump": "flow",
+                "transition": "smooth",
+                "exit": null,
+                "volume": 100,
+                "seconds": 60,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "flow": 3.5,
+                "limiter": {
+                  "value": 8.6,
+                  "range": 0.6
+                }
+              }
+            ],
+            "target_volume": 36,
+            "target_weight": 36,
+            "target_volume_count_start": 3,
+            "tank_temperature": 0
+          },
+          "context": {
+            "targetDoseWeight": 18.5,
+            "targetYield": 36,
+            "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+            "grinderModel": "Fixture Grinder 64",
+            "grinderSetting": "2.7",
+            "baristaName": "Fixture Barista",
+            "drinkerName": "Fixture Drinker",
+            "extras": {
+              "rpm": 900,
+              "basketId": "1749fba2-86b3-43e2-badf-97af64ae888b",
+              "basketName": "Fixture 20g High-flow"
+            }
+          },
+          "steamSettings": {
+            "targetTemperature": 150,
+            "duration": 30,
+            "flow": 0,
+            "stopAtTemperature": 0
+          },
+          "hotWaterData": {
+            "targetTemperature": 88,
+            "duration": 30,
+            "volume": 0,
+            "flow": 10
+          },
+          "rinseData": {
+            "targetTemperature": 90,
+            "duration": 5,
+            "flow": 6
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/recipes"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture Ethiopia Espresso",
+            "beverage": "Fixture Flat White",
+            "barista": "Fixture Barista",
+            "drinker": "Fixture Drinker",
+            "beanId": "8ee8ac01-bf2b-47d6-b4e2-292bd7ef5ada",
+            "beanName": "Fixture Ethiopia",
+            "profileId": "profile:98fa00c191551b435845",
+            "profileTitle": "Adaptive v3",
+            "profileSnapshot": null,
+            "showOnStreamlineDashboard": true,
+            "dashboardVariables": {
+              "dose": 18.5,
+              "drink": 36,
+              "brewC": 92,
+              "steamMode": "time",
+              "steamTimeS": 30,
+              "flushS": 5,
+              "hotWaterMode": "temp",
+              "hotWaterTempC": 88,
+              "grind": 2.7,
+              "rpm": 900,
+              "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+              "grinderModel": "Fixture Grinder 64",
+              "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+              "basketName": "Fixture 18g Precision",
+              "equipmentIds": [
+                "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+                "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2"
+              ],
+              "equipmentNames": [
+                "Fixture WDT Tool",
+                "Fixture Puck Screen"
+              ],
+              "equipmentCustom": {
+                "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6": [
+                  {
+                    "key": "Needles",
+                    "value": "12"
+                  },
+                  {
+                    "key": "Needle size",
+                    "value": "0.3 mm"
+                  }
+                ]
+              }
+            },
+            "id": "1",
+            "capturedAt": "2026-10-12T20:25:55.195Z",
+            "title": "Fixture Ethiopia Espresso",
+            "subtitle": "Fixture Ethiopia",
+            "workflow": {
+              "context": {
+                "targetDoseWeight": 18.5,
+                "targetYield": 36,
+                "grinderSetting": "2.7",
+                "extras": {
+                  "rpm": 900,
+                  "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+                  "basketName": "Fixture 18g Precision"
+                },
+                "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+                "grinderModel": "Fixture Grinder 64",
+                "coffeeName": "Fixture Ethiopia",
+                "baristaName": "Fixture Barista",
+                "drinkerName": "Fixture Drinker"
+              },
+              "profile": {
+                "version": "2",
+                "title": "Adaptive v3",
+                "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+                "author": "Decent",
+                "beverage_type": "espresso",
+                "steps": [
+                  {
+                    "name": "Prefill",
+                    "pump": "flow",
+                    "transition": "fast",
+                    "exit": null,
+                    "volume": 100,
+                    "seconds": 5,
+                    "weight": 0,
+                    "temperature": 93,
+                    "sensor": "coffee",
+                    "flow": 8,
+                    "limiter": {
+                      "value": 0,
+                      "range": 0.6
+                    }
+                  },
+                  {
+                    "name": "Fill",
+                    "pump": "flow",
+                    "transition": "fast",
+                    "exit": {
+                      "type": "pressure",
+                      "condition": "over",
+                      "value": 3
+                    },
+                    "volume": 100,
+                    "seconds": 12,
+                    "weight": 0,
+                    "temperature": 93,
+                    "sensor": "coffee",
+                    "flow": 8,
+                    "limiter": {
+                      "value": 0,
+                      "range": 0.6
+                    }
+                  },
+                  {
+                    "name": "Compressing",
+                    "pump": "pressure",
+                    "transition": "fast",
+                    "exit": {
+                      "type": "flow",
+                      "condition": "under",
+                      "value": 3
+                    },
+                    "volume": 100,
+                    "seconds": 12,
+                    "weight": 0,
+                    "temperature": 88,
+                    "sensor": "coffee",
+                    "pressure": 3,
+                    "limiter": {
+                      "value": 0,
+                      "range": 0.6
+                    }
+                  },
+                  {
+                    "name": "Dripping",
+                    "pump": "pressure",
+                    "transition": "fast",
+                    "exit": null,
+                    "volume": 0,
+                    "seconds": 6,
+                    "weight": 0,
+                    "temperature": 88,
+                    "sensor": "coffee",
+                    "pressure": 0.1,
+                    "limiter": {
+                      "value": 0,
+                      "range": 0.6
+                    }
+                  },
+                  {
+                    "name": "Pressurize",
+                    "pump": "pressure",
+                    "transition": "smooth",
+                    "exit": {
+                      "type": "pressure",
+                      "condition": "over",
+                      "value": 7.7
+                    },
+                    "volume": 100,
+                    "seconds": 6,
+                    "weight": 0,
+                    "temperature": 88,
+                    "sensor": "coffee",
+                    "pressure": 11,
+                    "limiter": {
+                      "value": 3.5,
+                      "range": 0.6
+                    }
+                  },
+                  {
+                    "name": "Extraction start",
+                    "pump": "flow",
+                    "transition": "fast",
+                    "exit": {
+                      "type": "pressure",
+                      "condition": "over",
+                      "value": 0
+                    },
+                    "volume": 0,
+                    "seconds": 0,
+                    "weight": 0,
+                    "temperature": 88,
+                    "sensor": "coffee",
+                    "flow": 1.5,
+                    "limiter": {
+                      "value": 8.6,
+                      "range": 0.6
+                    }
+                  },
+                  {
+                    "name": "Extraction",
+                    "pump": "flow",
+                    "transition": "smooth",
+                    "exit": null,
+                    "volume": 100,
+                    "seconds": 60,
+                    "weight": 0,
+                    "temperature": 88,
+                    "sensor": "coffee",
+                    "flow": 3.5,
+                    "limiter": {
+                      "value": 8.6,
+                      "range": 0.6
+                    }
+                  }
+                ],
+                "target_volume": 36,
+                "target_weight": 36,
+                "target_volume_count_start": 3,
+                "tank_temperature": 0
+              }
+            }
+          },
+          {
+            "name": "Fixture Brazil Espresso",
+            "beverage": "",
+            "barista": "",
+            "drinker": "",
+            "beanId": "6b16db38-425e-48ec-93b7-e03e1d8707cd",
+            "beanName": "Fixture Brazil",
+            "profileId": null,
+            "profileTitle": "Classic Italian espresso",
+            "profileSnapshot": {
+              "version": "2",
+              "title": "Classic Italian espresso",
+              "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+              "author": "Decent",
+              "beverage_type": "espresso",
+              "steps": [
+                {
+                  "name": "preinfusion temp boost",
+                  "pump": "flow",
+                  "transition": "fast",
+                  "exit": {
+                    "type": "pressure",
+                    "condition": "over",
+                    "value": 4
+                  },
+                  "volume": 0,
+                  "seconds": 2,
+                  "weight": 0,
+                  "temperature": 94,
+                  "sensor": "coffee",
+                  "flow": 8,
+                  "limiter": null
+                },
+                {
+                  "name": "preinfusion",
+                  "pump": "flow",
+                  "transition": "fast",
+                  "exit": {
+                    "type": "pressure",
+                    "condition": "over",
+                    "value": 4
+                  },
+                  "volume": 0,
+                  "seconds": 6,
+                  "weight": 0,
+                  "temperature": 94,
+                  "sensor": "coffee",
+                  "flow": 8,
+                  "limiter": null
+                },
+                {
+                  "name": "forced rise without limit",
+                  "pump": "pressure",
+                  "transition": "fast",
+                  "exit": null,
+                  "volume": 0,
+                  "seconds": 3,
+                  "weight": 0,
+                  "temperature": 94,
+                  "sensor": "coffee",
+                  "pressure": 9,
+                  "limiter": null
+                },
+                {
+                  "name": "rise and hold",
+                  "pump": "pressure",
+                  "transition": "fast",
+                  "exit": null,
+                  "volume": 0,
+                  "seconds": 32,
+                  "weight": 0,
+                  "temperature": 94,
+                  "sensor": "coffee",
+                  "pressure": 9,
+                  "limiter": {
+                    "value": 4.5,
+                    "range": 1
+                  }
+                }
+              ],
+              "target_volume": 36,
+              "target_weight": 36,
+              "target_volume_count_start": 2,
+              "tank_temperature": 0
+            },
+            "showOnStreamlineDashboard": true,
+            "dashboardVariables": {
+              "dose": 19,
+              "drink": 36,
+              "brewC": 93,
+              "steamMode": "flow",
+              "steamFlowMls": 1.2,
+              "flushS": 4,
+              "hotWaterMode": "vol",
+              "hotWaterMl": 150,
+              "grind": 3,
+              "rpm": 1100,
+              "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+              "grinderModel": "Fixture Grinder 64",
+              "basketId": "1749fba2-86b3-43e2-badf-97af64ae888b",
+              "basketName": "Fixture 20g High-flow",
+              "equipmentIds": [
+                "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2"
+              ],
+              "equipmentNames": [
+                "Fixture Puck Screen"
+              ],
+              "equipmentCustom": {}
+            },
+            "id": "2",
+            "capturedAt": "2026-10-12T20:25:49.933Z",
+            "title": "Fixture Brazil Espresso",
+            "subtitle": "Fixture Brazil",
+            "workflow": {
+              "context": {
+                "targetDoseWeight": 19,
+                "targetYield": 36,
+                "grinderSetting": "3",
+                "extras": {
+                  "rpm": 1100,
+                  "basketId": "1749fba2-86b3-43e2-badf-97af64ae888b",
+                  "basketName": "Fixture 20g High-flow"
+                },
+                "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+                "grinderModel": "Fixture Grinder 64",
+                "coffeeName": "Fixture Brazil"
+              },
+              "profile": {
+                "version": "2",
+                "title": "Classic Italian espresso",
+                "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+                "author": "Decent",
+                "beverage_type": "espresso",
+                "steps": [
+                  {
+                    "name": "preinfusion temp boost",
+                    "pump": "flow",
+                    "transition": "fast",
+                    "exit": {
+                      "type": "pressure",
+                      "condition": "over",
+                      "value": 4
+                    },
+                    "volume": 0,
+                    "seconds": 2,
+                    "weight": 0,
+                    "temperature": 94,
+                    "sensor": "coffee",
+                    "flow": 8,
+                    "limiter": null
+                  },
+                  {
+                    "name": "preinfusion",
+                    "pump": "flow",
+                    "transition": "fast",
+                    "exit": {
+                      "type": "pressure",
+                      "condition": "over",
+                      "value": 4
+                    },
+                    "volume": 0,
+                    "seconds": 6,
+                    "weight": 0,
+                    "temperature": 94,
+                    "sensor": "coffee",
+                    "flow": 8,
+                    "limiter": null
+                  },
+                  {
+                    "name": "forced rise without limit",
+                    "pump": "pressure",
+                    "transition": "fast",
+                    "exit": null,
+                    "volume": 0,
+                    "seconds": 3,
+                    "weight": 0,
+                    "temperature": 94,
+                    "sensor": "coffee",
+                    "pressure": 9,
+                    "limiter": null
+                  },
+                  {
+                    "name": "rise and hold",
+                    "pump": "pressure",
+                    "transition": "fast",
+                    "exit": null,
+                    "volume": 0,
+                    "seconds": 32,
+                    "weight": 0,
+                    "temperature": 94,
+                    "sensor": "coffee",
+                    "pressure": 9,
+                    "limiter": {
+                      "value": 4.5,
+                      "range": 1
+                    }
+                  }
+                ],
+                "target_volume": 36,
+                "target_weight": 36,
+                "target_volume_count_start": 2,
+                "tank_temperature": 0
+              }
+            }
+          },
+          {
+            "name": "Fixture Blank Recipe",
+            "beverage": "",
+            "barista": "",
+            "drinker": "",
+            "beanId": null,
+            "beanName": null,
+            "profileId": null,
+            "profileTitle": null,
+            "profileSnapshot": null,
+            "showOnStreamlineDashboard": true,
+            "dashboardVariables": {
+              "dose": 0,
+              "drink": 0,
+              "brewC": 93,
+              "steamMode": "flow",
+              "steamFlowMls": 0,
+              "flushS": 0,
+              "hotWaterMode": "vol",
+              "hotWaterMl": 0,
+              "grind": 0,
+              "rpm": 0,
+              "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+              "grinderModel": "Fixture Grinder 64",
+              "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+              "basketName": "Fixture 18g Precision",
+              "equipmentIds": [],
+              "equipmentNames": [],
+              "equipmentCustom": {}
+            },
+            "id": "3",
+            "capturedAt": "2026-10-12T20:26:00.395Z",
+            "title": "Fixture Blank Recipe",
+            "subtitle": "",
+            "workflow": {
+              "context": {
+                "targetDoseWeight": 0,
+                "targetYield": 0,
+                "grinderSetting": "0",
+                "extras": {
+                  "rpm": 0,
+                  "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+                  "basketName": "Fixture 18g Precision"
+                },
+                "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+                "grinderModel": "Fixture Grinder 64"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/equipment"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture WDT Tool",
+            "custom": [
+              {
+                "key": "Needles",
+                "value": "10"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ],
+            "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "createdAt": "2026-10-12T20:25:27.296Z"
+          },
+          {
+            "name": "Fixture Puck Screen",
+            "custom": [
+              {
+                "key": "Thickness",
+                "value": "1.7 mm"
+              }
+            ],
+            "id": "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2",
+            "createdAt": "2026-10-12T20:25:28.463Z"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/shots/f6c40936-7f42-431d-a496-8cf3e351536c"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "f6c40936-7f42-431d-a496-8cf3e351536c",
+          "timestamp": "2026-10-12T20:26:30.107429",
+          "createdAt": "2026-10-12T20:27:09.102524Z",
+          "updatedAt": "2026-10-12T20:27:09.102524Z",
+          "measurements": [
+            {
+              "machine": {
+                "timestamp": "2026-10-12T20:26:30.107212",
+                "state": {
+                  "state": "espresso",
+                  "substate": "preparingForShot"
+                },
+                "flow": 4.619999999999999,
+                "pressure": 0.2474466108981124,
+                "targetFlow": 8,
+                "targetPressure": 0,
+                "mixTemperature": 92,
+                "groupTemperature": 93,
+                "targetMixTemperature": 93,
+                "targetGroupTemperature": 93,
+                "profileFrame": 0,
+                "steamTemperature": 133
+              },
+              "scale": {
+                "timestamp": "2026-10-12T20:26:29.972866",
+                "weight": 0,
+                "weightFlow": 0,
+                "battery": 100,
+                "timerValue": null
+              },
+              "volume": 0
+            },
+            {
+              "machine": {
+                "timestamp": "2026-10-12T20:26:34.999855",
+                "state": {
+                  "state": "espresso",
+                  "substate": "preinfusion"
+                },
+                "flow": 7.999999997700301,
+                "pressure": 3.3666319012700843,
+                "targetFlow": 8,
+                "targetPressure": 0,
+                "mixTemperature": 88.54695866562096,
+                "groupTemperature": 89.54695866562096,
+                "targetMixTemperature": 93,
+                "targetGroupTemperature": 93,
+                "profileFrame": 2,
+                "steamTemperature": 133
+              },
+              "scale": {
+                "timestamp": "2026-10-12T20:26:34.987752",
+                "weight": 0,
+                "weightFlow": 0,
+                "battery": 100,
+                "timerValue": 4483
+              },
+              "volume": 0
+            },
+            {
+              "machine": {
+                "timestamp": "2026-10-12T20:26:47.303614",
+                "state": {
+                  "state": "espresso",
+                  "substate": "pouring"
+                },
+                "flow": 3.7892888676911,
+                "pressure": 10.303468276641127,
+                "targetFlow": 0,
+                "targetPressure": 11,
+                "mixTemperature": 86.94277386681647,
+                "groupTemperature": 87.94277386681647,
+                "targetMixTemperature": 88,
+                "targetGroupTemperature": 88,
+                "profileFrame": 5,
+                "steamTemperature": 133
+              },
+              "scale": {
+                "timestamp": "2026-10-12T20:26:47.176939",
+                "weight": 2.027593425901809,
+                "weightFlow": 0.8787011793399992,
+                "battery": 100,
+                "timerValue": 16672
+              },
+              "volume": 4.661851614518507
+            },
+            {
+              "machine": {
+                "timestamp": "2026-10-12T20:27:04.899101",
+                "state": {
+                  "state": "espresso",
+                  "substate": "pouring"
+                },
+                "flow": 2.0771428571428574,
+                "pressure": 5.682974059037135,
+                "targetFlow": 2.0833333333333335,
+                "targetPressure": 0,
+                "mixTemperature": 86.99983791850242,
+                "groupTemperature": 87.99983791850242,
+                "targetMixTemperature": 88,
+                "targetGroupTemperature": 88,
+                "profileFrame": 6,
+                "steamTemperature": 133
+              },
+              "scale": {
+                "timestamp": "2026-10-12T20:27:04.775501",
+                "weight": 33.437472098597624,
+                "weightFlow": 2.0246555539447924,
+                "battery": 100,
+                "timerValue": 34271
+              },
+              "volume": 35.935079478624594
+            }
+          ],
+          "workflow": {
+            "id": "43151609-647b-45ec-811d-45ab76431e22",
+            "name": "Workflow",
+            "description": "Description",
+            "profile": {
+              "version": "2",
+              "title": "Adaptive v3",
+              "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+              "author": "Decent",
+              "beverage_type": "espresso",
+              "steps": [
+                {
+                  "name": "Prefill",
+                  "pump": "flow",
+                  "transition": "fast",
+                  "exit": null,
+                  "volume": 100,
+                  "seconds": 5,
+                  "weight": 0,
+                  "temperature": 93,
+                  "sensor": "coffee",
+                  "flow": 8,
+                  "limiter": {
+                    "value": 0,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Fill",
+                  "pump": "flow",
+                  "transition": "fast",
+                  "exit": {
+                    "type": "pressure",
+                    "condition": "over",
+                    "value": 3
+                  },
+                  "volume": 100,
+                  "seconds": 12,
+                  "weight": 0,
+                  "temperature": 93,
+                  "sensor": "coffee",
+                  "flow": 8,
+                  "limiter": {
+                    "value": 0,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Compressing",
+                  "pump": "pressure",
+                  "transition": "fast",
+                  "exit": {
+                    "type": "flow",
+                    "condition": "under",
+                    "value": 3
+                  },
+                  "volume": 100,
+                  "seconds": 12,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "pressure": 3,
+                  "limiter": {
+                    "value": 0,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Dripping",
+                  "pump": "pressure",
+                  "transition": "fast",
+                  "exit": null,
+                  "volume": 0,
+                  "seconds": 6,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "pressure": 0.1,
+                  "limiter": {
+                    "value": 0,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Pressurize",
+                  "pump": "pressure",
+                  "transition": "smooth",
+                  "exit": {
+                    "type": "pressure",
+                    "condition": "over",
+                    "value": 7.7
+                  },
+                  "volume": 100,
+                  "seconds": 6,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "pressure": 11,
+                  "limiter": {
+                    "value": 3.5,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Extraction start",
+                  "pump": "flow",
+                  "transition": "fast",
+                  "exit": {
+                    "type": "pressure",
+                    "condition": "over",
+                    "value": 0
+                  },
+                  "volume": 0,
+                  "seconds": 0,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "flow": 1.5,
+                  "limiter": {
+                    "value": 8.6,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Extraction",
+                  "pump": "flow",
+                  "transition": "smooth",
+                  "exit": null,
+                  "volume": 100,
+                  "seconds": 60,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "flow": 3.5,
+                  "limiter": {
+                    "value": 8.6,
+                    "range": 0.6
+                  }
+                }
+              ],
+              "target_volume": 36,
+              "target_weight": 36,
+              "target_volume_count_start": 3,
+              "tank_temperature": 0
+            },
+            "context": {
+              "targetDoseWeight": 18.5,
+              "targetYield": 36,
+              "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+              "grinderModel": "Fixture Grinder 64",
+              "grinderSetting": "2.7",
+              "baristaName": "Fixture Barista",
+              "drinkerName": "Fixture Drinker",
+              "extras": {
+                "rpm": 900,
+                "basketId": "1749fba2-86b3-43e2-badf-97af64ae888b",
+                "basketName": "Fixture 20g High-flow"
+              }
+            },
+            "steamSettings": {
+              "targetTemperature": 150,
+              "duration": 30,
+              "flow": 0,
+              "stopAtTemperature": 0
+            },
+            "hotWaterData": {
+              "targetTemperature": 88,
+              "duration": 30,
+              "volume": 0,
+              "flow": 10
+            },
+            "rinseData": {
+              "targetTemperature": 90,
+              "duration": 5,
+              "flow": 6
+            },
+            "machine": {
+              "provenanceStatus": "captured",
+              "flowCalibration": 1,
+              "serialNumber": "mock-de1",
+              "model": "DE1Pro",
+              "firmwareVersion": "1337"
+            }
+          },
+          "annotations": {
+            "actualDoseWeight": 18.5,
+            "actualYield": 34.1
+          },
+          "stopReason": "targetWeight"
+        }
+      }
+    }
+  ],
+  "pickShotBasket": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "notes": "Fixture notes, edited",
+            "diameterMm": 58.4,
+            "id": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+            "createdAt": "2026-10-12T20:25:34.993Z"
+          },
+          {
+            "name": "Fixture 20g High-flow",
+            "size": "double",
+            "diameterMm": 58,
+            "id": "1749fba2-86b3-43e2-badf-97af64ae888b",
+            "createdAt": "2026-10-12T20:25:36.143Z"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "PUT",
+        "path": "/workflow",
+        "body": {
+          "context": {
+            "extras": {
+              "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+              "basketName": "Fixture 18g Precision"
+            }
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "43151609-647b-45ec-811d-45ab76431e22",
+          "name": "Workflow",
+          "description": "Description",
+          "profile": {
+            "version": "2",
+            "title": "Adaptive v3",
+            "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+            "author": "Decent",
+            "beverage_type": "espresso",
+            "steps": [
+              {
+                "name": "Prefill",
+                "pump": "flow",
+                "transition": "fast",
+                "exit": null,
+                "volume": 100,
+                "seconds": 5,
+                "weight": 0,
+                "temperature": 93,
+                "sensor": "coffee",
+                "flow": 8,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Fill",
+                "pump": "flow",
+                "transition": "fast",
+                "exit": {
+                  "type": "pressure",
+                  "condition": "over",
+                  "value": 3
+                },
+                "volume": 100,
+                "seconds": 12,
+                "weight": 0,
+                "temperature": 93,
+                "sensor": "coffee",
+                "flow": 8,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Compressing",
+                "pump": "pressure",
+                "transition": "fast",
+                "exit": {
+                  "type": "flow",
+                  "condition": "under",
+                  "value": 3
+                },
+                "volume": 100,
+                "seconds": 12,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "pressure": 3,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Dripping",
+                "pump": "pressure",
+                "transition": "fast",
+                "exit": null,
+                "volume": 0,
+                "seconds": 6,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "pressure": 0.1,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Pressurize",
+                "pump": "pressure",
+                "transition": "smooth",
+                "exit": {
+                  "type": "pressure",
+                  "condition": "over",
+                  "value": 7.7
+                },
+                "volume": 100,
+                "seconds": 6,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "pressure": 11,
+                "limiter": {
+                  "value": 3.5,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Extraction start",
+                "pump": "flow",
+                "transition": "fast",
+                "exit": {
+                  "type": "pressure",
+                  "condition": "over",
+                  "value": 0
+                },
+                "volume": 0,
+                "seconds": 0,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "flow": 1.5,
+                "limiter": {
+                  "value": 8.6,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Extraction",
+                "pump": "flow",
+                "transition": "smooth",
+                "exit": null,
+                "volume": 100,
+                "seconds": 60,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "flow": 3.5,
+                "limiter": {
+                  "value": 8.6,
+                  "range": 0.6
+                }
+              }
+            ],
+            "target_volume": 36,
+            "target_weight": 36,
+            "target_volume_count_start": 3,
+            "tank_temperature": 0
+          },
+          "context": {
+            "targetDoseWeight": 18.5,
+            "targetYield": 36,
+            "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+            "grinderModel": "Fixture Grinder 64",
+            "grinderSetting": "2.7",
+            "baristaName": "Fixture Barista",
+            "drinkerName": "Fixture Drinker",
+            "extras": {
+              "rpm": 900,
+              "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+              "basketName": "Fixture 18g Precision"
+            }
+          },
+          "steamSettings": {
+            "targetTemperature": 150,
+            "duration": 30,
+            "flow": 0,
+            "stopAtTemperature": 0
+          },
+          "hotWaterData": {
+            "targetTemperature": 88,
+            "duration": 30,
+            "volume": 0,
+            "flow": 10
+          },
+          "rinseData": {
+            "targetTemperature": 90,
+            "duration": 5,
+            "flow": 6
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/equipment"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture WDT Tool",
+            "custom": [
+              {
+                "key": "Needles",
+                "value": "10"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ],
+            "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "createdAt": "2026-10-12T20:25:27.296Z"
+          },
+          {
+            "name": "Fixture Puck Screen",
+            "custom": [
+              {
+                "key": "Thickness",
+                "value": "1.7 mm"
+              }
+            ],
+            "id": "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2",
+            "createdAt": "2026-10-12T20:25:28.463Z"
+          }
+        ]
+      }
+    }
+  ],
+  "saveShot": [
+    {
+      "request": {
+        "method": "PUT",
+        "path": "/shots/f6c40936-7f42-431d-a496-8cf3e351536c",
+        "body": {
+          "annotations": {
+            "actualDoseWeight": 18.5,
+            "actualYield": 34.1,
+            "extras": {
+              "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+              "basketName": "Fixture 18g Precision",
+              "equipmentIds": [
+                "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+                "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2"
+              ],
+              "equipmentNames": [
+                "Fixture WDT Tool",
+                "Fixture Puck Screen"
+              ],
+              "equipmentCustom": {
+                "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6": [
+                  {
+                    "key": "Needles",
+                    "value": "14"
+                  },
+                  {
+                    "key": "Needle size",
+                    "value": "0.3 mm"
+                  }
+                ]
+              }
+            }
+          },
+          "workflow": {
+            "id": "43151609-647b-45ec-811d-45ab76431e22",
+            "name": "Workflow",
+            "description": "Description",
+            "profile": {
+              "version": "2",
+              "title": "Adaptive v3",
+              "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+              "author": "Decent",
+              "beverage_type": "espresso",
+              "steps": [
+                {
+                  "name": "Prefill",
+                  "pump": "flow",
+                  "transition": "fast",
+                  "exit": null,
+                  "volume": 100,
+                  "seconds": 5,
+                  "weight": 0,
+                  "temperature": 93,
+                  "sensor": "coffee",
+                  "flow": 8,
+                  "limiter": {
+                    "value": 0,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Fill",
+                  "pump": "flow",
+                  "transition": "fast",
+                  "exit": {
+                    "type": "pressure",
+                    "condition": "over",
+                    "value": 3
+                  },
+                  "volume": 100,
+                  "seconds": 12,
+                  "weight": 0,
+                  "temperature": 93,
+                  "sensor": "coffee",
+                  "flow": 8,
+                  "limiter": {
+                    "value": 0,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Compressing",
+                  "pump": "pressure",
+                  "transition": "fast",
+                  "exit": {
+                    "type": "flow",
+                    "condition": "under",
+                    "value": 3
+                  },
+                  "volume": 100,
+                  "seconds": 12,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "pressure": 3,
+                  "limiter": {
+                    "value": 0,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Dripping",
+                  "pump": "pressure",
+                  "transition": "fast",
+                  "exit": null,
+                  "volume": 0,
+                  "seconds": 6,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "pressure": 0.1,
+                  "limiter": {
+                    "value": 0,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Pressurize",
+                  "pump": "pressure",
+                  "transition": "smooth",
+                  "exit": {
+                    "type": "pressure",
+                    "condition": "over",
+                    "value": 7.7
+                  },
+                  "volume": 100,
+                  "seconds": 6,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "pressure": 11,
+                  "limiter": {
+                    "value": 3.5,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Extraction start",
+                  "pump": "flow",
+                  "transition": "fast",
+                  "exit": {
+                    "type": "pressure",
+                    "condition": "over",
+                    "value": 0
+                  },
+                  "volume": 0,
+                  "seconds": 0,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "flow": 1.5,
+                  "limiter": {
+                    "value": 8.6,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Extraction",
+                  "pump": "flow",
+                  "transition": "smooth",
+                  "exit": null,
+                  "volume": 100,
+                  "seconds": 60,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "flow": 3.5,
+                  "limiter": {
+                    "value": 8.6,
+                    "range": 0.6
+                  }
+                }
+              ],
+              "target_volume": 36,
+              "target_weight": 36,
+              "target_volume_count_start": 3,
+              "tank_temperature": 0
+            },
+            "context": {
+              "targetDoseWeight": 18.5,
+              "targetYield": 36,
+              "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+              "grinderModel": "Fixture Grinder 64",
+              "grinderSetting": "2.7",
+              "baristaName": "Fixture Barista",
+              "drinkerName": "Fixture Drinker",
+              "extras": {
+                "rpm": 900,
+                "basketId": "1749fba2-86b3-43e2-badf-97af64ae888b",
+                "basketName": "Fixture 20g High-flow"
+              }
+            },
+            "steamSettings": {
+              "targetTemperature": 150,
+              "duration": 30,
+              "flow": 0,
+              "stopAtTemperature": 0
+            },
+            "hotWaterData": {
+              "targetTemperature": 88,
+              "duration": 30,
+              "volume": 0,
+              "flow": 10
+            },
+            "rinseData": {
+              "targetTemperature": 90,
+              "duration": 5,
+              "flow": 6
+            },
+            "machine": {
+              "provenanceStatus": "captured",
+              "flowCalibration": 1,
+              "serialNumber": "mock-de1",
+              "model": "DE1Pro",
+              "firmwareVersion": "1337"
+            }
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "f6c40936-7f42-431d-a496-8cf3e351536c",
+          "timestamp": "2026-10-12T20:26:30.107429",
+          "createdAt": "2026-10-12T20:27:09.102524Z",
+          "updatedAt": "2026-10-12T20:27:18.897417Z",
+          "measurements": [
+            {
+              "machine": {
+                "timestamp": "2026-10-12T20:26:30.107212",
+                "state": {
+                  "state": "espresso",
+                  "substate": "preparingForShot"
+                },
+                "flow": 4.619999999999999,
+                "pressure": 0.2474466108981124,
+                "targetFlow": 8,
+                "targetPressure": 0,
+                "mixTemperature": 92,
+                "groupTemperature": 93,
+                "targetMixTemperature": 93,
+                "targetGroupTemperature": 93,
+                "profileFrame": 0,
+                "steamTemperature": 133
+              },
+              "scale": {
+                "timestamp": "2026-10-12T20:26:29.972866",
+                "weight": 0,
+                "weightFlow": 0,
+                "battery": 100,
+                "timerValue": null
+              },
+              "volume": 0
+            },
+            {
+              "machine": {
+                "timestamp": "2026-10-12T20:26:34.999855",
+                "state": {
+                  "state": "espresso",
+                  "substate": "preinfusion"
+                },
+                "flow": 7.999999997700301,
+                "pressure": 3.3666319012700843,
+                "targetFlow": 8,
+                "targetPressure": 0,
+                "mixTemperature": 88.54695866562096,
+                "groupTemperature": 89.54695866562096,
+                "targetMixTemperature": 93,
+                "targetGroupTemperature": 93,
+                "profileFrame": 2,
+                "steamTemperature": 133
+              },
+              "scale": {
+                "timestamp": "2026-10-12T20:26:34.987752",
+                "weight": 0,
+                "weightFlow": 0,
+                "battery": 100,
+                "timerValue": 4483
+              },
+              "volume": 0
+            },
+            {
+              "machine": {
+                "timestamp": "2026-10-12T20:26:47.303614",
+                "state": {
+                  "state": "espresso",
+                  "substate": "pouring"
+                },
+                "flow": 3.7892888676911,
+                "pressure": 10.303468276641127,
+                "targetFlow": 0,
+                "targetPressure": 11,
+                "mixTemperature": 86.94277386681647,
+                "groupTemperature": 87.94277386681647,
+                "targetMixTemperature": 88,
+                "targetGroupTemperature": 88,
+                "profileFrame": 5,
+                "steamTemperature": 133
+              },
+              "scale": {
+                "timestamp": "2026-10-12T20:26:47.176939",
+                "weight": 2.027593425901809,
+                "weightFlow": 0.8787011793399992,
+                "battery": 100,
+                "timerValue": 16672
+              },
+              "volume": 4.661851614518507
+            },
+            {
+              "machine": {
+                "timestamp": "2026-10-12T20:27:04.899101",
+                "state": {
+                  "state": "espresso",
+                  "substate": "pouring"
+                },
+                "flow": 2.0771428571428574,
+                "pressure": 5.682974059037135,
+                "targetFlow": 2.0833333333333335,
+                "targetPressure": 0,
+                "mixTemperature": 86.99983791850242,
+                "groupTemperature": 87.99983791850242,
+                "targetMixTemperature": 88,
+                "targetGroupTemperature": 88,
+                "profileFrame": 6,
+                "steamTemperature": 133
+              },
+              "scale": {
+                "timestamp": "2026-10-12T20:27:04.775501",
+                "weight": 33.437472098597624,
+                "weightFlow": 2.0246555539447924,
+                "battery": 100,
+                "timerValue": 34271
+              },
+              "volume": 35.935079478624594
+            }
+          ],
+          "workflow": {
+            "id": "43151609-647b-45ec-811d-45ab76431e22",
+            "name": "Workflow",
+            "description": "Description",
+            "profile": {
+              "version": "2",
+              "title": "Adaptive v3",
+              "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+              "author": "Decent",
+              "beverage_type": "espresso",
+              "steps": [
+                {
+                  "name": "Prefill",
+                  "pump": "flow",
+                  "transition": "fast",
+                  "exit": null,
+                  "volume": 100,
+                  "seconds": 5,
+                  "weight": 0,
+                  "temperature": 93,
+                  "sensor": "coffee",
+                  "flow": 8,
+                  "limiter": {
+                    "value": 0,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Fill",
+                  "pump": "flow",
+                  "transition": "fast",
+                  "exit": {
+                    "type": "pressure",
+                    "condition": "over",
+                    "value": 3
+                  },
+                  "volume": 100,
+                  "seconds": 12,
+                  "weight": 0,
+                  "temperature": 93,
+                  "sensor": "coffee",
+                  "flow": 8,
+                  "limiter": {
+                    "value": 0,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Compressing",
+                  "pump": "pressure",
+                  "transition": "fast",
+                  "exit": {
+                    "type": "flow",
+                    "condition": "under",
+                    "value": 3
+                  },
+                  "volume": 100,
+                  "seconds": 12,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "pressure": 3,
+                  "limiter": {
+                    "value": 0,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Dripping",
+                  "pump": "pressure",
+                  "transition": "fast",
+                  "exit": null,
+                  "volume": 0,
+                  "seconds": 6,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "pressure": 0.1,
+                  "limiter": {
+                    "value": 0,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Pressurize",
+                  "pump": "pressure",
+                  "transition": "smooth",
+                  "exit": {
+                    "type": "pressure",
+                    "condition": "over",
+                    "value": 7.7
+                  },
+                  "volume": 100,
+                  "seconds": 6,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "pressure": 11,
+                  "limiter": {
+                    "value": 3.5,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Extraction start",
+                  "pump": "flow",
+                  "transition": "fast",
+                  "exit": {
+                    "type": "pressure",
+                    "condition": "over",
+                    "value": 0
+                  },
+                  "volume": 0,
+                  "seconds": 0,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "flow": 1.5,
+                  "limiter": {
+                    "value": 8.6,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Extraction",
+                  "pump": "flow",
+                  "transition": "smooth",
+                  "exit": null,
+                  "volume": 100,
+                  "seconds": 60,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "flow": 3.5,
+                  "limiter": {
+                    "value": 8.6,
+                    "range": 0.6
+                  }
+                }
+              ],
+              "target_volume": 36,
+              "target_weight": 36,
+              "target_volume_count_start": 3,
+              "tank_temperature": 0
+            },
+            "context": {
+              "targetDoseWeight": 18.5,
+              "targetYield": 36,
+              "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+              "grinderModel": "Fixture Grinder 64",
+              "grinderSetting": "2.7",
+              "baristaName": "Fixture Barista",
+              "drinkerName": "Fixture Drinker",
+              "extras": {
+                "rpm": 900,
+                "basketId": "1749fba2-86b3-43e2-badf-97af64ae888b",
+                "basketName": "Fixture 20g High-flow"
+              }
+            },
+            "steamSettings": {
+              "targetTemperature": 150,
+              "duration": 30,
+              "flow": 0,
+              "stopAtTemperature": 0
+            },
+            "hotWaterData": {
+              "targetTemperature": 88,
+              "duration": 30,
+              "volume": 0,
+              "flow": 10
+            },
+            "rinseData": {
+              "targetTemperature": 90,
+              "duration": 5,
+              "flow": 6
+            },
+            "machine": {
+              "provenanceStatus": "captured",
+              "flowCalibration": 1,
+              "serialNumber": "mock-de1",
+              "model": "DE1Pro",
+              "firmwareVersion": "1337"
+            }
+          },
+          "annotations": {
+            "actualDoseWeight": 18.5,
+            "actualYield": 34.1,
+            "extras": {
+              "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+              "basketName": "Fixture 18g Precision",
+              "equipmentIds": [
+                "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+                "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2"
+              ],
+              "equipmentNames": [
+                "Fixture WDT Tool",
+                "Fixture Puck Screen"
+              ],
+              "equipmentCustom": {
+                "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6": [
+                  {
+                    "key": "Needles",
+                    "value": "14"
+                  },
+                  {
+                    "key": "Needle size",
+                    "value": "0.3 mm"
+                  }
+                ]
+              }
+            }
+          },
+          "stopReason": "targetWeight",
+          "metadata": {
+            "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+            "basketName": "Fixture 18g Precision",
+            "equipmentIds": [
+              "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+              "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2"
+            ],
+            "equipmentNames": [
+              "Fixture WDT Tool",
+              "Fixture Puck Screen"
+            ],
+            "equipmentCustom": {
+              "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6": [
+                {
+                  "key": "Needles",
+                  "value": "14"
+                },
+                {
+                  "key": "Needle size",
+                  "value": "0.3 mm"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/workflow"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "43151609-647b-45ec-811d-45ab76431e22",
+          "name": "Workflow",
+          "description": "Description",
+          "profile": {
+            "version": "2",
+            "title": "Adaptive v3",
+            "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+            "author": "Decent",
+            "beverage_type": "espresso",
+            "steps": [
+              {
+                "name": "Prefill",
+                "pump": "flow",
+                "transition": "fast",
+                "exit": null,
+                "volume": 100,
+                "seconds": 5,
+                "weight": 0,
+                "temperature": 93,
+                "sensor": "coffee",
+                "flow": 8,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Fill",
+                "pump": "flow",
+                "transition": "fast",
+                "exit": {
+                  "type": "pressure",
+                  "condition": "over",
+                  "value": 3
+                },
+                "volume": 100,
+                "seconds": 12,
+                "weight": 0,
+                "temperature": 93,
+                "sensor": "coffee",
+                "flow": 8,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Compressing",
+                "pump": "pressure",
+                "transition": "fast",
+                "exit": {
+                  "type": "flow",
+                  "condition": "under",
+                  "value": 3
+                },
+                "volume": 100,
+                "seconds": 12,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "pressure": 3,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Dripping",
+                "pump": "pressure",
+                "transition": "fast",
+                "exit": null,
+                "volume": 0,
+                "seconds": 6,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "pressure": 0.1,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Pressurize",
+                "pump": "pressure",
+                "transition": "smooth",
+                "exit": {
+                  "type": "pressure",
+                  "condition": "over",
+                  "value": 7.7
+                },
+                "volume": 100,
+                "seconds": 6,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "pressure": 11,
+                "limiter": {
+                  "value": 3.5,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Extraction start",
+                "pump": "flow",
+                "transition": "fast",
+                "exit": {
+                  "type": "pressure",
+                  "condition": "over",
+                  "value": 0
+                },
+                "volume": 0,
+                "seconds": 0,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "flow": 1.5,
+                "limiter": {
+                  "value": 8.6,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Extraction",
+                "pump": "flow",
+                "transition": "smooth",
+                "exit": null,
+                "volume": 100,
+                "seconds": 60,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "flow": 3.5,
+                "limiter": {
+                  "value": 8.6,
+                  "range": 0.6
+                }
+              }
+            ],
+            "target_volume": 36,
+            "target_weight": 36,
+            "target_volume_count_start": 3,
+            "tank_temperature": 0
+          },
+          "context": {
+            "targetDoseWeight": 18.5,
+            "targetYield": 36,
+            "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+            "grinderModel": "Fixture Grinder 64",
+            "grinderSetting": "2.7",
+            "baristaName": "Fixture Barista",
+            "drinkerName": "Fixture Drinker",
+            "extras": {
+              "rpm": 900,
+              "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+              "basketName": "Fixture 18g Precision"
+            }
+          },
+          "steamSettings": {
+            "targetTemperature": 150,
+            "duration": 30,
+            "flow": 0,
+            "stopAtTemperature": 0
+          },
+          "hotWaterData": {
+            "targetTemperature": 88,
+            "duration": 30,
+            "volume": 0,
+            "flow": 10
+          },
+          "rinseData": {
+            "targetTemperature": 90,
+            "duration": 5,
+            "flow": 6
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/recipes"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture Ethiopia Espresso",
+            "beverage": "Fixture Flat White",
+            "barista": "Fixture Barista",
+            "drinker": "Fixture Drinker",
+            "beanId": "8ee8ac01-bf2b-47d6-b4e2-292bd7ef5ada",
+            "beanName": "Fixture Ethiopia",
+            "profileId": "profile:98fa00c191551b435845",
+            "profileTitle": "Adaptive v3",
+            "profileSnapshot": null,
+            "showOnStreamlineDashboard": true,
+            "dashboardVariables": {
+              "dose": 18.5,
+              "drink": 36,
+              "brewC": 92,
+              "steamMode": "time",
+              "steamTimeS": 30,
+              "flushS": 5,
+              "hotWaterMode": "temp",
+              "hotWaterTempC": 88,
+              "grind": 2.7,
+              "rpm": 900,
+              "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+              "grinderModel": "Fixture Grinder 64",
+              "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+              "basketName": "Fixture 18g Precision",
+              "equipmentIds": [
+                "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+                "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2"
+              ],
+              "equipmentNames": [
+                "Fixture WDT Tool",
+                "Fixture Puck Screen"
+              ],
+              "equipmentCustom": {
+                "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6": [
+                  {
+                    "key": "Needles",
+                    "value": "12"
+                  },
+                  {
+                    "key": "Needle size",
+                    "value": "0.3 mm"
+                  }
+                ]
+              }
+            },
+            "id": "1",
+            "capturedAt": "2026-10-12T20:25:55.195Z",
+            "title": "Fixture Ethiopia Espresso",
+            "subtitle": "Fixture Ethiopia",
+            "workflow": {
+              "context": {
+                "targetDoseWeight": 18.5,
+                "targetYield": 36,
+                "grinderSetting": "2.7",
+                "extras": {
+                  "rpm": 900,
+                  "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+                  "basketName": "Fixture 18g Precision"
+                },
+                "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+                "grinderModel": "Fixture Grinder 64",
+                "coffeeName": "Fixture Ethiopia",
+                "baristaName": "Fixture Barista",
+                "drinkerName": "Fixture Drinker"
+              },
+              "profile": {
+                "version": "2",
+                "title": "Adaptive v3",
+                "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+                "author": "Decent",
+                "beverage_type": "espresso",
+                "steps": [
+                  {
+                    "name": "Prefill",
+                    "pump": "flow",
+                    "transition": "fast",
+                    "exit": null,
+                    "volume": 100,
+                    "seconds": 5,
+                    "weight": 0,
+                    "temperature": 93,
+                    "sensor": "coffee",
+                    "flow": 8,
+                    "limiter": {
+                      "value": 0,
+                      "range": 0.6
+                    }
+                  },
+                  {
+                    "name": "Fill",
+                    "pump": "flow",
+                    "transition": "fast",
+                    "exit": {
+                      "type": "pressure",
+                      "condition": "over",
+                      "value": 3
+                    },
+                    "volume": 100,
+                    "seconds": 12,
+                    "weight": 0,
+                    "temperature": 93,
+                    "sensor": "coffee",
+                    "flow": 8,
+                    "limiter": {
+                      "value": 0,
+                      "range": 0.6
+                    }
+                  },
+                  {
+                    "name": "Compressing",
+                    "pump": "pressure",
+                    "transition": "fast",
+                    "exit": {
+                      "type": "flow",
+                      "condition": "under",
+                      "value": 3
+                    },
+                    "volume": 100,
+                    "seconds": 12,
+                    "weight": 0,
+                    "temperature": 88,
+                    "sensor": "coffee",
+                    "pressure": 3,
+                    "limiter": {
+                      "value": 0,
+                      "range": 0.6
+                    }
+                  },
+                  {
+                    "name": "Dripping",
+                    "pump": "pressure",
+                    "transition": "fast",
+                    "exit": null,
+                    "volume": 0,
+                    "seconds": 6,
+                    "weight": 0,
+                    "temperature": 88,
+                    "sensor": "coffee",
+                    "pressure": 0.1,
+                    "limiter": {
+                      "value": 0,
+                      "range": 0.6
+                    }
+                  },
+                  {
+                    "name": "Pressurize",
+                    "pump": "pressure",
+                    "transition": "smooth",
+                    "exit": {
+                      "type": "pressure",
+                      "condition": "over",
+                      "value": 7.7
+                    },
+                    "volume": 100,
+                    "seconds": 6,
+                    "weight": 0,
+                    "temperature": 88,
+                    "sensor": "coffee",
+                    "pressure": 11,
+                    "limiter": {
+                      "value": 3.5,
+                      "range": 0.6
+                    }
+                  },
+                  {
+                    "name": "Extraction start",
+                    "pump": "flow",
+                    "transition": "fast",
+                    "exit": {
+                      "type": "pressure",
+                      "condition": "over",
+                      "value": 0
+                    },
+                    "volume": 0,
+                    "seconds": 0,
+                    "weight": 0,
+                    "temperature": 88,
+                    "sensor": "coffee",
+                    "flow": 1.5,
+                    "limiter": {
+                      "value": 8.6,
+                      "range": 0.6
+                    }
+                  },
+                  {
+                    "name": "Extraction",
+                    "pump": "flow",
+                    "transition": "smooth",
+                    "exit": null,
+                    "volume": 100,
+                    "seconds": 60,
+                    "weight": 0,
+                    "temperature": 88,
+                    "sensor": "coffee",
+                    "flow": 3.5,
+                    "limiter": {
+                      "value": 8.6,
+                      "range": 0.6
+                    }
+                  }
+                ],
+                "target_volume": 36,
+                "target_weight": 36,
+                "target_volume_count_start": 3,
+                "tank_temperature": 0
+              }
+            }
+          },
+          {
+            "name": "Fixture Brazil Espresso",
+            "beverage": "",
+            "barista": "",
+            "drinker": "",
+            "beanId": "6b16db38-425e-48ec-93b7-e03e1d8707cd",
+            "beanName": "Fixture Brazil",
+            "profileId": null,
+            "profileTitle": "Classic Italian espresso",
+            "profileSnapshot": {
+              "version": "2",
+              "title": "Classic Italian espresso",
+              "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+              "author": "Decent",
+              "beverage_type": "espresso",
+              "steps": [
+                {
+                  "name": "preinfusion temp boost",
+                  "pump": "flow",
+                  "transition": "fast",
+                  "exit": {
+                    "type": "pressure",
+                    "condition": "over",
+                    "value": 4
+                  },
+                  "volume": 0,
+                  "seconds": 2,
+                  "weight": 0,
+                  "temperature": 94,
+                  "sensor": "coffee",
+                  "flow": 8,
+                  "limiter": null
+                },
+                {
+                  "name": "preinfusion",
+                  "pump": "flow",
+                  "transition": "fast",
+                  "exit": {
+                    "type": "pressure",
+                    "condition": "over",
+                    "value": 4
+                  },
+                  "volume": 0,
+                  "seconds": 6,
+                  "weight": 0,
+                  "temperature": 94,
+                  "sensor": "coffee",
+                  "flow": 8,
+                  "limiter": null
+                },
+                {
+                  "name": "forced rise without limit",
+                  "pump": "pressure",
+                  "transition": "fast",
+                  "exit": null,
+                  "volume": 0,
+                  "seconds": 3,
+                  "weight": 0,
+                  "temperature": 94,
+                  "sensor": "coffee",
+                  "pressure": 9,
+                  "limiter": null
+                },
+                {
+                  "name": "rise and hold",
+                  "pump": "pressure",
+                  "transition": "fast",
+                  "exit": null,
+                  "volume": 0,
+                  "seconds": 32,
+                  "weight": 0,
+                  "temperature": 94,
+                  "sensor": "coffee",
+                  "pressure": 9,
+                  "limiter": {
+                    "value": 4.5,
+                    "range": 1
+                  }
+                }
+              ],
+              "target_volume": 36,
+              "target_weight": 36,
+              "target_volume_count_start": 2,
+              "tank_temperature": 0
+            },
+            "showOnStreamlineDashboard": true,
+            "dashboardVariables": {
+              "dose": 19,
+              "drink": 36,
+              "brewC": 93,
+              "steamMode": "flow",
+              "steamFlowMls": 1.2,
+              "flushS": 4,
+              "hotWaterMode": "vol",
+              "hotWaterMl": 150,
+              "grind": 3,
+              "rpm": 1100,
+              "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+              "grinderModel": "Fixture Grinder 64",
+              "basketId": "1749fba2-86b3-43e2-badf-97af64ae888b",
+              "basketName": "Fixture 20g High-flow",
+              "equipmentIds": [
+                "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2"
+              ],
+              "equipmentNames": [
+                "Fixture Puck Screen"
+              ],
+              "equipmentCustom": {}
+            },
+            "id": "2",
+            "capturedAt": "2026-10-12T20:25:49.933Z",
+            "title": "Fixture Brazil Espresso",
+            "subtitle": "Fixture Brazil",
+            "workflow": {
+              "context": {
+                "targetDoseWeight": 19,
+                "targetYield": 36,
+                "grinderSetting": "3",
+                "extras": {
+                  "rpm": 1100,
+                  "basketId": "1749fba2-86b3-43e2-badf-97af64ae888b",
+                  "basketName": "Fixture 20g High-flow"
+                },
+                "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+                "grinderModel": "Fixture Grinder 64",
+                "coffeeName": "Fixture Brazil"
+              },
+              "profile": {
+                "version": "2",
+                "title": "Classic Italian espresso",
+                "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+                "author": "Decent",
+                "beverage_type": "espresso",
+                "steps": [
+                  {
+                    "name": "preinfusion temp boost",
+                    "pump": "flow",
+                    "transition": "fast",
+                    "exit": {
+                      "type": "pressure",
+                      "condition": "over",
+                      "value": 4
+                    },
+                    "volume": 0,
+                    "seconds": 2,
+                    "weight": 0,
+                    "temperature": 94,
+                    "sensor": "coffee",
+                    "flow": 8,
+                    "limiter": null
+                  },
+                  {
+                    "name": "preinfusion",
+                    "pump": "flow",
+                    "transition": "fast",
+                    "exit": {
+                      "type": "pressure",
+                      "condition": "over",
+                      "value": 4
+                    },
+                    "volume": 0,
+                    "seconds": 6,
+                    "weight": 0,
+                    "temperature": 94,
+                    "sensor": "coffee",
+                    "flow": 8,
+                    "limiter": null
+                  },
+                  {
+                    "name": "forced rise without limit",
+                    "pump": "pressure",
+                    "transition": "fast",
+                    "exit": null,
+                    "volume": 0,
+                    "seconds": 3,
+                    "weight": 0,
+                    "temperature": 94,
+                    "sensor": "coffee",
+                    "pressure": 9,
+                    "limiter": null
+                  },
+                  {
+                    "name": "rise and hold",
+                    "pump": "pressure",
+                    "transition": "fast",
+                    "exit": null,
+                    "volume": 0,
+                    "seconds": 32,
+                    "weight": 0,
+                    "temperature": 94,
+                    "sensor": "coffee",
+                    "pressure": 9,
+                    "limiter": {
+                      "value": 4.5,
+                      "range": 1
+                    }
+                  }
+                ],
+                "target_volume": 36,
+                "target_weight": 36,
+                "target_volume_count_start": 2,
+                "tank_temperature": 0
+              }
+            }
+          },
+          {
+            "name": "Fixture Blank Recipe",
+            "beverage": "",
+            "barista": "",
+            "drinker": "",
+            "beanId": null,
+            "beanName": null,
+            "profileId": null,
+            "profileTitle": null,
+            "profileSnapshot": null,
+            "showOnStreamlineDashboard": true,
+            "dashboardVariables": {
+              "dose": 0,
+              "drink": 0,
+              "brewC": 93,
+              "steamMode": "flow",
+              "steamFlowMls": 0,
+              "flushS": 0,
+              "hotWaterMode": "vol",
+              "hotWaterMl": 0,
+              "grind": 0,
+              "rpm": 0,
+              "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+              "grinderModel": "Fixture Grinder 64",
+              "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+              "basketName": "Fixture 18g Precision",
+              "equipmentIds": [],
+              "equipmentNames": [],
+              "equipmentCustom": {}
+            },
+            "id": "3",
+            "capturedAt": "2026-10-12T20:26:00.395Z",
+            "title": "Fixture Blank Recipe",
+            "subtitle": "",
+            "workflow": {
+              "context": {
+                "targetDoseWeight": 0,
+                "targetYield": 0,
+                "grinderSetting": "0",
+                "extras": {
+                  "rpm": 0,
+                  "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+                  "basketName": "Fixture 18g Precision"
+                },
+                "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+                "grinderModel": "Fixture Grinder 64"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/shots/f6c40936-7f42-431d-a496-8cf3e351536c"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "f6c40936-7f42-431d-a496-8cf3e351536c",
+          "timestamp": "2026-10-12T20:26:30.107429",
+          "createdAt": "2026-10-12T20:27:09.102524Z",
+          "updatedAt": "2026-10-12T20:27:18.897417Z",
+          "measurements": [
+            {
+              "machine": {
+                "timestamp": "2026-10-12T20:26:30.107212",
+                "state": {
+                  "state": "espresso",
+                  "substate": "preparingForShot"
+                },
+                "flow": 4.619999999999999,
+                "pressure": 0.2474466108981124,
+                "targetFlow": 8,
+                "targetPressure": 0,
+                "mixTemperature": 92,
+                "groupTemperature": 93,
+                "targetMixTemperature": 93,
+                "targetGroupTemperature": 93,
+                "profileFrame": 0,
+                "steamTemperature": 133
+              },
+              "scale": {
+                "timestamp": "2026-10-12T20:26:29.972866",
+                "weight": 0,
+                "weightFlow": 0,
+                "battery": 100,
+                "timerValue": null
+              },
+              "volume": 0
+            },
+            {
+              "machine": {
+                "timestamp": "2026-10-12T20:26:34.999855",
+                "state": {
+                  "state": "espresso",
+                  "substate": "preinfusion"
+                },
+                "flow": 7.999999997700301,
+                "pressure": 3.3666319012700843,
+                "targetFlow": 8,
+                "targetPressure": 0,
+                "mixTemperature": 88.54695866562096,
+                "groupTemperature": 89.54695866562096,
+                "targetMixTemperature": 93,
+                "targetGroupTemperature": 93,
+                "profileFrame": 2,
+                "steamTemperature": 133
+              },
+              "scale": {
+                "timestamp": "2026-10-12T20:26:34.987752",
+                "weight": 0,
+                "weightFlow": 0,
+                "battery": 100,
+                "timerValue": 4483
+              },
+              "volume": 0
+            },
+            {
+              "machine": {
+                "timestamp": "2026-10-12T20:26:47.303614",
+                "state": {
+                  "state": "espresso",
+                  "substate": "pouring"
+                },
+                "flow": 3.7892888676911,
+                "pressure": 10.303468276641127,
+                "targetFlow": 0,
+                "targetPressure": 11,
+                "mixTemperature": 86.94277386681647,
+                "groupTemperature": 87.94277386681647,
+                "targetMixTemperature": 88,
+                "targetGroupTemperature": 88,
+                "profileFrame": 5,
+                "steamTemperature": 133
+              },
+              "scale": {
+                "timestamp": "2026-10-12T20:26:47.176939",
+                "weight": 2.027593425901809,
+                "weightFlow": 0.8787011793399992,
+                "battery": 100,
+                "timerValue": 16672
+              },
+              "volume": 4.661851614518507
+            },
+            {
+              "machine": {
+                "timestamp": "2026-10-12T20:27:04.899101",
+                "state": {
+                  "state": "espresso",
+                  "substate": "pouring"
+                },
+                "flow": 2.0771428571428574,
+                "pressure": 5.682974059037135,
+                "targetFlow": 2.0833333333333335,
+                "targetPressure": 0,
+                "mixTemperature": 86.99983791850242,
+                "groupTemperature": 87.99983791850242,
+                "targetMixTemperature": 88,
+                "targetGroupTemperature": 88,
+                "profileFrame": 6,
+                "steamTemperature": 133
+              },
+              "scale": {
+                "timestamp": "2026-10-12T20:27:04.775501",
+                "weight": 33.437472098597624,
+                "weightFlow": 2.0246555539447924,
+                "battery": 100,
+                "timerValue": 34271
+              },
+              "volume": 35.935079478624594
+            }
+          ],
+          "workflow": {
+            "id": "43151609-647b-45ec-811d-45ab76431e22",
+            "name": "Workflow",
+            "description": "Description",
+            "profile": {
+              "version": "2",
+              "title": "Adaptive v3",
+              "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+              "author": "Decent",
+              "beverage_type": "espresso",
+              "steps": [
+                {
+                  "name": "Prefill",
+                  "pump": "flow",
+                  "transition": "fast",
+                  "exit": null,
+                  "volume": 100,
+                  "seconds": 5,
+                  "weight": 0,
+                  "temperature": 93,
+                  "sensor": "coffee",
+                  "flow": 8,
+                  "limiter": {
+                    "value": 0,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Fill",
+                  "pump": "flow",
+                  "transition": "fast",
+                  "exit": {
+                    "type": "pressure",
+                    "condition": "over",
+                    "value": 3
+                  },
+                  "volume": 100,
+                  "seconds": 12,
+                  "weight": 0,
+                  "temperature": 93,
+                  "sensor": "coffee",
+                  "flow": 8,
+                  "limiter": {
+                    "value": 0,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Compressing",
+                  "pump": "pressure",
+                  "transition": "fast",
+                  "exit": {
+                    "type": "flow",
+                    "condition": "under",
+                    "value": 3
+                  },
+                  "volume": 100,
+                  "seconds": 12,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "pressure": 3,
+                  "limiter": {
+                    "value": 0,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Dripping",
+                  "pump": "pressure",
+                  "transition": "fast",
+                  "exit": null,
+                  "volume": 0,
+                  "seconds": 6,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "pressure": 0.1,
+                  "limiter": {
+                    "value": 0,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Pressurize",
+                  "pump": "pressure",
+                  "transition": "smooth",
+                  "exit": {
+                    "type": "pressure",
+                    "condition": "over",
+                    "value": 7.7
+                  },
+                  "volume": 100,
+                  "seconds": 6,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "pressure": 11,
+                  "limiter": {
+                    "value": 3.5,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Extraction start",
+                  "pump": "flow",
+                  "transition": "fast",
+                  "exit": {
+                    "type": "pressure",
+                    "condition": "over",
+                    "value": 0
+                  },
+                  "volume": 0,
+                  "seconds": 0,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "flow": 1.5,
+                  "limiter": {
+                    "value": 8.6,
+                    "range": 0.6
+                  }
+                },
+                {
+                  "name": "Extraction",
+                  "pump": "flow",
+                  "transition": "smooth",
+                  "exit": null,
+                  "volume": 100,
+                  "seconds": 60,
+                  "weight": 0,
+                  "temperature": 88,
+                  "sensor": "coffee",
+                  "flow": 3.5,
+                  "limiter": {
+                    "value": 8.6,
+                    "range": 0.6
+                  }
+                }
+              ],
+              "target_volume": 36,
+              "target_weight": 36,
+              "target_volume_count_start": 3,
+              "tank_temperature": 0
+            },
+            "context": {
+              "targetDoseWeight": 18.5,
+              "targetYield": 36,
+              "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+              "grinderModel": "Fixture Grinder 64",
+              "grinderSetting": "2.7",
+              "baristaName": "Fixture Barista",
+              "drinkerName": "Fixture Drinker",
+              "extras": {
+                "rpm": 900,
+                "basketId": "1749fba2-86b3-43e2-badf-97af64ae888b",
+                "basketName": "Fixture 20g High-flow"
+              }
+            },
+            "steamSettings": {
+              "targetTemperature": 150,
+              "duration": 30,
+              "flow": 0,
+              "stopAtTemperature": 0
+            },
+            "hotWaterData": {
+              "targetTemperature": 88,
+              "duration": 30,
+              "volume": 0,
+              "flow": 10
+            },
+            "rinseData": {
+              "targetTemperature": 90,
+              "duration": 5,
+              "flow": 6
+            },
+            "machine": {
+              "provenanceStatus": "captured",
+              "flowCalibration": 1,
+              "serialNumber": "mock-de1",
+              "model": "DE1Pro",
+              "firmwareVersion": "1337"
+            }
+          },
+          "annotations": {
+            "actualDoseWeight": 18.5,
+            "actualYield": 34.1,
+            "extras": {
+              "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+              "basketName": "Fixture 18g Precision",
+              "equipmentIds": [
+                "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+                "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2"
+              ],
+              "equipmentNames": [
+                "Fixture WDT Tool",
+                "Fixture Puck Screen"
+              ],
+              "equipmentCustom": {
+                "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6": [
+                  {
+                    "key": "Needles",
+                    "value": "14"
+                  },
+                  {
+                    "key": "Needle size",
+                    "value": "0.3 mm"
+                  }
+                ]
+              }
+            }
+          },
+          "stopReason": "targetWeight",
+          "metadata": {
+            "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+            "basketName": "Fixture 18g Precision",
+            "equipmentIds": [
+              "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+              "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2"
+            ],
+            "equipmentNames": [
+              "Fixture WDT Tool",
+              "Fixture Puck Screen"
+            ],
+            "equipmentCustom": {
+              "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6": [
+                {
+                  "key": "Needles",
+                  "value": "14"
+                },
+                {
+                  "key": "Needle size",
+                  "value": "0.3 mm"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "edited": {
+    "request": {
+      "method": "GET",
+      "path": "/shots/f6c40936-7f42-431d-a496-8cf3e351536c"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "f6c40936-7f42-431d-a496-8cf3e351536c",
+        "timestamp": "2026-10-12T20:26:30.107429",
+        "createdAt": "2026-10-12T20:27:09.102524Z",
+        "updatedAt": "2026-10-12T20:27:18.897417Z",
+        "measurements": [
+          {
+            "machine": {
+              "timestamp": "2026-10-12T20:26:30.107212",
+              "state": {
+                "state": "espresso",
+                "substate": "preparingForShot"
+              },
+              "flow": 4.619999999999999,
+              "pressure": 0.2474466108981124,
+              "targetFlow": 8,
+              "targetPressure": 0,
+              "mixTemperature": 92,
+              "groupTemperature": 93,
+              "targetMixTemperature": 93,
+              "targetGroupTemperature": 93,
+              "profileFrame": 0,
+              "steamTemperature": 133
+            },
+            "scale": {
+              "timestamp": "2026-10-12T20:26:29.972866",
+              "weight": 0,
+              "weightFlow": 0,
+              "battery": 100,
+              "timerValue": null
+            },
+            "volume": 0
+          },
+          {
+            "machine": {
+              "timestamp": "2026-10-12T20:26:34.999855",
+              "state": {
+                "state": "espresso",
+                "substate": "preinfusion"
+              },
+              "flow": 7.999999997700301,
+              "pressure": 3.3666319012700843,
+              "targetFlow": 8,
+              "targetPressure": 0,
+              "mixTemperature": 88.54695866562096,
+              "groupTemperature": 89.54695866562096,
+              "targetMixTemperature": 93,
+              "targetGroupTemperature": 93,
+              "profileFrame": 2,
+              "steamTemperature": 133
+            },
+            "scale": {
+              "timestamp": "2026-10-12T20:26:34.987752",
+              "weight": 0,
+              "weightFlow": 0,
+              "battery": 100,
+              "timerValue": 4483
+            },
+            "volume": 0
+          },
+          {
+            "machine": {
+              "timestamp": "2026-10-12T20:26:47.303614",
+              "state": {
+                "state": "espresso",
+                "substate": "pouring"
+              },
+              "flow": 3.7892888676911,
+              "pressure": 10.303468276641127,
+              "targetFlow": 0,
+              "targetPressure": 11,
+              "mixTemperature": 86.94277386681647,
+              "groupTemperature": 87.94277386681647,
+              "targetMixTemperature": 88,
+              "targetGroupTemperature": 88,
+              "profileFrame": 5,
+              "steamTemperature": 133
+            },
+            "scale": {
+              "timestamp": "2026-10-12T20:26:47.176939",
+              "weight": 2.027593425901809,
+              "weightFlow": 0.8787011793399992,
+              "battery": 100,
+              "timerValue": 16672
+            },
+            "volume": 4.661851614518507
+          },
+          {
+            "machine": {
+              "timestamp": "2026-10-12T20:27:04.899101",
+              "state": {
+                "state": "espresso",
+                "substate": "pouring"
+              },
+              "flow": 2.0771428571428574,
+              "pressure": 5.682974059037135,
+              "targetFlow": 2.0833333333333335,
+              "targetPressure": 0,
+              "mixTemperature": 86.99983791850242,
+              "groupTemperature": 87.99983791850242,
+              "targetMixTemperature": 88,
+              "targetGroupTemperature": 88,
+              "profileFrame": 6,
+              "steamTemperature": 133
+            },
+            "scale": {
+              "timestamp": "2026-10-12T20:27:04.775501",
+              "weight": 33.437472098597624,
+              "weightFlow": 2.0246555539447924,
+              "battery": 100,
+              "timerValue": 34271
+            },
+            "volume": 35.935079478624594
+          }
+        ],
+        "workflow": {
+          "id": "43151609-647b-45ec-811d-45ab76431e22",
+          "name": "Workflow",
+          "description": "Description",
+          "profile": {
+            "version": "2",
+            "title": "Adaptive v3",
+            "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+            "author": "Decent",
+            "beverage_type": "espresso",
+            "steps": [
+              {
+                "name": "Prefill",
+                "pump": "flow",
+                "transition": "fast",
+                "exit": null,
+                "volume": 100,
+                "seconds": 5,
+                "weight": 0,
+                "temperature": 93,
+                "sensor": "coffee",
+                "flow": 8,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Fill",
+                "pump": "flow",
+                "transition": "fast",
+                "exit": {
+                  "type": "pressure",
+                  "condition": "over",
+                  "value": 3
+                },
+                "volume": 100,
+                "seconds": 12,
+                "weight": 0,
+                "temperature": 93,
+                "sensor": "coffee",
+                "flow": 8,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Compressing",
+                "pump": "pressure",
+                "transition": "fast",
+                "exit": {
+                  "type": "flow",
+                  "condition": "under",
+                  "value": 3
+                },
+                "volume": 100,
+                "seconds": 12,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "pressure": 3,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Dripping",
+                "pump": "pressure",
+                "transition": "fast",
+                "exit": null,
+                "volume": 0,
+                "seconds": 6,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "pressure": 0.1,
+                "limiter": {
+                  "value": 0,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Pressurize",
+                "pump": "pressure",
+                "transition": "smooth",
+                "exit": {
+                  "type": "pressure",
+                  "condition": "over",
+                  "value": 7.7
+                },
+                "volume": 100,
+                "seconds": 6,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "pressure": 11,
+                "limiter": {
+                  "value": 3.5,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Extraction start",
+                "pump": "flow",
+                "transition": "fast",
+                "exit": {
+                  "type": "pressure",
+                  "condition": "over",
+                  "value": 0
+                },
+                "volume": 0,
+                "seconds": 0,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "flow": 1.5,
+                "limiter": {
+                  "value": 8.6,
+                  "range": 0.6
+                }
+              },
+              {
+                "name": "Extraction",
+                "pump": "flow",
+                "transition": "smooth",
+                "exit": null,
+                "volume": 100,
+                "seconds": 60,
+                "weight": 0,
+                "temperature": 88,
+                "sensor": "coffee",
+                "flow": 3.5,
+                "limiter": {
+                  "value": 8.6,
+                  "range": 0.6
+                }
+              }
+            ],
+            "target_volume": 36,
+            "target_weight": 36,
+            "target_volume_count_start": 3,
+            "tank_temperature": 0
+          },
+          "context": {
+            "targetDoseWeight": 18.5,
+            "targetYield": 36,
+            "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+            "grinderModel": "Fixture Grinder 64",
+            "grinderSetting": "2.7",
+            "baristaName": "Fixture Barista",
+            "drinkerName": "Fixture Drinker",
+            "extras": {
+              "rpm": 900,
+              "basketId": "1749fba2-86b3-43e2-badf-97af64ae888b",
+              "basketName": "Fixture 20g High-flow"
+            }
+          },
+          "steamSettings": {
+            "targetTemperature": 150,
+            "duration": 30,
+            "flow": 0,
+            "stopAtTemperature": 0
+          },
+          "hotWaterData": {
+            "targetTemperature": 88,
+            "duration": 30,
+            "volume": 0,
+            "flow": 10
+          },
+          "rinseData": {
+            "targetTemperature": 90,
+            "duration": 5,
+            "flow": 6
+          },
+          "machine": {
+            "provenanceStatus": "captured",
+            "flowCalibration": 1,
+            "serialNumber": "mock-de1",
+            "model": "DE1Pro",
+            "firmwareVersion": "1337"
+          }
+        },
+        "annotations": {
+          "actualDoseWeight": 18.5,
+          "actualYield": 34.1,
+          "extras": {
+            "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+            "basketName": "Fixture 18g Precision",
+            "equipmentIds": [
+              "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+              "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2"
+            ],
+            "equipmentNames": [
+              "Fixture WDT Tool",
+              "Fixture Puck Screen"
+            ],
+            "equipmentCustom": {
+              "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6": [
+                {
+                  "key": "Needles",
+                  "value": "14"
+                },
+                {
+                  "key": "Needle size",
+                  "value": "0.3 mm"
+                }
+              ]
+            }
+          }
+        },
+        "stopReason": "targetWeight",
+        "metadata": {
+          "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+          "basketName": "Fixture 18g Precision",
+          "equipmentIds": [
+            "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2"
+          ],
+          "equipmentNames": [
+            "Fixture WDT Tool",
+            "Fixture Puck Screen"
+          ],
+          "equipmentCustom": {
+            "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6": [
+              {
+                "key": "Needles",
+                "value": "14"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
