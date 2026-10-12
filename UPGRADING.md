@@ -27,12 +27,13 @@ The plugin now writes DYE2's baskets and tools (DYE2's equipment) on every
 tablet that shares a Location's Library, whether or not DYE2 is installed
 there, and the server keeps them in the Library: each is shown at the
 Location where it was entered, and one of the same name entered at another
-Location is the same Basket or Tool. As each Machine's tablet reports them
-after the upgrade, the first tablet at a Location brings its own; a later
-tablet's baskets and tools that the Location already has by name become
-those, and its others are removed from its DYE2 lists. Turn sharing off for
-a Machine first if its tablet's DYE2 baskets and tools are to stay as they
-are. DYE2's recipes are still only recorded.
+Location is the same Basket or Tool. As each sharing Machine's tablet reports
+them after the upgrade, its baskets and tools join the Library, shown at its
+Location, and those of the same name become one, so every tablet at a
+Location then holds all of them. A Machine that joins a Location later
+brings none of its own unless the Location has none yet, as for beans and
+profiles. Turn sharing off for a Machine first if its tablet's DYE2 baskets
+and tools are to stay as they are. DYE2's recipes are still only recorded.
 
 ## 0.3.0
 

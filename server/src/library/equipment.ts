@@ -3,7 +3,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
-import { type MappedEquipment, equipmentContent, heldBefore, planEquipmentIntake, readReportedEquipment } from "./equipment-intake.js";
+import { type MappedEquipment, beforeWriteAfter, equipmentContent, heldBefore, planEquipmentIntake, readReportedEquipment } from "./equipment-intake.js";
 import { setAsideDeleted } from "./hard-deletes.js";
 import { tabletSource } from "./history.js";
 import {
@@ -108,6 +108,7 @@ export async function takeInEquipment(
   const seenAt = new Map(mapped.map((record) => [record.itemId, record.seenAt]));
   /** The latest edit of its content that each record the map holds has seen. */
   const contentSeenAt = new Map(mapped.map((record) => [record.itemId, record.contentSeenAt]));
+  const mappedById = new Map(mapped.map((record) => [record.itemId, record]));
   const mappedIds = new Set(mapped.map((record) => record.localId));
   // A record the server's write created is listed now, so gone from a later report it was deleted there.
   const newlyListed = mapped.filter((record) => !record.listed && listed.has(record.localId)).map((record) => record.localId);
@@ -206,7 +207,10 @@ export async function takeInEquipment(
     // A record whose global id is lost has it written back.
     if (record.globalId !== itemId) writesDue = true;
     const seen = decided === null ? null : { at: decided, locationId };
-    await saveRecord(tx, kind, tablet.tabletId, itemId, record.localId, record.record, record.updatedAt, { seen, contentSeen: null, listed: true });
+    const known = step.kind === "update" ? mappedById.get(itemId) : undefined;
+    // A field the tablet set to a value of its own no longer takes setting it back for a stale save.
+    const beforeWrite = known ? { beforeWrite: beforeWriteAfter(known.beforeWrite, known.record, record.record) } : {};
+    await saveRecord(tx, kind, tablet.tabletId, itemId, record.localId, record.record, record.updatedAt, { seen, contentSeen: null, listed: true, ...beforeWrite });
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
   return takenInAt;
@@ -328,7 +332,7 @@ export async function recordEquipmentRemoved(prisma: PrismaService, kind: Equipm
  * id, keeping the latest decision of the item's showing at one Location it
  * has seen (`keepSeenSql`) and the latest edit of its content it has seen;
  * null keeps the one known. `beforeWrite`, when given, replaces what it held
- * before the server's latest write; otherwise that is kept.
+ * before the server's latest write, null for nothing; otherwise that is kept.
  */
 async function saveRecord(
   tx: Prisma.TransactionClient,
@@ -338,11 +342,11 @@ async function saveRecord(
   localId: string,
   record: Record<string, unknown>,
   updatedAt: Date | null,
-  state: { seen: SeenDecision | null; contentSeen: Date | null; listed: boolean; beforeWrite?: Record<string, unknown> },
+  state: { seen: SeenDecision | null; contentSeen: Date | null; listed: boolean; beforeWrite?: Record<string, unknown> | null },
 ): Promise<void> {
   const { map, column } = TABLES[kind];
   const table = Prisma.raw(map);
-  const beforeWrite = state.beforeWrite === undefined ? null : JSON.stringify(state.beforeWrite);
+  const beforeWrite = state.beforeWrite === undefined || state.beforeWrite === null ? null : JSON.stringify(state.beforeWrite);
   await tx.$executeRaw`
     INSERT INTO ${table} AS held (tablet_id, ${Prisma.raw(column)}, local_id, record, record_updated_at, before_write, listed, seen_at, seen_location_id, content_seen_at)
     VALUES (${tabletId}::uuid, ${itemId}::uuid, ${localId}, ${JSON.stringify(record)}::jsonb, ${updatedAt}::timestamptz, ${beforeWrite}::jsonb, ${state.listed},

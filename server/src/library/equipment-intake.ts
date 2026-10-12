@@ -123,6 +123,23 @@ export function editedContent(
   return Object.fromEntries(Object.entries(changed).filter(([field, value]) => !stale(field, value)));
 }
 
+/**
+ * What of `beforeWrite` still stands once the tablet reports its record
+ * anew: each field it reports unchanged, or set back to its value before the
+ * server's write. A field it set to anything else is the tablet's own value
+ * now, so setting it back to its value before the write later is an edit,
+ * not a stale save. Null once none stands.
+ */
+export function beforeWriteAfter(
+  beforeWrite: Readonly<Record<string, unknown>> | null,
+  known: Readonly<Record<string, unknown>>,
+  reported: Readonly<Record<string, unknown>>,
+): Record<string, unknown> | null {
+  if (beforeWrite === null) return null;
+  const standing = Object.entries(beforeWrite).filter(([field, value]) => sameValue(reported[field], known[field]) || sameValue(reported[field], value));
+  return standing.length === 0 ? null : Object.fromEntries(standing);
+}
+
 /** What a tablet's record held for each field a write set, just before it: null for a field it held no value for. */
 export function heldBefore(record: Readonly<Record<string, unknown>>, written: Iterable<string>): Record<string, unknown> {
   return Object.fromEntries([...written].map((field) => [field, record[field] ?? null]));

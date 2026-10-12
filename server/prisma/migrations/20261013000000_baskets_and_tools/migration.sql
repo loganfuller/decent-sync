@@ -165,3 +165,12 @@ CREATE TRIGGER "tools_versioned_added" AFTER INSERT ON "tools" FOR EACH ROW EXEC
 CREATE TRIGGER "tools_versioned_renamed" AFTER UPDATE OF "id" ON "tools" FOR EACH ROW WHEN (OLD."id" IS DISTINCT FROM NEW."id") EXECUTE FUNCTION "versioned_item_renamed"('tool');
 CREATE TRIGGER "tools_versioned_removed" AFTER DELETE ON "tools" FOR EACH ROW EXECUTE FUNCTION "versioned_item_removed"('tool');
 CREATE TRIGGER "tools_versioned_truncated" AFTER TRUNCATE ON "tools" FOR EACH STATEMENT EXECUTE FUNCTION "versioned_items_truncated"('tool');
+
+-- A tablet that took part at its Location before this release first reports DYE2's lists after it: that is no join of
+-- its Location (ADR-0008), so its baskets and tools are taken into the Library, matched by name (ADR-0018), rather than
+-- left out of it and removed from its lists. Its first report of each is taken in where its profiles last were.
+INSERT INTO "tablet_reports" ("tablet_id", "report", "assignment_id", "location_id", "sharing_since")
+SELECT reported."tablet_id", list."name", reported."assignment_id", reported."location_id", reported."sharing_since"
+FROM "tablet_reports" AS reported CROSS JOIN (VALUES ('dye2Baskets'), ('dye2Equipment')) AS list("name")
+WHERE reported."report" = 'profiles'
+ON CONFLICT DO NOTHING;

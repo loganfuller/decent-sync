@@ -239,7 +239,8 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   the plugin first read it (`record_updated_at`), the latest decision of its
   showing and the latest edit of its content it has seen, as
   `tablet_profiles` keeps them; what the record held for each field the
-  server's latest write to it set, just before it (`before_write`); and
+  server's latest write to it set, just before it, while the tablet has not
+  set the field to a value of its own since (`before_write`); and
   whether a report has listed it since the server's write created it
   (`listed`).
 - `tablet_unrecognised_lists`: each of DYE2's lists a tablet holds in a shape
@@ -839,7 +840,8 @@ shows or hides it, as a Profile (ADR-0008). Grinders stay per Location.
   app rewriting the list at the same moment as the plugin's write puts the
   record back as it was (ADR-0005). The item's value is then written again.
   A barista who deliberately sets a field back to exactly that value has to
-  set it again.
+  set it again: once the tablet reports the field with any other value, its
+  value before the write is forgotten, so setting it back is an edit.
 - **New records** are matched by name, ignoring case and white space at
   either end (`equipmentMatchKey`), to the oldest of the kind not Archived,
   as DYE2 itself refuses a second tool of one name (ADR-0018): linked, the
@@ -861,7 +863,10 @@ shows or hides it, as a Profile (ADR-0008). Grinders stay per Location.
   neither archive nor hide one, and not kept (ADR-0005). A Location that
   shows none of the kind yet takes the joining tablet's own. A record left
   out that is listed again after its removal, as another app rewrote the list
-  at the same moment, is removed again.
+  at the same moment, is removed again. A tablet that took part at its
+  Location before Baskets and Tools were shared is not joining as it first
+  reports them: the migration that added them records those lists as taken
+  in where its profiles were, so its baskets and tools join the Library.
 
 So a Basket or Tool created in DYE2 on one tablet is written to the other
 tablets at its Location, and to another Location's once shown there; an edit

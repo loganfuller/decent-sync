@@ -157,7 +157,8 @@ export interface SharingStatusView {
    * DYE2's lists its tablet holds in a shape that is not recognised, as it
    * last reported them or the plugin last found them, which nothing is
    * written to (ADR-0005): each by its collection's name, and when it was
-   * first found so. Its other lists keep syncing.
+   * first found so. Its other lists keep syncing. None while it is written
+   * nothing.
    */
   unrecognisedLists: { list: string; since: string }[];
 }
@@ -215,8 +216,11 @@ export async function sharingStatus(prisma: PrismaService, machineId: string): P
         item: change.itemId === null ? null : (names.get(`${change.kind}:${change.itemId}`) ?? null),
         localId: change.localId,
       });
-      const unrecognised = await tx.$queryRaw<{ list: string; since: Date }[]>`
-        SELECT list, since FROM tablet_unrecognised_lists WHERE tablet_id = ${tabletId}::uuid ORDER BY list`;
+      // Only while it takes part, as nothing is written to a capture-only Machine's lists, recognised or not.
+      const unrecognised = takesPart
+        ? await tx.$queryRaw<{ list: string; since: Date }[]>`
+            SELECT list, since FROM tablet_unrecognised_lists WHERE tablet_id = ${tabletId}::uuid ORDER BY list`
+        : [];
       return {
         tabletId,
         unrecognisedLists: unrecognised.map((row) => ({ list: row.list, since: row.since.toISOString() })),

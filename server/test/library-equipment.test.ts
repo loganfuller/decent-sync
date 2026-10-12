@@ -255,8 +255,12 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     expect((await show("tools", tool!.id, cafe, false)).status).toBe(200);
     await expect.poll(() => recordNamed(cafeTablet, "equipment", "Deleted Fixture Spare Tamper"), { timeout: 15_000 }).toBeUndefined();
     expect(await shownAt("tools", "Deleted Fixture Spare Tamper")).toEqual([]);
-    const status = ((await (await api.call("GET", `/machines/${machines[2].machine.id}/sharing-status`)).json()) as { status: { lastApplied: Record_ } }).status;
-    expect(status.lastApplied).toMatchObject({ change: "remove", kind: "tool", item: { kind: "tool", id: tool!.id, name: "Deleted Fixture Spare Tamper" } });
+    // The tablet's answer, which its sharing status shows, follows its removal from the list.
+    const lastApplied = async () =>
+      ((await (await api.call("GET", `/machines/${machines[2].machine.id}/sharing-status`)).json()) as { status: { lastApplied: Record_ } }).status.lastApplied;
+    await expect
+      .poll(lastApplied, { timeout: 15_000 })
+      .toMatchObject({ change: "remove", kind: "tool", item: { kind: "tool", id: tool!.id, name: "Deleted Fixture Spare Tamper" } });
   });
 
   it("writes nothing to a list in a shape it does not recognise, showing it in the sharing status, while the tablet's other lists keep syncing", async () => {
@@ -323,6 +327,18 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     const [basket] = await named("baskets", "Lost Fixture 18g Precision");
     expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Fixture notes, edited", diameterMm: 58.4 });
     await expect.poll(() => recordNamed(one, "baskets", "Lost Fixture 18g Precision")?.notes, { timeout: 15_000 }).toBe("Fixture notes, edited");
+
+    // A barista on that tablet sets the notes to a value of their own, then back to what the tablet held before the
+    // server's write: no stale save now, but their edit, which reaches the other tablet.
+    const setNotes = async (notes: string) => {
+      const list = records(two, "baskets").map((record) => (record.name === "Lost Fixture 18g Precision" ? { ...record, notes } : record));
+      expect((await two.callApi("POST", `/store/${DYE2_NAMESPACE}/baskets`, list)).status).toBe(200);
+    };
+    await setNotes("Measured again");
+    await expect.poll(() => recordNamed(one, "baskets", "Lost Fixture 18g Precision")?.notes, { timeout: 15_000 }).toBe("Measured again");
+    await setNotes("Fixture notes");
+    await expect.poll(() => recordNamed(one, "baskets", "Lost Fixture 18g Precision")?.notes, { timeout: 15_000 }).toBe("Fixture notes");
+    expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Fixture notes" });
   });
 
   it("keeps a restored tablet's Baskets and Tools linked by its tablet id, writing back a global id its record lost", async () => {

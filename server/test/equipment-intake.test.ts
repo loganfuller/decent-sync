@@ -5,6 +5,7 @@ import {
   type ReportedEquipment,
   editedContent,
   equipmentContent,
+  beforeWriteAfter,
   heldBefore,
   planEquipmentIntake,
   readReportedEquipment,
@@ -67,6 +68,20 @@ describe("DYE2's baskets and tools as Library items", () => {
     expect(editedContent({ ...basket20, notes: "written" }, basket20, heldBefore(basket20, ["notes"]))).toEqual({});
     // With no write known, every change is an edit.
     expect(editedContent(written, wdt, null)).toEqual({ custom: wdt.custom, name: wdt.name });
+  });
+
+  it("forgets a field's value before the server's write once the tablet sets it to a value of its own, so setting it back is an edit", () => {
+    const written = { ...wdt, notes: "B" };
+    const before = heldBefore({ ...wdt, notes: "A" }, ["notes"]);
+    // Reported as written, or set back by a stale save, it still stands.
+    expect(beforeWriteAfter(before, written, written)).toEqual({ notes: "A" });
+    expect(beforeWriteAfter(before, written, { ...wdt, notes: "A" })).toEqual({ notes: "A" });
+    // Set to C on the tablet, it is gone: setting A after that is the barista's edit.
+    expect(beforeWriteAfter(before, written, { ...wdt, notes: "C" })).toBeNull();
+    expect(editedContent({ ...wdt, notes: "C" }, { ...wdt, notes: "A" }, null)).toEqual({ notes: "A" });
+    // Only the field set otherwise is forgotten.
+    expect(beforeWriteAfter({ notes: "A", name: "Old" }, written, { ...written, notes: "C" })).toEqual({ name: "Old" });
+    expect(beforeWriteAfter(null, written, written)).toBeNull();
   });
 });
 

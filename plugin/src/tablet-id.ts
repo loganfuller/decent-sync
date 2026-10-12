@@ -88,8 +88,8 @@ export class TabletId {
  * A random version 4 UUID. Math.random is the only randomness Decaid's
  * runtime offers, and enough: a tablet id need only differ from other
  * tablets', since the token, not the id, is what a tablet connects with, and
- * an id the plugin gives a record in DYE2's lists only from the list's
- * others, as DYE2 gives one.
+ * an id the plugin gives a record in one of DYE2's lists need only differ
+ * from the other ids in that list, as DYE2's own do.
  */
 export function randomUuid(): string {
   const hex = (digits: number) => {
