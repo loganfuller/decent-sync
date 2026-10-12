@@ -238,8 +238,8 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   DYE2's lists, by DYE2's id, with the record as the tablet last had it, when
   the plugin first read it (`record_updated_at`), the latest decision of its
   showing and the latest edit of its content it has seen, as
-  `tablet_profiles` keeps them; what the record held for each field the
-  server's latest write to it set, just before it, while the tablet has not
+  `tablet_profiles` keeps them; what the record held for each field just
+  before the server's latest write to that field, while the tablet has not
   set the field to a value of its own since (`before_write`); and
   whether a report has listed it since the server's write created it
   (`listed`).
@@ -833,9 +833,9 @@ shows or hides it, as a Profile (ADR-0008). Grinders stay per Location.
   bean's.
 - **Edits.** A record the map holds that differs from the record known is an
   edit of each field of its content it changed, timed by when the plugin
-  first read it, merged per field (Edits, above). But a field the server's
-  latest write to the record set, that the report sets back to the value the
-  tablet held just before that write (`before_write`), is taken as
+  first read it, merged per field (Edits, above). But a field the report
+  sets back to the value the tablet held just before the server's latest
+  write to that field (`before_write`), is taken as
   unchanged: DYE2's pages save every field as they loaded it, and another
   app rewriting the list at the same moment as the plugin's write puts the
   record back as it was (ADR-0005). The item's value is then written again.

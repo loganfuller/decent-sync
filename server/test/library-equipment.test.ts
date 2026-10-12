@@ -1,6 +1,6 @@
 import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
+import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
 import { type Dye2Key, DYE2_NAMESPACE, dye2List, dye2Recording, saveInDye2 } from "./support/simulated-dye2.js";
 import { type DecaidApi, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
@@ -61,10 +61,14 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     return api;
   }
 
-  /** The built plugin on a tablet of the Machine, connected to an instance, polling every 5 s (0.1 s here). */
-  function load(machine: CreatedMachine, decaidApi: DecaidApi, options: { instance?: TestServer; storage?: SimulatedTablet["storage"] } = {}): SimulatedTablet {
+  /** The built plugin on a tablet of the Machine, connected to an instance, polling every 5 s (0.1 s here) unless `pollSeconds` says otherwise. */
+  function load(
+    machine: CreatedMachine,
+    decaidApi: DecaidApi,
+    options: { instance?: TestServer; storage?: SimulatedTablet["storage"]; pollSeconds?: number } = {},
+  ): SimulatedTablet {
     const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
+      settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
       api: decaidApi,
       storage: options.storage,
       timeScale: 50,
@@ -97,6 +101,20 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
   const recordNamed = (tablet: SimulatedTablet, key: Dye2Key, name: string) =>
     records(tablet, key).find((record) => String(record.name).trim().toLowerCase() === name.trim().toLowerCase());
   const show = (kind: "baskets" | "tools", id: string, location: LocationView, shown: boolean) => api.call("PUT", `/${kind}/${id}/locations/${location.id}`, { shown });
+
+  /** Has DYE2, which read the list just before, post it back just after the plugin's next write of the key, losing that write. */
+  const loseNextWrite = (tablet: SimulatedTablet, key: Dye2Key) => {
+    const before = structuredClone(dye2List(tablet, key) ?? []);
+    let lost = false;
+    tablet.refuseWrites = ({ method, route }) => {
+      if (!lost && method === "POST" && route === `/store/${DYE2_NAMESPACE}/${key}`) {
+        lost = true;
+        setImmediate(() => void tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/${key}`, before));
+      }
+      return undefined;
+    };
+    return () => lost;
+  };
 
   const baskets = dye2Recording("baskets");
   const tools = dye2Recording("tools");
@@ -181,6 +199,8 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     const cafeTablet = load(machines[2], decaid("41023"));
     await online(...machines);
 
+    // The other tablets' equipment keys were never written: each gets the Tool all the same.
+    for (const tablet of [two, cafeTablet]) expect(dye2List(tablet, "equipment")).toBeNull();
     await saveInDye2(one, tools.createWdtTool);
     await expect.poll(() => shownAt("tools", "Fixture WDT Tool"), { timeout: 15_000 }).toEqual(["Edited lab"]);
     const [tool] = await named("tools", "Fixture WDT Tool");
@@ -252,8 +272,13 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     ]);
 
     // Hidden at the cafe through the REST API, it is removed from the cafe's tablet, and nothing is written to the lab's.
+    // Its removal lost to DYE2 posting the list back at once, the record comes back, and is removed again.
+    const removalLost = loseNextWrite(cafeTablet, "equipment");
+    const cafeWrites = cafeTablet.storeWrites.filter((write) => write.key === "equipment").length;
     expect((await show("tools", tool!.id, cafe, false)).status).toBe(200);
+    await expect.poll(removalLost, { timeout: 15_000 }).toBe(true);
     await expect.poll(() => recordNamed(cafeTablet, "equipment", "Deleted Fixture Spare Tamper"), { timeout: 15_000 }).toBeUndefined();
+    expect(cafeTablet.storeWrites.filter((write) => write.key === "equipment").length).toBeGreaterThanOrEqual(cafeWrites + 2);
     expect(await shownAt("tools", "Deleted Fixture Spare Tamper")).toEqual([]);
     // The tablet's answer, which its sharing status shows, follows its removal from the list.
     const lastApplied = async () =>
@@ -290,26 +315,64 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     expect((await status()).unrecognisedLists).toEqual([]);
   });
 
+  it("writes nothing to a list the plugin finds in a shape it does not recognise only as it writes, showing it in the sharing status", async () => {
+    const lab = await api.createLocation("Unrecognised late lab", "America/Chicago");
+    const machines = [await api.createMachine("Unrecognised late lab 1", lab.id), await api.createMachine("Unrecognised late lab 2", lab.id)] as const;
+    const one = load(machines[0], decaid("41081"));
+    // The second tablet reads its lists once an hour (72 s here), so it reports them once in this test, as it connects.
+    const two = load(machines[1], decaid("41082", { baskets: [], equipment: [] }), { instance: other, pollSeconds: 3600 });
+    await online(...machines);
+    const reported = async () =>
+      ((await (await api.call("GET", `/machines/${machines[1].machine.id}/collections/dye2Baskets`)).json()) as { collection: { value: unknown } | null }).collection;
+    await expect.poll(async () => (await reported())?.value, { timeout: 15_000 }).toEqual([]);
+    // Another app then saves its baskets in a shape DYE2 never saves, unread by the plugin until it writes there.
+    const broken = { baskets: [] };
+    expect((await two.callApi("POST", `/store/${DYE2_NAMESPACE}/baskets`, broken)).status).toBe(200);
+
+    await saveInDye2(one, baskets.create18gBasket, ownNames("Unrecognised late"));
+    await saveInDye2(one, tools.createPuckScreen, ownNames("Unrecognised late"));
+    const status = async () =>
+      ((await (await api.call("GET", `/machines/${machines[1].machine.id}/sharing-status`)).json()) as { status: { unrecognisedLists: { list: string }[] } }).status;
+    await expect.poll(async () => (await status()).unrecognisedLists.map(({ list }) => list), { timeout: 15_000 }).toEqual(["dye2Baskets"]);
+    // Its tools are written; its baskets are left as they were, and its report of them is as it was.
+    await expect.poll(() => recordNamed(two, "equipment", "Unrecognised late Fixture Puck Screen"), { timeout: 15_000 }).toBeDefined();
+    expect(dye2List(two, "baskets")).toEqual(broken);
+    expect(two.storeWrites.filter((write) => write.key === "baskets")).toEqual([]);
+    expect((await reported())?.value).toEqual([]);
+  });
+
+  it("lets Staff show and hide a Basket or Tool only at their own Locations, and answers 404 for one or a Location there is none of", async () => {
+    const home = await api.createLocation("Equipment staff home", "America/Chicago");
+    const elsewhere = await api.createLocation("Equipment staff elsewhere", "America/Chicago");
+    const machine = await api.createMachine("Equipment staff elsewhere 1", elsewhere.id);
+    const tablet = load(machine, decaid("41091"));
+    await online(machine);
+    await saveInDye2(tablet, tools.createSpareTamper, ownNames("Equipment staff"));
+    await expect.poll(() => shownAt("tools", "Equipment staff Fixture Spare Tamper"), { timeout: 15_000 }).toEqual(["Equipment staff elsewhere"]);
+    const [tool] = await named("tools", "Equipment staff Fixture Spare Tamper");
+    const { link } = await api.invite("staff-138@example.com", "staff", [home.id]);
+    const staff = AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Staff", password: "staff password 1" }));
+    const showAs = (who: AdminApi, kind: "baskets" | "tools", id: string, location: string, shown: boolean) =>
+      who.call("PUT", `/${kind}/${id}/locations/${location}`, { shown });
+
+    expect((await showAs(staff, "tools", tool!.id, home.id, true)).status).toBe(200);
+    expect((await showAs(staff, "tools", tool!.id, home.id, false)).status).toBe(200);
+    expect((await showAs(staff, "tools", tool!.id, elsewhere.id, false)).status).toBe(403);
+    expect((await staff.call("GET", `/tools/${tool!.id}`)).status).toBe(200);
+    expect(await shownAt("tools", "Equipment staff Fixture Spare Tamper")).toEqual(["Equipment staff elsewhere"]);
+    const none = "00000000-0000-4000-8000-000000000138";
+    expect((await showAs(api, "tools", none, home.id, true)).status).toBe(404);
+    expect((await showAs(api, "baskets", tool!.id, home.id, true)).status).toBe(404);
+    expect((await showAs(api, "tools", tool!.id, none, true)).status).toBe(404);
+    expect((await api.call("GET", `/baskets/${none}`)).status).toBe(404);
+  });
+
   it("writes again what another app's rewrite of the list lost as the plugin wrote it", async () => {
     const lab = await api.createLocation("Lost lab", "America/Chicago");
     const machines = [await api.createMachine("Lost lab 1", lab.id), await api.createMachine("Lost lab 2", lab.id)] as const;
     const one = load(machines[0], decaid("41051"));
     const two = load(machines[1], decaid("41052"), { instance: other });
     await online(...machines);
-    /** Has DYE2, which read the list just before, post it back just after the plugin's next write of the key, losing that write. */
-    const loseNextWrite = (tablet: SimulatedTablet, key: Dye2Key) => {
-      const before = structuredClone(dye2List(tablet, key) ?? []);
-      let lost = false;
-      tablet.refuseWrites = ({ method, route }) => {
-        if (!lost && method === "POST" && route === `/store/${DYE2_NAMESPACE}/${key}`) {
-          lost = true;
-          setImmediate(() => void tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/${key}`, before));
-        }
-        return undefined;
-      };
-      return () => lost;
-    };
-
     // A create lost.
     const createLost = loseNextWrite(two, "baskets");
     await saveInDye2(one, baskets.create18gBasket, ownNames("Lost"));

@@ -141,12 +141,14 @@ export function beforeWriteAfter(
 }
 
 /**
- * What a tablet's record held for each field a write set, just before it:
- * null for a field it held no value for. But not a field the record held at
- * its value before the server's previous write (`previous`): such a write
- * puts back the item's value over what was taken as a stale save, so the
- * tablet setting that value again is its barista's edit (ADR-0005), not
- * another stale save. Null if none is left.
+ * What `before_write` holds once the server writes a tablet's record: for
+ * each field the write set, what the record held just before it, null for a
+ * field it held no value for; for each field it did not set, what `previous`
+ * held, from the latest write that set it. But not a field the record held
+ * at its value before the server's previous write to it: such a write puts
+ * back the item's value over what was taken as a stale save, so the tablet
+ * setting that value again is its barista's edit (ADR-0005), not another
+ * stale save. Null if none is left.
  */
 export function heldBefore(
   record: Readonly<Record<string, unknown>>,
@@ -154,8 +156,11 @@ export function heldBefore(
   previous: Readonly<Record<string, unknown>> | null = null,
 ): Record<string, unknown> | null {
   const restoring = (field: string) => previous !== null && Object.prototype.hasOwnProperty.call(previous, field) && sameValue(record[field], previous[field]);
-  const held = [...written].filter((field) => !restoring(field)).map((field) => [field, record[field] ?? null] as const);
-  return held.length === 0 ? null : Object.fromEntries(held);
+  const fields = new Set(written);
+  const kept = Object.entries(previous ?? {}).filter(([field]) => !fields.has(field));
+  const held = [...fields].filter((field) => !restoring(field)).map((field) => [field, record[field] ?? null] as const);
+  const all = [...kept, ...held];
+  return all.length === 0 ? null : Object.fromEntries(all);
 }
 
 /**

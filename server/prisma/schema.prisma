@@ -1103,8 +1103,8 @@ model TabletBasket {
   /// When the plugin first read the record's content, placed in UTC: DYE2's
   /// records carry no edit time (ADR-0005). Null if it could not be read.
   recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
-  /// The record as the tablet held it just before the server's latest write
-  /// to it: a field a report sets back to its value there is taken as
+  /// Each field as the tablet held it just before the server's latest write
+  /// to that field: a field a report sets back to its value there is taken as
   /// unchanged, as from a page opened before the write, or a write lost to
   /// another app rewriting the list (ADR-0005). Null before any write.
   beforeWrite     Json?     @map("before_write") @db.JsonB
@@ -1191,8 +1191,8 @@ model TabletTool {
   /// When the plugin first read the record's content, placed in UTC: DYE2's
   /// records carry no edit time (ADR-0005). Null if it could not be read.
   recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
-  /// The record as the tablet held it just before the server's latest write
-  /// to it: a field a report sets back to its value there is taken as
+  /// Each field as the tablet held it just before the server's latest write
+  /// to that field: a field a report sets back to its value there is taken as
   /// unchanged, as from a page opened before the write, or a write lost to
   /// another app rewriting the list (ADR-0005). Null before any write.
   beforeWrite     Json?     @map("before_write") @db.JsonB

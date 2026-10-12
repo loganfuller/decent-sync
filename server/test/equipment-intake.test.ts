@@ -94,6 +94,17 @@ describe("DYE2's baskets and tools as Library items", () => {
     expect(heldBefore(setBack, ["notes"])).toEqual({ notes: "A" });
     expect(heldBefore(setBack, [])).toBeNull();
   });
+
+  it("keeps a field's value before the latest write that set it, through later writes of other fields", () => {
+    // The server wrote notes B over A, then name X over the tablet's name.
+    const first = heldBefore({ ...wdt, notes: "A" }, ["notes"]);
+    const second = heldBefore({ ...wdt, notes: "B" }, ["name"], first);
+    expect(second).toEqual({ notes: "A", name: wdt.name });
+    // A page opened before both saves A and the old name back: neither is an edit.
+    expect(editedContent({ ...wdt, notes: "B", name: "X" }, { ...wdt, notes: "A" }, second)).toEqual({});
+    // A later write of notes replaces only its value before.
+    expect(heldBefore({ ...wdt, notes: "C" }, ["notes"], second)).toEqual({ notes: "C", name: wdt.name });
+  });
 });
 
 describe("planEquipmentIntake", () => {

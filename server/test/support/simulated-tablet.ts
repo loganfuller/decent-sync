@@ -288,13 +288,6 @@ export function machineSnapshot(state: string, substate: string): Record<string,
 }
 
 /**
- * Derived from de1ProOnDecaid087(): the same responses, with the machine's
- * reported model and serial, the preferred machine's connection id, or
- * Decaid's version (such as 0.8.6+2801, split into its version and build
- * number as Decaid reports them too) changed. Every other field is as Decaid
- * sent it.
- */
-/**
  * DYE2's baskets and tools, empty, for a test tablet whose Library is
  * otherwise the test's own: the test tablet's basket, which every derived
  * tablet holds, is shared through the Library like any other (ADR-0005),
@@ -302,6 +295,13 @@ export function machineSnapshot(state: string, substate: string): Record<string,
  */
 export const NO_DYE2_EQUIPMENT: DecaidApi = { "/store/dye2.reaplugin/baskets": [], "/store/dye2.reaplugin/equipment": [] };
 
+/**
+ * Derived from de1ProOnDecaid087(): the same responses, with the machine's
+ * reported model and serial, the preferred machine's connection id, or
+ * Decaid's version (such as 0.8.6+2801, split into its version and build
+ * number as Decaid reports them too) changed. Every other field is as Decaid
+ * sent it.
+ */
 export function derivedDe1Pro(changes: { model?: string; serial?: string; connectionId?: string; decaidVersion?: string }): DecaidApi {
   const api = de1ProOnDecaid087();
   const info = api["/info"] as Record<string, unknown>;
