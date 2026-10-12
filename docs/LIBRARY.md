@@ -1561,7 +1561,8 @@ needs:
 
 1. **The protocol** (`protocol/src/index.ts`): an entry in
    `LIBRARY_ITEM_KINDS`, in the order its list is read and written, after
-   the kind its records are made under, if any: the
+   the kind its records are made under, if any, whose own records are made
+   under none, as records nest one deep: the
    tablet's list its records are reported in, one of `COLLECTION_NAMES`;
    what its ids are (`ItemIdRule`), `GLOBAL_ITEM_ID` for a global id or a
    rule of its own for ids that are not UUIDs, which every message naming
