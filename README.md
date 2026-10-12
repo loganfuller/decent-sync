@@ -42,27 +42,27 @@ it is finished there, with its own remaining weight at each, a Bean is offered
 where its batches are, a Grinder belongs to the Location where it was created,
 and a Profile is shown or hidden at each Location. Archiving, hiding or
 deleting one on a tablet acts at that tablet's Location only; a Grinder
-archived or deleted there is Archived. A Location's Machines share their
-steam, hot water and rinse settings too, but those whose sharing is turned
-off. An edit made on a tablet or in the management interface reaches every
-tablet that holds the item, merged field by field with the latest edit
-winning; each item and each Location's settings keep their history, and an
-edit that lost to one made without seeing it is kept as a Conflict, whose
-value the management interface uses or dismisses. The management interface's
-Library lists the Beans, the Bean Batches, the Grinders, the Profiles, and
-where each is, and creates, edits, Archives and restores Beans, Bean Batches
-and Grinders, adding and finishing batches at each Location; it shows and
-hides each Profile at each Location, which is how a lab Profile reaches a
-cafe, and Archives and restores Profiles; an Admin hard-deletes an item no
-Shot names, from every tablet too. Each Shot is linked to the Bean Batch,
-Grinder and Profile it used, Shots filter by them, and each item's page lists
-its Shots. A Machine adopted at a Location, moved there, or whose sharing an
-Admin turns back on after making it capture-only takes on that Location's
-Library and settings: what its tablet held of its own stays out of the
-Library, archived or hidden on it, unless the Location had none of that kind
-yet. A write a tablet refuses is skipped, and tried again once its item
-changes or the tablet reconnects, while the others go on; each Machine's page
-shows its sharing status: the changes waiting for its tablet, the last it
+archived or deleted there is Archived. A Location's Machines share their steam
+and rinse settings too, but those whose sharing is turned off, while each
+keeps its own hot water. An edit made on a tablet or in the management
+interface reaches every tablet that holds the item, merged field by field with
+the latest edit winning; each item and each Location's settings keep their
+history, and an edit that lost to one made without seeing it is kept as a
+Conflict, whose value the management interface uses or dismisses. The
+management interface's Library lists the Beans, the Bean Batches, the
+Grinders, the Profiles, and where each is, and creates, edits, Archives and
+restores Beans, Bean Batches and Grinders, adding and finishing batches at
+each Location; it shows and hides each Profile at each Location, which is how
+a lab Profile reaches a cafe, and Archives and restores Profiles; an Admin
+hard-deletes an item no Shot names, from every tablet too. Each Shot is linked
+to the Bean Batch, Grinder and Profile it used, Shots filter by them, and each
+item's page lists its Shots. A Machine adopted at a Location, moved there, or
+whose sharing an Admin turns back on after making it capture-only takes on
+that Location's Library and settings: what its tablet held of its own stays
+out of the Library, archived or hidden on it, unless the Location had none of
+that kind yet. A write a tablet refuses is skipped, and tried again once its
+item changes or the tablet reconnects, while the others go on; each Machine's
+page shows its sharing status: the changes waiting for its tablet, the last it
 applied, and the writes it refused, with Decaid's answer. The Workflow changes
 and machine state transitions a tablet has yet to deliver are kept in Decaid's
 plugin storage, so unloading the plugin loses none. Everything else is

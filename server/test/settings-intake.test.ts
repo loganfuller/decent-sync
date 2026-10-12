@@ -3,18 +3,14 @@ import { describe, expect, it } from "vitest";
 import type { FieldEdits } from "../src/library/merge.js";
 import { settingsEdits, settingsToWrite } from "../src/library/settings-intake.js";
 
-// Which of a tablet's reported steam, hot water and rinse settings are
-// edits of its Location's, and what a tablet is to be written (ADR-0014).
+// Which of a tablet's reported steam and rinse settings are edits of its
+// Location's, and what a tablet is to be written (ADR-0014).
 
 const SETTINGS: SharedSettings = {
   "steamSettings.targetTemperature": 150,
   "steamSettings.duration": 45,
   "steamSettings.flow": 1.8,
   "steamSettings.stopAtTemperature": 65,
-  "hotWaterData.targetTemperature": 80,
-  "hotWaterData.duration": 40,
-  "hotWaterData.volume": 150,
-  "hotWaterData.flow": 8,
   "rinseData.targetTemperature": 92,
   "rinseData.duration": 8,
   "rinseData.flow": 5.5,
@@ -45,7 +41,7 @@ describe("A tablet's reported settings", () => {
 
   it("keep a Machine's steam off to itself, and its steam settings while off", () => {
     expect(settingsEdits(SETTINGS, steamOff, ALL_SET)).toEqual({});
-    expect(settingsEdits(steamOff, { ...steamOff, "steamSettings.flow": 1, "hotWaterData.volume": 200 }, ALL_SET)).toEqual({ "hotWaterData.volume": 200 });
+    expect(settingsEdits(steamOff, { ...steamOff, "steamSettings.flow": 1, "rinseData.duration": 6 }, ALL_SET)).toEqual({ "rinseData.duration": 6 });
   });
 
   it("turning steam back on take the Location's steam settings rather than give the Machine's", () => {
@@ -55,7 +51,7 @@ describe("A tablet's reported settings", () => {
   it("from a Machine with steam off set no steam setting, but the rest", () => {
     const set = settingsEdits(null, steamOff, {});
     expect(Object.keys(set).some((field) => field.startsWith("steamSettings."))).toBe(false);
-    expect(set["hotWaterData.volume"]).toBe(150);
+    expect(set["rinseData.duration"]).toBe(8);
     // Once a Machine with steam on reports, it sets them.
     const unsetSteam = Object.fromEntries(Object.entries(ALL_SET).filter(([field]) => !field.startsWith("steamSettings.")));
     expect(settingsEdits(steamOff, SETTINGS, unsetSteam)).toEqual({
@@ -81,9 +77,9 @@ describe("What a tablet is to be written", () => {
   });
 
   it("leaves out the steam settings of a Machine whose steam is off, so shared values never turn it on", () => {
-    expect(settingsToWrite({ ...SETTINGS, "steamSettings.flow": 2.2, "hotWaterData.flow": 6 }, steamOff)).toEqual({
-      fields: { "hotWaterData.flow": 6 },
-      expected: { "hotWaterData.flow": 8 },
+    expect(settingsToWrite({ ...SETTINGS, "steamSettings.flow": 2.2, "rinseData.flow": 4 }, steamOff)).toEqual({
+      fields: { "rinseData.flow": 4 },
+      expected: { "rinseData.flow": 5.5 },
     });
   });
 });

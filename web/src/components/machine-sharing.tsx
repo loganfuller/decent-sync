@@ -30,7 +30,7 @@ const REASONS: Record<CaptureOnlyReason, string> = {
 
 /** What a change's kind is called: a Library kind's name (`LIBRARY_KINDS`), the shared settings, or the Workflow. */
 function kindName(kind: TabletChange["kind"]): string {
-  if (kind === "settings") return "Steam, hot water and rinse settings";
+  if (kind === "settings") return "Steam and rinse settings";
   return kind === "workflow" ? "Workflow" : LIBRARY_KINDS[kind].name;
 }
 

@@ -47,8 +47,8 @@ export interface MachineStateEventView extends MachineStateView {
  * keeps the time the plugin observed it.
  *
  * A Workflow from a connection that is not mismatched, for its token's
- * Machine, is also taken into its Location's steam, hot water and rinse
- * settings in the same transaction (`takeInWorkflow`, ADR-0014).
+ * Machine, is also taken into its Location's steam and rinse settings in
+ * the same transaction (`takeInWorkflow`, ADR-0014).
  */
 @Injectable()
 export class MachineEventsService {

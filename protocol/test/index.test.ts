@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   CLOSE_CODES,
@@ -24,6 +25,7 @@ import {
   MAX_WRITTEN_FIELDS,
   PROTOCOL_VERSION,
   REMOVAL_ORDER,
+  SHARED_SETTINGS,
   type WriteRefused,
   childKinds,
   childLists,
@@ -44,6 +46,7 @@ import {
   parentKind,
   parentList,
   sameValue,
+  sharedSettingsOf,
 } from "@decent-sync/protocol";
 
 const token = "8cTqXr0b2m6Yw1zH4kLpQeNvSa7uJdFg9oIiBhC3E5s";
@@ -699,5 +702,27 @@ describe("Record ids", () => {
     expect(isRecordId("a".repeat(MAX_RECORD_ID_LENGTH))).toBe(true);
     expect(isRecordId("\u{1D11E}".repeat(MAX_RECORD_ID_LENGTH / 2))).toBe(true);
     for (const value of ["", "a".repeat(MAX_RECORD_ID_LENGTH + 1), "shot\u0000", 1, null, undefined]) expect(isRecordId(value)).toBe(false);
+  });
+});
+
+describe("Shared settings", () => {
+  const workflow = JSON.parse(readFileSync(new URL("../../server/test/fixtures/decaid/de1pro-v0.8.7/workflow.json", import.meta.url), "utf8")) as Record<string, unknown>;
+
+  it("are a Workflow's steam and rinse settings, and none of its hot water, which is each Machine's own", () => {
+    expect(SHARED_SETTINGS.every((field) => field.startsWith("steamSettings.") || field.startsWith("rinseData."))).toBe(true);
+    expect(sharedSettingsOf(workflow)).toEqual({
+      "steamSettings.targetTemperature": 160,
+      "steamSettings.duration": 120,
+      "steamSettings.flow": 2.500000000000001,
+      "steamSettings.stopAtTemperature": 0,
+      "rinseData.targetTemperature": 90,
+      "rinseData.duration": 5,
+      "rinseData.flow": 6,
+    });
+  });
+
+  it("are read from a Workflow without its hot water", () => {
+    const { hotWaterData: _hotWater, ...withoutHotWater } = workflow;
+    expect(sharedSettingsOf(withoutHotWater)).toEqual(sharedSettingsOf(workflow));
   });
 });

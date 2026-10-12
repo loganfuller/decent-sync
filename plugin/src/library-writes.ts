@@ -41,7 +41,7 @@ import { forgetInStreamline, rememberInStreamline } from "./streamline.js";
 // An update sets a field only while the record holds what the server expects
 // it to (`LibraryWrite.expected`), so a barista's change the tablet has not
 // reported yet is kept, and reaches the server in the answer (ADR-0020).
-// A Location's steam, hot water and rinse settings are written into the
+// A Location's steam and rinse settings are written into the
 // tablet's Workflow the same way (ADR-0014), the values Streamline remembers
 // of them set first to match (ADR-0021), and so is the clearing of the
 // Workflow's grinder and batch as its Machine joins a Location that does not
@@ -571,7 +571,7 @@ async function writeProfile(write: LibraryWrite): Promise<WriteAnswer> {
  * (`rememberInStreamline`), so Streamline does not push its own back, and
  * sets them back should Decaid refuse the Workflow (`forgetInStreamline`)
  * (ADR-0021). The answer is
- * the Workflow's steam, hot water and rinse parts as Decaid returned them,
+ * the Workflow's steam and rinse parts as Decaid returned them,
  * or as read when nothing was left to set, timed now, as a Workflow carries
  * no time. Decaid refuses to change them while no machine is connected.
  */
@@ -634,7 +634,7 @@ function workflowContext(workflow: Record<string, unknown>): Record<string, unkn
   return { context: isObject(workflow.context) ? workflow.context : {} };
 }
 
-/** The steam, hot water and rinse parts of a Workflow, as Decaid holds them. */
+/** The steam and rinse parts of a Workflow, as Decaid holds them. */
 function workflowSettings(workflow: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(SETTINGS_PARTS.flatMap((part) => (part in workflow ? [[part, workflow[part]]] : [])));
 }

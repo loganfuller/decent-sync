@@ -60,7 +60,7 @@ export function LocationsPage() {
         <h1 className="text-2xl font-semibold">Locations</h1>
         <p className="text-muted-foreground">
           The sites where your machines are used. Each Location's time zone sets the local times shown for it, and its page shows the
-          steam, hot water and rinse settings its Machines share.
+          steam and rinse settings its Machines share.
         </p>
       </div>
 

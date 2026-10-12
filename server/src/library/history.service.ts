@@ -43,7 +43,7 @@ export interface VersionView {
   receivedAt: string;
 }
 
-/** A Library item a Conflict is about, or a Location's steam, hot water and rinse settings (`settings`), whose Location the Conflict names. */
+/** A Library item a Conflict is about, or a Location's steam and rinse settings (`settings`), whose Location the Conflict names. */
 export interface ConflictItemView {
   kind: VersionedKind;
   /** Its global id, a Profile's id, or the settings' id. */
@@ -51,7 +51,7 @@ export interface ConflictItemView {
   /**
    * What the management interface names it by: a Bean's roaster and name, a
    * batch's Bean and roast date, a Grinder's model, a Profile's title, the
-   * settings' "Steam, hot water and rinse"; null where its content has none.
+   * settings' "Steam and rinse"; null where its content has none.
    */
   name: string | null;
 }

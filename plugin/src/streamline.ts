@@ -2,17 +2,19 @@ import { STEAM_ON_FROM, type SharedSetting } from "@decent-sync/protocol";
 import { request } from "./decaid.js";
 
 // Streamline (streamline-js), a skin for Decaid, remembers what the barista
-// last set for some of the shared settings in Decaid's store, under its
-// namespace `streamline-app`, and pushes a remembered value back through
-// `PUT /workflow` whenever the Workflow holds another, whoever changed it
-// (`resyncIfDrifted` in streamline-js:src/modules/api.js, which
+// last set for some of the steam, hot water and rinse settings in Decaid's
+// store, under its namespace `streamline-app`, and pushes a remembered value
+// back through `PUT /workflow` whenever the Workflow holds another, whoever
+// changed it (`resyncIfDrifted` in streamline-js:src/modules/api.js, which
 // `resyncDriftedShotSettings` calls on every shot-settings frame from the
 // machine, and `loadInitialData` on every load, both in src/modules/app.js;
 // checked at v0.2.12, bf72a0c). Its key names are not a published contract.
-// So before the plugin writes a Location's settings into the Workflow, it
-// sets each of those values Streamline holds to the one it is about to
-// write, store first, as Streamline's own steam and hot water setters do
-// (ADR-0021).
+// So before the plugin writes settings into the Workflow, it sets each of
+// those values Streamline holds to the one it is about to write, store
+// first, as Streamline's own steam and hot water setters do (ADR-0021). Only
+// the keys of the settings a write carries are set: a Location's settings
+// are steam and rinse alone (ADR-0014), so Streamline's hot water keys wait
+// for a Loaded Recipe's hot water to be written (ADR-0022).
 
 const NAMESPACE = "streamline-app";
 
@@ -23,8 +25,11 @@ interface Remembered {
   remembers?: (value: number) => boolean;
 }
 
-/** The shared settings Streamline remembers, by its keys in src/modules/api.js. */
-const REMEMBERED: Partial<Record<SharedSetting, Remembered>> = {
+/** A Workflow setting the plugin writes: a shared one, or a hot water setting, which a Loaded Recipe is to set (ADR-0022). */
+type WrittenSetting = SharedSetting | "hotWaterData.volume" | "hotWaterData.targetTemperature";
+
+/** The settings Streamline remembers, by their Workflow fields (`steamSettings.flow`), with its keys in src/modules/api.js. */
+const REMEMBERED: Partial<Record<WrittenSetting, Remembered>> = {
   "steamSettings.duration": { key: "last-steam-duration" },
   "steamSettings.flow": { key: "last-steam-flow" },
   // Only a stop that is on: 0 is off (`setStopAtTemperature`).
@@ -58,7 +63,7 @@ export interface RememberedChange {
 export async function rememberInStreamline(fields: Readonly<Record<string, unknown>>, log: (message: string) => void): Promise<RememberedChange[]> {
   const changes: RememberedChange[] = [];
   for (const [field, value] of Object.entries(fields)) {
-    const remembered = Object.prototype.hasOwnProperty.call(REMEMBERED, field) ? REMEMBERED[field as SharedSetting] : undefined;
+    const remembered = Object.prototype.hasOwnProperty.call(REMEMBERED, field) ? REMEMBERED[field as WrittenSetting] : undefined;
     if (!remembered || typeof value !== "number" || !Number.isFinite(value) || remembered.remembers?.(value) === false) continue;
     const { key } = remembered;
     const path = `/store/${NAMESPACE}/${encodeURIComponent(key)}`;

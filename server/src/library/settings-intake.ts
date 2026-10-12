@@ -1,8 +1,8 @@
 import { SHARED_SETTINGS, STEAM_SETTINGS, type SharedSetting, type SharedSettings, sameValue, steamIsOn } from "@decent-sync/protocol";
 import type { FieldEdits } from "./merge.js";
 
-// A Location's steam, hot water and rinse settings, shared by its Machines,
-// whatever their model (ADR-0014): which of a tablet's reported settings are
+// A Location's steam and rinse settings, shared by its Machines, whatever
+// their model (ADR-0014): which of a tablet's reported settings are
 // edits, and what a tablet is to be written. Each setting is a field of its
 // own, merged as a Library item's content is (merge.ts, ADR-0020). A Machine
 // whose steam is off (a steam target below 135 °C) neither shares its steam

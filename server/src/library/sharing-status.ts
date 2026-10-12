@@ -108,7 +108,7 @@ export async function forgetRefusal(prisma: PrismaService, tabletId: string, key
 /**
  * The item a change was of, as the management interface names it: a Bean's
  * roaster and name, a batch's Bean and roast date, a Grinder's model, a
- * Profile's title, the settings' "Steam, hot water and rinse", the
+ * Profile's title, the settings' "Steam and rinse", the
  * Workflow's "Grinder and batch"; null where its content has none.
  */
 export interface ChangedItemView {

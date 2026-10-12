@@ -227,8 +227,8 @@ model Machine {
   /// if never. Each of its tablet's reports records it (`tablet_reports`),
   /// so the first report since is part of joining its Location (ADR-0008).
   sharingSince       DateTime?             @map("sharing_since") @db.Timestamptz(3)
-  /// Whether its tablet shares its Location's steam, hot water and rinse
-  /// settings (ADR-0014): with sharing turned off, nothing of them is taken
+  /// Whether its tablet shares its Location's steam and rinse settings
+  /// (ADR-0014): with sharing turned off, nothing of them is taken
   /// from it or written to it, and with sharing turned back on it takes the
   /// Location's.
   sharesSettings     Boolean               @default(true) @map("shares_settings")
@@ -1031,7 +1031,7 @@ model TabletProfile {
 }
 
 /// Each item that keeps versions and Conflicts (ADR-0020): every Library
-/// item and each Location's steam, hot water and rinse settings, by its kind
+/// item and each Location's steam and rinse settings, by its kind
 /// and id, as `ItemVersion` and `Conflict` name it, so a new kind needs no
 /// column of its own. A trigger on each kind's table adds its row as the
 /// item is inserted, follows a change of its id, and deletes it as the item
@@ -1146,8 +1146,8 @@ model Conflict {
   @@map("conflicts")
 }
 
-/// A Location's steam, hot water and rinse settings, shared by its Machines
-/// whatever their model (ADR-0014), each a field of its own, merged as edits
+/// A Location's steam and rinse settings, shared by its Machines whatever
+/// their model (ADR-0014), each a field of its own, merged as edits
 /// of a Library item's content are (ADR-0020). The first Machine at the
 /// Location to report its Workflow sets them; a setting no Machine with steam
 /// on has reported yet is unset. See server/src/library/location-settings.ts.

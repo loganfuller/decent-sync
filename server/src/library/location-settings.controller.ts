@@ -7,10 +7,10 @@ import { type ConflictView, HistoryService, type VersionView } from "./history.s
 import { type LocationSettingsView, LocationSettingsService, readSettingsEdit, readSettingsId } from "./location-settings.service.js";
 
 /**
- * Each Location's steam, hot water and rinse settings, shared by its
- * Machines whatever their model (ADR-0014), and whether each Machine shares
- * them. Staff read them as Admins do, and change those of their own
- * Locations, and their Machines' sharing.
+ * Each Location's steam and rinse settings, shared by its Machines whatever
+ * their model (ADR-0014), and whether each Machine shares them; hot water is
+ * each Machine's own. Staff read them as Admins do, and change those of
+ * their own Locations, and their Machines' sharing.
  */
 @AllowStaff()
 @Controller("api")

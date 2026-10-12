@@ -3,13 +3,14 @@ import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "
 import { SimulatedTablet, derivedDe1Pro, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
-// Seam 1 for ticket #86: steam, hot water and rinse settings are shared by a
-// Location's Machines, whatever their model (ADR-0014). The first Machine at
-// a Location sets them; a change on one tablet reaches the Location's other
-// Machines, and a change in the management interface reaches them all. A
-// Machine with sharing turned off keeps its own, and takes the Location's
-// once sharing is turned back on. Turning steam off stays on that Machine, and once it is
-// turned on again the Machine takes the Location's values. Through the built
+// Seam 1 for tickets #86 and #137: steam and rinse settings are shared by a
+// Location's Machines, whatever their model (ADR-0014), and hot water is
+// each Machine's own. The first Machine at a Location sets them; a change on
+// one tablet reaches the Location's other Machines, and a change in the
+// management interface reaches them all. A Machine with sharing turned off
+// keeps its own, and takes the Location's once sharing is turned back on.
+// Turning steam off stays on that Machine, and once it is turned on again
+// the Machine takes the Location's values. Through the built
 // plugin in simulated tablets, on two server instances sharing one database,
 // with assertions through the REST API and what each simulated tablet's
 // Decaid holds. Serials are made up, from 19001.
@@ -38,7 +39,7 @@ function workflowWith(parts: Parts = {}): Record_ {
   return workflow;
 }
 
-describe("Steam, hot water and rinse settings shared by a Location's Machines", { timeout: 60_000 }, () => {
+describe("Steam and rinse settings shared by a Location's Machines", { timeout: 60_000 }, () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
@@ -141,11 +142,20 @@ describe("Steam, hot water and rinse settings shared by a Location's Machines", 
         "steamSettings.targetTemperature": 160,
         "steamSettings.duration": 120,
         "steamSettings.flow": 1.5,
-        "hotWaterData.volume": 100,
         "rinseData.duration": 5,
       },
       editable: true,
     });
+    // Steam and rinse alone: hot water is each Machine's own.
+    expect(Object.keys(uptownSettings.values).sort()).toEqual([
+      "rinseData.duration",
+      "rinseData.flow",
+      "rinseData.targetTemperature",
+      "steamSettings.duration",
+      "steamSettings.flow",
+      "steamSettings.stopAtTemperature",
+      "steamSettings.targetTemperature",
+    ]);
     // The second DE1Pro and the Bengle take Uptown's settings, rather than giving their own.
     await holds(second, { "rinseData.duration": 5 });
     expect((await settingsAt(uptown)).machines.map(({ name, model, sharesSettings }) => ({ name, model, sharesSettings }))).toEqual([
@@ -173,23 +183,42 @@ describe("Steam, hot water and rinse settings shared by a Location's Machines", 
     expect((await settingsAt(uptown)).values["steamSettings.flow"]).toBe(2.2);
     expect(setting(belmontDe1, "steamSettings.flow")).toBe(0.8);
     // And back the other way, from the tablet the server wrote to.
-    await second.changeSettings({ hotWaterData: { volume: 180 } });
-    await holds(first, { "hotWaterData.volume": 180 });
+    await second.changeSettings({ rinseData: { duration: 8 } });
+    await holds(first, { "rinseData.duration": 8 });
     // Each change is one version, from the tablet that made it: the plugin's own writes coming back are none.
     await expect.poll(async () => (await versions(uptownSettings)).length, { timeout: 10_000 }).toBe(3);
-    const [volume, flow] = await versions(uptownSettings);
+    const [rinse, flow] = await versions(uptownSettings);
     expect(flow).toMatchObject({ fields: { "steamSettings.flow": 2.2 }, source: { machine: { id: machines.first.machine.id } } });
-    expect(volume).toMatchObject({ fields: { "hotWaterData.volume": 180 }, source: { machine: { id: machines.second.machine.id } } });
-    await holds(bengle, { "hotWaterData.volume": 180 });
-    expect(setting(belmontDe1, "hotWaterData.volume")).toBe(100);
+    expect(rinse).toMatchObject({ fields: { "rinseData.duration": 8 }, source: { machine: { id: machines.second.machine.id } } });
+    await holds(bengle, { "rinseData.duration": 8 });
+    expect(setting(belmontDe1, "rinseData.duration")).toBe(5);
+  });
+
+  it("keeps a hot water change on one Machine to it, while a steam or rinse change made after it still reaches the Location's others", async () => {
+    const { uptown, machines, first, second, bengle, uptownSettings } = await cafes("Hot water", 19091);
+    const writesBefore = workflowWrites(first).length;
+    await second.changeSettings({ hotWaterData: { volume: 180, targetTemperature: 80, duration: 40, flow: 8 } });
+    await expect.poll(async () => (await storedSettings(machines.second, "hotWaterData", "volume"))[0], { timeout: 10_000 }).toBe(180);
+    // Anything the hot water change made due would be written ahead of the steam and rinse change after it.
+    await second.changeSettings({ steamSettings: { flow: 2.1 }, rinseData: { duration: 9 } });
+    await holds(first, { "steamSettings.flow": 2.1, "rinseData.duration": 9 });
+    await holds(bengle, { "steamSettings.flow": 2.1, "rinseData.duration": 9 });
+    expect(workflowWrites(first)).toHaveLength(writesBefore + 1);
+    for (const tablet of [first, bengle]) expect(tablet.workflow().hotWaterData).toMatchObject({ volume: 100, targetTemperature: 65, duration: 30, flow: 10 });
+    expect(second.workflow().hotWaterData).toMatchObject({ volume: 180, targetTemperature: 80, duration: 40, flow: 8 });
+    // No version or value of the Location's settings holds hot water.
+    expect(Object.keys((await settingsAt(uptown)).values).some((field) => field.startsWith("hotWaterData."))).toBe(false);
+    const history = await versions(uptownSettings);
+    expect(history[0]).toMatchObject({ fields: { "steamSettings.flow": 2.1, "rinseData.duration": 9 }, source: { machine: { id: machines.second.machine.id } } });
+    expect(history.some((version) => Object.keys(version.fields).some((field) => field.startsWith("hotWaterData.")))).toBe(false);
   });
 
   it("keeps steam turned off on one Machine to it, and writes the Location's current values to it once steam is turned on again", async () => {
     const { uptown, first, second } = await cafes("Steam off", 19021);
     await first.changeSettings({ steamSettings: { targetTemperature: 0 } });
-    // Its hot water is still shared while its steam is off.
-    await second.changeSettings({ steamSettings: { flow: 2.4, duration: 90 }, hotWaterData: { volume: 160 } });
-    await holds(first, { "hotWaterData.volume": 160 });
+    // Its rinse is still shared while its steam is off.
+    await second.changeSettings({ steamSettings: { flow: 2.4, duration: 90 }, rinseData: { duration: 6 } });
+    await holds(first, { "rinseData.duration": 6 });
     expect(setting(first, "steamSettings.targetTemperature")).toBe(0);
     expect(setting(first, "steamSettings.flow")).toBe(1.5);
     expect(setting(second, "steamSettings.targetTemperature")).toBe(160);
@@ -201,25 +230,34 @@ describe("Steam, hot water and rinse settings shared by a Location's Machines", 
     expect((await settingsAt(uptown)).values["steamSettings.targetTemperature"]).toBe(160);
   });
 
-  it("takes a hot water or rinse change made in the management interface to every Machine at the Location, and only Staff there may make it", async () => {
+  it("takes a rinse change made in the management interface to every Machine at the Location, and only Staff there may make it", async () => {
     const { uptown, belmont, first, second, bengle, belmontDe1, uptownSettings } = await cafes("Managed", 19031);
     await first.changeSettings({ steamSettings: { targetTemperature: 0 } });
-    const response = await api.call("PATCH", `/location-settings/${uptownSettings.id}`, { values: { "hotWaterData.targetTemperature": 85, "rinseData.flow": 4.5, "steamSettings.flow": 2 } });
+    const response = await api.call("PATCH", `/location-settings/${uptownSettings.id}`, { values: { "rinseData.targetTemperature": 85, "rinseData.flow": 4.5, "steamSettings.flow": 2 } });
     expect(response.status).toBe(200);
-    expect(((await response.json()) as { settings: SettingsView }).settings.values).toMatchObject({ "hotWaterData.targetTemperature": 85, "rinseData.flow": 4.5 });
-    await holds(first, { "hotWaterData.targetTemperature": 85, "rinseData.flow": 4.5 });
-    await holds(second, { "hotWaterData.targetTemperature": 85, "rinseData.flow": 4.5, "steamSettings.flow": 2 });
-    await holds(bengle, { "hotWaterData.targetTemperature": 85, "rinseData.flow": 4.5, "steamSettings.flow": 2 });
+    expect(((await response.json()) as { settings: SettingsView }).settings.values).toMatchObject({ "rinseData.targetTemperature": 85, "rinseData.flow": 4.5 });
+    await holds(first, { "rinseData.targetTemperature": 85, "rinseData.flow": 4.5 });
+    await holds(second, { "rinseData.targetTemperature": 85, "rinseData.flow": 4.5, "steamSettings.flow": 2 });
+    await holds(bengle, { "rinseData.targetTemperature": 85, "rinseData.flow": 4.5, "steamSettings.flow": 2 });
     // The steam flow does not reach the Machine whose steam is off, and nothing reaches Belmont.
     expect(setting(first, "steamSettings.flow")).toBe(1.5);
-    expect(setting(belmontDe1, "hotWaterData.targetTemperature")).toBe(65);
+    expect(setting(belmontDe1, "rinseData.targetTemperature")).toBe(90);
     const [edit] = await versions(uptownSettings);
-    expect(edit).toMatchObject({ fields: { "hotWaterData.targetTemperature": 85, "rinseData.flow": 4.5, "steamSettings.flow": 2 }, source: { machine: null, account: {} } });
+    expect(edit).toMatchObject({ fields: { "rinseData.targetTemperature": 85, "rinseData.flow": 4.5, "steamSettings.flow": 2 }, source: { machine: null, account: {} } });
 
-    // Turning steam off is each Machine's own, so the management interface cannot share it; nor fractions Decaid would cut.
-    for (const values of [{ "steamSettings.targetTemperature": 120 }, { "hotWaterData.volume": 10.5 }, { "rinseData.colour": 1 }, {}]) {
+    // Turning steam off is each Machine's own, so the management interface cannot share it; nor fractions Decaid would cut,
+    // nor hot water, which is each Machine's own too.
+    for (const values of [
+      { "steamSettings.targetTemperature": 120 },
+      { "rinseData.duration": 10.5 },
+      { "rinseData.colour": 1 },
+      { "hotWaterData.volume": 120 },
+      { "hotWaterData.targetTemperature": 80, "rinseData.flow": 4 },
+      {},
+    ]) {
       expect((await api.call("PATCH", `/location-settings/${uptownSettings.id}`, { values })).status).toBe(400);
     }
+    expect((await settingsAt(uptown)).values["rinseData.flow"]).toBe(4.5);
 
     const staffAt = async (email: string, location: LocationView) => {
       const { link } = await api.invite(email, "staff", [location.id]);
@@ -240,17 +278,17 @@ describe("Steam, hot water and rinse settings shared by a Location's Machines", 
     expect((await settingsAt(uptown)).machines.find((machine) => machine.id === machines.bengle.machine.id)).toMatchObject({ sharesSettings: false });
     // Its own change stays on it, once the server has it, and the Location's changes do not reach it.
     const writesBefore = workflowWrites(bengle).length;
-    await bengle.changeSettings({ hotWaterData: { volume: 220 } });
-    await expect.poll(async () => (await storedSettings(machines.bengle, "hotWaterData", "volume"))[0], { timeout: 10_000 }).toBe(220);
+    await bengle.changeSettings({ rinseData: { duration: 11 } });
+    await expect.poll(async () => (await storedSettings(machines.bengle, "rinseData", "duration"))[0], { timeout: 10_000 }).toBe(11);
     await first.changeSettings({ steamSettings: { flow: 2.6 } });
     await holds(second, { "steamSettings.flow": 2.6 });
     // A later change through the other instance has reached the others: anything due to the Bengle would have been written by now.
     await second.changeSettings({ rinseData: { flow: 4 } });
     await holds(first, { "rinseData.flow": 4 });
     expect(workflowWrites(bengle)).toHaveLength(writesBefore);
-    expect(setting(first, "hotWaterData.volume")).toBe(100);
+    expect(setting(first, "rinseData.duration")).toBe(5);
     expect(setting(bengle, "steamSettings.flow")).toBe(1.5);
-    expect((await settingsAt(uptown)).values["hotWaterData.volume"]).toBe(100);
+    expect((await settingsAt(uptown)).values["rinseData.duration"]).toBe(5);
     expect((await versions(uptownSettings)).every((version) => version.source.machine?.id !== machines.bengle.machine.id)).toBe(true);
 
     // Staff may switch it only at their own Locations.
@@ -260,7 +298,7 @@ describe("Steam, hot water and rinse settings shared by a Location's Machines", 
 
     // With sharing turned back on, it takes Uptown's settings, and its changes are shared from then on.
     expect((await switchBengle(true)).status).toBe(200);
-    await holds(bengle, { "steamSettings.flow": 2.6, "hotWaterData.volume": 100 });
+    await holds(bengle, { "steamSettings.flow": 2.6, "rinseData.duration": 5 });
     // Well after it, whatever the drift between the tablet's clock and PostgreSQL's.
     await new Promise((resolve) => setTimeout(resolve, 1_000));
     await bengle.changeSettings({ rinseData: { flow: 3.5 } });
@@ -319,7 +357,7 @@ describe("Steam, hot water and rinse settings shared by a Location's Machines", 
     await expect.poll(async () => (await conflicts()).length, { timeout: 10_000 }).toBe(1);
     const [conflict] = (await conflicts()) as { id: string; current: { versionId: string } }[];
     expect(conflict).toMatchObject({
-      item: { kind: "settings", id: uptownSettings.id, name: "Steam, hot water and rinse" },
+      item: { kind: "settings", id: uptownSettings.id, name: "Steam and rinse" },
       field: "rinseData.duration",
       value: 12,
       location: uptown,

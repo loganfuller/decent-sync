@@ -20,8 +20,8 @@ import { settingsDue } from "./location-settings.js";
 
 // What a connection's tablet is due: the next write that brings it to what
 // its Machine's Location offers, and each record it holds to its item's
-// content (holdings.ts), its Workflow to the Location's steam, hot water
-// and rinse settings (location-settings.ts), its Workflow's grinder and
+// content (holdings.ts), its Workflow to the Location's steam and rinse
+// settings (location-settings.ts), its Workflow's grinder and
 // batch cleared as it joined a Location that does not offer them
 // (joining.ts), the deletes of its records
 // of items an Admin hard-deleted (hard-deletes.ts), and the setting aside of

@@ -186,10 +186,10 @@ Pending Machine's hardware, binding it at `hello` or entering it by hand hands
 its events over with its Shots and Steam Records (`transferPendingRecords`).
 
 A Workflow from a connection that is not mismatched, for its token's
-Machine, is also taken into its Location's steam, hot water and rinse
-settings in the same transaction (ticket #86,
-`LIBRARY.md`, Steam, hot water and rinse settings): only those settings count
-as edits, timed by `observedAt`. While the plugin writes the shared settings
+Machine, is also taken into its Location's steam and rinse settings in the
+same transaction (tickets #86 and #137, `LIBRARY.md`, Steam and rinse
+settings): only those settings count as edits, timed by `observedAt`, and a
+change of its hot water, which is each Machine's own, is none. While the plugin writes the shared settings
 into the Workflow, it holds back the `workflowUpdated` its write causes until
 the write's answer is queued, then sends the latest Workflow, so the server
 reads its own write as the answer rather than as the tablet's edit.

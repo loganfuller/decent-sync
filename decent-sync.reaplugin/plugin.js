@@ -274,16 +274,12 @@ var __decentSync = (() => {
   function itemIdRule(kind) {
     return isLibraryKind(kind) ? LIBRARY_ITEM_KINDS[kind].id : GLOBAL_ITEM_ID;
   }
-  var SETTINGS_PARTS = ["steamSettings", "hotWaterData", "rinseData"];
+  var SETTINGS_PARTS = ["steamSettings", "rinseData"];
   var SHARED_SETTINGS = [
     "steamSettings.targetTemperature",
     "steamSettings.duration",
     "steamSettings.flow",
     "steamSettings.stopAtTemperature",
-    "hotWaterData.targetTemperature",
-    "hotWaterData.duration",
-    "hotWaterData.volume",
-    "hotWaterData.flow",
     "rinseData.targetTemperature",
     "rinseData.duration",
     "rinseData.flow"
