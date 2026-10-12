@@ -4,8 +4,8 @@ import { request } from "./decaid.js";
 // Streamline (streamline-js), a skin for Decaid, remembers what the barista
 // last set for some of the steam, hot water and rinse settings in Decaid's
 // store, under its namespace `streamline-app`, and pushes a remembered value
-// back through `PUT /workflow` whenever the Workflow holds another, whoever changed it
-// (`resyncIfDrifted` in streamline-js:src/modules/api.js, which
+// back through `PUT /workflow` whenever the Workflow holds another, whoever
+// changed it (`resyncIfDrifted` in streamline-js:src/modules/api.js, which
 // `resyncDriftedShotSettings` calls on every shot-settings frame from the
 // machine, and `loadInitialData` on every load, both in src/modules/app.js;
 // checked at v0.2.12, bf72a0c). Its key names are not a published contract.

@@ -6,8 +6,9 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for tickets #86 and #137: steam and rinse settings are shared by a
 // Location's Machines, whatever their model (ADR-0014), and hot water is
-// each Machine's own. The first Machine at a Location sets them; a change on one tablet reaches the Location's other
-// Machines, and a change in the management interface reaches them all. A
+// each Machine's own. The first Machine at a Location sets them; a change on
+// one tablet reaches the Location's other Machines, and a change in the
+// management interface reaches them all. A
 // Machine with sharing turned off keeps its own, and takes the Location's
 // once sharing is turned back on. Turning steam off stays on that Machine, and once it is
 // turned on again the Machine takes the Location's values. Through the built

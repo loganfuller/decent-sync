@@ -12,11 +12,10 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // Grinders and its steam and rinse settings, while its hot water stays its
 // own (ticket #137); what only its old Location offered is archived or
 // hidden on it; its Workflow's grinder and batch are cleared when the new
-// Location does not offer them. What its
-// tablet held of its own stays out of the Library, archived or hidden on it,
-// but for a Bean matching one the Library has, which is linked to it, and
-// for a kind of item the Location offers none of yet, which it brings
-// (ADR-0018). A Machine moved to no Location is written nothing more.
+// Location does not offer them. What its tablet held of its own stays out of
+// the Library, archived or hidden on it, but for a Bean matching one the
+// Library has, which is linked to it, and for a kind of item the Location
+// offers none of yet, which it brings (ADR-0018). A Machine moved to no Location is written nothing more.
 // Through the built plugin in simulated tablets, on two server instances
 // sharing one database, with assertions through the REST API and what each
 // simulated tablet's Decaid holds. Serials are made up, from 23001.

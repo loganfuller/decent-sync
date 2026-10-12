@@ -18,9 +18,10 @@ import { type LocationValues, readLocationValues, settingsEdits, settingsToWrite
 // tablet's edits arrive in the Workflow it reports (`workflow` deliveries),
 // timed by when the plugin observed them; only the settings count, so a
 // change of its hot water, which is each Machine's own, set by its Loaded
-// Recipe (ADR-0022), is no edit of them. The first Machine at a Location to report its Workflow sets them. A
-// Machine whose settings sharing is turned off takes no part: nothing of
-// them is taken from its tablet or written to it.
+// Recipe (ADR-0022), is no edit of them. The first Machine at a Location to
+// report its Workflow sets them. A Machine whose settings sharing is turned
+// off takes no part: nothing of them is taken from its tablet or written to
+// it.
 // The server keeps, per tablet, the settings as it last had them, reported
 // or as Decaid returned the plugin's write of them, so the plugin's own
 // write is never read as the tablet's edit (ADR-0003). Under the same locks
