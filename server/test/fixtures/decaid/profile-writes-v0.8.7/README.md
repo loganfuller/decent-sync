@@ -25,12 +25,13 @@ A profile's id is `profile:` and the first 20 hex digits of the SHA-256 of
 what the machine executes, as Dart's `jsonEncode` writes it with sorted keys
 (`ProfileHash` in `decaid:lib/src/models/data/profile_hash.dart`), so the
 recorded ids are what any Decaid gives the same profile. Its times are
-Chicago's local time (UTC-5 that day) without an offset, to the microsecond.
-The two user profiles, their titles, notes, author and metadata were made up
-for the recording, as was the id no profile has; the bundled ones are
-Decaid's own. Nothing names real hardware. `ProfileHandler`,
-`ProfileController`, `ProfileRecord`, `Profile` and `ProfileHash` are
-unchanged in v0.8.8.
+Decaid's local time without an offset, to the microsecond, presumably UTC: the
+container was set up as `bean-writes-v0.8.7`'s was, without the `tzdata`
+package, which left that one's clock on UTC whatever its `TZ`. The two user
+profiles, their titles, notes, author and metadata were made up for the
+recording, as was the id no profile has; the bundled ones are Decaid's own.
+Nothing names real hardware. `ProfileHandler`, `ProfileController`,
+`ProfileRecord`, `Profile` and `ProfileHash` are unchanged in v0.8.8.
 
 Posting a profile whose id Decaid holds answers 201 with the record it holds,
 whatever its visibility, so a client that wants it shown sets its visibility

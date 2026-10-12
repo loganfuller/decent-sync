@@ -33,7 +33,7 @@ They were recorded on 2026-10-12 by Decaid's v0.8.7 Linux arm64 release
 (`decaid-linux-arm64-0.8.7.tar.gz`, checked against the release's SHA-256
 sums), run headless in a throwaway Ubuntu 24.04 container as
 `../workflow-writes-v0.8.7/README.md` describes, with `TZ=America/Chicago` but
-no `tzdata` package, so that its clock read UTC: Xvfb as its display, a D-Bus
+no `tzdata` package, so its clock read UTC: Xvfb as its display, a D-Bus
 system bus and Avahi running, started as `decaid --serial --bypass-onboarding
 --no-account` with `~/.local/share/decaid/shared_preferences.json` set to
 `{"simulateDevices":["machine","scale"],"onboardingCompleted":true,"accountStepSeen":true}`,

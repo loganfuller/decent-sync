@@ -20,11 +20,13 @@ Its library was empty, as on a fresh install. The requests were sent with
 `Content-Type: application/json` from the host, through the container's
 published port 8080, one after another.
 
-The ids are those Decaid assigned, and its times are Chicago's local time
-(UTC-5 that day) without an offset, to the microsecond. The names, global ids
-and the other plugin's key (`bcUuid`, as DYE2 keeps a Beanconqueror id) were
-made up for the recording; nothing names real hardware. `BeansHandler` and
-`Bean` are unchanged in v0.8.8.
+The ids are those Decaid assigned, and its times are Decaid's local time
+without an offset, to the microsecond, which in the container was UTC: it had
+no `tzdata` package, so its `TZ` did not apply (the times are later than the
+commit that added them, read as Chicago's). The names, global ids and the
+other plugin's key (`bcUuid`, as DYE2 keeps a Beanconqueror id) were made up
+for the recording; nothing names real hardware. `BeansHandler` and `Bean` are
+unchanged in v0.8.8.
 
 Decaid lists beans with the most recently updated first. A refused write
 answers 400 with Dart's error message, or 404 for an unknown bean.
