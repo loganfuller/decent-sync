@@ -144,16 +144,21 @@ export async function saveInDye2(tablet: SimulatedTablet, step: Dye2Exchange[], 
  * applied recipe's `dashboardVariables` the fields Streamline reads from the
  * change and the Workflow Decaid answered (`recipeAutoSaveFields`), and posts
  * the list back. The applied recipe is the one the recording saved into.
- * Resolves with the list posted, or undefined for a step that saved nothing
- * or a recipe the tablet no longer holds.
+ * Resolves with the list posted, or undefined for a step that saved nothing,
+ * a Workflow change Decaid refused, after which Streamline's listener never
+ * runs (`updateWorkflow` in streamline-js:src/modules/api.js), or a recipe
+ * the tablet no longer holds.
  */
 export async function autoSaveInStreamline(tablet: SimulatedTablet, step: Dye2Exchange[]): Promise<Record_[] | undefined> {
   const posted = step.findIndex(isListWrite);
-  const [answer] = await replayWrites(tablet, posted === -1 ? step : step.slice(0, posted));
+  const replayed = posted === -1 ? step : step.slice(0, posted);
+  const answers = await replayWrites(tablet, replayed);
   if (posted === -1) return undefined;
-  const sent = step.find(({ request }) => request.method === "PUT" && request.path === "/workflow")!.request.body as Record_;
-  if (answer?.status !== 200) throw new Error(`Decaid answered ${answer?.status} to the Workflow change`);
-  const fields = recipeAutoSaveFields(sent, answer.body as Record_);
+  const writes = replayed.filter(({ request }) => request.method !== "GET");
+  const change = writes.findIndex(({ request }) => request.method === "PUT" && request.path === "/workflow");
+  const answer = answers[change];
+  if (answer?.status !== 200) return undefined;
+  const fields = recipeAutoSaveFields(writes[change]!.request.body as Record_, answer.body as Record_);
   let saved = false;
   const list = await writeList(tablet, step, (existing) => {
     if (!existing) return undefined;

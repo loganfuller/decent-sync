@@ -122,14 +122,14 @@ describe("DYE2 and Streamline replayed on a tablet holding other data", () => {
 
   /**
    * Derived from the recorded lists: slot 2 with its hot water by temperature
-   * and a yield of 40, a slot 4 copied from slot 3, and a tool the recording
-   * never made.
+   * and a dose, yield and brew temperature of its own, a slot 4 copied from
+   * slot 3, and a tool the recording never made.
    */
   function loadDerived(): SimulatedTablet {
     const keys = dye2Keys();
     const recipes = keys.recipes as Recipe[];
     const { hotWaterMl: _volume, ...slot2Variables } = recipes.find((item) => item.id === "2")!.dashboardVariables;
-    const slot2 = { ...recipes.find((item) => item.id === "2")!, dashboardVariables: { ...slot2Variables, drink: 40, hotWaterMode: "temp", hotWaterTempC: 80 } };
+    const slot2 = { ...recipes.find((item) => item.id === "2")!, dashboardVariables: { ...slot2Variables, dose: 18, drink: 40, brewC: 90, hotWaterMode: "temp", hotWaterTempC: 80 } };
     const slot4 = { ...recipes.find((item) => item.id === "3")!, id: "4", name: "Fixture Derived Recipe" };
     const tool = { ...keys.equipment[1], id: "fixture-derived-tool", name: "Fixture Derived Tamper" };
     return load({
@@ -149,6 +149,15 @@ describe("DYE2 and Streamline replayed on a tablet holding other data", () => {
     await autoSaveInStreamline(tablet, streamline.autoSaveHotWater);
     expect(recipe(tablet, "2")!.dashboardVariables).toMatchObject({ hotWaterMode: "vol", hotWaterMl: 155, hotWaterTempC: 80 });
     expect(recipe(tablet, "4")).toEqual(slot4);
+  });
+
+  it("Streamline saves nothing after a Workflow change Decaid refuses", async () => {
+    const tablet = loadDerived();
+    // With no machine connected, Decaid refuses a hot water change with a 500.
+    tablet.machineConnected = false;
+    const recipes = dye2List(tablet, "recipes");
+    expect(await autoSaveInStreamline(tablet, dye2Recording("streamline").autoSaveHotWater)).toBeUndefined();
+    expect(dye2List(tablet, "recipes")).toEqual(recipes);
   });
 
   it("Streamline saves nothing into a recipe the tablet no longer holds", async () => {
