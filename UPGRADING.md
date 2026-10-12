@@ -11,6 +11,8 @@ section).
 
 ## Unreleased
 
+## 0.3.0
+
 ### Approve the plugin update on every tablet
 
 The plugin now gives each tablet an id, which it keeps in Decaid's plugin
