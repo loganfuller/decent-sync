@@ -38,7 +38,7 @@ export interface MappedEquipment {
   updatedAt: Date | null;
   /** The record known, as the tablet reported it or the plugin wrote it. */
   record: Record<string, unknown>;
-  /** Each field the server's latest write to the record set, with the value the tablet held for it just before (null for none); null before any write. */
+  /** Each field the server wrote, with the value the tablet held for it just before the latest write to that field (null for none); null before any write. */
   beforeWrite: Record<string, unknown> | null;
   /** Whether a report has listed the record since the server's write that created it. */
   listed: boolean;
@@ -58,7 +58,7 @@ export type EquipmentIntakeStep =
    * known, which it replaces. `content` holds the fields of the item's
    * content the tablet changed since, each with its value: its edit
    * (ADR-0020), but those set back to what the tablet held before the
-   * server's latest write to it.
+   * server's latest write to that field.
    */
   | { kind: "update"; itemId: string; reported: ReportedEquipment; content: Record<string, unknown> }
   /** The tablet holds a Library item the map did not know it held, by the global id its record carries. */
@@ -106,9 +106,9 @@ export function equipmentContent(record: Record<string, unknown>): Record<string
 
 /**
  * The fields of the item's content a tablet's record changed since the
- * record known, each with its value: but a field the server's latest write
- * to the record set that it set back to the value the tablet held just
- * before that write (`beforeWrite`), which is taken as unchanged (ADR-0005).
+ * record known, each with its value: but a field it set back to the value
+ * the tablet held just before the server's latest write to that field
+ * (`beforeWrite`), which is taken as unchanged (ADR-0005).
  * A barista who deliberately sets a field back to exactly that value has to
  * set it again.
  */
@@ -170,22 +170,28 @@ export function heldBefore(
  * other such field differs from the record known only as set back to its
  * value before an earlier write of the server's (`stale`), as by a page
  * opened before that write or that write lost, so the item's value is due to
- * be written again; and what `before_write` holds after it (`heldBefore`),
- * forgetting for a field the write did not set a value the tablet has since
- * set to one of its own (`beforeWriteAfter`).
+ * be written again unless the record holds it already; and what
+ * `before_write` holds after it (`heldBefore`). For a field the write did not
+ * set, a value the tablet has since set to one of its own is forgotten
+ * (`beforeWriteAfter`), but not for the item's value (`item`, its content
+ * before this answer), which the server wrote: a write the plugin left out,
+ * the record known being a report read before the write it answers.
  */
 export function answeredEquipment(
   known: Readonly<Record<string, unknown>>,
   answered: Readonly<Record<string, unknown>>,
   written: ReadonlySet<string>,
   beforeWrite: Readonly<Record<string, unknown>> | null,
+  item: Readonly<Record<string, unknown>>,
 ): { values: Record<string, unknown>; stale: boolean; beforeWrite: Record<string, unknown> | null } {
   const unwritten = (entries: Record<string, unknown>) => Object.fromEntries(Object.entries(entries).filter(([field]) => !written.has(field)));
   const changed = unwritten(changedFields(equipmentContent(known), equipmentContent(answered)));
   const values = unwritten(editedContent(known, answered, beforeWrite));
   const pick = (writtenFields: boolean) => Object.fromEntries(Object.entries(beforeWrite ?? {}).filter(([field]) => written.has(field) === writtenFields));
+  const standing = beforeWriteAfter(pick(false), known, answered) ?? {};
+  const kept = Object.entries(pick(false)).filter(([field]) => Object.prototype.hasOwnProperty.call(standing, field) || sameValue(answered[field], item[field]));
   // A field the write set keeps its value before the previous write, for `heldBefore` to tell a write over a stale save.
-  const previous = { ...(beforeWriteAfter(pick(false), known, answered) ?? {}), ...pick(true) };
+  const previous = { ...Object.fromEntries(kept), ...pick(true) };
   return { values, stale: Object.keys(changed).length > Object.keys(values).length, beforeWrite: heldBefore(known, written, previous) };
 }
 

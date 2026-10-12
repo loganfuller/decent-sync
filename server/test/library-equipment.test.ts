@@ -217,7 +217,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
       { key: "Needle size", value: "0.3 mm" },
     ]);
 
-    // Offline, the cafe's tablet sets 12; meanwhile the lab sets 14. Neither saw the other's.
+    // Offline, the cafe's tablet misses the lab setting 14, then sets 12. Neither saw the other's.
     cafeTablet.loseNetwork();
     await api.waitForMachine("Edited cafe 1", (viewed) => !viewed.online, 15_000);
     const setNeedles = async (tablet: SimulatedTablet, value: string) => {
@@ -226,10 +226,10 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
       );
       expect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/equipment`, list)).status).toBe(200);
     };
-    await setNeedles(cafeTablet, "12");
     await setNeedles(one, "14");
     await expect.poll(() => needles(two), { timeout: 15_000 }).toBe("14");
-    // Back online, the cafe's edit, read after the lab's, wins, and the lab's value is kept as a Conflict.
+    await setNeedles(cafeTablet, "12");
+    // Back online, the cafe's edit, made and read after the lab's, wins, and the lab's value is kept as a Conflict.
     cafeTablet.restoreNetwork();
     for (const tablet of [one, two]) await expect.poll(() => needles(tablet), { timeout: 15_000 }).toBe("12");
     const conflicts = ((await (await api.call("GET", `/tools/${tool!.id}/conflicts`)).json()) as { conflicts: { field: string; value: unknown }[] }).conflicts;
@@ -259,8 +259,12 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     await show("tools", tool!.id, cafe, true);
     for (const tablet of [two, cafeTablet]) await expect.poll(() => recordNamed(tablet, "equipment", "Deleted Fixture Spare Tamper"), { timeout: 15_000 }).toBeDefined();
 
-    // DYE2's equipment page deletes it on the second tablet, under that tablet's id for it.
+    // DYE2's equipment page deletes it on the second tablet, under that tablet's id for it, once a report has listed it there:
+    // one gone before that was lost to another app's rewrite, and is written again.
     const localId = recordNamed(two, "equipment", "Deleted Fixture Spare Tamper")!.id;
+    const reported = async () =>
+      ((await (await api.call("GET", `/machines/${machines[1].machine.id}/collections/dye2Equipment`)).json()) as { collection: { value: Record_[] } | null }).collection?.value ?? [];
+    await expect.poll(async () => (await reported()).map((record) => record.id), { timeout: 15_000 }).toContain(localId);
     await saveInDye2(two, tools.deleteSpareTamper, (item) => ({ ...ownNames("Deleted")(item), id: localId }));
     await expect.poll(() => shownAt("tools", "Deleted Fixture Spare Tamper"), { timeout: 15_000 }).toEqual(["Deleted cafe"]);
     await expect.poll(() => recordNamed(one, "equipment", "Deleted Fixture Spare Tamper"), { timeout: 15_000 }).toBeUndefined();
@@ -436,6 +440,22 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     const [basket] = await named("baskets", name);
     expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Edited on one", diameterMm: 58.7 });
     expect(recordNamed(one, "baskets", name)?.notes).toBe("Edited on one");
+
+    // Lost again, the write is then undone on the first tablet, so the second holds the Basket's notes, as its answer to the
+    // write putting them back shows: it has seen them, and its barista's edit of them, taken in from the answer to a
+    // write of the diameter, is no Conflict.
+    const lostAgain = loseNextWrite(two, "baskets");
+    await set(one, "notes", "Edited twice on one");
+    await expect.poll(lostAgain, { timeout: 15_000 }).toBe(true);
+    await set(one, "notes", "Edited on one");
+    await expect.poll(async () => (await view("baskets", basket!.id)).content.notes, { timeout: 15_000 }).toBe("Edited on one");
+    const waiting = async () => ((await (await api.call("GET", `/machines/${machines[1].machine.id}/sharing-status`)).json()) as { status: { waiting: number } }).status.waiting;
+    await expect.poll(waiting, { timeout: 15_000 }).toBe(0);
+    await set(two, "notes", "Edited on two");
+    await set(one, "diameterMm", 58.9);
+    await expect.poll(() => recordNamed(one, "baskets", name)?.notes, { timeout: 15_000 }).toBe("Edited on two");
+    expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Edited on two", diameterMm: 58.9 });
+    expect(((await (await api.call("GET", `/baskets/${basket!.id}/conflicts`)).json()) as { conflicts: unknown[] }).conflicts).toEqual([]);
   });
 
   it("keeps a restored tablet's Baskets and Tools linked by its tablet id, writing back a global id its record lost", async () => {

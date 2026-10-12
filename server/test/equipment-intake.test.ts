@@ -100,15 +100,29 @@ describe("DYE2's baskets and tools as Library items", () => {
     // The server wrote notes B over A, a write lost; then it writes the name, the record read with notes A.
     const known = { ...wdt, notes: "B" };
     const answered = { ...wdt, notes: "A", name: "X" };
-    expect(answeredEquipment(known, answered, new Set(["name"]), { notes: "A" })).toEqual({ values: {}, stale: true, beforeWrite: { notes: "A", name: wdt.name } });
+    const item = { ...known, name: "X" };
+    expect(answeredEquipment(known, answered, new Set(["name"]), { notes: "A" }, item)).toEqual({ values: {}, stale: true, beforeWrite: { notes: "A", name: wdt.name } });
     // A field set to a value of the tablet's own is its edit, and no longer taken as stale set back later.
-    expect(answeredEquipment(known, { ...answered, notes: "C" }, new Set(["name"]), { notes: "A" })).toEqual({
+    expect(answeredEquipment(known, { ...answered, notes: "C" }, new Set(["name"]), { notes: "A" }, item)).toEqual({
       values: { notes: "C" },
       stale: false,
       beforeWrite: { name: wdt.name },
     });
     // A write putting back the item's value over a stale save keeps nothing for that field.
-    expect(answeredEquipment({ ...wdt, notes: "A" }, { ...wdt, notes: "B" }, new Set(["notes"]), { notes: "A" })).toEqual({ values: {}, stale: false, beforeWrite: null });
+    expect(answeredEquipment({ ...wdt, notes: "A" }, { ...wdt, notes: "B" }, new Set(["notes"]), { notes: "A" }, { ...wdt, notes: "B" })).toEqual({
+      values: {},
+      stale: false,
+      beforeWrite: null,
+    });
+  });
+
+  it("keeps a field's value before the server's write when a write's answer shows it holding the item's value, the record known a report read before the write", () => {
+    // Written B over A, the tablet's report read before that write is taken in after its answer; the write of B again, left
+    // out as the tablet holds B already, answers with B.
+    const known = { ...wdt, notes: "A" };
+    expect(answeredEquipment(known, { ...wdt, notes: "B" }, new Set(), { notes: "A" }, { ...wdt, notes: "B" }).beforeWrite).toEqual({ notes: "A" });
+    // A value of the tablet's own is forgotten.
+    expect(answeredEquipment(known, { ...wdt, notes: "C" }, new Set(), { notes: "A" }, { ...wdt, notes: "B" }).beforeWrite).toBeNull();
   });
 
   it("keeps a field's value before the latest write that set it, through later writes of other fields", () => {

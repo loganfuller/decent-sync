@@ -280,7 +280,8 @@ export async function recordEquipmentWritten(
   return prisma.$transaction(async (tx): Promise<AnswerRecorded> => {
     if (!(await lockHeldMachine(tx, tablet))) return "released";
     await lockTablet(tx, tablet.tabletId);
-    const [item] = await tx.$queryRaw<unknown[]>`SELECT 1 FROM ${Prisma.raw(table)} WHERE id = ${itemId}::uuid`;
+    // Its row locked, as an edit of it would, for its content before this answer.
+    const [item] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM ${Prisma.raw(table)} WHERE id = ${itemId}::uuid FOR NO KEY UPDATE`;
     if (!item) return "notTheItem";
     const [other] = await tx.$queryRaw<{ itemId: string }[]>`
       SELECT ${Prisma.raw(column)}::text AS "itemId" FROM ${Prisma.raw(map)} WHERE tablet_id = ${tablet.tabletId}::uuid AND local_id = ${localId}`;
@@ -294,17 +295,20 @@ export async function recordEquipmentWritten(
     const ref = { kind, id: itemId } as const;
     let changed = false;
     let edited: EditOutcome | null = null;
-    const answered = known ? answeredEquipment(known.record, record, written, known.beforeWrite) : null;
+    const content = item.content !== null && typeof item.content === "object" ? (item.content as Record<string, unknown>) : {};
+    const answered = known ? answeredEquipment(known.record, record, written, known.beforeWrite, content) : null;
+    // A field set back by a stale save, or a write lost, that no longer holds the item's value, which is written again.
+    let stale = false;
     if (known && answered) {
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
       edited = await editContent(tx, ref, { values: answered.values, at, seenAt: known.contentSeenAt }, source);
-      // A field set back by a stale save, or a write lost, holds the item's value no more, which is written again.
-      changed = edited.writesDue || answered.stale;
+      stale = answered.stale && !(await holdsWrittenContent(tx, ref, equipmentContent(record), null));
+      changed = edited.writesDue || stale;
     } else if (linked) {
       changed = await recordLinked(tx, ref, equipmentContent(record), at, source);
     }
     if (changed && locationId !== null) await notify(tx, "library_changes", locationId);
-    const holds = contentSeen !== null && !answered?.stale && (await holdsWrittenContent(tx, ref, equipmentContent(record), edited));
+    const holds = contentSeen !== null && !stale && (await holdsWrittenContent(tx, ref, equipmentContent(record), edited));
     await saveRecord(tx, kind, tablet.tabletId, itemId, localId, record, at, {
       seen: seen?.locationId === locationId ? seen : null,
       contentSeen: holds ? contentSeen : null,

@@ -1104,9 +1104,10 @@ model TabletBasket {
   /// records carry no edit time (ADR-0005). Null if it could not be read.
   recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
   /// Each field as the tablet held it just before the server's latest write
-  /// to that field: a field a report sets back to its value there is taken as
-  /// unchanged, as from a page opened before the write, or a write lost to
-  /// another app rewriting the list (ADR-0005). Null before any write.
+  /// to that field: a field a report, or a write's answer, sets back to its
+  /// value there is taken as unchanged, as from a page opened before the
+  /// write, or a write lost to another app rewriting the list (ADR-0005).
+  /// Null before any write.
   beforeWrite     Json?     @map("before_write") @db.JsonB
   /// Whether a report has listed the record since the server's write that
   /// created it: one gone from the list that never was was lost to another
@@ -1192,9 +1193,10 @@ model TabletTool {
   /// records carry no edit time (ADR-0005). Null if it could not be read.
   recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
   /// Each field as the tablet held it just before the server's latest write
-  /// to that field: a field a report sets back to its value there is taken as
-  /// unchanged, as from a page opened before the write, or a write lost to
-  /// another app rewriting the list (ADR-0005). Null before any write.
+  /// to that field: a field a report, or a write's answer, sets back to its
+  /// value there is taken as unchanged, as from a page opened before the
+  /// write, or a write lost to another app rewriting the list (ADR-0005).
+  /// Null before any write.
   beforeWrite     Json?     @map("before_write") @db.JsonB
   /// Whether a report has listed the record since the server's write that
   /// created it: one gone from the list that never was was lost to another
