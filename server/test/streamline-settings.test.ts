@@ -178,6 +178,25 @@ describe("Streamline's remembered steam, hot water and rinse values", { timeout:
     expect(await versionsBy(settings, machines[0]!)).toHaveLength(1);
   });
 
+  it("sets back only the keys still holding what it set when Decaid refuses the Workflow for another reason, keeping a barista's change made meanwhile", async () => {
+    const { tablets, settings } = await cafe("Busy", 23071);
+    const [tablet] = tablets as [SimulatedTablet];
+    const streamline = await streamlineOn(tablet);
+    // Decaid's request queue times out the Workflow write, while a barista sets the hot water volume in Streamline.
+    tablet.refuseWrites = ({ method, route }) => {
+      if (method !== "PUT" || route !== "/workflow") return undefined;
+      tablet.refuseWrites = undefined;
+      void streamline.keep("last-hot-water-volume", 130);
+      return { status: 503, body: { error: "Request timed out" } };
+    };
+    expect((await change(settings, { "hotWaterData.volume": 120, "rinseData.duration": 8 })).status).toBe(200);
+    await expect.poll(() => settingsAnswers(tablet).some((answer) => answer.type === "writeRefused"), { timeout: 10_000 }).toBe(true);
+    expect(tablet.storeWrites.filter(({ key }) => key === "last-flush-duration").map(({ value }) => value)).toEqual([8, 5]);
+    expect(streamline.remembered("last-flush-duration")).toBe(5);
+    expect(streamline.remembered("last-hot-water-volume")).toBe(130);
+    expect([setting(tablet, "hotWaterData.volume"), setting(tablet, "rinseData.duration")]).toEqual([100, 5]);
+  });
+
   it("keeps a steam flow changed in the management interface once Streamline loads its data again", async () => {
     const { location, machines, tablets, settings } = await cafe("Flow", 23021);
     const [tablet] = tablets as [SimulatedTablet];
