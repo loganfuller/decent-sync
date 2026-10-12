@@ -173,14 +173,17 @@ describe("Streamline's remembered steam, hot water and rinse values", { timeout:
     expect(await versionsBy(settings, machines[0]!)).toHaveLength(1);
   });
 
-  it("writes nothing to Decaid's store on a tablet where Streamline keeps nothing", async () => {
+  it("writes nothing to Decaid's store on a tablet where Streamline keeps nothing, nor to a key holding anything but a number", async () => {
     const { tablets, settings } = await cafe("Plain", 23031);
     const [tablet] = tablets as [SimulatedTablet];
+    expect((await tablet.callApi("POST", `/store/${STREAMLINE_NAMESPACE}/last-flush-duration`, "5 s")).status).toBe(200);
     expect((await change(settings, { "hotWaterData.volume": 140, "steamSettings.flow": 1.8, "rinseData.duration": 9 })).status).toBe(200);
     await holds(tablet, { "hotWaterData.volume": 140, "steamSettings.flow": 1.8, "rinseData.duration": 9 });
     expect(tablet.writes.filter((write) => write.startsWith("POST /store/"))).toEqual([]);
     expect(tablet.storeWrites).toEqual([]);
     expect(tablet.storeValue(STREAMLINE_NAMESPACE, "last-hot-water-volume")).toBeNull();
+    expect(tablet.storeValue(STREAMLINE_NAMESPACE, "last-flush-duration")).toBe("5 s");
+    await tablet.waitForLog(/Streamline's last-flush-duration holds something other than a number/);
   });
 
   it("leaves Streamline's milk stop as it is for a stop turned off, and its steam values while the Machine's steam is off", async () => {

@@ -19,9 +19,10 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 //   is connected, is followed by such a frame, in a later turn. A field
 //   whose value repeats the last frame's is not checked, and one pushed is
 //   not checked again for `RESYNC_COOLDOWN_MS` of real time.
-// - On every load (`loadInitialData`), for every key it keeps, its milk
-//   stop only while the Workflow's is on (`resyncMilkStopIfDrifted`):
-//   `reload()`.
+// - On every load (`loadInitialData`), for every key it keeps but the
+//   steam temperature, which it sends only along with a steam time it
+//   pushes (`steamHeaterFor`), and its milk stop only while the Workflow's
+//   is on (`resyncMilkStopIfDrifted`): `reload()`.
 //
 // Each push, and a barista's change made in Streamline (`set()`), goes
 // through Streamline's setter for the value, which keeps the value in the

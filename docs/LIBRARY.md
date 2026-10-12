@@ -1151,7 +1151,8 @@ settings in Decaid's store, under `streamline-app`, and pushes a remembered
 value back through `PUT /workflow` whenever the Workflow holds another,
 whoever changed it: on the machine's echo of a Workflow change, for steam
 time and hot water volume and temperature, and each time it loads, for all
-of them (ADR-0021; the evidence is in `AI_RUNTIME_NOTES.md`, Skins). So
+of them but the steam temperature, which it sends only along with a steam
+time it pushes (ADR-0021; the evidence is in `AI_RUNTIME_NOTES.md`, Skins). So
 before the plugin sets the settings, it sets the value Streamline remembers
 of each one it is about to set, through Decaid's store API
 (`rememberInStreamline`, `plugin/src/streamline.ts`), then writes the
@@ -1176,8 +1177,10 @@ Only the settings that go into the `PUT` are set: not one a barista changed
 since the tablet last reported, nor steam settings while steam is off. If
 Decaid fails to read or set a key, the plugin logs it and writes the Workflow
 all the same, and Streamline may push its value back, as it did before. If
-Decaid then refuses the Workflow, the keys stay set, and Streamline pushes
-the Location's values itself once Decaid takes them. None of this changes
+Decaid then refuses the Workflow, the keys stay set: once the machine is
+back, the plugin reconnects and the server writes the settings again, which
+the keys already match, so what Streamline pushes on loading meanwhile is
+the Location's value too. None of this changes
 the answer the server gets. Another skin that pushes what it remembers back,
 with no such adapter, undoes the Location's changes on its Machine and
 shares its own, so that Machine's sharing of the settings needs turning off
