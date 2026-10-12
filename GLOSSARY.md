@@ -27,6 +27,10 @@ _Avoid_: Key, password, API key
 The Android device running Decaid that is attached to a machine, together with its Decaid data: resetting that data makes a new tablet, and restoring a backup onto another device brings back the tablet it came from. A tablet can be swapped or moved to another machine without changing the machine's identity. Its **tablet id** is a random id the plugin keeps in that data to tell tablets apart, such as two connecting with one machine's token; it is not the machine's identity.
 _Avoid_: Machine, client, install
 
+**Skin**:
+The app baristas use on a tablet in place of Decaid's own screens, such as Streamline. It reads and changes the machine's workflow through Decaid's API, as the plugin does.
+_Avoid_: Theme, front end
+
 **Connection Id**:
 The id Decaid uses to reach a machine: a Bluetooth address or a USB id. The server remembers a machine's connection ids as aliases, but they are not its identity.
 _Avoid_: Machine id, MAC (when a USB id is possible)

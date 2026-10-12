@@ -1,0 +1,24 @@
+---
+status: accepted (amends ADR-0014)
+---
+
+# The plugin sets the steam, hot water and rinse values Streamline remembers
+
+Streamline, a skin for Decaid, remembers what the barista last set for steam time, flow, temperature and milk stop, hot water volume and temperature, and flush time, in Decaid's store under its namespace `streamline-app`. Whenever the Workflow holds another value, whoever set it, Streamline pushes the remembered one back through `PUT /workflow` (`resyncIfDrifted` in `streamline-js:src/modules/api.js`). It checks steam time and hot water volume and temperature on every shot-settings frame from the machine, which echoes a Workflow change within a fraction of a second, and every value it remembers each time it loads. So when the plugin wrote a Location's settings to a Streamline tablet (ADR-0014), Streamline put its own value back, the plugin reported that as the tablet's edit, and it became the Location's value, written to its other Machines. Two Streamline tablets remembering different values would undo each other's in turn.
+
+So when the plugin writes a Location's settings into a tablet's Workflow, it first sets the value Streamline remembers of each setting it is about to write, then writes the Workflow. That is the order Streamline's own setters use, so the machine's echo never finds the store behind the Workflow. The plugin sets only a key Streamline has already set to a number, so a tablet that never ran Streamline gets no Streamline keys. Like ADR-0005 for DYE2, this writes another program's storage, and it depends on Streamline's key names, which are not a published contract. They were checked against Streamline v0.2.12+2 (`bf72a0c`), and are unchanged in v0.2.13. A release that renames them brings the reverts back until the plugin follows it.
+
+We rejected asking Streamline to take a Workflow change made elsewhere as the new value. Its resync is deliberate: since `21486da` (2026-08-20), the comment on `resyncIfDrifted` counts "a value set from another device" as drift to undo, and says the resync is "NOT about repairing the DE1". The ask would reverse its design, and as with DYE2 (ADR-0005), we won't tie this project to someone else's release. We also rejected having the server ignore a change back to the value it overwrote, made just after its write: it can't tell such a revert from a barista's change, and the tablet would keep the other value anyway.
+
+## The rule for skins
+
+On a Machine that shares these settings, the Workflow holds the current value. A skin may remember what the barista last set, but when the Workflow changes through something other than the skin itself, it takes that as the new value rather than writing its own back. A skin built for a Decent Sync deployment, such as a Location's own custom skin, follows this rule and needs no adapter.
+
+## Consequences
+
+- **Streamline has an adapter; other skins do not.** A skin that pushes remembered values back and has no adapter undoes its Location's changes on its Machine and shares its own, so that Machine's settings sharing needs to be turned off (ADR-0014). #131 tracks warning about such Machines.
+- **Only what is written.** The plugin sets a key only for a setting it writes into the Workflow, after its check of what the Workflow holds and with steam settings left out while the Machine's steam is off. A barista's change it leaves alone leaves Streamline's value alone too. A milk stop of 0 is off, which Streamline does not remember, and a steam temperature below 135 °C is steam off, which it never turns steam back on at.
+- **A failure costs only the adapter.** If Decaid fails to read or set a key, the plugin logs it and writes the Workflow anyway. Streamline may then push its value back, as it did before.
+- **A refused Workflow write leaves the keys set.** Decaid refuses one while no machine is connected. Once Decaid takes the Workflow again, Streamline pushes the Location's value itself, and the server finds the tablet holding the Location's settings.
+- **Reading a key opens Streamline's namespace.** Decaid's store opens the namespace a request names, creating it empty where it is missing (`HiveStoreService` in `decaid:lib/src/services/storage/hive_store_service.dart`). So a tablet that never ran Streamline gets an empty `streamline-app`, which its Decaid backups then include. Nothing is ever set in it.
+- **Streamline's screen can lag.** Streamline shows a steam flow, milk stop or flush time changed elsewhere only once it loads again, as no message from Decaid carries them. The Workflow is correct, and this is for Streamline to fix.
