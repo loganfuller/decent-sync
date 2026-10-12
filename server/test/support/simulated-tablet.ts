@@ -34,18 +34,26 @@ import { rememberSecret, watchLog } from "./secrets.js";
 //   an ETag, answering 304 to it in If-None-Match. A key of
 //   plugin storage never written answers `null`. The machine's settings, like
 //   its info, fail while no machine is connected.
+// - Decaid's store API (KvStoreHandler in kv_store_handler.dart) keeps the
+//   values other plugins and skins keep there, such as Streamline's under
+//   `streamline-app`: `POST /store/{namespace}/{key}` keeps the JSON body,
+//   and `GET` answers it, or `null` for a key never set; `storeWrites`
+//   records the plugin's. `startStreamline` (simulated-streamline.ts) runs
+//   Streamline as the tablet's skin, which pushes the values it keeps there
+//   back over the Workflow, as streamline-js does.
 // - Of Decaid's writes, it carries out only those to beans (`POST /beans`,
 //   `PUT /beans/{id}` and `DELETE /beans/{id}`), their batches (`POST
 //   /beans/{beanId}/batches`, `PUT` and `DELETE /bean-batches/{id}`),
-//   grinders (`POST /grinders`, `PUT` and `DELETE /grinders/{id}`) and
+//   grinders (`POST /grinders`, `PUT` and `DELETE /grinders/{id}`),
 //   profiles (`POST /profiles`, `PUT` and `DELETE /profiles/{id}`, `PUT
-//   /profiles/{id}/visibility` and `DELETE /profiles/{id}/purge`), as
-//   Decaid does (decaid-beans.ts, decaid-batches.ts, decaid-grinders.ts,
-//   decaid-profiles.ts), and serves each bean at `/beans/{id}`, its batches
-//   at `/beans/{id}/batches`, each batch at `/bean-batches/{id}`, each
-//   grinder at `/grinders/{id}`, and each profile at `/profiles/{id}`, whose
-//   id it derives from the profile's content as Decaid does; it refuses
-//   every other request but a `GET`.
+//   /profiles/{id}/visibility` and `DELETE /profiles/{id}/purge`), the
+//   Workflow (`PUT /workflow`) and the store (above), as Decaid does
+//   (decaid-beans.ts, decaid-batches.ts, decaid-grinders.ts,
+//   decaid-profiles.ts, decaid-workflow.ts), and serves each bean at
+//   `/beans/{id}`, its batches at `/beans/{id}/batches`, each batch at
+//   `/bean-batches/{id}`, each grinder at `/grinders/{id}`, and each
+//   profile at `/profiles/{id}`, whose id it derives from the profile's
+//   content as Decaid does; it refuses every other request but a `GET`.
 // - The plugin's local time, as JavaScript reads it, is this process's time
 //   zone: set `process.env.TZ` to put the tablet in another one.
 // - `host.transport` opens real WebSockets with only a URL and subprotocols
@@ -530,6 +538,12 @@ export class SimulatedTablet {
   readonly requests: string[] = [];
   /** The plugin's requests that could change the tablet's data (any method but GET), such as "POST /beans". */
   readonly writes: string[] = [];
+  /** The plugin's writes to Decaid's store API that Decaid carried out, in order, each with the value written. */
+  readonly storeWrites: { namespace: string; key: string; value: unknown }[] = [];
+  /** Decaid's store, by namespace then key, but for the plugin's own storage and the keys `api` serves. */
+  private readonly store = new Map<string, Map<string, unknown>>();
+  /** Told of every change of the Workflow, after the plugin is. */
+  private readonly workflowListeners = new Set<(workflow: Record<string, unknown>) => void>();
   readonly plugin: BuiltPlugin;
   machineConnected: boolean;
   private api: DecaidApi;
@@ -671,6 +685,21 @@ export class SimulatedTablet {
   setWorkflow(workflow: Record<string, unknown>): void {
     this.api = { ...this.api, "/workflow": workflow };
     this.fire("workflowUpdated", workflow);
+    for (const listener of this.workflowListeners) listener(workflow);
+  }
+
+  /**
+   * Tells `listener` of every change of the Workflow from now on, as a skin
+   * hears of one, until the function returned is called.
+   */
+  onWorkflowChange(listener: (workflow: Record<string, unknown>) => void): () => void {
+    this.workflowListeners.add(listener);
+    return () => this.workflowListeners.delete(listener);
+  }
+
+  /** What Decaid's store holds at that key of that namespace, as `GET /store/{namespace}/{key}` answers it: null if never set. */
+  storeValue(namespace: string, key: string): unknown {
+    return this.store.get(namespace)?.has(key) ? structuredClone(this.store.get(namespace)!.get(key)) : null;
   }
 
   /**
@@ -1014,6 +1043,8 @@ export class SimulatedTablet {
       this.writes.push(`${method.toUpperCase()} ${route}`);
       const refusal = this.refuseWrites?.({ method: method.toUpperCase(), route, body: typeof body === "string" ? JSON.parse(body) : body });
       if (refusal) return Promise.resolve(response(refusal.status, JSON.stringify(refusal.body)));
+      const stored = this.keptInStore(route);
+      if (method.toUpperCase() === "POST" && stored) this.storeWrites.push({ ...stored, value: typeof body === "string" ? JSON.parse(body) : body });
     }
     return this.answer(url, method.toUpperCase(), headers, body);
   }
@@ -1026,6 +1057,8 @@ export class SimulatedTablet {
       this.apiFailures.set(route, failures - 1);
       return response(503, JSON.stringify({ error: "Local API temporarily unavailable" }));
     }
+    const kept = this.answerStore(method, route, requestBody);
+    if (kept) return response(kept.status, JSON.stringify(kept.body));
     const written = withDecaidClock(this.decaidClockOffsetMs, () => this.writeLibrary(method, route, new URL(url).searchParams, requestBody));
     if (written) {
       return written.etag && written.status === 200 ? conditional(JSON.stringify(written.body), headers) : response(written.status, JSON.stringify(written.body));
@@ -1137,6 +1170,33 @@ export class SimulatedTablet {
       if (method === "DELETE") return keep(deleteBatch(batches, id));
     }
     return undefined;
+  }
+
+  /**
+   * Carries out a write to Decaid's store (`POST /store/{namespace}/{key}`)
+   * as KvStoreHandler does, keeping the body read as JSON, or reads a key
+   * kept that way; undefined for any other request, the plugin's own
+   * storage and the keys `api` serves included.
+   */
+  private answerStore(method: string, route: string, body: unknown): DecaidAnswer | undefined {
+    const stored = this.keptInStore(route);
+    if (!stored) return undefined;
+    const { namespace, key } = stored;
+    if (method === "POST") {
+      if (typeof body !== "string") throw new Error("A write to Decaid's store came without a JSON body");
+      const values = this.store.get(namespace) ?? new Map<string, unknown>();
+      this.store.set(namespace, values);
+      values.set(key, JSON.parse(body));
+      return { status: 200, body: {} };
+    }
+    if (method === "GET" && this.store.get(namespace)?.has(key)) return { status: 200, body: this.storeValue(namespace, key) };
+    return undefined;
+  }
+
+  /** The namespace and key of Decaid's store a route names, but for the plugin's own storage and the keys `api` serves; otherwise undefined. */
+  private keptInStore(route: string): { namespace: string; key: string } | undefined {
+    const stored = storeKey(route);
+    return stored && stored.namespace !== this.pluginId && !(route in this.api) ? stored : undefined;
   }
 
   /**
@@ -1482,6 +1542,13 @@ interface PluginScope {
   fetch: (input: unknown, init?: unknown) => Promise<unknown>;
   setTimeout: (callback: () => void, delay: number) => number;
   clearTimeout: (id: number) => void;
+}
+
+/** The namespace and key a route of Decaid's store API names (`/store/{namespace}/{key}`), or undefined for any other route. */
+function storeKey(route: string): { namespace: string; key: string } | undefined {
+  const [, store, namespace, key, ...rest] = route.split("/");
+  if (store !== "store" || namespace === undefined || key === undefined || rest.length > 0) return undefined;
+  return { namespace: decodeURIComponent(namespace), key: decodeURIComponent(key) };
 }
 
 /** Evaluates plugin.js the way Decaid's plugin manager does. */

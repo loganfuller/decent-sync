@@ -176,9 +176,15 @@ export class SyncConnection {
     this.machineEvents = new MachineEvents(this.outbox);
     const library = new LibraryAccess();
     this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1000);
-    this.writes = new LibraryWrites(library, this.outbox, this.machineEvents, () => {
-      if (this.sentHardware !== null) this.machineAway = true;
-    });
+    this.writes = new LibraryWrites(
+      library,
+      this.outbox,
+      this.machineEvents,
+      () => {
+        if (this.sentHardware !== null) this.machineAway = true;
+      },
+      log,
+    );
     this.tabletId = new TabletId(this.storage, log);
   }
 

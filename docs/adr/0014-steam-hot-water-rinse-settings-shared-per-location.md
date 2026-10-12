@@ -1,5 +1,5 @@
 ---
-status: accepted (amended by ADR-0008, which clears a joining machine's Workflow grinder and batch, and ADR-0020, under which each setting is a field of its own; amended in place on 2026-10-09, while building milestone 2: every machine at a location shares them, whatever its model, and a machine's sharing of them can be turned off)
+status: accepted (amended by ADR-0008, which clears a joining machine's Workflow grinder and batch, ADR-0020, under which each setting is a field of its own, and ADR-0021, under which the plugin also sets the values Streamline remembers of the settings it writes, and a skin takes a change made elsewhere as the new value; amended in place on 2026-10-09, while building milestone 2: every machine at a location shares them, whatever its model, and a machine's sharing of them can be turned off)
 ---
 
 # Steam, hot water and rinse settings are shared per location; steam on/off is not
