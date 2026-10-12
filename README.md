@@ -15,48 +15,58 @@ business with a roastery lab and several cafes.
 
 ## Status
 
-**Milestone 1 is built, and milestone 2 is being built.** Admins sign in, manage
-Locations, and adopt Machines, which are identified by their hardware and
-record where they were in a Location History. Adopted tablets send their Shots
-and Steam Records, which the REST API serves, each credited to the Location its
-Machine was at when it was recorded, their Workflow changes and machine state
-transitions, and their library, settings and paired devices, so the management
-interface shows what each Machine is set up to pull next, what it is doing, and
-its scale, sensors and calibration. Admins and Staff list Shots across every
-Location, filter them, and open each one's curves beside the previous Shot on
-its Machine, and review Steam Records the same way, with each one's milk
-temperature and curves. Milestone 1's spec is
-[#1](https://github.com/loganfuller/decent-sync/issues/1), and its [GitHub
+**Milestones 1 and 2 are built, and released in
+[v0.3.0](https://github.com/loganfuller/decent-sync/releases/tag/v0.3.0).**
+Admins sign in, manage Locations, and adopt Machines, which are identified by
+their hardware and record where they were in a Location History. Adopted
+tablets send their Shots and Steam Records, which the REST API serves, each
+credited to the Location its Machine was at when it was recorded, their
+Workflow changes and machine state transitions, and their library, settings
+and paired devices, so the management interface shows what each Machine is
+set up to pull next, what it is doing, and its scale, sensors and calibration.
+Admins and Staff list Shots across every Location, filter them, and open each
+one's curves beside the previous Shot on its Machine, and review Steam Records
+the same way, with each one's milk temperature and curves. Milestone 1's spec
+is [#1](https://github.com/loganfuller/decent-sync/issues/1), and its [GitHub
 milestone](https://github.com/loganfuller/decent-sync/milestone/1) holds its
-tickets and the hardening still in progress. [Milestone
-2](https://github.com/loganfuller/decent-sync/issues/77) ([GitHub
+tickets and their hardening.
+
+[Milestone 2](https://github.com/loganfuller/decent-sync/issues/77) ([GitHub
 milestone](https://github.com/loganfuller/decent-sync/milestone/2)) shares the
-Library with each Location's Machines. So far it shares Beans, Bean Batches,
-Grinders and Profiles: a bean, batch, grinder or profile entered on a tablet
-at a Location joins the Library (a bean may become the Bean with the same
-roaster and name, and a profile is the Profile with the same steps) and is
-written to that Location's other tablets. A batch is at the Locations where it
-was added until it is finished there, with its own remaining weight at each, a
-Bean is offered where its batches are, a Grinder belongs to the Location where
-it was created, and a Profile is shown or hidden at each Location. Archiving,
-hiding or deleting one on a tablet acts at that tablet's Location only; a
-Grinder archived or deleted there is Archived. The management interface's
+Library with each Location's Machines: Beans, Bean Batches, Grinders and
+Profiles. A bean, batch, grinder or profile entered on a tablet at a Location
+joins the Library (a bean may become the Bean with the same roaster and name,
+and a profile is the Profile with the same steps) and is written to that
+Location's other tablets. A batch is at the Locations where it was added until
+it is finished there, with its own remaining weight at each, a Bean is offered
+where its batches are, a Grinder belongs to the Location where it was created,
+and a Profile is shown or hidden at each Location. Archiving, hiding or
+deleting one on a tablet acts at that tablet's Location only; a Grinder
+archived or deleted there is Archived. A Location's Machines share their
+steam, hot water and rinse settings too, but those whose sharing is turned
+off. An edit made on a tablet or in the management interface reaches every
+tablet that holds the item, merged field by field with the latest edit
+winning; each item and each Location's settings keep their history, and an
+edit that lost to one made without seeing it is kept as a Conflict, whose
+value the management interface uses or dismisses. The management interface's
 Library lists the Beans, the Bean Batches, the Grinders, the Profiles, and
 where each is, and creates, edits, Archives and restores Beans, Bean Batches
 and Grinders, adding and finishing batches at each Location; it shows and
 hides each Profile at each Location, which is how a lab Profile reaches a
 cafe, and Archives and restores Profiles; an Admin hard-deletes an item no
-Shot names, from every tablet too. A Machine adopted at a Location, moved
-there, or whose sharing an Admin turns back on after making it capture-only
-takes on that Location's Library and settings: what its tablet held of its
-own stays out of the Library, archived or hidden on it, unless the Location
-had none of that kind yet. A write a tablet refuses is skipped, and tried
-again once its item changes or the tablet reconnects, while the others go on;
-each Machine's page shows its sharing status: the changes waiting for its
-tablet, the last it applied, and the writes it refused, with Decaid's answer.
-The Workflow changes and machine state transitions a tablet has yet to deliver
-are kept in Decaid's plugin storage, so unloading the plugin loses none.
-Everything else is captured without being written to tablets.
+Shot names, from every tablet too. Each Shot is linked to the Bean Batch,
+Grinder and Profile it used, Shots filter by them, and each item's page lists
+its Shots. A Machine adopted at a Location, moved there, or whose sharing an
+Admin turns back on after making it capture-only takes on that Location's
+Library and settings: what its tablet held of its own stays out of the
+Library, archived or hidden on it, unless the Location had none of that kind
+yet. A write a tablet refuses is skipped, and tried again once its item
+changes or the tablet reconnects, while the others go on; each Machine's page
+shows its sharing status: the changes waiting for its tablet, the last it
+applied, and the writes it refused, with Decaid's answer. The Workflow changes
+and machine state transitions a tablet has yet to deliver are kept in Decaid's
+plugin storage, so unloading the plugin loses none. Everything else is
+captured without being written to tablets.
 
 Releases publish the server image and the plugin ZIP, starting with
 [v0.1.0](https://github.com/loganfuller/decent-sync/releases/tag/v0.1.0).
@@ -406,10 +416,10 @@ plugin build copies it into `decent-sync.reaplugin/manifest.json`.
    `UPGRADING.md`, if any, with the version. Commit the changes and merge them
    to `main`:
    ```bash
-   npm version 0.2.0 --no-git-tag-version
+   npm version 0.3.0 --no-git-tag-version
    npm run build -w plugin
    ```
-2. Tag the resulting commit on `main` `v0.2.0` and push the tag. A tag on any
+2. Tag the resulting commit on `main` `v0.3.0` and push the tag. A tag on any
    other commit fails the release, since pull request CI tests a merge with
    `main` rather than the tagged commit.
 
@@ -417,9 +427,9 @@ The [release workflow](.github/workflows/release.yml) then fails unless the tag
 is `vX.Y.Z` matching the committed manifest's version, `UPGRADING.md` has no
 notes left under Unreleased, and CI has passed on the tagged commit as a push
 to `main` (waiting for it rather than running it again), publishes the server
-image (amd64 and arm64) to `ghcr.io/loganfuller/decent-sync` as `0.2.0`, `0.2`
+image (amd64 and arm64) to `ghcr.io/loganfuller/decent-sync` as `0.3.0`, `0.3`
 and `latest`, and finally creates the GitHub release with
-`decent-sync.reaplugin-v0.2.0.zip` as its only asset. Its notes start with the
+`decent-sync.reaplugin-v0.3.0.zip` as its only asset. Its notes start with the
 version's section of `UPGRADING.md` (`scripts/release-notes.mjs`), followed by
 GitHub's notes generated from the pull requests merged since the last release.
 Anything owners must do when upgrading, such as approving a plugin update that
