@@ -15,7 +15,7 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
 
 ## Milestones
 
-Each milestone is a GitHub milestone named `Milestone N: <name>`, such as `Milestone 1: Foundation` and `Milestone 2: Shared library`. It holds the milestone's spec issue, its tickets and the pull requests that implement them.
+Each milestone is a GitHub milestone named `Milestone N: <name>`, such as `Milestone 1: Foundation`, `Milestone 2: Shared library` and `Milestone 3: Recipes and equipment`. It holds the milestone's spec issue, its tickets and the pull requests that implement them.
 
 - **Assign one** when creating a ticket: `gh issue create --milestone "Milestone 2: Shared library" ...`. For an existing issue or pull request, use `gh issue edit <number> --milestone "<title>"` or `gh pr edit <number> --milestone "<title>"`.
 - **Tickets from a spec** go in that spec's milestone, including those `/to-tickets` publishes.

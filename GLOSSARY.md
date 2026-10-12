@@ -43,11 +43,18 @@ _Avoid_: Site, store, shop, venue
 The record of which location a machine was at from which time. It decides the location each shot and steam record is credited to, and correcting it re-credits them.
 
 **Equipment**:
-Gear used alongside a machine that can be shared between machines without changing what the machine is: grinders, baskets, portafilters, drippers. Equipment belongs to a location.
+Gear used alongside a machine that can be shared between machines without changing what the machine is: grinders, baskets and tools. A grinder belongs to one location; baskets and tools are in the library, and each location shows or hides them.
 _Avoid_: Gear, accessories. A tablet is not equipment.
 
 **Grinder**:
-A kind of equipment that grinds coffee at a numbered or named setting.
+One physical grinder, with its own burrs and calibration, that grinds coffee at a numbered or named setting.
+
+**Basket**:
+A model of filter basket, such as a 20 g high-flow basket. One basket stands for every copy of that model, at every location.
+
+**Tool**:
+A kind of equipment other than a grinder or basket that a recipe or shot can name, such as a tamper, WDT tool, puck screen, portafilter or dripper.
+_Avoid_: Accessory, gear
 
 **Scale**:
 A weighing device paired with a machine's tablet that weighs the shot as it is pulled.
@@ -91,15 +98,19 @@ A program the machine follows while pulling a shot, such as a pressure or flow c
 _Avoid_: Recipe (a recipe is more than a profile)
 
 **Recipe**:
-A named, saved choice of profile, dose, yield, grinder and grind setting that a barista dialled in, which any machine at the same location can load.
+A named, saved dial-in for a coffee, such as the day's recipe for one roast: its bean batch, profile, dose, yield, grinder and grind setting, basket and tools, and its hot water settings. It belongs to one location, where any machine can load it, and baristas keep it current as they adjust the dial through the day.
 _Avoid_: Stored workflow, preset, favourite
 
 **Recipe Slot**:
-A numbered position for a recipe, shared by every machine at a location, like a programmed button on one group of a commercial machine.
+A numbered position for a recipe, shared by every machine at a location, like a programmed button on one group of a commercial machine. A recipe is in at most one slot, and keeps its identity when moved to another; one in no slot is kept at its location until someone puts it in one or archives it.
 _Avoid_: Recipe number, index
 
+**Loaded Recipe**:
+The recipe a machine's workflow was last loaded from, while the machine still follows it. It is part of the machine's state: a change to the recipe reaches that machine's workflow at once.
+_Avoid_: Active recipe, current recipe
+
 **Workflow**:
-What a machine is set up to do next: its current profile, dose, yield, bean batch, grinder and setting, plus its steam, hot water and rinse settings. Each machine has its own profile, dose, yield, batch and grinder, even when machines share recipes. Steam, hot water and rinse settings are shared by the machines at a location, whatever their model, but a machine whose sharing of them is turned off.
+What a machine is set up to do next: its current profile, dose, yield, bean batch, grinder and setting, and basket, plus its steam, hot water and rinse settings. Each machine has its own profile, dose, yield, batch, grinder, basket and hot water settings, which loading a recipe sets. Steam and rinse settings are shared by the machines at a location, whatever their model, but a machine whose sharing of them is turned off.
 _Avoid_: Recipe (a recipe is saved; a workflow is current)
 
 **Shot**:
