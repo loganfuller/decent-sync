@@ -1497,6 +1497,17 @@ upgrade hides the old one at the Location, on the others too, which lack the
 new one: bundled Profiles are never written. v0.8.7 and v0.8.8 bundle the same
 Profiles.
 
+Streamline keeps the barista's last steam time and flow, milk stop, hot water
+volume and temperature, and flush time in Decaid's store (`streamline-app`).
+It pushes them back through `PUT /workflow` whenever the Workflow or the DE1's
+shot settings differ, whoever changed them (`resyncIfDrifted` in
+`streamline-js:src/modules/api.js`). So on a Streamline tablet, a write of the
+Location's settings is reverted for each of those it remembers otherwise: hot
+water within a second, as the DE1 echoes its shot settings, the rest when
+Streamline next loads its data. The server takes the revert in as that
+tablet's edit, the Location's value from then on (#130, seen on the test
+tablet in #94).
+
 `server/test/library-beans.test.ts`, `server/test/library-batches.test.ts`,
 `server/test/library-grinders.test.ts`,
 `server/test/library-profiles.test.ts`,
