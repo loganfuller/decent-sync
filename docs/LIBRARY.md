@@ -1572,7 +1572,10 @@ needs:
    where Decaid's API lists its records, which `CollectionCapture` reads and
    reports, and how a write, a delete and setting aside a record are carried
    out, through a route for records Decaid keeps as it keeps beans
-   (`ROUTES`, `recordWriter`), or by functions of its own.
+   (`ROUTES`, `recordWriter`), or by functions of its own. If a Shot names
+   its records, its route sets `namedByShots`, and `LibraryWrites.noteShot`
+   notes the ids a Shot's Workflow names, so a record a Shot not yet sent
+   names is not deleted.
 3. **The schema and its migration**: its table, with `content`, `archived`
    and `field_edits` as the other kinds have them; each tablet's map of its
    records; a Location's state of it, if it has one; and its table's three
