@@ -251,8 +251,12 @@ var __decentSync = (() => {
     return LIBRARY_KINDS.find((kind) => LIBRARY_ITEM_KINDS[kind].list === list);
   }
   function parentKind(kind) {
-    const description = LIBRARY_ITEM_KINDS[kind];
-    return description.under !== void 0 && isLibraryKind(description.under) ? description.under : void 0;
+    const { under } = LIBRARY_ITEM_KINDS[kind];
+    if (under === void 0) return void 0;
+    if (!isLibraryKind(under) || LIBRARY_KINDS.indexOf(under) >= LIBRARY_KINDS.indexOf(kind)) {
+      throw new Error(`A ${kind}'s records are made under ${under}, which is no kind listed before it`);
+    }
+    return under;
   }
   function childKinds(kind) {
     return LIBRARY_KINDS.filter((child) => parentKind(child) === kind);
@@ -763,8 +767,7 @@ var __decentSync = (() => {
       create: () => "/beans",
       deferred: ["archived"],
       sameItem: (record, fields) => typeof record.roaster === "string" && typeof record.name === "string" && typeof fields.roaster === "string" && typeof fields.name === "string" && beanMatchKey(record.roaster, record.name) === beanMatchKey(fields.roaster, fields.name),
-      namedByShots: false,
-      children: (path) => `${path}/batches?includeArchived=true`
+      namedByShots: false
     },
     beanBatch: {
       list: "/bean-batches?includeArchived=true",
@@ -773,7 +776,8 @@ var __decentSync = (() => {
       create: (fields) => typeof fields.beanId === "string" && fields.beanId !== "" ? `/beans/${encodeURIComponent(fields.beanId)}/batches` : null,
       deferred: ["archived", "weightRemaining"],
       sameItem: () => false,
-      namedByShots: true
+      namedByShots: true,
+      listUnder: (parentPath) => `${parentPath}/batches?includeArchived=true`
     },
     grinder: {
       list: "/grinders?includeArchived=true",
@@ -803,6 +807,9 @@ var __decentSync = (() => {
   }
   function libraryWriterOf(kind) {
     return isLibraryKind(kind) ? WRITERS[kind] : void 0;
+  }
+  function routeOf(kind) {
+    return Object.prototype.hasOwnProperty.call(ROUTES, kind) ? ROUTES[kind] : void 0;
   }
   function libraryListPath(kind) {
     return WRITERS[kind].list;
@@ -929,18 +936,18 @@ var __decentSync = (() => {
       const named = await namedByShot(kind, /* @__PURE__ */ new Set([remove.localId]));
       if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
     }
-    if (route.children) {
-      const listed = await request("GET", route.children(path));
+    for (const child of childKinds(kind)) {
+      const under = routeOf(child)?.listUnder;
+      if (!under) return refused(remove, null, `This plugin cannot delete the ${child} records under a ${kind}`);
+      const listed = await request("GET", under(path));
       const children = listed.ok ? parsed2(listed.text) : void 0;
       if (!Array.isArray(children)) return refused(remove, listed.status, listed.text);
-      const ids = new Set(children.filter(isObject2).flatMap((child) => typeof child.id === "string" ? [child.id] : []));
-      for (const child of childKinds(kind)) {
-        const named = await namedByShot(child, ids);
-        if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
-        for (const id of ids) {
-          const gone = await request("DELETE", `${WRITERS[child].records}/${encodeURIComponent(id)}`);
-          if (!gone.ok && gone.status !== 404) return refused(remove, gone.status, gone.text);
-        }
+      const ids = new Set(children.filter(isObject2).flatMap((record2) => typeof record2.id === "string" ? [record2.id] : []));
+      const named = await namedByShot(child, ids);
+      if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
+      for (const id of ids) {
+        const gone = await request("DELETE", `${WRITERS[child].records}/${encodeURIComponent(id)}`);
+        if (!gone.ok && gone.status !== 404) return refused(remove, gone.status, gone.text);
       }
     }
     const answer = await request("DELETE", path);

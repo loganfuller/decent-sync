@@ -628,6 +628,11 @@ describe("Library writes", () => {
     expect(childLists("beans")).toEqual(["beanBatches"]);
     expect(childLists("profiles")).toEqual([]);
     expect(REMOVAL_ORDER).toEqual(["beanBatch", "bean", "grinder", "profile"]);
+    // Every kind's records are made under a kind listed before it, or none.
+    for (const kind of LIBRARY_KINDS) {
+      const parent = parentKind(kind);
+      if (parent !== undefined) expect(LIBRARY_KINDS.indexOf(parent)).toBeLessThan(LIBRARY_KINDS.indexOf(kind));
+    }
   });
 
   it("finds the global id a record carries in its extras, in lower case", () => {

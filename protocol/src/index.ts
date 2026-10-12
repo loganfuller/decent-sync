@@ -511,10 +511,18 @@ export function listKind(list: LibraryList): LibraryKind {
   return LIBRARY_KINDS.find((kind) => LIBRARY_ITEM_KINDS[kind].list === list)!;
 }
 
-/** The kind whose records a kind's records are made under (`LibraryKindDescription.under`), if any. */
+/**
+ * The kind whose records a kind's records are made under
+ * (`LibraryKindDescription.under`), if any. Throws if it names no kind listed
+ * before this one, which REMOVAL_ORDER, read as this module loads, finds.
+ */
 export function parentKind(kind: LibraryKind): LibraryKind | undefined {
-  const description: LibraryKindDescription = LIBRARY_ITEM_KINDS[kind];
-  return description.under !== undefined && isLibraryKind(description.under) ? description.under : undefined;
+  const { under }: LibraryKindDescription = LIBRARY_ITEM_KINDS[kind];
+  if (under === undefined) return undefined;
+  if (!isLibraryKind(under) || LIBRARY_KINDS.indexOf(under) >= LIBRARY_KINDS.indexOf(kind)) {
+    throw new Error(`A ${kind}'s records are made under ${under}, which is no kind listed before it`);
+  }
+  return under;
 }
 
 /** The kinds whose records are made under a kind's (`LibraryKindDescription.under`). */

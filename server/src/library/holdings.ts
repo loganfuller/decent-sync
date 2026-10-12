@@ -11,8 +11,9 @@ import { isObject } from "./listed.js";
 // that the Location does not offer is archived or hidden on it, never
 // deleted, so its Shots still find it. Every record it holds is written the
 // item's content where it differs, so an edit reaches every tablet that
-// holds the item, at every Location (ADR-0020). Pure, so module tests can
-// drive it; tablet-due.ts reads what it needs.
+// holds the item, at every Location (ADR-0020). It does no database work,
+// reading each kind's content and planner from its description (kinds.ts),
+// so module tests can drive it; tablet-due.ts reads what it needs.
 
 /** A Bean a Location offers, with its content. */
 export interface OfferedBean {

@@ -69,11 +69,12 @@ interface Route {
   /** Whether a Shot names a record of the kind by its id, so one a Shot this plugin has yet to send names is not deleted (`namedByShot`). */
   namedByShots: boolean;
   /**
-   * Where the records made under a record at `path` are listed, archived
-   * ones included, for the kinds made under it (`childKinds`): they are
-   * deleted before it, as Decaid refuses to delete a bean that has batches.
+   * For a kind whose records are made under another's (`parentKind`), where
+   * those under the record at `parentPath` are listed, archived ones
+   * included: they are deleted before it, as Decaid refuses to delete a bean
+   * that has batches.
    */
-  children?(path: string): string;
+  listUnder?(parentPath: string): string;
 }
 
 /**
@@ -121,7 +122,6 @@ const ROUTES = {
       typeof fields.name === "string" &&
       beanMatchKey(record.roaster, record.name) === beanMatchKey(fields.roaster, fields.name),
     namedByShots: false,
-    children: (path) => `${path}/batches?includeArchived=true`,
   },
   beanBatch: {
     list: "/bean-batches?includeArchived=true",
@@ -131,6 +131,7 @@ const ROUTES = {
     deferred: ["archived", "weightRemaining"],
     sameItem: () => false,
     namedByShots: true,
+    listUnder: (parentPath) => `${parentPath}/batches?includeArchived=true`,
   },
   grinder: {
     list: "/grinders?includeArchived=true",
@@ -170,6 +171,11 @@ function writerOf(kind: string): KindWriter | undefined {
 /** How the plugin carries out the server's changes of a kind of Library item, or undefined for a kind it does not know. */
 function libraryWriterOf(kind: string): LibraryKindWriter | undefined {
   return isLibraryKind(kind) ? WRITERS[kind] : undefined;
+}
+
+/** Where a kind written through a route (`ROUTES`) lives in Decaid's API, or undefined for one that is not. */
+function routeOf(kind: string): Route | undefined {
+  return Object.prototype.hasOwnProperty.call(ROUTES, kind) ? ROUTES[kind as keyof typeof ROUTES] : undefined;
 }
 
 /** Where Decaid's API lists a kind's records, archived or hidden ones included. */
@@ -367,18 +373,18 @@ async function deleteRecord(kind: LibraryKind, route: Route, remove: LibraryDele
     const named = await namedByShot(kind, new Set([remove.localId]));
     if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
   }
-  if (route.children) {
-    const listed = await request("GET", route.children(path));
+  for (const child of childKinds(kind)) {
+    const under = routeOf(child)?.listUnder;
+    if (!under) return refused(remove, null, `This plugin cannot delete the ${child} records under a ${kind}`);
+    const listed = await request("GET", under(path));
     const children = listed.ok ? parsed(listed.text) : undefined;
     if (!Array.isArray(children)) return refused(remove, listed.status, listed.text);
-    const ids = new Set(children.filter(isObject).flatMap((child) => (typeof child.id === "string" ? [child.id] : [])));
-    for (const child of childKinds(kind)) {
-      const named = await namedByShot(child, ids);
-      if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
-      for (const id of ids) {
-        const gone = await request("DELETE", `${WRITERS[child].records}/${encodeURIComponent(id)}`);
-        if (!gone.ok && gone.status !== 404) return refused(remove, gone.status, gone.text);
-      }
+    const ids = new Set(children.filter(isObject).flatMap((record) => (typeof record.id === "string" ? [record.id] : [])));
+    const named = await namedByShot(child, ids);
+    if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
+    for (const id of ids) {
+      const gone = await request("DELETE", `${WRITERS[child].records}/${encodeURIComponent(id)}`);
+      if (!gone.ok && gone.status !== 404) return refused(remove, gone.status, gone.text);
     }
   }
   const answer = await request("DELETE", path);

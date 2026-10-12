@@ -2,6 +2,8 @@
 interface LibraryKindView {
   /** What it is called, such as Bean Batch. */
   name: string;
+  /** The tablet's list of its records, as a Machine's collections name it, and what that list is called. */
+  list: { name: string; title: string };
   /** Where its items' pages are, each under its id. */
   pages: string;
   /** Where the REST API has its items, each under its id. */
@@ -17,10 +19,10 @@ interface LibraryKindView {
  * (`LIBRARY.md`, Adding a Library kind), in the server's order.
  */
 export const LIBRARY_KINDS = {
-  bean: { name: "Bean", pages: "/library/beans", api: "/beans", shotsFilter: "beanId", filteredInShotsList: false },
-  beanBatch: { name: "Bean Batch", pages: "/library/bean-batches", api: "/bean-batches", shotsFilter: "beanBatchId", filteredInShotsList: true },
-  grinder: { name: "Grinder", pages: "/library/grinders", api: "/grinders", shotsFilter: "grinderId", filteredInShotsList: true },
-  profile: { name: "Profile", pages: "/library/profiles", api: "/profiles", shotsFilter: "profileId", filteredInShotsList: false },
+  bean: { name: "Bean", list: { name: "beans", title: "Beans" }, pages: "/library/beans", api: "/beans", shotsFilter: "beanId", filteredInShotsList: false },
+  beanBatch: { name: "Bean Batch", list: { name: "beanBatches", title: "Bean Batches" }, pages: "/library/bean-batches", api: "/bean-batches", shotsFilter: "beanBatchId", filteredInShotsList: true },
+  grinder: { name: "Grinder", list: { name: "grinders", title: "Grinders" }, pages: "/library/grinders", api: "/grinders", shotsFilter: "grinderId", filteredInShotsList: true },
+  profile: { name: "Profile", list: { name: "profiles", title: "Profiles" }, pages: "/library/profiles", api: "/profiles", shotsFilter: "profileId", filteredInShotsList: false },
 } as const satisfies Readonly<Record<string, LibraryKindView>>;
 
 /** The kinds of Library item. */

@@ -162,7 +162,13 @@ export interface LibraryKindDescription extends VersionedKindDescription {
   list: LibraryList;
   /** Each tablet's map of its records (`tablet_beans` and the like), and the column there naming the item. */
   map: { table: string; column: string };
-  /** Whether its records carry its global id (ADR-0006); a Profile's do not, as its id is Decaid's, the same on every tablet, which its records have as theirs. */
+  /**
+   * Whether its records carry its global id (ADR-0006), a UUID the server
+   * gives it, so a kind whose records do has `idType` `uuid`, and its global
+   * ids are kept as `deleted_items` keeps them once hard-deleted. A
+   * Profile's do not, as its id is Decaid's, the same on every tablet, which
+   * its records have as theirs.
+   */
   carriesGlobalId: boolean;
   /** For a kind whose records are made under another's (`LibraryKindDescription.under` in protocol/), its column naming that item, and the field of its tablet's records naming that item's record there. */
   parent?: { column: string; recordField: string };
@@ -645,11 +651,13 @@ function shotNamesProfileSql(id: Prisma.Sql, steps: Prisma.Sql): Prisma.Sql {
  * that a tablet reports later is deleted there too.
  */
 async function keepRecordDeletions(tx: Prisma.TransactionClient, kind: LibraryKind, id: string): Promise<void> {
-  const { map, parent } = KINDS[kind];
+  const description = KINDS[kind];
+  const { map, parent } = description;
   const parentRecord = parent ? Prisma.sql`record ->> ${parent.recordField}` : Prisma.sql`NULL::text`;
   await tx.$executeRaw`
     INSERT INTO tablet_deletions (tablet_id, kind, local_id, item_id, bean_local_id)
-    SELECT tablet_id, ${kind}, local_id, ${Prisma.raw(map.column)}::text, ${parentRecord} FROM ${Prisma.raw(map.table)} WHERE ${Prisma.raw(map.column)} = ${id}::uuid
+    SELECT tablet_id, ${kind}, local_id, ${Prisma.raw(map.column)}::text, ${parentRecord} FROM ${Prisma.raw(map.table)}
+    WHERE ${Prisma.raw(map.column)} = ${idSql(description, id)}
     ON CONFLICT DO NOTHING`;
   await tx.$executeRaw`INSERT INTO deleted_items (kind, item_id) VALUES (${kind}, ${id}::uuid) ON CONFLICT DO NOTHING`;
 }

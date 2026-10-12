@@ -3,6 +3,7 @@ import { formatTime } from "@/components/machines";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Collection, CollectionSummary, PairedDevice, PairedDevices, WorkflowEvent } from "@/lib/api";
+import { LIBRARY_KINDS } from "@/lib/library-kinds";
 
 // What a Machine's tablet reports besides its records: its paired devices,
 // its settings and its library, each as last reported. Decaid's payloads are
@@ -12,11 +13,9 @@ import type { Collection, CollectionSummary, PairedDevice, PairedDevices, Workfl
 /** The settings collections shown, by the name the REST API gives them. */
 export const SETTINGS = { appSettings: "App settings", machineSettings: "Machine settings", advancedSettings: "Advanced settings" } as const;
 
+/** The library collections shown: each kind's list (`LIBRARY_KINDS`), then DYE2's keys. */
 const LIBRARY: [name: string, title: string][] = [
-  ["beans", "Beans"],
-  ["beanBatches", "Bean Batches"],
-  ["grinders", "Grinders"],
-  ["profiles", "Profiles"],
+  ...Object.values(LIBRARY_KINDS).map(({ list }): [string, string] => [list.name, list.title]),
   ["dye2Recipes", "DYE2 recipes"],
   ["dye2Equipment", "DYE2 equipment"],
   ["dye2Baskets", "DYE2 baskets"],
