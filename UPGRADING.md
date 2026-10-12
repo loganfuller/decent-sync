@@ -19,8 +19,7 @@ Recipe it loads will set them. Hot water changed on one tablet stays on that
 Machine, and each Location's page no longer shows or changes hot water. The
 upgrade drops the hot water settings each Location had, with their history
 and Conflicts, and leaves each Machine's Workflow holding the hot water it
-had last been written, so set any Machine's hot water you want otherwise on
-its tablet.
+has now, so set any Machine's hot water you want otherwise on its tablet.
 
 ## 0.3.0
 

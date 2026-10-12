@@ -717,9 +717,8 @@ export function settingsParts(fields: Readonly<Record<string, unknown>>): Record
  *
  * A write of SETTINGS_KIND carries the steam and rinse settings of the
  * Machine's Location (ADR-0014), and never its hot water, which is each
- * Machine's own: `globalId` is the server's id
- * for them, `localId` null, and `fields` and `expected` are named as
- * SHARED_SETTINGS names them. The plugin reads the tablet's Workflow and
+ * Machine's own: `globalId` is the server's id for them, `localId` null,
+ * and `fields` and `expected` are named as SHARED_SETTINGS names them. The plugin reads the tablet's Workflow and
  * sets, through `PUT /workflow`, which Decaid merges into the Workflow, the
  * fields it still holds as expected, the steam settings only while the
  * Workflow keeps steam on (`steamIsOn`). Its answer's `record` is the Workflow's
