@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   type MappedEquipment,
   type ReportedEquipment,
+  answeredEquipment,
   editedContent,
   equipmentContent,
   beforeWriteAfter,
@@ -93,6 +94,21 @@ describe("DYE2's baskets and tools as Library items", () => {
     expect(heldBefore(setBack, ["notes"], { notes: "Z" })).toEqual({ notes: "A" });
     expect(heldBefore(setBack, ["notes"])).toEqual({ notes: "A" });
     expect(heldBefore(setBack, [])).toBeNull();
+  });
+
+  it("takes a field a write's answer shows set back to its value before an earlier write as unchanged, and due to be written again", () => {
+    // The server wrote notes B over A, a write lost; then it writes the name, the record read with notes A.
+    const known = { ...wdt, notes: "B" };
+    const answered = { ...wdt, notes: "A", name: "X" };
+    expect(answeredEquipment(known, answered, new Set(["name"]), { notes: "A" })).toEqual({ values: {}, stale: true, beforeWrite: { notes: "A", name: wdt.name } });
+    // A field set to a value of the tablet's own is its edit, and no longer taken as stale set back later.
+    expect(answeredEquipment(known, { ...answered, notes: "C" }, new Set(["name"]), { notes: "A" })).toEqual({
+      values: { notes: "C" },
+      stale: false,
+      beforeWrite: { name: wdt.name },
+    });
+    // A write putting back the item's value over a stale save keeps nothing for that field.
+    expect(answeredEquipment({ ...wdt, notes: "A" }, { ...wdt, notes: "B" }, new Set(["notes"]), { notes: "A" })).toEqual({ values: {}, stale: false, beforeWrite: null });
   });
 
   it("keeps a field's value before the latest write that set it, through later writes of other fields", () => {

@@ -839,12 +839,16 @@ shows or hides it, as a Profile (ADR-0008). Grinders stay per Location.
   unchanged: DYE2's pages save every field as they loaded it, and another
   app rewriting the list at the same moment as the plugin's write puts the
   record back as it was (ADR-0005). The item's value is then written again.
+  A write's answer showing such a field, as the plugin read the list before
+  another write to the record, is taken the same way.
   A barista who deliberately sets a field back to exactly that value has to
   set it again: the write that puts the item's value back over it does not
   keep that value as the tablet's before it, so setting it once more is an
   edit. So is setting it back once the tablet has reported the field with
   any other value. The cost: a second stale save of the field in a row, or
-  the rewrite lost again at once, counts as the tablet's edit.
+  the rewrite lost again at once, counts as the tablet's edit; so does a save
+  from a page opened before two of the server's writes of the field, setting
+  it back to its value before the first.
 - **New records** are matched by name, ignoring case and white space at
   either end (`equipmentMatchKey`), to the oldest of the kind not Archived,
   as DYE2 itself refuses a second tool of one name (ADR-0018): linked, the
@@ -938,8 +942,8 @@ there yet is archived or hidden (`leaveOut`; Joining a Location, below),
 batches first, then beans, grinders and profiles.
 
 It writes nothing until that connection's reports of the tablet's beans, bean
-batches, grinders and profiles, which the plugin sends on every welcome, have
-been taken in, nor between a report of its beans and the report of its batches the plugin
+batches, grinders, profiles, baskets and tools, which the plugin sends on
+every welcome, have been taken in, nor between a report of its beans and the report of its batches the plugin
 sends after it, so a change the tablet made to both, such as deleting a bean
 with its batches, is taken in whole first. It then writes only while the
 connection still holds the Machine and the Machine takes part where the

@@ -409,6 +409,35 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Fixture notes, edited" });
   });
 
+  it("writes again a write lost to another app's rewrite that the next write to the record shows before any report does", async () => {
+    const lab = await api.createLocation("Lost twice lab", "America/Chicago");
+    const machines = [await api.createMachine("Lost twice lab 1", lab.id), await api.createMachine("Lost twice lab 2", lab.id)] as const;
+    const one = load(machines[0], decaid("41101"));
+    // The second tablet reads its lists once an hour (72 s here): no report comes between the two writes.
+    const two = load(machines[1], decaid("41102"), { instance: other, pollSeconds: 3600 });
+    await online(...machines);
+    await saveInDye2(one, baskets.create18gBasket, ownNames("Lost twice"));
+    const name = "Lost twice Fixture 18g Precision";
+    await expect.poll(() => recordNamed(two, "baskets", name)?.[GLOBAL_ID_KEY], { timeout: 15_000 }).toBeDefined();
+    const set = async (tablet: SimulatedTablet, field: string, value: unknown) => {
+      const list = records(tablet, "baskets").map((record) => (record.name === name ? { ...record, [field]: value } : record));
+      expect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/baskets`, list)).status).toBe(200);
+    };
+
+    // The second tablet's write of the first's notes is lost; the first then edits the diameter, which the second is written
+    // into the list holding its old notes.
+    const lost = loseNextWrite(two, "baskets");
+    await set(one, "notes", "Edited on one");
+    await expect.poll(lost, { timeout: 15_000 }).toBe(true);
+    await expect.poll(() => recordNamed(two, "baskets", name)?.notes, { timeout: 15_000 }).toBe("Fixture notes");
+    await set(one, "diameterMm", 58.7);
+    // Its old notes are no edit: the first tablet's are written to it again, and kept everywhere.
+    await expect.poll(() => recordNamed(two, "baskets", name), { timeout: 15_000 }).toMatchObject({ notes: "Edited on one", diameterMm: 58.7 });
+    const [basket] = await named("baskets", name);
+    expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Edited on one", diameterMm: 58.7 });
+    expect(recordNamed(one, "baskets", name)?.notes).toBe("Edited on one");
+  });
+
   it("keeps a restored tablet's Baskets and Tools linked by its tablet id, writing back a global id its record lost", async () => {
     const lab = await api.createLocation("Restored lab", "America/Chicago");
     const machines = [await api.createMachine("Restored lab 1", lab.id), await api.createMachine("Restored lab 2", lab.id)] as const;

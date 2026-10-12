@@ -164,6 +164,32 @@ export function heldBefore(
 }
 
 /**
+ * What a write's answer gives of a tablet's record the map holds (`known`):
+ * the fields of its content the write did not set that the tablet edited
+ * since its last report (`editedContent`), each with its value; whether any
+ * other such field differs from the record known only as set back to its
+ * value before an earlier write of the server's (`stale`), as by a page
+ * opened before that write or that write lost, so the item's value is due to
+ * be written again; and what `before_write` holds after it (`heldBefore`),
+ * forgetting for a field the write did not set a value the tablet has since
+ * set to one of its own (`beforeWriteAfter`).
+ */
+export function answeredEquipment(
+  known: Readonly<Record<string, unknown>>,
+  answered: Readonly<Record<string, unknown>>,
+  written: ReadonlySet<string>,
+  beforeWrite: Readonly<Record<string, unknown>> | null,
+): { values: Record<string, unknown>; stale: boolean; beforeWrite: Record<string, unknown> | null } {
+  const unwritten = (entries: Record<string, unknown>) => Object.fromEntries(Object.entries(entries).filter(([field]) => !written.has(field)));
+  const changed = unwritten(changedFields(equipmentContent(known), equipmentContent(answered)));
+  const values = unwritten(editedContent(known, answered, beforeWrite));
+  const pick = (writtenFields: boolean) => Object.fromEntries(Object.entries(beforeWrite ?? {}).filter(([field]) => written.has(field) === writtenFields));
+  // A field the write set keeps its value before the previous write, for `heldBefore` to tell a write over a stale save.
+  const previous = { ...(beforeWriteAfter(pick(false), known, answered) ?? {}), ...pick(true) };
+  return { values, stale: Object.keys(changed).length > Object.keys(values).length, beforeWrite: heldBefore(known, written, previous) };
+}
+
+/**
  * What a report changes. Records whose item is known come first, in the
  * order reported, so no record matched by name can take their item. A
  * record the tablet's map holds by its local id stays that item whatever

@@ -3,7 +3,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
-import { type MappedEquipment, beforeWriteAfter, equipmentContent, heldBefore, planEquipmentIntake, readReportedEquipment } from "./equipment-intake.js";
+import { type MappedEquipment, answeredEquipment, beforeWriteAfter, equipmentContent, planEquipmentIntake, readReportedEquipment } from "./equipment-intake.js";
 import { setAsideDeleted } from "./hard-deletes.js";
 import { tabletSource } from "./history.js";
 import {
@@ -24,7 +24,6 @@ import { currentEntry, takenIn } from "./joining.js";
 import { leaveOut, offersAny, screenLeftOut } from "./left-out.js";
 import { listedIds } from "./listed.js";
 import { deletedAt, lockLocation, showAt, transactionTime } from "./location-state.js";
-import { changedFields } from "./merge.js";
 
 // The Library's Baskets and Tools and the tablets that hold them (ADR-0005,
 // ADR-0006, ADR-0008, ADR-0018, ADR-0019): DYE2's baskets and equipment,
@@ -248,7 +247,9 @@ export async function recordUnrecognised(prisma: PrismaService, tabletId: string
  * `recordBeanWritten` does a Bean's: the tablet's record of that item from
  * now on. A field of its content the write did not set that differs from the
  * record known was edited on the tablet since its last report, and is merged
- * as a report's edit would be (ADR-0020), timed when the plugin wrote it. A
+ * as a report's edit would be (ADR-0020), timed when the plugin wrote it, but
+ * for one set back to its value before an earlier write of the server's,
+ * which is taken as unchanged, as in a report, and written again. A
  * record the plugin `linked`, one of the same name entered there before the
  * tablet reported it, takes the item's content, each field it held otherwise
  * kept as a Conflict (ADR-0018). What the record held for each field the
@@ -293,21 +294,22 @@ export async function recordEquipmentWritten(
     const ref = { kind, id: itemId } as const;
     let changed = false;
     let edited: EditOutcome | null = null;
-    if (known) {
+    const answered = known ? answeredEquipment(known.record, record, written, known.beforeWrite) : null;
+    if (known && answered) {
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
-      const values = Object.fromEntries(Object.entries(changedFields(equipmentContent(known.record), equipmentContent(record))).filter(([field]) => !written.has(field)));
-      edited = await editContent(tx, ref, { values, at, seenAt: known.contentSeenAt }, source);
-      changed = edited.writesDue;
+      edited = await editContent(tx, ref, { values: answered.values, at, seenAt: known.contentSeenAt }, source);
+      // A field set back by a stale save, or a write lost, holds the item's value no more, which is written again.
+      changed = edited.writesDue || answered.stale;
     } else if (linked) {
       changed = await recordLinked(tx, ref, equipmentContent(record), at, source);
     }
     if (changed && locationId !== null) await notify(tx, "library_changes", locationId);
-    const holds = contentSeen !== null && (await holdsWrittenContent(tx, ref, equipmentContent(record), edited));
+    const holds = contentSeen !== null && !answered?.stale && (await holdsWrittenContent(tx, ref, equipmentContent(record), edited));
     await saveRecord(tx, kind, tablet.tabletId, itemId, localId, record, at, {
       seen: seen?.locationId === locationId ? seen : null,
       contentSeen: holds ? contentSeen : null,
       listed: known?.listed ?? false,
-      ...(known && written.size > 0 ? { beforeWrite: heldBefore(known.record, written, known.beforeWrite) } : {}),
+      ...(answered ? { beforeWrite: answered.beforeWrite } : {}),
     });
     return "recorded";
   }, INTAKE_TRANSACTION);
