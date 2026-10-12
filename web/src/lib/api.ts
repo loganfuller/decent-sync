@@ -1,3 +1,5 @@
+import type { LibraryKind } from "@/lib/library-kinds";
+
 // The management interface uses only the server's REST API, the same one any
 // other client uses. The session cookie travels with every same-origin request.
 
@@ -565,8 +567,8 @@ export interface Profile extends ProfileSummary {
   locations: { location: Location; shown: boolean; since: string }[];
 }
 
-/** The kinds of Library item. */
-export type LibraryKind = "bean" | "beanBatch" | "grinder" | "profile";
+/** The kinds of Library item (`LIBRARY_KINDS`). */
+export type { LibraryKind };
 
 /** What has versions and Conflicts: Library items, and each Location's steam, hot water and rinse settings (`settings`). */
 export type ItemKind = LibraryKind | "settings";

@@ -33,22 +33,20 @@ import {
   encode,
   frames,
   isDeletedKind,
+  isLibraryKind,
+  isLibraryList,
   isWrittenKind,
+  parentList,
 } from "@decent-sync/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { CollectionsService } from "../collections/collections.service.js";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
-import { recordBatchWritten } from "../library/bean-batches.js";
-import { recordBeanWritten } from "../library/beans.js";
-import { recordGrinderWritten } from "../library/grinders.js";
 import { recordDeleted } from "../library/hard-deletes.js";
-import { recordWorkflowCleared } from "../library/joining.js";
 import { recordLeftOut } from "../library/left-out.js";
-import { recordSettingsWritten } from "../library/location-settings.js";
 import type { SeenDecision } from "../library/intake.js";
-import { recordProfileWritten } from "../library/profiles.js";
 import { deleteKey, leaveOutKey, writeKey } from "../library/holdings.js";
+import { writtenKind } from "../library/kinds.js";
 import { forgetRefusal, recordApplied, recordRefused } from "../library/sharing-status.js";
 import { MachineEventsService } from "../machine-events/machine-events.service.js";
 import { type LiveConnection, LiveConnections } from "../machines/connections.js";
@@ -63,7 +61,7 @@ import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { hashSecret } from "../secrets.js";
 import { HandledDeliveries, type IndexRequest } from "./handled-deliveries.js";
 import type { Hardware, Identity, Reporter } from "./identity.js";
-import { type AwaitedWrite, KIND_NAMES, TabletWriter, type WriteOutcome } from "./tablet-writer.js";
+import { type AwaitedWrite, TabletWriter, type WriteOutcome } from "./tablet-writer.js";
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
 const MAX_PAYLOAD_BYTES = 1 << 20;
@@ -392,13 +390,13 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return this.capture(session, message, text, () => this.machineEvents.storeMachineState(message, reporter));
       case "collection":
         // The plugin follows each report of the tablet's beans with one of its batches, and nothing is written between.
-        if (message.name === "beans" && message.available) session.writer?.awaitBatches();
+        if (isLibraryList(message.name) && message.available) session.writer?.awaitChildren(message.name);
         await this.capture(session, message, text, async () => {
           const intake = await this.collections.store(message, reporter);
           if (intake) session.writer?.reported(intake.list, intake.takenInAt);
         });
         // One set aside ends that wait all the same.
-        if (message.name === "beanBatches") session.writer?.reported("beanBatches", undefined);
+        if (isLibraryList(message.name) && parentList(message.name) !== undefined) session.writer?.reported(message.name, undefined);
         return;
       case "written":
       case "deleted":
@@ -595,23 +593,13 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   ): Promise<boolean> {
     // Only a kind the server writes is ever answered for.
     if (!isWrittenKind(kind)) return false;
-    const name = KIND_NAMES[kind];
+    const description = writtenKind(kind);
+    const { name } = description;
     const tablet = { sessionId: session.id, machineId: session.machine!.id, tabletId: session.live!.tabletId };
     const { record, updatedAt } = answer;
     try {
       const written = new Set(answer.writtenFields);
-      const recorded =
-        kind === "workflow"
-          ? await recordWorkflowCleared(this.prisma, tablet, globalId, record)
-          : kind === "settings"
-            ? await recordSettingsWritten(this.prisma, tablet, globalId, written, record, updatedAt, contentSeen)
-            : kind === "profile"
-              ? await recordProfileWritten(this.prisma, tablet, globalId, written, record, updatedAt, seen, contentSeen)
-              : kind === "bean"
-                ? await recordBeanWritten(this.prisma, tablet, globalId, written, record, updatedAt, seen, contentSeen, answer.linked === true)
-                : kind === "beanBatch"
-                  ? await recordBatchWritten(this.prisma, tablet, globalId, written, record, updatedAt, seen, contentSeen)
-                  : await recordGrinderWritten(this.prisma, tablet, globalId, written, record, updatedAt, contentSeen);
+      const recorded = await description.recordWritten(this.prisma, tablet, { globalId, written, record, updatedAt, seen, contentSeen, linked: answer.linked === true });
       if (recorded === "notTheItem" && awaited) {
         this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);
         await recordRefused(this.prisma, tablet.tabletId, awaited, null, `Answered with a record that is not this ${name}'s`);
@@ -626,7 +614,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       if (awaited) await recordRefused(this.prisma, tablet.tabletId, awaited, null, `The server could not take in the record it answered with: ${failure.message} (${failure.sqlState})`);
       return false;
     }
-    const localId = kind === "settings" || kind === "workflow" ? null : typeof record.id === "string" ? record.id : null;
+    // The settings and a Workflow are no record of the tablet's Library lists, which have ids.
+    const localId = isLibraryKind(kind) && typeof record.id === "string" ? record.id : null;
     await recordApplied(this.prisma, tablet.tabletId, { key: writeKey(kind, globalId), change: "write", kind, itemId: globalId, localId });
     return true;
   }

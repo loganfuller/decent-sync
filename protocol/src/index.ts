@@ -414,16 +414,6 @@ export function isCollectionName(name: string): name is CollectionName {
   return (COLLECTION_NAMES as readonly string[]).includes(name);
 }
 
-/**
- * The collections that are the tablet's Library lists. Decaid writes each of
- * their records' `updatedAt` in the tablet's local time without an offset,
- * so the plugin sends each placed in UTC beside the list.
- */
-export const LIBRARY_LISTS = ["beans", "beanBatches", "grinders", "profiles"] as const satisfies readonly CollectionName[];
-
-export function isLibraryList(name: string): name is (typeof LIBRARY_LISTS)[number] {
-  return (LIBRARY_LISTS as readonly string[]).includes(name);
-}
 
 /**
  * One collection, as Decaid's API answered it, sent when it changed and in
@@ -449,14 +439,107 @@ export interface CollectionDelivery {
   updatedAt?: (string | null)[];
 }
 
-/** The kinds of Library item the server writes to tablets: Beans, Bean Batches, Grinders and Profiles. */
-export const LIBRARY_KINDS = ["bean", "beanBatch", "grinder", "profile"] as const;
+/**
+ * What a kind declares its items' ids to be, which every message naming an
+ * item of that kind is checked against (`isItemId`).
+ */
+export interface ItemIdRule {
+  /** Whether a value is such an id. */
+  test(value: unknown): value is string;
+  /** What a message is refused with, after the field's name, when its id is not one. */
+  problem: string;
+}
 
-export type LibraryKind = (typeof LIBRARY_KINDS)[number];
+/** A global id the server gives an item, which the plugin writes into its records (ADR-0006): a UUID. */
+export const GLOBAL_ITEM_ID: ItemIdRule = { test: isGlobalId, problem: "must be a UUID" };
+
+/** What the protocol says of a kind of Library item (`LIBRARY_ITEM_KINDS`). */
+export interface LibraryKindDescription {
+  /** The tablet's list of its records, one of COLLECTION_NAMES, which the plugin reports and the server takes into the Library. */
+  list: CollectionName;
+  /** What its items' ids are. */
+  id: ItemIdRule;
+  /**
+   * The kind its records are made under on a tablet, if any: a Bean Batch's
+   * under its bean's record. Its list is reported in full after that kind's
+   * whenever that one is, and taken in only once that one is, as a record
+   * whose parent the server does not know yet waits for it.
+   */
+  under?: string;
+}
+
+/**
+ * Each kind of Library item the server shares with tablets, described once
+ * (`LIBRARY.md`, Adding a Library kind), in the order its lists are read and
+ * written: Beans, Bean Batches, Grinders and Profiles. A Profile keeps
+ * Decaid's id, a hash of what the machine executes that is the same on every
+ * tablet (ADR-0006); every other kind's is its global id.
+ */
+export const LIBRARY_ITEM_KINDS = {
+  bean: { list: "beans", id: GLOBAL_ITEM_ID },
+  beanBatch: { list: "beanBatches", id: GLOBAL_ITEM_ID, under: "bean" },
+  grinder: { list: "grinders", id: GLOBAL_ITEM_ID },
+  profile: { list: "profiles", id: { test: isRecordId, problem: `must be a Profile's id of 1 to ${MAX_RECORD_ID_LENGTH} characters without NUL` } },
+} as const satisfies Readonly<Record<string, LibraryKindDescription>>;
+
+/** The kinds of Library item the server writes to tablets, in the order of LIBRARY_ITEM_KINDS. */
+export type LibraryKind = keyof typeof LIBRARY_ITEM_KINDS;
+
+export const LIBRARY_KINDS = Object.keys(LIBRARY_ITEM_KINDS) as readonly LibraryKind[];
 
 export function isLibraryKind(kind: string): kind is LibraryKind {
-  return (LIBRARY_KINDS as readonly string[]).includes(kind);
+  return Object.prototype.hasOwnProperty.call(LIBRARY_ITEM_KINDS, kind);
 }
+
+/** The kind of Library item whose records a list holds. */
+export type LibraryList = (typeof LIBRARY_ITEM_KINDS)[LibraryKind]["list"];
+
+/**
+ * The collections that are the tablet's Library lists, one for each kind.
+ * Decaid writes each of their records' `updatedAt` in the tablet's local
+ * time without an offset, so the plugin sends each placed in UTC beside the
+ * list.
+ */
+export const LIBRARY_LISTS: readonly LibraryList[] = LIBRARY_KINDS.map((kind) => LIBRARY_ITEM_KINDS[kind].list);
+
+export function isLibraryList(name: string): name is LibraryList {
+  return (LIBRARY_LISTS as readonly string[]).includes(name);
+}
+
+/** The kind whose records the list holds. */
+export function listKind(list: LibraryList): LibraryKind {
+  return LIBRARY_KINDS.find((kind) => LIBRARY_ITEM_KINDS[kind].list === list)!;
+}
+
+/** The kind whose records a kind's records are made under (`LibraryKindDescription.under`), if any. */
+export function parentKind(kind: LibraryKind): LibraryKind | undefined {
+  const description: LibraryKindDescription = LIBRARY_ITEM_KINDS[kind];
+  return description.under !== undefined && isLibraryKind(description.under) ? description.under : undefined;
+}
+
+/** The kinds whose records are made under a kind's (`LibraryKindDescription.under`). */
+export function childKinds(kind: LibraryKind): LibraryKind[] {
+  return LIBRARY_KINDS.filter((child) => parentKind(child) === kind);
+}
+
+/** The list of the kind a list's records are made under (`parentKind`), if any: the beans, for the bean batches. */
+export function parentList(list: LibraryList): LibraryList | undefined {
+  const parent = parentKind(listKind(list));
+  return parent === undefined ? undefined : LIBRARY_ITEM_KINDS[parent].list;
+}
+
+/** The lists of the kinds whose records are made under a list's (`childKinds`): the bean batches, for the beans. */
+export function childLists(list: LibraryList): LibraryList[] {
+  return childKinds(listKind(list)).map((kind) => LIBRARY_ITEM_KINDS[kind].list);
+}
+
+/**
+ * The kinds in the order a tablet's records of them are deleted or set
+ * aside: the order of LIBRARY_ITEM_KINDS, but each kind after the kinds
+ * whose records are made under it, as Decaid refuses to delete a bean that
+ * has batches.
+ */
+export const REMOVAL_ORDER: readonly LibraryKind[] = LIBRARY_KINDS.filter((kind) => parentKind(kind) === undefined).flatMap((kind) => [...childKinds(kind), kind]);
 
 /**
  * What the server writes to tablets besides Library items: the steam, hot
@@ -493,14 +576,18 @@ export function isWrittenKind(kind: string): kind is WrittenKind {
 }
 
 /**
- * Whether a value is the id of a Library item of that kind: a Profile's is
- * Decaid's own (`isRecordId`), a hash of what the machine executes that is
- * the same on every tablet (ADR-0006); every other kind's is its global id,
- * the shared settings' is the id the server gives a Location's settings, and
- * a Workflow's is the tablet's id.
+ * What the id of an item of that kind is: what a Library kind declares
+ * (`LIBRARY_ITEM_KINDS`); otherwise a UUID: the shared settings' is the id
+ * the server gives a Location's settings, a Workflow's is the tablet's id,
+ * and a kind this side does not know is taken to have global ids.
  */
+export function itemIdRule(kind: string): ItemIdRule {
+  return isLibraryKind(kind) ? LIBRARY_ITEM_KINDS[kind].id : GLOBAL_ITEM_ID;
+}
+
+/** Whether a value is the id of an item of that kind (`itemIdRule`). */
 export function isItemId(kind: string, value: unknown): value is string {
-  return kind === "profile" ? isRecordId(value) : isGlobalId(value);
+  return itemIdRule(kind).test(value);
 }
 
 /**
@@ -780,13 +867,17 @@ export const ANOTHER_ITEMS_RECORD = "The record carries another item's global id
  */
 export const SHOTS_STILL_TO_READ = "More Shots are still to be sent than a delete reads; ask again once they are";
 
-/** The kinds of Library item an Admin hard-deletes from tablets. A tablet's own delete of a Profile only hides it at its Location (ADR-0019). */
-export const DELETED_KINDS = ["bean", "beanBatch", "grinder", "profile"] as const;
+/**
+ * The kinds of Library item an Admin hard-deletes from tablets: every kind,
+ * as a tablet holds records of each. A tablet's own delete of a Profile only
+ * hides it at its Location (ADR-0019).
+ */
+export const DELETED_KINDS = LIBRARY_KINDS;
 
-export type DeletedKind = (typeof DELETED_KINDS)[number];
+export type DeletedKind = LibraryKind;
 
 export function isDeletedKind(kind: string): kind is DeletedKind {
-  return (DELETED_KINDS as readonly string[]).includes(kind);
+  return isLibraryKind(kind);
 }
 
 /**
@@ -1246,11 +1337,10 @@ class FieldChecker {
     if (!isTabletId(this.object[key])) this.problem(key, "must be a UUID");
   }
 
-  /** The id of a Library item of the kind given (`isItemId`): a Profile's id, or another kind's global id, a UUID. */
+  /** The id of an item of the kind given, as that kind declares its ids (`itemIdRule`). */
   itemId(key: string, kind: unknown): void {
-    if (!isItemId(String(kind), this.object[key])) {
-      this.problem(key, kind === "profile" ? `must be a Profile's id of 1 to ${MAX_RECORD_ID_LENGTH} characters without NUL` : "must be a UUID");
-    }
+    const rule = itemIdRule(String(kind));
+    if (!rule.test(this.object[key])) this.problem(key, rule.problem);
   }
 
   optionalString(key: string, options: { maxLength?: number } = {}): void {

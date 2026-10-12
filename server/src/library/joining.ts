@@ -1,4 +1,4 @@
-import { WORKFLOW_KIND } from "@decent-sync/protocol";
+import { type LibraryList, WORKFLOW_KIND, parentList } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
@@ -26,8 +26,8 @@ import { lockLocation } from "./location-state.js";
 // locks of the report that takes it in: the Machine's row, then the
 // tablet's.
 
-/** The reports a tablet's Library is taken in from: its Library lists, and its Workflow. */
-export type TakenInReport = "beans" | "beanBatches" | "grinders" | "profiles" | "workflow";
+/** The reports a tablet's Library is taken in from: its Library lists (LIBRARY_LISTS), and its Workflow. */
+export type TakenInReport = LibraryList | "workflow";
 
 /**
  * The Machine's current Location History entry: the latest, with its
@@ -48,11 +48,12 @@ export async function currentEntry(tx: Prisma.TransactionClient, machineId: stri
 /**
  * Records that the tablet's report of this kind is taken in under the
  * entry, and says whether it is part of joining the entry's Location
- * (`joins`). A report of its bean batches is recorded only once its beans
- * are taken in under the entry, as a batch whose bean the tablet's map does
- * not hold waits for it: until then each of its reports is part of joining,
- * so a batch it held as it joined is judged as such once its bean is mapped
- * or left out. The tablet's row lock must be held.
+ * (`joins`). A report of a list whose records are made under another's, as
+ * its bean batches are under its beans, is recorded only once that list is
+ * taken in under the entry, as a batch whose bean the tablet's map does not
+ * hold waits for it: until then each of its reports is part of joining, so a
+ * batch it held as it joined is judged as such once its bean is mapped or
+ * left out. The tablet's row lock must be held.
  */
 export async function takenIn(tx: Prisma.TransactionClient, tabletId: string, report: TakenInReport, entry: CurrentEntry): Promise<boolean> {
   const [last] = await tx.$queryRaw<(CurrentEntry & { remains: boolean })[]>`
@@ -60,11 +61,12 @@ export async function takenIn(tx: Prisma.TransactionClient, tabletId: string, re
       EXISTS (SELECT 1 FROM location_assignments WHERE id = assignment_id) AS remains
     FROM tablet_reports WHERE tablet_id = ${tabletId}::uuid AND report = ${report}`;
   const joining = joins(last ?? null, entry, last?.remains ?? false);
-  if (joining && report === "beanBatches") {
-    const [beans] = await tx.$queryRaw<unknown[]>`
-      SELECT 1 FROM tablet_reports WHERE tablet_id = ${tabletId}::uuid AND report = 'beans' AND assignment_id = ${entry.id}::uuid
+  const parent = report === "workflow" ? undefined : parentList(report);
+  if (joining && parent !== undefined) {
+    const [parentTakenIn] = await tx.$queryRaw<unknown[]>`
+      SELECT 1 FROM tablet_reports WHERE tablet_id = ${tabletId}::uuid AND report = ${parent} AND assignment_id = ${entry.id}::uuid
         AND location_id = ${entry.locationId}::uuid AND sharing_since IS NOT DISTINCT FROM ${entry.sharingSince}::timestamptz`;
-    if (!beans) return true;
+    if (!parentTakenIn) return true;
   }
   // Kept to the current entry, joining or not, so a later move away and back is told from a removed entry.
   if (last?.id !== entry.id || last.locationId !== entry.locationId || !sameSharing(last, entry)) {

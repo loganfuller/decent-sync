@@ -5,11 +5,13 @@ import {
   DELETED_KINDS,
   type ErrorMessage,
   GLOBAL_ID_KEY,
+  GLOBAL_ITEM_ID,
   type Hello,
   type ItemDeleted,
   type ItemLeftOut,
   type ItemWritten,
   LEFT_OUT_OUTCOMES,
+  LIBRARY_ITEM_KINDS,
   LIBRARY_KINDS,
   LIBRARY_LISTS,
   type LeaveOut,
@@ -21,7 +23,10 @@ import {
   MAX_REFUSAL_LENGTH,
   MAX_WRITTEN_FIELDS,
   PROTOCOL_VERSION,
+  REMOVAL_ORDER,
   type WriteRefused,
+  childKinds,
+  childLists,
   decodePluginMessage,
   decodeServerFrame,
   decodeServerMessage,
@@ -34,6 +39,10 @@ import {
   isLibraryKind,
   isLibraryList,
   isRecordId,
+  itemIdRule,
+  listKind,
+  parentKind,
+  parentList,
   sameValue,
 } from "@decent-sync/protocol";
 
@@ -579,6 +588,46 @@ describe("Library writes", () => {
     expect(isItemId("grinder", profileId)).toBe(false);
     expect(LIBRARY_KINDS.every(isLibraryKind)).toBe(true);
     expect(isLibraryKind("recipe")).toBe(false);
+  });
+
+  it("checks each kind's ids as the kind declares them, which need not be UUIDs", () => {
+    // A DYE2 id and a recipe slot number, which are no UUIDs.
+    const ids = ["bskt-1790543325397", "3"];
+    for (const kind of LIBRARY_KINDS) {
+      const rule = itemIdRule(kind);
+      expect(rule).toBe(LIBRARY_ITEM_KINDS[kind].id);
+      for (const id of [globalId, ...ids]) {
+        expect(isItemId(kind, id)).toBe(rule.test(id));
+        const message = { ...create, kind, globalId: id };
+        expect(decodeServerMessage(frame(message))).toEqual(rule.test(id) ? { ok: true, message } : { ok: false, error: "protocol_error", problem: `write.globalId ${rule.problem}` });
+      }
+    }
+    // A Profile declares Decaid's ids, which any record id is; a bean declares global ids.
+    for (const id of ids) {
+      expect(isItemId("profile", id)).toBe(true);
+      expect(decodePluginMessage(frame({ ...written, kind: "profile", globalId: id }))).toMatchObject({ ok: true });
+      expect(decodePluginMessage(frame({ ...refused, kind: "profile", globalId: id }))).toMatchObject({ ok: true });
+      expect(decodePluginMessage(frame({ ...refused, globalId: id }))).toMatchObject({ ok: false, problem: "writeRefused.globalId must be a UUID" });
+    }
+    // The shared settings, a Workflow and a kind this side does not know are named by UUIDs.
+    for (const kind of ["settings", "workflow", "recipe"]) {
+      expect(itemIdRule(kind)).toBe(GLOBAL_ITEM_ID);
+      expect(isItemId(kind, ids[0])).toBe(false);
+    }
+  });
+
+  it("derives the Library's lists and their order from each kind's description", () => {
+    expect(LIBRARY_LISTS).toEqual(LIBRARY_KINDS.map((kind) => LIBRARY_ITEM_KINDS[kind].list));
+    for (const kind of LIBRARY_KINDS) expect(listKind(LIBRARY_ITEM_KINDS[kind].list)).toBe(kind);
+    // A Bean Batch's records are made under its bean's, so they go first.
+    expect(parentKind("beanBatch")).toBe("bean");
+    expect(parentKind("bean")).toBeUndefined();
+    expect(childKinds("bean")).toEqual(["beanBatch"]);
+    expect(parentList("beanBatches")).toBe("beans");
+    expect(parentList("grinders")).toBeUndefined();
+    expect(childLists("beans")).toEqual(["beanBatches"]);
+    expect(childLists("profiles")).toEqual([]);
+    expect(REMOVAL_ORDER).toEqual(["beanBatch", "bean", "grinder", "profile"]);
   });
 
   it("finds the global id a record carries in its extras, in lower case", () => {

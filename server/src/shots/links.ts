@@ -1,4 +1,6 @@
+import type { LibraryKind } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
+import { KINDS } from "../library/kinds.js";
 
 // Shots linked to the Library (ticket #92). A Shot names its Bean Batch and
 // Grinder by their ids on the tablet that reported it, which resolve to the
@@ -40,14 +42,12 @@ import { Prisma } from "../generated/prisma/client.js";
 // ended so is sent again on reconnect, and a request so fails, so either is
 // tried again, rather than ordering every such update.
 
-/** The kinds a Shot names by their ids on its tablet. */
-export type LinkedKind = "beanBatch" | "grinder";
-
-/** Each kind's columns on a Shot: its id on the tablet, and its link. */
-const KINDS: Readonly<Record<LinkedKind, { local: string; link: string }>> = {
-  beanBatch: { local: "bean_batch_id", link: "library_batch_id" },
-  grinder: { local: "grinder_id", link: "library_grinder_id" },
-};
+/** A kind's columns on a Shot, for a kind a Shot names by its id on its tablet (`shotLink` in library/kinds.ts): that id, and its link. */
+function shotLinkOf(kind: LibraryKind): { local: string; link: string } {
+  const columns = KINDS[kind].shotLink;
+  if (!columns) throw new Error(`A Shot names no ${KINDS[kind].name}`);
+  return columns;
+}
 
 /** A Shot's ids on its tablet, as its metadata names them, and its links. */
 interface ShotLinks {
@@ -95,8 +95,8 @@ export async function resolveLinks(
  * record under that id, with the tablet's row lock held, which storing a
  * Shot's metadata waits for.
  */
-export async function linkShots(tx: Prisma.TransactionClient, kind: LinkedKind, tabletId: string, itemId: string, localId: string): Promise<void> {
-  const { local, link } = KINDS[kind];
+export async function linkShots(tx: Prisma.TransactionClient, kind: LibraryKind, tabletId: string, itemId: string, localId: string): Promise<void> {
+  const { local, link } = shotLinkOf(kind);
   await tx.$executeRaw`
     UPDATE shots AS s SET ${Prisma.raw(link)} = ${itemId}::uuid
     WHERE s.${Prisma.raw(local)} = ${localId} AND s.${Prisma.raw(link)} IS NULL AND s.tablet_id = ${tabletId}::uuid`;
@@ -119,8 +119,8 @@ export async function claimListed(tx: Prisma.TransactionClient, tabletId: string
 }
 
 /** Whether a Shot is linked to any of the items, under the locks of the tablets whose maps hold them. */
-export function shotLinkedSql(kind: LinkedKind, ids: readonly string[]): Prisma.Sql {
-  return Prisma.sql`EXISTS (SELECT 1 FROM shots WHERE ${Prisma.raw(KINDS[kind].link)} = ANY(${ids}::uuid[]))`;
+export function shotLinkedSql(kind: LibraryKind, ids: readonly string[]): Prisma.Sql {
+  return Prisma.sql`EXISTS (SELECT 1 FROM shots WHERE ${Prisma.raw(shotLinkOf(kind).link)} = ANY(${[...ids]}::uuid[]))`;
 }
 
 /**

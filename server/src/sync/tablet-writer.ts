@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { LeaveOut, LibraryDelete, LibraryWrite, WrittenKind } from "@decent-sync/protocol";
+import { LIBRARY_LISTS, type LeaveOut, type LibraryDelete, type LibraryList, type LibraryWrite, childLists } from "@decent-sync/protocol";
+import { writtenKind } from "../library/kinds.js";
 import type { SeenDecision } from "../library/intake.js";
 import { type TabletChange, changeKey, changeSignature, pruneRefusals, recordRefused, tabletChange } from "../library/sharing-status.js";
 import { type WrittenTablet, tabletDue } from "../library/tablet-due.js";
@@ -39,20 +40,8 @@ export type WriteOutcome = "written" | "refused" | "deferred";
 /** Why an item written that is still due as it was is skipped, as its sharing status shows it. */
 export const STILL_DUE_ONCE_WRITTEN = "Written, but its record still differs as it did: writing it again would change nothing";
 
-/** The Library lists whose reports are taken in before anything is written: what the tablet holds. */
-export type TakenInList = "beans" | "beanBatches" | "grinders" | "profiles";
-
-const TAKEN_IN: readonly TakenInList[] = ["beans", "beanBatches", "grinders", "profiles"];
-
-/** What each kind of Library item, and the shared settings, are called in the server's log. */
-export const KIND_NAMES: Readonly<Record<WrittenKind, string>> = {
-  bean: "Bean",
-  beanBatch: "Bean Batch",
-  grinder: "Grinder",
-  profile: "Profile",
-  settings: "Location settings",
-  workflow: "Workflow",
-};
+/** The Library lists whose reports are taken in before anything is written: what the tablet holds, one for each kind (LIBRARY_LISTS). */
+export type TakenInList = LibraryList;
 
 /**
  * Writes the Library to the tablet of one connection this instance holds:
@@ -146,15 +135,17 @@ export class TabletWriter {
    */
   private workflowAt: string | null | undefined;
   /**
-   * Set from when a report of the tablet's beans begins to be stored until
-   * the report of its bean batches the plugin sends after it arrives: nothing
-   * is written between them, so a change the tablet made to both, such as
-   * deleting a bean with its batches, is taken in whole before the tablet is
-   * written anything on its account. It is set before the report commits, as
-   * the notification its intake sends may wake the writer before the report
-   * is acknowledged.
+   * The lists whose reports the writer awaits: from when a report of one of
+   * the tablet's lists begins to be stored, the lists of the kinds made under
+   * it (`childLists`), until the plugin's report of each, which it sends
+   * after it, arrives, as a report of its bean batches follows one of its
+   * beans. Nothing is written meanwhile, so a change the tablet made to both,
+   * such as deleting a bean with its batches, is taken in whole before the
+   * tablet is written anything on its account. They are awaited before the
+   * report commits, as the notification its intake sends may wake the writer
+   * before the report is acknowledged.
    */
-  private awaitingBatches = false;
+  private readonly awaitingLists = new Set<LibraryList>();
   /**
    * Where (`standing`) the plugin was last asked to report the tablet's
    * collections afresh for, until the writer finds the Machine taking part
@@ -206,21 +197,25 @@ export class TabletWriter {
     );
   }
 
-  /** A report of the tablet's beans is about to be stored, which the plugin follows with one of its bean batches. */
-  awaitBatches(): void {
-    this.awaitingBatches = true;
+  /**
+   * A report of one of the tablet's lists is about to be stored, which the
+   * plugin follows with one of each list of the kinds made under it
+   * (`childLists`), as a report of its beans with one of its bean batches.
+   */
+  awaitChildren(list: TakenInList): void {
+    for (const child of childLists(list)) this.awaitingLists.add(child);
   }
 
   /**
-   * A report of the tablet's beans, bean batches, grinders or profiles from this
+   * A report of one of the tablet's lists (LIBRARY_LISTS) from this
    * connection was stored, and taken in there (`standing`), or nowhere, as
    * its Machine was capture-only; or, undefined, not taken in, as when it was
-   * unavailable or set aside. One of its bean batches ends the wait a report
-   * of its beans began.
+   * unavailable or set aside. It ends the wait for it that a report of the
+   * list its records are made under began (`awaitChildren`).
    */
   reported(list: TakenInList, takenInAt: string | null | undefined): void {
     if (takenInAt !== undefined) this.reportedAt.set(list, takenInAt);
-    if (list === "beanBatches") this.awaitingBatches = false;
+    this.awaitingLists.delete(list);
     this.wake();
   }
 
@@ -257,13 +252,13 @@ export class TabletWriter {
     for (;;) {
       this.again = false;
       // Until the connection's first reports are taken in, which its welcome brings, nothing is due.
-      const reports = TAKEN_IN.map((list) => this.reportedAt.get(list));
+      const reports = LIBRARY_LISTS.map((list) => this.reportedAt.get(list));
       /** Where all were taken in, or undefined while they were not, or were in different places, as across a move. */
       const reportedAt = reports.every((at) => at === reports[0]) ? reports[0] : undefined;
       const now = Date.now();
       for (const [key, until] of this.deferred) if (until <= now) this.deferred.delete(key);
       const found =
-        reports.includes(undefined) || this.awaitingBatches ? null : await tabletDue(this.prisma, this.tablet, reportedAt ?? null, new Set(this.deferred.keys()));
+        reports.includes(undefined) || this.awaitingLists.size > 0 ? null : await tabletDue(this.prisma, this.tablet, reportedAt ?? null, new Set(this.deferred.keys()));
       if (this.stopped) return;
       /** Whether the connection's latest Workflow was taken in elsewhere than where the Machine takes part now. */
       const workflowBehind = found !== null && this.workflowAt !== undefined && this.workflowAt !== found.standing;
@@ -273,7 +268,7 @@ export class TabletWriter {
         this.requestCollections();
       }
       // A report of the tablet's beans may have been taken in while this was read: what is due waits for its batches.
-      const planned = this.awaitingBatches || workflowBehind ? null : (found?.writes ?? null);
+      const planned = this.awaitingLists.size > 0 || workflowBehind ? null : (found?.writes ?? null);
       if (planned) {
         // An item no longer due has not stayed due since it was written, nor is it still refused.
         const stillDue = new Set(planned.map(changeKey));
@@ -296,7 +291,8 @@ export class TabletWriter {
       }
       const key = changeKey(due);
       const change = { ...tabletChange(due), signature: changeSignature(due) };
-      const item = "leaveOut" in due ? `${KIND_NAMES[due.kind]} record ${due.localId}` : `${KIND_NAMES[due.kind]} ${due.globalId}`;
+      const name = writtenKind(due.kind).name;
+      const item = "leaveOut" in due ? `${name} record ${due.localId}` : `${name} ${due.globalId}`;
       const fields = "delete" in due ? "delete" : "leaveOut" in due ? "leaveOut" : JSON.stringify({ fields: due.fields, expected: due.expected ?? null });
       if (this.lastWritten.get(key) === fields) {
         this.log.warn(`Tablet ${this.tablet.tabletId} is still due ${item} once written; it is tried again once it changes or the tablet reconnects`);

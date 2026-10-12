@@ -1,6 +1,7 @@
 import type { LibraryKind, VersionedKind } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import type { ReportingTablet } from "./intake.js";
+import { versionedKind } from "./kinds.js";
 
 // Each Library item's versions and Conflicts (ADR-0020). Every accepted edit
 // is kept as a version: the fields it set, with their values, the Machine and
@@ -42,18 +43,12 @@ export function accountSource(accountId: string): EditSource {
   return { machineId: null, tabletId: null, accountId };
 }
 
-/** The field naming each kind of item in a version or Conflict. */
-const ITEM_FIELDS = {
-  bean: "beanId",
-  beanBatch: "batchId",
-  grinder: "grinderId",
-  profile: "profileId",
-  settings: "settingsId",
-} as const satisfies Record<VersionedKind, string>;
-
-/** The item's field of a version or Conflict, set to its id. */
-function itemField(item: ItemRef): { beanId: string } | { batchId: string } | { grinderId: string } | { profileId: string } | { settingsId: string } {
-  return { [ITEM_FIELDS[item.kind]]: item.id } as { beanId: string };
+/**
+ * The item's kind and id as a version or Conflict names it (`VersionedItem`
+ * in the schema): an id of UUIDs in lower case, as PostgreSQL writes it.
+ */
+export function itemKey(item: ItemRef): { kind: VersionedKind; itemId: string } {
+  return { kind: item.kind, itemId: versionedKind(item.kind).idType === "uuid" ? item.id.toLowerCase() : item.id };
 }
 
 /** A value as a version or Conflict keeps it: null where the edit cleared the field. */
@@ -75,7 +70,7 @@ export async function recordVersion(
   editedAt: Date,
 ): Promise<string> {
   const version = await tx.itemVersion.create({
-    data: { ...itemField(item), locationId, fields: fields as Prisma.InputJsonObject, ...source, editedAt },
+    data: { ...itemKey(item), locationId, fields: fields as Prisma.InputJsonObject, ...source, editedAt },
     select: { id: true },
   });
   return version.id;
@@ -91,7 +86,7 @@ export async function recordConflict(
   source: EditSource,
   editedAt: Date,
 ): Promise<void> {
-  await tx.conflict.create({ data: { ...itemField(item), locationId, field, value: jsonValue(value), ...source, editedAt } });
+  await tx.conflict.create({ data: { ...itemKey(item), locationId, field, value: jsonValue(value), ...source, editedAt } });
 }
 
 /**

@@ -1,7 +1,10 @@
+import type { LibraryKind } from "@decent-sync/protocol";
 import { BadRequestException } from "@nestjs/common";
+import { type EditableContent, KINDS } from "./kinds.js";
 
 // What the management interface may set of a Bean's, a Bean Batch's and a
-// Grinder's content: Decaid's record fields, each of the type Decaid takes
+// Grinder's content, as each kind's description lists it (`editable` in
+// kinds.ts): Decaid's record fields, each of the type Decaid takes
 // (`Bean`, `BeanBatch` and `Grinder` in decaid:lib/src/models/data/, v0.8.7),
 // so a tablet never refuses a write of them
 // (server/test/fixtures/decaid/*-writes-v0.8.7/). A date is written as Decaid
@@ -9,71 +12,21 @@ import { BadRequestException } from "@nestjs/common";
 // record then holds, and is not written to them again.
 
 /** How a field is read: its type, and whether it may be cleared, which Decaid refuses for some. */
-type FieldType = "text" | "name" | "flag" | "number" | "date" | "texts" | "wholeNumbers" | "settingType";
+export type FieldType = "text" | "name" | "flag" | "number" | "date" | "texts" | "wholeNumbers" | "settingType";
 
-const BEAN_FIELDS: Readonly<Record<string, FieldType>> = {
-  roaster: "name",
-  name: "name",
-  species: "text",
-  decaf: "flag",
-  decafProcess: "text",
-  country: "text",
-  region: "text",
-  producer: "text",
-  variety: "texts",
-  altitude: "wholeNumbers",
-  processing: "text",
-  notes: "text",
-};
-
-const BATCH_FIELDS: Readonly<Record<string, FieldType>> = {
-  roastDate: "date",
-  roastLevel: "text",
-  harvestDate: "text",
-  qualityScore: "number",
-  price: "number",
-  currency: "text",
-  weight: "number",
-  buyDate: "date",
-  openDate: "date",
-  bestBeforeDate: "date",
-  freezeDate: "date",
-  unfreezeDate: "date",
-  frozen: "flag",
-  notes: "text",
-};
-
-const GRINDER_FIELDS: Readonly<Record<string, FieldType>> = {
-  model: "name",
-  burrs: "text",
-  burrSize: "number",
-  burrType: "text",
-  notes: "text",
-  settingType: "settingType",
-  settingValues: "texts",
-  settingSmallStep: "number",
-  settingBigStep: "number",
-  rpmSmallStep: "number",
-  rpmBigStep: "number",
-};
-
-/** What Decaid makes a new record hold where it is not sent a value, so the content created is what the tablet's record holds. */
-const DEFAULTS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
-  bean: { decaf: false },
-  beanBatch: { frozen: false },
-  grinder: { settingType: "numeric" },
-};
-
-const KINDS = { bean: BEAN_FIELDS, beanBatch: BATCH_FIELDS, grinder: GRINDER_FIELDS } as const;
-
-type EditedKind = keyof typeof KINDS;
+/** What the management interface may set of a kind's content, as its description says (`editable` in kinds.ts). */
+function editable(kind: LibraryKind): EditableContent {
+  const content = KINDS[kind].editable;
+  if (!content) throw new BadRequestException(`A ${KINDS[kind].name}'s content is not set here`);
+  return content;
+}
 
 /**
  * The content fields an edit sets, from a request's `content`, each with
  * its value, null to clear it. 400 for a field that is not one of the
  * kind's, or a value Decaid would refuse.
  */
-export function readContentEdit(kind: EditedKind, body: unknown): Record<string, unknown> {
+export function readContentEdit(kind: LibraryKind, body: unknown): Record<string, unknown> {
   const content = contentOf(body);
   if (Object.keys(content).length === 0) throw new BadRequestException("Send the fields to change as content, each by Decaid's name for it");
   return readFields(kind, content);
@@ -85,10 +38,11 @@ export function readContentEdit(kind: EditedKind, body: unknown): Record<string,
  * makes a record hold where it is not sent one. A Bean needs its roaster and
  * name, a Grinder its model.
  */
-export function readNewContent(kind: EditedKind, body: unknown): Record<string, unknown> {
+export function readNewContent(kind: LibraryKind, body: unknown): Record<string, unknown> {
   const fields = readFields(kind, contentOf(body));
-  const content = { ...DEFAULTS[kind], ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null)) };
-  const required = Object.entries(KINDS[kind]).flatMap(([field, type]) => (type === "name" && !(field in content) ? [field] : []));
+  const { fields: types, defaults } = editable(kind);
+  const content = { ...defaults, ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null)) };
+  const required = Object.entries(types).flatMap(([field, type]) => (type === "name" && !(field in content) ? [field] : []));
   if (required.length > 0) throw new BadRequestException(required.map((field) => `${field} is required`));
   return content;
 }
@@ -101,8 +55,8 @@ function contentOf(body: unknown): Record<string, unknown> {
   return content as Record<string, unknown>;
 }
 
-function readFields(kind: EditedKind, content: Record<string, unknown>): Record<string, unknown> {
-  const types = KINDS[kind];
+function readFields(kind: LibraryKind, content: Record<string, unknown>): Record<string, unknown> {
+  const types = editable(kind).fields;
   const problems: string[] = [];
   const read: Record<string, unknown> = {};
   for (const [field, value] of Object.entries(content)) {

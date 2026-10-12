@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type CaptureOnlyReason, type ItemKind, type Location, type Machine, type SharingStatus, type TabletChange } from "@/lib/api";
+import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import { usePolled } from "@/lib/use-polled";
 
 const REASONS: Record<CaptureOnlyReason, string> = {
@@ -27,14 +28,11 @@ const REASONS: Record<CaptureOnlyReason, string> = {
   sharingOff: "An Admin turned its sharing off.",
 };
 
-const KIND_NAMES: Record<TabletChange["kind"], string> = {
-  bean: "Bean",
-  beanBatch: "Bean Batch",
-  grinder: "Grinder",
-  profile: "Profile",
-  settings: "Steam, hot water and rinse settings",
-  workflow: "Workflow",
-};
+/** What a change's kind is called: a Library kind's name (`LIBRARY_KINDS`), the shared settings, or the Workflow. */
+function kindName(kind: TabletChange["kind"]): string {
+  if (kind === "settings") return "Steam, hot water and rinse settings";
+  return kind === "workflow" ? "Workflow" : LIBRARY_KINDS[kind].name;
+}
 
 /** Flags a Capture-only Machine, which takes no part in the Library; a Machine sharing it has none. */
 export function CaptureOnlyBadge({ machine }: { machine: Machine }) {
@@ -214,7 +212,7 @@ function waitingText(status: SharingStatus, online: boolean): string {
 
 /** A change made to the Machine's tablet, naming its item, linked to its page, where the Library still has it. */
 function ChangeDescription({ change, location }: { change: TabletChange; location: Location | null }) {
-  const kind = KIND_NAMES[change.kind];
+  const kind = kindName(change.kind);
   const record = (
     <>
       {kind} record <span className="font-mono">{change.localId}</span>

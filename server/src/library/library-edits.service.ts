@@ -1,13 +1,14 @@
-import { beanMatchKey } from "@decent-sync/protocol";
+import { type LibraryKind, beanMatchKey } from "@decent-sync/protocol";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { type Scope, includesLocation } from "../accounts/scope.js";
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { lockBeanMatching } from "./beans.js";
 import { editContent, lockItems, recordJoined } from "./content-edits.js";
 import { type EditSource, type LibraryItemRef, accountSource, recordVersion } from "./history.js";
 import { INTAKE_TRANSACTION } from "./intake.js";
+import { KINDS, idSql } from "./kinds.js";
 import { addBatchAt, enterRemainingWeight, finishBatchAt, lockLocation, showProfileAt } from "./location-state.js";
 
 // Creating and editing Beans, Bean Batches and Grinders in the management
@@ -228,14 +229,16 @@ export class LibraryEditsService {
    * Location's for a Grinder, whose Archived state changes only under it.
    * With a scope, Staff edit a Grinder only at its own Location.
    */
-  private async editShared(item: LibraryItemRef & { kind: EditedKind }, values: Record<string, unknown>, accountId: string, scope: Scope | null): Promise<void> {
+  private async editShared(item: LibraryItemRef, values: Record<string, unknown>, accountId: string, scope: Scope | null): Promise<void> {
+    const description = KINDS[item.kind];
     await this.prisma.$transaction(async (tx) => {
-      if (item.kind === "grinder") {
-        const grinder = await tx.grinder.findUnique({ where: { id: item.id }, select: { locationId: true } });
-        if (!grinder) throw notFound(item.kind);
-        if (scope !== null && !includesLocation(scope, grinder.locationId)) throw staffElsewhere("edit a Grinder");
-        // A Grinder's Location never changes.
-        if (grinder.locationId !== null) await lockLocation(tx, grinder.locationId);
+      if (description.belongsToLocation) {
+        const [owned] = await tx.$queryRaw<{ locationId: string | null }[]>`
+          SELECT location_id AS "locationId" FROM ${Prisma.raw(description.table)} WHERE id = ${idSql(description, item.id)}`;
+        if (!owned) throw notFound(item.kind);
+        if (scope !== null && !includesLocation(scope, owned.locationId)) throw staffElsewhere(`edit a ${description.name}`);
+        // The Location an item belongs to never changes.
+        if (owned.locationId !== null) await lockLocation(tx, owned.locationId);
       }
       await lockItems(tx, item.kind, [item.id]);
       await found(tx, item.kind, item.id);
@@ -267,30 +270,21 @@ async function place(tx: Prisma.TransactionClient, batchId: string, locationId: 
   }
 }
 
-/** The kinds of item whose content is edited here: a Profile's never is. */
-type EditedKind = "bean" | "beanBatch" | "grinder";
-
 /** When an edit made now is timed: PostgreSQL's clock (ADR-0016), to the millisecond it keeps. */
 async function editTime(tx: Prisma.TransactionClient): Promise<Date> {
   const [{ at }] = await tx.$queryRaw<[{ at: Date }]>`SELECT now()::timestamptz(3) AS at`;
   return at;
 }
 
-const NAMES: Readonly<Record<string, string>> = { bean: "Bean", beanBatch: "Bean Batch", grinder: "Grinder", profile: "Profile" };
-
-function notFound(kind: string): NotFoundException {
-  return new NotFoundException(`No such ${NAMES[kind]}`);
+function notFound(kind: LibraryKind): NotFoundException {
+  return new NotFoundException(`No such ${KINDS[kind].name}`);
 }
 
 /** 404 unless the Library has the item. */
-async function found(tx: Prisma.TransactionClient, kind: EditedKind, id: string): Promise<void> {
-  const count =
-    kind === "bean"
-      ? await tx.bean.count({ where: { id } })
-      : kind === "beanBatch"
-        ? await tx.beanBatch.count({ where: { id } })
-        : await tx.grinder.count({ where: { id } });
-  if (count === 0) throw notFound(kind);
+async function found(tx: Prisma.TransactionClient, kind: LibraryKind, id: string): Promise<void> {
+  const description = KINDS[kind];
+  const [row] = await tx.$queryRaw<unknown[]>`SELECT 1 FROM ${Prisma.raw(description.table)} WHERE id = ${idSql(description, id)}`;
+  if (!row) throw notFound(kind);
 }
 
 function staffElsewhere(what: string): ForbiddenException {

@@ -1,11 +1,8 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { COLLECTION_NAMES, type CollectionDelivery, type CollectionName, isCollectionName } from "@decent-sync/protocol";
+import { COLLECTION_NAMES, type CollectionDelivery, type CollectionName, isCollectionName, isLibraryList, listKind } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
-import { takeInBatches } from "../library/bean-batches.js";
-import { takeInBeans } from "../library/beans.js";
-import { takeInGrinders } from "../library/grinders.js";
 import { INTAKE_TRANSACTION } from "../library/intake.js";
-import { takeInProfiles } from "../library/profiles.js";
+import { KINDS } from "../library/kinds.js";
 import type { TakenInList } from "../sync/tablet-writer.js";
 import { creditFirstDelivery } from "../machines/credit.js";
 import { machineNotFound } from "../machines/input.js";
@@ -34,12 +31,6 @@ export interface CollectionView extends CollectionSummary {
 
 type Row = { name: string; available: boolean; reportedAt: Date; receivedAt: Date | null; items: number | null };
 
-/** How each of the tablet's Library lists is taken into the Library. */
-const TAKE_IN = { beans: takeInBeans, beanBatches: takeInBatches, grinders: takeInGrinders, profiles: takeInProfiles } as const satisfies Record<TakenInList, unknown>;
-
-function isTakenIn(name: string): name is TakenInList {
-  return Object.prototype.hasOwnProperty.call(TAKE_IN, name);
-}
 
 /**
  * The collections tablets report: their library, settings and paired
@@ -87,7 +78,7 @@ export class CollectionsService {
     const value = message.available ? JSON.stringify(message.value) : null;
     const items = message.available && Array.isArray(message.value) ? message.value.length : null;
     // A mismatched connection's tablet is not its token's Machine's, so it takes no part in the Library (ADR-0004).
-    const list = isTakenIn(message.name) && reporter.identity.kind !== "mismatch" ? message.name : null;
+    const list = isLibraryList(message.name) && reporter.identity.kind !== "mismatch" ? message.name : null;
     const takesIn = list !== null && message.available;
     return this.prisma.$transaction(async (tx) => {
       const credit = await creditFirstDelivery(tx, reporter, message.id);
@@ -112,8 +103,8 @@ export class CollectionsService {
       if (list === null) return undefined;
       if (!takesIn) return { list, takenInAt: undefined };
       const tablet = { machineId: reporter.machineId, tabletId: reporter.tabletId };
-      const takeIn = TAKE_IN[list];
-      return { list, takenInAt: await takeIn(tx, tablet, message.value, message.updatedAt) };
+      // Each list is taken in as its kind takes it in.
+      return { list, takenInAt: await KINDS[listKind(list)].takeIn(tx, tablet, message.value, message.updatedAt) };
     }, takesIn ? INTAKE_TRANSACTION : undefined);
   }
 

@@ -3,36 +3,28 @@ import { Link } from "react-router";
 import { useAuth } from "@/auth";
 import { ConfirmButton, formatTime } from "@/components/machines";
 import { SETTING_LABELS, settingText } from "@/components/location-settings";
-import { profilePath } from "@/components/profiles";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type Conflict, type EditSource, type ItemKind, type ItemVersion, type Location } from "@/lib/api";
+import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
-const KIND_NAMES: Record<ItemKind, string> = { bean: "Bean", beanBatch: "Bean Batch", grinder: "Grinder", profile: "Profile", settings: "Location settings" };
+/** What an item's kind is called: a Library kind's name (`LIBRARY_KINDS`), or a Location's settings. */
+function kindName(kind: ItemKind): string {
+  return kind === "settings" ? "Location settings" : LIBRARY_KINDS[kind].name;
+}
 
 /** The address of an item's page; a Location's settings are on its page. */
 export function itemPath(kind: ItemKind, id: string, location: Location | null = null): string {
-  switch (kind) {
-    case "settings":
-      return location ? `/locations/${location.id}` : "/locations";
-    case "bean":
-      return `/library/beans/${id}`;
-    case "beanBatch":
-      return `/library/bean-batches/${id}`;
-    case "grinder":
-      return `/library/grinders/${id}`;
-    case "profile":
-      return profilePath(id);
-  }
+  if (kind === "settings") return location ? `/locations/${location.id}` : "/locations";
+  return `${LIBRARY_KINDS[kind].pages}/${encodeURIComponent(id)}`;
 }
 
 /** The REST API's address of an item. */
 function itemApiPath(kind: ItemKind, id: string): string {
-  const kinds: Record<ItemKind, string> = { bean: "beans", beanBatch: "bean-batches", grinder: "grinders", profile: "profiles", settings: "location-settings" };
-  return `/${kinds[kind]}/${encodeURIComponent(id)}`;
+  return `${kind === "settings" ? "/location-settings" : LIBRARY_KINDS[kind].api}/${encodeURIComponent(id)}`;
 }
 
 /** A field's name as people read it: a Location's state of the item names the Location, and a field of its content is spelled out, as `roastDate` is "Roast date". */
@@ -150,7 +142,7 @@ export function ConflictsTable({ conflicts, showItem, onResolved }: { conflicts:
         <TableBody>
           {conflicts.map((conflict) => {
             const field = fieldLabel(conflict.field, conflict.location);
-            const itemName = conflict.item.name ?? `Unnamed ${KIND_NAMES[conflict.item.kind]}`;
+            const itemName = conflict.item.name ?? `Unnamed ${kindName(conflict.item.kind)}`;
             const refusedId = `conflict-${conflict.id}-refused`;
             return (
               <TableRow key={conflict.id}>
@@ -159,7 +151,7 @@ export function ConflictsTable({ conflicts, showItem, onResolved }: { conflicts:
                     <Link to={itemPath(conflict.item.kind, conflict.item.id, conflict.location)} className="font-medium underline-offset-4 hover:underline">
                       {itemName}
                     </Link>
-                    <div className="text-xs text-muted-foreground">{KIND_NAMES[conflict.item.kind]}</div>
+                    <div className="text-xs text-muted-foreground">{kindName(conflict.item.kind)}</div>
                   </TableCell>
                 )}
                 <TableCell className="whitespace-normal">{field}</TableCell>
@@ -239,7 +231,7 @@ export function ItemConflictsCard({ kind, id, onResolved }: { kind: ItemKind; id
           <h2>Open Conflicts</h2>
         </CardTitle>
         <CardDescription>
-          {conflicts.length === 1 ? "An edit" : `${conflicts.length} edits`} of {kind === "settings" ? "these settings" : `this ${KIND_NAMES[kind]}`}{" "}
+          {conflicts.length === 1 ? "An edit" : `${conflicts.length} edits`} of {kind === "settings" ? "these settings" : `this ${kindName(kind)}`}{" "}
           lost to another of the same field made without seeing it. Use a losing value to make it current on every tablet that{" "}
           {kind === "settings" ? "shares them" : "holds it"}, or dismiss the Conflict to keep the value now.
         </CardDescription>
@@ -273,7 +265,7 @@ export function ItemHistoryCard({ kind, id }: { kind: ItemKind; id: string }) {
           Each change that was kept, the latest first, with the Machine or account it came from.{" "}
           {kind === "settings"
             ? "Its first is the first Machine at the Location setting them."
-            : `Its first is the ${KIND_NAMES[kind]} joining the Library.`}
+            : `Its first is the ${kindName(kind)} joining the Library.`}
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
