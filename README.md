@@ -454,11 +454,13 @@ holding its spec, tickets and pull requests.
    and rinse settings, Conflicts and history in the management interface, Shots
    linked to the Library, and a durable outbox. Spec:
    [#77](https://github.com/loganfuller/decent-sync/issues/77).
-3. **Recipes and equipment.** DYE2 recipes, baskets and tools shared through
-   DYE2's storage, Recipe Slots, each Machine's Loaded Recipe, which its
-   Workflow follows and which follows the changes made on it, and Shots linked
-   to their Recipe and Basket. Recording Location moves is in milestone 1, and
-   what a move changes in a tablet's Library is in milestone 2.
+3. **[Recipes and equipment](https://github.com/loganfuller/decent-sync/milestone/3).**
+   DYE2 recipes, baskets and tools shared through DYE2's storage, Recipe
+   Slots, each Machine's Loaded Recipe, which its Workflow follows and which
+   follows the changes made on it, and Shots linked to their Recipe and Basket.
+   Recording Location moves is in milestone 1, and what a move changes in a
+   tablet's Library is in milestone 2. Spec:
+   [#134](https://github.com/loganfuller/decent-sync/issues/134).
 4. **Stock.** Deliveries, transfers, counts and the coffee each shot uses.
 5. **Analytics.** Broader views across Machines and Locations, and Barista
    grouping, including who dialled each Recipe. Machine status, Shot filtering and comparison with the
