@@ -56,7 +56,7 @@ export interface Dye2Recordings {
   tools: Record<"createWdtTool" | "createPuckScreen" | "createSpareTamper" | "editWdtTool" | "deleteSpareTamper", Dye2Exchange[]>;
   /** DYE2's baskets page: creating two baskets and editing one. */
   baskets: Record<"create18gBasket" | "create20gBasket" | "edit18gBasket", Dye2Exchange[]>;
-  /** DYE2's recipe editor: saving slots 1 and 2, editing slot 1, and saving slot 3 with every field blank. */
+  /** DYE2's recipe editor: saving slots 1 and 2, editing slot 1, and saving slot 3 with only its name typed, its other fields blank. */
   recipes: Record<"saveSlot1" | "saveSlot2" | "editSlot1" | "saveBlankSlot3", Dye2Exchange[]>;
   /** DYE2's dashboard: applying each recipe, slot 1 again, then picking a basket for the next Shot. */
   "dye2-applies": Record<"applySlot1" | "applySlot2" | "applyBlankSlot3" | "applySlot1Again" | "pickBasket", Dye2Exchange[]>;
@@ -126,10 +126,13 @@ export function dye2List(tablet: SimulatedTablet, key: Dye2Key): unknown {
  * each item the step added or changed, over the tablet's item with its id,
  * keeping that item's `createdAt` as DYE2's edits of a basket or tool do
  * (`updateBasket`, `updateEquipment`), and leaves out each item it removed,
- * then posts the list back. `change` alters each item the step put in or
- * removed, its id included, so that a test derives a save of its own, which
- * it names, such as the same edit of the tool another tablet holds under
- * its own id. Resolves with the list.
+ * then posts the list back. Every field of the recorded item replaces the
+ * tablet's, as a DYE2 page opened on the recording's values would save it,
+ * so a field the tablet holds otherwise, such as a name the server changed,
+ * is put back. `change` alters each item the step put in or removed, its id
+ * included, so that a test derives a save of its own, which it names, such
+ * as the same edit made from the tablet's own item, or of the tool another
+ * tablet holds under its own id. Resolves with the list.
  */
 export async function saveInDye2(tablet: SimulatedTablet, step: Dye2Exchange[], change: (item: Record_) => Record_ = (item) => item): Promise<Record_[]> {
   return writeList(
@@ -150,7 +153,14 @@ export async function saveInDye2(tablet: SimulatedTablet, step: Dye2Exchange[], 
  * Streamline saved it, reads the recipes from the tablet, merges into the
  * applied recipe's `dashboardVariables` the fields Streamline reads from the
  * change and the Workflow Decaid answered (`recipeAutoSaveFields`), and posts
- * the list back. The applied recipe is the one the recording saved into.
+ * the list back. The applied recipe is the one the recording saved into,
+ * whatever the tablet applied since: Streamline saves into the recipe it
+ * last applied, and stops once Decaid answers a change with a profile that
+ * does not match the one it applied (`handleWorkflowUpdatedForAutoSave`),
+ * which the helper does not check, so a test replays an auto-save only
+ * after replaying Streamline applying that recipe and while the Workflow's
+ * profile is still the one applied. Nor does it wait out Streamline's 1.5 s
+ * debounce, which merges changes made within it into one save.
  * Resolves with the list posted, or undefined for a step that saved nothing,
  * a Workflow change Decaid refused, after which Streamline's listener never
  * runs (`updateWorkflow` in streamline-js:src/modules/api.js), or a recipe
