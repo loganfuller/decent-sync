@@ -2,12 +2,13 @@ import { expect as baseExpect, type Locator, type Page, test } from "@playwright
 import { SimulatedTablet, derivedDe1Pro, settingsFor, workflowFixture } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 
-// Each Location's steam, hot water and rinse settings in the management
-// interface (ADR-0014). Two simulated tablets running the built plugin at
-// Uptown, a DE1Pro and a Bengle, share Uptown's settings, which the first to
-// connect set; the Location's page shows them and its Machines, an Admin's
-// change reaches both tablets, a Machine with sharing turned off keeps its
-// own, and Staff working elsewhere can change neither.
+// Each Location's steam and rinse settings in the management interface
+// (ADR-0014). Two simulated tablets running the built plugin at Uptown, a
+// DE1Pro and a Bengle, share Uptown's settings, which the first to connect
+// set; the Location's page shows them, and no hot water, which is each
+// Machine's own, and its Machines, an Admin's change reaches both tablets, a
+// Machine with sharing turned off keeps its own, and Staff working elsewhere
+// can change neither.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
@@ -39,20 +40,26 @@ test("a Location's page shows its settings and Machines, changes them on every M
   await page.goto("/locations");
   await page.getByRole("list", { name: "Locations" }).getByRole("link", { name: "Uptown" }).click();
   await expect(page.getByRole("heading", { name: "Uptown", level: 1 })).toBeVisible();
-  const settings = page.getByRole("region", { name: "Steam, hot water and rinse" });
-  const values = settings.getByRole("table", { name: "Steam, hot water and rinse settings" });
+  const settings = page.getByRole("region", { name: "Steam and rinse" });
+  const values = settings.getByRole("table", { name: "Steam and rinse settings" });
   await expect(value(values, "Steam flow")).toHaveText("2.5 ml/s");
-  await expect(value(values, "Hot water volume")).toHaveText("100 ml");
+  await expect(value(values, "Rinse time")).toHaveText("5 s");
+  await expect(rows(values)).toHaveCount(7);
+  await expect(values).not.toContainText("Hot water");
+  await expect(settings).toContainText("Hot water isn't shared: each Machine keeps its own.");
   const machines = settings.getByRole("table", { name: "Machines sharing these settings" });
+  await expect(machines.getByRole("columnheader", { name: "Shares steam and rinse" })).toBeVisible();
   await expect(rows(machines)).toHaveCount(2);
   await expect(rows(machines).nth(0)).toContainText("Uptown 1DE1Pro");
   await expect(rows(machines).nth(1)).toContainText("Uptown BengleBengle");
   await expect(rows(settings.getByRole("table", { name: "History" }))).toHaveCount(1);
 
-  await settings.getByRole("button", { name: "Change the steam, hot water and rinse settings" }).click();
-  const form = page.getByRole("form", { name: "Change the steam, hot water and rinse settings" });
+  await settings.getByRole("button", { name: "Change the steam and rinse settings" }).click();
+  const form = page.getByRole("form", { name: "Change the steam and rinse settings" });
+  await expect(form.getByRole("group")).toHaveText([/^Steam/, /^Rinse/]);
+  await expect(form.getByLabel(/^Hot water/)).toHaveCount(0);
   await form.getByLabel("Steam flow (ml/s)").fill("1.8");
-  await form.getByLabel("Hot water volume (ml)").fill("150");
+  await form.getByLabel("Rinse temperature (°C)").fill("88");
   await form.getByRole("button", { name: "Save" }).click();
   await expect(form).toBeHidden();
   await expect(value(values, "Steam flow")).toHaveText("1.8 ml/s");
@@ -64,7 +71,7 @@ test("a Location's page shows its settings and Machines, changes them on every M
   // Both tablets take them, whatever their model.
   for (const tablet of [de1, bengle]) {
     await expect.poll(() => setting(tablet, "steamSettings", "flow")).toBe(1.8);
-    await expect.poll(() => setting(tablet, "hotWaterData", "volume")).toBe(150);
+    await expect.poll(() => setting(tablet, "rinseData", "targetTemperature")).toBe(88);
   }
 
   // A change on a tablet shows here.
@@ -72,18 +79,18 @@ test("a Location's page shows its settings and Machines, changes them on every M
   await expect(value(values, "Rinse time")).toHaveText("9 s");
 
   // With sharing turned off, the Bengle keeps its own; turned back on, it takes Uptown's.
-  const bengleSwitch = machines.getByRole("switch", { name: "Uptown Bengle shares these settings" });
+  const bengleSwitch = machines.getByRole("switch", { name: "Uptown Bengle shares steam and rinse" });
   await bengleSwitch.click();
   await expect(bengleSwitch).not.toBeChecked();
   await expect.poll(() => setting(bengle, "rinseData", "duration")).toBe(9);
   await bengle.changeSettings({ rinseData: { duration: 4 } });
-  await de1.changeSettings({ hotWaterData: { volume: 120 } });
-  await expect(value(values, "Hot water volume")).toHaveText("120 ml");
+  await de1.changeSettings({ steamSettings: { duration: 90 } });
+  await expect(value(values, "Steam time")).toHaveText("90 s");
   await expect(value(values, "Rinse time")).toHaveText("9 s");
-  baseExpect(setting(bengle, "hotWaterData", "volume")).toBe(150);
+  baseExpect(setting(bengle, "steamSettings", "duration")).toBe(120);
   await bengleSwitch.click();
   await expect(bengleSwitch).toBeChecked();
-  await expect.poll(() => setting(bengle, "hotWaterData", "volume")).toBe(120);
+  await expect.poll(() => setting(bengle, "steamSettings", "duration")).toBe(90);
   await expect.poll(() => setting(bengle, "rinseData", "duration")).toBe(9);
 
   // Staff working at Belmont read Uptown's settings, but may not change them or switch its Machines.
@@ -96,10 +103,10 @@ test("a Location's page shows its settings and Machines, changes them on every M
     baseExpect(accepted.status()).toBe(201);
     const samsPage = await samsBrowser.newPage();
     await samsPage.goto(`/locations/${uptown.id}`);
-    const samsSettings = samsPage.getByRole("region", { name: "Steam, hot water and rinse" });
-    await expect(value(samsSettings.getByRole("table", { name: "Steam, hot water and rinse settings" }), "Steam flow")).toHaveText("1.8 ml/s");
-    await expect(samsSettings.getByRole("button", { name: "Change the steam, hot water and rinse settings" })).toHaveCount(0);
-    await expect(samsSettings.getByRole("switch", { name: "Uptown Bengle shares these settings" })).toBeDisabled();
+    const samsSettings = samsPage.getByRole("region", { name: "Steam and rinse" });
+    await expect(value(samsSettings.getByRole("table", { name: "Steam and rinse settings" }), "Steam flow")).toHaveText("1.8 ml/s");
+    await expect(samsSettings.getByRole("button", { name: "Change the steam and rinse settings" })).toHaveCount(0);
+    await expect(samsSettings.getByRole("switch", { name: "Uptown Bengle shares steam and rinse" })).toBeDisabled();
   } finally {
     await samsBrowser.close();
   }

@@ -139,8 +139,8 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     await tablet.addBean({ roaster: "Roux", name: "Switching Own" });
     await expect.poll(() => capturedBeans(switched), { timeout: 10_000 }).toEqual(expect.arrayContaining(["Switching Before", "Switching Own"]));
     // Its settings changed on its tablet are its own, and the Location's changed in the management interface are not written to it.
-    await tablet.changeSettings({ hotWaterData: { volume: 77 } });
-    await expect.poll(async () => (await capturedWorkflow(switched))?.hotWaterData?.volume, { timeout: 10_000 }).toBe(77);
+    await tablet.changeSettings({ rinseData: { duration: 13 } });
+    await expect.poll(async () => (await capturedWorkflow(switched))?.rinseData?.duration, { timeout: 10_000 }).toBe(13);
     const { settings } = await read<{ settings: { id: string; values: Record<string, number | null> } }>(`/locations/${uptown.id}/settings`);
     expect((await api.call("PATCH", `/location-settings/${settings.id}`, { values: { "rinseData.flow": 4.5 } })).status).toBe(200);
     await expect.poll(() => setting(sharingTablet, "rinseData.flow"), { timeout: 10_000 }).toBe(4.5);
@@ -148,7 +148,7 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     expect(tablet.writes.length).toBe(writes);
     expect(tablet.beans().filter((bean) => bean.name !== "Switching Own")).toEqual(held);
     expect((await libraryBeans("Switching")).map((bean) => bean.name)).toEqual(["Switching Before", "Switching Created", "Switching Entered"]);
-    expect(setting(sharingTablet, "hotWaterData.volume")).toBe(settings.values["hotWaterData.volume"]);
+    expect(setting(sharingTablet, "rinseData.duration")).toBe(settings.values["rinseData.duration"]);
 
     // Turned back on, it joins Uptown: it is written Uptown's Beans and settings, and its own Bean is archived on it, out of the Library.
     expect(await (await switchSharing(switched, true)).json()).toEqual({ sharing: true });
@@ -156,13 +156,13 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     const uptownBeans = ["Switching Before", "Switching Created", "Switching Entered"];
     await expect.poll(() => sharedBeans(tablet), { timeout: 15_000 }).toEqual(uptownBeans);
     await expect.poll(() => setting(tablet, "rinseData.flow"), { timeout: 10_000 }).toBe(4.5);
-    await expect.poll(() => setting(tablet, "hotWaterData.volume"), { timeout: 10_000 }).toBe(settings.values["hotWaterData.volume"]);
+    await expect.poll(() => setting(tablet, "rinseData.duration"), { timeout: 10_000 }).toBe(settings.values["rinseData.duration"]);
     const own = () => tablet.beans().find((bean) => bean.name === "Switching Own")!;
     await expect.poll(() => own().archived, { timeout: 10_000 }).toBe(true);
     expect(globalIdOf(own())).toBeNull();
     expect((await libraryBeans("Switching")).map((bean) => bean.name)).toEqual(uptownBeans);
     expect(sharedBeans(sharingTablet)).toEqual(uptownBeans);
-    expect(setting(sharingTablet, "hotWaterData.volume")).toBe(settings.values["hotWaterData.volume"]);
+    expect(setting(sharingTablet, "rinseData.duration")).toBe(settings.values["rinseData.duration"]);
 
     // Its barista takes the coffee up again: un-archived there, it joins the Library at Uptown as one entered then.
     await tablet.editBean(own().id, { archived: false });

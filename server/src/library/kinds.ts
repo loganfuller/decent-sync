@@ -45,7 +45,7 @@ import { recordProfileWritten, takeInProfiles } from "./profiles.js";
 // Each kind the server writes to tablets, described once (`LIBRARY.md`,
 // Adding a Library kind): the Library's kinds, Beans, Bean Batches, Grinders
 // and Profiles, in the order of LIBRARY_ITEM_KINDS (protocol/), and a
-// Location's steam, hot water and rinse settings and the clearing of a
+// Location's steam and rinse settings and the clearing of a
 // Workflow's grinder and batch. What the server does to every kind alike
 // (its versions and Conflicts, the edits of its content, what a tablet is
 // due, its hard deletes, what a joining tablet brings) reads each kind's
@@ -83,7 +83,7 @@ export interface WrittenKindDescription {
    * What the management interface names each of the items with these ids
    * by (`ChangedItemView`, `ConflictItemView`): a Bean's roaster and name, a
    * batch's Bean and roast date, a Grinder's model, a Profile's title, the
-   * settings' "Steam, hot water and rinse", a Workflow's "Grinder and
+   * settings' "Steam and rinse", a Workflow's "Grinder and
    * batch"; null where its content has none. A Library item the server no
    * longer has is left out.
    */
@@ -569,7 +569,7 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
   },
 };
 
-/** A Location's steam, hot water and rinse settings (ADR-0014), which keep versions and Conflicts as an item's content does, always of their Location. */
+/** A Location's steam and rinse settings (ADR-0014), which keep versions and Conflicts as an item's content does, always of their Location. */
 const SETTINGS: VersionedKindDescription = {
   name: "Location settings",
   table: "location_settings",
@@ -592,7 +592,7 @@ const WORKFLOW: WrittenKindDescription = {
   recordWritten: (prisma, tablet, answer) => recordWorkflowCleared(prisma, tablet, answer.globalId, answer.record),
 };
 
-const SETTINGS_NAME = "Steam, hot water and rinse";
+const SETTINGS_NAME = "Steam and rinse";
 
 /** The description of a kind the server writes. */
 export function writtenKind(kind: WrittenKind): WrittenKindDescription {

@@ -9,9 +9,10 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // Seam 1 for ticket #89: a Machine joining a Location, as it is adopted
 // there or moved there, takes on the Location's state (ADR-0008). Its tablet
 // is written the Location's shown Profiles, its batches and their Beans, its
-// Grinders and its steam, hot water and rinse settings; what only its old
-// Location offered is archived or hidden on it; its Workflow's grinder and
-// batch are cleared when the new Location does not offer them. What its
+// Grinders and its steam and rinse settings, while its hot water stays its
+// own (ticket #137); what only its old Location offered is archived or
+// hidden on it; its Workflow's grinder and batch are cleared when the new
+// Location does not offer them. What its
 // tablet held of its own stays out of the Library, archived or hidden on it,
 // but for a Bean matching one the Library has, which is linked to it, and
 // for a kind of item the Location offers none of yet, which it brings
@@ -112,13 +113,14 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     await expect.poll(async () => (await settingsAt(location)).id, { timeout: 10_000 }).not.toBeNull();
     return (await settingsAt(location)).values;
   }
-  /** The steam, hot water and rinse settings of the tablet's Workflow, as Decaid holds them, by their names. */
+  /** The steam and rinse settings of the tablet's Workflow, as Decaid holds them, by their names. */
   function tabletSettings(tablet: SimulatedTablet): Record<string, unknown> {
     const workflow = tablet.workflow();
     return Object.fromEntries(
-      ["steamSettings", "hotWaterData", "rinseData"].flatMap((part) => Object.entries(workflow[part] as Record_).map(([name, value]) => [`${part}.${name}`, value])),
+      ["steamSettings", "rinseData"].flatMap((part) => Object.entries(workflow[part] as Record_).map(([name, value]) => [`${part}.${name}`, value])),
     );
   }
+  const hotWater = (tablet: SimulatedTablet) => tablet.workflow().hotWaterData;
   const context = (tablet: SimulatedTablet) => tablet.workflow().context as Record_;
   /** The names of the Library's Beans begun with `prefix`, sorted. */
   const libraryBeans = async (prefix: string) =>
@@ -183,10 +185,15 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
 
     // A new Machine is adopted at Uptown, its tablet as fresh as a new install, its settings its own.
     const second = await api.createMachine("Adopting Uptown 2", uptown.id);
-    const two = load(second, "23002", { instance: other, fresh: true, parts: { steamSettings: { flow: 0.7 }, rinseData: { duration: 9 } } });
+    const two = load(second, "23002", { instance: other, fresh: true, parts: { steamSettings: { flow: 0.7 }, hotWaterData: { volume: 80 }, rinseData: { duration: 9 } } });
+    const ownHotWater = hotWater(two);
     await online(second);
     await expect.poll(() => offered(two), { timeout: 15_000 }).toEqual(uptownOffers);
     await expect.poll(() => tabletSettings(two), { timeout: 10_000 }).toEqual(values);
+    // Its hot water is its own, which it keeps, and the first Machine keeps its own.
+    expect(hotWater(two)).toEqual(ownHotWater);
+    expect(hotWater(two)).toMatchObject({ volume: 80 });
+    expect(hotWater(one)).toMatchObject({ volume: 120 });
     // Each batch with Uptown's remaining weight, under the tablet's record of its Bean.
     const beanOf = new Map(two.beans().map((bean) => [bean.id, globalIdOf(bean)]));
     const uptownBeanOf = new Map(one.beans().map((bean) => [bean.id, globalIdOf(bean)]));
@@ -219,6 +226,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const labOffers = offered(labTablet);
     const belmontValues = await settingsOf(belmont);
     const labWorkflow = labTablet.workflow();
+    expect(hotWater(labTablet)).not.toEqual(hotWater(belmontTablet));
     expect(context(labTablet)).toMatchObject({ grinderModel: "DF64 v2", coffeeName: "Ethiopia Generic 100g Sample" });
 
     expect((await move(labMachine, belmont)).status).toBe(201);
@@ -228,7 +236,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     expect(heldIds(labTablet.batches(), true)).toEqual(labOffers.batches);
     expect(heldIds(labTablet.grinders(), true)).toEqual(labOffers.grinders);
     expect(userProfiles(labTablet, false)).toEqual(labOffers.profiles);
-    // It takes Belmont's settings, which it does not change.
+    // It takes Belmont's steam and rinse settings, which it does not change, and keeps its own hot water.
     await expect.poll(() => tabletSettings(labTablet), { timeout: 10_000 }).toEqual(belmontValues);
     expect((await settingsAt(belmont)).values).toEqual(belmontValues);
     // Belmont offers neither its grinder nor its batch, which are cleared; its profile, dose, yield, grinder setting and barista stay.
@@ -236,9 +244,10 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const { context: before, ...rest } = labWorkflow;
     const kept = Object.fromEntries(Object.entries(before as Record_).filter(([field]) => !GRINDER_AND_BATCH.includes(field)));
     expect(context(labTablet)).toEqual(kept);
-    const { context: _after, steamSettings: _steam, hotWaterData: _water, rinseData: _rinse, ...restNow } = labTablet.workflow();
-    const { steamSettings: _s, hotWaterData: _w, rinseData: _r, ...restBefore } = rest;
+    const { context: _after, steamSettings: _steam, rinseData: _rinse, ...restNow } = labTablet.workflow();
+    const { steamSettings: _s, rinseData: _r, ...restBefore } = rest;
     expect(restNow).toEqual(restBefore);
+    expect(hotWater(belmontTablet)).toMatchObject({ volume: 140 });
     // The lab's items are still offered at the lab only.
     const labBean = await read<{ bean: { offeredAt: LocationView[] } }>(`/beans/${labOffers.beans[0]}`);
     expect(labBean.bean.offeredAt).toEqual([lab]);
@@ -441,8 +450,10 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     expect((await settingsAt(cafe)).id).toBeNull();
 
     expect((await move(traveller, cafe)).status).toBe(201);
+    // Its steam and rinse, and none of its hot water.
     expect(await settingsOf(cafe)).toEqual(own);
     expect(tabletSettings(tablet)).toEqual(own);
+    expect(hotWater(tablet)).toMatchObject({ volume: 90 });
   });
 
   it("writes nothing more to a Machine moved to no Location, whose tablet keeps what it has", async () => {

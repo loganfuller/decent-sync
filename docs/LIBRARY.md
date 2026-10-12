@@ -20,7 +20,9 @@ Conflicts and each item's history in the management interface, where a
 Conflict's value is used or the Conflict dismissed (Resolving Conflicts,
 below). Ticket [#86](https://github.com/loganfuller/decent-sync/issues/86)
 shares each Location's steam, hot water and rinse settings between its
-Machines (Steam, hot water and rinse settings, below). Ticket
+Machines, and ticket [#137](https://github.com/loganfuller/decent-sync/issues/137)
+takes hot water out of them, each Machine's own (Steam and rinse settings,
+below). Ticket
 [#87](https://github.com/loganfuller/decent-sync/issues/87) creates and edits
 Beans, Bean Batches and Grinders in the management interface, Archives and
 restores them, adds and finishes batches at Locations there, and lets an
@@ -43,7 +45,7 @@ tablet's map, so Shots are filtered by them and each item's page lists its
 Shots (`SHOTS.md`, Links to the Library). Ticket
 [#130](https://github.com/loganfuller/decent-sync/issues/130) has the plugin
 set the values Streamline remembers of the settings it writes, so Streamline
-keeps the Location's (Steam, hot water and rinse settings, below). Ticket
+keeps the Location's (Steam and rinse settings, below). Ticket
 [#135](https://github.com/loganfuller/decent-sync/issues/135) describes each
 kind of Library item once on each side, so milestone 3's kinds are each
 added in one place (Adding a Library kind, below). It follows ADR-0003,
@@ -241,9 +243,9 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   deleted as the item is, or with every row of the kind as its table is
   truncated, taking its versions and Conflicts with it, as a foreign key to
   the item would.
-- `location_settings` and `tablet_settings`: each Location's steam, hot water
-  and rinse settings, and each tablet's as it last had them
-  (Steam, hot water and rinse settings, below).
+- `location_settings` and `tablet_settings`: each Location's steam and rinse
+  settings, and each tablet's as it last had them (Steam and rinse settings,
+  below).
 - `deleted_items` and `tablet_deletions`: the global id of each item an
   Admin hard-deleted, and each tablet's records of it still to be deleted
   there, by their ids there, a Profile's by Decaid's id, with its steps,
@@ -1058,23 +1060,33 @@ mismatched connection's that reported its hardware:
 Everything is in PostgreSQL, so every instance reads the same, whichever
 holds the tablet's connection.
 
-## Steam, hot water and rinse settings
+## Steam and rinse settings
 
-A Machine's Workflow stays its own, but for its steam, hot water and rinse
-settings, which the Machines at a Location share whatever their model, DE1s
-and Bengles alike, the way every steam wand on one commercial machine runs
-the same settings (ADR-0014; `location-settings.ts`, with the pure
+A Machine's Workflow stays its own, but for its steam and rinse settings,
+which the Machines at a Location share whatever their model, DE1s and
+Bengles alike, the way every steam wand on one commercial machine runs the
+same settings (ADR-0014; `location-settings.ts`, with the pure
 `settings-intake.ts`). Who takes part is as for the Library (Who takes part,
 above), but for a Machine whose sharing of them is turned off (below).
 
-The settings are the eleven fields `SHARED_SETTINGS` names (`protocol/`), each
+The settings are the seven fields `SHARED_SETTINGS` names (`protocol/`), each
 by its part of the Workflow and Decaid's name for it there, such as
 `steamSettings.flow`: steam's target temperature, time, flow and the milk
-temperature it stops at, hot water's target temperature, time, volume and
-flow, and rinse's target temperature, time and flow. Each is a field of its
-own, merged as a Library item's content is (Edits, above; ADR-0020), with
-versions and Conflicts at the Location. A field Decaid may add to a part
-later is not shared.
+temperature it stops at, and rinse's target temperature, time and flow. Each
+is a field of its own, merged as a Library item's content is (Edits, above;
+ADR-0020), with versions and Conflicts at the Location. A field Decaid may
+add to a part later is not shared.
+
+Hot water is not among them (ticket
+[#137](https://github.com/loganfuller/decent-sync/issues/137)): each
+Machine's hot water volume, temperature, time and flow are its own, as its
+profile, dose and yield are, set by the Recipe it loads (ADR-0022). A change
+of a Machine's hot water, on its tablet or by Streamline, is no edit of its
+Location's settings, a settings write carries none, and a Machine joining a
+Location keeps its own. Until a Loaded Recipe's hot water is written,
+nothing the server sends changes it. The migration that took hot water out
+dropped it from each Location's settings, their latest edits, versions and
+Conflicts, and each tablet's settings as it last had them.
 
 - `location_settings`: each Location's settings, each set by its name, and each setting's latest edit (`field_edits`), as an item's
   content keeps them. The settings' row lock decides their edits, on any
@@ -1109,7 +1121,7 @@ it:
   for espresso only or descaling, is not shared, and while it is off none of
   its steam settings are, either way: its changes to them are not edits, and
   the Location's are not written to it, so they never turn its steam back
-  on. Its hot water and rinse settings are still shared. Once its steam is
+  on. Its rinse settings are still shared. Once its steam is
   turned on again, at whatever temperature, it takes the Location's steam
   settings rather than giving its own, which are then written to it, but for
   any the Location has not set yet, which it sets. A Machine whose steam was
@@ -1146,7 +1158,7 @@ which Decaid deep-merges into the Workflow and writes to the machine, the
 steam settings only while the Workflow keeps steam on: a barista may have
 turned it off since the tablet last reported, and the server, not knowing
 yet, sent them. Its
-answer, `written`, is the Workflow's steam, hot water and rinse parts as
+answer, `written`, is the Workflow's steam and rinse parts as
 Decaid returned them, timed by the plugin's clock, as a Workflow carries no
 time. Decaid sends the plugin the Workflow its write changed
 (`workflowUpdated`) as it sets it, before it answers the write, so the
@@ -1161,9 +1173,9 @@ answer, and the settings have seen the edits the write carried unless such
 an edit lost (`recordSettingsWritten`).
 
 Streamline, a skin, remembers what the barista last set for some of the
-settings in Decaid's store, under `streamline-app`, and pushes a remembered
-value back through `PUT /workflow` whenever the Workflow holds another,
-whoever changed it: on the machine's echo of a Workflow change, for steam
+steam, hot water and rinse settings in Decaid's store, under
+`streamline-app`, and pushes a remembered value back through `PUT /workflow`
+whenever the Workflow holds another, whoever changed it: on the machine's echo of a Workflow change, for steam
 time and hot water volume and temperature, and each time it loads, for all
 of them but the steam temperature, which it sends only along with a steam
 time it pushes (ADR-0021; the evidence is in `AI_RUNTIME_NOTES.md`, Skins). So
@@ -1178,8 +1190,8 @@ Workflow, the order Streamline's own steam and hot water setters use:
 | `steamSettings.flow` | `last-steam-flow` | |
 | `steamSettings.stopAtTemperature` | `last-milk-stop` | above 0: Streamline remembers only a stop that is on |
 | `steamSettings.targetTemperature` | `last-steam-temp` | at least 135 °C (`STEAM_ON_FROM`): the temperature Streamline turns steam back on at |
-| `hotWaterData.volume` | `last-hot-water-volume` | |
-| `hotWaterData.targetTemperature` | `last-hot-water-temp` | |
+| `hotWaterData.volume` | `last-hot-water-volume` | a write carries it: none does yet, as a Location's settings carry no hot water, until a Loaded Recipe's is written (ADR-0022) |
+| `hotWaterData.targetTemperature` | `last-hot-water-temp` | as for the volume |
 | `rinseData.duration` | `last-flush-duration` | |
 
 It reads each key first (`GET /store/streamline-app/{key}`), and sets one
@@ -1252,9 +1264,9 @@ it.
   Profiles, the batches at it and their Beans, and its Grinders, and what it
   does not offer is archived or hidden on the tablet, never deleted. The
   Workflow taken in as the tablet joins has had none of the Location's
-  steam, hot water and rinse settings, so it sets only those the Location
-  has not set yet, and is written the others, unless the Machine's sharing
-  of them is turned off (Steam, hot water and rinse settings, below).
+  steam and rinse settings, so it sets only those the Location has not set
+  yet, and is written the others, unless the Machine's sharing of them is
+  turned off (Steam and rinse settings, below). Its hot water stays its own.
 - **Its Workflow's grinder and batch.** The Workflow taken in as the tablet
   joins is judged against the tablet's map, which still holds what the
   tablet held before (`takeInWorkflowContext`), under the Location's lock:
@@ -1441,8 +1453,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
   Bean's roaster and name, a batch's Bean and the day it was roasted, as
   `Guji, roasted 2026-10-01`, a Grinder's model or
   a Profile's title, null where its content has none; or, of `kind`
-  `settings`, a Location's steam, hot water and rinse settings, named
-  `Steam, hot water and rinse`, whose Location `location` names; the field and the
+  `settings`, a Location's steam and rinse settings, named
+  `Steam and rinse`, whose Location `location` names; the field and the
   losing value, null where the edit cleared it; the Location whose state the
   field is, null for content; where and when the losing edit was made, as a
   version's; when it became a Conflict; `open`, `used` or `dismissed`; the
@@ -1464,10 +1476,11 @@ Every endpoint requires the account session; Staff read them as Admins do.
   account may not resolve it, and 409 if it was used or dismissed already, or
   the field was decided since the version `seen`.
 - `GET /api/locations/:id/settings` returns `{ settings }`, the Location's
-  steam, hot water and rinse settings, `{ id, values, machines, editable }`:
+  steam and rinse settings, `{ id, values, machines, editable }`:
   their id, null while no Machine there sharing them has reported its
   Workflow, so none is set; each
-  setting by its name, such as `steamSettings.flow`, null while unset; the
+  setting by its name, such as `steamSettings.flow`, null while unset, and
+  no hot water; the
   Location's Machines now, each `{ id, name, model, sharesSettings, sharing
   }`, by name, `model` its hardware's, or an Unidentified Machine's reported
   one, null while neither is known, and `sharing` false while it is
@@ -1479,9 +1492,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   PostgreSQL's clock and made over the settings as they stand, written to
   the Location's Machines that share them; returns `{ settings }`. Each value is
   a number of 0 or more, a whole one where Decaid keeps a whole number (each
-  target temperature, time and the hot water volume), and a steam target
-  temperature of 135 °C or more, as turning steam off is each Machine's own:
-  400 otherwise. 404 if there are no such settings, 403 for Staff at another
+  target temperature and time), and a steam target temperature of 135 °C or
+  more, as turning steam off is each Machine's own: 400 otherwise, as for a
+  setting it does not share, such as `hotWaterData.volume`. 404 if there are no such settings, 403 for Staff at another
   Location.
 - `GET /api/location-settings/:id/history` and `GET
   /api/location-settings/:id/conflicts` return their `{ versions }` and open
@@ -1529,9 +1542,9 @@ Library's Conflicts page lists every open Conflict, the latest first, with
 the losing value and the value now, and where and when each came from. A
 Conflict is used or dismissed from either, by an account that may
 (`web/src/components/conflicts.tsx`). Each Location's page
-(`/locations/:id`) shows its steam, hot water and rinse settings, which an
+(`/locations/:id`) shows its steam and rinse settings, which an
 Admin, or Staff working there, changes, with their Conflicts and history,
-and its Machines, each with a switch for sharing them, a capture-only one
+and its Machines, each with a switch for sharing steam and rinse, a capture-only one
 flagged (`web/src/components/location-settings.tsx`). A Machine's page says whether
 it shares the Library at its Location or is capture-only, and why, with a
 switch an Admin turns its sharing off and on with, once they confirm, and

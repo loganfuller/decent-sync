@@ -26,15 +26,6 @@ const SETTINGS: { part: string; fields: [field: string, label: string, unit: str
     ],
   },
   {
-    part: "Hot water",
-    fields: [
-      ["hotWaterData.targetTemperature", "Hot water temperature", "°C", true],
-      ["hotWaterData.duration", "Hot water time", "s", true],
-      ["hotWaterData.volume", "Hot water volume", "ml", true],
-      ["hotWaterData.flow", "Hot water flow", "ml/s", false],
-    ],
-  },
-  {
     part: "Rinse",
     fields: [
       ["rinseData.targetTemperature", "Rinse temperature", "°C", true],
@@ -55,7 +46,7 @@ export const SETTING_LABELS: Readonly<Record<string, string>> = Object.fromEntri
 );
 
 /**
- * A Location's steam, hot water and rinse settings: their values, which an
+ * A Location's steam and rinse settings: their values, which an
  * account that may changes, its Machines, each of whose sharing it switches
  * on or off, and their Conflicts and history. `onSaved` follows a change.
  */
@@ -63,7 +54,7 @@ export function LocationSettingsCard({ settings, onSaved }: { settings: Location
   const [editing, setEditing] = useState(false);
   // Each change made here is read into the history again.
   const [saves, setSaves] = useState(0);
-  const title = "Steam, hot water and rinse";
+  const title = "Steam and rinse";
 
   return (
     <section aria-label={title} className="grid gap-4">
@@ -75,7 +66,7 @@ export function LocationSettingsCard({ settings, onSaved }: { settings: Location
           <CardDescription>
             Shared by this Location's Machines, whatever their model. Machines with sharing turned off below keep their own. Set them on
             any of their tablets or here. A Machine whose steam is turned off keeps it off, and takes these steam settings once it is
-            turned on again.
+            turned on again. Hot water isn't shared: each Machine keeps its own.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
@@ -96,7 +87,7 @@ export function LocationSettingsCard({ settings, onSaved }: { settings: Location
               <SettingsTable settings={settings} />
               {settings.editable && (
                 <div>
-                  <Button variant="outline" aria-label="Change the steam, hot water and rinse settings" onClick={() => setEditing(true)}>
+                  <Button variant="outline" aria-label="Change the steam and rinse settings" onClick={() => setEditing(true)}>
                     Change
                   </Button>
                 </div>
@@ -128,9 +119,9 @@ export function LocationSettingsCard({ settings, onSaved }: { settings: Location
 }
 
 /**
- * The Location's Machines, each with a switch for whether it
- * shares the settings: with sharing turned off, its tablet keeps its own and
- * none of its changes are shared; turned back on, it takes these.
+ * The Location's Machines, each with a switch for whether it shares the
+ * steam and rinse settings: with sharing turned off, its tablet keeps its own
+ * and none of its changes are shared; turned back on, it takes these.
  */
 function SharingMachines({ settings, onChanged }: { settings: LocationSettings; onChanged(): Promise<void> | void }) {
   const [busy, setBusy] = useState<string>();
@@ -161,7 +152,7 @@ function SharingMachines({ settings, onChanged }: { settings: LocationSettings; 
           <TableRow>
             <TableHead>Machine</TableHead>
             <TableHead>Model</TableHead>
-            <TableHead>Shares these settings</TableHead>
+            <TableHead>Shares steam and rinse</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -181,7 +172,7 @@ function SharingMachines({ settings, onChanged }: { settings: LocationSettings; 
               <TableCell>{machine.model ?? <span className="text-muted-foreground">Not reported yet</span>}</TableCell>
               <TableCell>
                 <Switch
-                  aria-label={`${machine.name} shares these settings`}
+                  aria-label={`${machine.name} shares steam and rinse`}
                   checked={machine.sharesSettings}
                   disabled={!settings.editable || busy !== undefined}
                   onCheckedChange={(checked) => void setSharing(machine.id, checked)}
@@ -197,7 +188,7 @@ function SharingMachines({ settings, onChanged }: { settings: LocationSettings; 
 
 function SettingsTable({ settings }: { settings: LocationSettings }) {
   return (
-    <Table aria-label="Steam, hot water and rinse settings">
+    <Table aria-label="Steam and rinse settings">
       <TableHeader>
         <TableRow>
           <TableHead>Setting</TableHead>
@@ -250,7 +241,7 @@ function SettingsForm({ settings, onCancel, onSaved }: { settings: LocationSetti
   }
 
   return (
-    <form aria-label="Change the steam, hot water and rinse settings" className="grid gap-6" onSubmit={save}>
+    <form aria-label="Change the steam and rinse settings" className="grid gap-6" onSubmit={save}>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>

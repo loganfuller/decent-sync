@@ -11,8 +11,8 @@ import { INTAKE_TRANSACTION, currentLocation } from "./intake.js";
 import { editSettings, lockSettings } from "./location-settings.js";
 import { readLocationValues } from "./settings-intake.js";
 
-// Each Location's steam, hot water and rinse settings, shared by its
-// Machines whatever their model (ADR-0014), read by Staff as by Admins, and
+// Each Location's steam and rinse settings, shared by its Machines whatever
+// their model (ADR-0014), read by Staff as by Admins, and
 // changed by Admins, and by Staff at their own Locations (ADR-0008's
 // per-Location state). A change here is an edit by the account, timed by
 // PostgreSQL's clock (ADR-0016), made over the settings as they stand, and

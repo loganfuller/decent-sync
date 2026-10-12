@@ -171,7 +171,7 @@ export type CaptureOnlyReason = "noLocation" | "sharingOff";
 /** A change the server makes to a tablet: a write of an item, the shared settings or the Workflow, a delete, or setting aside a record. */
 export interface TabletChange {
   change: "write" | "delete" | "leaveOut";
-  /** A Library kind, `settings` (a Location's steam, hot water and rinse settings) or `workflow` (its Workflow's grinder and batch). */
+  /** A Library kind, `settings` (a Location's steam and rinse settings) or `workflow` (its Workflow's grinder and batch). */
   kind: ItemKind | "workflow";
   /** The item, named as Conflicts name it; null for a record set aside, which is none of the Library's, or an item deleted since. */
   item: { kind: ItemKind | "workflow"; id: string; name: string | null } | null;
@@ -570,10 +570,10 @@ export interface Profile extends ProfileSummary {
 /** The kinds of Library item (`LIBRARY_KINDS`). */
 export type { LibraryKind };
 
-/** What has versions and Conflicts: Library items, and each Location's steam, hot water and rinse settings (`settings`). */
+/** What has versions and Conflicts: Library items, and each Location's steam and rinse settings (`settings`). */
 export type ItemKind = LibraryKind | "settings";
 
-/** A Location's steam, hot water and rinse settings, shared by its Machines whatever their model. */
+/** A Location's steam and rinse settings, shared by its Machines whatever their model. */
 export interface LocationSettings {
   /** Null while no Machine there sharing them has reported its Workflow, so none is set. */
   id: string | null;
@@ -611,7 +611,7 @@ export interface ItemVersion {
 /** An edit of a field of a Library item that lost to another made without seeing it. */
 export interface Conflict {
   id: string;
-  /** The item, or a Location's steam, hot water and rinse settings, whose Location is `location`. */
+  /** The item, or a Location's steam and rinse settings, whose Location is `location`. */
   item: { kind: ItemKind; id: string; name: string | null };
   field: string;
   /** The losing value; null where the edit cleared the field. */

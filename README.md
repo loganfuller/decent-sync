@@ -43,10 +43,10 @@ where its batches are, a Grinder belongs to the Location where it was created,
 and a Profile is shown or hidden at each Location. Archiving, hiding or
 deleting one on a tablet acts at that tablet's Location only; a Grinder
 archived or deleted there is Archived. A Location's Machines share their
-steam, hot water and rinse settings too, but those whose sharing is turned
-off. An edit made on a tablet or in the management interface reaches every
-tablet that holds the item, merged field by field with the latest edit
-winning; each item and each Location's settings keep their history, and an
+steam and rinse settings too, but those whose sharing is turned off, while
+each keeps its own hot water. An edit made on a tablet or in the management
+interface reaches every tablet that holds the item, merged field by field
+with the latest edit winning; each item and each Location's settings keep their history, and an
 edit that lost to one made without seeing it is kept as a Conflict, whose
 value the management interface uses or dismisses. The management interface's
 Library lists the Beans, the Bean Batches, the Grinders, the Profiles, and

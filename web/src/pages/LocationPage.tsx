@@ -8,8 +8,8 @@ import { ApiError, api, type Location, type LocationSettings } from "@/lib/api";
 import { usePolled } from "@/lib/use-polled";
 
 /**
- * One Location: the steam, hot water and rinse settings its Machines share,
- * and each Machine's switch for sharing them. Loaded every 5 s, so a change
+ * One Location: the steam and rinse settings its Machines share, and each
+ * Machine's switch for sharing them. Loaded every 5 s, so a change
  * made on a tablet shows.
  */
 export function LocationPage() {
