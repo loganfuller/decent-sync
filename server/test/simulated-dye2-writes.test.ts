@@ -57,6 +57,13 @@ describe("The simulated tablet's plugin storage", () => {
     expect(dye2List(tablet, "recipes")).toEqual(recipes);
     for (const key of ["baskets", "equipment"]) expect(await tablet.callApi("GET", `/store/dye2.reaplugin/${key}`)).toEqual({ status: 200, body: null });
   });
+
+  it("reads a key under the name its write gave it, however the route spells it, as Decaid's router decodes both", async () => {
+    const tablet = load();
+    await tablet.callApi("POST", "/store/streamline-app/a:b", []);
+    expect(await tablet.callApi("GET", "/store/streamline-app/a%3Ab")).toEqual({ status: 200, body: [] });
+    expect(tablet.storeValue("streamline-app", "a:b")).toEqual([]);
+  });
 });
 
 describe("DYE2 and Streamline replayed on a simulated tablet", () => {
@@ -106,5 +113,64 @@ describe("DYE2 and Streamline replayed on a simulated tablet", () => {
       }
     }
     expect(dye2List(tablet, "recipes")).toEqual(dye2Keys().recipes);
+  });
+});
+
+describe("DYE2 and Streamline replayed on a tablet holding other data", () => {
+  type Recipe = { id: string; name: string; dashboardVariables: Record<string, unknown> };
+  const recipe = (tablet: SimulatedTablet, id: string) => (dye2List(tablet, "recipes") as Recipe[]).find((item) => item.id === id);
+
+  /**
+   * Derived from the recorded lists: slot 2 with its hot water by temperature
+   * and a yield of 40, a slot 4 copied from slot 3, and a tool the recording
+   * never made.
+   */
+  function loadDerived(): SimulatedTablet {
+    const keys = dye2Keys();
+    const recipes = keys.recipes as Recipe[];
+    const { hotWaterMl: _volume, ...slot2Variables } = recipes.find((item) => item.id === "2")!.dashboardVariables;
+    const slot2 = { ...recipes.find((item) => item.id === "2")!, dashboardVariables: { ...slot2Variables, drink: 40, hotWaterMode: "temp", hotWaterTempC: 80 } };
+    const slot4 = { ...recipes.find((item) => item.id === "3")!, id: "4", name: "Fixture Derived Recipe" };
+    const tool = { ...keys.equipment[1], id: "fixture-derived-tool", name: "Fixture Derived Tamper" };
+    return load({
+      ...dye2Library(),
+      "/store/dye2.reaplugin/recipes": [...recipes.map((item) => (item.id === "2" ? slot2 : item)), slot4],
+      "/store/dye2.reaplugin/equipment": [...keys.equipment, tool],
+    });
+  }
+
+  it("Streamline's auto-save writes the fields it reads from the Workflow change into the tablet's recipe, leaving the rest", async () => {
+    const tablet = loadDerived();
+    const streamline = dye2Recording("streamline");
+    const slot4 = recipe(tablet, "4");
+    await autoSaveInStreamline(tablet, streamline.autoSaveDose);
+    // The yield Streamline sent with the dose, and the Profile's first step temperature, as Streamline saves them.
+    expect(recipe(tablet, "2")!.dashboardVariables).toMatchObject({ dose: 20, drink: 36, brewC: 94, hotWaterMode: "temp", hotWaterTempC: 80 });
+    await autoSaveInStreamline(tablet, streamline.autoSaveHotWater);
+    expect(recipe(tablet, "2")!.dashboardVariables).toMatchObject({ hotWaterMode: "vol", hotWaterMl: 155, hotWaterTempC: 80 });
+    expect(recipe(tablet, "4")).toEqual(slot4);
+  });
+
+  it("Streamline saves nothing into a recipe the tablet no longer holds", async () => {
+    const tablet = loadDerived();
+    const without = (dye2List(tablet, "recipes") as Recipe[]).filter((item) => item.id !== "2");
+    await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", without);
+    expect(await autoSaveInStreamline(tablet, dye2Recording("streamline").autoSaveGrind)).toBeUndefined();
+    expect(dye2List(tablet, "recipes")).toEqual(without);
+  });
+
+  it("DYE2's saves keep the items they do not touch, and a new tool named as one held is not written", async () => {
+    const tablet = loadDerived();
+    const recipes = dye2Recording("recipes");
+    const tools = dye2Recording("tools");
+    const slot4 = recipe(tablet, "4");
+    await saveInDye2(tablet, recipes.editSlot1);
+    expect(recipe(tablet, "4")).toEqual(slot4);
+    expect(recipe(tablet, "1")!.dashboardVariables).toMatchObject({ dose: 18.5, grind: 2.7, hotWaterTempC: 88 });
+    const equipment = dye2List(tablet, "equipment");
+    await saveInDye2(tablet, tools.createWdtTool);
+    expect(dye2List(tablet, "equipment")).toEqual(equipment);
+    await saveInDye2(tablet, tools.editWdtTool);
+    expect((dye2List(tablet, "equipment") as { name: string }[]).map((tool) => tool.name)).toEqual(["Fixture WDT Tool", "Fixture Puck Screen", "Fixture Derived Tamper"]);
   });
 });

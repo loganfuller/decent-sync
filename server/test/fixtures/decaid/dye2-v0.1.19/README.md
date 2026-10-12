@@ -81,7 +81,7 @@ Everything named in the records (beans, batches, grinder, baskets, tools,
 recipes, beverage, barista and drinker) was made up for the recording; the
 profiles are Decaid's bundled ones. The simulated machine reports serial
 `mock-de1` and names no real hardware, so nothing is scrubbed. Every Shot's
-measurements, in `shot.json` and in the Shots Streamline read, are trimmed to
+measurements in `shot.json` are trimmed to
 their first, last, peak-pressure and peak-flow samples, in their order, as
 `../de1pro-v0.8.7/` trims its Shot.
 
@@ -95,7 +95,9 @@ offset.
   id is its slot, `"1"` to `"5"`, and the list holds only the slots ever
   saved, in the order first saved. The editor rewrites `capturedAt`,
   `title`, `subtitle` and the embedded `workflow` on every save. A blank
-  number is saved as 0. A slot saved without a Grinder or Basket picked keeps
+  number is saved as 0, but a blank brew temperature as 93, and blank steam
+  and hot water as modes flow and volume (`getCurrentRecipeData` in
+  `dye2:dye2-plugin/src/pages/recipe-edit.ts`). A slot saved without a Grinder or Basket picked keeps
   those of the slot the editor showed before it, slot 1's here, as switching
   tabs does not clear them. A Profile picked from the library is named by
   `profileId`, with `profileSnapshot` null; one read from the Workflow has
@@ -115,7 +117,11 @@ offset.
   recipe's dose, yield, grind setting (as a number, which Decaid keeps as
   text), RPM, grinder and Profile, its steam, hot water and flush values of
   its modes, and its barista and drinker when it names them, so applying
-  slot 2 kept slot 1's. It sets no bean, batch or basket. Applying the blank
+  slot 2 kept slot 1's. It sets no bean, batch or basket, and not the
+  recipe's brew temperature: the Profile is sent with its own step
+  temperatures, so slot 1, saved at 92, is applied at `Adaptive v3`'s 93
+  and 88, and slot 2, saved at 93, at `Classic Italian espresso`'s 94.
+  Streamline's DYE strip does not apply it either. Applying the blank
   slot sets the dose, yield, grind, steam flow, hot water volume and flush
   to 0.
 - **A basket picked** on the dashboard, or in Edit Shot, writes only the
@@ -127,9 +133,13 @@ offset.
   whole Workflow, with the recipe's embedded `workflow.context` merged into
   it and its full Profile.
 - **Streamline's auto-save** reads the recipes and posts them back with the
-  changed fields merged into the applied recipe's `dashboardVariables`: dose
-  and yield for a dose change, the grind setting, the hot water volume and
-  mode, the steam flow and mode. It stops for good at the first change whose
+  fields it reads from the barista's Workflow change merged into the
+  applied recipe's `dashboardVariables` (`recipeAutoSaveFields` in
+  `streamline-js:src/modules/dyeStrip.js`): dose and yield for a dose
+  change, the grind setting, the hot water volume and mode, the steam flow
+  and mode. A dose change sends the Profile too, so it also saves the
+  Profile's first step temperature as `brewC`: `autoSaveDose` changed slot
+  2's from 93 to 94, though the barista changed no temperature. It stops for good at the first change whose
   Workflow answer's profile does not match the profile it applied, compared
   on title, target weight and volume, tank temperature and steps but their
   temperatures (`profileFingerprint` in

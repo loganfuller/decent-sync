@@ -14,14 +14,18 @@ import type { DecaidApi, SimulatedTablet } from "./simulated-tablet.js";
 //
 // DYE2 keeps each list whole under one key of Decaid's store, `recipes`,
 // `baskets` and `equipment` (its tools) under `dye2.reaplugin`. Each save
-// reads the list, changes one item and posts the list back: DYE2's pages put
+// reads the list, changes one item and posts the list back. DYE2's pages put
 // the item in as `{...existing, ...item}` (`kvUpsert` in
-// dye2:dye2-plugin/src/utils/dev-api.ts), or leave it out to delete a tool,
-// and Streamline's auto-save merges the fields it changed into the recipe's
-// `dashboardVariables` (`saveItemFields` in
-// streamline-js:src/modules/dyeStrip.js). The helpers do the same with the
-// items the recording changed, so they work on whatever the tablet holds,
-// and on the recorded list give what was recorded. A recipe is applied in
+// dye2:dye2-plugin/src/utils/dev-api.ts), leave it out to delete a tool, and
+// write nothing for a new tool whose name the list holds already
+// (`createEquipment`). Streamline's auto-save merges into the applied
+// recipe's `dashboardVariables` the fields it reads from the barista's
+// Workflow change (`recipeAutoSaveFields` and `saveItemFields` in
+// streamline-js:src/modules/dyeStrip.js), and saves nothing if the list no
+// longer holds the recipe. The helpers do the same with the items the
+// recording changed and the Workflow changes it made, so they work on
+// whatever the tablet holds, and on the recorded list give what was
+// recorded. A recipe is applied in
 // one `PUT /workflow` of the whole Workflow, DYE2's dashboard and
 // Streamline's DYE strip each merging the recipe into the Workflow they read;
 // Streamline first keeps the steam, hot water and flush values it sets in
@@ -125,25 +129,72 @@ export function dye2List(tablet: SimulatedTablet, key: Dye2Key): unknown {
  * names. Resolves with the list posted.
  */
 export async function saveInDye2(tablet: SimulatedTablet, step: Dye2Exchange[], change: (item: Record_) => Record_ = (item) => item): Promise<Record_[]> {
-  return writeList(tablet, step, (existing, recorded) => ({ ...existing, ...change(recorded) }));
+  return writeList(tablet, step, (existing, recorded, before, list) => {
+    const item = change(recorded);
+    const named = (tool: Record_) => String(tool.name).toLowerCase() === String(item.name).toLowerCase();
+    if (!before && isToolList(step) && list.some(named)) return undefined;
+    return { ...existing, ...item };
+  });
 }
 
 /**
  * Streamline's auto-save in that recorded step: replays the Workflow change
- * the barista made and the values Streamline kept for it, then reads the
- * recipes from the tablet and merges the fields the step changed into the
- * applied recipe's `dashboardVariables`, and posts the list back. Resolves
- * with the list posted, or undefined for a step that saved nothing.
+ * the barista made and the values Streamline kept for it, then, if
+ * Streamline saved it, reads the recipes from the tablet, merges into the
+ * applied recipe's `dashboardVariables` the fields Streamline reads from the
+ * change and the Workflow Decaid answered (`recipeAutoSaveFields`), and posts
+ * the list back. The applied recipe is the one the recording saved into.
+ * Resolves with the list posted, or undefined for a step that saved nothing
+ * or a recipe the tablet no longer holds.
  */
 export async function autoSaveInStreamline(tablet: SimulatedTablet, step: Dye2Exchange[]): Promise<Record_[] | undefined> {
   const posted = step.findIndex(isListWrite);
-  await replayWrites(tablet, posted === -1 ? step : step.slice(0, posted));
+  const [answer] = await replayWrites(tablet, posted === -1 ? step : step.slice(0, posted));
   if (posted === -1) return undefined;
-  return writeList(tablet, step, (existing, recorded, before) => {
-    const changed = (record: Record_ | undefined) => (record?.dashboardVariables ?? {}) as Record_;
-    const fields = Object.fromEntries(Object.entries(changed(recorded)).filter(([field, value]) => !isDeepStrictEqual(changed(before)[field], value)));
-    return { ...existing, dashboardVariables: { ...changed(existing), ...fields } };
+  const sent = step.find(({ request }) => request.method === "PUT" && request.path === "/workflow")!.request.body as Record_;
+  if (answer?.status !== 200) throw new Error(`Decaid answered ${answer?.status} to the Workflow change`);
+  const fields = recipeAutoSaveFields(sent, answer.body as Record_);
+  let saved = false;
+  const list = await writeList(tablet, step, (existing) => {
+    if (!existing) return undefined;
+    saved = true;
+    return { ...existing, dashboardVariables: { ...((existing.dashboardVariables ?? {}) as Record_), ...fields } };
   });
+  return saved ? list : undefined;
+}
+
+/**
+ * The fields of a recipe's `dashboardVariables` Streamline saves from a
+ * Workflow change it sent and the Workflow Decaid answered
+ * (`recipeAutoSaveFields` in streamline-js:src/modules/dyeStrip.js at
+ * v0.2.13): each set from the answer, or else from what was sent.
+ */
+function recipeAutoSaveFields(sent: Record_, answered: Record_): Record_ {
+  const part = (workflow: Record_, name: string) => (workflow[name] ?? {}) as Record_;
+  const fields: Record_ = {};
+  const context = part(sent, "context");
+  const answeredContext = part(answered, "context");
+  if (context.targetDoseWeight != null) fields.dose = answeredContext.targetDoseWeight ?? context.targetDoseWeight;
+  if (context.targetYield != null) fields.drink = answeredContext.targetYield ?? context.targetYield;
+  if (context.grinderSetting != null) {
+    const grind = parseFloat(String(answeredContext.grinderSetting ?? context.grinderSetting));
+    if (Number.isFinite(grind)) fields.grind = grind;
+  }
+  const firstStep = (workflow: Record_) => ((part(workflow, "profile").steps as Record_[] | undefined)?.[0] ?? {}) as Record_;
+  if (firstStep(sent).temperature != null) {
+    const temperature = parseFloat(String(firstStep(answered).temperature ?? firstStep(sent).temperature));
+    if (Number.isFinite(temperature)) fields.brewC = temperature;
+  }
+  const steam = part(sent, "steamSettings");
+  if (steam.duration != null) Object.assign(fields, { steamMode: "time", steamTimeS: part(answered, "steamSettings").duration ?? steam.duration });
+  else if (steam.flow != null) Object.assign(fields, { steamMode: "flow", steamFlowMls: part(answered, "steamSettings").flow ?? steam.flow });
+  const hotWater = part(sent, "hotWaterData");
+  if (hotWater.volume != null) Object.assign(fields, { hotWaterMode: "vol", hotWaterMl: part(answered, "hotWaterData").volume ?? hotWater.volume });
+  else if (hotWater.targetTemperature != null) {
+    Object.assign(fields, { hotWaterMode: "temp", hotWaterTempC: part(answered, "hotWaterData").targetTemperature ?? hotWater.targetTemperature });
+  }
+  if (part(sent, "rinseData").duration != null) fields.flushS = part(answered, "rinseData").duration ?? part(sent, "rinseData").duration;
+  return fields;
 }
 
 /**
@@ -162,6 +213,11 @@ export async function replayWrites(tablet: SimulatedTablet, step: Dye2Exchange[]
   return answers;
 }
 
+/** Whether the step writes DYE2's tools. */
+function isToolList(step: Dye2Exchange[]): boolean {
+  return step.some(({ request }) => isListWrite({ request } as Dye2Exchange) && request.path === `/store/${DYE2_NAMESPACE}/equipment`);
+}
+
 /** A write of one of DYE2's lists. */
 function isListWrite({ request }: Dye2Exchange): boolean {
   return request.method === "POST" && request.path.startsWith(`/store/${DYE2_NAMESPACE}/`);
@@ -170,32 +226,45 @@ function isListWrite({ request }: Dye2Exchange): boolean {
 /**
  * Writes the step's list as its writer did, read-modify-write: each item the
  * step changed or added is put in as `merge` makes it from the tablet's item
- * with its id (undefined for a new one), the item recorded and the item the
- * recorded writer read, and each it removed is left out.
+ * with its id (undefined for a new one), the item recorded, the item the
+ * recorded writer read (undefined for a new one) and the list read, or left
+ * as it is where `merge` gives undefined, and each it removed is left out.
+ * Posts the list back unless `merge` left every item it was given as it is
+ * and the step removed none, as DYE2 creating a tool the list names already
+ * and Streamline saving into a recipe the list no longer holds write
+ * nothing. Resolves with the list.
  */
 async function writeList(
   tablet: SimulatedTablet,
   step: Dye2Exchange[],
-  merge: (existing: Record_ | undefined, recorded: Record_, before: Record_ | undefined) => Record_,
+  merge: (existing: Record_ | undefined, recorded: Record_, before: Record_ | undefined, list: Record_[]) => Record_ | undefined,
 ): Promise<Record_[]> {
   const index = step.findIndex(isListWrite);
   if (index === -1) throw new Error("The step writes none of DYE2's lists");
   const { path: route, body } = step[index]!.request;
-  const read = step.slice(0, index).filter(({ request }) => request.method === "GET" && request.path === route).at(-1);
-  const before = asList(read?.response.body);
+  const recordedRead = step.slice(0, index).filter(({ request }) => request.method === "GET" && request.path === route).at(-1);
+  const before = asList(recordedRead?.response.body);
   const after = asList(body);
   const byId = (list: Record_[], id: unknown) => list.find((item) => item.id === id);
   const { status, body: current } = await tablet.callApi("GET", route);
   if (status !== 200) throw new Error(`Decaid answered ${status} reading ${route}`);
   let list = asList(current);
-  for (const item of before) if (!byId(after, item.id)) list = list.filter((kept) => kept.id !== item.id);
+  let changed = false;
+  for (const item of before) {
+    if (byId(after, item.id)) continue;
+    list = list.filter((kept) => kept.id !== item.id);
+    changed = true;
+  }
   for (const item of after) {
     const previous = byId(before, item.id);
     if (isDeepStrictEqual(previous, item)) continue;
     const existing = byId(list, item.id);
-    const merged = merge(existing, item, previous);
+    const merged = merge(existing, item, previous, list);
+    if (merged === undefined) continue;
     list = existing ? list.map((kept) => (kept === existing ? merged : kept)) : [...list, merged];
+    changed = true;
   }
+  if (!changed) return list;
   const written = await tablet.callApi("POST", route, list);
   if (written.status !== 200) throw new Error(`Decaid answered ${written.status} writing ${route}`);
   return list;

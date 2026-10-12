@@ -703,8 +703,9 @@ export class SimulatedTablet {
 
   /** What Decaid's store holds at that key of that namespace, as `GET /store/{namespace}/{key}` answers it: null if never set. */
   storeValue(namespace: string, key: string): unknown {
-    const route = storeRoute(namespace, key);
-    return route in this.api ? structuredClone(this.api[route]) : null;
+    const value = this.api[storeRoute(namespace, key)];
+    if (value instanceof Refusal) throw new Error(`Decaid's store is served as refusing ${namespace}/${key}, with ${value.status}`);
+    return value === undefined ? null : structuredClone(value);
   }
 
   /**
@@ -1115,11 +1116,14 @@ export class SimulatedTablet {
     if (store === "store" && namespace === encodeURIComponent(this.pluginId) && rest.length === 0) {
       return response(200, JSON.stringify(this.storage.readThroughApi(key === undefined ? undefined : decodeURIComponent(key))));
     }
-    const answer = this.api[route];
+    // A key of Decaid's store is read under the route its writes keep it at.
+    const stored = this.keptInStore(route);
+    const served = stored ? storeRoute(stored.namespace, stored.key) : route;
+    const answer = this.api[served];
     if (answer instanceof Refusal) return response(answer.status, JSON.stringify(answer.body));
     // A key of plugin storage nothing has written (KvStoreHandler in kv_store_handler.dart).
-    if (!(route in this.api) && route.startsWith("/store/") && route.split("/").length === 4) return response(200, "null");
-    if (!(route in this.api)) return response(404, "");
+    if (!(served in this.api) && stored) return response(200, "null");
+    if (!(served in this.api)) return response(404, "");
     return response(200, JSON.stringify(answer));
   }
 
