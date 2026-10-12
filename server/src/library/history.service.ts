@@ -228,7 +228,11 @@ function versionedState(kind: VersionedKind): LocationStateDescription | undefin
 /** Values grouped by a key, in the order each key is first met. */
 function grouped<T, K>(values: readonly T[], key: (value: T) => K): Map<K, T[]> {
   const groups = new Map<K, T[]>();
-  for (const value of values) groups.set(key(value), [...(groups.get(key(value)) ?? []), value]);
+  for (const value of values) {
+    const group = groups.get(key(value));
+    if (group) group.push(value);
+    else groups.set(key(value), [value]);
+  }
   return groups;
 }
 

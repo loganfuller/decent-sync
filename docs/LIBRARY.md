@@ -234,11 +234,13 @@ never deleted, so their Shots still find it (Writing to tablets, below).
 - `versioned_items`: every item that keeps versions and Conflicts, each
   Library item and each Location's settings, by kind and id, which versions
   and Conflicts reference, so a new kind needs no column of its own in them.
-  A trigger on each kind's table keeps it, as its migration created them
-  (`versioned_item_added`, `versioned_item_renamed` and
-  `versioned_item_removed`, each given the kind): a row is added as an item
-  is, follows a change of its id, and is deleted as the item is, taking its
-  versions and Conflicts with it, as a foreign key to the item would.
+  Triggers on each kind's table keep it, as its migration created them
+  (`versioned_item_added`, `versioned_item_renamed`,
+  `versioned_item_removed` and `versioned_items_truncated`, each given the
+  kind): a row is added as an item is, follows a change of its id, and is
+  deleted as the item is, or with every row of the kind as its table is
+  truncated, taking its versions and Conflicts with it, as a foreign key to
+  the item would.
 - `location_settings` and `tablet_settings`: each Location's steam, hot water
   and rinse settings, and each tablet's as it last had them
   (Steam, hot water and rinse settings, below).
@@ -1578,7 +1580,7 @@ needs:
    names is not deleted.
 3. **The schema and its migration**: its table, with `content`, `archived`
    and `field_edits` as the other kinds have them; each tablet's map of its
-   records; a Location's state of it, if it has one; and its table's three
+   records; a Location's state of it, if it has one; and its table's four
    triggers keeping `versioned_items` (Storage, above), without which its
    items can have no versions or Conflicts.
 4. **The server** (`server/src/library/kinds.ts`): an entry in `KINDS`

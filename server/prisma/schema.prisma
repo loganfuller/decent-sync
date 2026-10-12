@@ -1036,8 +1036,10 @@ model TabletProfile {
 /// column of its own. A trigger on each kind's table adds its row as the
 /// item is inserted, follows a change of its id, and deletes it as the item
 /// is, taking the item's versions and Conflicts with it, as a foreign key to
-/// the item would; the migration creates them (`versioned_item_added`,
-/// `versioned_item_renamed` and `versioned_item_removed`), and
+/// the item would, and empties the kind's rows as its table is truncated;
+/// the migration creates them (`versioned_item_added`,
+/// `versioned_item_renamed`, `versioned_item_removed` and
+/// `versioned_items_truncated`), and
 /// server/src/library/kinds.ts names each kind's table.
 model VersionedItem {
   /// One of LIBRARY_KINDS (protocol/), or `settings`.

@@ -4,8 +4,9 @@
 -- which they reference, kept by a trigger on each kind's table: inserted as
 -- the item is, its id changed as the item's is, and deleted as the item is,
 -- taking the item's versions and Conflicts with it, as their foreign keys to
--- the item did. A new kind's migration creates its table's triggers. Rows
--- are kept, each named by the column that named its item.
+-- the item did, or emptied of the kind as its table is truncated. A new
+-- kind's migration creates its table's triggers. Rows are kept, each named
+-- by the column that named its item.
 
 -- CreateTable
 CREATE TABLE "versioned_items" (
@@ -153,22 +154,35 @@ BEGIN
   RETURN NULL;
 END $$;
 
+-- A truncated table fires no row trigger: every item of its kind is gone.
+CREATE FUNCTION "versioned_items_truncated"() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  DELETE FROM "versioned_items" WHERE "kind" = TG_ARGV[0];
+  RETURN NULL;
+END $$;
+
 CREATE TRIGGER "beans_versioned_added" AFTER INSERT ON "beans" FOR EACH ROW EXECUTE FUNCTION "versioned_item_added"('bean');
 CREATE TRIGGER "beans_versioned_renamed" AFTER UPDATE OF "id" ON "beans" FOR EACH ROW WHEN (OLD."id" IS DISTINCT FROM NEW."id") EXECUTE FUNCTION "versioned_item_renamed"('bean');
 CREATE TRIGGER "beans_versioned_removed" AFTER DELETE ON "beans" FOR EACH ROW EXECUTE FUNCTION "versioned_item_removed"('bean');
+CREATE TRIGGER "beans_versioned_truncated" AFTER TRUNCATE ON "beans" FOR EACH STATEMENT EXECUTE FUNCTION "versioned_items_truncated"('bean');
 
 CREATE TRIGGER "bean_batches_versioned_added" AFTER INSERT ON "bean_batches" FOR EACH ROW EXECUTE FUNCTION "versioned_item_added"('beanBatch');
 CREATE TRIGGER "bean_batches_versioned_renamed" AFTER UPDATE OF "id" ON "bean_batches" FOR EACH ROW WHEN (OLD."id" IS DISTINCT FROM NEW."id") EXECUTE FUNCTION "versioned_item_renamed"('beanBatch');
 CREATE TRIGGER "bean_batches_versioned_removed" AFTER DELETE ON "bean_batches" FOR EACH ROW EXECUTE FUNCTION "versioned_item_removed"('beanBatch');
+CREATE TRIGGER "bean_batches_versioned_truncated" AFTER TRUNCATE ON "bean_batches" FOR EACH STATEMENT EXECUTE FUNCTION "versioned_items_truncated"('beanBatch');
 
 CREATE TRIGGER "grinders_versioned_added" AFTER INSERT ON "grinders" FOR EACH ROW EXECUTE FUNCTION "versioned_item_added"('grinder');
 CREATE TRIGGER "grinders_versioned_renamed" AFTER UPDATE OF "id" ON "grinders" FOR EACH ROW WHEN (OLD."id" IS DISTINCT FROM NEW."id") EXECUTE FUNCTION "versioned_item_renamed"('grinder');
 CREATE TRIGGER "grinders_versioned_removed" AFTER DELETE ON "grinders" FOR EACH ROW EXECUTE FUNCTION "versioned_item_removed"('grinder');
+CREATE TRIGGER "grinders_versioned_truncated" AFTER TRUNCATE ON "grinders" FOR EACH STATEMENT EXECUTE FUNCTION "versioned_items_truncated"('grinder');
 
 CREATE TRIGGER "profiles_versioned_added" AFTER INSERT ON "profiles" FOR EACH ROW EXECUTE FUNCTION "versioned_item_added"('profile');
 CREATE TRIGGER "profiles_versioned_renamed" AFTER UPDATE OF "id" ON "profiles" FOR EACH ROW WHEN (OLD."id" IS DISTINCT FROM NEW."id") EXECUTE FUNCTION "versioned_item_renamed"('profile');
 CREATE TRIGGER "profiles_versioned_removed" AFTER DELETE ON "profiles" FOR EACH ROW EXECUTE FUNCTION "versioned_item_removed"('profile');
+CREATE TRIGGER "profiles_versioned_truncated" AFTER TRUNCATE ON "profiles" FOR EACH STATEMENT EXECUTE FUNCTION "versioned_items_truncated"('profile');
 
 CREATE TRIGGER "location_settings_versioned_added" AFTER INSERT ON "location_settings" FOR EACH ROW EXECUTE FUNCTION "versioned_item_added"('settings');
 CREATE TRIGGER "location_settings_versioned_renamed" AFTER UPDATE OF "id" ON "location_settings" FOR EACH ROW WHEN (OLD."id" IS DISTINCT FROM NEW."id") EXECUTE FUNCTION "versioned_item_renamed"('settings');
 CREATE TRIGGER "location_settings_versioned_removed" AFTER DELETE ON "location_settings" FOR EACH ROW EXECUTE FUNCTION "versioned_item_removed"('settings');
+CREATE TRIGGER "location_settings_versioned_truncated" AFTER TRUNCATE ON "location_settings" FOR EACH STATEMENT EXECUTE FUNCTION "versioned_items_truncated"('settings');

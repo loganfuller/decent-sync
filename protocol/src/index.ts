@@ -513,14 +513,16 @@ export function listKind(list: LibraryList): LibraryKind {
 
 /**
  * The kind whose records a kind's records are made under
- * (`LibraryKindDescription.under`), if any. Throws if it names no kind listed
- * before this one, which REMOVAL_ORDER, read as this module loads, finds.
+ * (`LibraryKindDescription.under`), if any: one listed before it, whose own
+ * records are made under none, as records are nested one deep. Throws
+ * otherwise, which REMOVAL_ORDER, read as this module loads, finds.
  */
 export function parentKind(kind: LibraryKind): LibraryKind | undefined {
   const { under }: LibraryKindDescription = LIBRARY_ITEM_KINDS[kind];
   if (under === undefined) return undefined;
-  if (!isLibraryKind(under) || LIBRARY_KINDS.indexOf(under) >= LIBRARY_KINDS.indexOf(kind)) {
-    throw new Error(`A ${kind}'s records are made under ${under}, which is no kind listed before it`);
+  const parent: LibraryKindDescription | undefined = isLibraryKind(under) ? LIBRARY_ITEM_KINDS[under] : undefined;
+  if (!isLibraryKind(under) || LIBRARY_KINDS.indexOf(under) >= LIBRARY_KINDS.indexOf(kind) || parent?.under !== undefined) {
+    throw new Error(`A ${kind}'s records are made under ${under}, which is no kind listed before it whose records are made under none`);
   }
   return under;
 }

@@ -13,12 +13,16 @@ import { LIBRARY_KINDS } from "@/lib/library-kinds";
 /** The settings collections shown, by the name the REST API gives them. */
 export const SETTINGS = { appSettings: "App settings", machineSettings: "Machine settings", advancedSettings: "Advanced settings" } as const;
 
-/** The library collections shown: each kind's list (`LIBRARY_KINDS`), then DYE2's keys. */
+/** The library collections shown: each kind's list (`LIBRARY_KINDS`), then DYE2's keys that are none of them. */
 const LIBRARY: [name: string, title: string][] = [
   ...Object.values(LIBRARY_KINDS).map(({ list }): [string, string] => [list.name, list.title]),
-  ["dye2Recipes", "DYE2 recipes"],
-  ["dye2Equipment", "DYE2 equipment"],
-  ["dye2Baskets", "DYE2 baskets"],
+  ...(
+    [
+      ["dye2Recipes", "DYE2 recipes"],
+      ["dye2Equipment", "DYE2 equipment"],
+      ["dye2Baskets", "DYE2 baskets"],
+    ] as [string, string][]
+  ).filter(([name]) => !Object.values(LIBRARY_KINDS).some(({ list }) => list.name === name)),
 ];
 
 /** The Machine's paired scale, auxiliary scale, sensors and other paired devices. */

@@ -253,8 +253,9 @@ var __decentSync = (() => {
   function parentKind(kind) {
     const { under } = LIBRARY_ITEM_KINDS[kind];
     if (under === void 0) return void 0;
-    if (!isLibraryKind(under) || LIBRARY_KINDS.indexOf(under) >= LIBRARY_KINDS.indexOf(kind)) {
-      throw new Error(`A ${kind}'s records are made under ${under}, which is no kind listed before it`);
+    const parent = isLibraryKind(under) ? LIBRARY_ITEM_KINDS[under] : void 0;
+    if (!isLibraryKind(under) || LIBRARY_KINDS.indexOf(under) >= LIBRARY_KINDS.indexOf(kind) || parent?.under !== void 0) {
+      throw new Error(`A ${kind}'s records are made under ${under}, which is no kind listed before it whose records are made under none`);
     }
     return under;
   }
@@ -1223,9 +1224,12 @@ var __decentSync = (() => {
   // src/collections.ts
   var SOURCES = [
     ...LIBRARY_KINDS.map((kind) => ({ name: LIBRARY_ITEM_KINDS[kind].list, path: libraryListPath(kind) })),
-    { name: "dye2Recipes", path: "/store/dye2.reaplugin/recipes" },
-    { name: "dye2Equipment", path: "/store/dye2.reaplugin/equipment" },
-    { name: "dye2Baskets", path: "/store/dye2.reaplugin/baskets" },
+    // Read here until a kind of Library item is reported in it, as milestone 3's are in DYE2's keys.
+    ...[
+      { name: "dye2Recipes", path: "/store/dye2.reaplugin/recipes" },
+      { name: "dye2Equipment", path: "/store/dye2.reaplugin/equipment" },
+      { name: "dye2Baskets", path: "/store/dye2.reaplugin/baskets" }
+    ].filter((source) => !isLibraryList(source.name)),
     { name: "appSettings", path: "/settings" },
     { name: "machineSettings", path: "/machine/settings" },
     { name: "advancedSettings", path: "/machine/settings/advanced" },

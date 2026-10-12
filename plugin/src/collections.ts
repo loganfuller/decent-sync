@@ -30,9 +30,12 @@ interface Source {
  */
 const SOURCES: readonly Source[] = [
   ...LIBRARY_KINDS.map((kind) => ({ name: LIBRARY_ITEM_KINDS[kind].list, path: libraryListPath(kind) })),
-  { name: "dye2Recipes", path: "/store/dye2.reaplugin/recipes" },
-  { name: "dye2Equipment", path: "/store/dye2.reaplugin/equipment" },
-  { name: "dye2Baskets", path: "/store/dye2.reaplugin/baskets" },
+  // Read here until a kind of Library item is reported in it, as milestone 3's are in DYE2's keys.
+  ...([
+    { name: "dye2Recipes", path: "/store/dye2.reaplugin/recipes" },
+    { name: "dye2Equipment", path: "/store/dye2.reaplugin/equipment" },
+    { name: "dye2Baskets", path: "/store/dye2.reaplugin/baskets" },
+  ] as const satisfies readonly Source[]).filter((source) => !isLibraryList(source.name)),
   { name: "appSettings", path: "/settings" },
   { name: "machineSettings", path: "/machine/settings" },
   { name: "advancedSettings", path: "/machine/settings/advanced" },

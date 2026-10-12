@@ -84,8 +84,8 @@ export interface WrittenKindDescription {
    * by (`ChangedItemView`, `ConflictItemView`): a Bean's roaster and name, a
    * batch's Bean and roast date, a Grinder's model, a Profile's title, the
    * settings' "Steam, hot water and rinse", a Workflow's "Grinder and
-   * batch"; null where its content has none. An item the server no longer
-   * has is left out.
+   * batch"; null where its content has none. A Library item the server no
+   * longer has is left out.
    */
   itemNames(db: Prisma.TransactionClient, ids: readonly string[]): Promise<Map<string, string | null>>;
   /** Records a write's answer as the tablet's record of the item, as `recordAnswer` in sync.gateway.ts does for every kind. */
