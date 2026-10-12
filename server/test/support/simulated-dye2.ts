@@ -124,17 +124,24 @@ export function dye2List(tablet: SimulatedTablet, key: Dye2Key): unknown {
  * saving slot 1 (`dye2Recording("recipes").saveSlot1`), a basket saved or a
  * tool created, edited or deleted: reads the list from the tablet, puts in
  * each item the step added or changed, over the tablet's item with its id,
- * and leaves out each item it removed, then posts the list back. `change`
- * alters the items put in, for a test to derive a save of its own, which it
- * names. Resolves with the list posted.
+ * keeping that item's `createdAt` as DYE2's edits of a basket or tool do
+ * (`updateBasket`, `updateEquipment`), and leaves out each item it removed,
+ * then posts the list back. `change` alters each item the step put in or
+ * removed, its id included, so that a test derives a save of its own, which
+ * it names, such as the same edit of the tool another tablet holds under
+ * its own id. Resolves with the list.
  */
 export async function saveInDye2(tablet: SimulatedTablet, step: Dye2Exchange[], change: (item: Record_) => Record_ = (item) => item): Promise<Record_[]> {
-  return writeList(tablet, step, (existing, recorded, before, list) => {
-    const item = change(recorded);
-    const named = (tool: Record_) => String(tool.name).toLowerCase() === String(item.name).toLowerCase();
-    if (!before && isToolList(step) && list.some(named)) return undefined;
-    return { ...existing, ...item };
-  });
+  return writeList(
+    tablet,
+    step,
+    (existing, item, before, list) => {
+      const named = (tool: Record_) => String(tool.name).toLowerCase() === String(item.name).toLowerCase();
+      if (!before && isToolList(step) && list.some(named)) return undefined;
+      return { ...existing, ...item, ...(before && existing && "createdAt" in existing ? { createdAt: existing.createdAt } : {}) };
+    },
+    change,
+  );
 }
 
 /**
@@ -230,10 +237,11 @@ function isListWrite({ request }: Dye2Exchange): boolean {
 
 /**
  * Writes the step's list as its writer did, read-modify-write: each item the
- * step changed or added is put in as `merge` makes it from the tablet's item
- * with its id (undefined for a new one), the item recorded, the item the
- * recorded writer read (undefined for a new one) and the list read, or left
- * as it is where `merge` gives undefined, and each it removed is left out.
+ * step changed or added, as `retarget` makes it, is put in as `merge` makes
+ * it from the tablet's item with its id (undefined for a new one), that item,
+ * the item the recorded writer read (undefined for a new one) and the list
+ * read, or left as it is where `merge` gives undefined, and each it removed
+ * is left out, found by the id `retarget` gives it.
  * Posts the list back unless `merge` left every item it was given as it is
  * and the step removed none, as DYE2 creating a tool the list names already
  * and Streamline saving into a recipe the list no longer holds write
@@ -242,7 +250,8 @@ function isListWrite({ request }: Dye2Exchange): boolean {
 async function writeList(
   tablet: SimulatedTablet,
   step: Dye2Exchange[],
-  merge: (existing: Record_ | undefined, recorded: Record_, before: Record_ | undefined, list: Record_[]) => Record_ | undefined,
+  merge: (existing: Record_ | undefined, item: Record_, before: Record_ | undefined, list: Record_[]) => Record_ | undefined,
+  retarget: (item: Record_) => Record_ = (item) => item,
 ): Promise<Record_[]> {
   const index = step.findIndex(isListWrite);
   if (index === -1) throw new Error("The step writes none of DYE2's lists");
@@ -257,14 +266,16 @@ async function writeList(
   let changed = false;
   for (const item of before) {
     if (byId(after, item.id)) continue;
-    list = list.filter((kept) => kept.id !== item.id);
+    const { id } = retarget(item);
+    list = list.filter((kept) => kept.id !== id);
     changed = true;
   }
   for (const item of after) {
     const previous = byId(before, item.id);
     if (isDeepStrictEqual(previous, item)) continue;
-    const existing = byId(list, item.id);
-    const merged = merge(existing, item, previous, list);
+    const target = retarget(item);
+    const existing = byId(list, target.id);
+    const merged = merge(existing, target, previous, list);
     if (merged === undefined) continue;
     list = existing ? list.map((kept) => (kept === existing ? merged : kept)) : [...list, merged];
     changed = true;

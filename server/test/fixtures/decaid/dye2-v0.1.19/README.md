@@ -5,10 +5,11 @@ exchanges: each request their pages sent to DYE2's keys in Decaid's store
 (`/store/dye2.reaplugin/recipes`, `baskets` and `equipment`, its tools),
 Streamline's remembered values (`/store/streamline-app/*`), the Workflow and
 single Shots, and the status and body Decaid answered, its JSON parsed. Each
-file but `store.json` and `keys.json` holds named steps, each one action in an
-app and the exchanges it made, in order. The requests they make to other
-routes, such as the library's lists, and to keys of their own (DYE2's
-`autoFavourites`, Streamline's `streamlineSettings` and
+file but `library.json`, `store.json` and `keys.json` holds named steps, each
+one action in an app and the exchanges it made, in order, but for
+`shot.json`'s `pulled` and `edited`, each a single read of the Shot. The
+requests they make to other routes, such as the library's lists, and to keys
+of their own (DYE2's `autoFavourites`, Streamline's `streamlineSettings` and
 `streamlineProfileOverrides`) are not kept.
 `server/test/support/simulated-dye2.ts` replays these steps on a simulated
 tablet, and `server/test/simulated-dye2-writes.test.ts` checks that doing so

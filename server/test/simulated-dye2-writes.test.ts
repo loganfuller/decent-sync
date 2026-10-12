@@ -11,7 +11,7 @@ import {
   replayWrites,
   saveInDye2,
 } from "./support/simulated-dye2.js";
-import { SimulatedTablet } from "./support/simulated-tablet.js";
+import { SimulatedTablet, de1ProOnDecaid087 } from "./support/simulated-tablet.js";
 import { runAsSteps } from "./support/steps.js";
 
 // The simulated tablet's plugin storage, and the helpers that act as DYE2
@@ -50,7 +50,7 @@ describe("The simulated tablet's plugin storage", () => {
 
   it("keeps a POST to DYE2's recipes, replacing the value, and answers null for DYE2's keys never written", async () => {
     // Served the test tablet's recipes, in an older DYE2's shape, which the POST replaces.
-    const tablet = load({ ...dye2Library(), "/store/dye2.reaplugin/recipes": [{ id: "1" }] });
+    const tablet = load({ ...dye2Library(), "/store/dye2.reaplugin/recipes": de1ProOnDecaid087()["/store/dye2.reaplugin/recipes"] });
     const recipes = dye2Keys().recipes;
     expect(await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", recipes)).toEqual({ status: 200, body: {} });
     expect(await tablet.callApi("GET", "/store/dye2.reaplugin/recipes")).toEqual({ status: 200, body: recipes });
@@ -166,6 +166,21 @@ describe("DYE2 and Streamline replayed on a tablet holding other data", () => {
     await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", without);
     expect(await autoSaveInStreamline(tablet, dye2Recording("streamline").autoSaveGrind)).toBeUndefined();
     expect(dye2List(tablet, "recipes")).toEqual(without);
+  });
+
+  it("DYE2's edit and deletion of tools another tablet holds under its own ids change those, keeping when each was made", async () => {
+    // Derived: the tools as DYE2 read them before editing one, under ids of another tablet's DYE2, made earlier there.
+    const tools = dye2Recording("tools");
+    const elsewhere = (tool: Record<string, unknown>) => ({ ...tool, id: `elsewhere-${String(tool.id)}` });
+    const read = tools.editWdtTool[0]!.response.body as Record<string, unknown>[];
+    const held: Record<string, unknown>[] = read.map((tool) => ({ ...elsewhere(tool), createdAt: "2026-01-02T03:04:05.000Z" }));
+    const tablet = load({ ...dye2Library(), "/store/dye2.reaplugin/equipment": held });
+    await saveInDye2(tablet, tools.editWdtTool, elsewhere);
+    const edited = (posted(tools.editWdtTool) as Record<string, unknown>[]).find((tool) => tool.name === "Fixture WDT Tool")!;
+    const afterEdit = held.map((tool) => (tool.name === "Fixture WDT Tool" ? { ...tool, custom: edited.custom } : tool));
+    expect(dye2List(tablet, "equipment")).toEqual(afterEdit);
+    await saveInDye2(tablet, tools.deleteSpareTamper, elsewhere);
+    expect(dye2List(tablet, "equipment")).toEqual(afterEdit.filter((tool) => tool.name !== "Fixture Spare Tamper"));
   });
 
   it("DYE2's saves keep the items they do not touch, and a new tool named as one held is not written", async () => {
