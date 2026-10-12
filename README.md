@@ -5,7 +5,7 @@ running [Decaid](https://github.com/decentespresso/decaid) to one self-hosted
 server. The target design lets Machines at several Locations share a Library
 of Beans, Bean Batches, Grinders and Profiles, each Location offering its own
 part of it.
-Machines at the same location share equipment, recipes and steam settings,
+Machines at the same location share grinders, recipes and steam settings,
 working like the groups of one commercial espresso machine. The
 server collects every shot and steam record they produce, and a web management
 interface shows machines, stock and analytics across all locations.
@@ -81,10 +81,10 @@ The target sharing scopes are:
 
 | Shared | Across |
 |---|---|
-| Beans, bean batches, profiles | every location, each offering its own part: the profiles shown there, the batches at that location and their beans, and each batch's stock there |
-| Equipment (grinders included), recipe slots | machines at the same location |
-| Steam, hot water and rinse settings | machines at the same location, whatever their model, but those with their sharing turned off. Turning steam on or off stays per machine |
-| Profile, dose, yield, batch and grinder in use | not shared: each machine has its own |
+| Beans, bean batches, profiles, baskets and tools | every location, each offering its own part: the profiles, baskets and tools shown there, the batches at that location and their beans, and each batch's stock there |
+| Grinders, recipes and their slots | machines at the same location |
+| Steam and rinse settings | machines at the same location, whatever their model, but those with their sharing turned off. Turning steam on or off stays per machine |
+| Profile, dose, yield, batch, grinder, basket and hot water settings in use | not shared: each machine has its own, which loading a recipe sets |
 
 - A **machine** is the hardware, identified by model and serial. Replacing its
   tablet doesn't make it a new machine.
@@ -454,12 +454,14 @@ holding its spec, tickets and pull requests.
    and rinse settings, Conflicts and history in the management interface, Shots
    linked to the Library, and a durable outbox. Spec:
    [#77](https://github.com/loganfuller/decent-sync/issues/77).
-3. **Location sharing.** DYE2 recipes and equipment, Recipe Slots, and the
-   effects of moving a Machine on its recipes. Recording Location moves is in
-   milestone 1, and what a move changes in a tablet's Library is in milestone 2.
+3. **Recipes and equipment.** DYE2 recipes, baskets and tools shared through
+   DYE2's storage, Recipe Slots, each Machine's Loaded Recipe, which its
+   Workflow follows and which follows the changes made on it, and Shots linked
+   to their Recipe and Basket. Recording Location moves is in milestone 1, and
+   what a move changes in a tablet's Library is in milestone 2.
 4. **Stock.** Deliveries, transfers, counts and the coffee each shot uses.
-5. **Analytics.** Broader views across Machines and Locations, inferred Recipes
-   and Barista grouping. Machine status, Shot filtering and comparison with the
+5. **Analytics.** Broader views across Machines and Locations, and Barista
+   grouping, including who dialled each Recipe. Machine status, Shot filtering and comparison with the
    previous Shot on the same Machine are already in milestone 1.
 
 ## License
