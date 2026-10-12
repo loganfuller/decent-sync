@@ -25,7 +25,7 @@ import {
 import { type Answer, readShot, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
 import type { Outbox } from "./outbox.js";
-import { rememberInStreamline } from "./streamline.js";
+import { forgetInStreamline, rememberInStreamline } from "./streamline.js";
 
 // The Library items the server shares, written to this tablet through
 // Decaid's API (ADR-0006), one at a time, in the order the server asks.
@@ -460,7 +460,8 @@ async function writeProfile(write: LibraryWrite): Promise<WriteAnswer> {
  * settings only while it keeps steam on: a barista may have turned steam off
  * since the tablet last reported, which stays on this Machine. Before it
  * sets them, it sets the values Streamline remembers of them to match
- * (`rememberInStreamline`), so Streamline does not push its own back
+ * (`rememberInStreamline`), so Streamline does not push its own back, and
+ * sets them back should Decaid refuse the Workflow (`forgetInStreamline`)
  * (ADR-0021). The answer is
  * the Workflow's steam, hot water and rinse parts as Decaid returned them,
  * or as read when nothing was left to set, timed now, as a Workflow carries
@@ -480,8 +481,10 @@ async function writeSettings(write: LibraryWrite, log: (message: string) => void
     Object.entries(settable(write, held)).filter(([field]) => steamOn || !(STEAM_SETTINGS as readonly string[]).includes(field)),
   );
   if (Object.keys(fields).length === 0) return written(write, workflowSettings(workflow), [], new Date().toISOString());
-  await rememberInStreamline(fields, log);
+  const remembered = await rememberInStreamline(fields, log);
   const answer = await request("PUT", "/workflow", settingsParts(fields));
+  // A write Decaid did not answer may still take, so what Streamline remembers stays set.
+  if (!answer.ok) await forgetInStreamline(remembered, log);
   const updated = answer.ok ? parsed(answer.text) : undefined;
   if (!isObject(updated)) return refused(write, answer.status, answer.text);
   return written(write, workflowSettings(updated), Object.keys(fields), new Date().toISOString());

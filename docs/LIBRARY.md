@@ -1177,10 +1177,13 @@ Only the settings that go into the `PUT` are set: not one a barista changed
 since the tablet last reported, nor steam settings while steam is off. If
 Decaid fails to read or set a key, the plugin logs it and writes the Workflow
 all the same, and Streamline may push its value back, as it did before. If
-Decaid then refuses the Workflow, the keys stay set: once the machine is
-back, the plugin reconnects and the server writes the settings again, which
-the keys already match, so what Streamline pushes on loading meanwhile is
-the Location's value too. None of this changes
+Decaid then refuses the Workflow, the plugin sets each key it set back to
+what it held, where it still holds the value set
+(`forgetInStreamline`): left set, it would hold a value the Workflow never
+took, which Streamline pushes once it loads again, and which would undo
+the Location's value had that been set back meanwhile to what the Workflow
+holds, as the server would then have nothing to write. A write Decaid does
+not answer may still take, so its keys stay set. None of this changes
 the answer the server gets. Another skin that pushes what it remembers back,
 with no such adapter, undoes the Location's changes on its Machine and
 shares its own, so that Machine's sharing of the settings needs turning off

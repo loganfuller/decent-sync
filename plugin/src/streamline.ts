@@ -36,10 +36,18 @@ const REMEMBERED: Partial<Record<SharedSetting, Remembered>> = {
   "rinseData.duration": { key: "last-flush-duration" },
 };
 
+/** A key `rememberInStreamline` set: the value it held before, and the one set. */
+export interface RememberedChange {
+  key: string;
+  before: number;
+  after: number;
+}
+
 /**
  * Sets each value Streamline remembers of the settings about to be written
  * to the one written, through Decaid's store API, as a JSON number, as
- * Streamline's `persistSharedValue` does. Only a key that holds a number is
+ * Streamline's `persistSharedValue` does, and resolves with the keys set.
+ * Only a key that holds a number is
  * set: Decaid answers null for a key never set, which Streamline pushes
  * nothing for, so a tablet that never ran Streamline is written nothing.
  * Never rejects: a key Decaid fails to read or set is logged, and left to
@@ -47,7 +55,8 @@ const REMEMBERED: Partial<Record<SharedSetting, Remembered>> = {
  * Once Decaid does not answer, the keys left are not tried, as each would
  * hold up the write until Decaid's fetch times out.
  */
-export async function rememberInStreamline(fields: Readonly<Record<string, unknown>>, log: (message: string) => void): Promise<void> {
+export async function rememberInStreamline(fields: Readonly<Record<string, unknown>>, log: (message: string) => void): Promise<RememberedChange[]> {
+  const changes: RememberedChange[] = [];
   for (const [field, value] of Object.entries(fields)) {
     const remembered = Object.prototype.hasOwnProperty.call(REMEMBERED, field) ? REMEMBERED[field as SharedSetting] : undefined;
     if (!remembered || typeof value !== "number" || !Number.isFinite(value) || remembered.remembers?.(value) === false) continue;
@@ -66,9 +75,35 @@ export async function rememberInStreamline(fields: Readonly<Record<string, unkno
         continue;
       }
       const set = await request("POST", path, value);
-      if (!set.ok) log(`Could not set Streamline's ${key}: Decaid answered ${set.status}. Streamline may set it back.`);
+      if (set.ok) changes.push({ key, before: stored, after: value });
+      else log(`Could not set Streamline's ${key}: Decaid answered ${set.status}. Streamline may set it back.`);
     } catch (error) {
       log(`Could not set Streamline's ${key} or the rest: Decaid did not answer (${error instanceof Error ? error.message : String(error)}). Streamline may set them back.`);
+      break;
+    }
+  }
+  return changes;
+}
+
+/**
+ * Sets back each key `rememberInStreamline` set for a Workflow write Decaid
+ * then refused, where it still holds the value set, so a barista's change
+ * made meanwhile stays. Otherwise Streamline would push the value of a write
+ * that never took, which the server, finding the Workflow holding the
+ * Location's settings, as when the Location's value was set back meanwhile,
+ * would not write again. Never rejects: a key Decaid fails to read or set is
+ * logged, and once Decaid does not answer, the keys left are not tried.
+ */
+export async function forgetInStreamline(changes: readonly RememberedChange[], log: (message: string) => void): Promise<void> {
+  for (const { key, before, after } of changes) {
+    const path = `/store/${NAMESPACE}/${encodeURIComponent(key)}`;
+    try {
+      const held = await request("GET", path);
+      if (!held.ok || parsed(held.text) !== after) continue;
+      const set = await request("POST", path, before);
+      if (!set.ok) log(`Could not set Streamline's ${key} back: Decaid answered ${set.status}. Streamline may push a value the Workflow was refused.`);
+    } catch (error) {
+      log(`Could not set Streamline's ${key} or the rest back: Decaid did not answer (${error instanceof Error ? error.message : String(error)}). Streamline may push values the Workflow was refused.`);
       return;
     }
   }

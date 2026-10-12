@@ -156,6 +156,28 @@ describe("Streamline's remembered steam, hot water and rinse values", { timeout:
     expect((await versionsBy(settings, machines[0]!))[0]).toMatchObject({ fields: { "hotWaterData.volume": 100 } });
   });
 
+  it("sets Streamline's value back when Decaid refuses the Workflow, so it does not push a value the Location has since dropped", async () => {
+    const { location, machines, tablets, settings } = await cafe("Refused Workflow", 23061);
+    const [tablet] = tablets as [SimulatedTablet];
+    const streamline = await streamlineOn(tablet);
+    // The machine switched off, as for the night, while the tablet stays connected: Decaid refuses the Workflow.
+    tablet.machineConnected = false;
+    expect((await change(settings, { "hotWaterData.volume": 120 })).status).toBe(200);
+    await expect.poll(() => settingsAnswers(tablet).some((answer) => answer.type === "writeRefused"), { timeout: 10_000 }).toBe(true);
+    expect(tablet.storeWrites.map(({ value }) => value)).toEqual([120, 100]);
+    expect(streamline.remembered("last-hot-water-volume")).toBe(100);
+    // Set back before the machine returns, the Location's value is what the tablet holds, so nothing is written to it.
+    expect((await change(settings, { "hotWaterData.volume": 100 })).status).toBe(200);
+    tablet.connectMachine();
+    await tablet.waitForLog(/The machine is connected again/);
+    await streamline.reload();
+    await streamline.settled();
+    expect(streamline.pushes).toEqual([]);
+    expect(setting(tablet, "hotWaterData.volume")).toBe(100);
+    expect((await settingsAt(location)).values["hotWaterData.volume"]).toBe(100);
+    expect(await versionsBy(settings, machines[0]!)).toHaveLength(1);
+  });
+
   it("keeps a steam flow changed in the management interface once Streamline loads its data again", async () => {
     const { location, machines, tablets, settings } = await cafe("Flow", 23021);
     const [tablet] = tablets as [SimulatedTablet];

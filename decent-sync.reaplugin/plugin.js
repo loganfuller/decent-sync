@@ -942,6 +942,7 @@ var __decentSync = (() => {
     "rinseData.duration": { key: "last-flush-duration" }
   };
   async function rememberInStreamline(fields, log) {
+    const changes = [];
     for (const [field, value] of Object.entries(fields)) {
       const remembered = Object.prototype.hasOwnProperty.call(REMEMBERED, field) ? REMEMBERED[field] : void 0;
       if (!remembered || typeof value !== "number" || !Number.isFinite(value) || remembered.remembers?.(value) === false) continue;
@@ -960,9 +961,25 @@ var __decentSync = (() => {
           continue;
         }
         const set = await request("POST", path, value);
-        if (!set.ok) log(`Could not set Streamline's ${key}: Decaid answered ${set.status}. Streamline may set it back.`);
+        if (set.ok) changes.push({ key, before: stored, after: value });
+        else log(`Could not set Streamline's ${key}: Decaid answered ${set.status}. Streamline may set it back.`);
       } catch (error) {
         log(`Could not set Streamline's ${key} or the rest: Decaid did not answer (${error instanceof Error ? error.message : String(error)}). Streamline may set them back.`);
+        break;
+      }
+    }
+    return changes;
+  }
+  async function forgetInStreamline(changes, log) {
+    for (const { key, before, after } of changes) {
+      const path = `/store/${NAMESPACE}/${encodeURIComponent(key)}`;
+      try {
+        const held = await request("GET", path);
+        if (!held.ok || parsed(held.text) !== after) continue;
+        const set = await request("POST", path, before);
+        if (!set.ok) log(`Could not set Streamline's ${key} back: Decaid answered ${set.status}. Streamline may push a value the Workflow was refused.`);
+      } catch (error) {
+        log(`Could not set Streamline's ${key} or the rest back: Decaid did not answer (${error instanceof Error ? error.message : String(error)}). Streamline may push values the Workflow was refused.`);
         return;
       }
     }
@@ -1244,8 +1261,9 @@ var __decentSync = (() => {
       Object.entries(settable(write, held)).filter(([field]) => steamOn || !STEAM_SETTINGS.includes(field))
     );
     if (Object.keys(fields).length === 0) return written(write, workflowSettings(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
-    await rememberInStreamline(fields, log);
+    const remembered = await rememberInStreamline(fields, log);
     const answer = await request("PUT", "/workflow", settingsParts(fields));
+    if (!answer.ok) await forgetInStreamline(remembered, log);
     const updated = answer.ok ? parsed2(answer.text) : void 0;
     if (!isObject2(updated)) return refused(write, answer.status, answer.text);
     return written(write, workflowSettings(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
