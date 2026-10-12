@@ -20,10 +20,12 @@ was empty, as on a fresh install. The requests were sent with
 `Content-Type: application/json` from the host, through the container's
 published port 8080, one after another.
 
-The ids are those Decaid assigned, and its times are Chicago's local time
-(UTC-5 that day) without an offset, to the microsecond. The names, global ids,
-the other plugin's key (`bcUuid`) and the ids no record has were made up for
-the recording; nothing names real hardware. `BeansHandler`, `BeanBatch` and
+The ids are those Decaid assigned, and its times are Decaid's local time
+without an offset, to the microsecond, presumably UTC: the container was set
+up as `bean-writes-v0.8.7`'s was, without the `tzdata` package, which left
+that one's clock on UTC whatever its `TZ`. The names, global ids, the other
+plugin's key (`bcUuid`) and the ids no record has were made up for the
+recording; nothing names real hardware. `BeansHandler`, `BeanBatch` and
 `BeanDao` are unchanged in v0.8.8.
 
 `POST /beans/{id}/batches` takes neither `archived` nor `weightRemaining`,

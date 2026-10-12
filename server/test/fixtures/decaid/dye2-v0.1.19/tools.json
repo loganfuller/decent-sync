@@ -1,0 +1,548 @@
+{
+  "createWdtTool": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/equipment"
+      },
+      "response": {
+        "status": 200,
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/store/dye2.reaplugin/equipment",
+        "body": [
+          {
+            "name": "Fixture WDT Tool",
+            "custom": [
+              {
+                "key": "Needles",
+                "value": "8"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ],
+            "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "createdAt": "2026-10-12T20:25:27.296Z"
+          }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/equipment"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture WDT Tool",
+            "custom": [
+              {
+                "key": "Needles",
+                "value": "8"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ],
+            "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "createdAt": "2026-10-12T20:25:27.296Z"
+          }
+        ]
+      }
+    }
+  ],
+  "createPuckScreen": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/equipment"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture WDT Tool",
+            "custom": [
+              {
+                "key": "Needles",
+                "value": "8"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ],
+            "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "createdAt": "2026-10-12T20:25:27.296Z"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/store/dye2.reaplugin/equipment",
+        "body": [
+          {
+            "name": "Fixture WDT Tool",
+            "custom": [
+              {
+                "key": "Needles",
+                "value": "8"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ],
+            "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "createdAt": "2026-10-12T20:25:27.296Z"
+          },
+          {
+            "name": "Fixture Puck Screen",
+            "custom": [
+              {
+                "key": "Thickness",
+                "value": "1.7 mm"
+              }
+            ],
+            "id": "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2",
+            "createdAt": "2026-10-12T20:25:28.463Z"
+          }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/equipment"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture WDT Tool",
+            "custom": [
+              {
+                "key": "Needles",
+                "value": "8"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ],
+            "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "createdAt": "2026-10-12T20:25:27.296Z"
+          },
+          {
+            "name": "Fixture Puck Screen",
+            "custom": [
+              {
+                "key": "Thickness",
+                "value": "1.7 mm"
+              }
+            ],
+            "id": "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2",
+            "createdAt": "2026-10-12T20:25:28.463Z"
+          }
+        ]
+      }
+    }
+  ],
+  "createSpareTamper": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/equipment"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture WDT Tool",
+            "custom": [
+              {
+                "key": "Needles",
+                "value": "8"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ],
+            "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "createdAt": "2026-10-12T20:25:27.296Z"
+          },
+          {
+            "name": "Fixture Puck Screen",
+            "custom": [
+              {
+                "key": "Thickness",
+                "value": "1.7 mm"
+              }
+            ],
+            "id": "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2",
+            "createdAt": "2026-10-12T20:25:28.463Z"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/store/dye2.reaplugin/equipment",
+        "body": [
+          {
+            "name": "Fixture WDT Tool",
+            "custom": [
+              {
+                "key": "Needles",
+                "value": "8"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ],
+            "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "createdAt": "2026-10-12T20:25:27.296Z"
+          },
+          {
+            "name": "Fixture Puck Screen",
+            "custom": [
+              {
+                "key": "Thickness",
+                "value": "1.7 mm"
+              }
+            ],
+            "id": "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2",
+            "createdAt": "2026-10-12T20:25:28.463Z"
+          },
+          {
+            "name": "Fixture Spare Tamper",
+            "custom": [],
+            "id": "7be64625-217e-4537-b625-e984276345fd",
+            "createdAt": "2026-10-12T20:25:29.546Z"
+          }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/equipment"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture WDT Tool",
+            "custom": [
+              {
+                "key": "Needles",
+                "value": "8"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ],
+            "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "createdAt": "2026-10-12T20:25:27.296Z"
+          },
+          {
+            "name": "Fixture Puck Screen",
+            "custom": [
+              {
+                "key": "Thickness",
+                "value": "1.7 mm"
+              }
+            ],
+            "id": "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2",
+            "createdAt": "2026-10-12T20:25:28.463Z"
+          },
+          {
+            "name": "Fixture Spare Tamper",
+            "custom": [],
+            "id": "7be64625-217e-4537-b625-e984276345fd",
+            "createdAt": "2026-10-12T20:25:29.546Z"
+          }
+        ]
+      }
+    }
+  ],
+  "editWdtTool": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/equipment"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture WDT Tool",
+            "custom": [
+              {
+                "key": "Needles",
+                "value": "8"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ],
+            "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "createdAt": "2026-10-12T20:25:27.296Z"
+          },
+          {
+            "name": "Fixture Puck Screen",
+            "custom": [
+              {
+                "key": "Thickness",
+                "value": "1.7 mm"
+              }
+            ],
+            "id": "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2",
+            "createdAt": "2026-10-12T20:25:28.463Z"
+          },
+          {
+            "name": "Fixture Spare Tamper",
+            "custom": [],
+            "id": "7be64625-217e-4537-b625-e984276345fd",
+            "createdAt": "2026-10-12T20:25:29.546Z"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/store/dye2.reaplugin/equipment",
+        "body": [
+          {
+            "name": "Fixture WDT Tool",
+            "custom": [
+              {
+                "key": "Needles",
+                "value": "10"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ],
+            "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "createdAt": "2026-10-12T20:25:27.296Z"
+          },
+          {
+            "name": "Fixture Puck Screen",
+            "custom": [
+              {
+                "key": "Thickness",
+                "value": "1.7 mm"
+              }
+            ],
+            "id": "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2",
+            "createdAt": "2026-10-12T20:25:28.463Z"
+          },
+          {
+            "name": "Fixture Spare Tamper",
+            "custom": [],
+            "id": "7be64625-217e-4537-b625-e984276345fd",
+            "createdAt": "2026-10-12T20:25:29.546Z"
+          }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/equipment"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture WDT Tool",
+            "custom": [
+              {
+                "key": "Needles",
+                "value": "10"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ],
+            "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "createdAt": "2026-10-12T20:25:27.296Z"
+          },
+          {
+            "name": "Fixture Puck Screen",
+            "custom": [
+              {
+                "key": "Thickness",
+                "value": "1.7 mm"
+              }
+            ],
+            "id": "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2",
+            "createdAt": "2026-10-12T20:25:28.463Z"
+          },
+          {
+            "name": "Fixture Spare Tamper",
+            "custom": [],
+            "id": "7be64625-217e-4537-b625-e984276345fd",
+            "createdAt": "2026-10-12T20:25:29.546Z"
+          }
+        ]
+      }
+    }
+  ],
+  "deleteSpareTamper": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/equipment"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture WDT Tool",
+            "custom": [
+              {
+                "key": "Needles",
+                "value": "10"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ],
+            "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "createdAt": "2026-10-12T20:25:27.296Z"
+          },
+          {
+            "name": "Fixture Puck Screen",
+            "custom": [
+              {
+                "key": "Thickness",
+                "value": "1.7 mm"
+              }
+            ],
+            "id": "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2",
+            "createdAt": "2026-10-12T20:25:28.463Z"
+          },
+          {
+            "name": "Fixture Spare Tamper",
+            "custom": [],
+            "id": "7be64625-217e-4537-b625-e984276345fd",
+            "createdAt": "2026-10-12T20:25:29.546Z"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/store/dye2.reaplugin/equipment",
+        "body": [
+          {
+            "name": "Fixture WDT Tool",
+            "custom": [
+              {
+                "key": "Needles",
+                "value": "10"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ],
+            "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "createdAt": "2026-10-12T20:25:27.296Z"
+          },
+          {
+            "name": "Fixture Puck Screen",
+            "custom": [
+              {
+                "key": "Thickness",
+                "value": "1.7 mm"
+              }
+            ],
+            "id": "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2",
+            "createdAt": "2026-10-12T20:25:28.463Z"
+          }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/equipment"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture WDT Tool",
+            "custom": [
+              {
+                "key": "Needles",
+                "value": "10"
+              },
+              {
+                "key": "Needle size",
+                "value": "0.3 mm"
+              }
+            ],
+            "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
+            "createdAt": "2026-10-12T20:25:27.296Z"
+          },
+          {
+            "name": "Fixture Puck Screen",
+            "custom": [
+              {
+                "key": "Thickness",
+                "value": "1.7 mm"
+              }
+            ],
+            "id": "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2",
+            "createdAt": "2026-10-12T20:25:28.463Z"
+          }
+        ]
+      }
+    }
+  ]
+}

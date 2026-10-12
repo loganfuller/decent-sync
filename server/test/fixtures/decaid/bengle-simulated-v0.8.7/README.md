@@ -38,6 +38,8 @@ installing a plugin with a secure setting needs, and had this repo's built
 plugin connected to a scratch server; the plugin reads Steam Records but does
 not change them.
 
-Their `timestamp` and sample times are Chicago's local time (UTC-5 that day)
-without an offset, as Decaid writes them. The records name no hardware; the
-simulated Bengle reports serial `mock-bengle`.
+Their `timestamp` and sample times are Decaid's local time without an offset,
+as Decaid writes them, presumably UTC: the containers later set up the same
+way had no `tzdata` package, which left their clocks on UTC whatever their
+`TZ`. The records name no hardware; the simulated Bengle reports serial
+`mock-bengle`.

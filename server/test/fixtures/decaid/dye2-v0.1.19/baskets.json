@@ -1,0 +1,208 @@
+{
+  "create18gBasket": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/store/dye2.reaplugin/baskets",
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "notes": "Fixture notes",
+            "diameterMm": 58.5,
+            "id": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+            "createdAt": "2026-10-12T20:25:34.993Z"
+          }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "notes": "Fixture notes",
+            "diameterMm": 58.5,
+            "id": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+            "createdAt": "2026-10-12T20:25:34.993Z"
+          }
+        ]
+      }
+    }
+  ],
+  "create20gBasket": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "notes": "Fixture notes",
+            "diameterMm": 58.5,
+            "id": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+            "createdAt": "2026-10-12T20:25:34.993Z"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/store/dye2.reaplugin/baskets",
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "notes": "Fixture notes",
+            "diameterMm": 58.5,
+            "id": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+            "createdAt": "2026-10-12T20:25:34.993Z"
+          },
+          {
+            "name": "Fixture 20g High-flow",
+            "size": "double",
+            "diameterMm": 58,
+            "id": "1749fba2-86b3-43e2-badf-97af64ae888b",
+            "createdAt": "2026-10-12T20:25:36.143Z"
+          }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "notes": "Fixture notes",
+            "diameterMm": 58.5,
+            "id": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+            "createdAt": "2026-10-12T20:25:34.993Z"
+          },
+          {
+            "name": "Fixture 20g High-flow",
+            "size": "double",
+            "diameterMm": 58,
+            "id": "1749fba2-86b3-43e2-badf-97af64ae888b",
+            "createdAt": "2026-10-12T20:25:36.143Z"
+          }
+        ]
+      }
+    }
+  ],
+  "edit18gBasket": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "notes": "Fixture notes",
+            "diameterMm": 58.5,
+            "id": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+            "createdAt": "2026-10-12T20:25:34.993Z"
+          },
+          {
+            "name": "Fixture 20g High-flow",
+            "size": "double",
+            "diameterMm": 58,
+            "id": "1749fba2-86b3-43e2-badf-97af64ae888b",
+            "createdAt": "2026-10-12T20:25:36.143Z"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/store/dye2.reaplugin/baskets",
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "notes": "Fixture notes, edited",
+            "diameterMm": 58.4,
+            "id": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+            "createdAt": "2026-10-12T20:25:34.993Z"
+          },
+          {
+            "name": "Fixture 20g High-flow",
+            "size": "double",
+            "diameterMm": 58,
+            "id": "1749fba2-86b3-43e2-badf-97af64ae888b",
+            "createdAt": "2026-10-12T20:25:36.143Z"
+          }
+        ]
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/store/dye2.reaplugin/baskets"
+      },
+      "response": {
+        "status": 200,
+        "body": [
+          {
+            "name": "Fixture 18g Precision",
+            "size": "double",
+            "notes": "Fixture notes, edited",
+            "diameterMm": 58.4,
+            "id": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+            "createdAt": "2026-10-12T20:25:34.993Z"
+          },
+          {
+            "name": "Fixture 20g High-flow",
+            "size": "double",
+            "diameterMm": 58,
+            "id": "1749fba2-86b3-43e2-badf-97af64ae888b",
+            "createdAt": "2026-10-12T20:25:36.143Z"
+          }
+        ]
+      }
+    }
+  ]
+}

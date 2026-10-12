@@ -35,12 +35,16 @@ import { rememberSecret, watchLog } from "./secrets.js";
 //   plugin storage never written answers `null`. The machine's settings, like
 //   its info, fail while no machine is connected.
 // - Decaid's store API (KvStoreHandler in kv_store_handler.dart) keeps the
-//   values other plugins and skins keep there, such as Streamline's under
-//   `streamline-app`: `POST /store/{namespace}/{key}` keeps the JSON body,
-//   and `GET` answers it, or `null` for a key never set; `storeWrites`
-//   records the plugin's. `startStreamline` (simulated-streamline.ts) runs
-//   Streamline as the tablet's skin, which pushes the values it keeps there
-//   back over the Workflow, as streamline-js does.
+//   values other plugins and skins keep there, such as DYE2's recipes,
+//   baskets and tools under `dye2.reaplugin` and Streamline's under
+//   `streamline-app`: `POST /store/{namespace}/{key}` replaces the key's
+//   value with the JSON body, `DELETE` removes it, and `GET` answers it, or
+//   `null` for a key never set or deleted. A value starts as `api` serves it,
+//   and `storeWrites` records the plugin's writes. `startStreamline`
+//   (simulated-streamline.ts) runs Streamline as the tablet's skin, which
+//   pushes the values it keeps there back over the Workflow, as
+//   streamline-js does, and simulated-dye2.ts replays what DYE2 and
+//   Streamline were recorded writing there and to the Workflow.
 // - Of Decaid's writes, it carries out only those to beans (`POST /beans`,
 //   `PUT /beans/{id}` and `DELETE /beans/{id}`), their batches (`POST
 //   /beans/{beanId}/batches`, `PUT` and `DELETE /bean-batches/{id}`),
@@ -145,7 +149,9 @@ export class Refusal {
  * The test tablet's DE1Pro on Decaid 0.8.7, with its hardware ids replaced
  * (see the fixtures' README): its library, settings and paired devices
  * included. Its scale is off, so `/scale/info` answers 503, and DYE2 has
- * never written its equipment, which therefore answers `null`.
+ * never written its equipment, which therefore answers `null`. Its DYE2
+ * recipes and baskets are in an older DYE2's shape than simulated-dye2.ts
+ * replays.
  */
 export function de1ProOnDecaid087(): DecaidApi {
   return {
@@ -540,8 +546,6 @@ export class SimulatedTablet {
   readonly writes: string[] = [];
   /** The plugin's writes to Decaid's store API that Decaid carried out, in order, each with the value written. */
   readonly storeWrites: { namespace: string; key: string; value: unknown }[] = [];
-  /** Decaid's store, by namespace then key, but for the plugin's own storage and the keys `api` serves. */
-  private readonly store = new Map<string, Map<string, unknown>>();
   /** Told of every change of the Workflow, after the plugin is. */
   private readonly workflowListeners = new Set<(workflow: Record<string, unknown>) => void>();
   readonly plugin: BuiltPlugin;
@@ -652,7 +656,7 @@ export class SimulatedTablet {
     if (this.api["/workflow"] !== undefined) this.fire("workflowUpdated", this.api["/workflow"]);
   }
 
-  /** Answers Decaid's API with these responses from now on, as when another machine is connected. */
+  /** Answers Decaid's API with these responses from now on, as when another machine is connected, the values in Decaid's store included. */
   serve(api: DecaidApi): void {
     this.api = api;
   }
@@ -699,7 +703,9 @@ export class SimulatedTablet {
 
   /** What Decaid's store holds at that key of that namespace, as `GET /store/{namespace}/{key}` answers it: null if never set. */
   storeValue(namespace: string, key: string): unknown {
-    return this.store.get(namespace)?.has(key) ? structuredClone(this.store.get(namespace)!.get(key)) : null;
+    const value = this.api[storeRoute(namespace, key)];
+    if (value instanceof Refusal) throw new Error(`Decaid's store is served as refusing ${namespace}/${key}, with ${value.status}`);
+    return value === undefined ? null : structuredClone(value);
   }
 
   /**
@@ -1044,7 +1050,7 @@ export class SimulatedTablet {
       const refusal = this.refuseWrites?.({ method: method.toUpperCase(), route, body: typeof body === "string" ? JSON.parse(body) : body });
       if (refusal) return Promise.resolve(response(refusal.status, JSON.stringify(refusal.body)));
       const stored = this.keptInStore(route);
-      if (method.toUpperCase() === "POST" && stored) this.storeWrites.push({ ...stored, value: typeof body === "string" ? JSON.parse(body) : body });
+      if (method.toUpperCase() === "POST" && stored) this.storeWrites.push({ ...stored, value: storedValue(body) });
     }
     return this.answer(url, method.toUpperCase(), headers, body);
   }
@@ -1110,11 +1116,14 @@ export class SimulatedTablet {
     if (store === "store" && namespace === encodeURIComponent(this.pluginId) && rest.length === 0) {
       return response(200, JSON.stringify(this.storage.readThroughApi(key === undefined ? undefined : decodeURIComponent(key))));
     }
-    const answer = this.api[route];
+    // A key of Decaid's store is read under the route its writes keep it at.
+    const stored = this.keptInStore(route);
+    const served = stored ? storeRoute(stored.namespace, stored.key) : route;
+    const answer = this.api[served];
     if (answer instanceof Refusal) return response(answer.status, JSON.stringify(answer.body));
     // A key of plugin storage nothing has written (KvStoreHandler in kv_store_handler.dart).
-    if (!(route in this.api) && route.startsWith("/store/") && route.split("/").length === 4) return response(200, "null");
-    if (!(route in this.api)) return response(404, "");
+    if (!(served in this.api) && stored) return response(200, "null");
+    if (!(served in this.api)) return response(404, "");
     return response(200, JSON.stringify(answer));
   }
 
@@ -1173,30 +1182,32 @@ export class SimulatedTablet {
   }
 
   /**
-   * Carries out a write to Decaid's store (`POST /store/{namespace}/{key}`)
-   * as KvStoreHandler does, keeping the body read as JSON, or reads a key
-   * kept that way; undefined for any other request, the plugin's own
-   * storage and the keys `api` serves included.
+   * Carries out a write to Decaid's store as KvStoreHandler does: `POST
+   * /store/{namespace}/{key}` replaces the key's value with the body read as
+   * JSON, and `DELETE` removes it, so that `GET` answers `null`; undefined
+   * for any other request, the plugin's own storage included. The value is
+   * kept where `api` serves it.
    */
   private answerStore(method: string, route: string, body: unknown): DecaidAnswer | undefined {
     const stored = this.keptInStore(route);
     if (!stored) return undefined;
-    const { namespace, key } = stored;
+    const kept = storeRoute(stored.namespace, stored.key);
     if (method === "POST") {
-      if (typeof body !== "string") throw new Error("A write to Decaid's store came without a JSON body");
-      const values = this.store.get(namespace) ?? new Map<string, unknown>();
-      this.store.set(namespace, values);
-      values.set(key, JSON.parse(body));
+      this.api = { ...this.api, [kept]: storedValue(body) };
       return { status: 200, body: {} };
     }
-    if (method === "GET" && this.store.get(namespace)?.has(key)) return { status: 200, body: this.storeValue(namespace, key) };
+    if (method === "DELETE") {
+      const { [kept]: _deleted, ...rest } = this.api;
+      this.api = rest;
+      return { status: 200, body: {} };
+    }
     return undefined;
   }
 
-  /** The namespace and key of Decaid's store a route names, but for the plugin's own storage and the keys `api` serves; otherwise undefined. */
+  /** The namespace and key of Decaid's store a route names, but for the plugin's own storage; otherwise undefined. */
   private keptInStore(route: string): { namespace: string; key: string } | undefined {
     const stored = storeKey(route);
-    return stored && stored.namespace !== this.pluginId && !(route in this.api) ? stored : undefined;
+    return stored && stored.namespace !== this.pluginId ? stored : undefined;
   }
 
   /**
@@ -1542,6 +1553,20 @@ interface PluginScope {
   fetch: (input: unknown, init?: unknown) => Promise<unknown>;
   setTimeout: (callback: () => void, delay: number) => number;
   clearTimeout: (id: number) => void;
+}
+
+/** The route of Decaid's store API for that key of that namespace, as `api` serves it. */
+function storeRoute(namespace: string, key: string): string {
+  return `/store/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`;
+}
+
+/**
+ * The value a `POST` to Decaid's store keeps: its body read as JSON, as
+ * KvStoreHandler reads it.
+ */
+function storedValue(body: unknown): unknown {
+  if (typeof body !== "string") throw new Error("A write to Decaid's store came without a JSON body");
+  return JSON.parse(body);
 }
 
 /** The namespace and key a route of Decaid's store API names (`/store/{namespace}/{key}`), or undefined for any other route. */
