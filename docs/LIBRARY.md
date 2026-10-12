@@ -842,9 +842,9 @@ shows or hides it, as a Profile (ADR-0008). Grinders stay per Location.
   A barista who deliberately sets a field back to exactly that value has to
   set it again: the write that puts the item's value back over it does not
   keep that value as the tablet's before it, so setting it once more is an
-  edit. So does a field the tablet reports with any other value since. The
-  cost: a second stale save of the field in a row, or the rewrite lost again
-  at once, counts as the tablet's edit.
+  edit. So is setting it back once the tablet has reported the field with
+  any other value. The cost: a second stale save of the field in a row, or
+  the rewrite lost again at once, counts as the tablet's edit.
 - **New records** are matched by name, ignoring case and white space at
   either end (`equipmentMatchKey`), to the oldest of the kind not Archived,
   as DYE2 itself refuses a second tool of one name (ADR-0018): linked, the

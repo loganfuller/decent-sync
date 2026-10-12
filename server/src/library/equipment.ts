@@ -255,10 +255,11 @@ export async function recordUnrecognised(prisma: PrismaService, tabletId: string
  * write set is kept (`before_write`), so a report setting it back is taken
  * as unchanged, but for a field the write puts back over such a report, so
  * that setting it back again is an edit (`heldBefore`). A record the write
- * created is not yet listed by a report. Recorded only while the answering connection holds its Machine, under the
- * Machine's and the tablet's locks. Nothing is recorded when the record does
- * not carry the item's global id, when the map holds it as another item's,
- * or when the Library no longer has the item.
+ * created is not yet listed by a report. Recorded only while the answering
+ * connection holds its Machine, under the Machine's and the tablet's locks.
+ * Nothing is recorded when the record does not carry the item's global id,
+ * when the map holds it as another item's, or when the Library no longer
+ * has the item.
  */
 export async function recordEquipmentWritten(
   prisma: PrismaService,
