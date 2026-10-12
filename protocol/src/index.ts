@@ -604,8 +604,8 @@ export function isItemId(kind: string, value: unknown): value is string {
  * The parts of Decaid's Workflow that a Location shares between its
  * Machines, whatever their model (ADR-0014): the steam and rinse settings.
  * The rest of a Workflow (its profile, dose, yield, batch, grinder, basket
- * and hot water settings) stays each Machine's own, its hot water set by the
- * Recipe it has loaded (ADR-0022).
+ * and hot water settings) stays each Machine's own, its hot water to be set
+ * by the Recipe it has loaded (ADR-0022).
  */
 export const SETTINGS_PARTS = ["steamSettings", "rinseData"] as const;
 

@@ -1,4 +1,4 @@
-import { STEAM_ON_FROM } from "@decent-sync/protocol";
+import { STEAM_ON_FROM, type SharedSetting } from "@decent-sync/protocol";
 import { request } from "./decaid.js";
 
 // Streamline (streamline-js), a skin for Decaid, remembers what the barista
@@ -25,8 +25,11 @@ interface Remembered {
   remembers?: (value: number) => boolean;
 }
 
+/** A Workflow setting the plugin writes: a shared one, or a hot water setting, which a Loaded Recipe is to set (ADR-0022). */
+type WrittenSetting = SharedSetting | "hotWaterData.volume" | "hotWaterData.targetTemperature";
+
 /** The settings Streamline remembers, by their Workflow fields (`steamSettings.flow`), with its keys in src/modules/api.js. */
-const REMEMBERED: Readonly<Record<string, Remembered>> = {
+const REMEMBERED: Partial<Record<WrittenSetting, Remembered>> = {
   "steamSettings.duration": { key: "last-steam-duration" },
   "steamSettings.flow": { key: "last-steam-flow" },
   // Only a stop that is on: 0 is off (`setStopAtTemperature`).
@@ -60,7 +63,7 @@ export interface RememberedChange {
 export async function rememberInStreamline(fields: Readonly<Record<string, unknown>>, log: (message: string) => void): Promise<RememberedChange[]> {
   const changes: RememberedChange[] = [];
   for (const [field, value] of Object.entries(fields)) {
-    const remembered = Object.prototype.hasOwnProperty.call(REMEMBERED, field) ? REMEMBERED[field] : undefined;
+    const remembered = Object.prototype.hasOwnProperty.call(REMEMBERED, field) ? REMEMBERED[field as WrittenSetting] : undefined;
     if (!remembered || typeof value !== "number" || !Number.isFinite(value) || remembered.remembers?.(value) === false) continue;
     const { key } = remembered;
     const path = `/store/${NAMESPACE}/${encodeURIComponent(key)}`;

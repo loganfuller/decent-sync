@@ -1,4 +1,3 @@
-import { SHARED_SETTINGS } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
 import { SimulatedTablet, derivedDe1Pro, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
@@ -8,10 +7,10 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // Location's Machines, whatever their model (ADR-0014), and hot water is
 // each Machine's own. The first Machine at a Location sets them; a change on
 // one tablet reaches the Location's other Machines, and a change in the
-// management interface reaches them all. A
-// Machine with sharing turned off keeps its own, and takes the Location's
-// once sharing is turned back on. Turning steam off stays on that Machine, and once it is
-// turned on again the Machine takes the Location's values. Through the built
+// management interface reaches them all. A Machine with sharing turned off
+// keeps its own, and takes the Location's once sharing is turned back on.
+// Turning steam off stays on that Machine, and once it is turned on again
+// the Machine takes the Location's values. Through the built
 // plugin in simulated tablets, on two server instances sharing one database,
 // with assertions through the REST API and what each simulated tablet's
 // Decaid holds. Serials are made up, from 19001.
@@ -148,7 +147,15 @@ describe("Steam and rinse settings shared by a Location's Machines", { timeout: 
       editable: true,
     });
     // Steam and rinse alone: hot water is each Machine's own.
-    expect(Object.keys(uptownSettings.values).sort()).toEqual([...SHARED_SETTINGS].sort());
+    expect(Object.keys(uptownSettings.values).sort()).toEqual([
+      "rinseData.duration",
+      "rinseData.flow",
+      "rinseData.targetTemperature",
+      "steamSettings.duration",
+      "steamSettings.flow",
+      "steamSettings.stopAtTemperature",
+      "steamSettings.targetTemperature",
+    ]);
     // The second DE1Pro and the Bengle take Uptown's settings, rather than giving their own.
     await holds(second, { "rinseData.duration": 5 });
     expect((await settingsAt(uptown)).machines.map(({ name, model, sharesSettings }) => ({ name, model, sharesSettings }))).toEqual([
