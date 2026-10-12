@@ -328,17 +328,22 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Fixture notes, edited", diameterMm: 58.4 });
     await expect.poll(() => recordNamed(one, "baskets", "Lost Fixture 18g Precision")?.notes, { timeout: 15_000 }).toBe("Fixture notes, edited");
 
-    // A barista on that tablet sets the notes to a value of their own, then back to what the tablet held before the
-    // server's write: no stale save now, but their edit, which reaches the other tablet.
-    const setNotes = async (notes: string) => {
-      const list = records(two, "baskets").map((record) => (record.name === "Lost Fixture 18g Precision" ? { ...record, notes } : record));
-      expect((await two.callApi("POST", `/store/${DYE2_NAMESPACE}/baskets`, list)).status).toBe(200);
+    // The first tablet edits the notes, which the second is written. A barista there then sets them back to what it held
+    // before that write: taken as a stale save, the Basket's notes are written back. Set again, it is their edit.
+    const setNotes = async (tablet: SimulatedTablet, notes: string) => {
+      const list = records(tablet, "baskets").map((record) => (record.name === "Lost Fixture 18g Precision" ? { ...record, notes } : record));
+      expect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/baskets`, list)).status).toBe(200);
     };
-    await setNotes("Measured again");
-    await expect.poll(() => recordNamed(one, "baskets", "Lost Fixture 18g Precision")?.notes, { timeout: 15_000 }).toBe("Measured again");
-    await setNotes("Fixture notes");
-    await expect.poll(() => recordNamed(one, "baskets", "Lost Fixture 18g Precision")?.notes, { timeout: 15_000 }).toBe("Fixture notes");
-    expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Fixture notes" });
+    const notesOn = (tablet: SimulatedTablet) => () => recordNamed(tablet, "baskets", "Lost Fixture 18g Precision")?.notes;
+    await setNotes(one, "Re-measured");
+    await expect.poll(notesOn(two), { timeout: 15_000 }).toBe("Re-measured");
+    const writesOfBaskets = two.storeWrites.filter((write) => write.key === "baskets").length;
+    await setNotes(two, "Fixture notes, edited");
+    await expect.poll(() => two.storeWrites.filter((write) => write.key === "baskets").length, { timeout: 15_000 }).toBeGreaterThan(writesOfBaskets);
+    await expect.poll(notesOn(two), { timeout: 15_000 }).toBe("Re-measured");
+    await setNotes(two, "Fixture notes, edited");
+    await expect.poll(notesOn(one), { timeout: 15_000 }).toBe("Fixture notes, edited");
+    expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Fixture notes, edited" });
   });
 
   it("keeps a restored tablet's Baskets and Tools linked by its tablet id, writing back a global id its record lost", async () => {

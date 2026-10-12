@@ -253,8 +253,9 @@ export async function recordUnrecognised(prisma: PrismaService, tabletId: string
  * tablet reported it, takes the item's content, each field it held otherwise
  * kept as a Conflict (ADR-0018). What the record held for each field the
  * write set is kept (`before_write`), so a report setting it back is taken
- * as unchanged. A record the write created is not yet listed by a report.
- * Recorded only while the answering connection holds its Machine, under the
+ * as unchanged, but for a field the write puts back over such a report, so
+ * that setting it back again is an edit (`heldBefore`). A record the write
+ * created is not yet listed by a report. Recorded only while the answering connection holds its Machine, under the
  * Machine's and the tablet's locks. Nothing is recorded when the record does
  * not carry the item's global id, when the map holds it as another item's,
  * or when the Library no longer has the item.
@@ -283,8 +284,8 @@ export async function recordEquipmentWritten(
       SELECT ${Prisma.raw(column)}::text AS "itemId" FROM ${Prisma.raw(map)} WHERE tablet_id = ${tablet.tabletId}::uuid AND local_id = ${localId}`;
     if (other && other.itemId !== itemId.toLowerCase()) return "notTheItem";
     const locationId = await sharingLocation(tx, tablet.machineId);
-    const [known] = await tx.$queryRaw<{ record: Record<string, unknown>; contentSeenAt: Date | null; listed: boolean }[]>`
-      SELECT record, content_seen_at AS "contentSeenAt", listed FROM ${Prisma.raw(map)}
+    const [known] = await tx.$queryRaw<{ record: Record<string, unknown>; contentSeenAt: Date | null; listed: boolean; beforeWrite: Record<string, unknown> | null }[]>`
+      SELECT record, content_seen_at AS "contentSeenAt", listed, before_write AS "beforeWrite" FROM ${Prisma.raw(map)}
       WHERE tablet_id = ${tablet.tabletId}::uuid AND ${Prisma.raw(column)} = ${itemId}::uuid`;
     const at = updatedAt === null ? await transactionTime(tx) : new Date(updatedAt);
     const source = tabletSource(tablet);
@@ -305,7 +306,7 @@ export async function recordEquipmentWritten(
       seen: seen?.locationId === locationId ? seen : null,
       contentSeen: holds ? contentSeen : null,
       listed: known?.listed ?? false,
-      ...(known && written.size > 0 ? { beforeWrite: heldBefore(known.record, written) } : {}),
+      ...(known && written.size > 0 ? { beforeWrite: heldBefore(known.record, written, known.beforeWrite) } : {}),
     });
     return "recorded";
   }, INTAKE_TRANSACTION);

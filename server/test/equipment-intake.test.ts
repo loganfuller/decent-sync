@@ -83,6 +83,17 @@ describe("DYE2's baskets and tools as Library items", () => {
     expect(beforeWriteAfter({ notes: "A", name: "Old" }, written, { ...written, notes: "C" })).toEqual({ name: "Old" });
     expect(beforeWriteAfter(null, written, written)).toBeNull();
   });
+
+  it("does not keep a field's value before a write that puts the item's value back over a stale save, so setting it again is an edit", () => {
+    // The server wrote B over A; the tablet set A back, taken as stale, and is written B again.
+    const setBack = { ...wdt, notes: "A" };
+    expect(heldBefore(setBack, ["notes"], { notes: "A" })).toBeNull();
+    // A write of other fields keeps theirs; one with no write before it keeps them all.
+    expect(heldBefore(setBack, ["notes", "name"], { notes: "A" })).toEqual({ name: wdt.name });
+    expect(heldBefore(setBack, ["notes"], { notes: "Z" })).toEqual({ notes: "A" });
+    expect(heldBefore(setBack, ["notes"])).toEqual({ notes: "A" });
+    expect(heldBefore(setBack, [])).toBeNull();
+  });
 });
 
 describe("planEquipmentIntake", () => {
