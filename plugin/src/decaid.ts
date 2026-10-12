@@ -131,17 +131,20 @@ export async function keepStorageInBackups(): Promise<boolean> {
 
 /**
  * One read of a collection at `path`, a route under the API with its query.
- * With an ETag, Decaid answers 304 if it is still current. A failed read, a
- * refusal (such as 500 while no machine is connected, or 503 while no scale
- * is) and `null` (a key never written to plugin storage) are unavailable.
+ * With an ETag, Decaid answers 304 if it is still current. A failed read and
+ * a refusal (such as 500 while no machine is connected, or 503 while no scale
+ * is) are unavailable, and so is `null`, but for a key of Decaid's store
+ * (`emptyWhenNull`), where it is a key never written, which DYE2 reads as an
+ * empty list, and so does this.
  */
-export async function readCollection(path: string, etag: string | null): Promise<Reading> {
+export async function readCollection(path: string, etag: string | null, emptyWhenNull = false): Promise<Reading> {
   try {
     const response = await fetch(API + path, etag === null ? undefined : { headers: { "If-None-Match": etag } });
     if (response.status === 304) return { kind: "notModified" };
     if (!response.ok) return { kind: "unavailable" };
     const value: unknown = await response.json();
-    return value === null ? { kind: "unavailable" } : { kind: "value", value, etag: response.headers.get("etag") };
+    if (value === null) return emptyWhenNull ? { kind: "value", value: [], etag: null } : { kind: "unavailable" };
+    return { kind: "value", value, etag: response.headers.get("etag") };
   } catch {
     return { kind: "unavailable" };
   }

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 import { Link } from "react-router";
 import { useAuth } from "@/auth";
 import { ConfirmButton, formatTime } from "@/components/machines";
@@ -16,10 +16,16 @@ function kindName(kind: ItemKind): string {
   return kind === "settings" ? "Location settings" : LIBRARY_KINDS[kind].name;
 }
 
-/** The address of an item's page; a Location's settings are on its page. */
-export function itemPath(kind: ItemKind, id: string, location: Location | null = null): string {
+/** The address of an item's page; a Location's settings are on its page. Null for a kind with no pages yet. */
+export function itemPath(kind: ItemKind, id: string, location: Location | null = null): string | null {
   if (kind === "settings") return location ? `/locations/${location.id}` : "/locations";
-  return `${LIBRARY_KINDS[kind].pages}/${encodeURIComponent(id)}`;
+  const { pages } = LIBRARY_KINDS[kind];
+  return pages === null ? null : `${pages}/${encodeURIComponent(id)}`;
+}
+
+/** A link to an item's page, or its name alone for a kind with no pages yet. */
+export function ItemLink({ path, className, children }: { path: string | null; className?: string; children: ReactNode }) {
+  return path === null ? <span className={className}>{children}</span> : <Link to={path} className={`${className ?? ""} underline-offset-4 hover:underline`}>{children}</Link>;
 }
 
 /** The REST API's address of an item. */
@@ -148,9 +154,9 @@ export function ConflictsTable({ conflicts, showItem, onResolved }: { conflicts:
               <TableRow key={conflict.id}>
                 {showItem && (
                   <TableCell className="whitespace-normal">
-                    <Link to={itemPath(conflict.item.kind, conflict.item.id, conflict.location)} className="font-medium underline-offset-4 hover:underline">
+                    <ItemLink path={itemPath(conflict.item.kind, conflict.item.id, conflict.location)} className="font-medium">
                       {itemName}
-                    </Link>
+                    </ItemLink>
                     <div className="text-xs text-muted-foreground">{kindName(conflict.item.kind)}</div>
                   </TableCell>
                 )}

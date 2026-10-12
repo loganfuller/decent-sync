@@ -168,9 +168,9 @@ export interface Machine {
 /** Why a Machine is a Capture-only Machine: it has no Location, or an Admin turned its sharing off. */
 export type CaptureOnlyReason = "noLocation" | "sharingOff";
 
-/** A change the server makes to a tablet: a write of an item, the shared settings or the Workflow, a delete, or setting aside a record. */
+/** A change the server makes to a tablet: a write of an item, the shared settings or the Workflow, a delete, a removal from one of DYE2's lists, or setting aside a record. */
 export interface TabletChange {
-  change: "write" | "delete" | "leaveOut";
+  change: "write" | "delete" | "remove" | "leaveOut";
   /** A Library kind, `settings` (a Location's steam and rinse settings) or `workflow` (its Workflow's grinder and batch). */
   kind: ItemKind | "workflow";
   /** The item, named as Conflicts name it; null for a record set aside, which is none of the Library's, or an item deleted since. */
@@ -189,6 +189,8 @@ export interface SharingStatus {
   lastApplied: (TabletChange & { appliedAt: string }) | null;
   /** The changes it refused that are still due, the latest refused first, each with Decaid's HTTP status, null if it gave none (it did not answer, the plugin did not ask it, or the server could not take in its answer), and its answer or why. */
   refused: (TabletChange & { status: number | null; error: string; refusedAt: string })[];
+  /** DYE2's lists the tablet holds in a shape that is not recognised, which nothing is written to, each by its collection's name, and since when. */
+  unrecognisedLists: { list: string; since: string }[];
 }
 
 /** One tablet taking a Machine over from another, both connected with its token. */

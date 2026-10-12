@@ -10,6 +10,7 @@ import {
   type Hello,
   type ItemDeleted,
   type ItemLeftOut,
+  type ItemRemoved,
   type ItemWritten,
   LEFT_OUT_OUTCOMES,
   LIBRARY_ITEM_KINDS,
@@ -17,7 +18,10 @@ import {
   LIBRARY_LISTS,
   type LeaveOut,
   type LibraryDelete,
+  type LibraryRemove,
   type LibraryWrite,
+  type ListUnrecognised,
+  DYE2_LISTS,
   MAX_HARDWARE_LENGTH,
   MAX_ID_LENGTH,
   MAX_RECORD_ID_LENGTH,
@@ -32,15 +36,21 @@ import {
   decodePluginMessage,
   decodeServerFrame,
   decodeServerMessage,
+  dye2GlobalIdOf,
+  dye2Key,
+  dye2Records,
   encode,
+  equipmentMatchKey,
   frames,
   globalIdOf,
   isCollectionName,
   isGlobalId,
   isItemId,
   isLibraryKind,
+  isDye2List,
   isLibraryList,
   isRecordId,
+  recordGlobalId,
   itemIdRule,
   listKind,
   parentKind,
@@ -538,7 +548,7 @@ describe("Library writes", () => {
       expect(decodeServerMessage(frame({ ...remove, localId })).ok).toBe(false);
       expect(decodePluginMessage(frame({ ...deleted, localId })).ok).toBe(false);
     }
-    expect(DELETED_KINDS).toEqual(["bean", "beanBatch", "grinder", "profile"]);
+    expect(DELETED_KINDS).toEqual(["bean", "beanBatch", "grinder", "profile", "basket", "tool"]);
     // A Profile's record is named by Decaid's id, which is its global id too.
     const profileId = "profile:bf1ca48b9c7389c7d146";
     const profile: LibraryDelete = { type: "delete", id: "delete-2", kind: "profile", globalId: profileId, localId: profileId };
@@ -630,7 +640,7 @@ describe("Library writes", () => {
     expect(parentList("grinders")).toBeUndefined();
     expect(childLists("beans")).toEqual(["beanBatches"]);
     expect(childLists("profiles")).toEqual([]);
-    expect(REMOVAL_ORDER).toEqual(["beanBatch", "bean", "grinder", "profile"]);
+    expect(REMOVAL_ORDER).toEqual(["beanBatch", "bean", "grinder", "profile", "basket", "tool"]);
     // Every kind's records are made under a kind listed before it, or none.
     for (const kind of LIBRARY_KINDS) {
       const parent = parentKind(kind);
@@ -646,6 +656,66 @@ describe("Library writes", () => {
     for (const record of [{}, { extras: null }, { extras: { [GLOBAL_ID_KEY]: "bean-1" } }, { extras: [globalId] }, null, "record"]) {
       expect(globalIdOf(record)).toBeNull();
     }
+  });
+
+  it("reads Baskets and Tools from DYE2's lists, whose records carry their global id in a field of their own", () => {
+    expect(dye2Key("basket")).toBe("baskets");
+    expect(dye2Key("tool")).toBe("equipment");
+    expect(dye2Key("bean")).toBeUndefined();
+    expect(LIBRARY_ITEM_KINDS.basket.list).toBe("dye2Baskets");
+    expect(LIBRARY_ITEM_KINDS.tool.list).toBe("dye2Equipment");
+    for (const list of ["dye2Recipes", "dye2Equipment", "dye2Baskets"]) expect(isDye2List(list)).toBe(true);
+    expect(isDye2List("beans")).toBe(false);
+    expect(Object.values(DYE2_LISTS)).toEqual(["recipes", "equipment", "baskets"]);
+    const record = { id: "5a792f42-b6ff-44e0-a58c-ed165741b789", name: "Basket", [GLOBAL_ID_KEY]: globalId.toUpperCase() };
+    expect(dye2GlobalIdOf(record)).toBe(globalId);
+    expect(recordGlobalId("basket", record)).toBe(globalId);
+    // A bean's is in its extras, not a field of its own.
+    expect(recordGlobalId("bean", record)).toBeNull();
+    expect(recordGlobalId("bean", written.record)).toBe(globalId);
+    for (const other of [{}, { [GLOBAL_ID_KEY]: "basket-1" }, { extras: { [GLOBAL_ID_KEY]: globalId } }, null]) expect(dye2GlobalIdOf(other)).toBeNull();
+  });
+
+  it("recognises a DYE2 list only as an array of records each with an id of its own", () => {
+    const list = [{ id: "1", name: "a" }, { id: "2", name: "b", extra: [1] }];
+    expect(dye2Records(list)).toBe(list);
+    expect(dye2Records([])).toEqual([]);
+    for (const value of [
+      null,
+      {},
+      { "1": { id: "1" } },
+      "[]",
+      [{ id: "1" }, "2"],
+      [{ id: "1" }, null],
+      [{ id: "1" }, [{ id: "2" }]],
+      [{ name: "no id" }],
+      [{ id: 1 }],
+      [{ id: "" }],
+      [{ id: "a".repeat(MAX_RECORD_ID_LENGTH + 1) }],
+      [{ id: "1" }, { id: "1" }],
+    ]) {
+      expect(dye2Records(value)).toBeNull();
+    }
+  });
+
+  it("matches Baskets and Tools by name, ignoring case and white space at either end", () => {
+    expect(equipmentMatchKey("  20g High-flow ")).toBe(equipmentMatchKey("20G HIGH-FLOW"));
+    expect(equipmentMatchKey("20g High flow")).not.toBe(equipmentMatchKey("20g High-flow"));
+  });
+
+  it("reads a remove of a record from one of DYE2's lists, and its answers", () => {
+    const localId = "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6";
+    const remove: LibraryRemove = { type: "remove", id: "remove-1", kind: "tool", globalId, localId };
+    expect(decodeServerMessage(frame(remove))).toEqual({ ok: true, message: remove });
+    expect(decodeServerMessage(frame({ ...remove, globalId: "tool-1" }))).toMatchObject({ ok: false, problem: "remove.globalId must be a UUID" });
+    for (const bad of [undefined, null, "", "a".repeat(MAX_RECORD_ID_LENGTH + 1)]) expect(decodeServerMessage(frame({ ...remove, localId: bad })).ok).toBe(false);
+    const removed: ItemRemoved = { type: "removed", id: "remove-1", kind: "tool", globalId, localId };
+    expect(decodePluginMessage(frame(removed))).toEqual({ ok: true, message: removed });
+    expect(decodePluginMessage(frame({ ...removed, localId: "" })).ok).toBe(false);
+    const unrecognised: ListUnrecognised = { type: "listUnrecognised", id: "remove-1", kind: "tool" };
+    expect(decodePluginMessage(frame(unrecognised))).toEqual({ ok: true, message: unrecognised });
+    expect(decodePluginMessage(frame({ ...unrecognised, kind: "" })).ok).toBe(false);
+    expect(decodePluginMessage(frame({ ...unrecognised, id: undefined })).ok).toBe(false);
   });
 
   it("compares the values records hold as JSON, a field left out being the same as null", () => {

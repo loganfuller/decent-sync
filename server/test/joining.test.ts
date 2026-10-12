@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { globalIdOf } from "@decent-sync/protocol";
+import { LIBRARY_LISTS, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView } from "./support/admin-api.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, derivedProfile, helloWith, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
@@ -562,7 +562,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     // Its Workflow is taken in while it is capture-only; it is then adopted at the cafe before its lists arrive.
     await raw.deliver(workflow());
     expect((await move(machine, cafe)).status).toBe(201);
-    for (const name of ["beans", "beanBatches", "grinders", "profiles"]) await raw.deliver(report(name));
+    for (const name of LIBRARY_LISTS) await raw.deliver(report(name));
     await expect.poll(() => sent("requestCollections").length, { timeout: 10_000 }).toBe(1);
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(sent("write")).toEqual([]);
@@ -583,7 +583,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const sent = (type: string) => raw.messages.filter((message) => (message as { type?: unknown }).type === type);
     await raw.deliver(workflow({ targetDoseWeight: 18 }));
     expect((await move(machine, cafe)).status).toBe(201);
-    for (const name of ["beans", "beanBatches", "grinders", "profiles"]) await raw.deliver(report(name));
+    for (const name of LIBRARY_LISTS) await raw.deliver(report(name));
     await expect.poll(() => sent("requestCollections").length, { timeout: 10_000 }).toBe(1);
     // The Workflow it sends again holds what PostgreSQL refuses to store, so it is set aside, and the cafe's Bean is written.
     await raw.deliver(workflow({ targetDoseWeight: 18, notes: "Bright\u0000, sweet" }));

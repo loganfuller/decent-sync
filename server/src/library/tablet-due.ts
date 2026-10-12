@@ -1,6 +1,6 @@
 import { Prisma } from "../generated/prisma/client.js";
 import type { PrismaService } from "../prisma.service.js";
-import { type DeletedKind, LIBRARY_KINDS, REMOVAL_ORDER } from "@decent-sync/protocol";
+import { type DeletedKind, LIBRARY_ITEM_KINDS, LIBRARY_KINDS, REMOVAL_ORDER, type WrittenKind, isLibraryKind } from "@decent-sync/protocol";
 import {
   type LocationOffer,
   type PlannedChange,
@@ -26,7 +26,9 @@ import { settingsDue } from "./location-settings.js";
 // (joining.ts), the deletes of its records
 // of items an Admin hard-deleted (hard-deletes.ts), and the setting aside of
 // its records the Library leaves out as it joined (left-out.ts), read from the database
-// each time, so it reflects changes made through any instance.
+// each time, so it reflects changes made through any instance. Nothing is
+// written to one of DYE2's lists the tablet holds in a shape that is not
+// recognised (equipment.ts).
 
 /** A connection whose tablet is written to: its session, which must still hold its Machine, the Machine and its tablet. */
 export interface WrittenTablet {
@@ -116,15 +118,24 @@ export async function changesDue(
   // need no item written before them.
   const workflow = [await settingsDue(tx, tablet, locationId), await workflowClearDue(tx, tablet.tabletId, locationId)];
   const writes = workflow.filter((write): write is PlannedWrite => write !== null && !skipped.has(writeKey(write.kind, write.globalId)));
+  // Nothing is written to one of DYE2's lists the tablet holds in a shape that is not recognised (ADR-0005).
+  const unrecognised = await unrecognisedLists(tx, tablet.tabletId);
+  const writable = (change: { kind: WrittenKind }) => !isLibraryKind(change.kind) || !unrecognised.has(LIBRARY_ITEM_KINDS[change.kind].list);
   return {
     changes: [
       ...writes,
       ...(await deletesDue(tx, tablet.tabletId, skipped)),
       ...(await leaveOutsDue(tx, tablet.tabletId, skipped)),
       ...plannedWrites(offer as LocationOffer, held as TabletHoldings, skipped),
-    ],
+    ].filter(writable),
     batchesAwaitingBeans: batchesAwaitingBeans(offer as LocationOffer, held as TabletHoldings),
   };
+}
+
+/** The tablet's lists of DYE2's that it last reported, or the plugin last found, in a shape that is not recognised (`tablet_unrecognised_lists`). */
+export async function unrecognisedLists(tx: Prisma.TransactionClient, tabletId: string): Promise<Set<string>> {
+  const rows = await tx.$queryRaw<{ list: string }[]>`SELECT list FROM tablet_unrecognised_lists WHERE tablet_id = ${tabletId}::uuid`;
+  return new Set(rows.map((row) => row.list));
 }
 
 /**

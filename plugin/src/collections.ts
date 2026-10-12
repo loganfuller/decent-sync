@@ -1,13 +1,17 @@
 import {
   type CollectionDelivery,
   type CollectionName,
+  DYE2_LISTS,
   LIBRARY_ITEM_KINDS,
   LIBRARY_KINDS,
   LIBRARY_LISTS,
+  dye2Key,
+  isDye2List,
   isLibraryList,
+  listKind,
   parentList,
 } from "@decent-sync/protocol";
-import { type Fingerprint, type Reading, decide, ifNoneMatch, pairedDevices } from "./change-detection.js";
+import { FirstReads, type Fingerprint, type Reading, decide, ifNoneMatch, pairedDevices } from "./change-detection.js";
 import { readCollection } from "./decaid.js";
 import { type LibraryAccess, libraryListPath } from "./library-writes.js";
 import { utcTime } from "./local-time.js";
@@ -24,18 +28,17 @@ interface Source {
 /**
  * Where each collection is read, in Decaid v0.8.7's API (rest_v1.yml): the
  * Library's lists first, each where its kind's records are written
- * (`libraryListPath`). The library's lists send ETags; the rest are compared
- * by content. DYE2's keys are only ever read: DYE2 is their only writer
- * until Location sharing (ADR-0005).
+ * (`libraryListPath`), DYE2's tools and baskets among them, in its lists in
+ * Decaid's store (ADR-0005). Decaid's own lists send ETags; the rest are
+ * compared by content. DYE2's recipes are only read, until a later ticket
+ * shares them.
  */
 const SOURCES: readonly Source[] = [
   ...LIBRARY_KINDS.map((kind) => ({ name: LIBRARY_ITEM_KINDS[kind].list, path: libraryListPath(kind) })),
-  // Read here until a kind of Library item is reported in it, as milestone 3's are in DYE2's keys.
-  ...([
-    { name: "dye2Recipes", path: "/store/dye2.reaplugin/recipes" },
-    { name: "dye2Equipment", path: "/store/dye2.reaplugin/equipment" },
-    { name: "dye2Baskets", path: "/store/dye2.reaplugin/baskets" },
-  ] as const satisfies readonly Source[]).filter((source) => !isLibraryList(source.name)),
+  // Read here until a kind of Library item is reported in it.
+  ...(Object.keys(DYE2_LISTS) as (keyof typeof DYE2_LISTS)[])
+    .filter((name) => !isLibraryList(name))
+    .map((name) => ({ name, path: `/store/dye2.reaplugin/${DYE2_LISTS[name]}` })),
   { name: "appSettings", path: "/settings" },
   { name: "machineSettings", path: "/machine/settings" },
   { name: "advancedSettings", path: "/machine/settings/advanced" },
@@ -72,6 +75,8 @@ const WRITTEN_LISTS: ReadonlySet<CollectionName> = new Set(LIBRARY_LISTS);
 export class CollectionCapture {
   /** What was last queued for each collection. */
   private readonly last = new Map<CollectionName, Fingerprint>();
+  /** When each record of each of DYE2's lists that is a Library list was first read in its current content. */
+  private readonly firstReads = new Map<CollectionName, FirstReads>();
   /** For each collection, the latest delivery queued, and the latest queued with a value. */
   private readonly queued = new Map<CollectionName, { latest: string; value: string | undefined }>();
   private wanted: "changes" | "full" | undefined;
@@ -83,7 +88,10 @@ export class CollectionCapture {
     private readonly outbox: Outbox,
     private readonly library: LibraryAccess,
     private readonly pollMs: number,
-  ) {}
+  ) {
+    // One of DYE2's lists the plugin wrote is reported on its next read, as it may read as last reported, its write lost.
+    library.onWrite((list) => this.last.delete(list));
+  }
 
   start(): void {
     this.schedulePoll();
@@ -139,7 +147,8 @@ export class CollectionCapture {
   /** Reads a collection, and queues it if it is to be sent. Says whether a value was queued. */
   private async capture(source: Source, full: boolean): Promise<boolean> {
     const last = this.last.get(source.name);
-    const reading = selected(source, await readCollection(source.path, full ? null : ifNoneMatch(last)));
+    // A key of Decaid's store DYE2 never wrote is an empty list, as DYE2 reads it (ADR-0005).
+    const reading = selected(source, await readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name)));
     if (this.stopped) return false;
     const decision = decide(last, reading, full);
     if (decision.next) this.last.set(source.name, decision.next);
@@ -148,7 +157,7 @@ export class CollectionCapture {
     const id = this.outbox.nextId();
     const delivery: CollectionDelivery =
       reading.kind === "value"
-        ? { type: "collection", id, name: source.name, available: true, value: reading.value, ...placedInTime(source.name, reading.value) }
+        ? { type: "collection", id, name: source.name, available: true, value: reading.value, ...this.placedInTime(source.name, reading.value) }
         : { type: "collection", id, name: source.name, available: false };
     // The newer delivery makes older ones still queued unnecessary, unless they were sent before a
     // reconnect, except that a value stays ahead of a report that the collection became unavailable:
@@ -162,16 +171,24 @@ export class CollectionCapture {
     this.outbox.enqueue(delivery);
     return delivery.available;
   }
-}
 
-/**
- * For a Library list, each record's `updatedAt` placed in UTC, beside the
- * list: Decaid writes it in the tablet's local time without an offset, which
- * only the plugin, running in the tablet's time zone, can place.
- */
-function placedInTime(name: CollectionName, value: unknown): Pick<CollectionDelivery, "updatedAt"> {
-  if (!isLibraryList(name) || !Array.isArray(value)) return {};
-  return { updatedAt: value.map((record: unknown) => utcTime((record as { updatedAt?: unknown } | null)?.updatedAt)) };
+  /**
+   * For a Library list, each record's `updatedAt` placed in UTC, beside the
+   * list: Decaid writes it in the tablet's local time without an offset,
+   * which only the plugin, running in the tablet's time zone, can place.
+   * DYE2's records carry no edit time, so for a list of a kind DYE2 keeps,
+   * when the plugin first read each record's current content
+   * (`FirstReads`, ADR-0005).
+   */
+  private placedInTime(name: CollectionName, value: unknown): Pick<CollectionDelivery, "updatedAt"> {
+    if (!isLibraryList(name) || !Array.isArray(value)) return {};
+    if (dye2Key(listKind(name)) !== undefined) {
+      let reads = this.firstReads.get(name);
+      if (!reads) this.firstReads.set(name, (reads = new FirstReads()));
+      return { updatedAt: reads.times(value, new Date().toISOString()) };
+    }
+    return { updatedAt: value.map((record: unknown) => utcTime((record as { updatedAt?: unknown } | null)?.updatedAt)) };
+  }
 }
 
 function selected(source: Source, reading: Reading): Reading {

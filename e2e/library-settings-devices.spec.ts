@@ -81,8 +81,10 @@ test("the Machine page shows paired devices, settings and the library, and follo
   const library = page.getByRole("region", { name: "Library" });
   await expect(rows(library).filter({ hasText: /^Beans/ })).toHaveText(/^Beans2Reported at /);
   await expect(rows(library).filter({ hasText: /^Profiles/ })).toHaveText(/^Profiles3Reported at /);
-  // DYE2 has never saved any equipment on this tablet.
-  await expect(rows(library).filter({ hasText: /^DYE2 equipment/ })).toHaveText(/^DYE2 equipmentNoneNot available when last read, at /);
+  // DYE2 has never saved any equipment on this tablet, which the plugin reports as an empty list, as DYE2 reads it.
+  await expect(rows(library).filter({ hasText: /^Tools/ })).toHaveText(/^Tools \(DYE2's equipment\)0Reported at /);
+  await expect(library).toContainText("its DYE2 recipes are only recorded");
+  await expect(library).not.toContainText("Nothing is sent back to the tablet");
 
   // The machine and the scale are switched off: the last settings read stay, marked as such, from the page's next load of them.
   tablet.machineConnected = false;

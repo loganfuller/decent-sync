@@ -413,6 +413,10 @@ export class SyncConnection {
         // Answered as a write is, through the outbox.
         void this.writes.remove(message);
         break;
+      case "remove":
+        // Answered as a write is, through the outbox.
+        void this.writes.drop(message);
+        break;
       case "leaveOut":
         // Answered as a write is, through the outbox.
         void this.writes.leaveOut(message);

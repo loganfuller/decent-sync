@@ -1,4 +1,4 @@
-import { LIBRARY_KINDS, globalIdOf, sameValue } from "@decent-sync/protocol";
+import { LIBRARY_KINDS, recordGlobalId, sameValue } from "@decent-sync/protocol";
 import type { DeletedKind, LibraryKind, WrittenKind } from "@decent-sync/protocol";
 import { weightOf } from "./batch-intake.js";
 import { KINDS } from "./kinds.js";
@@ -59,6 +59,15 @@ export interface ShownProfile {
   contentDecidedAt: Date | null;
 }
 
+/** A Basket or Tool a Location shows (ADR-0008), with its content. */
+export interface ShownEquipment {
+  id: string;
+  content: Record<string, unknown>;
+  /** When the Location decided to show it, by PostgreSQL's clock. */
+  decidedAt: Date;
+  contentDecidedAt: Date | null;
+}
+
 /** What a Location offers, and its state of each batch the tablet holds. Each list is in the order to write it: oldest first. */
 export interface LocationOffer {
   beans: readonly OfferedBean[];
@@ -68,6 +77,10 @@ export interface LocationOffer {
   grinders: readonly OfferedGrinder[];
   /** The Profiles it shows. */
   profiles: readonly ShownProfile[];
+  /** The Baskets it shows, but those Archived. */
+  baskets: readonly ShownEquipment[];
+  /** The Tools it shows, but those Archived. */
+  tools: readonly ShownEquipment[];
 }
 
 /** A Library item's record on the tablet, as its map holds it. */
@@ -77,14 +90,15 @@ export interface HeldRecord {
   record: Record<string, unknown>;
   /**
    * For a Bean, when the tablet's Location last decided whether any of its
-   * batches is there; for a Profile, whether it shows it. By PostgreSQL's
-   * clock; null if it never did.
+   * batches is there; for a Profile, Basket or Tool, whether it shows it. By
+   * PostgreSQL's clock; null if it never did.
    */
   decidedAt?: Date | null;
   /**
    * The item's content as the Library has it, as edits merge it: a Bean's,
    * a batch's or a Grinder's record fields (`beanContent`, `batchContent`,
-   * `grinderContent`), a Profile's title, author and notes (`profileText`).
+   * `grinderContent`), a Profile's title, author and notes (`profileText`),
+   * a Basket's or Tool's DYE2 record fields (`equipmentContent`).
    * Null for one of Decaid's bundled Profiles, whose Decaid refuses changes.
    */
   content: Record<string, unknown> | null;
@@ -98,6 +112,8 @@ export interface TabletHoldings {
   batches: readonly HeldRecord[];
   grinders: readonly HeldRecord[];
   profiles: readonly HeldRecord[];
+  baskets: readonly HeldRecord[];
+  tools: readonly HeldRecord[];
 }
 
 /** A write that brings the tablet closer to what its Location offers, or to its settings (location-settings.ts). */
@@ -138,6 +154,20 @@ export interface PlannedDelete {
   localId: string;
 }
 
+/**
+ * A tablet's record of a Basket or Tool to be removed from DYE2's list, as
+ * its Location no longer shows the item, or it is Archived: DYE2 cannot
+ * archive or hide a record (ADR-0005).
+ */
+export interface PlannedRemove {
+  remove: true;
+  kind: DeletedKind;
+  globalId: string;
+  localId: string;
+  /** When the Location last decided whether it shows the item, by PostgreSQL's clock; null if it never did. */
+  decidedAt: Date | null;
+}
+
 /** A tablet's record the Library leaves out, to be set aside there, archived or hidden (left-out.ts): its kind, and its id on the tablet. */
 export interface PlannedLeaveOut {
   leaveOut: true;
@@ -145,12 +175,17 @@ export interface PlannedLeaveOut {
   localId: string;
 }
 
-/** What the writer does next to a tablet: a write, a delete, or setting aside a record the Library leaves out. */
-export type PlannedChange = PlannedWrite | PlannedDelete | PlannedLeaveOut;
+/** What the writer does next to a tablet: a write, a delete, a removal from DYE2's list, or setting aside a record the Library leaves out. */
+export type PlannedChange = PlannedWrite | PlannedDelete | PlannedRemove | PlannedLeaveOut;
 
 /** The key a planned delete is skipped and its refusal kept under. */
 export function deleteKey(kind: DeletedKind, localId: string): string {
   return `delete:${kind}:${localId}`;
+}
+
+/** The key a planned removal from DYE2's list is skipped and its refusal kept under. */
+export function removeKey(kind: DeletedKind, localId: string): string {
+  return `remove:${kind}:${localId}`;
 }
 
 /** The key setting aside a record the Library leaves out is skipped and its refusal kept under. */
@@ -178,7 +213,10 @@ export function writeKey(kind: WrittenKind, globalId: string): string {
  * created, unless it is one of Decaid's bundled Profiles, after the Profile
  * it was saved from if that is created too, so the tablet keeps its parent;
  * or that the tablet holds hidden or deleted, made visible. Then each the
- * tablet holds visible that the Location does not show, hidden. Items in
+ * tablet holds visible that the Location does not show, hidden. Then each
+ * Basket, and each Tool, the Location shows that the tablet lacks, created,
+ * and each the tablet holds that it does not show, removed from DYE2's
+ * list, as DYE2 cannot hide one (ADR-0005). Items in
  * `skipped` (`writeKey`) are left out, and so is a batch whose Bean the
  * tablet holds no record of yet: its Bean is written first. Every record the
  * tablet holds whose content differs from the item's, offered there or not,
@@ -186,9 +224,9 @@ export function writeKey(kind: WrittenKind, globalId: string): string {
  * the fields that differ, writing the global id beside them; a Profile's
  * records carry none.
  */
-export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skipped: ReadonlySet<string> = new Set()): PlannedWrite[] {
+export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skipped: ReadonlySet<string> = new Set()): (PlannedWrite | PlannedRemove)[] {
   const writes = LIBRARY_KINDS.flatMap((kind) => KINDS[kind].plan?.(offer, held) ?? []);
-  return writes.filter((write) => !skipped.has(writeKey(write.kind, write.globalId)));
+  return writes.filter((write) => !skipped.has("remove" in write ? removeKey(write.kind, write.localId) : writeKey(write.kind, write.globalId)));
 }
 
 /** The writes of Beans and of their batches, which interleave: Beans before their batches are created, batches archived before their Beans. */
@@ -277,6 +315,28 @@ export function profileWrites(offer: LocationOffer, held: TabletHoldings): Plann
 }
 
 /**
+ * The writes of a kind DYE2 keeps, Baskets or Tools, shown or hidden at the
+ * Location: each it shows that the tablet lacks, created; each the tablet
+ * holds that it does not show, as one Archived, removed from DYE2's list,
+ * which can neither archive nor hide one (ADR-0005).
+ */
+export function equipmentWrites(kind: "basket" | "tool", offer: LocationOffer, held: TabletHoldings): (PlannedWrite | PlannedRemove)[] {
+  const key = kind === "basket" ? "baskets" : "tools";
+  const writes: (PlannedWrite | PlannedRemove)[] = [];
+  const records = new Map(held[key].map((record) => [record.itemId, record]));
+  const shown = new Set(offer[key].map((item) => item.id));
+  for (const item of offer[key]) {
+    const record = records.get(item.id);
+    if (record) pushUpdate(writes, kind, item.id, record, {}, item.decidedAt);
+    else writes.push({ kind, globalId: item.id, localId: null, fields: item.content, decidedAt: item.decidedAt, contentDecidedAt: item.contentDecidedAt });
+  }
+  for (const record of held[key]) {
+    if (!shown.has(record.itemId)) writes.push({ remove: true, kind, globalId: record.itemId, localId: record.localId, decidedAt: record.decidedAt ?? null });
+  }
+  return writes;
+}
+
+/**
  * The Bean of each batch the Location offers that the tablet lacks while it
  * lacks the Bean's record too, one for each such batch: `plannedWrites`
  * plans the batch once the Bean's record is written, so it is waiting on
@@ -322,9 +382,9 @@ function profileToCreate(content: Record<string, unknown>): Record<string, unkno
  * of its Location's state to set, or the item's content where it differs,
  * with the value the record holds for each field to set.
  */
-function pushUpdate(writes: PlannedWrite[], kind: LibraryKind, globalId: string, record: HeldRecord, location: Record<string, unknown>, decidedAt: Date | null): void {
+function pushUpdate(writes: (PlannedWrite | PlannedRemove)[], kind: LibraryKind, globalId: string, record: HeldRecord, location: Record<string, unknown>, decidedAt: Date | null): void {
   const fields = { ...contentToWrite(kind, record), ...location };
-  const lacksId = KINDS[kind].carriesGlobalId && globalIdOf(record.record) !== globalId.toLowerCase();
+  const lacksId = KINDS[kind].carriesGlobalId && recordGlobalId(kind, record.record) !== globalId.toLowerCase();
   if (Object.keys(fields).length === 0 && !lacksId) return;
   const expected = Object.fromEntries(Object.keys(fields).map((field) => [field, heldValue(kind, record.record, field)]));
   writes.push({ kind, globalId, localId: record.localId, fields, expected, decidedAt, contentDecidedAt: record.contentDecidedAt });

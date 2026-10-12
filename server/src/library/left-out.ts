@@ -47,7 +47,10 @@ export async function offersAny(tx: Prisma.TransactionClient, locationId: string
  * is linked, and the rest are left out again. One the list (`listed`, every
  * id it holds) no longer holds, or that the map holds now, as a write made
  * it a Library item's, is forgotten. Returns the rest, and whether a record
- * is newly due to be set aside.
+ * is newly due to be set aside. A record of a kind DYE2 keeps (`removable`)
+ * cannot be set aside on the tablet, only removed from its list (ADR-0005):
+ * one listed again after it was removed, as when another app rewrote the
+ * list at the same moment, is due to be removed again rather than taken up.
  */
 export async function screenLeftOut<T>(
   tx: Prisma.TransactionClient,
@@ -58,6 +61,7 @@ export async function screenLeftOut<T>(
   listed: ReadonlySet<string>,
   mapped: ReadonlySet<string>,
   joining: boolean,
+  removable = false,
 ): Promise<{ kept: T[]; due: boolean }> {
   const rows = await tx.$queryRaw<{ localId: string; setAside: boolean }[]>`
     SELECT local_id AS "localId", set_aside AS "setAside" FROM tablet_left_out WHERE tablet_id = ${tabletId}::uuid AND kind = ${kind}`;
@@ -74,7 +78,7 @@ export async function screenLeftOut<T>(
       kept.push(record);
       continue;
     }
-    if (joining || (wasSetAside && !setAside)) {
+    if (joining || (!removable && wasSetAside && !setAside)) {
       released.push(localId);
       kept.push(record);
       continue;

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { STREAMLINE_NAMESPACE, type SimulatedStreamline, type StreamlineKey, startStreamline } from "./support/simulated-streamline.js";
-import { SimulatedTablet, derivedDe1Pro, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
+import { NO_DYE2_EQUIPMENT, SimulatedTablet, derivedDe1Pro, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for tickets #130 and #137: Streamline remembers what the barista
@@ -68,7 +68,7 @@ describe("Streamline's remembered steam and rinse values", { timeout: 60_000 }, 
     for (const [part, values] of Object.entries(SETTINGS)) workflow[part] = { ...(workflow[part] as Record_), ...values };
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: server.url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial: String(serial) }), "/beans": [], "/bean-batches": [], "/profiles": [], "/grinders": [], "/workflow": workflow },
+      api: { ...derivedDe1Pro({ serial: String(serial) }), "/beans": [], "/bean-batches": [], "/profiles": [], "/grinders": [], "/workflow": workflow, ...NO_DYE2_EQUIPMENT },
       timeScale: 50,
     });
     tablets.push(tablet);

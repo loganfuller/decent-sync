@@ -64,6 +64,33 @@ export function pairedDevices(inventory: unknown): unknown[] | null {
 }
 
 /**
+ * When the plugin first read each record of one of DYE2's lists in its
+ * current content (ADR-0005): DYE2's records carry no edit time, so this
+ * times their edits. Kept for one runtime, by record id: a record whose
+ * content changed since the last read, or new to the list, was first read
+ * now; one read the same keeps its time.
+ */
+export class FirstReads {
+  private known = new Map<string, { hash: string; at: string }>();
+
+  /** Each record's time, in the order of the list read at `now`, a UTC time: null for one without a string id. */
+  times(records: readonly unknown[], now: string): (string | null)[] {
+    const next = new Map<string, { hash: string; at: string }>();
+    const times = records.map((record) => {
+      const id = typeof record === "object" && record !== null && !Array.isArray(record) ? (record as { id?: unknown }).id : undefined;
+      if (typeof id !== "string") return null;
+      const hash = contentHash(JSON.stringify(record));
+      const before = this.known.get(id);
+      const at = before?.hash === hash ? before.at : now;
+      next.set(id, { hash, at });
+      return at;
+    });
+    this.known = next;
+    return times;
+  }
+}
+
+/**
  * A 64-bit hash of a text (cyrb53's mixing, both halves kept) with its
  * length. It only tells whether content changed, so it need not resist
  * tampering; a collision would at worst delay a change until the next

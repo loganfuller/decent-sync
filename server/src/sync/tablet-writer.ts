@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { LIBRARY_LISTS, type LeaveOut, type LibraryDelete, type LibraryList, type LibraryWrite, childLists } from "@decent-sync/protocol";
+import {
+  LIBRARY_LISTS,
+  type LeaveOut,
+  type LibraryDelete,
+  type LibraryList,
+  type LibraryRemove,
+  type LibraryWrite,
+  childLists,
+} from "@decent-sync/protocol";
 import { writtenKind } from "../library/kinds.js";
 import type { SeenDecision } from "../library/intake.js";
 import { type TabletChange, changeKey, changeSignature, pruneRefusals, recordRefused, tabletChange } from "../library/sharing-status.js";
@@ -24,7 +32,7 @@ const ANSWER_TIMEOUT_MS = 300_000;
  * (`changeSignature`), which a refusal is kept with.
  */
 export interface AwaitedWrite {
-  write: LibraryWrite | LibraryDelete | LeaveOut;
+  write: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut;
   seen: SeenDecision | null;
   contentSeen: Date | null;
   change: TabletChange & { signature: string };
@@ -168,8 +176,8 @@ export class TabletWriter {
   constructor(
     private readonly tablet: WrittenTablet,
     private readonly prisma: PrismaService,
-    /** Sends a write, delete or leave-out on the connection, in chunks if it is too large for one frame. */
-    private readonly send: (write: LibraryWrite | LibraryDelete | LeaveOut) => void,
+    /** Sends a write, delete, removal or leave-out on the connection, in chunks if it is too large for one frame. */
+    private readonly send: (write: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut) => void,
     /** Asks the plugin for every collection afresh, as on a welcome. */
     private readonly requestCollections: () => void,
     private readonly log: { warn(message: string): void; error(message: string): void },
@@ -293,7 +301,8 @@ export class TabletWriter {
       const change = { ...tabletChange(due), signature: changeSignature(due) };
       const name = writtenKind(due.kind).name;
       const item = "leaveOut" in due ? `${name} record ${due.localId}` : `${name} ${due.globalId}`;
-      const fields = "delete" in due ? "delete" : "leaveOut" in due ? "leaveOut" : JSON.stringify({ fields: due.fields, expected: due.expected ?? null });
+      const fields =
+        "delete" in due ? "delete" : "remove" in due ? "remove" : "leaveOut" in due ? "leaveOut" : JSON.stringify({ fields: due.fields, expected: due.expected ?? null });
       if (this.lastWritten.get(key) === fields) {
         this.log.warn(`Tablet ${this.tablet.tabletId} is still due ${item} once written; it is tried again once it changes or the tablet reconnects`);
         this.skipped.set(key, change.signature);
@@ -327,6 +336,22 @@ export class TabletWriter {
         }
         if (outcome === "written") this.lastWritten.set(key, fields);
         else if (outcome === "deferred") this.defer(key);
+        else this.skip(key, change.signature);
+        continue;
+      }
+      if ("remove" in due) {
+        // Its answer removes it from what the tablet holds, so it is not due again once removed.
+        const outcome = await this.ask({
+          write: { type: "remove", id: randomUUID(), kind: due.kind, globalId: due.globalId, localId: due.localId },
+          seen: null,
+          contentSeen: null,
+          change,
+        });
+        if (outcome === "stopped") return;
+        if (outcome === "timedOut") {
+          this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the removal of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
+        }
+        if (outcome === "written") this.lastWritten.set(key, fields);
         else this.skip(key, change.signature);
         continue;
       }
