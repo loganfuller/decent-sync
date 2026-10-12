@@ -1156,7 +1156,7 @@ time it pushes (ADR-0021; the evidence is in `AI_RUNTIME_NOTES.md`, Skins). So
 before the plugin sets the settings, it sets the value Streamline remembers
 of each one it is about to set, through Decaid's store API
 (`rememberInStreamline`, `plugin/src/streamline.ts`), then writes the
-Workflow, the order Streamline's own setters use:
+Workflow, the order Streamline's own steam and hot water setters use:
 
 | Setting | Streamline's key | Only when |
 |---|---|---|

@@ -962,7 +962,8 @@ var __decentSync = (() => {
         const set = await request("POST", path, value);
         if (!set.ok) log(`Could not set Streamline's ${key}: Decaid answered ${set.status}. Streamline may set it back.`);
       } catch (error) {
-        log(`Could not set Streamline's ${key}: Decaid did not answer (${error instanceof Error ? error.message : String(error)}). Streamline may set it back.`);
+        log(`Could not set Streamline's ${key} or the rest: Decaid did not answer (${error instanceof Error ? error.message : String(error)}). Streamline may set them back.`);
+        return;
       }
     }
   }

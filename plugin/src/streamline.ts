@@ -11,7 +11,8 @@ import { request } from "./decaid.js";
 // checked at v0.2.12, bf72a0c). Its key names are not a published contract.
 // So before the plugin writes a Location's settings into the Workflow, it
 // sets each of those values Streamline holds to the one it is about to
-// write, store first, as Streamline's own setters do (ADR-0021).
+// write, store first, as Streamline's own steam and hot water setters do
+// (ADR-0021).
 
 const NAMESPACE = "streamline-app";
 
@@ -43,6 +44,8 @@ const REMEMBERED: Partial<Record<SharedSetting, Remembered>> = {
  * nothing for, so a tablet that never ran Streamline is written nothing.
  * Never rejects: a key Decaid fails to read or set is logged, and left to
  * Streamline, which may push it back over the Workflow, as it did before.
+ * Once Decaid does not answer, the keys left are not tried, as each would
+ * hold up the write until Decaid's fetch times out.
  */
 export async function rememberInStreamline(fields: Readonly<Record<string, unknown>>, log: (message: string) => void): Promise<void> {
   for (const [field, value] of Object.entries(fields)) {
@@ -65,7 +68,8 @@ export async function rememberInStreamline(fields: Readonly<Record<string, unkno
       const set = await request("POST", path, value);
       if (!set.ok) log(`Could not set Streamline's ${key}: Decaid answered ${set.status}. Streamline may set it back.`);
     } catch (error) {
-      log(`Could not set Streamline's ${key}: Decaid did not answer (${error instanceof Error ? error.message : String(error)}). Streamline may set it back.`);
+      log(`Could not set Streamline's ${key} or the rest: Decaid did not answer (${error instanceof Error ? error.message : String(error)}). Streamline may set them back.`);
+      return;
     }
   }
 }

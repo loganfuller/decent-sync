@@ -1043,7 +1043,7 @@ export class SimulatedTablet {
       this.writes.push(`${method.toUpperCase()} ${route}`);
       const refusal = this.refuseWrites?.({ method: method.toUpperCase(), route, body: typeof body === "string" ? JSON.parse(body) : body });
       if (refusal) return Promise.resolve(response(refusal.status, JSON.stringify(refusal.body)));
-      const stored = storeKey(route);
+      const stored = this.keptInStore(route);
       if (method.toUpperCase() === "POST" && stored) this.storeWrites.push({ ...stored, value: typeof body === "string" ? JSON.parse(body) : body });
     }
     return this.answer(url, method.toUpperCase(), headers, body);
@@ -1179,8 +1179,8 @@ export class SimulatedTablet {
    * storage and the keys `api` serves included.
    */
   private answerStore(method: string, route: string, body: unknown): DecaidAnswer | undefined {
-    const stored = storeKey(route);
-    if (!stored || stored.namespace === this.pluginId) return undefined;
+    const stored = this.keptInStore(route);
+    if (!stored) return undefined;
     const { namespace, key } = stored;
     if (method === "POST") {
       if (typeof body !== "string") throw new Error("A write to Decaid's store came without a JSON body");
@@ -1191,6 +1191,12 @@ export class SimulatedTablet {
     }
     if (method === "GET" && this.store.get(namespace)?.has(key)) return { status: 200, body: this.storeValue(namespace, key) };
     return undefined;
+  }
+
+  /** The namespace and key of Decaid's store a route names, but for the plugin's own storage and the keys `api` serves; otherwise undefined. */
+  private keptInStore(route: string): { namespace: string; key: string } | undefined {
+    const stored = storeKey(route);
+    return stored && stored.namespace !== this.pluginId && !(route in this.api) ? stored : undefined;
   }
 
   /**
