@@ -566,7 +566,8 @@ export interface MappedRecipe {
  * Location's Recipe, is written over. One of the Location's (`own`) no
  * longer in that slot, moved to another, taken out of its slot or Archived
  * since, as in the management interface, is still the Recipe the barista
- * edited there, when the record carries its global id or none: the save is
+ * edited there, when the record carries its global id, or none where the
+ * map's record of it carried none either: the save is
  * its edit, and the writer then moves the record to its slot or removes it,
  * so an edit made on a tablet not yet written the change is kept, and never
  * taken as an edit of another Recipe put in that slot since. Any other record is in
@@ -605,7 +606,8 @@ export function planRecipeIntake(
     }
     // The Location's Recipe moved, taken out of its slot or Archived since, its record saved in the slot it left: the
     // barista's edit of it, whatever is in that slot now.
-    if (mine && own.has(mine.itemId) && (record.globalId === null || record.globalId === mine.itemId)) {
+    // A record with no global id is its only where the map's record of it had none either, as before the server wrote it.
+    if (mine && own.has(mine.itemId) && (record.globalId === mine.itemId || (record.globalId === null && dye2GlobalIdOf(mine.record) === null))) {
       steps.push({ kind: "update", itemId: mine.itemId, reported: record });
       continue;
     }

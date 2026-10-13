@@ -467,6 +467,14 @@ describe("DYE2's recipes as Recipes", () => {
     expect(planRecipeIntake([edited], [known], unslotted, undefined, left)).toEqual([{ kind: "update", itemId: GLOBAL.recipe, reported: edited }]);
     expect(planRecipeIntake([edited], [known], new Map([["1", other]]), undefined, left)).toEqual([{ kind: "update", itemId: GLOBAL.recipe, reported: edited }]);
     expect(planRecipeIntake([at(slot1)], [known], unslotted, undefined, left)).toEqual([]);
+    // A record with no global id over one the map knew to carry its id, as another app's new save there, is no edit of it.
+    const idless = at({ ...slot1, name: "No id" });
+    delete (idless.record as Record_)[GLOBAL_ID_KEY];
+    const unmarked = { ...idless, globalId: null };
+    const carried: MappedRecipe = { ...known, record: { ...slot1, [GLOBAL_ID_KEY]: GLOBAL.recipe } };
+    expect(planRecipeIntake([unmarked], [carried], unslotted, undefined, left)).toEqual([{ kind: "add", reported: unmarked }]);
+    const neverCarried: MappedRecipe = { ...known, record: Object.fromEntries(Object.entries(slot1).filter(([key]) => key !== GLOBAL_ID_KEY)) };
+    expect(planRecipeIntake([unmarked], [neverCarried], unslotted, undefined, left)).toEqual([{ kind: "update", itemId: GLOBAL.recipe, reported: unmarked }]);
     // A record carrying another item's global id there is no edit of it, and in a slot another Recipe holds now, that one's
     // as any record saved there.
     const restoredThere = at({ ...slot1, name: "Restored there", [GLOBAL_ID_KEY]: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" });

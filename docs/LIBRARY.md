@@ -1071,7 +1071,8 @@ never matched (ADR-0018).
 - **Edits.** A record in a slot the map holds as a Recipe's is that
   Recipe's, even where the Recipe has left that slot since, moved to another,
   taken out of its slot or Archived, as in the management interface: when
-  the record carries its global id or none, a save there is still its edit,
+  the record carries its global id, or none where the map's record of it
+  carried none either, a save there is still its edit,
   so an edit made on a tablet not yet written the change is kept, on that
   Recipe and never on another put in the slot since, and the writer then
   moves the record to its slot or removes it. This reads the spec's "saved
