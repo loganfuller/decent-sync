@@ -13,6 +13,7 @@ async function main(): Promise<void> {
   const app = await NestFactory.create(AppModule.register(config));
   app.enableShutdownHooks();
   await app.listen(config.port, config.host);
+  // Test servers are ready once this is logged (`server/test/support/test-server.ts`).
   new Logger("DecentSync").log(
     `Listening on ${config.host}:${config.port}; public URL ${config.publicUrl.origin}`,
   );

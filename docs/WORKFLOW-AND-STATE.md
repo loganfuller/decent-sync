@@ -25,8 +25,11 @@ the plugin's one outbox (`plugin/src/outbox.ts`), which Shots share:
 - `stateUpdate` arrives several times a second while a machine is connected.
   Only a change of state or substate from the last one queued is sent.
 - On every `welcome`, the latest Workflow is sent again in a new delivery,
-  observed then, replacing one an earlier `welcome` queued if that is still
-  queued, and the next state update is sent whatever it is. A reconnect may
+  observed then, replacing one an earlier `welcome` queued unless that was
+  ever handed to a connection, and the next state update is sent whatever it
+  is. One handed to an earlier connection may still be being stored by the
+  instance that received it, so it is sent again, under its id, ahead of the
+  new one, and the server never stores it after the new one. A reconnect may
   stand for other hardware, after a tablet moved to another machine. A
   delivery still queued from the last connection may already have been
   stored for the last hardware, and its resend then changes nothing, so the

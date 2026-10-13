@@ -196,11 +196,6 @@ export class Outbox {
     this.watchers.push(watcher);
   }
 
-  /** Drops a queued delivery that a newer one makes unnecessary; one being sent now stays, to be acknowledged. */
-  discard(id: string): void {
-    if (this.sent !== id) this.forget(id);
-  }
-
   /**
    * Drops a queued delivery that a newer one makes unnecessary, unless it
    * was ever handed to a connection. One sent before a reconnect may still

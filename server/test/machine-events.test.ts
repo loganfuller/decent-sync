@@ -233,6 +233,33 @@ describe("Workflow changes and machine state transitions", () => {
     expect((await workflowEvents(machine)).total).toBe(3);
   });
 
+  it("sends a welcome's Workflow that its connection lost again, under its id, ahead of the next welcome's", async () => {
+    const machine = await api.createMachine("Lost resend");
+    let stalled = false;
+    const tablet = load(machine, { stallUpload: (frame) => stalled && frameType(frame) === "workflow" });
+    await expect.poll(async () => (await workflowEvents(machine)).total).toBe(1);
+    await acknowledged(tablet, "workflow");
+
+    // The next connection's welcome sends the Workflow again, and the network holds it.
+    stalled = true;
+    const beforeHeld = tablet.sent.length;
+    tablet.dropConnections();
+    await tablet.waitForLogs(/^Connected to /, 2);
+    const workflowIds = (from: number) =>
+      tablet.sent.slice(from).filter((frame) => frameType(frame) === "workflow").map((frame) => (frame as Frame).id);
+    await expect.poll(() => workflowIds(beforeHeld).length).toBe(1);
+    const [held] = workflowIds(beforeHeld);
+
+    // The connection after it sends that delivery again, then its own welcome's.
+    const beforeReconnect = tablet.sent.length;
+    stalled = false;
+    tablet.dropConnections();
+    await tablet.waitForLogs(/^Connected to /, 3);
+    await expect.poll(() => workflowIds(beforeReconnect)).toEqual([held, expect.any(String)]);
+    await acknowledged(tablet, "workflow");
+    expect((await workflowEvents(machine)).total).toBe(1);
+  });
+
   it("gives a mismatched connection's events to the Machine that has its hardware, judging changes against that Machine's, and leaves the token's Machine its own", async () => {
     const owner = await api.createMachine("Owner of 20001");
     const ownerRaw = await connect(owner, server.url, { model: "DE1Pro", serial: "20001" });
