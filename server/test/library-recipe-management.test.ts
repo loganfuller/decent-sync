@@ -516,6 +516,35 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect(server.output()).not.toMatch(/is still due Recipe .* once written/);
   });
 
+  it("keeps an edit saved on a tablet offline in the slot a swap took its Recipe from, and moves the record", async () => {
+    const lab = await locationWith("Swapped offline lab", 45111, [server, other]);
+    const [offline, online] = lab.tablets as [SimulatedTablet, SimulatedTablet];
+    const two = await create(lab.location, 2, { name: "Offline Two", dose: 18 });
+    const four = await create(lab.location, 4, { name: "Offline Four", dose: 19 });
+    for (const tablet of lab.tablets) await poll(() => slotsOn(tablet)).toEqual(["2:Offline Two", "4:Offline Four"]);
+
+    // Swapped while one tablet is offline, whose barista then saves a new dose for the recipe it still holds in slot 2.
+    offline.loseNetwork();
+    expect((await move(two.id, 4)).slot).toBe(4);
+    await poll(() => slotsOn(online)).toEqual(["2:Offline Four", "4:Offline Two"]);
+    const list = (dye2List(offline, "recipes") as Record_[]).map((record) =>
+      record.id === "2" ? { ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), dose: 21 } } : record,
+    );
+    expect((await offline.callApi("POST", "/store/dye2.reaplugin/recipes", list)).status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    offline.restoreNetwork();
+
+    // The dose is the moved Recipe's, written to it in its new slot on every tablet; the other Recipe is untouched.
+    await poll(async () => (await recipe(two.id)).content.dose).toBe(21);
+    expect((await recipe(four.id)).content.dose).toBe(19);
+    for (const tablet of lab.tablets) {
+      await poll(() => slotsOn(tablet)).toEqual(["2:Offline Four", "4:Offline Two"]);
+      await poll(() => (slotOn(tablet, 4)?.dashboardVariables as Record_ | undefined)?.dose).toBe(21);
+      expect((slotOn(tablet, 2)?.dashboardVariables as Record_ | undefined)?.dose).toBe(19);
+    }
+    expect((await send<{ conflicts: unknown[] }>("GET", `/recipes/${two.id}/conflicts`)).conflicts).toEqual([]);
+  });
+
   it("Archives a Recipe, which leaves its slot, restores it unslotted, and refuses to slot it while Archived", async () => {
     const lab = await locationWith("Archived recipe lab", 45041, [server]);
     const created = await create(lab.location, 3, { name: "Archived Espresso" });

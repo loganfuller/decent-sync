@@ -425,7 +425,8 @@ a Conflict, so neither waits on the other in turn.
   that Bean's batch most recently added at its Location, or none, keeping the
   Bean, a ratio used sets the yield to the dose times it, as picking a ratio
   in DYE2's editor does, refused with 409 while the Recipe has no dose, the ratio and the Tools' attributes follow, and what it newly uses is offered at its
-  Location, or refused with 409 where it is Archived. It commits with a
+  Location, or refused with 409 where it is Archived, and Tools' attributes
+  used keep those of the Tools it still uses. It commits with a
   `NOTIFY` on `library_changes`, so every tablet that holds the item, at every
   Location, is written it; a tablet's edit made before it that arrives later,
   as from one that was offline, loses to it and is kept as a Conflict. A
@@ -1069,8 +1070,11 @@ never matched (ADR-0018).
   names none.
 - **Edits.** A record in a slot the map holds as a Recipe's is that
   Recipe's, unless the Recipe is one of the Location's that has left that
-  slot since, as one taken out of it, when a save there is in the slot as it
-  is now, below. One carrying another item's global id, as a backup restored,
+  slot since. One moved to another slot since, as by a swap in the
+  management interface, is still the Recipe a save there edits, when the
+  record carries its global id or none, so an edit made on a tablet not yet
+  written the move is kept, and the writer then moves the record. One taken
+  out of its slot since leaves a save there in the slot as it is now, below. One carrying another item's global id, as a backup restored,
   or of another Location's Recipe, as before the writer removes it after a
   move, is written over, no edit of it; so is a write's answer of one. One that differs from the record
   known is an edit of each field of its content it changed, timed when the

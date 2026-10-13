@@ -138,7 +138,13 @@ async function useValue(
     let values: Record<string, unknown> = { [field]: value ?? null };
     if (item.kind === "recipe" && conflict.itemLocationId) {
       const [recipe] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM recipes WHERE id = ${item.id}::uuid`;
-      values = await recipeEditValues(tx, conflict.itemLocationId, values, isObject(recipe?.content) ? recipe.content : {}, source, at);
+      const content = isObject(recipe?.content) ? recipe.content : {};
+      // Attributes of a Tool the Recipe no longer uses go with that Tool, as an edit dropping it takes them.
+      if (field === "toolAttributes" && isObject(values.toolAttributes)) {
+        const tools = new Set(Array.isArray(content.toolIds) ? content.toolIds : []);
+        values.toolAttributes = Object.fromEntries(Object.entries(values.toolAttributes).filter(([tool]) => tools.has(tool)));
+      }
+      values = await recipeEditValues(tx, conflict.itemLocationId, values, content, source, at);
     }
     const edited = await editContent(tx, item, { values, at, seenAt: "everything" }, source);
     // Every Location's tablets may hold the item; each writer reads what its tablet is due.

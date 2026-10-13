@@ -272,6 +272,8 @@ export function ConflictsTable({
                           <>
                             {field} of {itemName} becomes {valueText(conflict.field, conflict.value, names)}, an edit made here, written to every tablet
                             that holds it. {valueText(conflict.field, conflict.current.value, names)}, its value now, stays in its history.
+                            {conflict.item.kind === "recipe" &&
+                              " A Bean Batch, Profile, Basket or Tool it names that the Recipe's Location does not offer is offered there too."}
                           </>
                         )
                       }

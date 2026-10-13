@@ -564,9 +564,13 @@ export interface MappedRecipe {
  * from the record known is the barista's edit of it, but one carrying
  * another item's global id, as one a backup restored, or of another
  * Location's Recipe, is written over; and unless that Recipe is one of the
- * Location's (`own`) that is no longer in that slot, as one taken out of it
- * since, when the save is in the slot as it is now, as a record the map does
- * not hold. Any other record is in
+ * Location's (`own`) that is no longer in that slot. One moved to another
+ * slot since, as by a swap in the management interface, is still the
+ * Recipe the barista edited there, when the record carries its global id or
+ * none: the save is its edit, and the writer then moves the record to its
+ * slot, so an edit made on a tablet that had not yet been written the move
+ * is kept. One taken out of its slot since leaves the save in the slot as
+ * it is now, as a record the map does not hold. Any other record is in
  * the slot of the Location's Recipe there, if any: the record carrying its
  * global id is its record, as when the answer to its write was lost, and
  * any other was saved in that slot on the tablet, an edit of it; unless the
@@ -585,6 +589,8 @@ export function planRecipeIntake(
   own: ReadonlySet<string> = new Set(slots.values()),
 ): RecipeIntakeStep[] {
   const byLocalId = new Map(mapped.map((record) => [record.localId, record]));
+  /** Each of the Location's slotted Recipes by its Recipe, as a moved one is found in the slot it left. */
+  const slotOf = new Map([...slots].map(([slot, itemId]) => [itemId, slot]));
   /** The Recipes the tablet holds a record of that it still lists. */
   const held = new Set(mapped.filter((record) => listed.has(record.localId)).map((record) => record.itemId));
   const steps: RecipeIntakeStep[] = [];
@@ -598,6 +604,11 @@ export function planRecipeIntake(
       // it: it is written over.
       const foreign = !own.has(mine.itemId) || (record.globalId !== null && record.globalId !== mine.itemId);
       steps.push({ kind: foreign ? "map" : "update", itemId: mine.itemId, reported: record });
+      continue;
+    }
+    // The Location's Recipe moved to another slot since, its record saved in the slot it left: the barista's edit of it.
+    if (mine && own.has(mine.itemId) && slotOf.has(mine.itemId) && (record.globalId === null || record.globalId === mine.itemId)) {
+      steps.push({ kind: "update", itemId: mine.itemId, reported: record });
       continue;
     }
     if (slotted === undefined) {
