@@ -6,6 +6,7 @@ import {
   type LibraryList,
   type LibraryRemove,
   type LibraryWrite,
+  type WrittenKind,
   childLists,
 } from "@decent-sync/protocol";
 import { writeKey } from "../library/holdings.js";
@@ -123,9 +124,8 @@ export class TabletWriter {
    * nothing. One expecting other values finds the record changed, as when the
    * plugin left a field the tablet had changed meanwhile as it was, which its
    * answer brought in, and is written again. A look the writer skips while it
-   * waits for a report of the batches cannot tell, so it keeps them. Removing
-   * the item's record from the tablet forgets them, as a Recipe moved to
-   * another slot and back is written again in the slot it was removed from.
+   * waits for a report of the batches cannot tell, so it keeps them. The
+   * tablet no longer holding the item's record forgets them (`recordGone`).
    */
   private readonly lastWritten = new Map<string, string>();
   /**
@@ -238,6 +238,18 @@ export class TabletWriter {
   workflowReported(takenInAt: string | null | undefined): void {
     this.workflowAt = takenInAt;
     this.wake();
+  }
+
+  /**
+   * The tablet holds the item's record no more, as removed from its list, or
+   * found to be another item's, whether or not that answers a write awaited:
+   * a write of the item due from now on is a new one, whatever was written or
+   * skipped before, as when a Recipe moved to another slot and back is
+   * written again in the slot its record was removed from.
+   */
+  recordGone(kind: WrittenKind, globalId: string): void {
+    this.lastWritten.delete(writeKey(kind, globalId));
+    this.skipped.delete(writeKey(kind, globalId));
   }
 
   /** The write with this id, if it awaits its answer, and what its answer has seen. */
@@ -354,12 +366,9 @@ export class TabletWriter {
         if (outcome === "timedOut") {
           this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the removal of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
         }
-        if (outcome === "written") {
-          this.lastWritten.set(key, fields);
-          // Its record is gone from the tablet, so a write of the item due from now on is a new one, whatever was written before.
-          this.lastWritten.delete(writeKey(due.kind, due.globalId));
-          this.skipped.delete(writeKey(due.kind, due.globalId));
-        } else this.skip(key, change.signature);
+        // Its record gone, the gateway has had it forget the item's last write (`recordGone`).
+        if (outcome === "written") this.lastWritten.set(key, fields);
+        else this.skip(key, change.signature);
         continue;
       }
       const write: LibraryWrite = {

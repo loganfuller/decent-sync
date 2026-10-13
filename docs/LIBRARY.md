@@ -1293,8 +1293,9 @@ whose local id the map holds as another item, is not recorded.
 A refusal, an answer that cannot be recorded, no answer within 300 s, or an
 item due again with the same fields it was last written, expecting the record
 to hold the same values, found due at every
-look since and with its record not removed from the tablet meanwhile, as a
-Recipe moved to another slot and back is, which writing again would not
+look since and with its record not gone from the tablet meanwhile, removed
+or found to be another item's, as a Recipe moved to another slot and back
+is, which writing again would not
 change, skips that item while the
 same is due to it: the fields, the values expected, and the decisions of the
 Location's state and of the item's content the write carries

@@ -446,6 +446,39 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect(server.output()).not.toMatch(/is still due Recipe .* once written/);
   });
 
+  it("writes a Recipe back in a slot whose record turned out to be another item's as it was moved away and back", async () => {
+    const lab = await api.createLocation("Foreign slot lab", "America/Chicago");
+    const machine = await api.createMachine("Foreign slot lab 1", lab.id);
+    const held = new Set<string>();
+    const tablet = load(machine, 45091, server, (frame) => held.has(String((frame as { type?: unknown }).type)));
+    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+
+    // Written in slot 1, its answer held; meanwhile the record there comes to carry another item's id, as a restored
+    // backup's might.
+    held.add("written");
+    const two = await create(lab, 1, { name: "Foreign Two" });
+    await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(two.id);
+    const foreign = "00000000-0000-4000-8000-000000000143";
+    const list = (dye2List(tablet, "recipes") as Record_[]).map((record) => (record.id === "1" ? { ...record, [GLOBAL_ID_KEY]: foreign } : record));
+    expect((await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", list)).status).toBe(200);
+
+    // Moved to the next free slot: removing its record from slot 1 finds another item's there, an answer held in turn.
+    expect((await move(two.id, "next")).slot).toBe(2);
+    const refusals = () => tablet.sent.filter((frame) => (frame as { type?: unknown }).type === "writeRefused").length;
+    const before = refusals();
+    held.add("writeRefused");
+    held.delete("written");
+    tablet.resumeUpload();
+    await poll(refusals).toBeGreaterThan(before);
+
+    // Moved back before the writer looks again: it is written in slot 1 again, over the other item's record.
+    expect((await move(two.id, 1)).slot).toBe(1);
+    held.clear();
+    tablet.resumeUpload();
+    await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(two.id);
+    expect(server.output()).not.toMatch(/is still due Recipe .* once written/);
+  });
+
   it("Archives a Recipe, which leaves its slot, restores it unslotted, and refuses to slot it while Archived", async () => {
     const lab = await locationWith("Archived recipe lab", 45041, [server]);
     const created = await create(lab.location, 3, { name: "Archived Espresso" });
