@@ -203,14 +203,30 @@ function newContent(fields: FormField[], values: Values): Record<string, unknown
   }));
 }
 
-/** The fields an edit changes, each with its value, null to clear it. Only a changed field is read, so one the form cannot read is left as it is. */
+/**
+ * The fields an edit changes, each with its value, null to clear it: those
+ * whose value reads otherwise than it did, so 58.0 over 58, a space at either
+ * end or an attribute row without a name is no edit. Only a field changed as
+ * entered is read, so one the form cannot read is left as it is.
+ */
 function changedContent(fields: FormField[], initial: Values, values: Values): Record<string, unknown> {
   return Object.fromEntries(
-    fields.flatMap((field) =>
-      // Compared as entered, so a Tool's attributes, a new list on every change, are unchanged once put back as they were.
-      JSON.stringify(values[field.field]) === JSON.stringify(initial[field.field]) ? [] : [[field.field, contentValue(field, values[field.field] ?? "")]],
-    ),
+    fields.flatMap((field) => {
+      // Compared as entered first, so a Tool's attributes, a new list on every change, are unchanged once put back as they were.
+      if (JSON.stringify(values[field.field]) === JSON.stringify(initial[field.field])) return [];
+      const value = contentValue(field, values[field.field] ?? "");
+      return JSON.stringify(value) === JSON.stringify(readable(field, initial[field.field] ?? "")) ? [] : [[field.field, value]];
+    }),
   );
+}
+
+/** A field's initial value as the server takes it, or undefined where the form cannot read it, so any value read now differs. */
+function readable(field: FormField, value: Value): unknown {
+  try {
+    return contentValue(field, value);
+  } catch {
+    return undefined;
+  }
 }
 
 /** The inputs of a form of an item's fields. */

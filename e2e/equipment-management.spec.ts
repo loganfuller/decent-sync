@@ -137,7 +137,15 @@ test("a Tool's attributes are edited, written to the tablets showing it, and its
   await expect(history.nth(0)).toContainText("AttributesNeedles: 10, Needle size: 0.3 mm");
   await expect(history.nth(2)).toContainText("NameLab WDT Tool");
 
-  // Removing an attribute is an edit too.
+  // Saving values that read as they were, a space after the name and an attribute row without a name, is no edit.
+  await page.getByRole("button", { name: "Edit the Tool" }).click();
+  await form.getByLabel("Name", { exact: true }).fill("Lab WDT Tool ");
+  await form.getByRole("button", { name: "Add an attribute" }).click();
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("button", { name: "Edit the Tool" })).toBeVisible();
+  await expect(history).toHaveCount(3);
+
+  // Removing an attribute is an edit.
   await page.getByRole("button", { name: "Edit the Tool" }).click();
   await form.getByRole("button", { name: "Remove attribute 2" }).click();
   await form.getByRole("button", { name: "Save" }).click();
