@@ -39,6 +39,8 @@ import { type ShownKind, addBatchAt, lockLocation, offerBeanAt, showAt } from ".
 // Location's, then the Recipe's row; then the rows of the items it is set to
 // use, so none is Archived or deleted until it is offered at the Location.
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** The kinds a Recipe uses that its Location shows or hides, each with its table. */
 const SHOWN: readonly { field: "profileId" | "basketId" | "toolIds"; kind: ShownKind; table: string; idType: "text" | "uuid"; name: string }[] = [
   { field: "profileId", kind: "profile", table: "profiles", idType: "text", name: "Profile" },
@@ -101,7 +103,8 @@ export class RecipeEditsService {
    * there taken out of it and kept, or the lowest free one, or none. The
    * Recipe copied is not changed. 404 for no such Recipe or Location, 403
    * for Staff not working at the Location, 400 for the Recipe's own
-   * Location, and 400 or 409 for an item the copy cannot use there.
+   * Location, and 400 or 409 for an item the copy cannot use there; an item
+   * the Library no longer has is left out of the copy (`withoutDeleted`).
    */
   async copy(id: string, to: RecipeCopy, accountId: string, scope: Scope): Promise<string> {
     if (!includesLocation(scope, to.locationId)) throw staffElsewhere("copy a Recipe to a Location");
@@ -114,7 +117,7 @@ export class RecipeEditsService {
       if (!original) throw new NotFoundException("No such Recipe");
       // A copy is for another Location; at its own, the slot chosen could be the Recipe's own, which the copy would take from it.
       if (original.locationId === to.locationId) throw new BadRequestException("Copy a Recipe to another Location than its own");
-      const content: Record<string, unknown> = isObject(original.content) ? { ...original.content } : {};
+      const content = await withoutDeleted(tx, isObject(original.content) ? original.content : {});
       delete content.grinderId;
       if (to.grinderId !== null) content.grinderId = to.grinderId;
       if (to.beanBatchId !== undefined) {
@@ -242,6 +245,37 @@ async function insertRecipe(
   if (taken !== null) await recordVersion(tx, { kind: "recipe", id: created.id }, locationId, { slot: taken }, source, at);
   await notify(tx, "library_changes", locationId);
   return created.id;
+}
+
+/**
+ * A Recipe's content without the items it names that the Library no longer
+ * has, as an Admin's hard delete leaves them named, so a copy of it is not
+ * refused for them: written to tablets, it names none of them either. A
+ * Tool's attributes go with the Tool.
+ */
+async function withoutDeleted(tx: Prisma.TransactionClient, content: Readonly<Record<string, unknown>>): Promise<Record<string, unknown>> {
+  const kept: Record<string, unknown> = { ...content };
+  const id = (field: string) => (typeof content[field] === "string" ? (content[field] as string) : null);
+  const exists = async (table: string, itemId: string | null) =>
+    itemId === null || (UUID.test(itemId) && (await tx.$queryRaw<unknown[]>`SELECT 1 FROM ${Prisma.raw(table)} WHERE id = ${itemId}::uuid`).length > 0);
+  if (!(await exists("bean_batches", id("beanBatchId")))) delete kept.beanBatchId;
+  if (!(await exists("beans", id("beanId")))) delete kept.beanId;
+  // A Profile's id is Decaid's, not a UUID.
+  const profileId = id("profileId");
+  if (profileId !== null && (await tx.$queryRaw<unknown[]>`SELECT 1 FROM profiles WHERE id = ${profileId}`).length === 0) delete kept.profileId;
+  if (!(await exists("baskets", id("basketId")))) delete kept.basketId;
+  if (Array.isArray(content.toolIds)) {
+    const named = content.toolIds.filter((tool): tool is string => typeof tool === "string");
+    const found = new Set(
+      (await tx.$queryRaw<{ id: string }[]>`SELECT id::text AS id FROM tools WHERE id = ANY(${named.filter((tool) => UUID.test(tool))}::uuid[])`).map((row) => row.id),
+    );
+    const tools = named.filter((tool) => found.has(tool.toLowerCase()));
+    if (tools.length !== named.length) {
+      kept.toolIds = tools;
+      if (isObject(content.toolAttributes)) kept.toolAttributes = Object.fromEntries(Object.entries(content.toolAttributes).filter(([tool]) => tools.includes(tool)));
+    }
+  }
+  return kept;
 }
 
 /**

@@ -425,7 +425,8 @@ a Conflict, so neither waits on the other in turn.
   (`recipeEditValues`, Editing in the management interface, below): a batch
   used sets its Bean too, a Bean used alone takes the Recipe's batch of it or
   that Bean's batch most recently added at its Location, or none, keeping the
-  Bean, which is then offered there (`offerBeanAt`), a ratio used sets the yield to the dose times it, as picking a ratio
+  Bean, which is then offered there while it has no batch there
+  (`offerBeanAt`), a ratio used sets the yield to the dose times it, as picking a ratio
   in DYE2's editor does, refused with 409 while the Recipe has no dose, the ratio and the Tools' attributes follow, and what it newly uses is offered at its
   Location, or refused with 409 where it is Archived, and Tools' attributes
   used keep those of the Tools it still uses. It commits with a
@@ -565,7 +566,9 @@ tablets, below).
   added there, and a Profile, Basket or Tool not shown there is shown there,
   so it can be loaded at once, and one Archived is refused. A Bean it names
   with no batch takes that Bean's batch most recently added there, or none,
-  keeping the Bean, offered there, as a Bean set alone does. Its hot water is the Recipe's;
+  keeping the Bean, offered there, as a Bean set alone does. An item a hard
+  delete left the Recipe naming is left out of the copy (`withoutDeleted`),
+  as tablets are written none. Its hot water is the Recipe's;
   its steam and flush, which no Recipe carries, are that Location's on every
   tablet there. It goes in the slot chosen, the Recipe there taken out of
   it and kept there, or the lowest free one, or none, under that Location's

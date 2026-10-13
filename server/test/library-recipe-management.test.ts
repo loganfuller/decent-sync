@@ -347,6 +347,11 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     const kept = (await recipe(created.id)).content;
     expect(kept.beanId).toBe(brazil.bean.id);
     expect(kept).not.toHaveProperty("beanBatchId");
+    // The Brazil is offered at the lab again, with no batch there, so its tablets name it.
+    expect((await send<{ bean: { offeredAt: { id: string }[] } }>("GET", `/beans/${brazil.bean.id}`)).bean.offeredAt.map((at) => at.id)).toContain(lab.location.id);
+    for (const tablet of [one, two]) {
+      await poll(() => slotOn(tablet, 1)?.beanId ?? null).toBe(localId(tablet.beans(), brazil.bean.id) ?? "none");
+    }
 
     // A ratio cannot be used on a Recipe with no dose: the Conflict stays open until one is set.
     await edit(created.id, { dose: null });

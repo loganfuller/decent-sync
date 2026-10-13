@@ -930,7 +930,8 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
   const [slotMode, setSlotMode] = useState<SlotMode>("next");
   const [slotText, setSlotText] = useState("");
   const [grinderId, setGrinderId] = useState(NONE);
-  const [batchId, setBatchId] = useState(recipe.uses.beanBatch || recipe.uses.bean ? KEEP : NONE);
+  const keptBatch = () => (recipe.uses.beanBatch || recipe.uses.bean ? KEEP : NONE);
+  const [batchId, setBatchId] = useState(keptBatch);
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const id = useId();
@@ -992,6 +993,16 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
       const tool = choices.tools.find((candidate) => candidate.id === used.id);
       if (tool && !shownThere(tool)) offered.push(`shows the Tool ${tool.name ?? "Unnamed Tool"} at ${target.name}`);
     }
+    // What a hard delete left it naming is left out of the copy.
+    const gone = (kind: string, used: { id: string } | null, listed: readonly { id: string }[]) =>
+      used && !listed.some((item) => item.id === used.id) ? [`leaves out its ${kind}, which the Library no longer has`] : [];
+    offered.push(
+      ...(batchId === KEEP ? gone("Bean Batch", recipe.uses.beanBatch, choices.batches) : []),
+      ...(batchId === KEEP ? gone("Bean", recipe.uses.bean, choices.beans) : []),
+      ...gone("Profile", recipe.uses.profile, choices.profiles),
+      ...gone("Basket", recipe.uses.basket, choices.baskets),
+      ...recipe.uses.tools.flatMap((tool) => gone("Tool", tool, choices.tools)),
+    );
   }
 
   function chooseLocation(next: string) {
@@ -1034,6 +1045,14 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
       onOpenChange={(next) => {
         setOpen(next);
         setError(undefined);
+        // Each opening starts afresh from the Recipe as it is now, which may have been edited since.
+        if (next) {
+          setLocationId("");
+          setSlotMode("next");
+          setSlotText("");
+          setGrinderId(NONE);
+          setBatchId(keptBatch());
+        }
       }}
     >
       <DialogTrigger asChild>
@@ -1216,8 +1235,8 @@ export function RecipeDetails({ id }: { id: string }) {
   const { location, content, uses } = recipe;
   const title = recipeName(recipe);
   const mayChange = location !== null && mayChangeAt(location.id);
-  // A copy goes to a Location the account changes Recipes at: an Admin's any, Staff's their own.
-  const mayCopy = isAdmin || staffLocations.size > 0;
+  // A copy goes to another Location the account changes Recipes at: an Admin's any, Staff's their own.
+  const mayCopy = isAdmin || [...staffLocations].some((staffLocation) => staffLocation !== location?.id);
   const path = `/recipes/${encodeURIComponent(id)}`;
   const toolAttributes = typeof content.toolAttributes === "object" && content.toolAttributes !== null ? (content.toolAttributes as Record<string, unknown>) : {};
 

@@ -296,6 +296,20 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
     expect((await recipesAt(lab.location)).map((listed) => listed.id)).toEqual([original.id]);
   });
 
+  it("leaves out of the copy an item the Library no longer has, which a hard delete left the Recipe naming", async () => {
+    const lab = await api.createLocation("Deleted copy lab", "America/Chicago");
+    const cafe = await api.createLocation("Deleted copy cafe", "America/Chicago");
+    const { bean, batch } = await batchAt("Deleted copy Guji", lab);
+    const original = await create(lab, 1, { name: "Deleted Espresso", beanBatchId: batch.id, dose: 18 });
+    expect((await api.call("DELETE", `/bean-batches/${batch.id}`)).status).toBe(204);
+    expect((await recipe(original.id)).content).toMatchObject({ beanBatchId: batch.id });
+
+    // Its batch is gone, so the copy keeps its Bean alone, offered at the cafe.
+    const copied = await copy(original.id, { locationId: cafe.id, slot: 1, grinderId: null });
+    expect(copied.content).toMatchObject({ name: "Deleted Espresso", beanId: bean.id, dose: 18 });
+    expect(copied.content).not.toHaveProperty("beanBatchId");
+  });
+
   it("puts one copy in a slot when two are copied into it at once through two instances", async () => {
     const lab = await api.createLocation("Raced copy lab", "America/Chicago");
     const cafe = await api.createLocation("Raced copy cafe", "America/Chicago");
