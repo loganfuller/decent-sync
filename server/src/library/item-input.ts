@@ -2,17 +2,26 @@ import type { LibraryKind } from "@decent-sync/protocol";
 import { BadRequestException } from "@nestjs/common";
 import { type EditableContent, KINDS } from "./kinds.js";
 
-// What the management interface may set of a Bean's, a Bean Batch's and a
-// Grinder's content, as each kind's description lists it (`editable` in
-// kinds.ts): Decaid's record fields, each of the type Decaid takes
-// (`Bean`, `BeanBatch` and `Grinder` in decaid:lib/src/models/data/, v0.8.7),
-// so a tablet never refuses a write of them
-// (server/test/fixtures/decaid/*-writes-v0.8.7/). A date is written as Decaid
-// returns one it is sent as a day, so the content is what every tablet's
-// record then holds, and is not written to them again.
+// What the management interface may set of a Bean's, a Bean Batch's, a
+// Grinder's, a Basket's and a Tool's content, as each kind's description
+// lists it (`editable` in kinds.ts): Decaid's record fields, each of the type
+// Decaid takes (`Bean`, `BeanBatch` and `Grinder` in
+// decaid:lib/src/models/data/, v0.8.7), so a tablet never refuses a write of
+// them (server/test/fixtures/decaid/*-writes-v0.8.7/), and DYE2's, each as
+// its pages save it (`submitForm` in dye2:dye2-plugin/src/pages/baskets.ts
+// and equipment.ts, v0.1.19). A date is written as Decaid returns one it is
+// sent as a day, so the content is what every tablet's record then holds, and
+// is not written to them again.
 
-/** How a field is read: its type, and whether it may be cleared, which Decaid refuses for some. */
-export type FieldType = "text" | "name" | "flag" | "number" | "date" | "texts" | "wholeNumbers" | "settingType";
+/**
+ * How a field is read: its type, and whether it may be cleared, which Decaid
+ * refuses for some. A Basket's size is one DYE2's page offers, and a Tool's
+ * attributes are DYE2's free-form name and value pairs (`custom`).
+ */
+export type FieldType = "text" | "name" | "flag" | "number" | "date" | "texts" | "wholeNumbers" | "settingType" | "basketSize" | "attributes";
+
+/** The sizes DYE2's baskets page offers. */
+const BASKET_SIZES: readonly string[] = ["single", "double", "triple", "bottomless", "other"];
 
 /** What the management interface may set of a kind's content, as its description says (`editable` in kinds.ts). */
 function editable(kind: LibraryKind): EditableContent {
@@ -34,9 +43,9 @@ export function readContentEdit(kind: LibraryKind, body: unknown): Record<string
 
 /**
  * A new item's content, from a request's `content`: its fields as
- * `readContentEdit` reads them, those cleared left out, and what Decaid
- * makes a record hold where it is not sent one. A Bean needs its roaster and
- * name, a Grinder its model.
+ * `readContentEdit` reads them, those cleared left out, and what Decaid or
+ * DYE2 makes a record hold where it is not sent one. A Bean needs its roaster
+ * and name, a Grinder its model, a Basket and a Tool their name.
  */
 export function readNewContent(kind: LibraryKind, body: unknown): Record<string, unknown> {
   const fields = readFields(kind, contentOf(body));
@@ -97,7 +106,28 @@ function readValue(type: FieldType, value: unknown): { value: unknown } | string
       return Array.isArray(value) && value.every((item) => Number.isInteger(item)) ? { value } : "must be a list of whole numbers";
     case "settingType":
       return value === "numeric" || value === "preset" ? { value } : "must be numeric or preset";
+    case "basketSize":
+      return typeof value === "string" && BASKET_SIZES.includes(value) ? { value } : `must be one of ${BASKET_SIZES.join(", ")}`;
+    case "attributes":
+      return readAttributes(value);
   }
+}
+
+/**
+ * A Tool's attributes as DYE2's equipment page saves them: a list of `{ key,
+ * value }`, each trimmed, a pair with no name left out (`readFieldRows`).
+ */
+function readAttributes(value: unknown): { value: { key: string; value: string }[] } | string {
+  const problem = "must be a list of { key, value }, each text";
+  if (!Array.isArray(value)) return problem;
+  const pairs: { key: string; value: string }[] = [];
+  for (const pair of value) {
+    if (typeof pair !== "object" || pair === null || Array.isArray(pair)) return problem;
+    const { key, value: text } = pair as Record<string, unknown>;
+    if (typeof key !== "string" || typeof text !== "string") return problem;
+    if (key.trim() !== "") pairs.push({ key: key.trim(), value: text.trim() });
+  }
+  return { value: pairs };
 }
 
 /** Whether text is a day that exists, as YYYY-MM-DD. */
@@ -159,6 +189,13 @@ export function readGrinderLocation(body: unknown): string {
   const locationId = typeof body === "object" && body !== null ? (body as { locationId?: unknown }).locationId : undefined;
   if (typeof locationId !== "string" || !UUID.test(locationId)) throw new BadRequestException("Name the Location the Grinder belongs to as locationId");
   return locationId.toLowerCase();
+}
+
+/** A new Basket or Tool, from a request: `{ locationId, content }`, the Location it is first shown at, in lower case, and its content. */
+export function readNewEquipment(kind: "basket" | "tool", body: unknown): { locationId: string; content: Record<string, unknown> } {
+  const locationId = typeof body === "object" && body !== null ? (body as { locationId?: unknown }).locationId : undefined;
+  if (typeof locationId !== "string" || !UUID.test(locationId)) throw new BadRequestException(`Name the Location the ${KINDS[kind].name} is shown at as locationId`);
+  return { locationId: locationId.toLowerCase(), content: readNewContent(kind, body) };
 }
 
 /** Whether a request shows a Profile at a Location or hides it there: `{ shown }`. */

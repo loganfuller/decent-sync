@@ -16,16 +16,19 @@ function kindName(kind: ItemKind): string {
   return kind === "settings" ? "Location settings" : LIBRARY_KINDS[kind].name;
 }
 
-/** The address of an item's page; a Location's settings are on its page. Null for a kind with no pages yet. */
-export function itemPath(kind: ItemKind, id: string, location: Location | null = null): string | null {
+/** The address of an item's page; a Location's settings are on its page. */
+export function itemPath(kind: ItemKind, id: string, location: Location | null = null): string {
   if (kind === "settings") return location ? `/locations/${location.id}` : "/locations";
-  const { pages } = LIBRARY_KINDS[kind];
-  return pages === null ? null : `${pages}/${encodeURIComponent(id)}`;
+  return `${LIBRARY_KINDS[kind].pages}/${encodeURIComponent(id)}`;
 }
 
-/** A link to an item's page, or its name alone for a kind with no pages yet. */
-export function ItemLink({ path, className, children }: { path: string | null; className?: string; children: ReactNode }) {
-  return path === null ? <span className={className}>{children}</span> : <Link to={path} className={`${className ?? ""} underline-offset-4 hover:underline`}>{children}</Link>;
+/** A link to an item's page. */
+export function ItemLink({ path, className, children }: { path: string; className?: string; children: ReactNode }) {
+  return (
+    <Link to={path} className={`${className ?? ""} underline-offset-4 hover:underline`}>
+      {children}
+    </Link>
+  );
 }
 
 /** The REST API's address of an item. */
@@ -34,6 +37,9 @@ function itemApiPath(kind: ItemKind, id: string): string {
 }
 
 /** A field's name as people read it: a Location's state of the item names the Location, and a field of its content is spelled out, as `roastDate` is "Roast date". */
+/** Content fields whose names do not spell out as people read them: a Basket's diameter, and a Tool's attributes, which DYE2 keeps as `custom`. */
+const FIELD_LABELS: Readonly<Record<string, string>> = { diameterMm: "Diameter (mm)", custom: "Attributes" };
+
 export function fieldLabel(field: string, location: Location | null): string {
   if (location !== null) {
     if (field === "atLocation") return `At ${location.name}`;
@@ -42,7 +48,7 @@ export function fieldLabel(field: string, location: Location | null): string {
     if (Object.prototype.hasOwnProperty.call(SETTING_LABELS, field)) return `${SETTING_LABELS[field]} at ${location.name}`;
     return `${spelled(field)} at ${location.name}`;
   }
-  return spelled(field);
+  return Object.prototype.hasOwnProperty.call(FIELD_LABELS, field) ? FIELD_LABELS[field]! : spelled(field);
 }
 
 function spelled(field: string): string {
@@ -59,7 +65,7 @@ function inOrder(fields: Record<string, unknown>): [string, unknown][] {
 
 /** A field's value as text. Null is a field cleared, or one never set. */
 export function valueText(field: string, value: unknown): string {
-  if (value === null || value === undefined || value === "") return "None";
+  if (value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0)) return "None";
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "number") {
     if (field === "remainingWeight") return `${value} g`;
@@ -68,7 +74,20 @@ export function valueText(field: string, value: unknown): string {
   // Decaid keeps a day as its local midnight, such as a roast date entered as a day.
   if (typeof value === "string") return /^\d{4}-\d\d-\d\dT00:00:00\.000$/.test(value) ? value.slice(0, 10) : value;
   if (Array.isArray(value) && value.every((item) => typeof item === "string" || typeof item === "number")) return value.join(", ");
+  const pairs = attributePairs(value);
+  if (pairs !== undefined) return pairs.length === 0 ? "None" : pairs.map(({ key, value: text }) => `${key}: ${text}`).join(", ");
   return JSON.stringify(value);
+}
+
+/** A Tool's attributes, DYE2's `{ key, value }` pairs, or undefined for a value that is not a list of them. */
+export function attributePairs(value: unknown): { key: string; value: string }[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const pairs = value.map((pair: unknown) =>
+    typeof pair === "object" && pair !== null && typeof (pair as { key?: unknown }).key === "string"
+      ? { key: (pair as { key: string }).key, value: String((pair as { value?: unknown }).value ?? "") }
+      : undefined,
+  );
+  return pairs.every((pair) => pair !== undefined) ? pairs : undefined;
 }
 
 /** Where an edit came from: a Machine's tablet, or an account in the management interface. */

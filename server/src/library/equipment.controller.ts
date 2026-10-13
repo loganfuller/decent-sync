@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Put } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Put } from "@nestjs/common";
 import { AllowStaff, CurrentScope, CurrentSession } from "../accounts/guards.js";
 import type { Scope } from "../accounts/scope.js";
 import type { SignedIn } from "../accounts/sessions.service.js";
@@ -6,14 +6,15 @@ import { readLocationId } from "../locations/input.js";
 import type { EquipmentKind } from "./equipment.js";
 import { type EquipmentSummary, type EquipmentView, EquipmentService, readEquipmentId } from "./equipment.service.js";
 import { type ConflictView, HistoryService, type VersionView } from "./history.service.js";
-import { readShown } from "./item-input.js";
+import { readArchived, readContentEdit, readNewEquipment, readShown } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
 
 /**
  * A kind DYE2 keeps, Baskets or Tools, and the Locations showing each
- * (ADR-0005, ADR-0008). Staff read them as Admins do, and show and hide them
- * only at their own Locations. They join the Library from tablets; creating,
- * editing, Archiving and deleting them here come with their pages.
+ * (ADR-0005, ADR-0008). Staff read them, edit them, and Archive and restore
+ * them, as Admins do, but create them and show and hide them only at their
+ * own Locations. They join the Library from tablets, or are created here.
+ * Hard deletes come with the Shots that name them.
  */
 abstract class EquipmentController {
   constructor(
@@ -29,6 +30,26 @@ abstract class EquipmentController {
 
   protected get(id: string): Promise<EquipmentView> {
     return this.equipment.get(this.kind, readEquipmentId(this.kind, id));
+  }
+
+  /** Creates one, shown at the Location: `{ locationId, content }`, its name required. 409, with the `existing` item, if one has its name. */
+  protected async create(body: unknown, session: SignedIn): Promise<EquipmentView> {
+    const { locationId, content } = readNewEquipment(this.kind, body);
+    return this.equipment.get(this.kind, await this.edits.createEquipment(this.kind, locationId, content, session.account.id, session.scope));
+  }
+
+  /** Edits its content: `{ content }`, each field to change, null to clear it. */
+  protected async edit(id: string, body: unknown, session: SignedIn): Promise<EquipmentView> {
+    const itemId = readEquipmentId(this.kind, id);
+    await this.edits.editEquipment(this.kind, itemId, readContentEdit(this.kind, body), session.account.id);
+    return this.equipment.get(this.kind, itemId);
+  }
+
+  /** Archives it or restores it: `{ archived }`. */
+  protected async archive(id: string, body: unknown, session: SignedIn): Promise<EquipmentView> {
+    const itemId = readEquipmentId(this.kind, id);
+    await this.edits.archiveEquipment(this.kind, itemId, readArchived(body), session.account.id);
+    return this.equipment.get(this.kind, itemId);
   }
 
   /** Shows it at the Location or hides it there: `{ shown }`. */
@@ -63,9 +84,27 @@ export class BasketsController extends EquipmentController {
   }
 
   @AllowStaff()
+  @Post()
+  async add(@Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ basket: EquipmentView }> {
+    return { basket: await this.create(body, session) };
+  }
+
+  @AllowStaff()
   @Get(":id")
   async one(@Param("id") id: string): Promise<{ basket: EquipmentView }> {
     return { basket: await this.get(id) };
+  }
+
+  @AllowStaff()
+  @Patch(":id")
+  async change(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ basket: EquipmentView }> {
+    return { basket: await this.edit(id, body, session) };
+  }
+
+  @AllowStaff()
+  @Put(":id/archived")
+  async retire(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ basket: EquipmentView }> {
+    return { basket: await this.archive(id, body, session) };
   }
 
   @AllowStaff()
@@ -101,9 +140,27 @@ export class ToolsController extends EquipmentController {
   }
 
   @AllowStaff()
+  @Post()
+  async add(@Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ tool: EquipmentView }> {
+    return { tool: await this.create(body, session) };
+  }
+
+  @AllowStaff()
   @Get(":id")
   async one(@Param("id") id: string): Promise<{ tool: EquipmentView }> {
     return { tool: await this.get(id) };
+  }
+
+  @AllowStaff()
+  @Patch(":id")
+  async change(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ tool: EquipmentView }> {
+    return { tool: await this.edit(id, body, session) };
+  }
+
+  @AllowStaff()
+  @Put(":id/archived")
+  async retire(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ tool: EquipmentView }> {
+    return { tool: await this.archive(id, body, session) };
   }
 
   @AllowStaff()

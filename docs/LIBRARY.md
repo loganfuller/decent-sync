@@ -404,10 +404,11 @@ a Conflict, so neither waits on the other in turn.
 
 ## Editing in the management interface
 
-Admins and Staff create and edit Beans, Bean Batches and Grinders in the
-management interface, Archive and restore them and Profiles, add and finish
-batches at Locations, setting their remaining weight at each, and show and
-hide Profiles at Locations (`library-edits.service.ts`). Each change is an edit by the account, timed by
+Admins and Staff create and edit Beans, Bean Batches, Grinders, Baskets and
+Tools in the management interface, Archive and restore them and Profiles, add
+and finish batches at Locations, setting their remaining weight at each, and
+show and hide Profiles, Baskets and Tools at Locations
+(`library-edits.service.ts`). Each change is an edit by the account, timed by
 PostgreSQL's clock (ADR-0016), and made over the item as it stands, as using
 a Conflict's value is (Resolving Conflicts, above): it decides each field it
 sets whatever the times of the edits before it, and keeps nothing it
@@ -421,7 +422,12 @@ tablets, below).
   the type Decaid takes, so no tablet refuses a write of them
   (`item-input.ts`): an empty value clears a field, but a Bean's roaster and
   name, a Grinder's model and a Bean's `decaf` and a batch's `frozen` flags,
-  which Decaid refuses to clear. A date is entered as a day and kept as
+  which Decaid refuses to clear. A Basket's fields are those DYE2's baskets
+  page saves, its name, `size` (one of the sizes the page offers),
+  `diameterMm` and `notes`, and a Tool's those of its equipment page, its
+  name and its attributes, `custom`, a list of `{ key, value }`, each trimmed,
+  one with no name left out, as the page leaves it; neither's name may be
+  cleared, and a field cleared is left out of every tablet's record. A date is entered as a day and kept as
   Decaid returns one sent so, such as `2026-10-01T00:00:00.000`, and a new
   item holds what Decaid makes a record hold where it is not sent a value (a
   Bean not decaf, a batch not frozen, a Grinder's numbered dial), so what
@@ -458,9 +464,17 @@ tablets, below).
 - **Baskets and Tools** are shown or hidden at each Location as a Profile is
   (`showEquipment`), which is how a lab's Basket reaches a cafe: showing one
   there writes it to the cafe's tablets, and hiding it there removes it from
-  their lists, and from no other Location's. They join the Library from
-  tablets; creating, editing, Archiving and deleting them here come with
-  their pages.
+  their lists, and from no other Location's. One created here is shown at
+  the Location chosen only, as one entered on a tablet there is (ADR-0008),
+  which records it as created there. One whose name, ignoring case and white
+  space at either end, is that of an item of its kind the Library has,
+  Archived or not, is refused, naming that item, as a tablet's would be that
+  one (ADR-0018); it is decided under the lock the kind's new records are
+  matched under (`lockMatching` in `equipment.ts`), so two are never created
+  at once, through any instance, nor one beside a tablet's new record. An
+  edit that gives one another's name is not refused, as for a Bean. A new
+  Tool holds no attributes unless given some, as DYE2's page saves one. Hard
+  deletes come with the Shots that name them.
 - **Archive and restore.** An Archived Bean or batch is offered nowhere, with
   the Bean's batches, and is archived on every tablet that holds it, but kept,
   with each Location's state of it, so restoring it offers it again where it
@@ -470,12 +484,17 @@ tablets, below).
   of its content, merged as a tablet's archiving is. An Archived Profile is
   shown nowhere and hidden on every tablet that holds it, but keeps each
   Location's state of it, which can still be changed, so restoring it shows
-  it again where it is shown.
+  it again where it is shown. An Archived Basket or Tool is the same, but
+  removed from every tablet's list, as DYE2 cannot hide one, and written again
+  where it is shown once restored; it is Archived or restored under the lock
+  its kind is matched under, as a Bean is, since a tablet's new record is
+  never linked to one Archived.
 - **Who.** An Admin does everything. Staff edit the Library's shared content
-  anywhere (a Bean, a batch's details) and Archive and restore items, but add
-  and finish batches, set their remaining weight, create and edit Grinders,
-  and show and hide Profiles, Baskets and Tools only at the Locations they work at, as a Grinder
-  belongs to one (ADR-0008), and never hard-delete.
+  anywhere (a Bean, a batch's details, a Basket, a Tool) and Archive and
+  restore items, but add and finish batches, set their remaining weight,
+  create and edit Grinders, create Baskets and Tools, and show and hide
+  Profiles, Baskets and Tools only at the Locations they work at, as a
+  Grinder belongs to one (ADR-0008), and never hard-delete.
 
 ### Hard deletes
 
@@ -1598,18 +1617,30 @@ Every endpoint requires the account session; Staff read them as Admins do.
   one of a Bean's batches, or it is one of Decaid's bundled Profiles.
 - `GET /api/baskets` and `GET /api/tools` return `{ baskets }` and
   `{ tools }`, each `{ id, name, archived, shownAt, createdAt,
-  createdLocation }`, by name, ignoring case; `shownAt` as a Profile's. `GET
+  createdLocation, content }`, by name, ignoring case; `shownAt` as a
+  Profile's, and `content` DYE2's record fields but its id, `createdAt` and
+  global id, which are few, so the lists show them. `createdLocation` is the
+  Location it was created at, by a tablet there or here. `GET
   /api/baskets/:id` and `GET /api/tools/:id` return `{ basket }` or `{ tool
-  }`, the same with its `content`, DYE2's record fields but its id,
-  `createdAt` and global id, and `locations`, each Location that has decided
-  whether it shows it, as a Profile's; or 404. `PUT
+  }`, the same with `locations`, each Location that has decided whether it
+  shows it, as a Profile's; or 404. `PUT
   /api/baskets/:id/locations/:locationId` and `PUT
   /api/tools/:id/locations/:locationId`, with `{ shown }`, show it at the
   Location or hide it there, as for a Profile: shown, it is written to the
   Location's tablets; hidden, it is removed from their lists. 403 for Staff
   at a Location they do not work at. Their `history` and `conflicts` are an
-  item's (below). Creating, editing, Archiving and deleting them come with
-  their pages.
+  item's (below).
+- `POST /api/baskets` and `POST /api/tools`, with `{ locationId, content }`,
+  its name required, create one shown at that Location, and return `{ basket
+  }` or `{ tool }` with 201; 409 with `{ existing: { id, name } }` if the
+  Library has one of its kind of that name, Archived or not; 404 for no such
+  Location; 403 for Staff at a Location they do not work at. `PATCH
+  /api/baskets/:id` and `PATCH /api/tools/:id`, with `{ content }`, each
+  field to change, null to clear it, edit one, and `PUT
+  /api/baskets/:id/archived` and `PUT /api/tools/:id/archived`, with `{
+  archived }`, Archive or restore one, Staff anywhere; each returns `{ basket
+  }` or `{ tool }`. 400 for a field that is not DYE2's or a value its page
+  would not save.
 - `GET /api/beans/:id/history`, `GET /api/bean-batches/:id/history`,
   `GET /api/grinders/:id/history` and `GET /api/profiles/:id/history` return
   `{ versions }`, the item's versions (ADR-0020), the latest taken in first,
@@ -1821,8 +1852,9 @@ Profiles.
 `server/test/library-management.test.ts`,
 `server/test/library-profile-management.test.ts`,
 `server/test/location-settings.test.ts`, `server/test/joining.test.ts` and
-`server/test/capture-only.test.ts`, `server/test/sharing-status.test.ts` and
-`server/test/library-equipment.test.ts` cover this through Seam 1, with the
+`server/test/capture-only.test.ts`, `server/test/sharing-status.test.ts`,
+`server/test/library-equipment.test.ts` and
+`server/test/library-equipment-management.test.ts` cover this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL;
 `server/test/bean-intake.test.ts`, `server/test/batch-intake.test.ts`,
 `server/test/grinder-intake.test.ts`, `server/test/profile-intake.test.ts`,
@@ -1840,5 +1872,6 @@ against those recorded on Decaid's Linux release
 `profile-writes-v0.8.7/` and `workflow-writes-v0.8.7/`); and
 `e2e/library.spec.ts`, `e2e/library-management.spec.ts`,
 `e2e/profile-management.spec.ts`, `e2e/conflicts.spec.ts`,
-`e2e/location-settings.spec.ts`, `e2e/capture-only.spec.ts` and
-`e2e/sharing-status.spec.ts` the management interface.
+`e2e/location-settings.spec.ts`, `e2e/capture-only.spec.ts`,
+`e2e/sharing-status.spec.ts` and `e2e/equipment-management.spec.ts` the
+management interface.

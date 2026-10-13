@@ -19,6 +19,12 @@ export function LibraryNav() {
       <NavLink to="/library/profiles" className={linkClass}>
         Profiles
       </NavLink>
+      <NavLink to="/library/baskets" className={linkClass}>
+        Baskets
+      </NavLink>
+      <NavLink to="/library/tools" className={linkClass}>
+        Tools
+      </NavLink>
       <NavLink to="/library/conflicts" className={linkClass}>
         Conflicts
       </NavLink>
