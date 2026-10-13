@@ -1,7 +1,7 @@
 import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { PluginStorage, SimulatedTablet, derivedDe1Pro, settingsFor, simulatedLibrary } from "./support/simulated-tablet.js";
+import { NO_DYE2_LISTS, PluginStorage, SimulatedTablet, derivedDe1Pro, settingsFor, simulatedLibrary } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #83: Grinders belong to a Location. A Grinder created on
@@ -61,7 +61,7 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
   ): SimulatedTablet {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/profiles": [], "/grinders": options.grinders ?? [] },
+      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/profiles": [], "/grinders": options.grinders ?? [], ...NO_DYE2_LISTS },
       storage: options.storage,
       apiDelayMs: options.apiDelayMs,
       timeScale: 50,

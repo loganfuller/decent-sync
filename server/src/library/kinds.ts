@@ -37,6 +37,7 @@ import {
   equipmentWrites,
   grinderWrites,
   profileWrites,
+  recipeWrites,
 } from "./holdings.js";
 import type { AnswerRecorded, AnsweringTablet, ReportingTablet, SeenDecision } from "./intake.js";
 import type { FieldType } from "./item-input.js";
@@ -47,17 +48,19 @@ import { addBatchAt, enterRemainingWeight, finishBatchAt, showAt, showProfileAt 
 import { type FieldEdits, latestDecision, readFieldEdits } from "./merge.js";
 import { profileText } from "./profile-intake.js";
 import { recordProfileWritten, takeInProfiles } from "./profiles.js";
+import { recipeView } from "./recipe-intake.js";
+import { heldRecipes, offeredRecipes, recordRecipeWritten, takeInRecipes } from "./recipes.js";
 
 // Each kind the server writes to tablets, described once (`LIBRARY.md`,
 // Adding a Library kind): the Library's kinds, Beans, Bean Batches, Grinders,
-// Profiles, Baskets and Tools, in the order of LIBRARY_ITEM_KINDS (protocol/), and a
+// Profiles, Baskets, Tools and Recipes, in the order of LIBRARY_ITEM_KINDS (protocol/), and a
 // Location's steam and rinse settings and the clearing of a
 // Workflow's grinder and batch. What the server does to every kind alike
 // (its versions and Conflicts, the edits of its content, what a tablet is
 // due, its hard deletes, what a joining tablet brings) reads each kind's
 // table, columns, content and SQL from here, and what only one kind does is
 // in its own modules (beans.ts, bean-batches.ts, grinders.ts, profiles.ts,
-// equipment.ts, location-settings.ts and joining.ts), which this binds to it.
+// equipment.ts, recipes.ts, location-settings.ts and joining.ts), which this binds to it.
 //
 // This imports those modules, which import what reads this: each binds
 // them in a function, called once every module has loaded, and none of them
@@ -590,6 +593,44 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
   basket: equipmentKind("basket", "Basket", { table: "baskets", map: "tablet_baskets", column: "basket_id", shown: "basket_locations" }, { fields: BASKET_FIELDS, defaults: {} }),
   // DYE2's page saves a Tool's attributes, none if none are entered.
   tool: equipmentKind("tool", "Tool", { table: "tools", map: "tablet_tools", column: "tool_id", shown: "tool_locations" }, { fields: TOOL_FIELDS, defaults: { custom: [] } }),
+  // DYE2's recipes (ADR-0005): each belongs to one Location, in one of its slots or none, and names the items it uses.
+  recipe: {
+    name: "Recipe",
+    list: LIBRARY_ITEM_KINDS.recipe.list,
+    table: "recipes",
+    idType: "uuid",
+    map: { table: "tablet_recipes", column: "recipe_id" },
+    carriesGlobalId: true,
+    belongsToLocation: true,
+    archivedIsContent: false,
+    editedIn: null,
+    values: (content) => content,
+    // A tablet's record names what it uses by the tablet's ids, so its content is written by the paths the server writes.
+    recordValues: (record) => recipeView(record),
+    keptColumns: () => Prisma.empty,
+    // Created and edited in the management interface in a later ticket (#143).
+    editable: null,
+    holdings: { key: "recipes", offered: (tx, tabletId, locationId) => offeredRecipes(tx, tabletId, locationId), held: (tx, tabletId) => heldRecipes(tx, tabletId) },
+    plan: (offer, held) => recipeWrites(offer, held),
+    offersAnySql: (locationId) => Prisma.sql`SELECT 1 FROM recipes WHERE location_id = ${locationId}::uuid AND slot IS NOT NULL AND NOT archived LIMIT 1`,
+    stateLocationsSql: (ids) => Prisma.sql`SELECT location_id::text AS id FROM recipes WHERE id = ANY(${ids}::uuid[]) AND location_id IS NOT NULL`,
+    // No Shot is linked to one yet (#147): until it is, none is hard-deleted, as one may be named.
+    shotsNameSql: () => Prisma.sql`true`,
+    namedAs: "this Recipe",
+    undeletable: async () => null,
+    keepDeletion: (tx, id) => keepRecordDeletions(tx, "recipe", id),
+    deleteHeldSql: () => Prisma.sql`false`,
+    read: async (db, ids) =>
+      versionedRows(
+        await db.$queryRaw<(ItemRow & { locationId: string | null })[]>`
+          SELECT id::text AS id, content, field_edits AS "fieldEdits", location_id::text AS "locationId" FROM recipes WHERE id = ANY(${uuids(ids)}::uuid[])`,
+        (row) => ({ name: text(fields(row.content).name), values: fields(row.content), locationId: row.locationId }),
+      ),
+    itemNames: (db, ids) => namesOf(KINDS.recipe, db, ids),
+    takeIn: (tx, tablet, value, updatedAt) => takeInRecipes(tx, tablet, value, updatedAt),
+    recordWritten: (prisma, tablet, answer) =>
+      recordRecipeWritten(prisma, tablet, answer.globalId, answer.written, answer.record, answer.updatedAt, answer.contentSeen, answer.linked),
+  },
 };
 
 /**

@@ -68,7 +68,16 @@ export interface ShownEquipment {
   contentDecidedAt: Date | null;
 }
 
-/** What a Location offers, and its state of each batch the tablet holds. Each list is in the order to write it: oldest first. */
+/** A Recipe in a slot of a Location (ADR-0005), with the record each tablet there is to hold of it. */
+export interface OfferedRecipe {
+  id: string;
+  slot: number;
+  /** The record the tablet is to hold of it, by the paths the server writes (`recipeRecord` in recipe-intake.ts): naming what it uses by the tablet's ids. */
+  record: Record<string, unknown>;
+  contentDecidedAt: Date | null;
+}
+
+/** What a Location offers, and its state of each batch the tablet holds. Each list is in the order to write it: oldest first, but Recipes in slot order. */
 export interface LocationOffer {
   beans: readonly OfferedBean[];
   /** The batches it offers, then the other batches the tablet holds. */
@@ -81,6 +90,8 @@ export interface LocationOffer {
   baskets: readonly ShownEquipment[];
   /** The Tools it shows, but those Archived. */
   tools: readonly ShownEquipment[];
+  /** Its Recipes in their slots, in slot order. */
+  recipes: readonly OfferedRecipe[];
 }
 
 /** A Library item's record on the tablet, as its map holds it. */
@@ -99,7 +110,8 @@ export interface HeldRecord {
    * a batch's or a Grinder's record fields (`beanContent`, `batchContent`,
    * `grinderContent`), a Profile's title, author and notes (`profileText`),
    * a Basket's or Tool's DYE2 record fields (`equipmentContent`).
-   * Null for one of Decaid's bundled Profiles, whose Decaid refuses changes.
+   * Null for one of Decaid's bundled Profiles, whose Decaid refuses changes,
+   * and for a Recipe, whose record differs by tablet (`OfferedRecipe`).
    */
   content: Record<string, unknown> | null;
   /** When the latest edit of that content was decided, by PostgreSQL's clock; null if none was. */
@@ -114,6 +126,8 @@ export interface TabletHoldings {
   profiles: readonly HeldRecord[];
   baskets: readonly HeldRecord[];
   tools: readonly HeldRecord[];
+  /** Its records in DYE2's recipes, each under its slot there. */
+  recipes: readonly HeldRecord[];
 }
 
 /** A write that brings the tablet closer to what its Location offers, or to its settings (location-settings.ts). */
@@ -216,7 +230,9 @@ export function writeKey(kind: WrittenKind, globalId: string): string {
  * tablet holds visible that the Location does not show, hidden. Then each
  * Basket, and each Tool, the Location shows that the tablet lacks, created,
  * and each the tablet holds that it does not show, removed from DYE2's
- * list, as DYE2 cannot hide one (ADR-0005). Items in
+ * list, as DYE2 cannot hide one (ADR-0005). Last, the Location's Recipes in
+ * their slots, which name those items by the tablet's ids
+ * (`recipeWrites`). Items in
  * `skipped` (`writeKey`) are left out, and so is a batch whose Bean the
  * tablet holds no record of yet: its Bean is written first. Every record the
  * tablet holds whose content differs from the item's, offered there or not,
@@ -337,6 +353,34 @@ export function equipmentWrites(kind: "basket" | "tool", offer: LocationOffer, h
 }
 
 /**
+ * The writes of Recipes (ADR-0005): each record the tablet holds that is not
+ * in its Recipe's slot at the Location, as one taken out of its slot, moved
+ * to another or another Location's, removed from DYE2's list first, so its
+ * slot is free; then each Recipe in a slot that the tablet lacks there,
+ * created under its slot's number, and each it holds there written where its
+ * record differs from what it is to hold (`OfferedRecipe.record`).
+ */
+export function recipeWrites(offer: LocationOffer, held: TabletHoldings): (PlannedWrite | PlannedRemove)[] {
+  const writes: (PlannedWrite | PlannedRemove)[] = [];
+  const offered = new Map(offer.recipes.map((recipe) => [recipe.id, recipe]));
+  const inSlot = new Map<string, HeldRecord>();
+  for (const record of held.recipes) {
+    const recipe = offered.get(record.itemId);
+    if (recipe && String(recipe.slot) === record.localId) inSlot.set(recipe.id, record);
+    else writes.push({ remove: true, kind: "recipe", globalId: record.itemId, localId: record.localId, decidedAt: null });
+  }
+  for (const recipe of offer.recipes) {
+    const record = inSlot.get(recipe.id);
+    if (record) {
+      pushUpdate(writes, "recipe", recipe.id, { ...record, content: recipe.record, contentDecidedAt: recipe.contentDecidedAt }, {}, null);
+    } else {
+      writes.push({ kind: "recipe", globalId: recipe.id, localId: null, fields: { ...recipe.record, id: String(recipe.slot) }, decidedAt: null, contentDecidedAt: recipe.contentDecidedAt });
+    }
+  }
+  return writes;
+}
+
+/**
  * The Bean of each batch the Location offers that the tablet lacks while it
  * lacks the Bean's record too, one for each such batch: `plannedWrites`
  * plans the batch once the Bean's record is written, so it is waiting on
@@ -405,11 +449,15 @@ function contentToWrite(kind: LibraryKind, held: HeldRecord): Record<string, unk
 /**
  * The value a tablet's record holds for a field a write sets, as Decaid
  * names it: a field edits merge is in the record's field that holds them
- * (`editedIn`), as a Profile's title, author and notes are in its `profile`.
+ * (`editedIn`), as a Profile's title, author and notes are in its `profile`,
+ * and a Recipe's at its path (`recordValues`).
  */
 function heldValue(kind: LibraryKind, record: Record<string, unknown>, field: string): unknown {
   const { editedIn, recordValues } = KINDS[kind];
-  if (editedIn === null || !(field in recordValues(record))) return record[field] ?? null;
-  const values = record[editedIn];
-  return (isObject(values) ? values[field] : undefined) ?? null;
+  const values = recordValues(record);
+  if (!(field in values)) return record[field] ?? null;
+  // A Recipe's fields are named by their paths in its record (`recipeView`).
+  if (editedIn === null) return values[field] ?? null;
+  const edited = record[editedIn];
+  return (isObject(edited) ? edited[field] : undefined) ?? null;
 }

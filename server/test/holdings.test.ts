@@ -4,6 +4,7 @@ import {
   type HeldRecord,
   type LocationBatch,
   type LocationOffer,
+  type OfferedRecipe,
   type ShownEquipment,
   type ShownProfile,
   type TabletHoldings,
@@ -77,7 +78,7 @@ const offer = (
   batches: LocationBatch[] = [],
   profiles: ShownProfile[] = [],
   grinders: string[] = [],
-  equipment: { baskets?: ShownEquipment[]; tools?: ShownEquipment[] } = {},
+  equipment: { baskets?: ShownEquipment[]; tools?: ShownEquipment[]; recipes?: OfferedRecipe[] } = {},
 ): LocationOffer => ({
   beans: beans.map((id) => ({ id, content: beanContent, decidedAt: DECIDED, contentDecidedAt: EDITED })),
   batches,
@@ -85,6 +86,7 @@ const offer = (
   profiles,
   baskets: equipment.baskets ?? [],
   tools: equipment.tools ?? [],
+  recipes: equipment.recipes ?? [],
 });
 /** What the tablet holds: no Profiles or Grinders unless given. */
 const holding = (
@@ -92,7 +94,7 @@ const holding = (
   batches: HeldRecord[],
   profiles: HeldRecord[] = [],
   grinders: HeldRecord[] = [],
-  equipment: { baskets?: HeldRecord[]; tools?: HeldRecord[] } = {},
+  equipment: { baskets?: HeldRecord[]; tools?: HeldRecord[]; recipes?: HeldRecord[] } = {},
 ): TabletHoldings => ({
   beans,
   batches,
@@ -100,6 +102,7 @@ const holding = (
   profiles,
   baskets: equipment.baskets ?? [],
   tools: equipment.tools ?? [],
+  recipes: equipment.recipes ?? [],
 });
 
 /** A Profile the Location shows, with its content, as one the tablet lacks has it, unless given otherwise. */

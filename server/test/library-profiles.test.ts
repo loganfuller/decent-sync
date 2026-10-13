@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { RawConnection, SimulatedTablet, de1ProOnDecaid087, derivedDe1Pro, derivedProfile, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { NO_DYE2_LISTS, RawConnection, SimulatedTablet, de1ProOnDecaid087, derivedDe1Pro, derivedProfile, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #82: Profiles shown per Location. A Profile keeps
@@ -72,7 +72,7 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
       decaidClockOffsetMs: options.decaidClockOffsetMs,
       stallUpload: options.stallUpload,
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": bundled() },
+      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": bundled(), ...NO_DYE2_LISTS },
       timeScale: 50,
     });
     tablets.push(tablet);

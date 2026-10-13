@@ -300,3 +300,88 @@ async function writeList(
 function asList(value: unknown): Record_[] {
   return Array.isArray(value) ? (value as Record_[]) : [];
 }
+
+/**
+ * Applies the tablet's recipe in that slot as DYE2's dashboard does when a
+ * barista taps its pill (`applyRecipe` in dye2:dye2-plugin/src/pages/dashboard.ts
+ * at v0.1.19), from what the tablet holds: reads the Workflow, sets the
+ * recipe's dose, yield (or its dose times its ratio), grind setting, RPM,
+ * Grinder where the tablet holds it, barista and drinker where it names one,
+ * its Profile, whole from its `profileSnapshot` where that has steps and
+ * otherwise from the tablet's profiles, hidden ones included, and its steam,
+ * hot water and flush values of their modes, then sends the whole Workflow
+ * in one `PUT /workflow`. Resolves with what Decaid answered.
+ */
+export async function applyInDye2(tablet: SimulatedTablet, slot: string): Promise<DecaidAnswer> {
+  const recipe = recipeIn(tablet, slot);
+  const live = (await tablet.callApi("GET", "/workflow")).body as Record_;
+  const dv = (recipe.dashboardVariables ?? {}) as Record_;
+  const context: Record_ = { ...((live.context ?? {}) as Record_) };
+  if (dv.dose != null) context.targetDoseWeight = dv.dose;
+  if (dv.drink != null) context.targetYield = dv.drink;
+  else if (dv.ratio != null && dv.dose != null) context.targetYield = Math.round((dv.dose as number) * (dv.ratio as number) * 10) / 10;
+  if (dv.grind != null) context.grinderSetting = dv.grind;
+  if (dv.rpm != null) context.extras = { ...((context.extras ?? {}) as Record_), rpm: dv.rpm };
+  const grinders = asList((await tablet.callApi("GET", "/grinders")).body);
+  const grinder = dv.grinderId ? grinders.find((candidate) => candidate.id === dv.grinderId) : undefined;
+  if (grinder) Object.assign(context, { grinderId: grinder.id, grinderModel: grinder.model ?? grinder.name });
+  if (recipe.barista) context.baristaName = recipe.barista;
+  if (recipe.drinker) context.drinkerName = recipe.drinker;
+  live.context = context;
+  if (recipe.profileId || recipe.profileTitle) live.profile = await fullProfile(tablet, recipe.profileSnapshot, recipe.profileId, recipe.profileTitle);
+  mergeLiveSettings(live, dv);
+  return tablet.callApi("PUT", "/workflow", live);
+}
+
+/**
+ * Applies the tablet's recipe in that slot as Streamline's DYE strip does
+ * when a barista taps it (`applyRecipe` in streamline-js:src/modules/dyeStrip.js
+ * at v0.2.13), from what the tablet holds: reads the Workflow, merges into it
+ * the recipe's embedded `workflow`, its context over the Workflow's and its
+ * Profile whole, from the tablet's profiles where it carries no steps, and
+ * the recipe's steam, hot water and flush values of their modes, then sends
+ * the whole Workflow in one `PUT /workflow`. The values Streamline keeps of
+ * those settings in its own namespace are not set here. Resolves with what
+ * Decaid answered.
+ */
+export async function applyInStreamline(tablet: SimulatedTablet, slot: string): Promise<DecaidAnswer> {
+  const recipe = recipeIn(tablet, slot);
+  const live = (await tablet.callApi("GET", "/workflow")).body as Record_;
+  const workflow = (recipe.workflow ?? {}) as Record_;
+  live.context = { ...((live.context ?? {}) as Record_), ...((workflow.context ?? {}) as Record_) };
+  const profile = workflow.profile as Record_ | undefined;
+  if (profile) live.profile = await fullProfile(tablet, profile, profile.id, profile.title);
+  mergeLiveSettings(live, (recipe.dashboardVariables ?? {}) as Record_);
+  return tablet.callApi("PUT", "/workflow", live);
+}
+
+/** The tablet's recipe in that slot. */
+function recipeIn(tablet: SimulatedTablet, slot: string): Record_ {
+  const recipe = asList(dye2List(tablet, "recipes")).find((candidate) => candidate.id === slot);
+  if (!recipe) throw new Error(`The tablet holds no recipe in slot ${slot}`);
+  return recipe;
+}
+
+/** A profile with its steps, as DYE2 and Streamline load one: as given where it has steps, or else the tablet's record of its id, hidden ones included, or else its id and title alone. */
+async function fullProfile(tablet: SimulatedTablet, profile: unknown, id: unknown, title: unknown): Promise<Record_> {
+  if (profile && typeof profile === "object" && Array.isArray((profile as Record_).steps)) return profile as Record_;
+  const record = asList((await tablet.callApi("GET", "/profiles?includeHidden=true")).body).find((candidate) => candidate.id === id);
+  return record?.profile && typeof record.profile === "object" ? (record.profile as Record_) : { id, title };
+}
+
+/** Merges a recipe's steam, hot water and flush values of their modes into the Workflow's own, as both apps do. */
+function mergeLiveSettings(live: Record_, dv: Record_): void {
+  if (live.steamSettings && (dv.steamTimeS != null || dv.steamFlowMls != null)) {
+    const steam = { ...(live.steamSettings as Record_) };
+    if (dv.steamMode === "time" && dv.steamTimeS != null) steam.duration = dv.steamTimeS;
+    if (dv.steamMode === "flow" && dv.steamFlowMls != null) steam.flow = dv.steamFlowMls;
+    live.steamSettings = steam;
+  }
+  if (live.hotWaterData && (dv.hotWaterMl != null || dv.hotWaterTempC != null)) {
+    const hotWater = { ...(live.hotWaterData as Record_) };
+    if (dv.hotWaterMode === "vol" && dv.hotWaterMl != null) hotWater.volume = dv.hotWaterMl;
+    if (dv.hotWaterMode === "temp" && dv.hotWaterTempC != null) hotWater.targetTemperature = dv.hotWaterTempC;
+    live.hotWaterData = hotWater;
+  }
+  if (live.rinseData && dv.flushS != null) live.rinseData = { ...(live.rinseData as Record_), duration: dv.flushS };
+}

@@ -24,6 +24,7 @@ import { currentEntry, takenIn } from "./joining.js";
 import { leaveOut, offersAny, screenLeftOut } from "./left-out.js";
 import { listedIds } from "./listed.js";
 import { deletedAt, lockLocation, showAt, transactionTime } from "./location-state.js";
+import { markUnrecognised } from "./dye2-lists.js";
 
 // The Library's Baskets and Tools and the tablets that hold them (ADR-0005,
 // ADR-0006, ADR-0008, ADR-0018, ADR-0019): DYE2's baskets and equipment,
@@ -52,11 +53,6 @@ import { deletedAt, lockLocation, showAt, transactionTime } from "./location-sta
 
 /** The kinds DYE2 keeps that are Library items: its baskets, and its tools (DYE2's equipment). */
 export type EquipmentKind = "basket" | "tool";
-
-/** Whether a kind is one DYE2 keeps that is a Library item. */
-export function isEquipmentKind(kind: string): kind is EquipmentKind {
-  return kind === "basket" || kind === "tool";
-}
 
 /** Each kind's tables: its items', and each tablet's map of its records, with the column there naming the item. */
 const TABLES: Readonly<Record<EquipmentKind, { table: string; map: string; column: string; matchingLock: number }>> = {
@@ -226,33 +222,6 @@ export async function takeInEquipment(
   return takenInAt;
 }
 
-/**
- * Marks the tablet's list of the kind as in a shape that is not recognised,
- * or, false, recognised, under the tablet's row lock, and says whether that
- * changed.
- */
-export async function markUnrecognised(tx: Prisma.TransactionClient, tabletId: string, kind: EquipmentKind, unrecognised: boolean): Promise<boolean> {
-  const list = LIBRARY_ITEM_KINDS[kind].list;
-  const changed = unrecognised
-    ? await tx.$executeRaw`INSERT INTO tablet_unrecognised_lists (tablet_id, list) VALUES (${tabletId}::uuid, ${list}) ON CONFLICT DO NOTHING`
-    : await tx.$executeRaw`DELETE FROM tablet_unrecognised_lists WHERE tablet_id = ${tabletId}::uuid AND list = ${list}`;
-  return changed > 0;
-}
-
-/**
- * Records that the plugin found the tablet's list of the kind in a shape it
- * does not recognise as it carried out a write (`ListUnrecognised`), under
- * the tablet's row lock, whether or not its connection still holds the
- * Machine: it says only what the tablet holds. Its writer writes nothing
- * more to that list until the tablet reports it in a shape it recognises.
- */
-export async function recordUnrecognised(prisma: PrismaService, tabletId: string, kind: EquipmentKind): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    await lockTablet(tx, tabletId);
-    await markUnrecognised(tx, tabletId, kind, true);
-  });
-}
-
 /** The item's content, read in the transaction; none if the Library no longer has it. */
 async function itemContent(tx: Prisma.TransactionClient, kind: EquipmentKind, itemId: string): Promise<Record<string, unknown>> {
   const [row] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM ${Prisma.raw(TABLES[kind].table)} WHERE id = ${itemId}::uuid`;
@@ -335,22 +304,6 @@ export async function recordEquipmentWritten(
     });
     return "recorded";
   }, INTAKE_TRANSACTION);
-}
-
-/**
- * The plugin removed the tablet's record from the kind's list, as its
- * Location no longer shows the item, or found it gone: the tablet holds it
- * no more, so its next report does not read it as the tablet's delete, and
- * it is written again should its Location show it once more. Under the
- * tablet's row lock, whether or not the answering connection still holds its
- * Machine: it says only what the tablet holds.
- */
-export async function recordEquipmentRemoved(prisma: PrismaService, kind: EquipmentKind, tabletId: string, localId: string): Promise<void> {
-  const { map } = TABLES[kind];
-  await prisma.$transaction(async (tx) => {
-    await lockTablet(tx, tabletId);
-    await tx.$executeRaw`DELETE FROM ${Prisma.raw(map)} WHERE tablet_id = ${tabletId}::uuid AND local_id = ${localId}`;
-  });
 }
 
 /**

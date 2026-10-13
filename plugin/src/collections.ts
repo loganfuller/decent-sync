@@ -1,7 +1,6 @@
 import {
   type CollectionDelivery,
   type CollectionName,
-  DYE2_LISTS,
   LIBRARY_ITEM_KINDS,
   LIBRARY_KINDS,
   LIBRARY_LISTS,
@@ -28,17 +27,12 @@ interface Source {
 /**
  * Where each collection is read, in Decaid v0.8.7's API (rest_v1.yml): the
  * Library's lists first, each where its kind's records are written
- * (`libraryListPath`), DYE2's tools and baskets among them, in its lists in
- * Decaid's store (ADR-0005). Decaid's own lists send ETags; the rest are
- * compared by content. DYE2's recipes are only read, until a later ticket
- * shares them.
+ * (`libraryListPath`), DYE2's baskets, tools and recipes among them, in its
+ * lists in Decaid's store (ADR-0005). Decaid's own lists send ETags; the rest
+ * are compared by content.
  */
 const SOURCES: readonly Source[] = [
   ...LIBRARY_KINDS.map((kind) => ({ name: LIBRARY_ITEM_KINDS[kind].list, path: libraryListPath(kind) })),
-  // Read here until a kind of Library item is reported in it.
-  ...(Object.keys(DYE2_LISTS) as (keyof typeof DYE2_LISTS)[])
-    .filter((name) => !isLibraryList(name))
-    .map((name) => ({ name, path: `/store/dye2.reaplugin/${DYE2_LISTS[name]}` })),
   { name: "appSettings", path: "/settings" },
   { name: "machineSettings", path: "/machine/settings" },
   { name: "advancedSettings", path: "/machine/settings/advanced" },

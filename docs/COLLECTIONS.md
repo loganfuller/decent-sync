@@ -60,11 +60,11 @@ as an empty list, and so does the plugin, which sends it as one
 (`DYE2_LISTS`); a read of one that fails is still unavailable, and never taken
 as empty.
 
-DYE2's recipes are only read. Its baskets and tools are written by the
-plugin too, through the Library (`LIBRARY.md`, Taking in a tablet's baskets
-and tools): after it writes one of those lists, its next read is sent whatever
-it holds, as another app rewriting the list at the same moment may have put it
-back as last sent. `pairedDevices` keeps Decaid's inventory entries as sent, leaving
+DYE2's recipes, baskets and tools are written by the plugin too, through
+the Library (`LIBRARY.md`, Taking in a tablet's baskets and tools, and
+Taking in a tablet's recipes): after it writes one of those lists, its next
+read is sent whatever it holds, as another app rewriting the list at the same
+moment may have put it back as last sent. `pairedDevices` keeps Decaid's inventory entries as sent, leaving
 out those whose `state` is `discovered`: devices nearby come and go and may
 belong to another Machine at the same Location. Connected and connecting
 devices, and those Decaid remembers (`disconnected`, and not `available` while
@@ -94,8 +94,8 @@ tests (`plugin/test/change-detection.test.ts`):
 - Whenever it sends the beans, it sends the bean batches in full after them,
   changed or not, as the server takes in a batch only once it knows the
   batch's bean (`LIBRARY.md`). The library's lists the server writes to (the
-  beans, bean batches, grinders and profiles, and DYE2's baskets and
-  equipment) are read, and queued, between
+  beans, bean batches, grinders and profiles, and DYE2's baskets, equipment
+  and recipes) are read, and queued, between
   the server's writes to the tablet, never during one.
 - A newer delivery of a collection drops an older one still queued, unless
   the older one was ever handed to a connection. Such a delivery may still be
@@ -116,7 +116,7 @@ Bluetooth or USB connection (`UnifiedDe1`), fifteen reads per poll.
 `server/src/collections/collections.service.ts` stores the latest value of
 each collection in `reported_collections`, one row per Machine (or Pending
 Machine) and name. One of the Library's lists (`beans`, `beanBatches`,
-`grinders`, `profiles`, `dye2Baskets` or `dye2Equipment`) from a connection
+`grinders`, `profiles`, `dye2Baskets`, `dye2Equipment` or `dye2Recipes`) from a connection
 that is not mismatched, whose Machine takes part at a Location, is also taken
 into the Library in the same transaction (`LIBRARY.md`):
 

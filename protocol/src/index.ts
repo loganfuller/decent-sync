@@ -387,8 +387,8 @@ export interface MachineStateDelivery {
  * - `beans`, `beanBatches` and `grinders`, archived ones included;
  * - `profiles`, hidden ones included;
  * - `dye2Recipes`, `dye2Equipment` and `dye2Baskets`, DYE2's keys
- *   (`DYE2_LISTS`): its tools and baskets taken into the Library and written
- *   to (ADR-0005), its recipes still only read;
+ *   (`DYE2_LISTS`): its recipes, tools and baskets, taken into the Library
+ *   and written to (ADR-0005);
  * - `appSettings`, `machineSettings` and `advancedSettings`;
  * - `pairedDevices`, the device inventory without devices only discovered nearby;
  * - `scaleInfo`, the connected scale's firmware and battery level;
@@ -437,19 +437,46 @@ export function isDye2List(name: string): name is Dye2List {
 
 /**
  * The records of a DYE2 list in a shape the plugin and server recognise:
- * an array of objects, each with an id (`isRecordId`) no other holds; null
- * for any other value. A list in another shape is never taken in, nor
- * written to, on that tablet, so DYE2's data is never corrupted (ADR-0005).
+ * an array of objects, each with an id (`isRecordId`) no other holds, and,
+ * in DYE2's `recipes`, each id a Recipe Slot's number (`isSlotId`); null for
+ * any other value. A list in another shape is never taken in, nor written
+ * to, on that tablet, so DYE2's data is never corrupted (ADR-0005).
  */
-export function dye2Records(value: unknown): Record<string, unknown>[] | null {
+export function dye2Records(value: unknown, key?: (typeof DYE2_LISTS)[Dye2List]): Record<string, unknown>[] | null {
   if (!Array.isArray(value)) return null;
   const ids = new Set<string>();
   for (const record of value) {
     if (!isObject(record) || !isRecordId(record.id) || ids.has(record.id)) return null;
+    if (key === "recipes" && !isSlotId(record.id)) return null;
     ids.add(record.id);
   }
   return value as Record<string, unknown>[];
 }
+
+/** The highest Recipe Slot a recipe's id may name: slots have no limit (ADR-0005), but each must fit the server's whole numbers. */
+export const MAX_SLOT = 2_147_483_647;
+
+/**
+ * Whether a DYE2 recipe's id is a Recipe Slot's number, as DYE2 names its
+ * recipes by their slot (`"1"` to `"5"` in its editor), with no upper limit
+ * but MAX_SLOT: a positive whole number, written without a sign or leading
+ * zeros, so each slot has one id.
+ */
+export function isSlotId(value: unknown): value is string {
+  return typeof value === "string" && /^[1-9][0-9]{0,9}$/.test(value) && Number(value) <= MAX_SLOT;
+}
+
+/**
+ * The top-level field of a DYE2 recipe record holding what a Recipe keeps
+ * that DYE2's recipe does not (ADR-0005), which DYE2 and Streamline keep when
+ * they save, as they keep the global id's field: its Bean Batch, as the
+ * tablet's id for its record (`beanBatchId`, null where the tablet holds
+ * none), and all four of its hot water settings, by Decaid's names for them
+ * in a Workflow's `hotWaterData` (`targetTemperature`, `duration`, `volume`
+ * and `flow`), each null where the Recipe has none. DYE2 keeps one hot water
+ * value, chosen by its mode.
+ */
+export const RECIPE_FIELD = "decentSyncRecipe";
 
 /**
  * The global id a DYE2 record carries in its own top-level field,
@@ -541,9 +568,11 @@ export interface LibraryKindDescription {
  * Each kind of Library item the server shares with tablets, described once
  * (`LIBRARY.md`, Adding a Library kind), in the order its lists are read and
  * written: Beans, Bean Batches, Grinders and Profiles, through Decaid's API,
- * then Baskets and Tools, through DYE2's lists in Decaid's store (ADR-0005).
- * A Profile keeps Decaid's id, a hash of what the machine executes that is
- * the same on every tablet (ADR-0006); every other kind's is its global id.
+ * then Baskets, Tools and Recipes, through DYE2's lists in Decaid's store
+ * (ADR-0005), Recipes last, as they name the others by their ids on the
+ * tablet. A Profile keeps Decaid's id, a hash of what the machine executes
+ * that is the same on every tablet (ADR-0006); every other kind's is its
+ * global id.
  */
 export const LIBRARY_ITEM_KINDS = {
   bean: { list: "beans", id: GLOBAL_ITEM_ID },
@@ -552,6 +581,7 @@ export const LIBRARY_ITEM_KINDS = {
   profile: { list: "profiles", id: { test: isRecordId, problem: `must be a Profile's id of 1 to ${MAX_RECORD_ID_LENGTH} characters without NUL` } },
   basket: { list: "dye2Baskets", id: GLOBAL_ITEM_ID, dye2Key: "baskets" },
   tool: { list: "dye2Equipment", id: GLOBAL_ITEM_ID, dye2Key: "equipment" },
+  recipe: { list: "dye2Recipes", id: GLOBAL_ITEM_ID, dye2Key: "recipes" },
 } as const satisfies Readonly<Record<string, LibraryKindDescription>>;
 
 /** The kinds of Library item the server writes to tablets, in the order of LIBRARY_ITEM_KINDS. */
@@ -817,6 +847,19 @@ export function settingsParts(fields: Readonly<Record<string, unknown>>): Record
  * record's own top-level field (`dye2GlobalIdOf`), and the plugin posts the
  * list back whole. Its answer's `updatedAt` is when the plugin wrote it, as
  * these records carry no edit time.
+ *
+ * A Recipe lives in DYE2's `recipes` the same way, under its Recipe Slot's
+ * number as its id (`isSlotId`), the same on every tablet at its Location.
+ * `fields` name its record's fields by their path, a field of its
+ * `dashboardVariables` as `dashboardVariables.dose`, and so does `expected`.
+ * To create one, `fields.id` is its slot: the plugin answers with a record
+ * there already carrying the global id, as one whose answer was lost; writes
+ * only the global id to a record there without one, saved there before the
+ * tablet reported it (`linked`), which the server takes as an edit of the
+ * Recipe; refuses a slot holding another item's record; and otherwise adds a
+ * record with `fields` and its `capturedAt`. To update one, it sets each of
+ * `fields` the record still holds as expected, a null one left out. Either
+ * way the global id goes in the record's own field, beside RECIPE_FIELD.
  *
  * A write of SETTINGS_KIND carries the steam and rinse settings of the
  * Machine's Location (ADR-0014), and never its hot water, which is each

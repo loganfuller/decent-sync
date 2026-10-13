@@ -33,7 +33,24 @@ Location, and those of the same name become one, so every tablet at a
 Location then holds all of them. A Machine that joins a Location later
 brings none of its own unless the Location has none yet, as for beans and
 profiles. Turn sharing off for a Machine first if its tablet's DYE2 baskets
-and tools are to stay as they are. DYE2's recipes are still only recorded.
+and tools are to stay as they are.
+
+### Recipes are shared through DYE2's recipes
+
+The plugin now writes DYE2's recipes on every tablet that shares a Location's
+Library, and the server keeps each as a Recipe of that Location, in its
+Recipe Slot, DYE2's recipe number. Every tablet at a Location then holds the
+Location's Recipes in the same slots, each naming that tablet's own beans,
+grinder, basket and tools, with a blank barista and drinker. As each sharing
+Machine's tablet reports its recipes after the upgrade, a recipe in a slot no
+other tablet there has reported yet becomes a new Recipe in that slot, and
+one in a slot another tablet's recipe already took is an edit of that
+Recipe, its fields merged with the latest read winning, and the others kept
+as Conflicts. So make sure each Location's tablets hold the same recipe in
+each slot before upgrading, or turn sharing off for a Machine whose recipes
+are to stay as they are. A recipe removed from a tablet's list is taken out
+of its slot and kept. Steam and flush values inside recipes are left as they
+are for now.
 
 ## 0.3.0
 

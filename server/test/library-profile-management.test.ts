@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
 import { shotFixture } from "./support/shot-fixtures.js";
-import { SimulatedTablet, de1ProOnDecaid087, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
+import { NO_DYE2_LISTS, SimulatedTablet, de1ProOnDecaid087, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 and the REST API for ticket #88: Profiles shown and hidden at
@@ -62,7 +62,7 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     const profiles = options.bundled ? (de1ProOnDecaid087()["/profiles"] as Record_[]).filter((record) => record.isDefault === true) : [];
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": profiles },
+      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": profiles, ...NO_DYE2_LISTS },
       timeScale: 50,
       ...(options.apiDelayMs ? { apiDelayMs: options.apiDelayMs } : {}),
       ...(options.stallUpload ? { stallUpload: options.stallUpload } : {}),
