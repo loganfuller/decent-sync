@@ -465,8 +465,10 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
       expect(((await (await api.call("GET", `/${kind}/${id}/conflicts`)).json()) as { conflicts: unknown[] }).conflicts).toEqual([]);
     }
 
-    // Saved again from the basket page with a diameter of 58.3 mm, another value than the one before the server's write, it
-    // is an edit as usual.
+    // The second tablet changes the diameter again, to 58.9 mm, so the first held 58.7 just before the server's latest write
+    // of it. Saved again from the basket page with 58.3 mm, another value than that, it is an edit as usual.
+    await set(two, "baskets", basket!.id, { diameterMm: 58.9 });
+    await expect.poll(() => held(one, "baskets", basket!.id)?.diameterMm, { timeout: 15_000 }).toBe(58.9);
     await saveInDye2(one, baskets.edit18gBasket, fromPage(58.3));
     for (const tablet of [one, two]) await expect.poll(() => held(tablet, "baskets", basket!.id)?.diameterMm, { timeout: 15_000 }).toBe(58.3);
     expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Fixture notes, edited", diameterMm: 58.3 });

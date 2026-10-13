@@ -337,8 +337,10 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     expect((await recipe(saved!.id)).content).toMatchObject({ dose: 18.5, grindSetting: 2.6, hotWaterTemperature: 85 });
     expect(((await (await api.call("GET", `/recipes/${saved!.id}/conflicts`)).json()) as { conflicts: unknown[] }).conflicts).toEqual([]);
 
-    // Saved again from that page with a grind setting of 2.8, another value than the one before the server's write, it is an
-    // edit as usual.
+    // The second tablet changes the grind setting again, to 2.7, so the first held 2.6 just before the server's latest write
+    // of it. Saved again from that page with 2.8, another value than that, it is an edit as usual.
+    await editInDye2(two, "1", { "dashboardVariables.grind": 2.7 });
+    await expect.poll(() => variables(inSlot(one, "1")).grind, { timeout: 15_000 }).toBe(2.7);
     await saveInDye2(one, recipes.editSlot1, fromPage(2.8));
     for (const tablet of [one, two]) await expect.poll(() => variables(inSlot(tablet, "1")).grind, { timeout: 15_000 }).toBe(2.8);
     expect((await recipe(saved!.id)).content).toMatchObject({ dose: 18.5, grindSetting: 2.8 });
