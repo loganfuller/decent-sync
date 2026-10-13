@@ -975,8 +975,32 @@ never matched (ADR-0018).
   Shot's Profile is (`profileOfSql` in `shots/links.ts`); a snapshot that is
   none of the Library's changes none, and is written over with the Recipe's. A barista or
   drinker typed into a recipe is not shared: it is no field of a Recipe, and
-  is written back blank. Its steam and flush values are left alone, neither
-  taken in nor written; #141 mirrors the Location's settings into them.
+  is written back blank. Its steam and flush values are no field of a
+  Recipe either: they mirror the steam and rinse settings (below).
+- **Steam and flush.** DYE2 keeps a recipe's steam time (`steamTimeS`) or
+  flow (`steamFlowMls`), by its steam mode, and its flush time (`flushS`),
+  which DYE2's dashboard and Streamline's DYE strip merge into the Workflow
+  as they apply it (ADR-0014). In a record the map holds, a change of one is
+  an edit of the steam or rinse setting it mirrors (`steamSettings.duration`,
+  `steamSettings.flow`, `rinseData.duration`), not of the Recipe: an edit of
+  the Location's settings from the tablet, timed when the plugin first read
+  the record, merged per field with what the tablet's settings have seen
+  (`editSettingsInRecipe` in `location-settings.ts`, Steam and rinse
+  settings, below), whether or not the Machine's steam is off. A blank value,
+  which DYE2's editor saves as 0 and leaves out for the steam mode not
+  picked, is no edit, nor is a value the settings hold already, nor a field
+  set back to its value before the server's latest write. Nor is a steam
+  value saved in another steam mode than the record held, whether or not the
+  switch is itself an edit, as one set back by a stale save is not: DYE2's
+  editor keeps the number shown as the mode is switched, so a 30 s time
+  would become a 30 ml/s flow. The Recipe's steam mode changes, and the new mode's value is
+  written; Streamline, switching it as it saves a Workflow change into the
+  recipe, has made that change in the Workflow too. A record the map
+  does not hold, as one saved in a slot before the tablet held the Recipe, or
+  a new Recipe, edits none of them, as its values were never the
+  Location's: they are written over. On a Machine whose sharing of them is
+  off, or was when the plugin read the record, nothing is edited, and its
+  own values are written back.
 - **Its Bean Batch.** DYE2 names a Bean, not a batch. A Bean picked in DYE2
   keeps the Recipe's batch if it is of that Bean; otherwise the Recipe takes
   that Bean's batch most recently added at the Location, still there, or no
@@ -1038,12 +1062,26 @@ written (`recipeRecord` in `recipe-intake.ts`) holds:
   same way;
 - the full Profile in `profileSnapshot`, so it applies where the Profile is
   hidden, or the tablet lacks it;
+- the steam and rinse settings the tablet's recipes mirror
+  (`mirroredSettings` in `location-settings.ts`): its Location's, or, while
+  its Machine's sharing of them is off, its own, as its Workflow last held
+  them. Its steam time where its steam mode is `time`, its steam flow where
+  it is `flow`, the other left out, as DYE2's editor shows a time whatever
+  the mode, and its flush time; a setting not known yet, or of 0, is left
+  out. So
+  applying a recipe, the DYE2 way or the Streamline way, sets the values the
+  Workflow holds already, and one saved blank sets no 0. Applying one sets
+  only the steam time or flow, never the steam temperature, so a Machine
+  whose steam is off keeps it off;
 - a blank barista and drinker;
 - its global id in its own field (`decentSyncId`), as a Basket's.
 
 A record is written where any of that differs from what it holds, as when an
 item it names is created on the tablet, renamed, or its Profile edited, or
-Streamline's auto-save left its embedded Workflow behind its dial.
+Streamline's auto-save left its embedded Workflow behind its dial, or the
+settings it mirrors change: the Location's, which commits with a `NOTIFY`
+on `library_changes`, or a Machine's own while its sharing of them is off,
+whose Workflow changing one notifies the same.
 
 So a recipe saved in DYE2 in a slot on one tablet is written to that slot on
 every tablet at its Location, and to no other Location's; an edit on any
@@ -1487,6 +1525,44 @@ it:
 - **The plugin's own writes** are not edits (ADR-0003): the answer to a
   write is recorded as the tablet's settings, and the plugin sends the
   Workflow change its write causes only after the answer (below).
+- **Inside recipes.** DYE2's recipes hold a steam time or flow and a flush
+  time, which applying one merges into the Workflow, so each recipe written
+  to a tablet holds the settings its Machine takes part in (Taking in a
+  tablet's recipes, above): rewritten whenever they change, so applying one
+  changes nothing. A change of one inside a recipe on a tablet is an edit of
+  the Location's settings, as a change in its Workflow is, taken in with the
+  tablet's report of its recipes, or a write's answer, under the Recipes' row
+  locks, then the settings'.
+- **A blank value applied.** A recipe saved with a blank steam or flush
+  field holds 0, which DYE2's dashboard applies from the copy it read as the
+  editor saved it, before the server wrote the Location's values into it.
+  So a Workflow steam time, steam flow or flush time of 0 is no edit, in a
+  report or a write's answer, where the Location has set it, and the
+  Location's value is written back (`blankApplied` in `recipe-intake.ts`);
+  the management interface still sets one. Streamline's Auto Steam sets a
+  steam time of 0 too, to disarm the wand until a pitcher is picked, which
+  the Location's value is likewise written over: it does not work on a
+  Machine sharing the settings. A recipe never holds a value of 0, as a
+  Machine with sharing off may hold of its own (`recipeRecord`). Such a
+  copy's other values, as a steam value carried over by a mode switch, or a
+  new recipe's own, are taken as edits if applied before the server
+  rewrote the record (#161).
+- **Recipes applied from a stale copy.** DYE2's dashboard reads its recipes
+  once, as it opens, and Streamline's strip keeps them until its page is
+  shown again, often all day, so either may apply a recipe as it was before
+  the server last wrote it, again and again. A Workflow setting changed, in
+  a report or a write's answer, to a value the tablet's recipes held just
+  before the server's latest write of it (`before_write`) that is the
+  Location's value just before its current one (its latest version setting
+  another, by `seq`), is such an apply, and no edit (`staleApplied` in
+  `recipe-intake.ts`, ADR-0005): the Location's value is written back. That
+  holds until the Location's value changes again. So a barista who sets
+  exactly the Location's previous value on the machine has it written back,
+  and changes it in the management interface instead, or sets another value
+  first. Any other value is no stale copy's: one older than the Location's
+  previous value, which is not caught, as one a record held of a steam mode
+  it has left, a joining tablet's recipes' own, or one of a setting the
+  Location has not set yet.
 
 Each welcomed connection's writer (Writing to tablets, above) writes the
 tablet its Machine's Location's settings where its Workflow holds others,

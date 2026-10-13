@@ -49,8 +49,20 @@ Recipe, its fields merged with the latest read winning, and the others kept
 as Conflicts. So make sure each Location's tablets hold the same recipe in
 each slot before upgrading, or turn sharing off for a Machine whose recipes
 are to stay as they are. A recipe removed from a tablet's list is taken out
-of its slot and kept. Steam and flush values inside recipes are left as they
-are for now.
+of its slot and kept.
+
+### Applying a recipe no longer changes a Location's steam and flush
+
+Each recipe written to a tablet now holds its Location's steam time or flow,
+by the recipe's steam mode, and its flush time, or the Machine's own while
+its sharing of the settings is off, and is rewritten whenever they change.
+Applying a recipe, in DYE2 or in Streamline's DYE strip, then leaves the
+Location's steam and rinse settings as they are, and a recipe saved with a
+blank steam or flush field no longer sets every wand to 0. Changing the
+steam or flush inside a recipe on a tablet changes the Location's settings,
+as changing them on the machine does. The workaround of turning settings
+sharing off on all but one of a Location's Machines that use DYE2 recipes is
+no longer needed: turn it back on where it was only for that.
 
 ## 0.3.0
 

@@ -1,6 +1,7 @@
-import { RECIPE_FIELD, dye2GlobalIdOf, dye2Records, isSlotId, sameValue } from "@decent-sync/protocol";
+import { RECIPE_FIELD, type SharedSetting, dye2GlobalIdOf, dye2Records, isSlotId, sameValue } from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
 import { changedFields } from "./merge.js";
+import type { LocationValues } from "./settings-intake.js";
 
 // How a DYE2 recipe record on a tablet maps to a Recipe, both ways
 // (ADR-0005). Pure, so module tests can drive it; recipes.ts reads what it
@@ -18,8 +19,11 @@ import { changedFields } from "./merge.js";
 // (`libraryValues`), each read through the tablet's map. The rest DYE2
 // derives (`title`, `subtitle`, the embedded `workflow`, the names it copies
 // and `profileSnapshot`), and the barista and drinker, which a Recipe never
-// carries, are written but never taken in. Its steam and flush values are
-// neither, here: a later ticket mirrors the Location's into them (#141).
+// carries, are written but never taken in. Its steam and flush values
+// mirror the steam and rinse settings its tablet's Machine takes part in
+// (ADR-0014): the Location's, or the Machine's own while its sharing of them
+// is off. They are written as those, and a barista's change of one is an
+// edit of those settings (`settingsValues`), not of the Recipe.
 
 const DV = "dashboardVariables";
 
@@ -40,6 +44,9 @@ export const RECIPE_PATHS = [
   `${DV}.ratio`,
   `${DV}.brewC`,
   `${DV}.steamMode`,
+  `${DV}.steamTimeS`,
+  `${DV}.steamFlowMls`,
+  `${DV}.flushS`,
   `${DV}.hotWaterMode`,
   `${DV}.hotWaterMl`,
   `${DV}.hotWaterTempC`,
@@ -93,6 +100,18 @@ export const EDITED_PATHS: ReadonlySet<string> = new Set([
   `${DV}.equipmentIds`,
   `${DV}.equipmentCustom`,
 ]);
+
+/**
+ * The paths of a recipe record whose values mirror the steam and rinse
+ * settings (ADR-0014), each with the setting it mirrors, as DYE2 and
+ * Streamline apply a recipe: its steam time where its steam mode is `time`,
+ * its steam flow where it is `flow`, and its flush time.
+ */
+export const MIRRORED_PATHS: Readonly<Record<string, SharedSetting>> = {
+  [`${DV}.steamTimeS`]: "steamSettings.duration",
+  [`${DV}.steamFlowMls`]: "steamSettings.flow",
+  [`${DV}.flushS`]: "rinseData.duration",
+};
 
 /** A recipe's record as a tablet reported it, one Decent Sync can take in. */
 export interface ReportedRecipe {
@@ -269,6 +288,77 @@ export function editedPaths(changed: Readonly<Record<string, unknown>>): string[
   return Object.keys(changed).filter((path) => EDITED_PATHS.has(path));
 }
 
+/**
+ * The steam and rinse settings a barista's change of the paths given of a
+ * record that mirror them (`MIRRORED_PATHS`) edits, each with its value: but
+ * a blank one, which DYE2's editor saves as 0 and DYE2 leaves out as absent,
+ * is no edit, so a recipe saved with blank fields never sets a wand to 0.
+ * Nor is a steam value saved in another steam mode than the record known
+ * (`known`) held, whether or not the switch is an edit of the Recipe: DYE2's
+ * editor keeps the number shown as its mode is switched, so a 30 s steam time
+ * would be saved as a 30 ml/s flow. The value of the new mode is written
+ * then, and Streamline, switching it as it saves a Workflow change into the
+ * recipe, made that change in the Workflow too.
+ */
+export function settingsValues(view: Readonly<RecipeView>, fields: Iterable<string>, known: Readonly<RecipeView>): Partial<Record<SharedSetting, number>> {
+  const switched = !sameValue(view[`${DV}.steamMode`], known[`${DV}.steamMode`]);
+  const values: Partial<Record<SharedSetting, number>> = {};
+  for (const path of new Set(fields)) {
+    const setting = MIRRORED_PATHS[path];
+    const value = view[path];
+    if (setting === undefined || typeof value !== "number" || !Number.isFinite(value) || value <= 0) continue;
+    if (setting.startsWith("steamSettings.") && switched) continue;
+    values[setting] = value;
+  }
+  return values;
+}
+
+/**
+ * The settings of those a tablet's Workflow changed (`values`) that it set to
+ * 0, where the settings hold a value (`current`): a recipe saved with a blank
+ * steam or flush field holds 0, which DYE2's dashboard applies from the copy
+ * it read as the editor saved it, before the server wrote the settings' value
+ * into it. So 0 is no edit of these settings from a tablet, and the settings'
+ * value is written back; the management interface still sets one.
+ */
+export function blankApplied(values: Readonly<Partial<Record<SharedSetting, number>>>, current: LocationValues): SharedSetting[] {
+  return Object.values(MIRRORED_PATHS).filter((setting) => {
+    const value = values[setting];
+    return value !== undefined && value <= 0 && current[setting] !== undefined;
+  });
+}
+
+/**
+ * The settings of those a tablet's Workflow changed (`values`) that it set
+ * back to a value its recipes held just before the server's latest write of
+ * it (`beforeWrites`, each record's `before_write`), the settings' value
+ * just before their current one (`previous`): a recipe
+ * applied from a copy read before that write, as DYE2's dashboard and
+ * Streamline's strip read their recipes once and keep them, which is no
+ * edit (ADR-0005), and the settings' value is written back. That holds until
+ * the settings' value changes again, as a page may apply the same copy all
+ * day: a barista who sets exactly that value on the machine meanwhile has it
+ * written back, and changes it in the management interface instead. Any
+ * other value, as an older one a record held of a steam mode it no longer
+ * has, or a joining tablet's recipes held of their own, is no stale copy's,
+ * and a setting the settings have not set yet takes any.
+ */
+export function staleApplied(
+  values: Readonly<Partial<Record<SharedSetting, number>>>,
+  beforeWrites: readonly Readonly<Record<string, unknown>>[],
+  current: LocationValues,
+  previous: Readonly<Partial<Record<SharedSetting, number>>>,
+): SharedSetting[] {
+  const stale: SharedSetting[] = [];
+  for (const [path, setting] of Object.entries(MIRRORED_PATHS)) {
+    const value = values[setting];
+    if (value === undefined || current[setting] === undefined || sameValue(current[setting], value)) continue;
+    if (!sameValue(previous[setting], value)) continue;
+    if (beforeWrites.some((before) => Object.prototype.hasOwnProperty.call(before, path) && sameValue(before[path], value))) stale.push(setting);
+  }
+  return stale;
+}
+
 /** What writing a Recipe to a tablet reads besides it: the tablet's ids for what it names, and what DYE2 copies of each. */
 export interface WriteContext {
   ids: TabletIds;
@@ -282,6 +372,8 @@ export interface WriteContext {
   toolNames: ReadonlyMap<string, string | null>;
   /** Each Profile's `profile`, as Decaid keeps it, by Decaid's id; absent for one the Library does not have. */
   profiles: ReadonlyMap<string, Record<string, unknown>>;
+  /** The steam and rinse settings its recipes mirror (`mirroredSettings` in location-settings.ts): a setting not known is absent. */
+  settings: LocationValues;
 }
 
 /**
@@ -290,7 +382,9 @@ export interface WriteContext {
  * Tools by the tablet's ids, and its Profile by Decaid's, each left out where
  * the tablet holds no record of it, and the names DYE2 copies from them; its
  * full Profile in `profileSnapshot`, so it applies where the Profile is
- * hidden; a blank barista and drinker; the hot water value of its mode,
+ * hidden; a blank barista and drinker; the steam and rinse settings it
+ * mirrors (`MIRRORED_PATHS`), its steam's of its steam mode alone, and none
+ * not known or of 0; the hot water value of its mode,
  * with all four and its Bean Batch, by the tablet's id, in the record's own
  * field (RECIPE_FIELD); and `title`, `subtitle` and the embedded `workflow`
  * as DYE2 derives them (`recipeWorkflow`).
@@ -315,7 +409,14 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
     }),
   );
   const hotWaterMode = content.hotWaterMode ?? null;
+  const steamMode = content.steamMode ?? null;
   const value = (key: string) => content[key] ?? null;
+  // A value of 0, which only a Machine's own Workflow or the management interface holds, is left out, so applying the
+  // recipe never sets a wand to 0.
+  const setting = (field: SharedSetting) => {
+    const held = context.settings[field];
+    return typeof held === "number" && held > 0 ? held : null;
+  };
   const view: RecipeView = {
     name: value("name"),
     beverage: value("beverage"),
@@ -331,7 +432,12 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
     [`${DV}.drink`]: value("yield"),
     [`${DV}.ratio`]: value("ratio"),
     [`${DV}.brewC`]: value("brewTemperature"),
-    [`${DV}.steamMode`]: value("steamMode"),
+    [`${DV}.steamMode`]: steamMode,
+    // DYE2 and Streamline apply the steam value of the recipe's mode alone. The other is left out: DYE2's editor shows a
+    // time whatever the mode, and would save it as the flow.
+    [`${DV}.steamTimeS`]: steamMode === "time" ? setting("steamSettings.duration") : null,
+    [`${DV}.steamFlowMls`]: steamMode === "flow" ? setting("steamSettings.flow") : null,
+    [`${DV}.flushS`]: setting("rinseData.duration"),
     [`${DV}.hotWaterMode`]: hotWaterMode,
     // DYE2 keeps the value of its mode, volume where it names none, as its editor shows.
     [`${DV}.hotWaterMl`]: hotWaterMode === "temp" ? null : value("hotWaterVolume"),
@@ -399,6 +505,11 @@ export function recipeWorkflow(view: Readonly<RecipeView>): Record<string, unkno
 /** Whether a tablet's record holds a Recipe's content as written to it (`recipeRecord`): every path a barista edits the same. */
 export function holdsRecipe(view: Readonly<RecipeView>, written: Readonly<RecipeView>): boolean {
   return editedPaths(changedFields(written, view)).length === 0 && sameValue(view[RECIPE_FIELD], written[RECIPE_FIELD]);
+}
+
+/** Whether a tablet's record holds a Recipe as written to it (`holdsRecipe`), and the settings it mirrors as written. */
+export function holdsRecord(view: Readonly<RecipeView>, written: Readonly<RecipeView>): boolean {
+  return holdsRecipe(view, written) && Object.keys(MIRRORED_PATHS).every((path) => sameValue(view[path], written[path]));
 }
 
 /** One thing a report of a tablet's recipes changes. */

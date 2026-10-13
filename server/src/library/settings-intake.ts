@@ -73,3 +73,12 @@ export function readLocationValues(value: unknown): LocationValues {
   }
   return values;
 }
+
+/**
+ * The settings a tablet's recipes mirror (ADR-0014): its Location's, or,
+ * while its Machine's sharing of them is off, its own, as its Workflow last
+ * held them, which applying one of its recipes then keeps.
+ */
+export function mirroredValues(sharesSettings: boolean, location: LocationValues, own: LocationValues): LocationValues {
+  return sharesSettings ? location : own;
+}
