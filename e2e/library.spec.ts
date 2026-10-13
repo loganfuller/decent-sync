@@ -1,5 +1,5 @@
 import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
-import { SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 
 // The Library's Beans, Bean Batches, Grinders and Profiles in the
@@ -232,7 +232,8 @@ async function tabletAt(page: Page, name: string, location: { id: string }, seri
   const { token } = (await response.json()) as { token: string };
   const tablet = SimulatedTablet.load({
     settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
-    api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [] },
+    // DYE2's lists empty: the test tablet's recipe and basket, shared too, would add writes to every join here.
+    api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], ...NO_DYE2_LISTS },
     timeScale: 50,
   });
   tablets.push(tablet);

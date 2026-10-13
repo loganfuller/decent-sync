@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { LIBRARY_LISTS, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView } from "./support/admin-api.js";
-import { NO_DYE2_EQUIPMENT, RawConnection, SimulatedTablet, derivedDe1Pro, derivedProfile, helloWith, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
+import { NO_DYE2_LISTS, RawConnection, SimulatedTablet, derivedDe1Pro, derivedProfile, helloWith, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #89: a Machine joining a Location, as it is adopted
@@ -97,7 +97,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
       // DYE2's lists empty: the fixture basket, shared like any other item, would be written its global id in the background,
       // which this file does not count.
-      api: { ...derivedDe1Pro({ serial }), ...NO_DYE2_EQUIPMENT, ...library, "/workflow": workflowWith(options.parts ?? {}, context) },
+      api: { ...derivedDe1Pro({ serial }), ...NO_DYE2_LISTS, ...library, "/workflow": workflowWith(options.parts ?? {}, context) },
       timeScale: 50,
     });
     tablets.push(tablet);

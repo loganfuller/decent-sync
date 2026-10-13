@@ -83,8 +83,8 @@ export function MachineSharingCard({ machine, isAdmin, onChanged }: { machine: M
           <h2>Sharing</h2>
         </CardTitle>
         <CardDescription>
-          A Machine at a Location shares the Library with the Location's other Machines: its Beans, Bean Batches, Grinders and
-          Profiles.
+          A Machine at a Location shares the Library with the Location's other Machines: its Beans, Bean Batches, Grinders,
+          Profiles, Baskets, Tools and Recipes.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">

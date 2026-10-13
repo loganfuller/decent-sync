@@ -16,14 +16,16 @@ function kindName(kind: ItemKind): string {
   return kind === "settings" ? "Location settings" : LIBRARY_KINDS[kind].name;
 }
 
-/** The address of an item's page; a Location's settings are on its page. */
-export function itemPath(kind: ItemKind, id: string, location: Location | null = null): string {
+/** The address of an item's page; a Location's settings are on its page. Null for a kind with no pages yet. */
+export function itemPath(kind: ItemKind, id: string, location: Location | null = null): string | null {
   if (kind === "settings") return location ? `/locations/${location.id}` : "/locations";
-  return `${LIBRARY_KINDS[kind].pages}/${encodeURIComponent(id)}`;
+  const { pages } = LIBRARY_KINDS[kind];
+  return pages === null ? null : `${pages}/${encodeURIComponent(id)}`;
 }
 
-/** A link to an item's page. */
-export function ItemLink({ path, className, children }: { path: string; className?: string; children: ReactNode }) {
+/** A link to an item's page, or its name alone where it has none. */
+export function ItemLink({ path, className, children }: { path: string | null; className?: string; children: ReactNode }) {
+  if (path === null) return <span className={className}>{children}</span>;
   return (
     <Link to={path} className={`${className ?? ""} underline-offset-4 hover:underline`}>
       {children}

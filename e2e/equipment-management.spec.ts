@@ -1,7 +1,7 @@
 import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
 import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
 import { type Dye2Key, DYE2_NAMESPACE, dye2List } from "../server/test/support/simulated-dye2.js";
-import { NO_DYE2_EQUIPMENT, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 
 // Baskets and Tools in the management interface (ticket #139): created at a
@@ -276,7 +276,7 @@ async function tabletAt(page: Page, name: string, location: { id: string }, seri
   const { token } = (await response.json()) as { token: string };
   const tablet = SimulatedTablet.load({
     settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
-    api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_EQUIPMENT },
+    api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS },
     timeScale: 50,
   });
   tablets.push(tablet);

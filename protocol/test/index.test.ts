@@ -25,6 +25,8 @@ import {
   MAX_HARDWARE_LENGTH,
   MAX_ID_LENGTH,
   MAX_RECORD_ID_LENGTH,
+  MAX_SLOT,
+  RECIPE_FIELD,
   MAX_REFUSAL_LENGTH,
   MAX_WRITTEN_FIELDS,
   PROTOCOL_VERSION,
@@ -50,6 +52,7 @@ import {
   isDye2List,
   isLibraryList,
   isRecordId,
+  isSlotId,
   recordGlobalId,
   itemIdRule,
   listKind,
@@ -548,7 +551,7 @@ describe("Library writes", () => {
       expect(decodeServerMessage(frame({ ...remove, localId })).ok).toBe(false);
       expect(decodePluginMessage(frame({ ...deleted, localId })).ok).toBe(false);
     }
-    expect(DELETED_KINDS).toEqual(["bean", "beanBatch", "grinder", "profile", "basket", "tool"]);
+    expect(DELETED_KINDS).toEqual(["bean", "beanBatch", "grinder", "profile", "basket", "tool", "recipe"]);
     // A Profile's record is named by Decaid's id, which is its global id too.
     const profileId = "profile:bf1ca48b9c7389c7d146";
     const profile: LibraryDelete = { type: "delete", id: "delete-2", kind: "profile", globalId: profileId, localId: profileId };
@@ -600,7 +603,7 @@ describe("Library writes", () => {
     expect(isItemId("grinder", globalId)).toBe(true);
     expect(isItemId("grinder", profileId)).toBe(false);
     expect(LIBRARY_KINDS.every(isLibraryKind)).toBe(true);
-    expect(isLibraryKind("recipe")).toBe(false);
+    expect(isLibraryKind("favourite")).toBe(false);
   });
 
   it("checks each kind's ids as the kind declares them, which need not be UUIDs", () => {
@@ -623,7 +626,7 @@ describe("Library writes", () => {
       expect(decodePluginMessage(frame({ ...refused, globalId: id }))).toMatchObject({ ok: false, problem: "writeRefused.globalId must be a UUID" });
     }
     // The shared settings, a Workflow and a kind this side does not know are named by UUIDs.
-    for (const kind of ["settings", "workflow", "recipe"]) {
+    for (const kind of ["settings", "workflow", "favourite"]) {
       expect(itemIdRule(kind)).toBe(GLOBAL_ITEM_ID);
       expect(isItemId(kind, ids[0])).toBe(false);
     }
@@ -640,7 +643,7 @@ describe("Library writes", () => {
     expect(parentList("grinders")).toBeUndefined();
     expect(childLists("beans")).toEqual(["beanBatches"]);
     expect(childLists("profiles")).toEqual([]);
-    expect(REMOVAL_ORDER).toEqual(["beanBatch", "bean", "grinder", "profile", "basket", "tool"]);
+    expect(REMOVAL_ORDER).toEqual(["beanBatch", "bean", "grinder", "profile", "basket", "tool", "recipe"]);
     // Every kind's records are made under a kind listed before it, or none.
     for (const kind of LIBRARY_KINDS) {
       const parent = parentKind(kind);
@@ -696,6 +699,26 @@ describe("Library writes", () => {
     ]) {
       expect(dye2Records(value)).toBeNull();
     }
+  });
+
+  it("recognises DYE2's recipes only with each id a Recipe Slot's number", () => {
+    expect(dye2Key("recipe")).toBe("recipes");
+    expect(LIBRARY_ITEM_KINDS.recipe.list).toBe("dye2Recipes");
+    // Recipes are written last, as they name the other kinds by the tablet's ids.
+    expect(LIBRARY_KINDS.at(-1)).toBe("recipe");
+    const recipes = [{ id: "1", name: "a" }, { id: "7" }, { id: "12" }, { id: String(MAX_SLOT) }];
+    expect(dye2Records(recipes, "recipes")).toBe(recipes);
+    // The same ids in baskets are any record ids.
+    const baskets = [{ id: "bskt-1" }, { id: "0" }];
+    expect(dye2Records(baskets, "baskets")).toBe(baskets);
+    for (const id of ["0", "01", "-1", "1.5", "+1", " 1", "one", "bskt-1", String(MAX_SLOT + 1), "99999999999"]) {
+      expect(isSlotId(id)).toBe(false);
+      expect(dye2Records([{ id: "1" }, { id }], "recipes")).toBeNull();
+      expect(dye2Records([{ id: "1" }, { id }])).not.toBeNull();
+    }
+    for (const id of ["1", "5", "6", "42"]) expect(isSlotId(id)).toBe(true);
+    expect(isSlotId(3)).toBe(false);
+    expect(RECIPE_FIELD).toBe("decentSyncRecipe");
   });
 
   it("matches Baskets and Tools by name, ignoring case and white space at either end", () => {

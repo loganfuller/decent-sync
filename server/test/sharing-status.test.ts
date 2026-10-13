@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
-import { NO_DYE2_EQUIPMENT, RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { NO_DYE2_LISTS, RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #91: a write the tablet refuses doesn't stop the others,
@@ -64,7 +64,7 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
   function load(machine: CreatedMachine, serial: string, instance: TestServer = server): SimulatedTablet {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_EQUIPMENT },
+      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS },
       timeScale: 50,
     });
     tablets.push(tablet);
@@ -150,7 +150,7 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
     expect(two.beans().find((bean) => bean.name === "Refused Blend")).toMatchObject({ notes: "Now with notes" });
     await expect.poll(async () => (await statusOf(second)).refused, { timeout: 10_000 }).toEqual([]);
     await expect.poll(async () => (await statusOf(second)).waiting, { timeout: 10_000 }).toBe(0);
-    expect((await statusOf(second)).lastApplied).toMatchObject({ change: "write", item: { id: refused.id } });
+    await expect.poll(async () => (await statusOf(second)).lastApplied, { timeout: 10_000 }).toMatchObject({ change: "write", item: { id: refused.id } });
   });
 
   it("writes a refused Bean again once the tablet reconnects", async () => {
@@ -178,7 +178,10 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
     two.dropConnections();
     await expect.poll(() => heldAs(two, "Refused Again"), { timeout: 10_000 }).toEqual([refused.id]);
     await expect.poll(async () => (await statusOf(second)).refused, { timeout: 10_000 }).toEqual([]);
-    expect((await statusOf(second)).lastApplied).toMatchObject({ change: "write", kind: "bean", item: { id: refused.id, name: "Roux Refused Again" } });
+    // Recorded once the server has taken in its answer, which can come after the tablet holds the Bean.
+    await expect
+      .poll(async () => (await statusOf(second)).lastApplied, { timeout: 10_000 })
+      .toMatchObject({ change: "write", kind: "bean", item: { id: refused.id, name: "Roux Refused Again" } });
   });
 
   it("forgets a refusal once its Bean is no longer offered, so the Bean offered again waits rather than showing as refused", async () => {

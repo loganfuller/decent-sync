@@ -2,7 +2,7 @@ import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { shotFixture, withShots } from "./support/shot-fixtures.js";
-import { PluginStorage, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
+import { NO_DYE2_LISTS, PluginStorage, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #92: each Shot is linked to the Library's Bean Batch and
@@ -71,7 +71,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
   ): SimulatedTablet {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...options.library },
+      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS, ...options.library },
       apiDelayMs: options.apiDelayMs,
       storage: options.storage,
       timeScale: 50,

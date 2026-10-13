@@ -52,9 +52,14 @@ added in one place (Adding a Library kind, below). Ticket
 [#138](https://github.com/loganfuller/decent-sync/issues/138) adds Baskets
 and Tools, which DYE2 keeps in lists in Decaid's store: taken in from those
 lists, shown or hidden at each Location, and written back to them (Taking in
-a tablet's baskets and tools, below). It follows ADR-0003, ADR-0005,
-ADR-0006, ADR-0008, ADR-0014, ADR-0016, ADR-0018, ADR-0019, ADR-0020 and
-ADR-0021.
+a tablet's baskets and tools, below). Ticket
+[#140](https://github.com/loganfuller/decent-sync/issues/140) adds Recipes,
+DYE2's recipes, each belonging to one Location and in one of its Recipe
+Slots or none: taken in from DYE2's recipes, and each Location's slotted
+Recipes written to its tablets under their slot numbers, naming what they
+use by each tablet's own ids (Taking in a tablet's recipes, below). It
+follows ADR-0003, ADR-0005, ADR-0006, ADR-0008, ADR-0014, ADR-0016,
+ADR-0018, ADR-0019, ADR-0020 and ADR-0021.
 
 ## Who takes part
 
@@ -110,7 +115,9 @@ A tablet holds only what its Machine's Location offers (ADR-0008):
 - a **Basket** or **Tool** while it is shown there, unless it is Archived:
   shown where a tablet created it, or entered one of its name, until it is
   hidden there or shown elsewhere (Taking in a tablet's baskets and tools,
-  below).
+  below);
+- a **Recipe** of its own while it is in one of its Recipe Slots, which an
+  Archived Recipe never is (Taking in a tablet's recipes, below).
 
 So a Bean with batches is offered only where they are: once its last batch
 at a Location is finished, it is no longer offered there. Archived items are
@@ -238,6 +245,12 @@ can hide nothing (Taking in a tablet's baskets and tools, below).
 - `basket_locations` and `tool_locations`: whether each is shown at a
   Location, a field of its own kept as `profile_locations` keeps a
   Profile's.
+- `recipes`: each Recipe, by its global id, with the Location it belongs to,
+  its Recipe Slot there or none, a positive whole number unique among the
+  Location's slotted Recipes, with no upper limit; its content in the
+  Library's terms (Taking in a tablet's recipes, below); whether it is
+  Archived, when it has no slot; when it joined the Library; and its fields'
+  latest edits.
 - `tablet_baskets` and `tablet_tools`: each tablet's map of its records in
   DYE2's lists, by DYE2's id, with the record as the tablet last had it, when
   the plugin first read it (`record_updated_at`), the latest decision of its
@@ -247,11 +260,15 @@ can hide nothing (Taking in a tablet's baskets and tools, below).
   set the field to a value of its own since (`before_write`); and
   whether a report has listed it since the server's write created it
   (`listed`).
+- `tablet_recipes`: each tablet's map of its records in DYE2's recipes, by
+  DYE2's id, its Recipe Slot there, kept as `tablet_baskets` keeps a
+  Basket's, its fields named by their paths in the record, but for the
+  showing it has seen, as a Recipe is no Location's to show.
 - `tablet_unrecognised_lists`: each of DYE2's lists a tablet holds in a shape
   that is not recognised, which nothing is written to or taken in from, and
   since when.
-- `field_edits` on `beans`, `bean_batches`, `grinders`, `profiles`, `baskets`
-  and `tools`: the
+- `field_edits` on `beans`, `bean_batches`, `grinders`, `profiles`, `baskets`,
+  `tools` and `recipes`: the
   latest edit of each field of the item's content, `{ at, decidedAt,
   tabletId, versionId }`: when it was made, never earlier than the edit
   before it; when it was decided, by PostgreSQL's clock, after every edit of
@@ -919,6 +936,122 @@ on any tablet reaches every tablet that holds it; and deleting a Tool hides it
 at that Location only. Hiding one at a Location removes it from that
 Location's tablets' lists.
 
+## Taking in a tablet's recipes
+
+DYE2 keeps its recipes whole in one list under one key of Decaid's store,
+`recipes` under `dye2.reaplugin`, each under its Recipe Slot's number as its
+id (ADR-0005), and Streamline's DYE strip saves a barista's changes into the
+recipe it applied. The plugin reports them as the `dye2Recipes` collection,
+as it reports baskets and tools (Taking in a tablet's baskets and tools,
+above), after them, as a recipe names them, and they are taken in under the
+same locks, the Location's lock, under which its slots are decided, taken
+for every report (`takeInRecipes` in `recipes.ts`, planned by the pure
+`planRecipeIntake` and mapped by the pure module `recipe-intake.ts`). A
+Recipe belongs to one Location and has a slot there, or none. Recipes are
+never matched (ADR-0018).
+
+- **Unrecognised shapes.** A list whose records are not each an object with
+  an id that is a slot number (`isSlotId` in `protocol/`: a positive whole
+  number written without a sign or leading zeros) is in a shape that is not
+  recognised, and is treated as such a list of baskets or tools is.
+- **Content.** A Recipe's content is in the Library's terms: `name`,
+  `beverage`, `beanId`, `beanBatchId`, `profileId` (Decaid's id),
+  `grinderId`, `basketId`, `toolIds` and `toolAttributes` (DYE2's
+  `equipmentCustom`, by each Tool's global id), `dose`, `yield`, `ratio`,
+  `grindSetting`, `rpm`, `brewTemperature`, `showOnDashboard`, the four hot
+  water settings `hotWaterVolume`, `hotWaterTemperature`, `hotWaterDuration`
+  and `hotWaterFlow`, and DYE2's `steamMode` and `hotWaterMode`, a field it
+  holds no value for left out. A record names what it uses by the tablet's
+  own ids, read through the tablet's map: one the map does not hold, as one
+  of the tablet's own, names nothing. A record is compared and written by
+  its fields' paths (`recipeView`), a field of its `dashboardVariables` as
+  `dashboardVariables.dose`.
+- **What is no edit.** The fields DYE2 derives, `title`, `subtitle`, the
+  embedded `workflow`, `capturedAt`, and the names it copies (`beanName`,
+  `profileTitle`, `grinderModel`, `basketName`, `equipmentNames`), are
+  written but never taken in, and so is `profileSnapshot`, but that a
+  record naming no `profileId`, as DYE2 saves a Profile read from the
+  Workflow, names the Library Profile its `profileSnapshot` is, found as a
+  Shot's Profile is (`profileOfSql` in `shots/links.ts`); a snapshot that is
+  none of the Library's changes none, and is written over with the Recipe's. A barista or
+  drinker typed into a recipe is not shared: it is no field of a Recipe, and
+  is written back blank. Its steam and flush values are left alone, neither
+  taken in nor written; #141 mirrors the Location's settings into them.
+- **Its Bean Batch.** DYE2 names a Bean, not a batch. A Bean picked in DYE2
+  keeps the Recipe's batch if it is of that Bean; otherwise the Recipe takes
+  that Bean's batch most recently added at the Location, still there, or no
+  batch where the Bean has none there.
+- **Hot water.** DYE2 keeps one hot water value, of its mode: the volume by
+  `hotWaterMl`, the temperature by `hotWaterTempC`. A save that leaves the
+  others out changes none of them.
+- **Its Grinder** is one of its Location's: a record naming another, or one
+  Archived, changes none. **Its Tools** the tablet holds no record of, which
+  were never written to it, stay the Recipe's whatever the tablet's record
+  names, each where it was, and so does its Basket while the tablet's record
+  names none.
+- **Edits.** A record in a slot the map holds as a Recipe's is that
+  Recipe's, unless the Recipe is one of the Location's that has left that
+  slot since, as one taken out of it, when a save there is in the slot as it
+  is now, below. One carrying another item's global id, as a backup restored,
+  or of another Location's Recipe, as before the writer removes it after a
+  move, is written over, no edit of it; so is a write's answer of one. One that differs from the record
+  known is an edit of each field of its content it changed, timed when the
+  plugin first read it, merged per field (Edits, above), but for a field set
+  back to its value before the server's latest write to it, as for baskets
+  and tools (`before_write`). A record in a slot the map does not hold is in
+  the slot of the Location's Recipe there, if any: carrying that Recipe's
+  global id, it is its record, as after a lost answer; otherwise it was saved
+  in that slot on the tablet before it held the Recipe, and each field of its
+  content that differs from the Recipe's is an edit of it, merged with
+  Conflicts as an edit made without seeing the Recipe's. A record in a slot
+  the Location leaves empty is a new Recipe there.
+- **Gone from the list.** A record the map holds that a report listed before
+  was removed on the tablet, which neither DYE2 nor Streamline does today:
+  its Recipe is taken out of that slot at the tablet's Location, if it is
+  still in it there, and kept unslotted (ADR-0019), a version of its own,
+  `{ slot: null }` at that Location, timed when the server learns of it. A
+  record the server's write created that no report listed before it went was
+  lost to another app's rewrite, and is written again.
+- **Joining.** A report that is part of joining takes nothing of the
+  tablet's in, as for any kind (Joining a Location, below): a record of a
+  Recipe the map holds is written over, or removed if its Location does not
+  have it in that slot; the rest are left out, removed from the list, and not
+  kept. A Location with no Recipes in its slots takes the joining tablet's in
+  their slots. #148 builds the rest of joining with Recipes.
+
+**Writing.** Each sharing tablet holds its Location's slotted Recipes, in
+slot order, under their slot numbers (`recipeWrites` in `holdings.ts`); one
+of a Recipe taken out of its slot, or another Location's, or in another slot
+than its Recipe's now, is removed first, so its slot is free. Each record
+written (`recipeRecord` in `recipe-intake.ts`) holds:
+
+- the Recipe's content, naming its Bean, Grinder, Basket and Tools by the
+  tablet's own ids, each left out where the tablet holds no record of it,
+  and its Profile by Decaid's id;
+- its Bean Batch, by the tablet's id for it, and all four hot water
+  settings, in the record's own field (`decentSyncRecipe`, RECIPE_FIELD in
+  `protocol/`), and the hot water value of its mode in
+  `dashboardVariables`;
+- the names DYE2 copies, and `title`, `subtitle` and the embedded
+  `workflow`, built as DYE2's `buildRecipeWorkflow` builds them, with the full
+  Profile and the tablet's grinder id, so DYE2 and Streamline apply it the
+  same way;
+- the full Profile in `profileSnapshot`, so it applies where the Profile is
+  hidden, or the tablet lacks it;
+- a blank barista and drinker;
+- its global id in its own field (`decentSyncId`), as a Basket's.
+
+A record is written where any of that differs from what it holds, as when an
+item it names is created on the tablet, renamed, or its Profile edited, or
+Streamline's auto-save left its embedded Workflow behind its dial.
+
+So a recipe saved in DYE2 in a slot on one tablet is written to that slot on
+every tablet at its Location, and to no other Location's; an edit on any
+tablet, in DYE2's editor or through Streamline's auto-save, reaches every
+tablet there; and a recipe gone from a tablet's list empties its slot on the
+others. Recipes are read through the REST API (below); the management
+interface manages them in #143.
+
 ## Writing to tablets
 
 Each welcomed connection that is not mismatched has a writer
@@ -957,6 +1090,12 @@ each update also writing the item's content where the record differs from it
    every sharing tablet, whether or not DYE2 is installed there, so
    installing DYE2 later finds them ready, but never one the tablet holds in
    a shape that is not recognised.
+7. Each record of a Recipe the tablet holds that is not in its Recipe's slot
+   at the Location, removed from DYE2's recipes (`remove`); then each Recipe
+   in the Location's slots, in slot order, that the tablet lacks in its slot,
+   created there, or whose record differs from what it is to hold, written
+   (Taking in a tablet's recipes, above). Recipes come last, as they name the
+   items above by the tablet's ids.
 
 Every record the tablet holds whose content differs from its item's, offered
 at the Location or not, is written the item's content, in the same update as
@@ -982,7 +1121,7 @@ tools, which are removed from DYE2's list instead (Taking in a tablet's
 baskets and tools, above).
 
 It writes nothing until that connection's reports of the tablet's beans, bean
-batches, grinders, profiles, baskets and tools, which the plugin sends on
+batches, grinders, profiles, baskets, tools and recipes, which the plugin sends on
 every welcome, have been taken in, nor between a report of its beans and the report of its batches the plugin
 sends after it, so a change the tablet made to both, such as deleting a bean
 with its batches, is taken in whole first. It then writes only while the
@@ -1186,6 +1325,21 @@ tablet's list of batches to show it does not.
   Its next read of the list it wrote is reported whatever it holds, so a
   write another app's rewrite of the list lost at the same moment shows up
   there (ADR-0005); the server then writes it again.
+- To write a Recipe, it reads DYE2's recipes as it reads baskets and tools,
+  which must be in a shape it recognises, each id a slot number. A write
+  names the record's fields by their paths, a field of its
+  `dashboardVariables` as `dashboardVariables.dose`. To create one in the
+  slot its `fields.id` names, a record there carrying the global id, made by
+  a write whose answer was lost, is the answer; a record there without one,
+  saved in that slot before the tablet reported it, becomes the Recipe's,
+  only the global id written to it (`linked`), and the server takes each
+  field it holds otherwise as an edit of the Recipe, merged with Conflicts;
+  a record there carrying another item's global id is left, and the write
+  refused, as the server removes it first; otherwise it adds a record with
+  the write's fields and `capturedAt`. To update one, it sets each path the
+  record still holds as the server expects. Whenever it posts DYE2's recipes
+  back, it puts them in slot order, as every tablet at a Location holds
+  them: DYE2 adds a recipe saved in a new slot at the end.
 - To set aside a record the Library leaves out (`leaveOut`), it reads the
   record, and archives a bean, bean batch or grinder (`PUT /beans/{id}`,
   `/bean-batches/{id}` or `/grinders/{id}` with `archived`, its `extras`
@@ -1647,6 +1801,17 @@ Every endpoint requires the account session; Staff read them as Admins do.
   archived }`, Archive or restore one, Staff anywhere; each returns `{ basket
   }` or `{ tool }`. 400 for a field that is not DYE2's or a value its page
   would not save.
+- `GET /api/locations/:id/recipes` returns `{ recipes }`, the Location's
+  Recipes: those in its slots, in slot order, then the rest, by name,
+  ignoring case, each `{ id, name, location, slot, archived, createdAt,
+  content }`: `slot` its Recipe Slot, null for none, and `content` its
+  content in the Library's terms (Taking in a tablet's recipes, above). 404
+  for no such Location. `GET /api/recipes/:id` returns `{ recipe }`, the
+  same; or 404. `GET /api/recipes/:id/history` and `GET
+  /api/recipes/:id/conflicts` are an item's (below); a version that took it
+  out of its slot sets `slot` to null at its Location. Staff read them as
+  Admins do; they are created, edited and slotted in the management
+  interface in #143.
 - `GET /api/beans/:id/history`, `GET /api/bean-batches/:id/history`,
   `GET /api/grinders/:id/history` and `GET /api/profiles/:id/history` return
   `{ versions }`, the item's versions (ADR-0020), the latest taken in first,
@@ -1667,10 +1832,11 @@ Every endpoint requires the account session; Staff read them as Admins do.
 - `GET /api/conflicts` returns `{ conflicts }`, the open Conflicts, the
   latest first, each `{ id, item, field, value, location, source, editedAt,
   createdAt, state, current, resolvable }`: the item `{ kind, id, name }`,
-  `kind` being `bean`, `beanBatch`, `grinder`, `profile`, `basket` or `tool`,
-  and `name` a Bean's roaster and name, a batch's Bean and the day it was
-  roasted, as `Guji, roasted 2026-10-01`, a Grinder's model, a Profile's
-  title or a Basket's or Tool's name, null where its content has none; or, of `kind`
+  `kind` being `bean`, `beanBatch`, `grinder`, `profile`, `basket`, `tool`
+  or `recipe`, and `name` a Bean's roaster and name, a batch's Bean and the
+  day it was roasted, as `Guji, roasted 2026-10-01`, a Grinder's model, a
+  Profile's title or a Basket's, Tool's or Recipe's name, null where its
+  content has none; or, of `kind`
   `settings`, a Location's steam and rinse settings, named
   `Steam and rinse`, whose Location `location` names; the field and the
   losing value, null where the edit cleared it; the Location whose state the
@@ -1788,7 +1954,7 @@ of its content, what a tablet is due and holds, the writer's waits and the
 gateway's answers, joining, hard deletes and sharing status on the server;
 the lists the plugin reports and how it writes, deletes and sets aside
 records; and history, Conflicts and sharing status in the management
-interface. A new kind, such as milestone 3's Recipe, needs:
+interface. A new kind, as milestone 3's Baskets, Tools and Recipes were, needs:
 
 1. **The protocol** (`protocol/src/index.ts`): an entry in
    `LIBRARY_ITEM_KINDS`, in the order its list is read and written, after
@@ -1859,12 +2025,13 @@ Profiles.
 `server/test/library-profile-management.test.ts`,
 `server/test/location-settings.test.ts`, `server/test/joining.test.ts` and
 `server/test/capture-only.test.ts`, `server/test/sharing-status.test.ts`,
-`server/test/library-equipment.test.ts` and
-`server/test/library-equipment-management.test.ts` cover this through Seam 1, with the
+`server/test/library-equipment.test.ts`,
+`server/test/library-equipment-management.test.ts` and
+`server/test/library-recipes.test.ts` cover this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL;
 `server/test/bean-intake.test.ts`, `server/test/batch-intake.test.ts`,
 `server/test/grinder-intake.test.ts`, `server/test/profile-intake.test.ts`,
-`server/test/equipment-intake.test.ts`, `server/test/holdings.test.ts`, `server/test/merge.test.ts`,
+`server/test/equipment-intake.test.ts`, `server/test/recipe-intake.test.ts`, `server/test/holdings.test.ts`, `server/test/merge.test.ts`,
 `server/test/settings-intake.test.ts` and `server/test/join-plan.test.ts`
 the pure modules;
 `server/test/simulated-bean-writes.test.ts`,

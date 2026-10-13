@@ -32,6 +32,7 @@ import {
   equipmentMatchKey,
   globalIdOf,
   isLibraryKind,
+  isSlotId,
   sameValue,
   settingsParts,
   steamIsOn,
@@ -61,14 +62,16 @@ import { randomUuid } from "./tablet-id.js";
 // thing the plugin deletes (ADR-0003), and a record the Library leaves out
 // as its Machine joins a Location is archived or hidden (ADR-0018).
 //
-// Baskets and Tools live in DYE2's lists in Decaid's store, each kept whole
-// under one key (ADR-0005): the plugin reads the list, changes one record and
-// posts the list back, as DYE2 and Streamline do, so records others wrote
-// survive. A key never written is an empty list. A list in a shape the plugin
-// does not recognise is never written (`dye2Records`), and the answer says
-// so. A record carries its global id in a top-level field of its own, which
-// DYE2 keeps when it saves. DYE2 can neither archive nor hide a record, so
-// one its Location stops offering is removed from the list.
+// Baskets, Tools and Recipes live in DYE2's lists in Decaid's store, each
+// kept whole under one key (ADR-0005): the plugin reads the list, changes one
+// record and posts the list back, as DYE2 and Streamline do, so records
+// others wrote survive. A key never written is an empty list. A list in a
+// shape the plugin does not recognise is never written (`dye2Records`), and
+// the answer says so. A record carries its global id in a top-level field of
+// its own, which DYE2 keeps when it saves. DYE2 can neither archive nor hide
+// a record, so one its Location stops offering is removed from the list. A
+// recipe's id is its Recipe Slot, and the plugin keeps the list in slot
+// order whenever it writes it.
 
 /** Where a kind's records live in Decaid's API, for the kinds whose records the plugin writes as they are (`recordWriter`). */
 interface Route {
@@ -180,6 +183,7 @@ const WRITERS: { readonly [K in WrittenKind]: K extends LibraryKind ? LibraryKin
   },
   basket: dye2Writer("baskets"),
   tool: dye2Writer("equipment"),
+  recipe: dye2Writer("recipes"),
   [SETTINGS_KIND]: { write: writeSettings, changesWorkflow: true },
   [WORKFLOW_KIND]: { write: clearWorkflow, changesWorkflow: true },
 };
@@ -904,32 +908,52 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * a shape the plugin does not recognise (`dye2Records`) is never written:
  * the answer says so.
  */
-function dye2Writer(key: string): LibraryKindWriter {
+function dye2Writer(key: Dye2Key): LibraryKindWriter {
   const path = `/store/${DYE2_NAMESPACE}/${key}`;
+  const list = { path, key };
   return {
     list: path,
-    write: (write) => writeInList(path, write),
+    write: (write) => (key === "recipes" ? writeRecipe(list, write) : writeInList(list, write)),
     // A hard-deleted item's record is removed as one its Location no longer shows is: no Shot names it by its id here.
     remove: async (remove) => {
-      const answer = await removeFromList(path, remove);
+      const answer = await removeFromList(list, remove);
       return answer.type === "removed" ? { ...answer, type: "deleted" } : answer;
     },
-    drop: (remove) => removeFromList(path, remove),
-    setAside: (leave) => leaveOutOfList(path, leave),
+    drop: (remove) => removeFromList(list, remove),
+    setAside: (leave) => leaveOutOfList(list, leave),
   };
+}
+
+/** A key DYE2 keeps one of its lists under. */
+type Dye2Key = "baskets" | "equipment" | "recipes";
+
+/** Where one of DYE2's lists is kept in Decaid's store, and its key there, which says what shape it is recognised in (`dye2Records`). */
+interface ListPath {
+  path: string;
+  key: Dye2Key;
 }
 
 /** One of DYE2's lists as the tablet holds it: its records, or that it is in a shape not recognised, or Decaid's refusal to read it. */
 type Dye2List = { records: Record<string, unknown>[] } | { unrecognised: true } | { refused: Answer };
 
 /** Reads one of DYE2's lists: a key never written, which Decaid answers with null, is empty. */
-async function readList(path: string): Promise<Dye2List> {
+async function readList({ path, key }: ListPath): Promise<Dye2List> {
   const answer = await request("GET", path);
   const value = answer.ok ? parsed(answer.text) : undefined;
   if (value === undefined) return { refused: answer };
   if (value === null) return { records: [] };
-  const records = dye2Records(value);
+  const records = dye2Records(value, key);
   return records === null ? { unrecognised: true } : { records: [...records] };
+}
+
+/**
+ * Posts one of DYE2's lists back whole, DYE2's recipes in slot order, as
+ * every tablet at a Location holds them (ADR-0005): DYE2 adds a recipe saved
+ * in a new slot at the end.
+ */
+function postList({ path, key }: ListPath, records: Record<string, unknown>[]): Promise<Answer> {
+  const ordered = key === "recipes" ? [...records].sort((a, b) => Number(a.id) - Number(b.id)) : records;
+  return request("POST", path, ordered);
 }
 
 /**
@@ -945,7 +969,7 @@ async function readList(path: string): Promise<Dye2List> {
  * back only where it changed. The answer is timed now, as DYE2's records
  * carry no edit time.
  */
-async function writeInList(path: string, write: LibraryWrite): Promise<WriteAnswer> {
+async function writeInList(path: ListPath, write: LibraryWrite): Promise<WriteAnswer> {
   const list = await readList(path);
   if ("refused" in list) return refused(write, list.refused.status, list.refused.text);
   if ("unrecognised" in list) return unrecognised(write);
@@ -983,7 +1007,7 @@ async function writeInList(path: string, write: LibraryWrite): Promise<WriteAnsw
     if (sameValue(record, current)) return written(write, current, writtenFields, now);
   }
   records[index] = record;
-  const posted = await request("POST", path, records);
+  const posted = await postList(path, records);
   if (!posted.ok) return refused(write, posted.status, posted.text);
   const answer = written(write, record, writtenFields, now);
   return linked ? { ...answer, linked } : answer;
@@ -994,7 +1018,7 @@ async function writeInList(path: string, write: LibraryWrite): Promise<WriteAnsw
  * another item's global id (ANOTHER_ITEMS_RECORD). A record already gone is
  * removed.
  */
-async function removeFromList(path: string, remove: LibraryRemove | LibraryDelete): Promise<RemoveAnswer> {
+async function removeFromList(path: ListPath, remove: LibraryRemove | LibraryDelete): Promise<RemoveAnswer> {
   const removed: ItemRemoved = { type: "removed", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
   const list = await readList(path);
   if ("refused" in list) return refused(remove, list.refused.status, list.refused.text);
@@ -1003,7 +1027,7 @@ async function removeFromList(path: string, remove: LibraryRemove | LibraryDelet
   if (index === -1) return removed;
   const carried = dye2GlobalIdOf(list.records[index]);
   if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
-  const posted = await request("POST", path, list.records.filter((_, at) => at !== index));
+  const posted = await postList(path, list.records.filter((_, at) => at !== index));
   return posted.ok ? removed : refused(remove, posted.status, posted.text);
 }
 
@@ -1013,15 +1037,105 @@ async function removeFromList(path: string, remove: LibraryRemove | LibraryDelet
  * kept (ADR-0005, ADR-0018). Only a record carrying no global id: one that
  * carries one is a Library item's now (`taken`).
  */
-async function leaveOutOfList(path: string, leave: LeaveOut): Promise<ItemLeftOut["outcome"] | Answer | "unrecognised"> {
+async function leaveOutOfList(path: ListPath, leave: LeaveOut): Promise<ItemLeftOut["outcome"] | Answer | "unrecognised"> {
   const list = await readList(path);
   if ("refused" in list) return list.refused;
   if ("unrecognised" in list) return "unrecognised";
   const index = list.records.findIndex((record) => record.id === leave.localId);
   if (index === -1) return "gone";
   if (dye2GlobalIdOf(list.records[index]) !== null) return "taken";
-  const posted = await request("POST", path, list.records.filter((_, at) => at !== index));
+  const posted = await postList(path, list.records.filter((_, at) => at !== index));
   return posted.ok ? "setAside" : posted;
+}
+
+/**
+ * Writes a Recipe to DYE2's recipes (`LibraryWrite`), whose fields are
+ * named by their paths in the record (`dashboardVariables.dose`). To create
+ * one, in the slot `fields.id` names: a record there already carrying its
+ * global id, made by a write whose answer was lost, is the answer, and
+ * nothing is written; a record there without a global id, saved in that
+ * slot before the tablet reported it, becomes the Recipe's, and only the
+ * global id is written to it (`linked`), so the server takes what it holds
+ * as an edit of the Recipe; a record there carrying another item's global
+ * id is left as it is, and the write refused, as the server removes it
+ * first; otherwise a record is added with the write's fields and its
+ * `capturedAt`, as DYE2 stamps one. To update one, each path it still holds
+ * as the server expects is set, a null one left out. Either way the record
+ * carries the global id in its own field, and the list is posted back, in
+ * slot order, only where it changed. The answer is timed now, as DYE2's
+ * records carry no edit time.
+ */
+async function writeRecipe(path: ListPath, write: LibraryWrite): Promise<WriteAnswer> {
+  const list = await readList(path);
+  if ("refused" in list) return refused(write, list.refused.status, list.refused.text);
+  if ("unrecognised" in list) return unrecognised(write);
+  const { records } = list;
+  const globalId = write.globalId.toLowerCase();
+  const now = new Date().toISOString();
+  const { id: slot, ...fields } = write.fields;
+  let index: number;
+  let record: Record<string, unknown>;
+  let writtenFields: string[];
+  let linked = false;
+  if (write.localId === null) {
+    if (!isSlotId(slot)) return refused(write, null, "A Recipe to create must name its slot");
+    index = records.findIndex((candidate) => candidate.id === slot);
+    if (index !== -1) {
+      const held = records[index]!;
+      const carried = dye2GlobalIdOf(held);
+      if (carried === globalId) return written(write, held, [], now);
+      if (carried !== null) return refused(write, 409, `Slot ${slot} holds another item's record`);
+      record = { ...held, [GLOBAL_ID_KEY]: write.globalId };
+      writtenFields = [];
+      linked = true;
+    } else {
+      index = records.length;
+      record = { ...atPaths({}, withValues(fields)), id: slot, capturedAt: now, [GLOBAL_ID_KEY]: write.globalId };
+      writtenFields = Object.keys(fields);
+    }
+  } else {
+    index = records.findIndex((candidate) => candidate.id === write.localId);
+    if (index === -1) return refused(write, 404, "Record not found");
+    const current = records[index]!;
+    const settled = settable(write, (field) => valueAt(current, field));
+    record = atPaths({ ...current, [GLOBAL_ID_KEY]: write.globalId }, settled);
+    writtenFields = Object.keys(settled);
+    if (sameValue(record, current)) return written(write, current, writtenFields, now);
+  }
+  records[index] = record;
+  const posted = await postList(path, records);
+  if (!posted.ok) return refused(write, posted.status, posted.text);
+  const answer = written(write, record, writtenFields, now);
+  return linked ? { ...answer, linked } : answer;
+}
+
+/** The field of a DYE2 recipe holding its dial, whose own fields a write names by their paths (`dashboardVariables.dose`). */
+const DASHBOARD = "dashboardVariables";
+
+/** The value at a path of a record: a field of its own, or of its `dashboardVariables`. */
+function valueAt(record: Record<string, unknown>, path: string): unknown {
+  if (!path.startsWith(`${DASHBOARD}.`)) return record[path];
+  const variables = record[DASHBOARD];
+  return isObject(variables) ? variables[path.slice(DASHBOARD.length + 1)] : undefined;
+}
+
+/** The record with each path set to its value, a null one left out, as a record leaves out a field it holds no value for. */
+function atPaths(record: Record<string, unknown>, values: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...record };
+  let variables: Record<string, unknown> | undefined;
+  for (const [path, value] of Object.entries(values)) {
+    let target = result;
+    let field = path;
+    if (path.startsWith(`${DASHBOARD}.`)) {
+      variables ??= { ...(isObject(result[DASHBOARD]) ? result[DASHBOARD] : {}) };
+      target = variables;
+      field = path.slice(DASHBOARD.length + 1);
+    }
+    if (value === null) delete target[field];
+    else target[field] = value;
+  }
+  if (variables) result[DASHBOARD] = variables;
+  return result;
 }
 
 /** The fields given, but those null, which a record leaves out as it holds no value for them. */

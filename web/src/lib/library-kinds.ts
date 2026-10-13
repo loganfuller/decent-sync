@@ -4,8 +4,8 @@ interface LibraryKindView {
   name: string;
   /** The tablet's list of its records, as a Machine's collections name it, and what that list is called. */
   list: { name: string; title: string };
-  /** Where its items' pages are, each under its id. */
-  pages: string;
+  /** Where its items' pages are, each under its id; null for a kind with none yet, as Recipes until #143. */
+  pages: string | null;
   /** Where the REST API has its items, each under its id. */
   api: string;
   /** The Shots list's filter by an item of the kind; null for a kind no Shot is linked to yet, as Baskets and Tools until #147. */
@@ -25,6 +25,7 @@ export const LIBRARY_KINDS = {
   profile: { name: "Profile", list: { name: "profiles", title: "Profiles" }, pages: "/library/profiles", api: "/profiles", shotsFilter: "profileId", filteredInShotsList: false },
   basket: { name: "Basket", list: { name: "dye2Baskets", title: "Baskets (DYE2)" }, pages: "/library/baskets", api: "/baskets", shotsFilter: null, filteredInShotsList: false },
   tool: { name: "Tool", list: { name: "dye2Equipment", title: "Tools (DYE2's equipment)" }, pages: "/library/tools", api: "/tools", shotsFilter: null, filteredInShotsList: false },
+  recipe: { name: "Recipe", list: { name: "dye2Recipes", title: "Recipes (DYE2)" }, pages: null, api: "/recipes", shotsFilter: null, filteredInShotsList: false },
 } as const satisfies Readonly<Record<string, LibraryKindView>>;
 
 /** The kinds of Library item. */

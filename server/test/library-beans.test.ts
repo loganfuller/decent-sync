@@ -3,7 +3,7 @@ import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
-import { NO_DYE2_EQUIPMENT, PluginStorage, RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { NO_DYE2_LISTS, PluginStorage, RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #80: a Bean created on one tablet joins the Library and is
@@ -63,7 +63,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
       // No profiles or grinders, so only Beans are written to it: library-profiles.test.ts and library-grinders.test.ts write those.
-      api: { ...derivedDe1Pro({ serial }), "/beans": options.beans ?? [], "/profiles": [], "/grinders": [], ...NO_DYE2_EQUIPMENT },
+      api: { ...derivedDe1Pro({ serial }), "/beans": options.beans ?? [], "/profiles": [], "/grinders": [], ...NO_DYE2_LISTS },
       storage: options.storage,
       timeScale: 50,
     });
@@ -721,9 +721,9 @@ function emptyProfiles() {
   return { type: "collection", id: randomUUID(), name: "profiles", available: true, value: [], updatedAt: [] };
 }
 
-/** Reports that the tablet's DYE2 lists of baskets and tools are empty, as DYE2's keys never written are, taken in before anything is written to it too. */
+/** Reports that the tablet's DYE2 lists of baskets, tools and recipes are empty, as DYE2's keys never written are, taken in before anything is written to it too. */
 function emptyDye2Lists() {
-  return ["dye2Baskets", "dye2Equipment"].map((name) => ({ type: "collection", id: randomUUID(), name, available: true, value: [], updatedAt: [] }));
+  return ["dye2Baskets", "dye2Equipment", "dye2Recipes"].map((name) => ({ type: "collection", id: randomUUID(), name, available: true, value: [], updatedAt: [] }));
 }
 
 /** A report that the tablet holds no grinders. */

@@ -45,7 +45,7 @@ import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { CollectionsService } from "../collections/collections.service.js";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
-import { isEquipmentKind, recordEquipmentRemoved, recordUnrecognised } from "../library/equipment.js";
+import { isDye2Kind, recordRemoved, recordUnrecognised } from "../library/dye2-lists.js";
 import { recordDeleted } from "../library/hard-deletes.js";
 import { recordLeftOut } from "../library/left-out.js";
 import type { SeenDecision } from "../library/intake.js";
@@ -507,7 +507,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * the request is still awaited, as it says only what the tablet holds.
    */
   private async listUnrecognised(session: Session, answer: ListUnrecognised): Promise<void> {
-    if (session.writer && isEquipmentKind(answer.kind)) {
+    if (session.writer && isDye2Kind(answer.kind)) {
       this.logger.warn(`The tablet of ${this.describe(session)} holds its ${quoted(answer.kind)} list in a shape that is not recognised; nothing more is written to it`);
       await recordUnrecognised(this.prisma, session.live!.tabletId, answer.kind);
     }
@@ -553,17 +553,17 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     const write = awaited?.write;
     if (answer.type === "removed") {
       // The tablet holds the record no more, whether or not its removal is still awaited.
-      if (session.writer && isEquipmentKind(answer.kind)) {
+      if (session.writer && isDye2Kind(answer.kind)) {
         const tabletId = session.live!.tabletId;
-        await recordEquipmentRemoved(this.prisma, answer.kind, tabletId, answer.localId);
+        await recordRemoved(this.prisma, answer.kind, tabletId, answer.localId);
         const applied = { key: removeKey(answer.kind, answer.localId), change: "remove", kind: answer.kind, itemId: answer.globalId, localId: answer.localId } as const;
         await recordApplied(this.prisma, tabletId, applied);
         if (write) outcome = "written";
       }
     } else if (write?.type === "remove") {
-      if (answer.type === "writeRefused" && answer.status === null && answer.error === ANOTHER_ITEMS_RECORD && isEquipmentKind(write.kind)) {
+      if (answer.type === "writeRefused" && answer.status === null && answer.error === ANOTHER_ITEMS_RECORD && isDye2Kind(write.kind)) {
         // Not the item's record after all: the tablet's next report takes it in as any record carrying that id.
-        await recordEquipmentRemoved(this.prisma, write.kind, session.live!.tabletId, write.localId);
+        await recordRemoved(this.prisma, write.kind, session.live!.tabletId, write.localId);
         this.logger.log(`The tablet of ${this.describe(session)} holds ${quoted(write.kind)} ${write.localId} as another item's; it is not removed`);
       } else if (answer.type === "writeRefused") {
         this.logger.warn(

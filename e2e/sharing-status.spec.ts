@@ -1,5 +1,5 @@
 import { expect as baseExpect, type Page, test } from "@playwright/test";
-import { NO_DYE2_EQUIPMENT, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 
 // A Machine's page shows its sharing status: how many changes are waiting for
@@ -32,7 +32,7 @@ test("a Machine's page shows the changes waiting for its tablet, the last it app
   const { machine, token } = (await created.json()) as { machine: { id: string }; token: string };
   const tablet = SimulatedTablet.load({
     settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
-    api: { ...derivedDe1Pro({ serial: "25201" }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_EQUIPMENT },
+    api: { ...derivedDe1Pro({ serial: "25201" }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS },
     timeScale: 50,
   });
   tablets.push(tablet);
@@ -84,7 +84,7 @@ test("a Machine's page shows a DYE2 list its tablet holds in a shape not recogni
       "/bean-batches": [],
       "/grinders": [],
       "/profiles": [],
-      ...NO_DYE2_EQUIPMENT,
+      ...NO_DYE2_LISTS,
       "/store/dye2.reaplugin/baskets": { basket: "18g" },
     },
     timeScale: 50,

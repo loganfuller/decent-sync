@@ -2,7 +2,7 @@ import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
 import { type Dye2Key, dye2List } from "./support/simulated-dye2.js";
-import { NO_DYE2_EQUIPMENT, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
+import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 and the REST API for ticket #139: Baskets and Tools created,
@@ -52,7 +52,7 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
   function load(machine: CreatedMachine, serial: string, instance: TestServer): SimulatedTablet {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_EQUIPMENT },
+      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS },
       timeScale: 50,
     });
     tablets.push(tablet);

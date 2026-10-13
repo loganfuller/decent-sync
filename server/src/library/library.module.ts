@@ -15,6 +15,8 @@ import { LocationSettingsController } from "./location-settings.controller.js";
 import { LocationSettingsService } from "./location-settings.service.js";
 import { ProfilesController } from "./profiles.controller.js";
 import { ProfilesService } from "./profiles.service.js";
+import { RecipesController } from "./recipes.controller.js";
+import { RecipesService } from "./recipes.service.js";
 import { SharingController } from "./sharing.controller.js";
 import { SharingService } from "./sharing.service.js";
 
@@ -32,6 +34,7 @@ import { SharingService } from "./sharing.service.js";
     ProfilesController,
     BasketsController,
     ToolsController,
+    RecipesController,
     ConflictsController,
     LocationSettingsController,
     SharingController,
@@ -42,6 +45,7 @@ import { SharingService } from "./sharing.service.js";
     GrindersService,
     ProfilesService,
     EquipmentService,
+    RecipesService,
     HistoryService,
     ConflictsService,
     LocationSettingsService,

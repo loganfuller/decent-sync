@@ -176,6 +176,7 @@ model Location {
   baskets         BasketLocation[]
   toolsCreated    Tool[]               @relation("ToolsCreated")
   tools           ToolLocation[]
+  recipes         Recipe[]
   grinders        Grinder[]
   settings        LocationSettings?
   itemVersions    ItemVersion[]
@@ -365,6 +366,7 @@ model Tablet {
   profiles     TabletProfile[]
   baskets      TabletBasket[]
   tools        TabletTool[]
+  recipes      TabletRecipe[]
   unrecognised TabletUnrecognisedList[]
   settings     TabletSettings?
   itemVersions ItemVersion[]
@@ -1213,6 +1215,67 @@ model TabletTool {
   @@unique([tabletId, localId])
   @@index([toolId])
   @@map("tablet_tools")
+}
+
+/// A Recipe (ADR-0005): a named, saved dial-in for a coffee, belonging to
+/// one Location, in one of its Recipe Slots or none. DYE2 keeps the
+/// Location's slotted Recipes in its `recipes` list on each tablet there,
+/// under their slot numbers. Recipes are never matched (ADR-0018).
+model Recipe {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  /// The Location it belongs to: where its first tablet saved it.
+  locationId String?   @map("location_id") @db.Uuid
+  location   Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  /// Its Recipe Slot at its Location, a positive whole number unique among
+  /// the Location's slotted Recipes, with no upper limit; null for none, as
+  /// once a tablet removed it from its list (ADR-0019).
+  slot       Int?
+  /// What it holds, in the Library's terms (`recipeContent` in
+  /// recipe-intake.ts): its name, beverage, Bean, Bean Batch, Profile,
+  /// Grinder, Basket and Tools by their global ids, its dose, yield and the
+  /// rest of its dial, and its hot water settings. A field it holds no value
+  /// for is left out.
+  content    Json      @db.JsonB
+  /// Retired everywhere: in no slot, but kept so past Shots still name it.
+  archived   Boolean   @default(false)
+  /// When it joined the Library, by PostgreSQL's clock.
+  createdAt  DateTime  @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  /// Each content field's latest edit (ADR-0020), as `Bean.fieldEdits`.
+  fieldEdits Json      @default("{}") @map("field_edits") @db.JsonB
+
+  tablets TabletRecipe[]
+
+  @@unique([locationId, slot])
+  @@map("recipes")
+}
+
+/// Each tablet's map of its records in DYE2's `recipes` list (ADR-0006), as
+/// `TabletBasket` keeps its baskets'.
+model TabletRecipe {
+  tabletId        String    @map("tablet_id") @db.Uuid
+  tablet          Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  recipeId        String    @map("recipe_id") @db.Uuid
+  recipe          Recipe    @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  /// DYE2's id for the record on that tablet: the Recipe Slot it was in there.
+  localId         String    @map("local_id")
+  /// The record, as the tablet reported it or the plugin wrote it.
+  record          Json      @db.JsonB
+  /// When the plugin first read the record's content, placed in UTC, as
+  /// `TabletBasket.recordUpdatedAt`.
+  recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
+  /// Each field the server wrote, by its path, as the tablet held it just
+  /// before the server's latest write to it, as `TabletBasket.beforeWrite`.
+  beforeWrite     Json?     @map("before_write") @db.JsonB
+  /// Whether a report has listed the record since the server's write that
+  /// created it, as `TabletBasket.listed`.
+  listed          Boolean   @default(true)
+  /// The latest edit of the item's content that the record has seen, as `TabletBean.contentSeenAt`.
+  contentSeenAt   DateTime? @map("content_seen_at") @db.Timestamptz(3)
+
+  @@id([tabletId, recipeId])
+  @@unique([tabletId, localId])
+  @@index([recipeId])
+  @@map("tablet_recipes")
 }
 
 /// One of DYE2's lists that a tablet last reported, or answered a write of,

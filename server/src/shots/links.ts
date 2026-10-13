@@ -154,21 +154,29 @@ function workflowProfileSql(alias: string): Prisma.Sql {
  * steps are found through their index.
  */
 export function shotProfileSql(alias: string): Prisma.Sql {
-  const shot = workflowProfileSql(alias);
-  const same = HASHED.map((field) => Prisma.sql`p.content -> 'profile' -> ${field} IS NOT DISTINCT FROM ${shot} -> ${field}`);
-  const temperatures = (profile: Prisma.Sql) => Prisma.sql`jsonb_path_query_array(${profile} -> 'steps', '$[*].temperature')`;
+  return profileOfSql(workflowProfileSql(alias));
+}
+
+/**
+ * The id of the Library Profile a profile, as a Workflow holds one, is, or
+ * null, chosen as a Shot's is (`shotProfileSql`): as a DYE2 recipe names the
+ * profile it read from the Workflow by that profile alone (recipes.ts).
+ */
+export function profileOfSql(profile: Prisma.Sql): Prisma.Sql {
+  const same = HASHED.map((field) => Prisma.sql`p.content -> 'profile' -> ${field} IS NOT DISTINCT FROM ${profile} -> ${field}`);
+  const temperatures = (of: Prisma.Sql) => Prisma.sql`jsonb_path_query_array(${of} -> 'steps', '$[*].temperature')`;
   return Prisma.sql`(
     SELECT CASE WHEN best.tied = 1 THEN best.id END FROM (
       SELECT ranked.id, count(*) OVER (PARTITION BY ranked."sameTitle", ranked."sameTemperatures", ranked."sameWeight", ranked."sameSteps") AS tied,
         ranked."sameTitle", ranked."sameTemperatures", ranked."sameWeight", ranked."sameSteps"
       FROM (
         SELECT p.id,
-          coalesce(p.content -> 'profile' -> 'title' = ${shot} -> 'title', false) AS "sameTitle",
-          coalesce(${temperatures(Prisma.sql`p.content -> 'profile'`)} = ${temperatures(shot)}, false) AS "sameTemperatures",
-          coalesce(p.content -> 'profile' -> 'target_weight' = ${shot} -> 'target_weight', false) AS "sameWeight",
-          coalesce(p.content -> 'profile' -> 'steps' = ${shot} -> 'steps', false) AS "sameSteps"
+          coalesce(p.content -> 'profile' -> 'title' = ${profile} -> 'title', false) AS "sameTitle",
+          coalesce(${temperatures(Prisma.sql`p.content -> 'profile'`)} = ${temperatures(profile)}, false) AS "sameTemperatures",
+          coalesce(p.content -> 'profile' -> 'target_weight' = ${profile} -> 'target_weight', false) AS "sameWeight",
+          coalesce(p.content -> 'profile' -> 'steps' = ${profile} -> 'steps', false) AS "sameSteps"
         FROM profiles AS p
-        WHERE ${stepsKeySql(Prisma.sql`p.content -> 'profile' -> 'steps'`)} = ${stepsKeySql(Prisma.sql`${shot} -> 'steps'`)}
+        WHERE ${stepsKeySql(Prisma.sql`p.content -> 'profile' -> 'steps'`)} = ${stepsKeySql(Prisma.sql`${profile} -> 'steps'`)}
           AND ${Prisma.join(same, " AND ")}
       ) AS ranked
       ORDER BY ranked."sameTitle" DESC, ranked."sameTemperatures" AND ranked."sameWeight" DESC, ranked."sameTemperatures" DESC,

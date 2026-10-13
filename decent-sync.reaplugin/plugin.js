@@ -237,14 +237,19 @@ var __decentSync = (() => {
   function isDye2List(name) {
     return Object.prototype.hasOwnProperty.call(DYE2_LISTS, name);
   }
-  function dye2Records(value) {
+  function dye2Records(value, key) {
     if (!Array.isArray(value)) return null;
     const ids = /* @__PURE__ */ new Set();
     for (const record of value) {
       if (!isObject(record) || !isRecordId(record.id) || ids.has(record.id)) return null;
+      if (key === "recipes" && !isSlotId(record.id)) return null;
       ids.add(record.id);
     }
     return value;
+  }
+  var MAX_SLOT = 2147483647;
+  function isSlotId(value) {
+    return typeof value === "string" && /^[1-9][0-9]{0,9}$/.test(value) && Number(value) <= MAX_SLOT;
   }
   function dye2GlobalIdOf(record) {
     const id = isObject(record) ? record[GLOBAL_ID_KEY] : void 0;
@@ -260,7 +265,8 @@ var __decentSync = (() => {
     grinder: { list: "grinders", id: GLOBAL_ITEM_ID },
     profile: { list: "profiles", id: { test: isRecordId, problem: `must be a Profile's id of 1 to ${MAX_RECORD_ID_LENGTH} characters without NUL` } },
     basket: { list: "dye2Baskets", id: GLOBAL_ITEM_ID, dye2Key: "baskets" },
-    tool: { list: "dye2Equipment", id: GLOBAL_ITEM_ID, dye2Key: "equipment" }
+    tool: { list: "dye2Equipment", id: GLOBAL_ITEM_ID, dye2Key: "equipment" },
+    recipe: { list: "dye2Recipes", id: GLOBAL_ITEM_ID, dye2Key: "recipes" }
   };
   var LIBRARY_KINDS = Object.keys(LIBRARY_ITEM_KINDS);
   function isLibraryKind(kind) {
@@ -921,6 +927,7 @@ var __decentSync = (() => {
     },
     basket: dye2Writer("baskets"),
     tool: dye2Writer("equipment"),
+    recipe: dye2Writer("recipes"),
     [SETTINGS_KIND]: { write: writeSettings, changesWorkflow: true },
     [WORKFLOW_KIND]: { write: clearWorkflow, changesWorkflow: true }
   };
@@ -1381,25 +1388,30 @@ var __decentSync = (() => {
   }
   function dye2Writer(key) {
     const path = `/store/${DYE2_NAMESPACE}/${key}`;
+    const list = { path, key };
     return {
       list: path,
-      write: (write) => writeInList(path, write),
+      write: (write) => key === "recipes" ? writeRecipe(list, write) : writeInList(list, write),
       // A hard-deleted item's record is removed as one its Location no longer shows is: no Shot names it by its id here.
       remove: async (remove) => {
-        const answer = await removeFromList(path, remove);
+        const answer = await removeFromList(list, remove);
         return answer.type === "removed" ? { ...answer, type: "deleted" } : answer;
       },
-      drop: (remove) => removeFromList(path, remove),
-      setAside: (leave) => leaveOutOfList(path, leave)
+      drop: (remove) => removeFromList(list, remove),
+      setAside: (leave) => leaveOutOfList(list, leave)
     };
   }
-  async function readList(path) {
+  async function readList({ path, key }) {
     const answer = await request("GET", path);
     const value = answer.ok ? parsed2(answer.text) : void 0;
     if (value === void 0) return { refused: answer };
     if (value === null) return { records: [] };
-    const records = dye2Records(value);
+    const records = dye2Records(value, key);
     return records === null ? { unrecognised: true } : { records: [...records] };
+  }
+  function postList({ path, key }, records) {
+    const ordered = key === "recipes" ? [...records].sort((a, b) => Number(a.id) - Number(b.id)) : records;
+    return request("POST", path, ordered);
   }
   async function writeInList(path, write) {
     const list = await readList(path);
@@ -1439,7 +1451,7 @@ var __decentSync = (() => {
       if (sameValue(record, current)) return written(write, current, writtenFields, now2);
     }
     records[index] = record;
-    const posted = await request("POST", path, records);
+    const posted = await postList(path, records);
     if (!posted.ok) return refused(write, posted.status, posted.text);
     const answer = written(write, record, writtenFields, now2);
     return linked ? { ...answer, linked } : answer;
@@ -1453,7 +1465,7 @@ var __decentSync = (() => {
     if (index === -1) return removed;
     const carried = dye2GlobalIdOf(list.records[index]);
     if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
-    const posted = await request("POST", path, list.records.filter((_, at) => at !== index));
+    const posted = await postList(path, list.records.filter((_, at) => at !== index));
     return posted.ok ? removed : refused(remove, posted.status, posted.text);
   }
   async function leaveOutOfList(path, leave) {
@@ -1463,8 +1475,74 @@ var __decentSync = (() => {
     const index = list.records.findIndex((record) => record.id === leave.localId);
     if (index === -1) return "gone";
     if (dye2GlobalIdOf(list.records[index]) !== null) return "taken";
-    const posted = await request("POST", path, list.records.filter((_, at) => at !== index));
+    const posted = await postList(path, list.records.filter((_, at) => at !== index));
     return posted.ok ? "setAside" : posted;
+  }
+  async function writeRecipe(path, write) {
+    const list = await readList(path);
+    if ("refused" in list) return refused(write, list.refused.status, list.refused.text);
+    if ("unrecognised" in list) return unrecognised(write);
+    const { records } = list;
+    const globalId = write.globalId.toLowerCase();
+    const now2 = (/* @__PURE__ */ new Date()).toISOString();
+    const { id: slot, ...fields } = write.fields;
+    let index;
+    let record;
+    let writtenFields;
+    let linked = false;
+    if (write.localId === null) {
+      if (!isSlotId(slot)) return refused(write, null, "A Recipe to create must name its slot");
+      index = records.findIndex((candidate) => candidate.id === slot);
+      if (index !== -1) {
+        const held = records[index];
+        const carried = dye2GlobalIdOf(held);
+        if (carried === globalId) return written(write, held, [], now2);
+        if (carried !== null) return refused(write, 409, `Slot ${slot} holds another item's record`);
+        record = { ...held, [GLOBAL_ID_KEY]: write.globalId };
+        writtenFields = [];
+        linked = true;
+      } else {
+        index = records.length;
+        record = { ...atPaths({}, withValues(fields)), id: slot, capturedAt: now2, [GLOBAL_ID_KEY]: write.globalId };
+        writtenFields = Object.keys(fields);
+      }
+    } else {
+      index = records.findIndex((candidate) => candidate.id === write.localId);
+      if (index === -1) return refused(write, 404, "Record not found");
+      const current = records[index];
+      const settled = settable(write, (field) => valueAt(current, field));
+      record = atPaths({ ...current, [GLOBAL_ID_KEY]: write.globalId }, settled);
+      writtenFields = Object.keys(settled);
+      if (sameValue(record, current)) return written(write, current, writtenFields, now2);
+    }
+    records[index] = record;
+    const posted = await postList(path, records);
+    if (!posted.ok) return refused(write, posted.status, posted.text);
+    const answer = written(write, record, writtenFields, now2);
+    return linked ? { ...answer, linked } : answer;
+  }
+  var DASHBOARD = "dashboardVariables";
+  function valueAt(record, path) {
+    if (!path.startsWith(`${DASHBOARD}.`)) return record[path];
+    const variables = record[DASHBOARD];
+    return isObject2(variables) ? variables[path.slice(DASHBOARD.length + 1)] : void 0;
+  }
+  function atPaths(record, values) {
+    const result = { ...record };
+    let variables;
+    for (const [path, value] of Object.entries(values)) {
+      let target = result;
+      let field = path;
+      if (path.startsWith(`${DASHBOARD}.`)) {
+        variables ?? (variables = { ...isObject2(result[DASHBOARD]) ? result[DASHBOARD] : {} });
+        target = variables;
+        field = path.slice(DASHBOARD.length + 1);
+      }
+      if (value === null) delete target[field];
+      else target[field] = value;
+    }
+    if (variables) result[DASHBOARD] = variables;
+    return result;
   }
   function withValues(fields) {
     return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null));
@@ -1473,8 +1551,6 @@ var __decentSync = (() => {
   // src/collections.ts
   var SOURCES = [
     ...LIBRARY_KINDS.map((kind) => ({ name: LIBRARY_ITEM_KINDS[kind].list, path: libraryListPath(kind) })),
-    // Read here until a kind of Library item is reported in it.
-    ...Object.keys(DYE2_LISTS).filter((name) => !isLibraryList(name)).map((name) => ({ name, path: `/store/dye2.reaplugin/${DYE2_LISTS[name]}` })),
     { name: "appSettings", path: "/settings" },
     { name: "machineSettings", path: "/machine/settings" },
     { name: "advancedSettings", path: "/machine/settings/advanced" },
