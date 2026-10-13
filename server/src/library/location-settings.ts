@@ -188,10 +188,7 @@ export async function takeInWorkflow(tx: Prisma.TransactionClient, tablet: Repor
     return takenInAt;
   }
   const values = settingsEdits(known?.values ?? null, reported, settings.fieldEdits);
-  // A recipe applied from a copy read before the server's latest write of it is no edit: the Location's are written back.
-  const stale = staleApplied(values, await recipesBeforeWrite(tx, tablet.tabletId), settings.values);
-  for (const field of stale) delete values[field];
-  await forgetBeforeWrite(tx, tablet.tabletId, stale);
+  await dropStaleApplies(tx, tablet.tabletId, settings, values);
   const edit = { values, at: new Date(observedAt), seenAt: known?.contentSeenAt ?? null };
   const edited = await editSettings(tx, settings.id, edit, tabletSource(tablet));
   await saveHeld(tx, tablet.tabletId, settings.id, reported, null);
@@ -235,6 +232,7 @@ export async function recordSettingsWritten(
     if (known !== null && shares) {
       const changed = settingsEdits(known, reported, settings.fieldEdits);
       const values = Object.fromEntries(Object.entries(changed).filter(([field]) => !written.has(field)));
+      await dropStaleApplies(tx, tablet.tabletId, settings, values);
       // Edited on the tablet before Decaid answered: judged by what its settings had seen before.
       const edit = { values, at: updatedAt === null ? await transactionTime(tx) : new Date(updatedAt), seenAt: held!.contentSeenAt };
       edited = await editSettings(tx, settingsId, edit, tabletSource(tablet));
@@ -298,17 +296,24 @@ async function recipesBeforeWrite(tx: Prisma.TransactionClient, tabletId: string
 }
 
 /**
- * Forgets what the tablet's recipes held of those settings before the
- * server's latest write of them, as a Workflow set back to it was taken for
- * a stale apply once (`staleApplied`): setting it again is an edit, as a
- * stale save written over is (`heldBefore` in equipment-intake.ts).
+ * Leaves out of a tablet's changes of the settings (`values`) each that a
+ * recipe applied from a stale copy made (`staleApplied` in recipe-intake.ts):
+ * no edit, so the settings' value is written back.
  */
-async function forgetBeforeWrite(tx: Prisma.TransactionClient, tabletId: string, settings: readonly SharedSetting[]): Promise<void> {
-  const paths = Object.entries(MIRRORED_PATHS).flatMap(([path, setting]) => (settings.includes(setting) ? [path] : []));
-  if (paths.length === 0) return;
-  await tx.$executeRaw`
-    UPDATE tablet_recipes SET before_write = NULLIF(before_write - ${paths}::text[], '{}'::jsonb)
-    WHERE tablet_id = ${tabletId}::uuid AND before_write ?| ${paths}::text[]`;
+async function dropStaleApplies(tx: Prisma.TransactionClient, tabletId: string, settings: EditedSettings, values: Partial<Record<SharedSetting, number>>): Promise<void> {
+  const candidates = MIRRORED_SETTINGS.filter((field) => values[field] !== undefined);
+  if (candidates.length === 0) return;
+  for (const field of staleApplied(values, await recipesBeforeWrite(tx, tabletId), settings.values, await formerValues(tx, settings.id, candidates))) delete values[field];
+}
+
+/** Each value the settings held of those given, by their versions. */
+async function formerValues(tx: Prisma.TransactionClient, settingsId: string, fields: readonly SharedSetting[]): Promise<Partial<Record<SharedSetting, number[]>>> {
+  const rows = await tx.$queryRaw<{ field: SharedSetting; value: unknown }[]>`
+    SELECT DISTINCT field.key AS field, field.value FROM item_versions AS version, jsonb_each(version.fields) AS field
+    WHERE version.kind = ${SETTINGS_KIND} AND version.item_id = ${settingsId} AND field.key = ANY(${fields}::text[])`;
+  const former: Partial<Record<SharedSetting, number[]>> = {};
+  for (const { field, value } of rows) if (typeof value === "number") (former[field] ??= []).push(value);
+  return former;
 }
 
 /** The settings DYE2's recipes hold a value of, which they mirror. */

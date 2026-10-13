@@ -306,16 +306,19 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
     }
     const history = await versions(settings);
 
-    // Applied from the copy it kept, the recipe sets the old values, which are no edit: the Location's are written back.
-    expect((await applyInStreamline(two, "2", copy)).status).toBe(200);
-    expect(held(two, ["steamSettings.flow", "rinseData.duration"])).toEqual({ "steamSettings.flow": 1.7, "rinseData.duration": 6 });
-    await holds(two, { "steamSettings.flow": 2.1, "rinseData.duration": 8 });
+    // Applied from the copy it kept, the recipe sets the old values, which are no edit: the Location's are written back. So
+    // does applying it again, as the strip keeps the copy.
+    for (let tap = 0; tap < 2; tap++) {
+      expect((await applyInStreamline(two, "2", copy)).status).toBe(200);
+      expect(held(two, ["steamSettings.flow", "rinseData.duration"])).toEqual({ "steamSettings.flow": 1.7, "rinseData.duration": 6 });
+      await holds(two, { "steamSettings.flow": 2.1, "rinseData.duration": 8 });
+    }
     expect((await settingsAt(here)).values).toMatchObject({ "steamSettings.flow": 2.1, "rinseData.duration": 8 });
     expect(await versions(settings)).toHaveLength(history.length);
     expect(held(one, ["steamSettings.flow", "rinseData.duration"])).toEqual({ "steamSettings.flow": 2.1, "rinseData.duration": 8 });
   });
 
-  it("takes a setting set back on the machine to its value before the recipes were rewritten as an edit once it is set again", async () => {
+  it("writes the Location's back over a setting set on the machine to its value before the recipes were rewritten, until the Location's changes again", async () => {
     const { here, one, two, settings } = await lab("Undone", 44071);
     await saveInDye2(one, recipes.saveSlot1);
     for (const tablet of [one, two]) await expect.poll(() => mirrored(tablet, "1").flushS, { timeout: 15_000 }).toBe(6);
@@ -324,18 +327,23 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
     await expect.poll(async () => (await settingsAt(here)).values["rinseData.duration"], { timeout: 15_000 }).toBe(9);
     for (const tablet of [one, two]) await expect.poll(() => mirrored(tablet, "1").flushS, { timeout: 15_000 }).toBe(9);
 
-    // Set back to 6, the value its recipe held before, it is taken for a recipe applied from a stale copy, and 9 is written back.
-    await one.changeSettings({ rinseData: { duration: 6 } });
-    await holds(one, { "rinseData.duration": 9 });
-    expect((await settingsAt(here)).values["rinseData.duration"]).toBe(9);
-    // Set to 6 again, it is the barista's edit.
+    // Set back to 6, the value its recipe held before, it is taken for a recipe applied from a stale copy each time, and 9
+    // is written back.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await one.changeSettings({ rinseData: { duration: 6 } });
+      await holds(one, { "rinseData.duration": 9 });
+      expect((await settingsAt(here)).values["rinseData.duration"]).toBe(9);
+    }
+    // Once the Location's has changed again, to 7 in the management interface, its recipes held 9 before the latest write,
+    // not 6: 6 set on the machine is an edit.
+    expect((await api.call("PATCH", `/location-settings/${settings.id}`, { values: { "rinseData.duration": 7 } })).status).toBe(200);
+    for (const tablet of [one, two]) {
+      await holds(tablet, { "rinseData.duration": 7 });
+      await expect.poll(() => mirrored(tablet, "1").flushS, { timeout: 15_000 }).toBe(7);
+    }
     await one.changeSettings({ rinseData: { duration: 6 } });
     await expect.poll(async () => (await settingsAt(here)).values["rinseData.duration"], { timeout: 15_000 }).toBe(6);
-    for (const tablet of [one, two]) {
-      await holds(tablet, { "rinseData.duration": 6 });
-      await expect.poll(() => mirrored(tablet, "1").flushS, { timeout: 15_000 }).toBe(6);
-    }
-    expect((await versions(settings))[0]).toMatchObject({ fields: { "rinseData.duration": 6 }, source: { machine: { name: "Undone lab 1" } } });
+    await holds(two, { "rinseData.duration": 6 });
   });
 
   it("takes no edit from a steam value DYE2's editor carries over as a recipe's steam mode is switched", async () => {

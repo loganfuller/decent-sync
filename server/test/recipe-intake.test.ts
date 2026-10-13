@@ -366,17 +366,20 @@ describe("DYE2's recipes as Recipes", () => {
   it("takes a Workflow set back to a value the tablet's recipes held before the server's latest write as a recipe applied from a stale copy", () => {
     const beforeWrites = [{ "dashboardVariables.steamFlowMls": 1.3, "dashboardVariables.flushS": 4 }, { "dashboardVariables.dose": 18 }];
     const current = { ...LOCATION, "steamSettings.flow": 1.6, "rinseData.duration": 6 };
+    const former = { "steamSettings.flow": [1.3, 1.6], "rinseData.duration": [4, 6], "steamSettings.duration": [28, 32] };
     // The flow and flush a copy read before the server wrote the Location's into it set: stale. The steam time is another.
-    expect(staleApplied({ "steamSettings.flow": 1.3, "rinseData.duration": 4, "steamSettings.duration": 28 }, beforeWrites, current)).toEqual([
+    expect(staleApplied({ "steamSettings.flow": 1.3, "rinseData.duration": 4, "steamSettings.duration": 28 }, beforeWrites, current, former)).toEqual([
       "steamSettings.flow",
       "rinseData.duration",
     ]);
     // A value no recipe held before a write, or one the settings hold now, is not; nor is a setting no recipe mirrors.
-    expect(staleApplied({ "steamSettings.flow": 1.4, "rinseData.duration": 6 }, beforeWrites, current)).toEqual([]);
-    expect(staleApplied({ "rinseData.flow": 4 }, [{ "rinseData.flow": 4 }], current)).toEqual([]);
-    // A setting the Location has not set yet takes the value.
+    expect(staleApplied({ "steamSettings.flow": 1.4, "rinseData.duration": 6 }, beforeWrites, current, former)).toEqual([]);
+    expect(staleApplied({ "rinseData.flow": 4 }, [{ "rinseData.flow": 4 }], current, { "rinseData.flow": [4] })).toEqual([]);
+    // Nor is a value the Location never held, as a joining tablet's recipes held of its own; and a setting the Location has
+    // not set yet takes any.
+    expect(staleApplied({ "steamSettings.flow": 1.3 }, beforeWrites, current, { "steamSettings.flow": [1.6] })).toEqual([]);
     const { "steamSettings.flow": _flow, ...unset } = current;
-    expect(staleApplied({ "steamSettings.flow": 1.3 }, beforeWrites, unset)).toEqual([]);
+    expect(staleApplied({ "steamSettings.flow": 1.3 }, beforeWrites, unset, former)).toEqual([]);
   });
 
   it("decides a report by slot: an edit of the Recipe in it, a new Recipe in an empty one, and a removal that takes one out", () => {
