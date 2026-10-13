@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { LIBRARY_LISTS, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView } from "./support/admin-api.js";
-import { RawConnection, SimulatedTablet, derivedDe1Pro, derivedProfile, helloWith, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
+import { NO_DYE2_EQUIPMENT, RawConnection, SimulatedTablet, derivedDe1Pro, derivedProfile, helloWith, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #89: a Machine joining a Location, as it is adopted
@@ -95,7 +95,8 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const context = options.fresh ? { targetDoseWeight: 18, targetYield: 36 } : undefined;
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial }), ...library, "/workflow": workflowWith(options.parts ?? {}, context) },
+      // DYE2's lists empty: what the test tablet's basket would be written, shared like any other, is not this file's to count.
+      api: { ...derivedDe1Pro({ serial }), ...NO_DYE2_EQUIPMENT, ...library, "/workflow": workflowWith(options.parts ?? {}, context) },
       timeScale: 50,
     });
     tablets.push(tablet);
