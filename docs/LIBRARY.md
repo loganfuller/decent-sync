@@ -422,8 +422,9 @@ a Conflict, so neither waits on the other in turn.
   is used as an edit of it in the management interface is made
   (`recipeEditValues`, Editing in the management interface, below): a batch
   used sets its Bean too, a Bean used alone takes the Recipe's batch of it or
-  that Bean's batch most recently added at its Location, the ratio and the
-  Tools' attributes follow, and what it newly uses is offered at its
+  that Bean's batch most recently added at its Location, or none, keeping the
+  Bean, a ratio used sets the yield to the dose times it, as picking a ratio
+  in DYE2's editor does, the ratio and the Tools' attributes follow, and what it newly uses is offered at its
   Location, or refused with 409 where it is Archived. It commits with a
   `NOTIFY` on `library_changes`, so every tablet that holds the item, at every
   Location, is written it; a tablet's edit made before it that arrives later,

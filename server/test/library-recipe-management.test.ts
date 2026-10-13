@@ -305,6 +305,54 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     for (const tablet of [one, two]) await poll(() => slotOn(tablet, 1)?.beanId).toBe(localId(tablet.beans(), brazil.bean.id));
   });
 
+  it("keeps a Bean used from a Conflict though it has no batch at the Location, and sets the yield from a ratio used", async () => {
+    const lab = await locationWith("Conflicted bean lab", 45071, [server, other]);
+    const start = await library("Bean-only Start", lab.location, [lab.location]);
+    const brazil = await library("Bean-only Brazil", lab.location, [lab.location]);
+    const kenya = await library("Bean-only Kenya", lab.location, [lab.location]);
+    const created = await create(lab.location, 1, { name: "Bean-only Espresso", beanBatchId: start.batch.id, dose: 18, yield: 36 });
+    const [one, two] = lab.tablets as [SimulatedTablet, SimulatedTablet];
+    for (const tablet of [one, two]) await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(created.id);
+    await poll(() => localId(one.beans(), brazil.bean.id)).toBeDefined();
+    await poll(() => localId(two.beans(), kenya.bean.id)).toBeDefined();
+
+    // Offline, one tablet's DYE2 editor picks the Brazil and a 1:3 ratio, the other, later, the Kenya and 1:2.5.
+    const save = async (tablet: SimulatedTablet, beanId: unknown, ratio: number) => {
+      const list = (dye2List(tablet, "recipes") as Record_[]).map((record) =>
+        record.id === "1" ? { ...record, beanId, dashboardVariables: { ...(record.dashboardVariables as Record_), ratio } } : record,
+      );
+      expect((await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", list)).status).toBe(200);
+    };
+    one.loseNetwork();
+    two.loseNetwork();
+    await save(one, localId(one.beans(), brazil.bean.id), 3);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await save(two, localId(two.beans(), kenya.bean.id), 2.5);
+    one.restoreNetwork();
+    await poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(brazil.batch.id);
+    two.restoreNetwork();
+    await poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(kenya.batch.id);
+    type Open = { id: string; field: string; value: unknown; current: { versionId: string | null } };
+    const conflicts = async () => (await send<{ conflicts: Open[] }>("GET", `/recipes/${created.id}/conflicts`)).conflicts;
+    await poll(async () => (await conflicts()).map((conflict) => conflict.field).sort()).toEqual(["beanBatchId", "beanId", "ratio"]);
+    const use = async (field: string) => {
+      const conflict = (await conflicts()).find((open) => open.field === field)!;
+      await send("POST", `/conflicts/${conflict.id}/use`, { seen: conflict.current.versionId });
+    };
+
+    // With the Brazil's batch finished here, using the Brazil alone keeps it, with no batch, rather than clearing it.
+    expect((await api.call("PUT", `/bean-batches/${brazil.batch.id}/locations/${lab.location.id}`, { atLocation: false })).status).toBe(200);
+    await use("beanId");
+    const kept = (await recipe(created.id)).content;
+    expect(kept.beanId).toBe(brazil.bean.id);
+    expect(kept).not.toHaveProperty("beanBatchId");
+
+    // Using the 1:3 ratio sets the yield to the dose times it, as picking it in DYE2's editor does.
+    await use("ratio");
+    expect((await recipe(created.id)).content).toMatchObject({ dose: 18, yield: 54, ratio: 3 });
+    for (const tablet of [one, two]) await poll(() => (slotOn(tablet, 1)?.dashboardVariables as Record_ | undefined)?.drink).toBe(54);
+  });
+
   it("clears DYE2's ratio when an edit leaves the yield other than the dose times it", async () => {
     const lab = await locationWith("Ratio lab", 45021, [server]);
     const created = await create(lab.location, 1, { name: "Ratio Espresso", dose: 18, yield: 36 });

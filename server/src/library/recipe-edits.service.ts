@@ -177,8 +177,11 @@ export class RecipeEditsService {
  * - what it uses checked and offered at the Location (`setUses`);
  * - a Bean set alone, as a Conflict about it holds, takes the Recipe's batch
  *   if it is of that Bean, or else that Bean's batch most recently added at
- *   the Location, or none, as a Bean picked in DYE2 does (ADR-0005);
- * - DYE2's ratio kept only while the yield is the dose times it (`keptRatio`).
+ *   the Location, or none, keeping the Bean, as a Bean picked in DYE2 does
+ *   (ADR-0005): 400 for a Bean the Library does not have, 409 for one
+ *   Archived;
+ * - DYE2's ratio kept only while the yield is the dose times it, and a ratio
+ *   set, as a Conflict about it holds, setting the yield (`ratioValues`).
  */
 export async function recipeEditValues(
   tx: Prisma.TransactionClient,
@@ -189,12 +192,19 @@ export async function recipeEditValues(
   at: Date,
 ): Promise<Record<string, unknown>> {
   const asked: Record<string, unknown> = { ...values };
-  if (Object.prototype.hasOwnProperty.call(values, "beanId") && !Object.prototype.hasOwnProperty.call(values, "beanBatchId")) {
+  const beanAlone = Object.prototype.hasOwnProperty.call(values, "beanId") && !Object.prototype.hasOwnProperty.call(values, "beanBatchId");
+  if (beanAlone) {
+    if (typeof values.beanId === "string" && values.beanId !== current.beanId) {
+      const [bean] = await tx.$queryRaw<{ archived: boolean }[]>`SELECT archived FROM beans WHERE id = ${values.beanId}::uuid FOR SHARE`;
+      if (!bean) throw new BadRequestException("No such Bean");
+      if (bean.archived) throw new ConflictException("This Bean is Archived: restore it before a Recipe uses it");
+    }
     asked.beanBatchId = typeof values.beanId === "string" ? await batchOfBean(tx, locationId, values.beanId, current.beanBatchId) : null;
   }
   const set = await setUses(tx, locationId, asked, current, source, at);
-  const ratio = keptRatio(current, set);
-  return ratio === undefined ? set : { ...set, ratio };
+  // A Bean with no batch at the Location is still the Recipe's, as a tablet picking it makes it.
+  if (beanAlone) set.beanId = values.beanId ?? null;
+  return { ...set, ...ratioValues(current, set) };
 }
 
 /** The batch a Recipe naming the Bean uses: its batch now if it is of that Bean, or else the Bean's batch most recently added at the Location and still there, or none. */
@@ -301,17 +311,24 @@ async function setUses(
 }
 
 /**
- * The ratio a Recipe keeps after an edit setting `values` over its content
- * (`current`): DYE2's editor keeps one only while the yield is the dose times
- * it, to a tenth of a gram. Null to clear one the edit breaks; undefined
- * where it stays as it is.
+ * What else an edit setting `values` over a Recipe's content (`current`)
+ * sets of its dose, yield and DYE2's ratio, which DYE2's editor keeps only
+ * while the yield is the dose times it, to a tenth of a gram: a ratio set
+ * without a yield, as a Conflict about it holds, sets the yield to the dose
+ * times it, as picking a ratio in DYE2's editor does; and a ratio the edit
+ * leaves otherwise than the yield is cleared. Nothing for an edit setting
+ * none of them, or one keeping them so.
  */
-export function keptRatio(current: Readonly<Record<string, unknown>>, values: Readonly<Record<string, unknown>>): null | undefined {
-  if (typeof current.ratio !== "number" || (values.dose === undefined && values.yield === undefined)) return undefined;
-  const dose = values.dose !== undefined ? values.dose : current.dose;
-  const drink = values.yield !== undefined ? values.yield : current.yield;
-  if (typeof dose === "number" && typeof drink === "number" && Math.abs(drink - Math.round(dose * current.ratio * 10) / 10) < 0.05) return undefined;
-  return null;
+export function ratioValues(current: Readonly<Record<string, unknown>>, values: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const has = (field: string) => Object.prototype.hasOwnProperty.call(values, field);
+  if (!has("dose") && !has("yield") && !has("ratio")) return {};
+  const ratio = has("ratio") ? values.ratio : current.ratio;
+  if (typeof ratio !== "number") return {};
+  const dose = has("dose") ? values.dose : current.dose;
+  const scaled = typeof dose === "number" ? Math.round(dose * ratio * 10) / 10 : null;
+  if (has("ratio") && !has("yield") && scaled !== null) return { yield: scaled };
+  const drink = has("yield") ? values.yield : current.yield;
+  return scaled !== null && typeof drink === "number" && Math.abs(drink - scaled) < 0.05 ? {} : { ratio: null };
 }
 
 /**
