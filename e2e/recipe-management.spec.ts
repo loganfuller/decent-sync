@@ -258,6 +258,10 @@ test("the form clears a Recipe's Bean saved on a tablet with no batch of it at i
   await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(recipe.id);
   // A Bean added on the tablet, with no batch anywhere, picked in DYE2's editor for the recipe in slot 1.
   const bean = await tablet.addBean({ roaster: "Roux", name: "Bean-only Sidamo" });
+  // Picked once the Bean has joined the Library, as a recipe naming a bean the server has not taken in yet names none.
+  await expect
+    .poll(async () => ((await (await page.request.get("/api/beans")).json()) as { beans: { name: string | null }[] }).beans.some((listed) => listed.name === "Bean-only Sidamo"))
+    .toBe(true);
   const list = (dye2List(tablet, "recipes") as Record_[]).map((record) => (record.id === "1" ? { ...record, beanId: bean.id } : record));
   baseExpect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, list)).status).toBe(200);
   await expect.poll(async () => ((await (await page.request.get(`/api/recipes/${recipe.id}`)).json()) as { recipe: { uses: { bean: { name: string } | null } } }).recipe.uses.bean?.name).toBe(

@@ -575,6 +575,35 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     await poll(() => (dye2List(tablet, "baskets") as Record_[]).some((record) => record[GLOBAL_ID_KEY] === basket.id)).toBe(false);
   });
 
+  it("keeps an edit a tablet has not reported yet on its Recipe, not on another Recipe Staff put in its slot since", async () => {
+    const lab = await api.createLocation("Replaced slot lab", "America/Chicago");
+    const machine = await api.createMachine("Replaced slot lab 1", lab.id);
+    // Reads its lists every 10 minutes (12 s here), so a change made on it waits to be reported.
+    const tablet = load(machine, 45131, server, undefined, 600);
+    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    const old = await create(lab, 2, { name: "Old Espresso", dose: 18 });
+    await poll(() => slotsOn(tablet)).toEqual(["2:Old Espresso"]);
+
+    // A barista saves a new dose for the recipe in slot 2, then Staff create another Recipe there, which leaves it unslotted.
+    const recipes = (dye2List(tablet, "recipes") as Record_[]).map((record) =>
+      record.id === "2" ? { ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), dose: 21 } } : record,
+    );
+    expect((await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", recipes)).status).toBe(200);
+    const fresh = await create(lab, 2, { name: "New Filter", dose: 15 });
+    expect((await recipe(old.id)).slot).toBeNull();
+
+    // The dose is the edited Recipe's; the new one keeps what Staff entered, with no Conflict, and holds slot 2 on the tablet.
+    await poll(async () => (await recipe(old.id)).content.dose).toBe(21);
+    await poll(() => slotsOn(tablet)).toEqual(["2:New Filter"]);
+    expect(await recipe(fresh.id)).toMatchObject({ name: "New Filter", slot: 2, content: { dose: 15 } });
+    expect((slotOn(tablet, 2)!.dashboardVariables as Record_).dose).toBe(15);
+    expect((await send<{ conflicts: unknown[] }>("GET", `/recipes/${fresh.id}/conflicts`)).conflicts).toEqual([]);
+    expect((await recipesAt(lab)).map((listed) => [listed.name, listed.slot])).toEqual([
+      ["New Filter", 2],
+      ["Old Espresso", null],
+    ]);
+  });
+
   it("Archives a Recipe, which leaves its slot, restores it unslotted, and refuses to slot it while Archived", async () => {
     const lab = await locationWith("Archived recipe lab", 45041, [server]);
     const created = await create(lab.location, 3, { name: "Archived Espresso" });

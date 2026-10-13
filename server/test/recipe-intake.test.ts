@@ -459,13 +459,18 @@ describe("DYE2's recipes as Recipes", () => {
     // A tablet still holding the slot's Recipe in another slot, written first, does not take the slot's new record as its.
     const elsewhere: MappedRecipe = { ...known, itemId: other, localId: "2", record: slot2 };
     expect(planRecipeIntake([at(slot2), saved], [elsewhere], slots)).toEqual([]);
-    // A save in a slot whose Recipe has left it since, as taken out of it, is a save in that slot as it is now: a new
-    // Recipe in it while it is empty, or an edit of the Recipe there now. Unchanged, it is that Recipe's record still.
+    // A save in a slot whose Recipe has left it since, as taken out of it or Archived, is still that Recipe's edit, whether
+    // the slot is empty now or holds another Recipe, never an edit of that one; the writer then removes the record.
+    // Unchanged, it is that Recipe's record still.
     const left = new Set([GLOBAL.recipe, other]);
     const unslotted = new Map([["3", other]]);
-    expect(planRecipeIntake([edited], [known], unslotted, undefined, left)).toEqual([{ kind: "add", reported: edited }]);
-    expect(planRecipeIntake([edited], [known], new Map([["1", other]]), undefined, left)).toEqual([{ kind: "edit", itemId: other, reported: edited }]);
+    expect(planRecipeIntake([edited], [known], unslotted, undefined, left)).toEqual([{ kind: "update", itemId: GLOBAL.recipe, reported: edited }]);
+    expect(planRecipeIntake([edited], [known], new Map([["1", other]]), undefined, left)).toEqual([{ kind: "update", itemId: GLOBAL.recipe, reported: edited }]);
     expect(planRecipeIntake([at(slot1)], [known], unslotted, undefined, left)).toEqual([]);
+    // A record carrying another item's global id there is no edit of it, and in a slot another Recipe holds now, that one's
+    // as any record saved there.
+    const restoredThere = at({ ...slot1, name: "Restored there", [GLOBAL_ID_KEY]: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" });
+    expect(planRecipeIntake([restoredThere], [known], new Map([["1", other]]), undefined, left)).toEqual([{ kind: "edit", itemId: other, reported: restoredThere }]);
     // Another Location's, as before a move, it stays that Recipe's record, but is no edit of it: it is written over. So is
     // one carrying another item's global id, as a backup restored.
     expect(planRecipeIntake([edited], [known], unslotted, undefined, new Set([other]))).toEqual([{ kind: "map", itemId: GLOBAL.recipe, reported: edited }]);

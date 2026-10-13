@@ -1069,12 +1069,13 @@ never matched (ADR-0018).
   names, each where it was, and so does its Basket while the tablet's record
   names none.
 - **Edits.** A record in a slot the map holds as a Recipe's is that
-  Recipe's, unless the Recipe is one of the Location's that has left that
-  slot since. One moved to another slot since, as by a swap in the
-  management interface, is still the Recipe a save there edits, when the
-  record carries its global id or none, so an edit made on a tablet not yet
-  written the move is kept, and the writer then moves the record. One taken
-  out of its slot since leaves a save there in the slot as it is now, below. One carrying another item's global id, as a backup restored,
+  Recipe's, even where the Recipe has left that slot since, moved to another,
+  taken out of its slot or Archived, as in the management interface: when
+  the record carries its global id or none, a save there is still its edit,
+  so an edit made on a tablet not yet written the change is kept, on that
+  Recipe and never on another put in the slot since, and the writer then
+  moves the record to its slot or removes it. This reads the spec's "saved
+  in a slot" as the record's Recipe where the record names one. One carrying another item's global id, as a backup restored,
   or of another Location's Recipe, as before the writer removes it after a
   move, is written over, no edit of it; so is a write's answer of one. One that differs from the record
   known is an edit of each field of its content it changed, timed when the
@@ -1433,12 +1434,14 @@ tablet's list of batches to show it does not.
   (`expected`), as one a barista changed since the plugin last read the list
   (`RECORD_CHANGED`), and answers `removed`, as it does for one already
   gone. Refused as changed, the server asks the plugin for its lists again
-  (`requestCollections`) and writes nothing more to the tablet until the
-  report of that list is taken in, so the change is kept, as an edit of the
+  (`requestCollections`) and writes nothing more to the tablet until a
+  report of that list arrives, taken in, or unavailable or set aside, which
+  ends the wait all the same, so the change is kept, as an edit of the
   Recipe moved or of the Basket or Tool hidden, before the removal is asked
   again with the record as changed: an edit saved on a tablet just before
   Staff move a Recipe, take it out of its slot, Archive it, or hide a Basket
-  or Tool there, is not lost with the record. A record of one an Admin hard-deleted is
+  or Tool there, is not lost with the record. Such a refusal is not kept
+  with the tablet's refusals: the removal shows as waiting meanwhile. A record of one an Admin hard-deleted is
   removed the same way, and one the Library leaves out too, answered as set
   aside. Each is timed by the plugin's clock, as DYE2's records carry none.
   Its next read of the list it wrote is reported whatever it holds, so a

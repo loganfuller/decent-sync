@@ -228,7 +228,8 @@ export class TabletWriter {
   /**
    * The plugin found a record of the list changed since it was last read as
    * it was asked to remove it (RECORD_CHANGED), and is asked to report its
-   * lists again: nothing more is written until that report is taken in, so
+   * lists again: nothing more is written until a report of that list
+   * arrives, taken in or not (`reported`), so
    * no write planned without the change, such as the moved Recipe's in its
    * new slot, leaves the changed record behind.
    */
