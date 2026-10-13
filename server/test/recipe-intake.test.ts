@@ -1,6 +1,6 @@
 import { GLOBAL_ID_KEY, RECIPE_FIELD } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { editedContent } from "../src/library/equipment-intake.js";
+import { beforeWriteAfter, editedContent, heldBefore } from "../src/library/equipment-intake.js";
 import {
   EDITED_PATHS,
   type IntakeContext,
@@ -8,6 +8,7 @@ import {
   type MappedRecipe,
   type WriteContext,
   editedPaths,
+  heldBeforeReplaced,
   holdsRecipe,
   holdsRecord,
   libraryValues,
@@ -321,6 +322,36 @@ describe("DYE2's recipes as Recipes", () => {
     expect(editedPaths(editedContent(recipeView(record), dosed, null))).toEqual(["dashboardVariables.dose"]);
     expect(holdsRecipe(dosed, written)).toBe(false);
     expect([...EDITED_PATHS]).not.toContain("barista");
+  });
+
+  it("takes a recipe's field set back to what the tablet held just before the server's latest write to it as unchanged, as by an editor opened before it", () => {
+    const record: Record_ = { ...slot1, id: "1", [GLOBAL_ID_KEY]: GLOBAL.recipe };
+    const dial = (changes: Record_, fields: Record_ = {}) =>
+      recipeView({ ...record, ...fields, dashboardVariables: { ...(record.dashboardVariables as Record_), ...changes } });
+    // The server wrote another tablet's grind setting of 2.6 over the tablet's 2.7, which the tablet reported.
+    const before = heldBefore(recipeView(record), ["dashboardVariables.grind"]);
+    expect(before).toEqual({ "dashboardVariables.grind": 2.7 });
+    const known = dial({ grind: 2.6 });
+    const standing = beforeWriteAfter(before, known, known);
+    // DYE2's editor, loaded before that write, saves a dose of 18.8 with every other field as it loaded them, its capture
+    // time rewritten: only the dose is an edit.
+    const saved = dial({ dose: 18.8 }, { capturedAt: "2026-10-12T21:00:00.000Z" });
+    expect(editedPaths(editedContent(known, saved, standing))).toEqual(["dashboardVariables.dose"]);
+    // A grind setting of another value is an edit as usual, and so is a field the server never wrote set back to an
+    // earlier value of the tablet's.
+    expect(editedPaths(editedContent(known, dial({ dose: 18.8, grind: 2.8 }), standing)).sort()).toEqual(["dashboardVariables.dose", "dashboardVariables.grind"]);
+    expect(editedPaths(editedContent(dial({ grind: 2.6, rpm: 1000 }), dial({ rpm: 900 }), standing))).toEqual(["dashboardVariables.rpm"]);
+  });
+
+  it("takes a record created in a slot the server removed another from as holding before the write each field that one held otherwise", () => {
+    const earlier = recipeView({ ...slot1, id: "1", [GLOBAL_ID_KEY]: GLOBAL.recipe });
+    const created = { ...earlier, name: "Brand new", "dashboardVariables.grind": 3.3, "dashboardVariables.rpm": null };
+    // A field both hold, as the dose, is left out; one only the earlier record held is kept with its value.
+    expect(heldBeforeReplaced(earlier, created)).toEqual({ name: earlier.name, "dashboardVariables.grind": 2.7, "dashboardVariables.rpm": 900 });
+    // A page opened on the earlier record saving its dose of 18.8 over the new one changes only the dose.
+    const saved = { ...earlier, "dashboardVariables.dose": 18.8 };
+    expect(editedPaths(editedContent(created, saved, heldBeforeReplaced(earlier, created)))).toEqual(["dashboardVariables.dose"]);
+    expect(heldBeforeReplaced(earlier, earlier)).toBeNull();
   });
 
   it("writes the Location's steam and flush values into a recipe, or a Machine's own while its sharing of them is off, keeping its steam mode", () => {

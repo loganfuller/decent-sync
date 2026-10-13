@@ -329,6 +329,21 @@ export function blankApplied(values: Readonly<Partial<Record<SharedSetting, numb
 }
 
 /**
+ * What `before_write` holds for a Recipe's record the server put in a slot
+ * it removed another record from (`removed`, both by their paths): each
+ * field the record (`record`) holds otherwise, with the value the removed
+ * one held, so a save from a page opened on that one, which DYE2 saves over
+ * the record in the slot, takes what it set back as unchanged (ADR-0005). A
+ * field both hold is left out: a page saving it saves the record's own
+ * value, and a later write of it keeps its value before that write as any
+ * other does. Null if they hold the same.
+ */
+export function heldBeforeReplaced(removed: RecipeView, record: RecipeView): Record<string, unknown> | null {
+  const differing = Object.keys(changedFields(removed, record));
+  return differing.length === 0 ? null : Object.fromEntries(differing.map((field) => [field, removed[field] ?? null]));
+}
+
+/**
  * The settings of those a tablet's Workflow changed (`values`) that it set
  * back to a value its recipes held just before the server's latest write of
  * it (`beforeWrites`, each record's `before_write`), the settings' value

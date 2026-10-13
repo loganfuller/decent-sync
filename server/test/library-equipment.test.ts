@@ -12,11 +12,12 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // another Location is the same item (ADR-0018); edits reach every tablet that
 // holds it, merged per field (ADR-0020); deleting a Tool on a tablet hides it
 // at its Location only (ADR-0019), and what a Location does not show is
-// removed from its tablets' lists. Through the built plugin in simulated
-// tablets, acting as DYE2 v0.1.19 does with the steps recorded from it
-// (fixtures/decaid/dye2-v0.1.19/), on two server instances sharing one
-// database, with assertions through the REST API and what each simulated
-// tablet's store holds. Serials are made up, from 41001.
+// removed from its tablets' lists. And for ticket #142, a save from a DYE2
+// page opened before another tablet's change keeps that change (ADR-0005).
+// Through the built plugin in simulated tablets, acting as DYE2 v0.1.19 does
+// with the steps recorded from it (fixtures/decaid/dye2-v0.1.19/), on two
+// server instances sharing one database, with assertions through the REST
+// API and what each simulated tablet's store holds. Serials are made up, from 41001.
 
 type Record_ = Record<string, unknown>;
 
@@ -411,6 +412,66 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     await setNotes(two, "Fixture notes, edited");
     await expect.poll(notesOn(one), { timeout: 15_000 }).toBe("Fixture notes, edited");
     expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Fixture notes, edited" });
+  });
+
+  it("keeps another tablet's change of a Basket and a Tool saved from DYE2 pages opened before it, and spreads what the saves changed", async () => {
+    const lab = await api.createLocation("Stale lab", "America/Chicago");
+    const machines = [await api.createMachine("Stale lab 1", lab.id), await api.createMachine("Stale lab 2", lab.id)] as const;
+    const one = load(machines[0], decaid("41111"));
+    const two = load(machines[1], decaid("41112"), { instance: other });
+    await online(...machines);
+    // The first tablet's baskets and equipment pages open on them as created: the values the recorded edits were made from.
+    await saveInDye2(one, baskets.create18gBasket, ownNames("Stale"));
+    await saveInDye2(one, tools.createWdtTool, ownNames("Stale"));
+    await expect.poll(() => recordNamed(two, "baskets", "Stale Fixture 18g Precision")?.[GLOBAL_ID_KEY], { timeout: 15_000 }).toBeDefined();
+    await expect.poll(() => recordNamed(two, "equipment", "Stale Fixture WDT Tool")?.[GLOBAL_ID_KEY], { timeout: 15_000 }).toBeDefined();
+    const [basket] = await named("baskets", "Stale Fixture 18g Precision");
+    const [tool] = await named("tools", "Stale Fixture WDT Tool");
+    /** The tablet's record of the item in DYE2's list, by the global id it carries. */
+    const held = (tablet: SimulatedTablet, key: Dye2Key, id: string) => records(tablet, key).find((record) => record[GLOBAL_ID_KEY] === id);
+    await expect.poll(() => held(one, "baskets", basket!.id), { timeout: 15_000 }).toBeDefined();
+    await expect.poll(() => held(one, "equipment", tool!.id), { timeout: 15_000 }).toBeDefined();
+    const set = async (tablet: SimulatedTablet, key: Dye2Key, id: string, fields: Record_) => {
+      const list = records(tablet, key).map((record) => (record[GLOBAL_ID_KEY] === id ? { ...record, ...fields } : record));
+      expect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/${key}`, list)).status).toBe(200);
+    };
+
+    // The second tablet changes the Basket's diameter from 58.5 to 58.7 mm and renames the Tool, which the first is written.
+    await set(two, "baskets", basket!.id, { diameterMm: 58.7 });
+    await set(two, "equipment", tool!.id, { name: "Stale Fixture WDT" });
+    await expect.poll(() => held(one, "baskets", basket!.id)?.diameterMm, { timeout: 15_000 }).toBe(58.7);
+    await expect.poll(() => held(one, "equipment", tool!.id)?.name, { timeout: 15_000 }).toBe("Stale Fixture WDT");
+
+    // The first tablet's pages, loaded before that, save the recorded edits: the Basket's notes, with the diameter its page
+    // loaded rather than the one the recording changed, and the Tool's needles, with the name its page loaded.
+    const fromPage = (diameterMm: number) => (item: Record_) => ({ ...ownNames("Stale")(item), diameterMm });
+    await saveInDye2(one, baskets.edit18gBasket, fromPage(58.5));
+    await saveInDye2(one, tools.editWdtTool, ownNames("Stale"));
+    // What they set back is no edit: the second tablet's diameter and name are kept, and written to the first again. The
+    // notes and needles reach every tablet.
+    const needles = [
+      { key: "Needles", value: "10" },
+      { key: "Needle size", value: "0.3 mm" },
+    ];
+    await expect.poll(async () => (await view("baskets", basket!.id)).content.notes, { timeout: 15_000 }).toBe("Fixture notes, edited");
+    await expect.poll(async () => (await view("tools", tool!.id)).content.custom, { timeout: 15_000 }).toEqual(needles);
+    for (const tablet of [one, two]) {
+      await expect.poll(() => held(tablet, "baskets", basket!.id), { timeout: 15_000 }).toMatchObject({ notes: "Fixture notes, edited", diameterMm: 58.7 });
+      await expect.poll(() => held(tablet, "equipment", tool!.id), { timeout: 15_000 }).toMatchObject({ name: "Stale Fixture WDT", custom: needles });
+    }
+    expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Fixture notes, edited", diameterMm: 58.7 });
+    expect((await view("tools", tool!.id)).content).toMatchObject({ name: "Stale Fixture WDT", custom: needles });
+    for (const [kind, id] of [["baskets", basket!.id], ["tools", tool!.id]] as const) {
+      expect(((await (await api.call("GET", `/${kind}/${id}/conflicts`)).json()) as { conflicts: unknown[] }).conflicts).toEqual([]);
+    }
+
+    // The second tablet changes the diameter again, to 58.9 mm, so the first held 58.7 just before the server's latest write
+    // of it. Saved again from the basket page with 58.3 mm, another value than that, it is an edit as usual.
+    await set(two, "baskets", basket!.id, { diameterMm: 58.9 });
+    await expect.poll(() => held(one, "baskets", basket!.id)?.diameterMm, { timeout: 15_000 }).toBe(58.9);
+    await saveInDye2(one, baskets.edit18gBasket, fromPage(58.3));
+    for (const tablet of [one, two]) await expect.poll(() => held(tablet, "baskets", basket!.id)?.diameterMm, { timeout: 15_000 }).toBe(58.3);
+    expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Fixture notes, edited", diameterMm: 58.3 });
   });
 
   it("writes again a write lost to another app's rewrite that the next write to the record shows before any report does", async () => {

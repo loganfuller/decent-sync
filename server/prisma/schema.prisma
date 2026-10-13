@@ -367,6 +367,7 @@ model Tablet {
   baskets      TabletBasket[]
   tools        TabletTool[]
   recipes      TabletRecipe[]
+  removed      TabletRemovedRecipe[]
   unrecognised TabletUnrecognisedList[]
   settings     TabletSettings?
   itemVersions ItemVersion[]
@@ -1276,6 +1277,25 @@ model TabletRecipe {
   @@unique([tabletId, localId])
   @@index([recipeId])
   @@map("tablet_recipes")
+}
+
+/// The record a tablet held in a Recipe Slot of DYE2's `recipes` list when
+/// the server removed it there, as its Recipe left the slot or its Machine
+/// left the Location, kept until a report lists that slot again. A Recipe's
+/// record the server then creates in the slot takes each field it held
+/// otherwise as the tablet's just before that write
+/// (`TabletRecipe.beforeWrite`), so a save from a page opened on the record
+/// removed keeps the new Recipe's fields it did not change (ADR-0005).
+model TabletRemovedRecipe {
+  tabletId String @map("tablet_id") @db.Uuid
+  tablet   Tablet @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  /// DYE2's id for the record on that tablet: its Recipe Slot.
+  localId  String @map("local_id")
+  /// The record, as the tablet's map last held it.
+  record   Json   @db.JsonB
+
+  @@id([tabletId, localId])
+  @@map("tablet_removed_recipes")
 }
 
 /// One of DYE2's lists that a tablet last reported, or answered a write of,

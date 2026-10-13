@@ -264,6 +264,8 @@ can hide nothing (Taking in a tablet's baskets and tools, below).
   DYE2's id, its Recipe Slot there, kept as `tablet_baskets` keeps a
   Basket's, its fields named by their paths in the record, but for the
   showing it has seen, as a Recipe is no Location's to show.
+- `tablet_removed_recipes`: the record a tablet held in a Recipe Slot when
+  the server removed it there, kept until a report lists that slot again.
 - `tablet_unrecognised_lists`: each of DYE2's lists a tablet holds in a shape
   that is not recognised, which nothing is written to or taken in from, and
   since when.
@@ -1022,7 +1024,16 @@ never matched (ADR-0018).
   known is an edit of each field of its content it changed, timed when the
   plugin first read it, merged per field (Edits, above), but for a field set
   back to its value before the server's latest write to it, as for baskets
-  and tools (`before_write`). A record in a slot the map does not hold is in
+  and tools (`before_write`). A record the server creates in a slot it
+  removed another record from, as one whose Recipe left the slot or whose
+  Machine left the Location, takes each field that record held otherwise as
+  what the tablet held there just before the write (`tablet_removed_recipes`,
+  `heldBeforeReplaced`), whether its answer shows it or, after a lost answer,
+  the tablet's next report: DYE2 saves a page's fields over the record in the
+  slot, keeping its global id, so a page opened on the earlier recipe would
+  otherwise have its every field taken as an edit of the new Recipe. A field
+  both hold is left out, so a later write of it guards against a stale save
+  as any write does. A record in a slot the map does not hold is in
   the slot of the Location's Recipe there, if any: carrying that Recipe's
   global id, it is its record, as after a lost answer; otherwise it was saved
   in that slot on the tablet before it held the Recipe, and each field of its
