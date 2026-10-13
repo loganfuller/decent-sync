@@ -97,10 +97,6 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     await drop().catch(() => {});
     throw error;
   }
-  const port = await freePort();
-  const url = `http://127.0.0.1:${port}`;
-
-  const output: string[] = [];
   // Each secret the server hands out, recorded by secret-capture.mjs, read from its file until it stops.
   const secretsFile = path.join(os.tmpdir(), `decent-sync-secrets-${randomBytes(6).toString("hex")}`);
   let handedOut: string[] | undefined;
@@ -111,45 +107,65 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     ...(options.clockOffsetMs === undefined ? [] : [clockOffset]),
     ...(options.passwordHashGate === undefined ? [] : [passwordHashGate]),
   ];
-  const child = spawn(process.execPath, [main], {
-    env: {
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
-      DATABASE_URL: serverDatabaseUrl.href,
-      PUBLIC_URL: options.publicUrl ?? url,
-      HOST: "127.0.0.1",
-      PORT: String(port),
-      ...options.env,
-      NODE_OPTIONS: [options.env?.NODE_OPTIONS, ...preloads.map((preload) => `--import=${pathToFileURL(preload).href}`)].filter(Boolean).join(" "),
-      TEST_SECRETS_FILE: secretsFile,
-      ...(options.clockOffsetMs === undefined ? {} : { TEST_CLOCK_OFFSET_MS: String(options.clockOffsetMs) }),
-      ...(options.passwordHashGate === undefined ? {} : { TEST_PASSWORD_HASH_GATE: options.passwordHashGate }),
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  watchLog(`the log of the server at ${url}`, () => output.join(""));
-  child.stdout?.on("data", (chunk: Buffer) => output.push(chunk.toString()));
-  child.stderr?.on("data", (chunk: Buffer) => output.push(chunk.toString()));
+  const spawnServer = (port: number) => {
+    const url = `http://127.0.0.1:${port}`;
+    const output: string[] = [];
+    const child = spawn(process.execPath, [main], {
+      env: {
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        DATABASE_URL: serverDatabaseUrl.href,
+        PUBLIC_URL: options.publicUrl ?? url,
+        HOST: "127.0.0.1",
+        PORT: String(port),
+        ...options.env,
+        NODE_OPTIONS: [options.env?.NODE_OPTIONS, ...preloads.map((preload) => `--import=${pathToFileURL(preload).href}`)].filter(Boolean).join(" "),
+        TEST_SECRETS_FILE: secretsFile,
+        ...(options.clockOffsetMs === undefined ? {} : { TEST_CLOCK_OFFSET_MS: String(options.clockOffsetMs) }),
+        ...(options.passwordHashGate === undefined ? {} : { TEST_PASSWORD_HASH_GATE: options.passwordHashGate }),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    watchLog(`the log of the server at ${url}`, () => output.join(""));
+    child.stdout?.on("data", (chunk: Buffer) => output.push(chunk.toString()));
+    child.stderr?.on("data", (chunk: Buffer) => output.push(chunk.toString()));
+    // Closed once it has exited and all it wrote has been read.
+    let closed = false;
+    child.once("close", () => { closed = true; });
+    return { url, port, child, output, closed: () => closed };
+  };
 
+  // A port found free may be taken by another test file's server before this one binds it, which takes seconds,
+  // so the server is started again on another port if it finds its port taken.
+  let started = spawnServer(await freePort());
   const stop = async () => {
-    await terminate(child);
+    await terminate(started.child);
     handedOut = readHandedOut();
     fs.rmSync(secretsFile, { force: true });
     await drop();
   };
   const kill = async () => {
+    const { child } = started;
     if (child.exitCode !== null || child.signalCode !== null) return;
     const exited = new Promise((resolve) => child.once("exit", resolve));
     child.kill("SIGKILL");
     await exited;
   };
 
-  try {
-    await waitForHealth(url, child, output);
-  } catch (error) {
-    await stop();
-    throw error;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await waitForListening(started);
+      break;
+    } catch (error) {
+      if (error instanceof PortTaken && attempt < 5) {
+        started = spawnServer(await freePort());
+        continue;
+      }
+      await stop();
+      throw error;
+    }
   }
+  const { url, child, output } = started;
   const connectDatabase = async () => {
     const client = new pg.Client({ connectionString: databaseUrl.href });
     await client.connect();
@@ -202,16 +218,24 @@ function freePort(): Promise<number> {
   });
 }
 
-async function waitForHealth(url: string, child: ChildProcess, output: string[]): Promise<void> {
+/** The server could not bind its port, which something else took after `freePort` found it free. */
+class PortTaken extends Error {}
+
+/**
+ * Resolves once the server has logged that it listens on its port, which it
+ * does only once it has bound it, so the address then reaches this server
+ * and no other. A server already on that port, such as another test file's,
+ * would answer a health check there, and the test would run against it.
+ */
+async function waitForListening({ port, child, output, closed }: { port: number; child: ChildProcess; output: string[]; closed: () => boolean }): Promise<void> {
+  const listening = new RegExp(`\\bListening on 127\\.0\\.0\\.1:${port};`);
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) {
-      throw new Error(`The server exited with ${child.exitCode} before it was ready:\n${output.join("")}`);
-    }
-    try {
-      if ((await fetch(`${url}/api/health`)).ok) return;
-    } catch {
-      // Not listening yet.
+    const log = stripVTControlCharacters(output.join(""));
+    if (listening.test(log)) return;
+    if (closed()) {
+      if (/\bEADDRINUSE\b/.test(log)) throw new PortTaken(`Port ${port} was taken before the server could listen on it`);
+      throw new Error(`The server exited with ${child.exitCode ?? child.signalCode} before it was ready:\n${output.join("")}`);
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }

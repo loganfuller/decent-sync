@@ -202,6 +202,8 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
     await one.addBean({ roaster: "Roux", name: "After the Archive" });
     const after = await libraryBean("After the Archive");
     await expect.poll(() => heldAs(two, "After the Archive"), { timeout: 10_000 }).toEqual([after.id]);
+    // And for its answer to be recorded, so that write is not still due once the network drops.
+    await expect.poll(async () => (await statusOf(second)).waiting, { timeout: 10_000 }).toBe(0);
 
     // Restored while the refusing tablet is offline, it is due again just as it was refused, and waits.
     two.loseNetwork();

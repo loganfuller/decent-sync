@@ -1759,7 +1759,7 @@ var __decentSync = (() => {
       __publicField(this, "held", false);
       /** A change reported while held, which `release` sends. */
       __publicField(this, "heldChange", false);
-      /** The delivery that sent it again on the latest welcome, which the next welcome's replaces. */
+      /** The delivery that sent it again on the latest welcome, which the next welcome's replaces unless it was ever sent. */
       __publicField(this, "resent");
       /** The state and substate last queued, so repeated state updates send nothing. */
       __publicField(this, "state");
@@ -1807,8 +1807,10 @@ var __decentSync = (() => {
      * for a delivery it has handled, even one handled for the last hardware but
      * not acknowledged, so it is always a new delivery; the server records
      * nothing if it is unchanged. It replaces the one the last welcome queued,
-     * if that is still queued. The next state update is sent whatever it is,
-     * for the same reason.
+     * unless that was ever sent: one sent on the last connection may still be
+     * being stored by the instance that received it, so it is sent again, under
+     * its id, ahead of this one, and can never be stored after it. The next
+     * state update is sent whatever it is, for the same reason.
      */
     welcome() {
       this.state = void 0;
@@ -1823,7 +1825,7 @@ var __decentSync = (() => {
      */
     resend() {
       if (!this.workflow) return;
-      if (this.resent !== void 0) this.outbox.discard(this.resent);
+      if (this.resent !== void 0) this.outbox.supersede(this.resent);
       this.resent = void 0;
       if (this.held) this.heldChange = true;
       else this.resent = this.queueWorkflow(this.workflow);
@@ -1961,10 +1963,6 @@ var __decentSync = (() => {
     /** Calls `watcher` with every delivery queued from now on, those read for the server's requests included. */
     watch(watcher) {
       this.watchers.push(watcher);
-    }
-    /** Drops a queued delivery that a newer one makes unnecessary; one being sent now stays, to be acknowledged. */
-    discard(id) {
-      if (this.sent !== id) this.forget(id);
     }
     /**
      * Drops a queued delivery that a newer one makes unnecessary, unless it

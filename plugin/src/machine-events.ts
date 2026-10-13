@@ -21,7 +21,7 @@ export class MachineEvents implements WorkflowChanges {
   private held = false;
   /** A change reported while held, which `release` sends. */
   private heldChange = false;
-  /** The delivery that sent it again on the latest welcome, which the next welcome's replaces. */
+  /** The delivery that sent it again on the latest welcome, which the next welcome's replaces unless it was ever sent. */
   private resent: string | undefined;
   /** The state and substate last queued, so repeated state updates send nothing. */
   private state: { state: string; substate: string } | undefined;
@@ -75,8 +75,10 @@ export class MachineEvents implements WorkflowChanges {
    * for a delivery it has handled, even one handled for the last hardware but
    * not acknowledged, so it is always a new delivery; the server records
    * nothing if it is unchanged. It replaces the one the last welcome queued,
-   * if that is still queued. The next state update is sent whatever it is,
-   * for the same reason.
+   * unless that was ever sent: one sent on the last connection may still be
+   * being stored by the instance that received it, so it is sent again, under
+   * its id, ahead of this one, and can never be stored after it. The next
+   * state update is sent whatever it is, for the same reason.
    */
   welcome(): void {
     this.state = undefined;
@@ -92,7 +94,7 @@ export class MachineEvents implements WorkflowChanges {
    */
   resend(): void {
     if (!this.workflow) return;
-    if (this.resent !== undefined) this.outbox.discard(this.resent);
+    if (this.resent !== undefined) this.outbox.supersede(this.resent);
     this.resent = undefined;
     // Sent once the write under way is answered, which it may hold already.
     if (this.held) this.heldChange = true;
