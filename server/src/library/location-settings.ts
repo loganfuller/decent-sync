@@ -240,6 +240,8 @@ export async function recordSettingsWritten(
     }
     const holds = contentSeen !== null && edited !== null && !edited.lost;
     await saveHeld(tx, tablet.tabletId, settingsId, reported, holds ? contentSeen : null);
+    // A stale apply left out is written over, though no writer awaits this answer any longer.
+    if (known !== null && shares && !edited?.writesDue && settingsToWrite(settings.values, reported) !== null) await notify(tx, "library_changes", settings.locationId);
     // Sharing off since the write was sent: its recipes mirror its own, which the write changed.
     if (!shares && mirroredChanged(held?.values ?? null, reported)) await notify(tx, "library_changes", settings.locationId);
     return "recorded";
