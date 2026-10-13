@@ -16,11 +16,10 @@ function kindName(kind: ItemKind): string {
   return kind === "settings" ? "Location settings" : LIBRARY_KINDS[kind].name;
 }
 
-/** The address of an item's page; a Location's settings are on its page. Null for a kind with no pages yet. */
-export function itemPath(kind: ItemKind, id: string, location: Location | null = null): string | null {
+/** The address of an item's page; a Location's settings are on its page. */
+export function itemPath(kind: ItemKind, id: string, location: Location | null = null): string {
   if (kind === "settings") return location ? `/locations/${location.id}` : "/locations";
-  const { pages } = LIBRARY_KINDS[kind];
-  return pages === null ? null : `${pages}/${encodeURIComponent(id)}`;
+  return `${LIBRARY_KINDS[kind].pages}/${encodeURIComponent(id)}`;
 }
 
 /** A link to an item's page, or its name alone where it has none. */
@@ -38,8 +37,33 @@ function itemApiPath(kind: ItemKind, id: string): string {
   return `${kind === "settings" ? "/location-settings" : LIBRARY_KINDS[kind].api}/${encodeURIComponent(id)}`;
 }
 
-/** Content fields whose names do not spell out as people read them: a Basket's diameter, and a Tool's attributes, which DYE2 keeps as `custom`. */
-const FIELD_LABELS: Readonly<Record<string, string>> = { diameterMm: "Diameter (mm)", custom: "Attributes" };
+/**
+ * Content fields whose names do not spell out as people read them: a
+ * Basket's diameter, a Tool's attributes, which DYE2 keeps as `custom`, and
+ * a Recipe's items, named by their ids, and its dial and hot water.
+ */
+const FIELD_LABELS: Readonly<Record<string, string>> = {
+  diameterMm: "Diameter (mm)",
+  custom: "Attributes",
+  beanId: "Bean",
+  beanBatchId: "Bean Batch",
+  profileId: "Profile",
+  grinderId: "Grinder",
+  basketId: "Basket",
+  toolIds: "Tools",
+  toolAttributes: "Tools' attributes",
+  dose: "Dose (g)",
+  yield: "Yield (g)",
+  rpm: "RPM",
+  brewTemperature: "Brew temperature (°C)",
+  showOnDashboard: "Shown on the dashboard",
+  hotWaterMode: "Hot water by",
+  steamMode: "Steam by",
+  hotWaterVolume: "Hot water volume (ml)",
+  hotWaterTemperature: "Hot water temperature (°C)",
+  hotWaterDuration: "Hot water duration (s)",
+  hotWaterFlow: "Hot water flow (ml/s)",
+};
 
 /** A field's name as people read it: a Location's state of the item names the Location, and a field of its content is spelled out, as `roastDate` is "Roast date". */
 export function fieldLabel(field: string, location: Location | null): string {
@@ -65,9 +89,21 @@ function inOrder(fields: Record<string, unknown>): [string, unknown][] {
   return Object.entries(fields).sort(([a], [b]) => rank(a) - rank(b));
 }
 
-/** A field's value as text. Null is a field cleared, or one never set. */
-export function valueText(field: string, value: unknown): string {
+/**
+ * A field's value as text. Null is a field cleared, or one never set. An item
+ * named by its id, as a Recipe names its Bean Batch, is named as `names`
+ * names it, where it does.
+ */
+export function valueText(field: string, value: unknown, names: ReadonlyMap<string, string> = new Map()): string {
   if (value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0)) return "None";
+  if (typeof value === "string" && names.has(value)) return names.get(value)!;
+  if (field === "hotWaterMode") return value === "temp" ? "Temperature" : value === "vol" ? "Volume" : String(value);
+  if (field === "steamMode") return value === "time" ? "Time" : value === "flow" ? "Flow" : String(value);
+  if (field === "toolAttributes" && typeof value === "object" && !Array.isArray(value)) {
+    const tools = Object.entries(value as Record<string, unknown>);
+    if (tools.length === 0) return "None";
+    return tools.map(([tool, pairs]) => `${names.get(tool) ?? tool}: ${valueText("custom", pairs)}`).join("; ");
+  }
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "number") {
     if (field === "remainingWeight") return `${value} g`;
@@ -75,7 +111,9 @@ export function valueText(field: string, value: unknown): string {
   }
   // Decaid keeps a day as its local midnight, such as a roast date entered as a day.
   if (typeof value === "string") return /^\d{4}-\d\d-\d\dT00:00:00\.000$/.test(value) ? value.slice(0, 10) : value;
-  if (Array.isArray(value) && value.every((item) => typeof item === "string" || typeof item === "number")) return value.join(", ");
+  if (Array.isArray(value) && value.every((item) => typeof item === "string" || typeof item === "number")) {
+    return value.map((item) => (typeof item === "string" ? (names.get(item) ?? item) : item)).join(", ");
+  }
   const pairs = attributePairs(value);
   if (pairs !== undefined) return pairs.length === 0 ? "None" : pairs.map(({ key, value: text }) => `${key}: ${text}`).join(", ");
   return JSON.stringify(value);
@@ -111,10 +149,22 @@ export function SourceText({ source }: { source: EditSource | null }) {
 }
 
 /** A value with where and when it came from. */
-function Attributed({ field, value, source, editedAt }: { field: string; value: unknown; source: EditSource | null; editedAt: string | null }) {
+function Attributed({
+  field,
+  value,
+  source,
+  editedAt,
+  names,
+}: {
+  field: string;
+  value: unknown;
+  source: EditSource | null;
+  editedAt: string | null;
+  names?: ReadonlyMap<string, string>;
+}) {
   return (
     <div className="grid gap-0.5">
-      <span className="wrap-anywhere">{valueText(field, value)}</span>
+      <span className="wrap-anywhere">{valueText(field, value, names)}</span>
       <span className="text-xs text-muted-foreground">
         <SourceText source={source} />
         {editedAt && `, ${formatTime(editedAt)}`}
@@ -126,9 +176,19 @@ function Attributed({ field, value, source, editedAt }: { field: string; value: 
 /**
  * Open Conflicts, each with its item, the field, the losing value and the value now, and where and when each came
  * from, and using its value or dismissing it for an account that may. `showItem` adds the item's column, for a list
- * of Conflicts about several items.
+ * of Conflicts about several items. `names` names the items values name by their ids, where it can.
  */
-export function ConflictsTable({ conflicts, showItem, onResolved }: { conflicts: Conflict[]; showItem: boolean; onResolved(): Promise<void> | void }) {
+export function ConflictsTable({
+  conflicts,
+  showItem,
+  onResolved,
+  names,
+}: {
+  conflicts: Conflict[];
+  showItem: boolean;
+  onResolved(): Promise<void> | void;
+  names?: ReadonlyMap<string, string>;
+}) {
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
 
@@ -183,10 +243,16 @@ export function ConflictsTable({ conflicts, showItem, onResolved }: { conflicts:
                 )}
                 <TableCell className="whitespace-normal">{field}</TableCell>
                 <TableCell className="max-w-64 whitespace-normal">
-                  <Attributed field={conflict.field} value={conflict.value} source={conflict.source} editedAt={conflict.editedAt} />
+                  <Attributed field={conflict.field} value={conflict.value} source={conflict.source} editedAt={conflict.editedAt} names={names} />
                 </TableCell>
                 <TableCell className="max-w-64 whitespace-normal">
-                  <Attributed field={conflict.field} value={conflict.current.value} source={conflict.current.source} editedAt={conflict.current.editedAt} />
+                  <Attributed
+                    field={conflict.field}
+                    value={conflict.current.value}
+                    source={conflict.current.source}
+                    editedAt={conflict.current.editedAt}
+                    names={names}
+                  />
                 </TableCell>
                 <TableCell>{formatTime(conflict.createdAt)}</TableCell>
                 <TableCell>
@@ -199,13 +265,15 @@ export function ConflictsTable({ conflicts, showItem, onResolved }: { conflicts:
                       description={
                         conflict.item.kind === "settings" ? (
                           <>
-                            {field} becomes {valueText(conflict.field, conflict.value)}, an edit made here, written to every Machine there that
-                            shares the settings. {valueText(conflict.field, conflict.current.value)}, its value now, stays in their history.
+                            {field} becomes {valueText(conflict.field, conflict.value, names)}, an edit made here, written to every Machine there that
+                            shares the settings. {valueText(conflict.field, conflict.current.value, names)}, its value now, stays in their history.
                           </>
                         ) : (
                           <>
-                            {field} of {itemName} becomes {valueText(conflict.field, conflict.value)}, an edit made here, written to every tablet
-                            that holds it. {valueText(conflict.field, conflict.current.value)}, its value now, stays in its history.
+                            {field} of {itemName} becomes {valueText(conflict.field, conflict.value, names)}, an edit made here, written to every tablet
+                            that holds it. {valueText(conflict.field, conflict.current.value, names)}, its value now, stays in its history.
+                            {conflict.item.kind === "recipe" &&
+                              " A Bean Batch, Profile, Basket or Tool it names that the Recipe's Location does not offer is offered there too."}
                           </>
                         )
                       }
@@ -238,8 +306,11 @@ export function ConflictsTable({ conflicts, showItem, onResolved }: { conflicts:
   );
 }
 
-/** A note of the item's open Conflicts, shown only while it has any. `onResolved` follows using a value or dismissing one. */
-export function ItemConflictsCard({ kind, id, onResolved }: { kind: ItemKind; id: string; onResolved(): void }) {
+/**
+ * A note of the item's open Conflicts, shown only while it has any. `onResolved` follows using a value or dismissing
+ * one; `names` names the items values name by their ids.
+ */
+export function ItemConflictsCard({ kind, id, onResolved, names }: { kind: ItemKind; id: string; onResolved(): void; names?: ReadonlyMap<string, string> }) {
   const load = useCallback(async () => (await api<{ conflicts: Conflict[] }>("GET", `${itemApiPath(kind, id)}/conflicts`)).conflicts, [kind, id]);
   const { data: conflicts, error, reload } = usePolled(load, DETAILS_POLL_MS);
 
@@ -267,6 +338,7 @@ export function ItemConflictsCard({ kind, id, onResolved }: { kind: ItemKind; id
         <ConflictsTable
           conflicts={conflicts}
           showItem={false}
+          names={names}
           onResolved={async () => {
             await reload();
             onResolved();
@@ -277,8 +349,11 @@ export function ItemConflictsCard({ kind, id, onResolved }: { kind: ItemKind; id
   );
 }
 
-/** The item's change history: each accepted edit, the latest taken in first, with where and when it was made. */
-export function ItemHistoryCard({ kind, id }: { kind: ItemKind; id: string }) {
+/**
+ * The item's change history: each accepted edit, the latest taken in first, with where and when it was made. `names`
+ * names the items values name by their ids.
+ */
+export function ItemHistoryCard({ kind, id, names }: { kind: ItemKind; id: string; names?: ReadonlyMap<string, string> }) {
   const load = useCallback(async () => (await api<{ versions: ItemVersion[] }>("GET", `${itemApiPath(kind, id)}/history`)).versions, [kind, id]);
   const { data: versions, error } = usePolled(load, DETAILS_POLL_MS);
 
@@ -322,7 +397,7 @@ export function ItemHistoryCard({ kind, id }: { kind: ItemKind; id: string }) {
                       {inOrder(version.fields).map(([field, value]) => (
                         <div key={field} className="contents">
                           <dt className="text-muted-foreground">{fieldLabel(field, version.location)}</dt>
-                          <dd className="min-w-0 wrap-anywhere">{valueText(field, value)}</dd>
+                          <dd className="min-w-0 wrap-anywhere">{valueText(field, value, names)}</dd>
                         </div>
                       ))}
                     </dl>

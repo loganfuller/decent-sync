@@ -6,8 +6,10 @@ import {
   type LibraryList,
   type LibraryRemove,
   type LibraryWrite,
+  type WrittenKind,
   childLists,
 } from "@decent-sync/protocol";
+import { writeKey } from "../library/holdings.js";
 import { writtenKind } from "../library/kinds.js";
 import type { SeenDecision } from "../library/intake.js";
 import { type TabletChange, changeKey, changeSignature, pruneRefusals, recordRefused, tabletChange } from "../library/sharing-status.js";
@@ -122,9 +124,18 @@ export class TabletWriter {
    * nothing. One expecting other values finds the record changed, as when the
    * plugin left a field the tablet had changed meanwhile as it was, which its
    * answer brought in, and is written again. A look the writer skips while it
-   * waits for a report of the batches cannot tell, so it keeps them.
+   * waits for a report of the batches cannot tell, so it keeps them. The
+   * tablet no longer holding the item's record forgets them (`recordGone`).
+   * A create (no record of the item on the tablet's map) due again after a
+   * report of the tablet's lists was taken in since is written again: the
+   * map shows the tablet lacks the record, as when another app's rewrite of a
+   * DYE2 list lost it, so writing it does change something. Each is kept
+   * with how many reports had been taken in when it was written
+   * (`reportsTakenIn`).
    */
-  private readonly lastWritten = new Map<string, string>();
+  private readonly lastWritten = new Map<string, { fields: string; reports: number }>();
+  /** How many reports of the tablet's lists this connection has taken in, as `lastWritten` tells a create due again since one from one due as it was. */
+  private reportsTakenIn = 0;
   /**
    * Where the connection's latest report of each list was taken in
    * (`standing`): its Location, and when the Machine's sharing was last
@@ -215,6 +226,18 @@ export class TabletWriter {
   }
 
   /**
+   * The plugin found a record of the list changed since it was last read as
+   * it was asked to remove it (RECORD_CHANGED), and is asked to report its
+   * lists again: nothing more is written until a report of that list
+   * arrives, taken in or not (`reported`), so
+   * no write planned without the change, such as the moved Recipe's in its
+   * new slot, leaves the changed record behind.
+   */
+  awaitReport(list: TakenInList): void {
+    this.awaitingLists.add(list);
+  }
+
+  /**
    * A report of one of the tablet's lists (LIBRARY_LISTS) from this
    * connection was stored, and taken in there (`standing`), or nowhere, as
    * its Machine was capture-only; or, undefined, not taken in, as when it was
@@ -222,7 +245,10 @@ export class TabletWriter {
    * list its records are made under began (`awaitChildren`).
    */
   reported(list: TakenInList, takenInAt: string | null | undefined): void {
-    if (takenInAt !== undefined) this.reportedAt.set(list, takenInAt);
+    if (takenInAt !== undefined) {
+      this.reportedAt.set(list, takenInAt);
+      this.reportsTakenIn++;
+    }
     this.awaitingLists.delete(list);
     this.wake();
   }
@@ -235,6 +261,18 @@ export class TabletWriter {
   workflowReported(takenInAt: string | null | undefined): void {
     this.workflowAt = takenInAt;
     this.wake();
+  }
+
+  /**
+   * The tablet holds the item's record no more, as removed from its list, or
+   * found to be another item's, whether or not that answers a write awaited:
+   * a write of the item due from now on is a new one, whatever was written or
+   * skipped before, as when a Recipe moved to another slot and back is
+   * written again in the slot its record was removed from.
+   */
+  recordGone(kind: WrittenKind, globalId: string): void {
+    this.lastWritten.delete(writeKey(kind, globalId));
+    this.skipped.delete(writeKey(kind, globalId));
   }
 
   /** The write with this id, if it awaits its answer, and what its answer has seen. */
@@ -303,7 +341,9 @@ export class TabletWriter {
       const item = "leaveOut" in due ? `${name} record ${due.localId}` : `${name} ${due.globalId}`;
       const fields =
         "delete" in due ? "delete" : "remove" in due ? "remove" : "leaveOut" in due ? "leaveOut" : JSON.stringify({ fields: due.fields, expected: due.expected ?? null });
-      if (this.lastWritten.get(key) === fields) {
+      const last = this.lastWritten.get(key);
+      const created = "fields" in due && due.localId === null;
+      if (last !== undefined && last.fields === fields && !(created && last.reports !== this.reportsTakenIn)) {
         this.log.warn(`Tablet ${this.tablet.tabletId} is still due ${item} once written; it is tried again once it changes or the tablet reconnects`);
         this.skipped.set(key, change.signature);
         // Shown with the tablet's refusals, so it does not wait unexplained.
@@ -318,7 +358,7 @@ export class TabletWriter {
         if (outcome === "timedOut") {
           this.log.warn(`Tablet ${this.tablet.tabletId} did not answer setting aside ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
         }
-        if (outcome === "written") this.lastWritten.set(key, fields);
+        if (outcome === "written") this.lastWritten.set(key, { fields, reports: this.reportsTakenIn });
         else this.skip(key, change.signature);
         continue;
       }
@@ -334,7 +374,7 @@ export class TabletWriter {
         if (outcome === "timedOut") {
           this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the delete of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
         }
-        if (outcome === "written") this.lastWritten.set(key, fields);
+        if (outcome === "written") this.lastWritten.set(key, { fields, reports: this.reportsTakenIn });
         else if (outcome === "deferred") this.defer(key);
         else this.skip(key, change.signature);
         continue;
@@ -342,7 +382,7 @@ export class TabletWriter {
       if ("remove" in due) {
         // Its answer removes it from what the tablet holds, so it is not due again once removed.
         const outcome = await this.ask({
-          write: { type: "remove", id: randomUUID(), kind: due.kind, globalId: due.globalId, localId: due.localId },
+          write: { type: "remove", id: randomUUID(), kind: due.kind, globalId: due.globalId, localId: due.localId, expected: due.expected },
           seen: null,
           contentSeen: null,
           change,
@@ -351,7 +391,8 @@ export class TabletWriter {
         if (outcome === "timedOut") {
           this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the removal of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
         }
-        if (outcome === "written") this.lastWritten.set(key, fields);
+        // Its record gone, the gateway has had it forget the item's last write (`recordGone`).
+        if (outcome === "written") this.lastWritten.set(key, { fields, reports: this.reportsTakenIn });
         else this.skip(key, change.signature);
         continue;
       }
@@ -373,7 +414,7 @@ export class TabletWriter {
       if (outcome === "timedOut") {
         this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the write of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
       }
-      if (outcome === "written") this.lastWritten.set(key, fields);
+      if (outcome === "written") this.lastWritten.set(key, { fields, reports: this.reportsTakenIn });
       else this.skip(key, change.signature);
     }
   }

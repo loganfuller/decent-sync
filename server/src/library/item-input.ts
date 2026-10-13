@@ -3,25 +3,49 @@ import { BadRequestException } from "@nestjs/common";
 import { type EditableContent, KINDS } from "./kinds.js";
 
 // What the management interface may set of a Bean's, a Bean Batch's, a
-// Grinder's, a Basket's and a Tool's content, as each kind's description
-// lists it (`editable` in kinds.ts): Decaid's record fields, each of the type
-// Decaid takes (`Bean`, `BeanBatch` and `Grinder` in
+// Grinder's, a Basket's, a Tool's and a Recipe's content, as each kind's
+// description lists it (`editable` in kinds.ts): Decaid's record fields, each
+// of the type Decaid takes (`Bean`, `BeanBatch` and `Grinder` in
 // decaid:lib/src/models/data/, v0.8.7), so a tablet never refuses a write of
 // them (server/test/fixtures/decaid/*-writes-v0.8.7/), and DYE2's, each as
 // its pages save it (`submitForm` in dye2:dye2-plugin/src/pages/baskets.ts
-// and equipment.ts, v0.1.19). A date is written as Decaid returns one it is
-// sent as a day, so the content is what every tablet's record then holds, and
-// is not written to them again.
+// and equipment.ts, `getCurrentRecipeData` in recipe-edit.ts, v0.1.19), a
+// Recipe's in the Library's terms (`recipeContent` in recipe-intake.ts),
+// naming the items it uses by their global ids. A date is written as Decaid
+// returns one it is sent as a day, so the content is what every tablet's
+// record then holds, and is not written to them again.
 
 /**
  * How a field is read: its type, and whether it may be cleared, which Decaid
  * refuses for some. A Basket's size is one DYE2's page offers, and a Tool's
- * attributes are DYE2's free-form name and value pairs (`custom`).
+ * attributes are DYE2's free-form name and value pairs (`custom`). A Recipe
+ * names a Library item by its global id (`id`), its Tools by theirs (`ids`),
+ * its Profile by Decaid's id (`profileId`), and each Tool's attributes for it
+ * by the Tool's global id (`toolAttributes`), as DYE2's `equipmentCustom`
+ * holds them by its own; its hot water mode is one DYE2's editor offers.
  */
-export type FieldType = "text" | "name" | "flag" | "number" | "date" | "texts" | "wholeNumbers" | "settingType" | "basketSize" | "attributes";
+export type FieldType =
+  | "text"
+  | "name"
+  | "flag"
+  | "number"
+  | "date"
+  | "texts"
+  | "wholeNumbers"
+  | "settingType"
+  | "basketSize"
+  | "attributes"
+  | "id"
+  | "ids"
+  | "profileId"
+  | "toolAttributes"
+  | "hotWaterMode";
 
 /** The sizes DYE2's baskets page offers. */
 const BASKET_SIZES: readonly string[] = ["single", "double", "triple", "bottomless", "other"];
+
+/** The hot water modes DYE2's recipe editor offers: by volume, or by temperature. */
+const HOT_WATER_MODES: readonly string[] = ["vol", "temp"];
 
 /** What the management interface may set of a kind's content, as its description says (`editable` in kinds.ts). */
 function editable(kind: LibraryKind): EditableContent {
@@ -110,7 +134,37 @@ function readValue(type: FieldType, value: unknown): { value: unknown } | string
       return typeof value === "string" && BASKET_SIZES.includes(value) ? { value } : `must be one of ${BASKET_SIZES.join(", ")}`;
     case "attributes":
       return readAttributes(value);
+    case "id":
+      return typeof value === "string" && UUID.test(value) ? { value: value.toLowerCase() } : "must be the item's id";
+    case "ids":
+      return Array.isArray(value) && value.every((item) => typeof item === "string" && UUID.test(item))
+        ? { value: [...new Set(value.map((item: string) => item.toLowerCase()))] }
+        : "must be a list of the items' ids";
+    case "profileId":
+      return typeof value === "string" && value.trim() !== "" ? { value: value.trim() } : "must be the Profile's id";
+    case "toolAttributes":
+      return readToolAttributes(value);
+    case "hotWaterMode":
+      return typeof value === "string" && HOT_WATER_MODES.includes(value) ? { value } : `must be one of ${HOT_WATER_MODES.join(", ")}`;
   }
+}
+
+/**
+ * A Recipe's attributes of its Tools, by each Tool's global id, each a list
+ * of `{ key, value }` as a Tool's own attributes are read (`readAttributes`),
+ * as DYE2's recipe editor keeps them in `equipmentCustom` by its own ids.
+ */
+function readToolAttributes(value: unknown): { value: Record<string, { key: string; value: string }[]> } | string {
+  const problem = "must name each Tool by its id, with its attributes as a list of { key, value }";
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return problem;
+  const read: Record<string, { key: string; value: string }[]> = {};
+  for (const [toolId, pairs] of Object.entries(value)) {
+    if (!UUID.test(toolId)) return problem;
+    const attributes = readAttributes(pairs);
+    if (typeof attributes === "string") return problem;
+    read[toolId.toLowerCase()] = attributes.value;
+  }
+  return { value: read };
 }
 
 /**
@@ -189,6 +243,41 @@ export function readGrinderLocation(body: unknown): string {
   const locationId = typeof body === "object" && body !== null ? (body as { locationId?: unknown }).locationId : undefined;
   if (typeof locationId !== "string" || !UUID.test(locationId)) throw new BadRequestException("Name the Location the Grinder belongs to as locationId");
   return locationId.toLowerCase();
+}
+
+/**
+ * Where a request puts a Recipe: `{ slot }`, a Recipe Slot's number, `next`
+ * for the lowest its Location leaves empty, or null for none.
+ */
+export type SlotChoice = number | "next" | null;
+
+/** The highest Recipe Slot, the largest whole number PostgreSQL's `integer` holds. */
+export const MAX_SLOT = 2_147_483_647;
+
+/** A Recipe Slot from a request's `slot`: a whole number from 1, `next`, or null for none. */
+export function readSlot(body: unknown): SlotChoice {
+  const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  if (!Object.prototype.hasOwnProperty.call(fields, "slot")) {
+    throw new BadRequestException("Send slot: a Recipe Slot's number, next for the lowest one free, or null for none");
+  }
+  return slotOf(fields.slot);
+}
+
+function slotOf(slot: unknown): SlotChoice {
+  if (slot === null || slot === "next") return slot;
+  if (typeof slot === "number" && Number.isSafeInteger(slot) && slot > 0 && slot <= MAX_SLOT) return slot;
+  throw new BadRequestException(`slot must be a whole number from 1 to ${MAX_SLOT}, next for the lowest one free, or null for none`);
+}
+
+/**
+ * A new Recipe, from a request: `{ locationId, slot, content }`, the Location
+ * it belongs to, in lower case, the Recipe Slot it goes in there (none if not
+ * given), and its content.
+ */
+export function readNewRecipe(body: unknown): { locationId: string; slot: SlotChoice; content: Record<string, unknown> } {
+  const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  if (typeof fields.locationId !== "string" || !UUID.test(fields.locationId)) throw new BadRequestException("Name the Location the Recipe belongs to as locationId");
+  return { locationId: fields.locationId.toLowerCase(), slot: slotOf(fields.slot ?? null), content: readNewContent("recipe", body) };
 }
 
 /** A new Basket or Tool, from a request: `{ locationId, content }`, the Location it is first shown at, in lower case, and its content. */

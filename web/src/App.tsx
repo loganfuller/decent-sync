@@ -18,6 +18,7 @@ import { MachinePage } from "@/pages/MachinePage";
 import { MachinesPage } from "@/pages/MachinesPage";
 import { ProfilePage } from "@/pages/ProfilePage";
 import { ProfilesPage } from "@/pages/ProfilesPage";
+import { RecipePage } from "@/pages/RecipePage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { SetupPage } from "@/pages/SetupPage";
 import { HomePage, Shell } from "@/pages/Shell";
@@ -63,6 +64,7 @@ export function App() {
             <Route path="/library/baskets/:id" element={<BasketPage />} />
             <Route path="/library/tools" element={<ToolsPage />} />
             <Route path="/library/tools/:id" element={<ToolPage />} />
+            <Route path="/library/recipes/:id" element={<RecipePage />} />
             <Route path="/library/conflicts" element={<ConflictsPage />} />
             <Route path="/locations" element={<LocationsPage />} />
             <Route path="/locations/:id" element={<LocationPage />} />

@@ -595,6 +595,43 @@ export interface Equipment extends EquipmentSummary {
   locations: { location: Location; shown: boolean; since: string }[];
 }
 
+/**
+ * A Recipe: DYE2's recipe, belonging to one Location, in one of its Recipe
+ * Slots or none.
+ */
+export interface Recipe {
+  id: string;
+  name: string | null;
+  /** The Location it belongs to. */
+  location: Location | null;
+  /** Its Recipe Slot there, or null for none. */
+  slot: number | null;
+  archived: boolean;
+  createdAt: string;
+  /**
+   * Its content in the Library's terms: `name`, `beverage`, `beanId`,
+   * `beanBatchId`, `profileId`, `grinderId`, `basketId`, `toolIds`,
+   * `toolAttributes` (each Tool's attributes for it, by the Tool's id),
+   * `dose`, `yield`, `ratio`, `grindSetting`, `rpm`, `brewTemperature`,
+   * `showOnDashboard`, `hotWaterMode`, `hotWaterVolume`,
+   * `hotWaterTemperature`, `hotWaterDuration`, `hotWaterFlow` and
+   * `steamMode`, each left out where it holds none.
+   */
+  content: Record<string, unknown>;
+  /** The items its content names, with what names each; an item the Library no longer has is named by its id alone. */
+  uses: {
+    bean: { id: string; roaster: string | null; name: string | null } | null;
+    /** Its batch, and whether it is at the Recipe's Location now. */
+    beanBatch: { id: string; roastDate: string | null; atLocation: boolean } | null;
+    profile: { id: string; title: string | null } | null;
+    grinder: { id: string; model: string | null } | null;
+    basket: { id: string; name: string | null } | null;
+    tools: { id: string; name: string | null }[];
+  };
+  /** In a slot, and naming a Bean Batch that is no longer at its Location: its dial needs the next roast. */
+  batchFinished: boolean;
+}
+
 /** The kinds of Library item (`LIBRARY_KINDS`). */
 export type { LibraryKind };
 

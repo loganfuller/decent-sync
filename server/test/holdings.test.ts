@@ -433,7 +433,8 @@ describe("Baskets and Tools a Location shows", () => {
     );
     expect(writes).toEqual([
       { kind: "basket", globalId: BASKETS[0], localId: null, fields: equipmentContent(basket18), decidedAt: DECIDED, contentDecidedAt: EDITED },
-      { remove: true, kind: "basket", globalId: BASKETS[1], localId: basket20.id, decidedAt: DECIDED },
+      // Removed only while the tablet's record is the one the map holds, so a change made since is taken in first.
+      { remove: true, kind: "basket", globalId: BASKETS[1], localId: basket20.id, decidedAt: DECIDED, expected: { ...basket20, [GLOBAL_ID_KEY]: BASKETS[1] } },
       { kind: "tool", globalId: TOOL, localId: null, fields: equipmentContent(wdt), decidedAt: DECIDED, contentDecidedAt: EDITED },
     ]);
     // Skipped, a removal is left out by its record's key.

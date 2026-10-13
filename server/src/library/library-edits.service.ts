@@ -360,7 +360,7 @@ async function place(tx: Prisma.TransactionClient, batchId: string, locationId: 
 }
 
 /** When an edit made now is timed: PostgreSQL's clock (ADR-0016), to the millisecond it keeps. */
-async function editTime(tx: Prisma.TransactionClient): Promise<Date> {
+export async function editTime(tx: Prisma.TransactionClient): Promise<Date> {
   const [{ at }] = await tx.$queryRaw<[{ at: Date }]>`SELECT now()::timestamptz(3) AS at`;
   return at;
 }
@@ -376,6 +376,6 @@ async function found(tx: Prisma.TransactionClient, kind: LibraryKind, id: string
   if (!row) throw notFound(kind);
 }
 
-function staffElsewhere(what: string): ForbiddenException {
+export function staffElsewhere(what: string): ForbiddenException {
   return new ForbiddenException(`Staff ${what} only at the Locations they work at`);
 }

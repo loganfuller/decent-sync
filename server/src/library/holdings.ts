@@ -180,6 +180,12 @@ export interface PlannedRemove {
   localId: string;
   /** When the Location last decided whether it shows the item, by PostgreSQL's clock; null if it never did. */
   decidedAt: Date | null;
+  /**
+   * The record as the map last knew the tablet to hold it, which the plugin
+   * removes only while the tablet's still is (RECORD_CHANGED): one a barista
+   * changed since is reported and taken in first, so the change is kept.
+   */
+  expected: Record<string, unknown>;
 }
 
 /** A tablet's record the Library leaves out, to be set aside there, archived or hidden (left-out.ts): its kind, and its id on the tablet. */
@@ -347,7 +353,9 @@ export function equipmentWrites(kind: "basket" | "tool", offer: LocationOffer, h
     else writes.push({ kind, globalId: item.id, localId: null, fields: item.content, decidedAt: item.decidedAt, contentDecidedAt: item.contentDecidedAt });
   }
   for (const record of held[key]) {
-    if (!shown.has(record.itemId)) writes.push({ remove: true, kind, globalId: record.itemId, localId: record.localId, decidedAt: record.decidedAt ?? null });
+    if (!shown.has(record.itemId)) {
+      writes.push({ remove: true, kind, globalId: record.itemId, localId: record.localId, decidedAt: record.decidedAt ?? null, expected: record.record });
+    }
   }
   return writes;
 }
@@ -367,7 +375,7 @@ export function recipeWrites(offer: LocationOffer, held: TabletHoldings): (Plann
   for (const record of held.recipes) {
     const recipe = offered.get(record.itemId);
     if (recipe && String(recipe.slot) === record.localId) inSlot.set(recipe.id, record);
-    else writes.push({ remove: true, kind: "recipe", globalId: record.itemId, localId: record.localId, decidedAt: null });
+    else writes.push({ remove: true, kind: "recipe", globalId: record.itemId, localId: record.localId, decidedAt: null, expected: record.record });
   }
   for (const recipe of offer.recipes) {
     const record = inSlot.get(recipe.id);

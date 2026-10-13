@@ -5,6 +5,8 @@ import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnModuleD
 import { HttpAdapterHost } from "@nestjs/core";
 import {
   ANOTHER_ITEMS_RECORD,
+  LIBRARY_ITEM_KINDS,
+  RECORD_CHANGED,
   SHOTS_STILL_TO_READ,
   CHUNK_LIMITS,
   CLOSE_CODES,
@@ -399,8 +401,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
           const intake = await this.collections.store(message, reporter);
           if (intake) session.writer?.reported(intake.list, intake.takenInAt);
         });
-        // One set aside ends that wait all the same.
-        if (isLibraryList(message.name) && parentList(message.name) !== undefined) session.writer?.reported(message.name, undefined);
+        // One set aside ends that wait all the same, as it does a wait for the list asked for again (`awaitReport`).
+        if (isLibraryList(message.name)) session.writer?.reported(message.name, undefined);
         return;
       case "written":
       case "deleted":
@@ -556,6 +558,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       if (session.writer && isDye2Kind(answer.kind)) {
         const tabletId = session.live!.tabletId;
         await recordRemoved(this.prisma, answer.kind, tabletId, answer.localId, true);
+        session.writer.recordGone(answer.kind, answer.globalId);
         const applied = { key: removeKey(answer.kind, answer.localId), change: "remove", kind: answer.kind, itemId: answer.globalId, localId: answer.localId } as const;
         await recordApplied(this.prisma, tabletId, applied);
         if (write) outcome = "written";
@@ -564,7 +567,14 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       if (answer.type === "writeRefused" && answer.status === null && answer.error === ANOTHER_ITEMS_RECORD && isDye2Kind(write.kind)) {
         // Not the item's record after all: the tablet's next report takes it in as any record carrying that id.
         await recordRemoved(this.prisma, write.kind, session.live!.tabletId, write.localId, false);
+        session.writer?.recordGone(write.kind, write.globalId);
         this.logger.log(`The tablet of ${this.describe(session)} holds ${quoted(write.kind)} ${write.localId} as another item's; it is not removed`);
+      } else if (answer.type === "writeRefused" && answer.status === null && answer.error === RECORD_CHANGED && isDye2Kind(write.kind)) {
+        // Changed on the tablet since its list was last read: its report is asked for, so the change is taken in before the
+        // removal is asked again, with the record as changed.
+        this.logger.log(`The tablet of ${this.describe(session)} changed ${quoted(write.kind)} ${write.localId} since it was last read; its lists are read again`);
+        session.writer?.awaitReport(LIBRARY_ITEM_KINDS[write.kind].list);
+        if (!session.closing) this.send(session, { type: "requestCollections" });
       } else if (answer.type === "writeRefused") {
         this.logger.warn(
           `The tablet of ${this.describe(session)} did not remove ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? quoted(answer.error.slice(0, 200)) : `Decaid answered ${answer.status}, ${quoted(answer.error.slice(0, 200))}`}`,

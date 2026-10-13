@@ -563,10 +563,14 @@ export interface MappedRecipe {
  * record the map holds by its slot stays that Recipe's: one that differs
  * from the record known is the barista's edit of it, but one carrying
  * another item's global id, as one a backup restored, or of another
- * Location's Recipe, is written over; and unless that Recipe is one of the
- * Location's (`own`) that is no longer in that slot, as one taken out of it
- * since, when the save is in the slot as it is now, as a record the map does
- * not hold. Any other record is in
+ * Location's Recipe, is written over. One of the Location's (`own`) no
+ * longer in that slot, moved to another, taken out of its slot or Archived
+ * since, as in the management interface, is still the Recipe the barista
+ * edited there, when the record carries its global id, or none where the
+ * map's record of it carried none either: the save is
+ * its edit, and the writer then moves the record to its slot or removes it,
+ * so an edit made on a tablet not yet written the change is kept, and never
+ * taken as an edit of another Recipe put in that slot since. Any other record is in
  * the slot of the Location's Recipe there, if any: the record carrying its
  * global id is its record, as when the answer to its write was lost, and
  * any other was saved in that slot on the tablet, an edit of it; unless the
@@ -598,6 +602,13 @@ export function planRecipeIntake(
       // it: it is written over.
       const foreign = !own.has(mine.itemId) || (record.globalId !== null && record.globalId !== mine.itemId);
       steps.push({ kind: foreign ? "map" : "update", itemId: mine.itemId, reported: record });
+      continue;
+    }
+    // The Location's Recipe moved, taken out of its slot or Archived since, its record saved in the slot it left: the
+    // barista's edit of it, whatever is in that slot now.
+    // A record with no global id is its only where the map's record of it had none either, as before the server wrote it.
+    if (mine && own.has(mine.itemId) && (record.globalId === mine.itemId || (record.globalId === null && dye2GlobalIdOf(mine.record) === null))) {
+      steps.push({ kind: "update", itemId: mine.itemId, reported: record });
       continue;
     }
     if (slotted === undefined) {

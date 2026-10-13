@@ -24,7 +24,8 @@ const PUBLIC = [
 /**
  * Routes Staff may use too: reading everything but other accounts, moving Machines between their Locations,
  * changing their Locations' settings and their Machines' sharing of them, resolving Conflicts about items they can edit,
- * and creating, editing, Archiving and restoring Beans, Bean Batches and Grinders, but never hard-deleting them.
+ * creating, editing, Archiving and restoring Beans, Bean Batches and Grinders, but never hard-deleting them, and
+ * creating, editing, slotting, Archiving and restoring Recipes at their Locations.
  */
 const STAFF = [
   "GET /api/session",
@@ -77,7 +78,11 @@ const STAFF = [
   "GET /api/tools/:id/history",
   "GET /api/tools/:id/conflicts",
   "GET /api/locations/:id/recipes",
+  "POST /api/recipes",
   "GET /api/recipes/:id",
+  "PATCH /api/recipes/:id",
+  "PUT /api/recipes/:id/slot",
+  "PUT /api/recipes/:id/archived",
   "GET /api/recipes/:id/history",
   "GET /api/recipes/:id/conflicts",
   "GET /api/locations",

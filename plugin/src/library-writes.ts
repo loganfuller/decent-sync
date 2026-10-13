@@ -1,5 +1,6 @@
 import {
   ANOTHER_ITEMS_RECORD,
+  RECORD_CHANGED,
   type CollectionName,
   DYE2_NAMESPACE,
   LIBRARY_ITEM_KINDS,
@@ -1015,8 +1016,10 @@ async function writeInList(path: ListPath, write: LibraryWrite): Promise<WriteAn
 
 /**
  * Removes the tablet's record from one of DYE2's lists, unless it carries
- * another item's global id (ANOTHER_ITEMS_RECORD). A record already gone is
- * removed.
+ * another item's global id (ANOTHER_ITEMS_RECORD), or a removal differs from
+ * the record the server expected (RECORD_CHANGED), as one a barista changed
+ * since the list was last read, which the server takes in first. A record
+ * already gone is removed.
  */
 async function removeFromList(path: ListPath, remove: LibraryRemove | LibraryDelete): Promise<RemoveAnswer> {
   const removed: ItemRemoved = { type: "removed", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
@@ -1027,6 +1030,7 @@ async function removeFromList(path: ListPath, remove: LibraryRemove | LibraryDel
   if (index === -1) return removed;
   const carried = dye2GlobalIdOf(list.records[index]);
   if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
+  if (remove.type === "remove" && remove.expected !== undefined && !sameValue(list.records[index], remove.expected)) return refused(remove, null, RECORD_CHANGED);
   const posted = await postList(path, list.records.filter((_, at) => at !== index));
   return posted.ok ? removed : refused(remove, posted.status, posted.text);
 }

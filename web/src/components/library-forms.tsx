@@ -316,11 +316,11 @@ function AttributeInputs({ label, pairs, onChange }: { label: string; pairs: Att
 }
 
 /** A refusal to show in a form, from what the server answered. */
-function failure(caught: unknown, otherwise: string): string {
+export function failure(caught: unknown, otherwise: string): string {
   return caught instanceof Error ? caught.message : otherwise;
 }
 
-function FormError({ error }: { error: ReactNode }) {
+export function FormError({ error }: { error: ReactNode }) {
   return (
     <Alert variant="destructive">
       <AlertDescription>{error}</AlertDescription>

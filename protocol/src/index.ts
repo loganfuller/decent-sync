@@ -1013,8 +1013,11 @@ export interface LibraryDelete {
  * server sends it as it sends a `write`, one at a time with them, and it is
  * answered with `removed`, `writeRefused` or `listUnrecognised`. The plugin
  * reads the list, leaves out the record and posts the list back, unless the
- * record carries another item's global id (ANOTHER_ITEMS_RECORD). A record
- * already gone is removed.
+ * record carries another item's global id (ANOTHER_ITEMS_RECORD), or differs
+ * from the record the server last knew the tablet to hold (`expected`), as
+ * one a barista changed since the plugin last read the list
+ * (RECORD_CHANGED): the server then has the plugin report the list, takes
+ * the change in, and asks again. A record already gone is removed.
  */
 export interface LibraryRemove {
   type: "remove";
@@ -1026,6 +1029,8 @@ export interface LibraryRemove {
   globalId: string;
   /** The tablet's record to remove. */
   localId: string;
+  /** The record as the server last knew the tablet to hold it, which the plugin removes only while the tablet's still is; absent for any. */
+  expected?: Record<string, unknown>;
 }
 
 /**
@@ -1063,6 +1068,9 @@ export interface ListUnrecognised {
  * it in again rather than asking for its delete.
  */
 export const ANOTHER_ITEMS_RECORD = "The record carries another item's global id";
+
+/** Why the plugin refused a `remove` of a record that differs from the one the server expected (`LibraryRemove.expected`): changed since the plugin last read the list. */
+export const RECORD_CHANGED = "The record changed since the plugin last read the list";
 
 /**
  * The error of a `writeRefused` answering a `delete` the plugin cannot judge
@@ -1502,6 +1510,7 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
         fields.string("kind", { nonEmpty: true });
         fields.itemId("globalId", object.kind);
         fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+        if (object.expected !== undefined) fields.objectField("expected");
       });
     case "leaveOut":
       return check<LeaveOut>(object, "leaveOut", (fields) => {
