@@ -60,7 +60,9 @@ Recipes written to its tablets under their slot numbers, naming what they
 use by each tablet's own ids (Taking in a tablet's recipes, below); ticket
 [#143](https://github.com/loganfuller/decent-sync/issues/143) has the
 management interface create and edit them, move them between slots, and
-Archive and restore them (Editing in the management interface, below). It
+Archive and restore them, and ticket
+[#144](https://github.com/loganfuller/decent-sync/issues/144) copy one to a
+Location (Editing in the management interface, below). It
 follows ADR-0003, ADR-0005, ADR-0006, ADR-0008, ADR-0014, ADR-0016,
 ADR-0018, ADR-0019, ADR-0020 and ADR-0021.
 
@@ -440,8 +442,8 @@ Admins and Staff create and edit Beans, Bean Batches, Grinders, Baskets,
 Tools and Recipes in the management interface, Archive and restore them and
 Profiles, add and finish batches at Locations, setting their remaining
 weight at each, show and hide Profiles, Baskets and Tools at Locations
-(`library-edits.service.ts`), and move Recipes between Recipe Slots
-(`recipe-edits.service.ts`). Each change is an edit by the account, timed by
+(`library-edits.service.ts`), and move Recipes between Recipe Slots and
+copy them to Locations (`recipe-edits.service.ts`). Each change is an edit by the account, timed by
 PostgreSQL's clock (ADR-0016), and made over the item as it stands, as using
 a Conflict's value is (Resolving Conflicts, above): it decides each field it
 sets whatever the times of the edits before it, and keeps nothing it
@@ -551,6 +553,25 @@ tablets, below).
   a Recipe moved is removed from its old slot on each tablet there and
   written in its new one (`recipeWrites` in `holdings.ts`). Hard deletes come
   with the Shots linked to them.
+- **Copying a Recipe.** A Recipe is copied to a Location, its own or another,
+  as a new Recipe there (`POST /api/recipes/:id/copies`), a starting point
+  for that Location's dial. The copy takes the Recipe's content as it stands,
+  read without its lock, and changes nothing of it, but for its Grinder, the
+  one chosen from that Location's Grinders or none, its grind setting kept
+  as a starting point, since calibrations differ; and its Bean Batch, kept
+  unless another, or none, is chosen. What it uses is checked and offered at
+  that Location as an edit's is (`recipeEditValues`): a batch not there is
+  added there, and a Profile, Basket or Tool not shown there is shown there,
+  so it can be loaded at once, and one Archived is refused. A Bean it names
+  with no batch takes that Bean's batch most recently added there, or none,
+  keeping the Bean, as a Bean set alone does. Its hot water is the Recipe's;
+  its steam and flush, which no Recipe carries, are that Location's on every
+  tablet there. It goes in the slot chosen, the Recipe there taken out of
+  it and kept there, or the lowest free one, or none, under that Location's
+  lock, as a new Recipe does. Its history starts with the copy: its first
+  version names the Recipe it was copied from and that Recipe's Location
+  then (`copied_from_id` and `copied_from_location_id` on `item_versions`),
+  the Recipe by its id alone, so the note outlives its hard delete.
 - **Archive and restore.** An Archived Bean or batch is offered nowhere, with
   the Bean's batches, and is archived on every tablet that holds it, but kept,
   with each Location's state of it, so restoring it offers it again where it
@@ -570,8 +591,9 @@ tablets, below).
   restore items, but add and finish batches, set their remaining weight,
   create and edit Grinders, create Baskets and Tools, show and hide
   Profiles, Baskets and Tools, and create, edit, slot, Archive and restore
-  Recipes only at the Locations they work at, as a Grinder and a Recipe
-  belong to one (ADR-0008), and never hard-delete. A Recipe's Conflicts are
+  Recipes, and copy a Recipe from anywhere to a Location, only at the
+  Locations they work at, as a Grinder and a Recipe belong to one
+  (ADR-0008), and never hard-delete. A Recipe's Conflicts are
   resolved where it may be edited.
 
 ### Hard deletes

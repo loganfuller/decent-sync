@@ -671,6 +671,12 @@ export interface ItemVersion {
   editedAt: string;
   /** When the server took it in. */
   receivedAt: string;
+  /**
+   * A copy's first version names the item it was copied from, as a Recipe
+   * copied to a Location does: its name now, null where it has none or is
+   * gone, and its Location then, if it still exists. Null otherwise.
+   */
+  copiedFrom: { id: string; name: string | null; location: Location | null } | null;
 }
 
 /** An edit of a field of a Library item that lost to another made without seeing it. */

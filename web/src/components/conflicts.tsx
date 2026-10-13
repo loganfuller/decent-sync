@@ -367,7 +367,7 @@ export function ItemHistoryCard({ kind, id, names }: { kind: ItemKind; id: strin
           Each change that was kept, the latest first, with the Machine or account it came from.{" "}
           {kind === "settings"
             ? "Its first is the first Machine at the Location setting them."
-            : `Its first is the ${kindName(kind)} joining the Library.`}
+            : `Its first is the ${kindName(kind)} joining the Library${kind === "recipe" ? ", or copied from another" : ""}.`}
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
@@ -393,6 +393,13 @@ export function ItemHistoryCard({ kind, id, names }: { kind: ItemKind; id: strin
                     <SourceText source={version.source} />
                   </TableCell>
                   <TableCell className="whitespace-normal">
+                    {version.copiedFrom && (
+                      <p className="mb-1 text-sm">
+                        Copied from{" "}
+                        <ItemLink path={itemPath(kind, version.copiedFrom.id)}>{version.copiedFrom.name ?? `an unnamed ${kindName(kind)}`}</ItemLink>
+                        {version.copiedFrom.location ? ` at ${version.copiedFrom.location.name}` : ""}
+                      </p>
+                    )}
                     <dl className="grid grid-cols-[auto_1fr] gap-x-3 text-sm">
                       {inOrder(version.fields).map(([field, value]) => (
                         <div key={field} className="contents">

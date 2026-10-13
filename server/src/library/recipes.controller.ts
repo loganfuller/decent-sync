@@ -4,17 +4,17 @@ import type { Scope } from "../accounts/scope.js";
 import type { SignedIn } from "../accounts/sessions.service.js";
 import { readLocationId } from "../locations/input.js";
 import { type ConflictView, HistoryService, type VersionView } from "./history.service.js";
-import { readArchived, readContentEdit, readNewRecipe, readSlot } from "./item-input.js";
+import { readArchived, readContentEdit, readNewRecipe, readRecipeCopy, readSlot } from "./item-input.js";
 import { RecipeEditsService } from "./recipe-edits.service.js";
 import { type RecipeView, RecipesService, readRecipeId } from "./recipes.service.js";
 
 /**
  * Each Location's Recipes, slotted and unslotted, and each Recipe's history
  * and Conflicts (ADR-0005, ADR-0020), which Staff read as Admins do. They
- * join the Library from tablets, or are created here; Staff create, edit,
- * slot, take out of their slots, Archive and restore them only at the
- * Locations they work at, as a Recipe belongs to one. Hard deletes come with
- * the Shots linked to them.
+ * join the Library from tablets, or are created or copied here; Staff create,
+ * edit, slot, take out of their slots, Archive and restore them, and copy
+ * one to a Location, only at the Locations they work at, as a Recipe belongs
+ * to one. Hard deletes come with the Shots linked to them.
  */
 @AllowStaff()
 @Controller("api")
@@ -57,6 +57,19 @@ export class RecipesController {
     const recipeId = readRecipeId(id);
     await this.edits.place(recipeId, readSlot(body), session.account.id, session.scope);
     return { recipe: await this.recipes.get(recipeId) };
+  }
+
+  /**
+   * Copies it to a Location as a new Recipe there, naming it in its history:
+   * `{ locationId, slot, grinderId, beanBatchId }`, `slot` a number, `next` or
+   * null (the default) for none, `grinderId` one of the Location's Grinders
+   * or null, and `beanBatchId`, if given, the batch it uses instead of this
+   * one's, or null for none.
+   */
+  @Post("recipes/:id/copies")
+  async copy(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeView }> {
+    const copied = await this.edits.copy(readRecipeId(id), readRecipeCopy(body), session.account.id, session.scope);
+    return { recipe: await this.recipes.get(copied) };
   }
 
   /** Archives it, which takes it out of its slot, or restores it, in no slot: `{ archived }`. */

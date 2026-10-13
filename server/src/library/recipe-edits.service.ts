@@ -5,7 +5,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { editContent, lockItems, recordJoined } from "./content-edits.js";
-import { type EditSource, accountSource, recordVersion } from "./history.js";
+import { type CopiedFrom, type EditSource, accountSource, recordVersion } from "./history.js";
 import { INTAKE_TRANSACTION } from "./intake.js";
 import type { SlotChoice } from "./item-input.js";
 import { editTime, staffElsewhere } from "./library-edits.service.js";
@@ -14,8 +14,9 @@ import { type ShownKind, addBatchAt, lockLocation, showAt } from "./location-sta
 
 // Recipes created and edited in the management interface, moved between the
 // Recipe Slots of their Location, taken out of them, Archived and restored
-// (ticket #143). A Recipe belongs to one Location, so Staff change its
-// Recipes only where they work, and Admins anywhere.
+// (ticket #143), and copied to a Location (ticket #144). A Recipe belongs to
+// one Location, so Staff change its Recipes, and copy one to it, only where
+// they work, and Admins anywhere.
 //
 // Each change is the account's, timed by PostgreSQL's clock (ADR-0016), and
 // an edit of its content is made over the Recipe as it stands, as
@@ -45,6 +46,16 @@ const SHOWN: readonly { field: "profileId" | "basketId" | "toolIds"; kind: Shown
   { field: "toolIds", kind: "tool", table: "tools", idType: "uuid", name: "Tool" },
 ];
 
+/** Where a Recipe's copy goes, and what it uses there instead of what the Recipe does (`RecipeEditsService.copy`). */
+export interface RecipeCopy {
+  locationId: string;
+  slot: SlotChoice;
+  /** Its Grinder, one of the Location's, or null for none. */
+  grinderId: string | null;
+  /** The Bean Batch it uses instead of the Recipe's, or null for none; undefined keeps the Recipe's. */
+  beanBatchId: string | null | undefined;
+}
+
 /** Where a Recipe is: its Location, and its slot there or none. */
 interface Placed {
   id: string;
@@ -72,15 +83,50 @@ export class RecipeEditsService {
       const source = accountSource(accountId);
       const at = await editTime(tx);
       const values = await setUses(tx, locationId, content, {}, source, at);
-      const taken = slot === null ? null : await freeSlot(tx, locationId, null, slot, source, at);
-      const [created] = await tx.$queryRaw<[{ id: string }]>`
-        INSERT INTO recipes (id, location_id, slot, content)
-        VALUES (gen_random_uuid(), ${locationId}::uuid, ${taken}::integer, ${JSON.stringify(values)}::jsonb)
-        RETURNING id::text AS id`;
-      await recordJoined(tx, { kind: "recipe", id: created.id }, values, at, source);
-      if (taken !== null) await recordVersion(tx, { kind: "recipe", id: created.id }, locationId, { slot: taken }, source, at);
-      await notify(tx, "library_changes", locationId);
-      return created.id;
+      return insertRecipe(tx, locationId, values, slot, source, at);
+    }, INTAKE_TRANSACTION);
+  }
+
+  /**
+   * Copies a Recipe to a Location (ticket #144) as a new Recipe there, whose
+   * history starts with the copy, naming the Recipe it was copied from and
+   * that Recipe's Location. The copy takes the Recipe's content as it stands
+   * but for its Grinder, the one chosen from the Location's, its grind
+   * setting kept as a starting point, and its Bean Batch where another, or
+   * none, is chosen. What it uses is checked and offered at the Location as
+   * an edit's is (`recipeEditValues`): a batch not there is added there, and
+   * a Profile, Basket or Tool not shown there is shown there. Its hot water
+   * is the Recipe's; its steam and flush, which no Recipe carries, are the
+   * Location's on each tablet there. It goes in the slot chosen, the Recipe
+   * there taken out of it and kept, or the lowest free one, or none. The
+   * Recipe copied is not changed. 404 for no such Recipe or Location, 403
+   * for Staff not working at the Location, and 400 or 409 for an item the
+   * copy cannot use there.
+   */
+  async copy(id: string, to: RecipeCopy, accountId: string, scope: Scope): Promise<string> {
+    if (!includesLocation(scope, to.locationId)) throw staffElsewhere("copy a Recipe to a Location");
+    return this.prisma.$transaction(async (tx) => {
+      if ((await tx.location.count({ where: { id: to.locationId } })) === 0) throw new NotFoundException("No such Location");
+      await lockLocation(tx, to.locationId);
+      // Read as it stands, without its lock: the copy is of its content then, and changes nothing of it.
+      const [original] = await tx.$queryRaw<{ locationId: string | null; content: unknown }[]>`
+        SELECT location_id::text AS "locationId", content FROM recipes WHERE id = ${id}::uuid`;
+      if (!original) throw new NotFoundException("No such Recipe");
+      const content: Record<string, unknown> = isObject(original.content) ? { ...original.content } : {};
+      delete content.grinderId;
+      if (to.grinderId !== null) content.grinderId = to.grinderId;
+      if (to.beanBatchId !== undefined) {
+        // Another batch sets the Bean as its own; none clears both.
+        delete content.beanId;
+        delete content.beanBatchId;
+        if (to.beanBatchId !== null) content.beanBatchId = to.beanBatchId;
+      }
+      const source = accountSource(accountId);
+      const at = await editTime(tx);
+      const set = await recipeEditValues(tx, to.locationId, content, {}, source, at);
+      // A new Recipe holds no field it has no value for.
+      const values = Object.fromEntries(Object.entries(set).filter(([, value]) => value !== null && value !== undefined));
+      return insertRecipe(tx, to.locationId, values, to.slot, source, at, { id, locationId: original.locationId });
     }, INTAKE_TRANSACTION);
   }
 
@@ -166,6 +212,33 @@ export class RecipeEditsService {
       }
     }, INTAKE_TRANSACTION);
   }
+}
+
+/**
+ * Inserts a new Recipe at the Location with the values, in the slot chosen,
+ * the Recipe there taken out of it, or the lowest free one, or none, as the
+ * Location's state; it joins the Library as its first version, which names
+ * the Recipe a copy was copied from. Notifies the Location's tablets, under
+ * its lock. Returns its id.
+ */
+async function insertRecipe(
+  tx: Prisma.TransactionClient,
+  locationId: string,
+  values: Readonly<Record<string, unknown>>,
+  slot: SlotChoice,
+  source: EditSource,
+  at: Date,
+  copiedFrom?: CopiedFrom,
+): Promise<string> {
+  const taken = slot === null ? null : await freeSlot(tx, locationId, null, slot, source, at);
+  const [created] = await tx.$queryRaw<[{ id: string }]>`
+    INSERT INTO recipes (id, location_id, slot, content)
+    VALUES (gen_random_uuid(), ${locationId}::uuid, ${taken}::integer, ${JSON.stringify(values)}::jsonb)
+    RETURNING id::text AS id`;
+  await recordJoined(tx, { kind: "recipe", id: created.id }, values, at, source, copiedFrom);
+  if (taken !== null) await recordVersion(tx, { kind: "recipe", id: created.id }, locationId, { slot: taken }, source, at);
+  await notify(tx, "library_changes", locationId);
+  return created.id;
 }
 
 /**

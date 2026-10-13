@@ -56,10 +56,16 @@ function jsonValue(value: unknown): Prisma.InputJsonValue | typeof Prisma.DbNull
   return value === null || value === undefined ? Prisma.DbNull : (value as Prisma.InputJsonValue);
 }
 
+/** The item a copy was copied from (ticket #144), by its id, and its Location then. */
+export interface CopiedFrom {
+  id: string;
+  locationId: string | null;
+}
+
 /**
  * Keeps an accepted edit as a version of the item: `fields`, each with the
- * value it set, of its content, or of its state at `locationId`. Returns the
- * version's id.
+ * value it set, of its content, or of its state at `locationId`; a copy's
+ * first version names the item it was copied from. Returns the version's id.
  */
 export async function recordVersion(
   tx: Prisma.TransactionClient,
@@ -68,9 +74,17 @@ export async function recordVersion(
   fields: Readonly<Record<string, unknown>>,
   source: EditSource,
   editedAt: Date,
+  copiedFrom?: CopiedFrom,
 ): Promise<string> {
   const version = await tx.itemVersion.create({
-    data: { ...itemKey(item), locationId, fields: fields as Prisma.InputJsonObject, ...source, editedAt },
+    data: {
+      ...itemKey(item),
+      locationId,
+      fields: fields as Prisma.InputJsonObject,
+      ...source,
+      editedAt,
+      ...(copiedFrom ? { copiedFromId: copiedFrom.id, copiedFromLocationId: copiedFrom.locationId } : {}),
+    },
     select: { id: true },
   });
   return version.id;
