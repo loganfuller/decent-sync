@@ -203,13 +203,13 @@ function newContent(fields: FormField[], values: Values): Record<string, unknown
   }));
 }
 
-/** The fields an edit changes, each with its value, null to clear it. */
+/** The fields an edit changes, each with its value, null to clear it. Only a changed field is read, so one the form cannot read is left as it is. */
 function changedContent(fields: FormField[], initial: Values, values: Values): Record<string, unknown> {
   return Object.fromEntries(
-    fields.flatMap((field) => {
-      const value = contentValue(field, values[field.field] ?? "");
-      return JSON.stringify(value) === JSON.stringify(contentValue(field, initial[field.field] ?? "")) ? [] : [[field.field, value]];
-    }),
+    fields.flatMap((field) =>
+      // Compared as entered, so a Tool's attributes, a new list on every change, are unchanged once put back as they were.
+      JSON.stringify(values[field.field]) === JSON.stringify(initial[field.field]) ? [] : [[field.field, contentValue(field, values[field.field] ?? "")]],
+    ),
   );
 }
 

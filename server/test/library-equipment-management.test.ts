@@ -146,6 +146,12 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
     const archivedRefusal = await api.call("POST", "/tools", { locationId: lab.id, content: { name: "Duplicate WDT tool" } });
     expect(archivedRefusal.status).toBe(409);
     expect(await archivedRefusal.json()).toMatchObject({ existing: { id: tool.id, archived: true } });
+    // With a current Tool of the name as well, which a tablet's record of the name is linked to, that is the one named.
+    const current = await create("tools", lab, { name: "Duplicate WDT Tool, current" });
+    await edit("tools", current.id, { name: "duplicate wdt tool" });
+    const currentRefusal = await api.call("POST", "/tools", { locationId: lab.id, content: { name: "Duplicate WDT Tool" } });
+    expect(currentRefusal.status).toBe(409);
+    expect(await currentRefusal.json()).toMatchObject({ existing: { id: current.id, name: "duplicate wdt tool", archived: false } });
     // A Basket and a Tool may share a name: each kind is matched by itself.
     expect((await api.call("POST", "/tools", { locationId: lab.id, content: { name: "Duplicate 20g High-flow" } })).status).toBe(201);
   });

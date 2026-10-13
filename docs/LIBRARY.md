@@ -471,9 +471,10 @@ tablets, below).
   which records it as created there. One whose name, ignoring case and white
   space at either end, is that of an item of its kind the Library has is
   refused, naming that item and whether it is Archived, as a Bean is: one not
-  Archived is the item a tablet's record of that name would be (ADR-0018), to
-  be shown at the Location instead, and one Archived is to be restored rather
-  than duplicated, though a tablet's new record of that name, which is never
+  Archived, the oldest, is the item a tablet's record of that name would be
+  (ADR-0018), to be shown at the Location instead, and is named before any
+  Archived one; one Archived, named only where none of the name is current,
+  is to be restored rather than duplicated, though a tablet's new record of that name, which is never
   linked to an Archived item, joins the Library as a new one. It is decided under the lock the kind's new records are
   matched under (`lockMatching` in `equipment.ts`), so two are never created
   at once, through any instance, nor one beside a tablet's new record. An

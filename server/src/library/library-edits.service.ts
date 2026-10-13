@@ -215,7 +215,9 @@ export class LibraryEditsService {
    * it is Archived, if the Library has one of the kind of the same name
    * already, as a Bean is refused: one not Archived is the item a tablet's
    * record of that name would be (ADR-0018), and one Archived is restored
-   * rather than duplicated. Decided under the lock the
+   * rather than duplicated, but only where none of the name is current: the
+   * one named is the one a tablet's record would be linked to, if any.
+   * Decided under the lock the
    * kind's new records are matched under, so two are never created at once,
    * through any instance, nor one beside a tablet's new record.
    */
@@ -228,7 +230,7 @@ export class LibraryEditsService {
       await lockLocation(tx, locationId);
       const matchKey = equipmentMatchKey(String(content.name));
       const [existing] = await tx.$queryRaw<{ id: string; content: unknown; archived: boolean }[]>`
-        SELECT id::text AS id, content, archived FROM ${Prisma.raw(description.table)} WHERE match_key = ${matchKey} ORDER BY created_at, id LIMIT 1`;
+        SELECT id::text AS id, content, archived FROM ${Prisma.raw(description.table)} WHERE match_key = ${matchKey} ORDER BY archived, created_at, id LIMIT 1`;
       if (existing) {
         const name = (existing.content as { name?: unknown } | null)?.name;
         throw new ConflictException({
