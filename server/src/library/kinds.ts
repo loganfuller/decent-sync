@@ -152,8 +152,8 @@ type HoldingsReader = {
   [K in HoldingsKey]: {
     /** Its part of `LocationOffer` and `TabletHoldings`. */
     key: K;
-    /** What the Location offers, and its state of each item, in the order to write it: oldest first. */
-    offered(tx: Prisma.TransactionClient, tabletId: string, locationId: string): Promise<LocationOffer[K]>;
+    /** What the Location offers the tablet of that Machine, and its state of each item, in the order to write it: oldest first. */
+    offered(tx: Prisma.TransactionClient, tablet: ReportingTablet, locationId: string): Promise<LocationOffer[K]>;
     /** The tablet's records, with the content of their items, by its map. */
     held(tx: Prisma.TransactionClient, tabletId: string, locationId: string): Promise<HeldRecord[]>;
   };
@@ -303,7 +303,7 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     holdings: {
       key: "beans",
       // Each with the latest decision of whether any of its batches is there: a write to the Bean carries it.
-      offered: async (tx, _tabletId, locationId) =>
+      offered: async (tx, _tablet, locationId) =>
         (
           await tx.$queryRaw<(Omit<OfferedBean, "contentDecidedAt"> & Edited)[]>`
             SELECT beans.id, beans.content, ${presenceDecidedSql(Prisma.raw("beans.id"), locationId)} AS "decidedAt", beans.field_edits AS "fieldEdits" FROM beans
@@ -360,7 +360,7 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     holdings: {
       key: "batches",
       // The batches the Location offers, then the others the tablet holds, each with its state there.
-      offered: async (tx, tabletId, locationId) =>
+      offered: async (tx, { tabletId }, locationId) =>
         (
           await tx.$queryRaw<(Omit<LocationBatch, "remainingWeight" | "contentDecidedAt"> & Edited & { remainingWeight: number | null; entered: boolean })[]>`
             SELECT batch.id, batch.bean_id AS "beanId", batch.content, batch.field_edits AS "fieldEdits",
@@ -454,7 +454,7 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     shotLink: { local: "grinder_id", link: "library_grinder_id" },
     holdings: {
       key: "grinders",
-      offered: async (tx, _tabletId, locationId) =>
+      offered: async (tx, _tablet, locationId) =>
         (
           await tx.$queryRaw<(Omit<OfferedGrinder, "contentDecidedAt"> & Edited)[]>`
             SELECT id, content, field_edits AS "fieldEdits" FROM grinders WHERE location_id = ${locationId}::uuid AND NOT archived ORDER BY created_at, id`
@@ -505,7 +505,7 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     holdings: {
       key: "profiles",
       // Each Profile's content only where the tablet lacks it, to create its record with: what a Location shows is many and large.
-      offered: async (tx, tabletId, locationId) =>
+      offered: async (tx, { tabletId }, locationId) =>
         (
           await tx.$queryRaw<(Omit<ShownProfile, "contentDecidedAt"> & Edited)[]>`
             SELECT profiles.id, profiles.bundled, here.decided_at AS "decidedAt", profiles.field_edits AS "fieldEdits",
@@ -610,7 +610,7 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     keptColumns: () => Prisma.empty,
     // Created and edited in the management interface in a later ticket (#143).
     editable: null,
-    holdings: { key: "recipes", offered: (tx, tabletId, locationId) => offeredRecipes(tx, tabletId, locationId), held: (tx, tabletId) => heldRecipes(tx, tabletId) },
+    holdings: { key: "recipes", offered: (tx, tablet, locationId) => offeredRecipes(tx, tablet, locationId), held: (tx, tabletId) => heldRecipes(tx, tabletId) },
     plan: (offer, held) => recipeWrites(offer, held),
     offersAnySql: (locationId) => Prisma.sql`SELECT 1 FROM recipes WHERE location_id = ${locationId}::uuid AND slot IS NOT NULL AND NOT archived LIMIT 1`,
     stateLocationsSql: (ids) => Prisma.sql`SELECT location_id::text AS id FROM recipes WHERE id = ANY(${ids}::uuid[]) AND location_id IS NOT NULL`,
@@ -668,7 +668,7 @@ function equipmentKind(
     editable,
     holdings: {
       key: kind === "basket" ? "baskets" : "tools",
-      offered: async (tx, _tabletId, locationId) =>
+      offered: async (tx, _tablet, locationId) =>
         (
           await tx.$queryRaw<(Omit<ShownEquipment, "contentDecidedAt"> & Edited)[]>`
             SELECT items.id::text AS id, items.content, here.decided_at AS "decidedAt", items.field_edits AS "fieldEdits"

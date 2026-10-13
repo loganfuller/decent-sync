@@ -14,6 +14,7 @@ import { standing } from "./join-plan.js";
 import { currentEntry, takenIn } from "./joining.js";
 import { leaveOut, offersAny, screenLeftOut } from "./left-out.js";
 import { isObject, listedIds } from "./listed.js";
+import { editSettingsInRecipe, mirroredSettings } from "./location-settings.js";
 import { deletedAt, lockLocation, transactionTime } from "./location-state.js";
 import { latestDecision, readFieldEdits } from "./merge.js";
 import {
@@ -27,12 +28,14 @@ import {
   type WriteContext,
   editedPaths,
   holdsRecipe,
+  holdsRecord,
   libraryValues,
   planRecipeIntake,
   readReportedRecipes,
   recipeContent,
   recipeRecord,
   recipeView,
+  settingsValues,
   tabletIds,
 } from "./recipe-intake.js";
 
@@ -50,11 +53,14 @@ import {
 // tablet's own ids and carrying what DYE2 derives from them, regenerated
 // (recipe-intake.ts), and its global id in a top-level field of its own,
 // beside the server's map per tablet; a slot that is emptied is removed from
-// the list (holdings.ts).
+// the list (holdings.ts). Each record's steam and flush values mirror the
+// steam and rinse settings its tablet's Machine takes part in (ADR-0014), and
+// a barista's change of one in a record the map holds is an edit of those
+// settings (location-settings.ts).
 //
 // Under the locks equipment.ts takes, in the same order: the Machine's row,
 // the tablet's, the Location's, under which its slots are decided, then the
-// Recipes' rows.
+// Recipes' rows, then the Location's settings' row.
 
 /** The tablet's map of the items a recipe names, by their global ids and its own (ADR-0006). */
 export async function readTabletIds(tx: Prisma.TransactionClient, tabletId: string): Promise<TabletIds> {
@@ -67,8 +73,18 @@ export async function readTabletIds(tx: Prisma.TransactionClient, tabletId: stri
   return tabletIds(rows);
 }
 
-/** What writing Recipes of this content to a tablet with that map reads besides them: the names DYE2 copies, and each Profile whole. */
-async function writeContext(tx: Prisma.TransactionClient, ids: TabletIds, contents: readonly Record<string, unknown>[]): Promise<WriteContext> {
+/**
+ * What writing Recipes of this content to a tablet with that map reads
+ * besides them: the names DYE2 copies, each Profile whole, and the steam and
+ * rinse settings the tablet's recipes mirror at the Location.
+ */
+async function writeContext(
+  tx: Prisma.TransactionClient,
+  tablet: ReportingTablet,
+  locationId: string | null,
+  ids: TabletIds,
+  contents: readonly Record<string, unknown>[],
+): Promise<WriteContext> {
   const named = (key: string) => [...new Set(contents.flatMap((content) => (typeof content[key] === "string" ? [content[key] as string] : [])))];
   const tools = [...new Set(contents.flatMap((content) => (Array.isArray(content.toolIds) ? content.toolIds.filter((id): id is string => typeof id === "string") : [])))];
   const names = async (table: string, field: string, itemIds: string[]) =>
@@ -87,6 +103,7 @@ async function writeContext(tx: Prisma.TransactionClient, ids: TabletIds, conten
     basketNames: await names("baskets", "name", named("basketId")),
     toolNames: await names("tools", "name", tools),
     profiles: new Map(profiles.flatMap((row) => (isObject(row.profile) ? [[row.id, row.profile]] : []))),
+    settings: await mirroredSettings(tx, tablet, locationId),
   };
 }
 
@@ -95,13 +112,13 @@ async function writeContext(tx: Prisma.TransactionClient, ids: TabletIds, conten
  * tablet is to hold of it (`recipeRecord`), as the tablet's writer plans
  * its writes.
  */
-export async function offeredRecipes(tx: Prisma.TransactionClient, tabletId: string, locationId: string): Promise<OfferedRecipe[]> {
+export async function offeredRecipes(tx: Prisma.TransactionClient, tablet: ReportingTablet, locationId: string): Promise<OfferedRecipe[]> {
   const rows = await tx.$queryRaw<{ id: string; slot: number; content: unknown; fieldEdits: unknown }[]>`
     SELECT id::text AS id, slot, content, field_edits AS "fieldEdits" FROM recipes
     WHERE location_id = ${locationId}::uuid AND slot IS NOT NULL AND NOT archived ORDER BY slot`;
   if (rows.length === 0) return [];
   const contents = rows.map((row) => (isObject(row.content) ? row.content : {}));
-  const context = await writeContext(tx, await readTabletIds(tx, tabletId), contents);
+  const context = await writeContext(tx, tablet, locationId, await readTabletIds(tx, tablet.tabletId), contents);
   return rows.map((row, index) => ({
     id: row.id,
     slot: row.slot,
@@ -117,9 +134,16 @@ export async function heldRecipes(tx: Prisma.TransactionClient, tabletId: string
   return rows.map((row) => ({ ...row, content: null, contentDecidedAt: null }));
 }
 
-/** The record a tablet with that map is to hold of a Recipe of this content, in the slot its record is in. */
-async function recordFor(tx: Prisma.TransactionClient, ids: TabletIds, content: Record<string, unknown>, localId: string): Promise<RecipeView> {
-  return recipeRecord(content, Number(localId), await writeContext(tx, ids, [content]));
+/** The record the tablet, with that map, at the Location, is to hold of a Recipe of this content, in the slot its record is in. */
+async function recordFor(
+  tx: Prisma.TransactionClient,
+  tablet: ReportingTablet,
+  locationId: string | null,
+  ids: TabletIds,
+  content: Record<string, unknown>,
+  localId: string,
+): Promise<RecipeView> {
+  return recipeRecord(content, Number(localId), await writeContext(tx, tablet, locationId, ids, [content]));
 }
 
 /** What taking records into Recipes of the Location reads, given what they are to edit (`current`, each Recipe's content now). */
@@ -283,18 +307,22 @@ export async function takeInRecipes(
       const known = mappedById.get(itemId)!;
       const knownView = recipeView(known.record);
       if (!joining && recipe) {
-        const paths = editedPaths(editedContent(knownView, view, known.beforeWrite));
+        const edits = editedContent(knownView, view, known.beforeWrite);
+        const paths = editedPaths(edits);
         if (paths.length > 0) {
           const values = libraryValues(view, paths, recipe.content, await context(view));
           await editContent(tx, { kind: "recipe", id: itemId }, { values, at: record.updatedAt, seenAt: known.contentSeenAt }, source);
         }
+        // A steam or flush value changed is an edit of the settings the record mirrors, not of the Recipe.
+        await editSettingsInRecipe(tx, tablet, locationId, settingsValues(view, Object.keys(edits)), record.updatedAt);
       }
       // A field the tablet set to a value of its own no longer takes setting it back for a stale save, nor one it and the
       // Recipe both hold at its value before the server's write.
       const standingBefore = beforeWriteAfter(known.beforeWrite, knownView, view);
       const content = recipe ? (await readRecipes(tx, [itemId])).get(itemId)?.content : undefined;
       beforeWrite = {
-        beforeWrite: standingBefore && !joining && content ? withoutSettled(standingBefore, view, await recordFor(tx, ids, content, record.localId)) : standingBefore,
+        beforeWrite:
+          standingBefore && !joining && content ? withoutSettled(standingBefore, view, await recordFor(tx, tablet, locationId, ids, content, record.localId)) : standingBefore,
       };
     }
     // The record may differ from the Recipe now, or lack its global id: it is written.
@@ -370,19 +398,23 @@ export async function recordRecipeWritten(
     const view = recipeView(record);
     const context = await intakeContext(tx, ids, item.locationId, [view], [content]);
     let edited: EditOutcome | null = null;
-    // A field set back by a stale save, or a write lost, that no longer holds the Recipe's value, which is written again.
+    // A field set back by a stale save, or a write lost, that no longer holds the Recipe's value, which is written again; or
+    // one of the settings the record mirrors that no longer holds theirs.
     let stale = false;
+    let staleSettings = false;
     let answeredBefore: { beforeWrite?: Record<string, unknown> | null } = {};
     // A Recipe of another Location than the tablet's now, as before its writer removes it after a move, takes no edit there.
     const here = item.locationId !== null && item.locationId === locationId;
     if (known) {
-      const answered = answeredEquipment(recipeView(known.record), view, written, known.beforeWrite, await recordFor(tx, ids, content, localId));
+      const answered = answeredEquipment(recipeView(known.record), view, written, known.beforeWrite, await recordFor(tx, tablet, locationId, ids, content, localId));
       const paths = editedPaths(answered.values);
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
       const values = paths.length === 0 || !here ? {} : libraryValues(view, paths, content, await context(view));
       edited = await editContent(tx, ref, { values, at, seenAt: known.contentSeenAt }, source);
-      const now = (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content;
-      stale = answered.stale && !holdsRecipe(view, await recordFor(tx, ids, now, localId));
+      if (here) await editSettingsInRecipe(tx, tablet, locationId!, settingsValues(view, Object.keys(answered.values)), at);
+      const now = await recordFor(tx, tablet, locationId, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, localId);
+      stale = answered.stale && !holdsRecipe(view, now);
+      staleSettings = answered.stale && !holdsRecord(view, now);
       answeredBefore = { beforeWrite: answered.beforeWrite };
     } else if (linked && (!here || (await forgetLeftOut(tx, tablet.tabletId, localId)))) {
       // A record the Library left out as the tablet joined, not yet removed, or one at another Location than the Recipe's:
@@ -394,8 +426,8 @@ export async function recordRecipeWritten(
       const changed = Object.fromEntries(Object.entries(values).filter(([field, value]) => !sameValue(content[field], value)));
       edited = await editContent(tx, ref, { values: changed, at, seenAt: null }, source);
     }
-    if (((edited?.writesDue ?? false) || stale) && locationId !== null) await notify(tx, "library_changes", locationId);
-    const holds = contentSeen !== null && !stale && (edited !== null ? !edited.lost : holdsRecipe(view, await recordFor(tx, ids, content, localId)));
+    if (((edited?.writesDue ?? false) || staleSettings) && locationId !== null) await notify(tx, "library_changes", locationId);
+    const holds = contentSeen !== null && !stale && (edited !== null ? !edited.lost : holdsRecipe(view, await recordFor(tx, tablet, locationId, ids, content, localId)));
     await saveRecord(tx, tablet.tabletId, itemId, localId, record, at, { contentSeen: holds ? contentSeen : null, listed: known?.listed ?? false, ...answeredBefore });
     return "recorded";
   }, INTAKE_TRANSACTION);

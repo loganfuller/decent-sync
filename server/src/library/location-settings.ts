@@ -1,4 +1,4 @@
-import { SETTINGS_KIND, SHARED_SETTINGS, type SharedSettings, sharedSettingsOf } from "@decent-sync/protocol";
+import { SETTINGS_KIND, SHARED_SETTINGS, type SharedSetting, type SharedSettings, sameValue, sharedSettingsOf } from "@decent-sync/protocol";
 import type { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
@@ -10,7 +10,8 @@ import { standing } from "./join-plan.js";
 import { currentEntry, takeInWorkflowContext, takenIn } from "./joining.js";
 import { transactionTime } from "./location-state.js";
 import { type FieldEdits, editsAfter, latestDecision, mergeEdit, readFieldEdits } from "./merge.js";
-import { type LocationValues, readLocationValues, settingsEdits, settingsToWrite } from "./settings-intake.js";
+import { MIRRORED_PATHS } from "./recipe-intake.js";
+import { type LocationValues, mirroredValues, readLocationValues, settingsEdits, settingsToWrite } from "./settings-intake.js";
 
 // Each Location's steam and rinse settings, shared by its Machines whatever
 // their model (ADR-0014), each a field of its own merged as edits of a
@@ -175,6 +176,8 @@ export async function takeInWorkflow(tx: Prisma.TransactionClient, tablet: Repor
     await saveHeld(tx, tablet.tabletId, settings.id, reported, null);
     // Sharing turned on since it was made: the tablet is to take the Location's, which turning it on may have found it held already.
     if (shares && settingsToWrite(settings.values, reported) !== null) await notify(tx, "library_changes", locationId);
+    // Sharing off: its recipes mirror its own, which changed.
+    if (!shares && mirroredChanged(held?.values ?? null, reported)) await notify(tx, "library_changes", locationId);
     return takenInAt;
   }
   const values = settingsEdits(known?.values ?? null, reported, settings.fieldEdits);
@@ -230,6 +233,56 @@ export async function recordSettingsWritten(
     await saveHeld(tx, tablet.tabletId, settingsId, reported, holds ? contentSeen : null);
     return "recorded";
   }, INTAKE_TRANSACTION);
+}
+
+/**
+ * The steam and rinse settings the tablet's recipes mirror (ADR-0014): its
+ * Machine's Location's, or, while the Machine's sharing of them is off, its
+ * tablet's own, as its Workflow last held them. A setting not known yet is
+ * absent. Read in the caller's transaction.
+ */
+export async function mirroredSettings(tx: Prisma.TransactionClient, tablet: ReportingTablet, locationId: string | null): Promise<LocationValues> {
+  const [row] = await tx.$queryRaw<{ location: unknown; own: unknown }[]>`
+    SELECT (SELECT values FROM location_settings WHERE location_id = ${locationId}::uuid) AS location,
+      (SELECT values FROM tablet_settings WHERE tablet_id = ${tablet.tabletId}::uuid) AS own`;
+  return mirroredValues(await sharesSettings(tx, tablet.machineId), readLocationValues(row?.location), readLocationValues(row?.own));
+}
+
+/**
+ * Takes a barista's change of the steam and rinse settings a recipe on the
+ * tablet mirrors (`settingsValues` in recipe-intake.ts, `values`) into its
+ * Machine's Location's settings, as a change of them in its Workflow is
+ * (`takeInWorkflow`): each that differs is its edit, timed when the plugin
+ * read it (`at`), merged with what the tablet's settings have seen, which
+ * the server writes before its recipes. A Machine whose sharing of them is
+ * off, or was when the plugin read it, changes nothing: its recipes are
+ * written its own values again. Takes the settings' row lock, after the
+ * Recipes' that the caller holds, and tells every instance when the
+ * Location's tablets are to be written.
+ */
+export async function editSettingsInRecipe(
+  tx: Prisma.TransactionClient,
+  tablet: ReportingTablet,
+  locationId: string,
+  values: Partial<Record<SharedSetting, number>>,
+  at: Date,
+): Promise<void> {
+  if (Object.keys(values).length === 0 || !(await sharing(tx, tablet.machineId, at)).sharedThen) return;
+  const settings = await lockSettingsAt(tx, locationId);
+  // A value the settings hold already changes nothing, as when Streamline saves into a recipe the Workflow change it made.
+  const changed = Object.fromEntries(Object.entries(values).filter(([field, value]) => !sameValue(settings.values[field as SharedSetting], value)));
+  const held = await heldSettings(tx, tablet.tabletId);
+  const seenAt = held?.settingsId === settings.id ? held.contentSeenAt : null;
+  const edited = await editSettings(tx, settings.id, { values: changed, at, seenAt }, tabletSource(tablet));
+  if (edited.writesDue) await notify(tx, "library_changes", locationId);
+}
+
+/** The settings DYE2's recipes hold a value of, which they mirror. */
+const MIRRORED_SETTINGS: readonly SharedSetting[] = Object.values(MIRRORED_PATHS);
+
+/** Whether a tablet's settings changed one its recipes mirror (`MIRRORED_PATHS` in recipe-intake.ts). */
+function mirroredChanged(before: SharedSettings | null, after: SharedSettings): boolean {
+  return before === null || MIRRORED_SETTINGS.some((field) => !sameValue(before[field], after[field]));
 }
 
 /**

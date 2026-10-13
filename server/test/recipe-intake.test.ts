@@ -9,6 +9,7 @@ import {
   type WriteContext,
   editedPaths,
   holdsRecipe,
+  holdsRecord,
   libraryValues,
   planRecipeIntake,
   readReportedRecipes,
@@ -17,15 +18,18 @@ import {
   recipeView,
   recipeWorkflow,
   recordOf,
+  settingsValues,
   tabletIds,
 } from "../src/library/recipe-intake.js";
+import { type LocationValues, mirroredValues } from "../src/library/settings-intake.js";
 import { dye2Keys, dye2Library } from "./support/simulated-dye2.js";
 
 // How a DYE2 recipe record maps to a Recipe, both ways (ADR-0005): its
 // fields in the Library's terms, read through the tablet's map, and the
 // record a tablet is to hold of a Recipe, under its own ids, with what DYE2
-// derives regenerated and its hot water value of its mode; and what a
-// report of a tablet's recipes changes, by slot. Through the pure module's
+// derives regenerated, its hot water value of its mode, and the steam and
+// rinse settings it mirrors; and what a report of a tablet's recipes
+// changes, by slot. Through the pure module's
 // interface. Records are DYE2 v0.1.19's, as it saved them
 // (fixtures/decaid/dye2-v0.1.19/keys.json), with made-up global ids.
 
@@ -96,7 +100,20 @@ const intake = (context: Partial<IntakeContext> = {}): IntakeContext => ({
 });
 
 const adaptive = (dye2Library()["/profiles"] as Record_[]).find((profile) => profile.id === ADAPTIVE)!.profile as Record_;
-const writing = (ids = otherIds): WriteContext => ({
+
+/** A Location's steam and rinse settings, and a Machine's own, as its Workflow holds them. */
+const LOCATION: LocationValues = {
+  "steamSettings.targetTemperature": 150,
+  "steamSettings.duration": 32,
+  "steamSettings.flow": 1.6,
+  "steamSettings.stopAtTemperature": 0,
+  "rinseData.targetTemperature": 90,
+  "rinseData.duration": 6,
+  "rinseData.flow": 6,
+};
+const OWN: LocationValues = { ...LOCATION, "steamSettings.duration": 45, "steamSettings.flow": 0.9, "rinseData.duration": 3 };
+
+const writing = (ids = otherIds, settings: LocationValues = LOCATION): WriteContext => ({
   ids,
   beanNames: new Map([[GLOBAL.ethiopia, "Fixture Ethiopia"]]),
   grinderModels: new Map([[GLOBAL.grinder, "Fixture Grinder 64"]]),
@@ -106,6 +123,7 @@ const writing = (ids = otherIds): WriteContext => ({
     [GLOBAL.puckScreen, "Fixture Puck Screen"],
   ]),
   profiles: new Map([[ADAPTIVE, adaptive]]),
+  settings,
 });
 
 /** Slot 1's content as the Library takes it in: the dial DYE2 saved, and what it names by global ids. */
@@ -233,6 +251,10 @@ describe("DYE2's recipes as Recipes", () => {
       "dashboardVariables.ratio": null,
       "dashboardVariables.brewC": 92,
       "dashboardVariables.steamMode": "time",
+      // The Location's steam time, of the recipe's steam mode, and its flush time.
+      "dashboardVariables.steamTimeS": 32,
+      "dashboardVariables.steamFlowMls": null,
+      "dashboardVariables.flushS": 6,
       "dashboardVariables.hotWaterMode": "temp",
       "dashboardVariables.hotWaterMl": null,
       "dashboardVariables.hotWaterTempC": 88,
@@ -286,14 +308,57 @@ describe("DYE2's recipes as Recipes", () => {
     // Taken back in, it changes nothing of the Recipe.
     expect(holdsRecipe(recipeView(record), written)).toBe(true);
     expect(recipeContent(recipeView(record), intake())).toEqual({ ...slot1Content, beanBatchId: GLOBAL.laterEthiopiaBatch });
-    // A barista's change of what DYE2 derives, the barista or a value of steam or flush is no edit of the Recipe.
+    // A barista's change of what DYE2 derives, the barista or a value of steam or flush is no edit of the Recipe. The steam
+    // and flush values are the settings', so the record no longer holds them as written.
     const derived = recipeView({ ...record, title: "Retitled", barista: "Someone", dashboardVariables: { ...(record.dashboardVariables as Record_), steamTimeS: 25, flushS: 3 } });
     expect(editedPaths(editedContent(recipeView(record), derived, null))).toEqual([]);
     expect(holdsRecipe(derived, written)).toBe(true);
+    expect(holdsRecord(derived, written)).toBe(false);
+    expect(holdsRecord(recipeView(record), written)).toBe(true);
     const dosed = recipeView({ ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), dose: 19 } });
     expect(editedPaths(editedContent(recipeView(record), dosed, null))).toEqual(["dashboardVariables.dose"]);
     expect(holdsRecipe(dosed, written)).toBe(false);
     expect([...EDITED_PATHS]).not.toContain("barista");
+  });
+
+  it("writes the Location's steam and flush values into a recipe, or a Machine's own while its sharing of them is off, keeping its steam mode", () => {
+    const steamAndFlush = (view: Record_) => [view["dashboardVariables.steamTimeS"], view["dashboardVariables.steamFlowMls"], view["dashboardVariables.flushS"]];
+    // At a Location: its steam time for a recipe steaming by time, its steam flow for one by flow, and its flush time.
+    const shared = mirroredValues(true, LOCATION, OWN);
+    expect(steamAndFlush(recipeRecord(slot1Content, 1, writing(otherIds, shared)))).toEqual([32, null, 6]);
+    expect(steamAndFlush(recipeRecord({ ...slot1Content, steamMode: "flow" }, 1, writing(otherIds, shared)))).toEqual([null, 1.6, 6]);
+    // A Machine whose sharing of them is off: its own Workflow's values.
+    const own = mirroredValues(false, LOCATION, OWN);
+    expect(steamAndFlush(recipeRecord(slot1Content, 1, writing(otherIds, own)))).toEqual([45, null, 3]);
+    expect(steamAndFlush(recipeRecord({ ...slot1Content, steamMode: "flow" }, 1, writing(otherIds, own)))).toEqual([null, 0.9, 3]);
+    // A recipe with no steam mode, which neither app applies steam from, holds no steam value; a setting not known yet
+    // is left out, so applying the recipe sets none of it.
+    const { steamMode: _mode, ...modeless } = slot1Content;
+    expect(steamAndFlush(recipeRecord(modeless, 1, writing(otherIds, shared)))).toEqual([null, null, 6]);
+    expect(steamAndFlush(recipeRecord(slot1Content, 1, writing(otherIds, {})))).toEqual([null, null, null]);
+    // The blank recipe DYE2 saved, its steam flow and flush 0, is written the Location's, never 0.
+    const blankContent = recipeContent(recipeView(blank), intake());
+    expect(steamAndFlush(recipeRecord(blankContent, 3, writing(otherIds, shared)))).toEqual([null, 1.6, 6]);
+    // Its steam and flush values are no part of what DYE2 embeds, nor of the Recipe.
+    expect(recipeWorkflow(recipeRecord(slot1Content, 1, writing(otherIds, shared)))).not.toHaveProperty("steamSettings");
+    expect(blankContent).not.toHaveProperty("flushS");
+  });
+
+  it("takes a changed steam or flush value in a recipe as an edit of the settings it mirrors, but not a blank one", () => {
+    const written = recipeRecord(slot1Content, 1, writing(recordedIds));
+    const changed = (variables: Record_) => {
+      const record = recordOf(written);
+      const view = recipeView({ ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), ...variables } });
+      return settingsValues(view, Object.keys(editedContent(written, view, null)));
+    };
+    expect(changed({ steamTimeS: 28, flushS: 4 })).toEqual({ "steamSettings.duration": 28, "rinseData.duration": 4 });
+    // Switched to steaming by flow, as Streamline's auto-save does, its flow is the edit.
+    expect(changed({ steamMode: "flow", steamFlowMls: 1.4 })).toEqual({ "steamSettings.flow": 1.4 });
+    // DYE2's editor saves a blank field as 0, and leaves out the steam value of the other mode: neither is an edit.
+    expect(changed({ steamTimeS: 0, flushS: 0 })).toEqual({});
+    expect(changed({ steamMode: "flow", steamTimeS: undefined, steamFlowMls: 0 })).toEqual({});
+    // A change of anything else edits no setting.
+    expect(changed({ dose: 19, hotWaterTempC: 90 })).toEqual({});
   });
 
   it("decides a report by slot: an edit of the Recipe in it, a new Recipe in an empty one, and a removal that takes one out", () => {

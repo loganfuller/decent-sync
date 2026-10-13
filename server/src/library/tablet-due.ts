@@ -111,7 +111,7 @@ export async function changesDue(
   const held: Partial<Record<keyof TabletHoldings, unknown>> = {};
   for (const kind of LIBRARY_KINDS) {
     const { holdings } = KINDS[kind];
-    offer[holdings.key] = await holdings.offered(tx, tablet.tabletId, locationId);
+    offer[holdings.key] = await holdings.offered(tx, tablet, locationId);
     held[holdings.key] = await holdings.held(tx, tablet.tabletId, locationId);
   }
   // The Location's settings first, then the clearing of the Workflow's grinder and batch as the tablet joined it: they
