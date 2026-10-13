@@ -972,7 +972,8 @@ never matched (ADR-0018).
   written but never taken in, and so is `profileSnapshot`, but that a
   record naming no `profileId`, as DYE2 saves a Profile read from the
   Workflow, names the Library Profile its `profileSnapshot` is, found as a
-  Shot's Profile is (`profileOfSql` in `shots/links.ts`). A barista or
+  Shot's Profile is (`profileOfSql` in `shots/links.ts`); a snapshot that is
+  none of the Library's changes none, and is written over with the Recipe's. A barista or
   drinker typed into a recipe is not shared: it is no field of a Recipe, and
   is written back blank. Its steam and flush values are left alone, neither
   taken in nor written; #141 mirrors the Location's settings into them.
@@ -986,9 +987,11 @@ never matched (ADR-0018).
 - **Its Grinder** is one of its Location's: a record naming another, or one
   Archived, changes none. **Its Tools** the tablet holds no record of, which
   were never written to it, stay the Recipe's whatever the tablet's record
-  names.
+  names, in the Recipe's order while the Tools are the same.
 - **Edits.** A record in a slot the map holds as a Recipe's is that
-  Recipe's, whatever global id it carries: one that differs from the record
+  Recipe's, whatever global id it carries, unless the Recipe is one of the
+  Location's that has left that slot since, as one taken out of it, when a
+  save there is in the slot as it is now, below: one that differs from the record
   known is an edit of each field of its content it changed, timed when the
   plugin first read it, merged per field (Edits, above), but for a field set
   back to its value before the server's latest write to it, as for baskets

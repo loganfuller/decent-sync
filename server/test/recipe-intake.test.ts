@@ -162,6 +162,9 @@ describe("DYE2's recipes as Recipes", () => {
     // A Profile read from the Workflow is named by its whole profile alone: it is the Library's Profile that profile is.
     expect(recipeContent(recipeView(slot2), intake({ snapshotProfile: "profile:39e939592679fb194706" })).profileId).toBe("profile:39e939592679fb194706");
     expect(recipeContent(recipeView(slot2), intake())).not.toHaveProperty("profileId");
+    // One that is none of the Library's changes no Recipe's Profile; a record naming no profile at all clears it.
+    expect(libraryValues(recipeView(slot2), ["profileSnapshot"], { profileId: ADAPTIVE }, intake())).toEqual({});
+    expect(libraryValues(recipeView(blank), ["profileId"], { profileId: ADAPTIVE }, intake())).toEqual({ profileId: null });
     // A Bean with no batch at the Location gives the Recipe none; a Grinder of another Location, or one the map does not
     // hold, is none of its; and a Tool the map does not hold is left out.
     expect(recipeContent(recipeView(slot2), intake())).toMatchObject({ beanId: GLOBAL.brazil, basketId: GLOBAL.basket20, toolIds: [GLOBAL.puckScreen] });
@@ -199,6 +202,9 @@ describe("DYE2's recipes as Recipes", () => {
       toolIds: [GLOBAL.puckScreen, GLOBAL.wdtTool],
       toolAttributes: current.toolAttributes,
     });
+    // The same Tools, some kept, keep the Recipe's order, so they are no edit.
+    const same = { toolIds: [GLOBAL.wdtTool, GLOBAL.puckScreen] };
+    expect(libraryValues(other, ["dashboardVariables.equipmentIds"], same, intake({ ids: otherIds }))).toEqual({ toolIds: same.toolIds });
   });
 
   it("writes a Recipe to a tablet under its own ids, with its full Profile, a blank barista, its hot water value of its mode, and what DYE2 derives", () => {
@@ -310,5 +316,14 @@ describe("DYE2's recipes as Recipes", () => {
     // A tablet still holding the slot's Recipe in another slot, written first, does not take the slot's new record as its.
     const elsewhere: MappedRecipe = { ...known, itemId: other, localId: "2", record: slot2 };
     expect(planRecipeIntake([at(slot2), saved], [elsewhere], slots)).toEqual([]);
+    // A save in a slot whose Recipe has left it since, as taken out of it, is a save in that slot as it is now: a new
+    // Recipe in it while it is empty, or an edit of the Recipe there now. Unchanged, it is that Recipe's record still.
+    const left = new Set([GLOBAL.recipe, other]);
+    const unslotted = new Map([["3", other]]);
+    expect(planRecipeIntake([edited], [known], unslotted, undefined, left)).toEqual([{ kind: "add", reported: edited }]);
+    expect(planRecipeIntake([edited], [known], new Map([["1", other]]), undefined, left)).toEqual([{ kind: "edit", itemId: other, reported: edited }]);
+    expect(planRecipeIntake([at(slot1)], [known], unslotted, undefined, left)).toEqual([]);
+    // Another Location's, as before a move, it stays that Recipe's.
+    expect(planRecipeIntake([edited], [known], unslotted, undefined, new Set([other]))).toEqual([{ kind: "update", itemId: GLOBAL.recipe, reported: edited }]);
   });
 });

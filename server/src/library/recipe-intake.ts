@@ -189,10 +189,12 @@ export interface IntakeContext {
  *   it is of that Bean, and otherwise that Bean's batch most recently added
  *   at the Location, or none (ADR-0005);
  * - its Profile, by `profileId`, or else the Library Profile its
- *   `profileSnapshot` is, as DYE2 saves one read from the Workflow;
+ *   `profileSnapshot` is, as DYE2 saves one read from the Workflow, a
+ *   snapshot that is none of the Library's changing none;
  * - its Grinder, only one of its Location's, a change to any other being
  *   none; its Basket; and its Tools with their attributes, keeping those of
- *   the Recipe's the tablet holds no record of, which it was never written;
+ *   the Recipe's the tablet holds no record of, which it was never written,
+ *   in the Recipe's order where the Tools are the same;
  * - its hot water value of the mode the record names, a value the record
  *   leaves out, as DYE2 keeps one, changing none;
  * - and the rest of its dial as it is.
@@ -211,7 +213,9 @@ export function libraryValues(view: Readonly<RecipeView>, fields: Iterable<strin
     values.beanBatchId = kept ? current.beanBatchId : beanId === null ? null : (context.latestBatches.get(beanId) ?? null);
   }
   if (changed.has("profileId") || (changed.has("profileSnapshot") && typeof view.profileId !== "string")) {
-    values.profileId = typeof view.profileId === "string" && view.profileId !== "" ? view.profileId : context.snapshotProfile;
+    const named = typeof view.profileId === "string" && view.profileId !== "" ? view.profileId : context.snapshotProfile;
+    // A profile read from the Workflow that is no Library Profile names none the Library knows: the Recipe's stays.
+    if (named !== null || !isObject(view.profileSnapshot)) values.profileId = named;
   }
   // DYE2 keeps one hot water value, of its mode; the one it leaves out stays as it is.
   if (changed.has(`${DV}.hotWaterMl`) && view[`${DV}.hotWaterMl`] !== null) values.hotWaterVolume = view[`${DV}.hotWaterMl`];
@@ -230,8 +234,12 @@ export function libraryValues(view: Readonly<RecipeView>, fields: Iterable<strin
   if (changed.has(`${DV}.equipmentIds`)) {
     const reported = Array.isArray(view[`${DV}.equipmentIds`]) ? (view[`${DV}.equipmentIds`] as unknown[]) : [];
     const named = reported.flatMap((local) => (typeof local === "string" ? [ids.item("tool", local)] : [])).filter((id): id is string => id !== undefined);
-    const kept = (Array.isArray(current.toolIds) ? (current.toolIds as unknown[]) : []).filter((id): id is string => typeof id === "string" && unheld(id));
-    values.toolIds = [...new Set([...named, ...kept])];
+    const currentTools = (Array.isArray(current.toolIds) ? (current.toolIds as unknown[]) : []).filter((id): id is string => typeof id === "string");
+    const kept = currentTools.filter(unheld);
+    const tools = [...new Set([...named, ...kept])];
+    // With some kept, the record cannot say where they go: the same Tools keep the Recipe's order.
+    const same = kept.length > 0 && tools.length === currentTools.length && tools.every((id) => currentTools.includes(id));
+    values.toolIds = same ? currentTools : tools;
   }
   if (changed.has(`${DV}.equipmentCustom`)) {
     const reported = isObject(view[`${DV}.equipmentCustom`]) ? (view[`${DV}.equipmentCustom`] as Record<string, unknown>) : {};
@@ -420,7 +428,10 @@ export interface MappedRecipe {
  * recipe's id on a tablet is its Recipe Slot (ADR-0005), against the
  * Location's slotted Recipes (`slots`, each Recipe by its slot's id). A
  * record the map holds by its slot stays that Recipe's: one that differs
- * from the record known is the barista's edit of it. Any other record is in
+ * from the record known is the barista's edit of it, unless that Recipe is
+ * one of the Location's (`own`) that is no longer in that slot, as one taken
+ * out of it since, when the save is in the slot as it is now, as a record
+ * the map does not hold. Any other record is in
  * the slot of the Location's Recipe there, if any: the record carrying its
  * global id is its record, as when the answer to its write was lost, and
  * any other was saved in that slot on the tablet, an edit of it; unless the
@@ -436,6 +447,7 @@ export function planRecipeIntake(
   mapped: readonly MappedRecipe[],
   slots: ReadonlyMap<string, string>,
   listed: ReadonlySet<string> = new Set(reported.map((record) => record.localId)),
+  own: ReadonlySet<string> = new Set(slots.values()),
 ): RecipeIntakeStep[] {
   const byLocalId = new Map(mapped.map((record) => [record.localId, record]));
   /** The Recipes the tablet holds a record of that it still lists. */
@@ -443,11 +455,12 @@ export function planRecipeIntake(
   const steps: RecipeIntakeStep[] = [];
   for (const record of reported) {
     const mine = byLocalId.get(record.localId);
-    if (mine) {
+    const slotted = slots.get(record.localId);
+    // That Recipe's record, unless it is a save in a slot the Location's Recipe has left: one unchanged the writer removes.
+    if (mine && (sameValue(mine.record, record.record) || !own.has(mine.itemId) || mine.itemId === slotted)) {
       if (!sameValue(mine.record, record.record)) steps.push({ kind: "update", itemId: mine.itemId, reported: record });
       continue;
     }
-    const slotted = slots.get(record.localId);
     if (slotted === undefined) {
       steps.push({ kind: "add", reported: record });
     } else if (!held.has(slotted)) {

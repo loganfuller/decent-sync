@@ -219,9 +219,9 @@ export async function takeInRecipes(
   const left = await screenLeftOut(tx, tablet.tabletId, "recipe", reportedNew, (record) => ({ localId: record.localId, setAside: false }), listed, mappedIds, joining, true);
   const kept = new Set(left.kept);
   const reported = screened.kept.filter((record) => mappedIds.has(record.localId) || kept.has(record));
-  const slotted = await tx.$queryRaw<{ id: string; slot: number }[]>`
-    SELECT id::text AS id, slot FROM recipes WHERE location_id = ${locationId}::uuid AND slot IS NOT NULL`;
-  const steps = planRecipeIntake(reported, mapped, new Map(slotted.map((recipe) => [String(recipe.slot), recipe.id])), listed);
+  const own = await tx.$queryRaw<{ id: string; slot: number | null }[]>`SELECT id::text AS id, slot FROM recipes WHERE location_id = ${locationId}::uuid`;
+  const slots = new Map(own.flatMap((recipe) => (recipe.slot === null ? [] : [[String(recipe.slot), recipe.id] as const])));
+  const steps = planRecipeIntake(reported, mapped, slots, listed, new Set(own.map((recipe) => recipe.id)));
   if (steps.length === 0) {
     if (screened.due || left.due) await notify(tx, "library_changes", locationId);
     return takenInAt;
