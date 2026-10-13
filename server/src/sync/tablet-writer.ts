@@ -226,6 +226,17 @@ export class TabletWriter {
   }
 
   /**
+   * The plugin found a record of the list changed since it was last read as
+   * it was asked to remove it (RECORD_CHANGED), and is asked to report its
+   * lists again: nothing more is written until that report is taken in, so
+   * no write planned without the change, such as the moved Recipe's in its
+   * new slot, leaves the changed record behind.
+   */
+  awaitReport(list: TakenInList): void {
+    this.awaitingLists.add(list);
+  }
+
+  /**
    * A report of one of the tablet's lists (LIBRARY_LISTS) from this
    * connection was stored, and taken in there (`standing`), or nowhere, as
    * its Machine was capture-only; or, undefined, not taken in, as when it was
@@ -370,7 +381,7 @@ export class TabletWriter {
       if ("remove" in due) {
         // Its answer removes it from what the tablet holds, so it is not due again once removed.
         const outcome = await this.ask({
-          write: { type: "remove", id: randomUUID(), kind: due.kind, globalId: due.globalId, localId: due.localId },
+          write: { type: "remove", id: randomUUID(), kind: due.kind, globalId: due.globalId, localId: due.localId, expected: due.expected },
           seen: null,
           contentSeen: null,
           change,

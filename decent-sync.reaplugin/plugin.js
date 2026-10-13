@@ -333,6 +333,7 @@ var __decentSync = (() => {
     return parts;
   }
   var ANOTHER_ITEMS_RECORD = "The record carries another item's global id";
+  var RECORD_CHANGED = "The record changed since the plugin last read the list";
   var SHOTS_STILL_TO_READ = "More Shots are still to be sent than a delete reads; ask again once they are";
   var MAX_REFUSAL_LENGTH = 1e3;
   function encode(message) {
@@ -432,6 +433,7 @@ var __decentSync = (() => {
           fields.string("kind", { nonEmpty: true });
           fields.itemId("globalId", object3.kind);
           fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+          if (object3.expected !== void 0) fields.objectField("expected");
         });
       case "leaveOut":
         return check(object3, "leaveOut", (fields) => {
@@ -1465,6 +1467,7 @@ var __decentSync = (() => {
     if (index === -1) return removed;
     const carried = dye2GlobalIdOf(list.records[index]);
     if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
+    if (remove.type === "remove" && remove.expected !== void 0 && !sameValue(list.records[index], remove.expected)) return refused(remove, null, RECORD_CHANGED);
     const posted = await postList(path, list.records.filter((_, at) => at !== index));
     return posted.ok ? removed : refused(remove, posted.status, posted.text);
   }

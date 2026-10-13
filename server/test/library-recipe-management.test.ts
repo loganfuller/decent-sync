@@ -58,9 +58,9 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
   });
 
   /** The built plugin on a tablet of the Machine, polling every 5 s (0.1 s here), its Library and DYE2's lists empty. */
-  function load(machine: CreatedMachine, serial: number, instance: TestServer, stallUpload?: (frame: unknown) => boolean): SimulatedTablet {
+  function load(machine: CreatedMachine, serial: number, instance: TestServer, stallUpload?: (frame: unknown) => boolean, pollSeconds = 5): SimulatedTablet {
     const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
+      settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: pollSeconds },
       stallUpload,
       api: { ...derivedDe1Pro({ serial: String(serial) }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS },
       timeScale: 50,
@@ -543,6 +543,36 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
       expect((slotOn(tablet, 2)?.dashboardVariables as Record_ | undefined)?.dose).toBe(19);
     }
     expect((await send<{ conflicts: unknown[] }>("GET", `/recipes/${two.id}/conflicts`)).conflicts).toEqual([]);
+  });
+
+  it("keeps an edit a tablet has not reported yet when its Recipe is moved, or its Basket hidden, before the plugin reads its lists again", async () => {
+    const lab = await api.createLocation("Unreported lab", "America/Chicago");
+    const machine = await api.createMachine("Unreported lab 1", lab.id);
+    // Reads its lists every 10 minutes (12 s here), so a change made on it waits to be reported.
+    const tablet = load(machine, 45121, server, undefined, 600);
+    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    const two = await create(lab, 2, { name: "Unreported Two", dose: 18 });
+    const basket = (await send<{ basket: { id: string } }>("POST", "/baskets", { locationId: lab.id, content: { name: "Unreported 20g", notes: "v1" } }, api, 201)).basket;
+    await poll(() => slotsOn(tablet)).toEqual(["2:Unreported Two"]);
+    await poll(() => (dye2List(tablet, "baskets") as Record_[]).find((record) => record[GLOBAL_ID_KEY] === basket.id)?.notes).toBe("v1");
+
+    // A barista saves a new dose, then Staff move the Recipe before the plugin has read it: the removal from slot 2 is
+    // refused as the record changed, its list read again, and the dose taken in before it is moved.
+    const recipes = (dye2List(tablet, "recipes") as Record_[]).map((record) =>
+      record.id === "2" ? { ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), dose: 21 } } : record,
+    );
+    expect((await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", recipes)).status).toBe(200);
+    expect((await move(two.id, 4)).slot).toBe(4);
+    await poll(async () => (await recipe(two.id)).content.dose).toBe(21);
+    await poll(() => slotsOn(tablet)).toEqual(["4:Unreported Two"]);
+    expect((slotOn(tablet, 4)!.dashboardVariables as Record_).dose).toBe(21);
+
+    // The same for a Basket's notes changed just before it is hidden at the Location.
+    const baskets = (dye2List(tablet, "baskets") as Record_[]).map((record) => (record[GLOBAL_ID_KEY] === basket.id ? { ...record, notes: "v2 on the tablet" } : record));
+    expect((await tablet.callApi("POST", "/store/dye2.reaplugin/baskets", baskets)).status).toBe(200);
+    expect((await api.call("PUT", `/baskets/${basket.id}/locations/${lab.id}`, { shown: false })).status).toBe(200);
+    await poll(async () => (await send<{ basket: { content: Record_ } }>("GET", `/baskets/${basket.id}`)).basket.content.notes).toBe("v2 on the tablet");
+    await poll(() => (dye2List(tablet, "baskets") as Record_[]).some((record) => record[GLOBAL_ID_KEY] === basket.id)).toBe(false);
   });
 
   it("Archives a Recipe, which leaves its slot, restores it unslotted, and refuses to slot it while Archived", async () => {

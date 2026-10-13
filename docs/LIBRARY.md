@@ -1428,8 +1428,17 @@ tablet's list of batches to show it does not.
   way the global id goes in the record's own field, and the list is posted
   back whole (`POST /store/dye2.reaplugin/{key}`), only where it changed. To
   remove one (`remove`), it leaves the record out of the list and posts it
-  back, unless it carries another item's global id, and answers `removed`,
-  as it does for one already gone. A record of one an Admin hard-deleted is
+  back, unless it carries another item's global id, or differs from the
+  record the server's map holds of it, which the removal carries
+  (`expected`), as one a barista changed since the plugin last read the list
+  (`RECORD_CHANGED`), and answers `removed`, as it does for one already
+  gone. Refused as changed, the server asks the plugin for its lists again
+  (`requestCollections`) and writes nothing more to the tablet until the
+  report of that list is taken in, so the change is kept, as an edit of the
+  Recipe moved or of the Basket or Tool hidden, before the removal is asked
+  again with the record as changed: an edit saved on a tablet just before
+  Staff move a Recipe, take it out of its slot, Archive it, or hide a Basket
+  or Tool there, is not lost with the record. A record of one an Admin hard-deleted is
   removed the same way, and one the Library leaves out too, answered as set
   aside. Each is timed by the plugin's clock, as DYE2's records carry none.
   Its next read of the list it wrote is reported whatever it holds, so a
