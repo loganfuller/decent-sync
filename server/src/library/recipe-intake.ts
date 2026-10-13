@@ -192,9 +192,10 @@ export interface IntakeContext {
  *   `profileSnapshot` is, as DYE2 saves one read from the Workflow, a
  *   snapshot that is none of the Library's changing none;
  * - its Grinder, only one of its Location's, a change to any other being
- *   none; its Basket; and its Tools with their attributes, keeping those of
- *   the Recipe's the tablet holds no record of, which it was never written,
- *   in the Recipe's order where the Tools are the same;
+ *   none; its Basket, keeping the Recipe's where the tablet holds no record
+ *   of it and names none; and its Tools with their attributes, keeping those
+ *   of the Recipe's the tablet holds no record of, which it was never
+ *   written, where they were;
  * - its hot water value of the mode the record names, a value the record
  *   leaves out, as DYE2 keeps one, changing none;
  * - and the rest of its dial as it is.
@@ -227,19 +228,21 @@ export function libraryValues(view: Readonly<RecipeView>, fields: Iterable<strin
   }
   if (changed.has(`${DV}.basketId`)) {
     const local = view[`${DV}.basketId`];
-    values.basketId = typeof local === "string" ? (ids.item("basket", local) ?? null) : null;
+    const basketId = typeof local === "string" ? (ids.item("basket", local) ?? null) : null;
+    // A Basket the tablet holds no record of was never written to it, so a record naming none cannot have dropped it.
+    const unheldBasket = typeof current.basketId === "string" && ids.local("basket", current.basketId) === undefined;
+    if (basketId !== null || !unheldBasket) values.basketId = basketId;
   }
-  // Tools the tablet holds no record of were never written to it, so its record cannot name them: they stay.
+  // Tools the tablet holds no record of were never written to it, so its record cannot name them: they stay, where they were.
   const unheld = (toolId: string) => ids.local("tool", toolId) === undefined;
   if (changed.has(`${DV}.equipmentIds`)) {
     const reported = Array.isArray(view[`${DV}.equipmentIds`]) ? (view[`${DV}.equipmentIds`] as unknown[]) : [];
     const named = reported.flatMap((local) => (typeof local === "string" ? [ids.item("tool", local)] : [])).filter((id): id is string => id !== undefined);
     const currentTools = (Array.isArray(current.toolIds) ? (current.toolIds as unknown[]) : []).filter((id): id is string => typeof id === "string");
-    const kept = currentTools.filter(unheld);
-    const tools = [...new Set([...named, ...kept])];
-    // With some kept, the record cannot say where they go: the same Tools keep the Recipe's order.
-    const same = kept.length > 0 && tools.length === currentTools.length && tools.every((id) => currentTools.includes(id));
-    values.toolIds = same ? currentTools : tools;
+    // The tablet's Tools, in its order, fill the places of the Tools it held; those it did not hold keep theirs.
+    const queue = [...new Set(named)].filter((id) => !unheld(id));
+    const tools = currentTools.flatMap((id) => (unheld(id) ? [id] : queue.length > 0 ? [queue.shift()!] : []));
+    values.toolIds = [...new Set([...tools, ...queue])];
   }
   if (changed.has(`${DV}.equipmentCustom`)) {
     const reported = isObject(view[`${DV}.equipmentCustom`]) ? (view[`${DV}.equipmentCustom`] as Record<string, unknown>) : {};
@@ -402,7 +405,11 @@ export function holdsRecipe(view: Readonly<RecipeView>, written: Readonly<Recipe
 export type RecipeIntakeStep =
   /** The tablet's record in a slot the map holds as a Recipe's differs from the one known: the barista's edit of that Recipe. */
   | { kind: "update"; itemId: string; reported: ReportedRecipe }
-  /** The tablet holds the Location's Recipe in its slot as the server wrote it, which the map did not know, as after a lost answer. */
+  /**
+   * The tablet holds the Recipe's record, which is written over, not taken in: the Location's Recipe in its slot as the
+   * server wrote it, which the map did not know, as after a lost answer; or a record of it the map holds that carries
+   * another item's global id, or is of another Location's Recipe.
+   */
   | { kind: "map"; itemId: string; reported: ReportedRecipe }
   /** A record the map does not hold in a slot of the Location's Recipe: saved there on the tablet, an edit of that Recipe, merged per field with Conflicts. */
   | { kind: "edit"; itemId: string; reported: ReportedRecipe }
@@ -428,10 +435,12 @@ export interface MappedRecipe {
  * recipe's id on a tablet is its Recipe Slot (ADR-0005), against the
  * Location's slotted Recipes (`slots`, each Recipe by its slot's id). A
  * record the map holds by its slot stays that Recipe's: one that differs
- * from the record known is the barista's edit of it, unless that Recipe is
- * one of the Location's (`own`) that is no longer in that slot, as one taken
- * out of it since, when the save is in the slot as it is now, as a record
- * the map does not hold. Any other record is in
+ * from the record known is the barista's edit of it, but one carrying
+ * another item's global id, as one a backup restored, or of another
+ * Location's Recipe, is written over; and unless that Recipe is one of the
+ * Location's (`own`) that is no longer in that slot, as one taken out of it
+ * since, when the save is in the slot as it is now, as a record the map does
+ * not hold. Any other record is in
  * the slot of the Location's Recipe there, if any: the record carrying its
  * global id is its record, as when the answer to its write was lost, and
  * any other was saved in that slot on the tablet, an edit of it; unless the
@@ -458,7 +467,11 @@ export function planRecipeIntake(
     const slotted = slots.get(record.localId);
     // That Recipe's record, unless it is a save in a slot the Location's Recipe has left: one unchanged the writer removes.
     if (mine && (sameValue(mine.record, record.record) || !own.has(mine.itemId) || mine.itemId === slotted)) {
-      if (!sameValue(mine.record, record.record)) steps.push({ kind: "update", itemId: mine.itemId, reported: record });
+      if (sameValue(mine.record, record.record)) continue;
+      // Another Location's Recipe, or a record carrying another item's global id, as one a backup restored, is no edit of
+      // it: it is written over.
+      const foreign = !own.has(mine.itemId) || (record.globalId !== null && record.globalId !== mine.itemId);
+      steps.push({ kind: foreign ? "map" : "update", itemId: mine.itemId, reported: record });
       continue;
     }
     if (slotted === undefined) {

@@ -366,18 +366,20 @@ export async function recordRecipeWritten(
     // A field set back by a stale save, or a write lost, that no longer holds the Recipe's value, which is written again.
     let stale = false;
     let answeredBefore: { beforeWrite?: Record<string, unknown> | null } = {};
+    // A Recipe of another Location than the tablet's now, as before its writer removes it after a move, takes no edit there.
+    const here = item.locationId !== null && item.locationId === locationId;
     if (known) {
       const answered = answeredEquipment(recipeView(known.record), view, written, known.beforeWrite, await recordFor(tx, ids, content, localId));
       const paths = editedPaths(answered.values);
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
-      const values = paths.length === 0 ? {} : libraryValues(view, paths, content, await context(view));
+      const values = paths.length === 0 || !here ? {} : libraryValues(view, paths, content, await context(view));
       edited = await editContent(tx, ref, { values, at, seenAt: known.contentSeenAt }, source);
       const now = (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content;
       stale = answered.stale && !holdsRecipe(view, await recordFor(tx, ids, now, localId));
       answeredBefore = { beforeWrite: answered.beforeWrite };
-    } else if (linked && (await forgetLeftOut(tx, tablet.tabletId, localId))) {
-      // A record the Library left out as the tablet joined, not yet removed: the Location's Recipe wins, and is written over
-      // it, so the record has not seen its content.
+    } else if (linked && (!here || (await forgetLeftOut(tx, tablet.tabletId, localId)))) {
+      // A record the Library left out as the tablet joined, not yet removed, or one at another Location than the Recipe's:
+      // the Recipe is written over it, so the record has not seen its content.
       edited = { writesDue: true, lost: true };
     } else if (linked) {
       // Saved in the slot before the tablet reported it: each field it holds otherwise is its edit, merged with Conflicts.

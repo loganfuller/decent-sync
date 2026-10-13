@@ -195,16 +195,24 @@ describe("DYE2's recipes as Recipes", () => {
       hotWaterMode: "temp",
       hotWaterTemperature: 88,
     });
-    // A tablet that holds no record of the WDT Tool could never name it: picking another Tool keeps it.
+    // A tablet that holds no record of the WDT Tool could never name it: picking another Tool keeps it, where it was.
     const other = recipeView({ ...slot1, dashboardVariables: { ...(slot1.dashboardVariables as Record_), equipmentIds: ["other-puck-screen"], equipmentCustom: {} } });
     const current = { toolIds: [GLOBAL.wdtTool], toolAttributes: { [GLOBAL.wdtTool]: [{ key: "Needles", value: "12" }] } };
     expect(libraryValues(other, ["dashboardVariables.equipmentIds", "dashboardVariables.equipmentCustom"], current, intake({ ids: otherIds }))).toEqual({
-      toolIds: [GLOBAL.puckScreen, GLOBAL.wdtTool],
+      toolIds: [GLOBAL.wdtTool, GLOBAL.puckScreen],
       toolAttributes: current.toolAttributes,
     });
-    // The same Tools, some kept, keep the Recipe's order, so they are no edit.
-    const same = { toolIds: [GLOBAL.wdtTool, GLOBAL.puckScreen] };
+    // The same Tools, some kept, keep the Recipe's order, so they are no edit; a Tool it held, taken off, goes.
+    const same = { toolIds: [GLOBAL.puckScreen, GLOBAL.wdtTool] };
     expect(libraryValues(other, ["dashboardVariables.equipmentIds"], same, intake({ ids: otherIds }))).toEqual({ toolIds: same.toolIds });
+    const none = recipeView({ ...slot1, dashboardVariables: { ...(slot1.dashboardVariables as Record_), equipmentIds: [] } });
+    expect(libraryValues(none, ["dashboardVariables.equipmentIds"], same, intake({ ids: otherIds }))).toEqual({ toolIds: [GLOBAL.wdtTool] });
+    // A Basket it holds no record of stays the Recipe's while its record names none; one it names replaces it.
+    const basketless = recipeView({ ...slot1, dashboardVariables: { ...(slot1.dashboardVariables as Record_), basketId: null } });
+    expect(libraryValues(basketless, ["dashboardVariables.basketId"], { basketId: GLOBAL.basket20 }, intake({ ids: otherIds }))).toEqual({});
+    expect(libraryValues(basketless, ["dashboardVariables.basketId"], { basketId: GLOBAL.basket18 }, intake({ ids: otherIds }))).toEqual({ basketId: null });
+    const picked = recipeView({ ...slot1, dashboardVariables: { ...(slot1.dashboardVariables as Record_), basketId: "other-basket" } });
+    expect(libraryValues(picked, ["dashboardVariables.basketId"], { basketId: GLOBAL.basket20 }, intake({ ids: otherIds }))).toEqual({ basketId: GLOBAL.basket18 });
   });
 
   it("writes a Recipe to a tablet under its own ids, with its full Profile, a blank barista, its hot water value of its mode, and what DYE2 derives", () => {
@@ -323,7 +331,10 @@ describe("DYE2's recipes as Recipes", () => {
     expect(planRecipeIntake([edited], [known], unslotted, undefined, left)).toEqual([{ kind: "add", reported: edited }]);
     expect(planRecipeIntake([edited], [known], new Map([["1", other]]), undefined, left)).toEqual([{ kind: "edit", itemId: other, reported: edited }]);
     expect(planRecipeIntake([at(slot1)], [known], unslotted, undefined, left)).toEqual([]);
-    // Another Location's, as before a move, it stays that Recipe's.
-    expect(planRecipeIntake([edited], [known], unslotted, undefined, new Set([other]))).toEqual([{ kind: "update", itemId: GLOBAL.recipe, reported: edited }]);
+    // Another Location's, as before a move, it stays that Recipe's record, but is no edit of it: it is written over. So is
+    // one carrying another item's global id, as a backup restored.
+    expect(planRecipeIntake([edited], [known], unslotted, undefined, new Set([other]))).toEqual([{ kind: "map", itemId: GLOBAL.recipe, reported: edited }]);
+    const restored = at({ ...slot1, name: "Restored", [GLOBAL_ID_KEY]: other });
+    expect(planRecipeIntake([restored], [known], slots)).toEqual([{ kind: "map", itemId: GLOBAL.recipe, reported: restored }]);
   });
 });
