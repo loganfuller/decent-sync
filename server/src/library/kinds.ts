@@ -7,6 +7,7 @@ import {
   WORKFLOW_KIND,
   type WrittenKind,
   beanMatchKey,
+  equipmentMatchKey,
   isLibraryKind,
 } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
@@ -15,6 +16,8 @@ import { shotLinkedSql, stepsKeySql } from "../shots/links.js";
 import { batchContent } from "./batch-intake.js";
 import { recordBatchWritten, takeInBatches } from "./bean-batches.js";
 import { beanContent } from "./bean-intake.js";
+import { type EquipmentKind, recordEquipmentWritten, takeInEquipment } from "./equipment.js";
+import { equipmentContent } from "./equipment-intake.js";
 import { recordBeanWritten, takeInBeans } from "./beans.js";
 import { grinderContent } from "./grinder-intake.js";
 import { recordGrinderWritten, takeInGrinders } from "./grinders.js";
@@ -25,10 +28,13 @@ import {
   type LocationOffer,
   type OfferedBean,
   type OfferedGrinder,
+  type PlannedRemove,
   type PlannedWrite,
+  type ShownEquipment,
   type ShownProfile,
   type TabletHoldings,
   beanWrites,
+  equipmentWrites,
   grinderWrites,
   profileWrites,
 } from "./holdings.js";
@@ -37,21 +43,21 @@ import type { FieldType } from "./item-input.js";
 import { recordWorkflowCleared } from "./joining.js";
 import { isObject } from "./listed.js";
 import { recordSettingsWritten } from "./location-settings.js";
-import { addBatchAt, enterRemainingWeight, finishBatchAt, showProfileAt } from "./location-state.js";
+import { addBatchAt, enterRemainingWeight, finishBatchAt, showAt, showProfileAt } from "./location-state.js";
 import { type FieldEdits, latestDecision, readFieldEdits } from "./merge.js";
 import { profileText } from "./profile-intake.js";
 import { recordProfileWritten, takeInProfiles } from "./profiles.js";
 
 // Each kind the server writes to tablets, described once (`LIBRARY.md`,
-// Adding a Library kind): the Library's kinds, Beans, Bean Batches, Grinders
-// and Profiles, in the order of LIBRARY_ITEM_KINDS (protocol/), and a
+// Adding a Library kind): the Library's kinds, Beans, Bean Batches, Grinders,
+// Profiles, Baskets and Tools, in the order of LIBRARY_ITEM_KINDS (protocol/), and a
 // Location's steam and rinse settings and the clearing of a
 // Workflow's grinder and batch. What the server does to every kind alike
 // (its versions and Conflicts, the edits of its content, what a tablet is
 // due, its hard deletes, what a joining tablet brings) reads each kind's
 // table, columns, content and SQL from here, and what only one kind does is
 // in its own modules (beans.ts, bean-batches.ts, grinders.ts, profiles.ts,
-// location-settings.ts and joining.ts), which this binds to it.
+// equipment.ts, location-settings.ts and joining.ts), which this binds to it.
 //
 // This imports those modules, which import what reads this: each binds
 // them in a function, called once every module has loaded, and none of them
@@ -191,7 +197,7 @@ export interface LibraryKindDescription extends VersionedKindDescription {
   /** Its part of what a Location offers and a tablet holds (tablet-due.ts). */
   holdings: HoldingsReader;
   /** The writes that bring a tablet's records of it to what its Location offers (holdings.ts); absent for a kind planned with the kind its records are made under, as a batch with its Bean. */
-  plan?(offer: LocationOffer, held: TabletHoldings): PlannedWrite[];
+  plan?(offer: LocationOffer, held: TabletHoldings): (PlannedWrite | PlannedRemove)[];
   /** A query finding whether the Location offers any item of it, but those every tablet has, which a joining tablet does not bring (left-out.ts). */
   offersAnySql(locationId: string): Prisma.Sql;
   /** The Locations whose state of these items a hard delete changes, as `id` text. */
@@ -567,7 +573,101 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     recordWritten: (prisma, tablet, answer) =>
       recordProfileWritten(prisma, tablet, answer.globalId, answer.written, answer.record, answer.updatedAt, answer.seen, answer.contentSeen),
   },
+  basket: equipmentKind("basket", "Basket", { table: "baskets", map: "tablet_baskets", column: "basket_id", shown: "basket_locations" }),
+  tool: equipmentKind("tool", "Tool", { table: "tools", map: "tablet_tools", column: "tool_id", shown: "tool_locations" }),
 };
+
+/**
+ * A kind DYE2 keeps in a list of Decaid's store, Baskets or Tools (ADR-0005):
+ * in the Library, and shown or hidden at each Location as a Profile is
+ * (ADR-0008), its records carrying their global id in a top-level field of
+ * their own. Neither belongs to a Location, and neither is set in the
+ * management interface yet, nor named by Shots the server links.
+ */
+function equipmentKind(
+  kind: EquipmentKind,
+  name: string,
+  tables: { table: string; map: string; column: string; shown: string },
+): LibraryKindDescription {
+  const table = Prisma.raw(tables.table);
+  const map = Prisma.raw(tables.map);
+  const column = Prisma.raw(tables.column);
+  const shown = Prisma.raw(tables.shown);
+  const shownHere = (locationId: string) => Prisma.sql`
+    JOIN ${shown} AS here ON here.${column} = items.id AND here.location_id = ${locationId}::uuid AND here.shown`;
+  return {
+    name,
+    list: LIBRARY_ITEM_KINDS[kind].list,
+    table: tables.table,
+    idType: "uuid",
+    map: { table: tables.map, column: tables.column },
+    carriesGlobalId: true,
+    belongsToLocation: false,
+    archivedIsContent: false,
+    editedIn: null,
+    values: (content) => content,
+    recordValues: (record) => equipmentContent(record),
+    keptColumns: (content) => (typeof content.name === "string" ? Prisma.sql`, match_key = ${equipmentMatchKey(content.name)}` : Prisma.empty),
+    editable: null,
+    holdings: {
+      key: kind === "basket" ? "baskets" : "tools",
+      offered: async (tx, _tabletId, locationId) =>
+        (
+          await tx.$queryRaw<(Omit<ShownEquipment, "contentDecidedAt"> & Edited)[]>`
+            SELECT items.id::text AS id, items.content, here.decided_at AS "decidedAt", items.field_edits AS "fieldEdits"
+            FROM ${table} AS items ${shownHere(locationId)}
+            WHERE NOT items.archived ORDER BY items.created_at, items.id`
+        ).map(edited),
+      held: async (tx, tabletId, locationId) =>
+        (
+          await tx.$queryRaw<HeldRow[]>`
+            SELECT held.${column}::text AS "itemId", held.local_id AS "localId", held.record, here.decided_at AS "decidedAt",
+              items.content, items.field_edits AS "fieldEdits"
+            FROM ${map} AS held
+            JOIN ${table} AS items ON items.id = held.${column}
+            LEFT JOIN ${shown} AS here ON here.${column} = held.${column} AND here.location_id = ${locationId}::uuid
+            WHERE held.tablet_id = ${tabletId}::uuid ORDER BY held.${column}`
+        ).map((row) => heldRecord(row)),
+    },
+    plan: (offer, held) => equipmentWrites(kind, offer, held),
+    offersAnySql: (locationId) => Prisma.sql`SELECT 1 FROM ${table} AS items ${shownHere(locationId)} WHERE NOT items.archived LIMIT 1`,
+    stateLocationsSql: (ids) => Prisma.sql`SELECT location_id::text AS id FROM ${shown} WHERE ${column} = ANY(${ids}::uuid[])`,
+    // No Shot is linked to one yet, nor read for the ids DYE2 records: until it is, none is hard-deleted, as one may be named.
+    shotsNameSql: () => Prisma.sql`true`,
+    namedAs: `this ${name}`,
+    undeletable: async () => null,
+    keepDeletion: (tx, id) => keepRecordDeletions(tx, kind, id),
+    deleteHeldSql: () => Prisma.sql`false`,
+    state: {
+      fields: ["shown"],
+      current: async (db, wanted) => {
+        const rows = await db.$queryRaw<{ itemId: string; locationId: string; shown: boolean; versionId: string | null }[]>`
+          SELECT ${column}::text AS "itemId", location_id::text AS "locationId", shown, version_id::text AS "versionId"
+          FROM ${shown}
+          WHERE (${column}, location_id) IN (SELECT * FROM unnest(${uuidsOf(wanted, "itemId")}::uuid[], ${uuidsOf(wanted, "locationId")}::uuid[]))`;
+        const states = new Map(rows.map((row) => [`${row.itemId}/${row.locationId}`, row]));
+        // One its Location never decided is not shown there.
+        return wanted.map(({ itemId, locationId }) => {
+          const here = states.get(`${itemId.toLowerCase()}/${locationId.toLowerCase()}`);
+          return { value: here?.shown ?? false, versionId: here?.versionId ?? null };
+        });
+      },
+      use: async (tx, itemId, locationId, field, value, at, seenAt, source) => {
+        if (field !== "shown" || typeof value !== "boolean") throw new Error(`A Conflict about ${field} at a Location cannot be used`);
+        await showAt(tx, kind, itemId, locationId, source, value, at, seenAt);
+      },
+    },
+    read: async (db, ids) =>
+      versionedRows(
+        await db.$queryRaw<ItemRow[]>`SELECT id::text AS id, content, field_edits AS "fieldEdits" FROM ${table} WHERE id = ANY(${uuids(ids)}::uuid[])`,
+        (row) => ({ name: text(fields(row.content).name), values: fields(row.content) }),
+      ),
+    itemNames: (db, ids) => namesOf(KINDS[kind], db, ids),
+    takeIn: (tx, tablet, value, updatedAt) => takeInEquipment(tx, kind, tablet, value, updatedAt),
+    recordWritten: (prisma, tablet, answer) =>
+      recordEquipmentWritten(prisma, kind, tablet, answer.globalId, answer.written, answer.record, answer.updatedAt, answer.seen, answer.contentSeen, answer.linked),
+  };
+}
 
 /** A Location's steam and rinse settings (ADR-0014), which keep versions and Conflicts as an item's content does, always of their Location. */
 const SETTINGS: VersionedKindDescription = {

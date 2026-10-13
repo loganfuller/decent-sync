@@ -153,8 +153,8 @@ describe("Library, settings and paired devices", () => {
       grinders: value("/grinders"),
       profiles: value("/profiles"),
       dye2Recipes: value("/store/dye2.reaplugin/recipes"),
-      // DYE2 has never written it, so Decaid answers null.
-      dye2Equipment: { available: false, value: null },
+      // DYE2 has never written it, so Decaid answers null, which the plugin reports as DYE2 reads it: an empty list.
+      dye2Equipment: { available: true, value: [] },
       dye2Baskets: value("/store/dye2.reaplugin/baskets"),
       appSettings: value("/settings"),
       machineSettings: value("/machine/settings"),
@@ -211,7 +211,7 @@ describe("Library, settings and paired devices", () => {
     );
     const resent = tablet.sent.slice(sentBefore).filter((frame): frame is Frame => frameType(frame) === "collection");
     expect(resent.find((frame) => frame.name === "beans")).toMatchObject({ available: true, value: served["/beans"] });
-    expect(resent.find((frame) => frame.name === "dye2Equipment")).toMatchObject({ available: false });
+    expect(resent.find((frame) => frame.name === "dye2Equipment")).toMatchObject({ available: true, value: [] });
     await allAcknowledged(tablet);
     expect((await collections(machine)).beans).toEqual({ available: true, value: served["/beans"] });
   }, 30_000);
@@ -238,12 +238,18 @@ describe("Library, settings and paired devices", () => {
     }
     const scaleInfo = (await collection(machine, "scaleInfo"))!;
     expect(Date.parse(scaleInfo.reportedAt)).toBeGreaterThan(Date.parse(scaleInfo.receivedAt!));
-    expect(await collection(machine, "dye2Equipment")).toMatchObject({ available: false, value: null, receivedAt: null, items: null });
+    // A DYE2 key never written is an empty list, not a read with nothing to report.
+    expect(await collection(machine, "dye2Equipment")).toMatchObject({ available: true, value: [], items: 0 });
     // A disconnected scale shows no firmware or battery level, which only a connected one reports.
     expect((await pairedDevices(machine)).scale).toEqual(device("scale", "MockScale", "Mock Scale", "disconnected"));
     // Sent once each time the collection became unavailable.
     await polls(tablet, 3);
     expect(sentCounts(tablet)).toMatchObject({ scaleInfo: 2, grinders: 2, machineSettings: 2, advancedSettings: 2, dye2Equipment: 1 });
+    // A DYE2 key whose read fails is unavailable, never taken as empty.
+    tablet.failNextApiReads("/store/dye2.reaplugin/equipment", 1_000);
+    await expect.poll(async () => (await collection(machine, "dye2Equipment"))?.available, { timeout: 10_000 }).toBe(false);
+    expect(await collection(machine, "dye2Equipment")).toMatchObject({ value: [], items: 0 });
+    tablet.failNextApiReads("/store/dye2.reaplugin/equipment", 0);
 
     // Readable again, the grinders are sent again, though unchanged.
     tablet.failNextApiReads("/grinders", 0);

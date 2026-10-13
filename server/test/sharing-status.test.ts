@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
-import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { NO_DYE2_EQUIPMENT, RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #91: a write the tablet refuses doesn't stop the others,
@@ -64,7 +64,7 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
   function load(machine: CreatedMachine, serial: string, instance: TestServer = server): SimulatedTablet {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] },
+      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_EQUIPMENT },
       timeScale: 50,
     });
     tablets.push(tablet);
@@ -265,7 +265,7 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
   it("shows nothing waiting for a Machine whose tablet is written nothing, and 404 for no Machine", async () => {
     const cafe = await api.createLocation("Unconnected cafe", "UTC");
     const unconnected = await api.createMachine("Never connected", cafe.id);
-    expect(await statusOf(unconnected)).toEqual({ tabletId: null, waiting: null, lastApplied: null, refused: [] });
+    expect(await statusOf(unconnected)).toEqual({ tabletId: null, waiting: null, lastApplied: null, refused: [], unrecognisedLists: [] });
 
     const capturing = await api.createMachine("Capturing only", cafe.id);
     const tablet = load(capturing, "26031");

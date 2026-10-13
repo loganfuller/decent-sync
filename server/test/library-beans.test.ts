@@ -3,7 +3,7 @@ import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
-import { PluginStorage, RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { NO_DYE2_EQUIPMENT, PluginStorage, RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #80: a Bean created on one tablet joins the Library and is
@@ -63,7 +63,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
       // No profiles or grinders, so only Beans are written to it: library-profiles.test.ts and library-grinders.test.ts write those.
-      api: { ...derivedDe1Pro({ serial }), "/beans": options.beans ?? [], "/profiles": [], "/grinders": [] },
+      api: { ...derivedDe1Pro({ serial }), "/beans": options.beans ?? [], "/profiles": [], "/grinders": [], ...NO_DYE2_EQUIPMENT },
       storage: options.storage,
       timeScale: 50,
     });
@@ -271,7 +271,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     raws.push(raw);
     await raw.deliver(emptyBeans());
     await raw.deliver(emptyBatches());
-    await raw.deliver(emptyProfiles());
+    for (const empty of [emptyProfiles(), ...emptyDye2Lists()]) await raw.deliver(empty);
     await raw.deliver(emptyGrinders());
     const [refused] = await writesTo(raw, 1);
     // An answer to no write it was asked for, as one arriving after its write timed out, is acknowledged and leaves the
@@ -311,7 +311,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     raws.push(back);
     await back.deliver(emptyBeans());
     await back.deliver(emptyBatches());
-    await back.deliver(emptyProfiles());
+    for (const empty of [emptyProfiles(), ...emptyDye2Lists()]) await back.deliver(empty);
     await back.deliver(emptyGrinders());
     for (let count = 1; count <= 3; count++) {
       const write = (await writesTo(back, count))[count - 1]!;
@@ -565,7 +565,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     raws.push(back);
     await back.deliver(emptyBeans());
     await back.deliver(emptyBatches());
-    await back.deliver(emptyProfiles());
+    for (const empty of [emptyProfiles(), ...emptyDye2Lists()]) await back.deliver(empty);
     await back.deliver(emptyGrinders());
     const [write] = await writesTo(back, 1);
     expect(write).toMatchObject({ globalId: bean.id, localId: null });
@@ -590,7 +590,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const beats = setInterval(() => first.send({ type: "heartbeat" }), 300);
     await first.deliver(emptyBeans());
     await first.deliver(emptyBatches());
-    await first.deliver(emptyProfiles());
+    for (const empty of [emptyProfiles(), ...emptyDye2Lists()]) await first.deliver(empty);
     await first.deliver(emptyGrinders());
     const [write] = await writesTo(first, 1);
     clearInterval(beats);
@@ -598,7 +598,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     // after the heartbeat, leaves none waiting to record itself.
     first.send({ type: "heartbeat" });
     await first.deliver(emptyBatches());
-    await first.deliver(emptyProfiles());
+    for (const empty of [emptyProfiles(), ...emptyDye2Lists()]) await first.deliver(empty);
 
     const database = await server.connectDatabase();
     let second: RawConnection;
@@ -632,7 +632,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     second.keepAlive();
     await second.deliver(emptyBeans());
     await second.deliver(emptyBatches());
-    await second.deliver(emptyProfiles());
+    for (const empty of [emptyProfiles(), ...emptyDye2Lists()]) await second.deliver(empty);
     await second.deliver(emptyGrinders());
     const [again] = await writesTo(second, 1);
     expect(again).toMatchObject({ globalId: bean.id, localId: null });
@@ -719,6 +719,11 @@ function emptyBatches() {
 /** A report that the tablet holds no profiles. */
 function emptyProfiles() {
   return { type: "collection", id: randomUUID(), name: "profiles", available: true, value: [], updatedAt: [] };
+}
+
+/** Reports that the tablet's DYE2 lists of baskets and tools are empty, as DYE2's keys never written are, taken in before anything is written to it too. */
+function emptyDye2Lists() {
+  return ["dye2Baskets", "dye2Equipment"].map((name) => ({ type: "collection", id: randomUUID(), name, available: true, value: [], updatedAt: [] }));
 }
 
 /** A report that the tablet holds no grinders. */

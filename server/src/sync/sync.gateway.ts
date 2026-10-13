@@ -14,10 +14,13 @@ import {
   type Hello,
   type ItemDeleted,
   type ItemLeftOut,
+  type ItemRemoved,
   type ItemWritten,
   type LeaveOut,
   type LibraryDelete,
+  type LibraryRemove,
   type LibraryWrite,
+  type ListUnrecognised,
   MISSED_HEARTBEATS,
   PROTOCOL_VERSION,
   type PluginMessage,
@@ -42,10 +45,11 @@ import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { CollectionsService } from "../collections/collections.service.js";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
+import { isEquipmentKind, recordEquipmentRemoved, recordUnrecognised } from "../library/equipment.js";
 import { recordDeleted } from "../library/hard-deletes.js";
 import { recordLeftOut } from "../library/left-out.js";
 import type { SeenDecision } from "../library/intake.js";
-import { deleteKey, leaveOutKey, writeKey } from "../library/holdings.js";
+import { deleteKey, leaveOutKey, removeKey, writeKey } from "../library/holdings.js";
 import { writtenKind } from "../library/kinds.js";
 import { forgetRefusal, recordApplied, recordRefused } from "../library/sharing-status.js";
 import { MachineEventsService } from "../machine-events/machine-events.service.js";
@@ -400,10 +404,13 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return;
       case "written":
       case "deleted":
+      case "removed":
       case "writeRefused":
         return this.answered(session, message);
       case "leftOut":
         return this.leftOut(session, message);
+      case "listUnrecognised":
+        return this.listUnrecognised(session, message);
       case "shotIndex": {
         const shotIds = await this.shots.requested(message, session.machine.id, reporter.tabletId);
         return this.acknowledge(session, message.id, { type: "requestShots", shotIds });
@@ -491,6 +498,24 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
+   * Records that the plugin found the tablet's list of one of DYE2's kinds in
+   * a shape it does not recognise as it carried out a write, removal, delete
+   * or leave-out, which it left undone, then acknowledges it, and lets the
+   * connection's writer go on: nothing more is written to that list on the
+   * tablet until it reports it in a shape that is recognised, and its
+   * Machine's sharing status shows it (ADR-0005). Recorded whether or not
+   * the request is still awaited, as it says only what the tablet holds.
+   */
+  private async listUnrecognised(session: Session, answer: ListUnrecognised): Promise<void> {
+    if (session.writer && isEquipmentKind(answer.kind)) {
+      this.logger.warn(`The tablet of ${this.describe(session)} holds its ${quoted(answer.kind)} list in a shape that is not recognised; nothing more is written to it`);
+      await recordUnrecognised(this.prisma, session.live!.tabletId, answer.kind);
+    }
+    this.acknowledge(session, answer.id, null);
+    session.writer?.answered(answer.id, "refused");
+  }
+
+  /**
    * Records the plugin's answer to a write, then acknowledges it, and lets
    * the connection's writer go on. A record Decaid returned is the tablet's
    * record of the item from now on, with any change the tablet made at its
@@ -522,11 +547,31 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * never lands after that connection's reports. Nothing is recorded from a
    * mismatched connection, which is never written to.
    */
-  private async answered(session: Session, answer: ItemWritten | ItemDeleted | WriteRefused): Promise<void> {
+  private async answered(session: Session, answer: ItemWritten | ItemDeleted | ItemRemoved | WriteRefused): Promise<void> {
     let outcome: WriteOutcome = "refused";
     const awaited = session.writer?.awaited(answer.id);
     const write = awaited?.write;
-    if (answer.type === "deleted") {
+    if (answer.type === "removed") {
+      // The tablet holds the record no more, whether or not its removal is still awaited.
+      if (session.writer && isEquipmentKind(answer.kind)) {
+        const tabletId = session.live!.tabletId;
+        await recordEquipmentRemoved(this.prisma, answer.kind, tabletId, answer.localId);
+        const applied = { key: removeKey(answer.kind, answer.localId), change: "remove", kind: answer.kind, itemId: answer.globalId, localId: answer.localId } as const;
+        await recordApplied(this.prisma, tabletId, applied);
+        if (write) outcome = "written";
+      }
+    } else if (write?.type === "remove") {
+      if (answer.type === "writeRefused" && answer.status === null && answer.error === ANOTHER_ITEMS_RECORD && isEquipmentKind(write.kind)) {
+        // Not the item's record after all: the tablet's next report takes it in as any record carrying that id.
+        await recordEquipmentRemoved(this.prisma, write.kind, session.live!.tabletId, write.localId);
+        this.logger.log(`The tablet of ${this.describe(session)} holds ${quoted(write.kind)} ${write.localId} as another item's; it is not removed`);
+      } else if (answer.type === "writeRefused") {
+        this.logger.warn(
+          `The tablet of ${this.describe(session)} did not remove ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? quoted(answer.error.slice(0, 200)) : `Decaid answered ${answer.status}, ${quoted(answer.error.slice(0, 200))}`}`,
+        );
+        await recordRefused(this.prisma, session.live!.tabletId, awaited!.change, answer.status, answer.error);
+      }
+    } else if (answer.type === "deleted") {
       // The tablet holds the record no more, whether or not its delete is still awaited.
       if (session.writer && isDeletedKind(answer.kind)) {
         const tabletId = session.live!.tabletId;
@@ -620,8 +665,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     return true;
   }
 
-  /** Sends a write, delete or leave-out on the connection, in chunks if it is too large for one frame. */
-  private sendWrite(session: Session, write: LibraryWrite | LibraryDelete | LeaveOut): void {
+  /** Sends a write, delete, removal or leave-out on the connection, in chunks if it is too large for one frame. */
+  private sendWrite(session: Session, write: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut): void {
     if (session.closing) return;
     for (const frame of frames(encode(write), write.id)) session.socket.send(frame.text);
   }

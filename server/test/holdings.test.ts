@@ -4,12 +4,16 @@ import {
   type HeldRecord,
   type LocationBatch,
   type LocationOffer,
+  type ShownEquipment,
   type ShownProfile,
   type TabletHoldings,
   batchesAwaitingBeans,
   plannedWrites,
+  removeKey,
   writeKey,
 } from "../src/library/holdings.js";
+import { equipmentContent } from "../src/library/equipment-intake.js";
+import { dye2Keys } from "./support/simulated-dye2.js";
 
 // What a tablet should hold for its Location (ADR-0008), through the pure
 // module's interface: the writes, in order, that bring a tablet's Beans,
@@ -68,18 +72,34 @@ const batch = (id: string, state: Partial<LocationBatch> = {}): LocationBatch =>
   decidedAt: DECIDED,
   ...state,
 });
-const offer = (beans: string[], batches: LocationBatch[] = [], profiles: ShownProfile[] = [], grinders: string[] = []): LocationOffer => ({
+const offer = (
+  beans: string[],
+  batches: LocationBatch[] = [],
+  profiles: ShownProfile[] = [],
+  grinders: string[] = [],
+  equipment: { baskets?: ShownEquipment[]; tools?: ShownEquipment[] } = {},
+): LocationOffer => ({
   beans: beans.map((id) => ({ id, content: beanContent, decidedAt: DECIDED, contentDecidedAt: EDITED })),
   batches,
   grinders: grinders.map((id) => ({ id, content: grinderContent, contentDecidedAt: EDITED })),
   profiles,
+  baskets: equipment.baskets ?? [],
+  tools: equipment.tools ?? [],
 });
 /** What the tablet holds: no Profiles or Grinders unless given. */
-const holding = (beans: HeldRecord[], batches: HeldRecord[], profiles: HeldRecord[] = [], grinders: HeldRecord[] = []): TabletHoldings => ({
+const holding = (
+  beans: HeldRecord[],
+  batches: HeldRecord[],
+  profiles: HeldRecord[] = [],
+  grinders: HeldRecord[] = [],
+  equipment: { baskets?: HeldRecord[]; tools?: HeldRecord[] } = {},
+): TabletHoldings => ({
   beans,
   batches,
   grinders,
   profiles,
+  baskets: equipment.baskets ?? [],
+  tools: equipment.tools ?? [],
 });
 
 /** A Profile the Location shows, with its content, as one the tablet lacks has it, unless given otherwise. */
@@ -262,7 +282,7 @@ describe("plannedWrites", () => {
     const child = { ...profileContent, parentId: PROFILES[1] };
     const parent = { ...profileContent, parentId: null };
     const writes = plannedWrites(offer([], [], [shown(PROFILES[0], { content: child }), shown(BUNDLED, { bundled: true, content: null }), shown(PROFILES[1], { content: parent })]), holding([], []));
-    expect(writes.map((write) => [write.globalId, write.fields.parentId])).toEqual([
+    expect(writes.map((write) => [write.globalId, "fields" in write ? write.fields.parentId : undefined])).toEqual([
       [PROFILES[1], null],
       [PROFILES[0], PROFILES[1]],
     ]);
@@ -383,5 +403,61 @@ describe("batchesAwaitingBeans", () => {
     // A batch whose Bean the tablet holds is planned itself, and one it holds is written as any record.
     expect(batchesAwaitingBeans(offered, holding([heldBean(BEANS[0])], []))).toEqual([BEANS[1]]);
     expect(batchesAwaitingBeans(offered, holding([], [heldBatch(BATCHES[0])]))).toEqual([BEANS[1]]);
+  });
+});
+
+describe("Baskets and Tools a Location shows", () => {
+  // DYE2's records as it saved them (fixtures/decaid/dye2-v0.1.19/keys.json).
+  const [basket18, basket20] = dye2Keys().baskets as [Record<string, unknown>, Record<string, unknown>];
+  const [wdt] = dye2Keys().equipment as [Record<string, unknown>];
+  const BASKETS = ["2f9c1e4a-6b3d-4c8e-9a1f-5d7b3c9e1a2f", "8e1a3c5b-7d9f-4b2e-8c4a-6f1d3b5e7a9c"] as const;
+  const TOOL = "4c6e8a1b-3d5f-4a7c-9e2b-1f3d5a7c9e1b";
+  const shownItem = (id: string, record: Record<string, unknown>): ShownEquipment => ({ id, content: equipmentContent(record), decidedAt: DECIDED, contentDecidedAt: EDITED });
+  /** The tablet's record, carrying its global id unless told otherwise, of an item whose content is `item`'s. */
+  const heldItem = (id: string, record: Record<string, unknown>, carries = true, item = record): HeldRecord => ({
+    itemId: id,
+    localId: record.id as string,
+    record: carries ? { ...record, [GLOBAL_ID_KEY]: id } : record,
+    decidedAt: DECIDED,
+    content: equipmentContent(item),
+    contentDecidedAt: EDITED,
+  });
+
+  it("creates each the tablet lacks with its content, and removes each the Location does not show, as DYE2 cannot hide one", () => {
+    const writes = plannedWrites(
+      offer([], [], [], [], { baskets: [shownItem(BASKETS[0], basket18)], tools: [shownItem(TOOL, wdt)] }),
+      holding([], [], [], [], { baskets: [heldItem(BASKETS[1], basket20)] }),
+    );
+    expect(writes).toEqual([
+      { kind: "basket", globalId: BASKETS[0], localId: null, fields: equipmentContent(basket18), decidedAt: DECIDED, contentDecidedAt: EDITED },
+      { remove: true, kind: "basket", globalId: BASKETS[1], localId: basket20.id, decidedAt: DECIDED },
+      { kind: "tool", globalId: TOOL, localId: null, fields: equipmentContent(wdt), decidedAt: DECIDED, contentDecidedAt: EDITED },
+    ]);
+    // Skipped, a removal is left out by its record's key.
+    expect(
+      plannedWrites(offer([]), holding([], [], [], [], { baskets: [heldItem(BASKETS[1], basket20)] }), new Set([removeKey("basket", basket20.id as string)])),
+    ).toEqual([]);
+  });
+
+  it("writes a record its item's content where it differs, and its global id, in a field of its own, where it lost it", () => {
+    const edited = { ...wdt, custom: [{ key: "Needles", value: "12" }] };
+    const held = heldItem(TOOL, wdt);
+    expect(plannedWrites(offer([], [], [], [], { tools: [shownItem(TOOL, edited)] }), holding([], [], [], [], { tools: [heldItem(TOOL, wdt, true, edited)] }))).toEqual([
+      {
+        kind: "tool",
+        globalId: TOOL,
+        localId: wdt.id,
+        fields: { custom: edited.custom },
+        expected: { custom: wdt.custom },
+        decidedAt: DECIDED,
+        contentDecidedAt: EDITED,
+      },
+    ]);
+    // Held as the Location shows it, it is written nothing; without its global id, only that.
+    expect(plannedWrites(offer([], [], [], [], { tools: [shownItem(TOOL, wdt)] }), holding([], [], [], [], { tools: [held] }))).toEqual([]);
+    expect(plannedWrites(offer([], [], [], [], { tools: [shownItem(TOOL, wdt)] }), holding([], [], [], [], { tools: [heldItem(TOOL, wdt, false)] }))).toEqual([
+      { kind: "tool", globalId: TOOL, localId: wdt.id, fields: {}, expected: {}, decidedAt: DECIDED, contentDecidedAt: EDITED },
+    ]);
+    expect(writeKey("tool", TOOL)).toBe(`tool:${TOOL}`);
   });
 });

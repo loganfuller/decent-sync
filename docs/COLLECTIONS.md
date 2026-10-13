@@ -22,6 +22,15 @@ plugin sends `updatedAt`, an array as long as the list, each record's
 as `STEAM_RECORDS.md` describes), or null for one it cannot place. The value
 stays as Decaid sent it.
 
+DYE2's baskets and tools (`dye2Baskets` and `dye2Equipment`) are Library lists
+too since ticket [#138](https://github.com/loganfuller/decent-sync/issues/138)
+(ADR-0005). Their records carry no edit time, so beside each the plugin sends
+when it first read the record's current content, in UTC, which times its edits
+(`FirstReads` in `plugin/src/change-detection.ts`): a record read again
+unchanged keeps its time, and one whose content changed, or that is new to the
+list, is read now. The plugin keeps these times for one runtime, so after a
+reload a record is first read then. A record without a string id has null.
+
 ## Collections
 
 Each is read from Decaid v0.8.7's API (`decaid:assets/api/rest_v1.yml`):
@@ -43,12 +52,19 @@ Each is read from Decaid v0.8.7's API (`decaid:assets/api/rest_v1.yml`):
 A read is unavailable when it fails or has nothing to report: any status but
 200 or 304 (the machine's settings answer 500 while no machine is connected,
 `/scale/info` 503 while no scale is), a fetch that fails or times out, or
-`null`, which Decaid answers for a key of plugin storage never written
-(`KvStoreHandler` in `decaid:lib/src/services/webserver/kv_store_handler.dart`).
-It is sent as unavailable, never as an empty collection.
+`null` for a collection read from Decaid's API. It is sent as unavailable,
+never as an empty collection. One of DYE2's keys never written answers `null`
+too (`KvStoreHandler` in
+`decaid:lib/src/services/webserver/kv_store_handler.dart`), which DYE2 reads
+as an empty list, and so does the plugin, which sends it as one
+(`DYE2_LISTS`); a read of one that fails is still unavailable, and never taken
+as empty.
 
-DYE2's keys are only read: DYE2 is their only writer until Location sharing
-(ADR-0005). `pairedDevices` keeps Decaid's inventory entries as sent, leaving
+DYE2's recipes are only read. Its baskets and tools are written by the
+plugin too, through the Library (`LIBRARY.md`, Taking in a tablet's baskets
+and tools): after it writes one of those lists, its next read is sent whatever
+it holds, as another app rewriting the list at the same moment may have put it
+back as last sent. `pairedDevices` keeps Decaid's inventory entries as sent, leaving
 out those whose `state` is `discovered`: devices nearby come and go and may
 belong to another Machine at the same Location. Connected and connecting
 devices, and those Decaid remembers (`disconnected`, and not `available` while
@@ -78,7 +94,8 @@ tests (`plugin/test/change-detection.test.ts`):
 - Whenever it sends the beans, it sends the bean batches in full after them,
   changed or not, as the server takes in a batch only once it knows the
   batch's bean (`LIBRARY.md`). The library's lists the server writes to (the
-  beans, bean batches, grinders and profiles) are read, and queued, between
+  beans, bean batches, grinders and profiles, and DYE2's baskets and
+  equipment) are read, and queued, between
   the server's writes to the tablet, never during one.
 - A newer delivery of a collection drops an older one still queued, unless
   the older one was ever handed to a connection. Such a delivery may still be
@@ -98,9 +115,10 @@ Bluetooth or USB connection (`UnifiedDe1`), fifteen reads per poll.
 
 `server/src/collections/collections.service.ts` stores the latest value of
 each collection in `reported_collections`, one row per Machine (or Pending
-Machine) and name. A `beans`, `beanBatches` or `profiles` collection from a
-connection that is not mismatched, whose Machine is at a Location, is also
-taken into the Library in the same transaction (`LIBRARY.md`):
+Machine) and name. One of the Library's lists (`beans`, `beanBatches`,
+`grinders`, `profiles`, `dye2Baskets` or `dye2Equipment`) from a connection
+that is not mismatched, whose Machine takes part at a Location, is also taken
+into the Library in the same transaction (`LIBRARY.md`):
 
 - `available` and `reported_at`: whether the latest report had a value, and
   when it arrived, by PostgreSQL's clock.

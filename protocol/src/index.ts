@@ -386,7 +386,9 @@ export interface MachineStateDelivery {
  *
  * - `beans`, `beanBatches` and `grinders`, archived ones included;
  * - `profiles`, hidden ones included;
- * - `dye2Recipes`, `dye2Equipment` and `dye2Baskets`, DYE2's keys, read only;
+ * - `dye2Recipes`, `dye2Equipment` and `dye2Baskets`, DYE2's keys
+ *   (`DYE2_LISTS`): its tools and baskets taken into the Library and written
+ *   to (ADR-0005), its recipes still only read;
  * - `appSettings`, `machineSettings` and `advancedSettings`;
  * - `pairedDevices`, the device inventory without devices only discovered nearby;
  * - `scaleInfo`, the connected scale's firmware and battery level;
@@ -415,11 +417,66 @@ export function isCollectionName(name: string): name is CollectionName {
 }
 
 
+/** DYE2's namespace in Decaid's store, under which it keeps its lists. */
+export const DYE2_NAMESPACE = "dye2.reaplugin";
+
+/**
+ * DYE2's lists, each kept whole under one key of Decaid's store
+ * (`/store/dye2.reaplugin/{key}`), by the collection the plugin reports it
+ * as: its recipes, its tools (DYE2's `equipment`) and its baskets. A key
+ * never written reads as `null`, which DYE2 takes for an empty list, and so
+ * does the plugin, which reports it as one (ADR-0005).
+ */
+export const DYE2_LISTS = { dye2Recipes: "recipes", dye2Equipment: "equipment", dye2Baskets: "baskets" } as const satisfies Partial<Record<CollectionName, string>>;
+
+export type Dye2List = keyof typeof DYE2_LISTS;
+
+export function isDye2List(name: string): name is Dye2List {
+  return Object.prototype.hasOwnProperty.call(DYE2_LISTS, name);
+}
+
+/**
+ * The records of a DYE2 list in a shape the plugin and server recognise:
+ * an array of objects, each with an id (`isRecordId`) no other holds; null
+ * for any other value. A list in another shape is never taken in, nor
+ * written to, on that tablet, so DYE2's data is never corrupted (ADR-0005).
+ */
+export function dye2Records(value: unknown): Record<string, unknown>[] | null {
+  if (!Array.isArray(value)) return null;
+  const ids = new Set<string>();
+  for (const record of value) {
+    if (!isObject(record) || !isRecordId(record.id) || ids.has(record.id)) return null;
+    ids.add(record.id);
+  }
+  return value as Record<string, unknown>[];
+}
+
+/**
+ * The global id a DYE2 record carries in its own top-level field,
+ * GLOBAL_ID_KEY, which DYE2 and Streamline keep when they save the record
+ * (ADR-0006), or null if it carries none.
+ */
+export function dye2GlobalIdOf(record: unknown): string | null {
+  const id = isObject(record) ? record[GLOBAL_ID_KEY] : undefined;
+  return isGlobalId(id) ? id.toLowerCase() : null;
+}
+
+/**
+ * The key two Baskets, or two Tools, with the same name share, ignoring case
+ * and white space at either end: how one a tablet creates is matched to one
+ * in the Library (ADR-0018), by the server, and by the plugin to one its
+ * tablet holds already.
+ */
+export function equipmentMatchKey(name: string): string {
+  return name.trim().toLowerCase();
+}
+
 /**
  * One collection, as Decaid's API answered it, sent when it changed and in
  * full on every `welcome`. A read that failed or had nothing to report (no
- * machine or scale connected, a DYE2 key never written) is sent as
- * unavailable, without a value, so it never replaces what the server knows.
+ * machine or scale connected) is sent as unavailable, without a value, so it
+ * never replaces what the server knows. A DYE2 key never written is an empty
+ * list (`DYE2_LISTS`).
  */
 export interface CollectionDelivery {
   type: "collection";
@@ -434,7 +491,10 @@ export interface CollectionDelivery {
    * For one of the LIBRARY_LISTS, each record's `updatedAt`, read as the
    * tablet's local time and placed in UTC, such as
    * 2026-10-05T14:07:03.341Z, in the order of `value`: null for a record
-   * whose time cannot be read. Only with a list `value`, and as long as it.
+   * whose time cannot be read. DYE2's records carry no edit time, so for a
+   * list of a DYE2 kind (`dye2Key`) it is when the plugin first read each
+   * record's current content, which times its edits (ADR-0005). Only with a
+   * list `value`, and as long as it.
    */
   updatedAt?: (string | null)[];
 }
@@ -466,20 +526,32 @@ export interface LibraryKindDescription {
    * whose parent the server does not know yet waits for it.
    */
   under?: string;
+  /**
+   * For a kind DYE2 keeps (ADR-0005), the key of Decaid's store its list is
+   * kept whole under, in DYE2_NAMESPACE: the plugin reads the list, changes
+   * one record and posts the list back. Its records carry their global id in
+   * a top-level field of their own (`dye2GlobalIdOf`), have no edit time,
+   * and cannot be archived or hidden, so one a Location stops offering is
+   * removed from the list (`LibraryRemove`).
+   */
+  dye2Key?: (typeof DYE2_LISTS)[Dye2List];
 }
 
 /**
  * Each kind of Library item the server shares with tablets, described once
  * (`LIBRARY.md`, Adding a Library kind), in the order its lists are read and
- * written: Beans, Bean Batches, Grinders and Profiles. A Profile keeps
- * Decaid's id, a hash of what the machine executes that is the same on every
- * tablet (ADR-0006); every other kind's is its global id.
+ * written: Beans, Bean Batches, Grinders and Profiles, through Decaid's API,
+ * then Baskets and Tools, through DYE2's lists in Decaid's store (ADR-0005).
+ * A Profile keeps Decaid's id, a hash of what the machine executes that is
+ * the same on every tablet (ADR-0006); every other kind's is its global id.
  */
 export const LIBRARY_ITEM_KINDS = {
   bean: { list: "beans", id: GLOBAL_ITEM_ID },
   beanBatch: { list: "beanBatches", id: GLOBAL_ITEM_ID, under: "bean" },
   grinder: { list: "grinders", id: GLOBAL_ITEM_ID },
   profile: { list: "profiles", id: { test: isRecordId, problem: `must be a Profile's id of 1 to ${MAX_RECORD_ID_LENGTH} characters without NUL` } },
+  basket: { list: "dye2Baskets", id: GLOBAL_ITEM_ID, dye2Key: "baskets" },
+  tool: { list: "dye2Equipment", id: GLOBAL_ITEM_ID, dye2Key: "equipment" },
 } as const satisfies Readonly<Record<string, LibraryKindDescription>>;
 
 /** The kinds of Library item the server writes to tablets, in the order of LIBRARY_ITEM_KINDS. */
@@ -504,6 +576,22 @@ export const LIBRARY_LISTS: readonly LibraryList[] = LIBRARY_KINDS.map((kind) =>
 
 export function isLibraryList(name: string): name is LibraryList {
   return (LIBRARY_LISTS as readonly string[]).includes(name);
+}
+
+/** The key of Decaid's store a kind DYE2 keeps is listed under (`LibraryKindDescription.dye2Key`), or undefined for a kind kept by Decaid's API. */
+export function dye2Key(kind: LibraryKind): (typeof DYE2_LISTS)[Dye2List] | undefined {
+  const description: LibraryKindDescription = LIBRARY_ITEM_KINDS[kind];
+  return description.dye2Key;
+}
+
+/**
+ * The global id a tablet's record of a Library item carries, or null if it
+ * carries none: in its own top-level field for a kind DYE2 keeps
+ * (`dye2GlobalIdOf`), and in its `extras` otherwise (`globalIdOf`). A
+ * Profile's records carry none, their id being Decaid's.
+ */
+export function recordGlobalId(kind: LibraryKind, record: unknown): string | null {
+  return dye2Key(kind) === undefined ? globalIdOf(record) : dye2GlobalIdOf(record);
 }
 
 /** The kind whose records the list holds. */
@@ -715,6 +803,21 @@ export function settingsParts(fields: Readonly<Record<string, unknown>>): Record
  * the record's `profile`, which Decaid's `PUT /profiles/{id}` takes whole:
  * they are outside the hash, so the record keeps its id (ADR-0006).
  *
+ * A Basket or Tool lives in one of DYE2's lists in Decaid's store
+ * (`dye2Key`, ADR-0005). The plugin reads the list, which must be in a shape
+ * it recognises (`dye2Records`), or it answers `listUnrecognised` and writes
+ * nothing; a key never written is an empty list. To create one, it answers
+ * with a record already carrying the global id, as one whose answer was
+ * lost, or writes only the global id to a record without one whose name is
+ * the item's (`equipmentMatchKey`), entered before the tablet reported it
+ * (`linked`); otherwise it adds a record with `fields`, a new random UUID as
+ * its id, as DYE2 gives one, and its `createdAt`. To update one, it sets
+ * `fields` on the record with `localId`, each only while it holds the value
+ * expected, a null field left out. Either way the global id goes in the
+ * record's own top-level field (`dye2GlobalIdOf`), and the plugin posts the
+ * list back whole. Its answer's `updatedAt` is when the plugin wrote it, as
+ * these records carry no edit time.
+ *
  * A write of SETTINGS_KIND carries the steam and rinse settings of the
  * Machine's Location (ADR-0014), and never its hot water, which is each
  * Machine's own: `globalId` is the server's id for them, `localId` null,
@@ -835,7 +938,8 @@ export interface WriteRefused {
 /**
  * Asks the plugin to delete a tablet's record of a Library item an Admin
  * hard-deleted (ADR-0003): a Bean, Bean Batch, Grinder or Profile no Shot
- * names. The server sends it as it sends a `write`, one at a time with them,
+ * names, or a record of a kind DYE2 keeps, which is removed from its list as
+ * a `remove` does. The server sends it as it sends a `write`, one at a time with them,
  * and it is answered with `deleted` or `writeRefused`. The plugin deletes the
  * record unless it carries another item's global id (ANOTHER_ITEMS_RECORD),
  * as one the server mapped may not carry one yet, or a Shot the plugin queued
@@ -856,6 +960,58 @@ export interface LibraryDelete {
   globalId: string;
   /** The tablet's record to delete. */
   localId: string;
+}
+
+/**
+ * Asks the plugin to remove a tablet's record of a Library item from one of
+ * DYE2's lists, as its Machine's Location no longer offers the item: DYE2
+ * cannot archive or hide a record (ADR-0005, ADR-0008), so the record is
+ * removed, and the tablet's Shots keep the names DYE2 stored on them. The
+ * server sends it as it sends a `write`, one at a time with them, and it is
+ * answered with `removed`, `writeRefused` or `listUnrecognised`. The plugin
+ * reads the list, leaves out the record and posts the list back, unless the
+ * record carries another item's global id (ANOTHER_ITEMS_RECORD). A record
+ * already gone is removed.
+ */
+export interface LibraryRemove {
+  type: "remove";
+  /** Names this request, which its answer repeats. */
+  id: string;
+  /** A kind DYE2 keeps (`dye2Key`). A plugin answers a kind it does not know with `writeRefused`. */
+  kind: string;
+  /** The item's global id. */
+  globalId: string;
+  /** The tablet's record to remove. */
+  localId: string;
+}
+
+/**
+ * The plugin's answer to a `remove` it carried out, or that found the record
+ * gone: the tablet holds the record no more. Sent as `written` is, through
+ * the outbox, behind every report read before it.
+ */
+export interface ItemRemoved {
+  type: "removed";
+  /** The request's id. */
+  id: string;
+  kind: string;
+  globalId: string;
+  localId: string;
+}
+
+/**
+ * The plugin's answer to a `write`, `remove`, `delete` or `leaveOut` of a
+ * kind DYE2 keeps, when the tablet's list of it is in a shape the plugin
+ * does not recognise (`dye2Records`): nothing was written to it. The server
+ * writes nothing more to that list on that tablet until the tablet reports
+ * it in a shape it recognises, and shows it in the Machine's sharing status
+ * (ADR-0005). Sent as `written` is.
+ */
+export interface ListUnrecognised {
+  type: "listUnrecognised";
+  /** The request's id. */
+  id: string;
+  kind: string;
 }
 
 /**
@@ -905,7 +1061,10 @@ export interface ItemDeleted {
  * its Machine joined a Location that offers items of that kind already
  * (ADR-0018): to archive a bean, bean batch or grinder, or hide a profile,
  * so the tablet offers only what its Location does. The record carries no
- * global id, and is never deleted, so the tablet's Shots still find it. The
+ * global id, and is never deleted, so the tablet's Shots still find it, but
+ * for one of a kind DYE2 keeps, which cannot be archived or hidden: it is
+ * removed from its list, and not kept (ADR-0005), and answered as set
+ * aside. The
  * server sends it as it sends a `write`, one at a time with them, and it is
  * answered with `leftOut`. The plugin sets aside only a record without a
  * global id, and changes nothing else of it.
@@ -983,7 +1142,9 @@ export type PluginMessage =
   | CollectionDelivery
   | ItemWritten
   | ItemDeleted
+  | ItemRemoved
   | ItemLeftOut
+  | ListUnrecognised
   | WriteRefused;
 /** Messages the server sends, each in a frame of its own or, a `write` too large for one, in chunks. */
 export type ServerMessage =
@@ -997,6 +1158,7 @@ export type ServerMessage =
   | ChunkReceived
   | LibraryWrite
   | LibraryDelete
+  | LibraryRemove
   | LeaveOut;
 
 export type Decoded<T> =
@@ -1183,6 +1345,18 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         fields.itemId("globalId", object.kind);
         fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
       });
+    case "removed":
+      return check<ItemRemoved>(object, "removed", (fields) => {
+        fields.id();
+        fields.string("kind", { nonEmpty: true });
+        fields.itemId("globalId", object.kind);
+        fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+      });
+    case "listUnrecognised":
+      return check<ListUnrecognised>(object, "listUnrecognised", (fields) => {
+        fields.id();
+        fields.string("kind", { nonEmpty: true });
+      });
     case "leftOut":
       return check<ItemLeftOut>(object, "leftOut", (fields) => {
         fields.id();
@@ -1274,6 +1448,13 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
       });
     case "delete":
       return check<LibraryDelete>(object, "delete", (fields) => {
+        fields.id();
+        fields.string("kind", { nonEmpty: true });
+        fields.itemId("globalId", object.kind);
+        fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+      });
+    case "remove":
+      return check<LibraryRemove>(object, "remove", (fields) => {
         fields.id();
         fields.string("kind", { nonEmpty: true });
         fields.itemId("globalId", object.kind);

@@ -1,13 +1,13 @@
 import { sameValue } from "@decent-sync/protocol";
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { type EditSource, type ItemRef, recordConflict, recordReplaced, recordVersion } from "./history.js";
 
-// Each Location's state of the Library's Beans, Bean Batches, Grinders and
-// Profiles (ADR-0008): whether a batch is at the Location and its remaining
+// Each Location's state of the Library's Beans, Bean Batches, Grinders,
+// Profiles, Baskets and Tools (ADR-0008): whether a batch is at the Location and its remaining
 // weight there (`batch_locations`), the Locations offering a Bean that has no
 // batch there yet (`bean_origins`), the Grinders belonging to it
-// (`grinders.location_id`), and whether a Profile is shown there
-// (`profile_locations`). A Location offers a Bean while one of its batches
+// (`grinders.location_id`), and whether a Profile, Basket or Tool is shown
+// there (`profile_locations`, `basket_locations`, `tool_locations`). A Location offers a Bean while one of its batches
 // is there, or while it has an origin there, offers a batch while it is
 // there, offers the Grinders that belong to it, and shows a Profile while it
 // is shown there; nothing Archived is offered or shown anywhere.
@@ -284,6 +284,16 @@ export async function offeringLocations(db: Prisma.TransactionClient, beanIds: r
   return offering;
 }
 
+/** The kinds shown or hidden at each Location (ADR-0008): Profiles, Baskets and Tools. */
+export type ShownKind = "profile" | "basket" | "tool";
+
+/** Where each Location's showing of the items of a kind is kept: its table, the column naming the item, and that column's type. */
+const SHOWN: Readonly<Record<ShownKind, { table: string; column: string; idType: "text" | "uuid" }>> = {
+  profile: { table: "profile_locations", column: "profile_id", idType: "text" },
+  basket: { table: "basket_locations", column: "basket_id", idType: "uuid" },
+  tool: { table: "tool_locations", column: "tool_id", idType: "uuid" },
+};
+
 /**
  * Shows or hides the Profile at the Location, as a tablet there showing,
  * hiding, deleting or replacing it does, timed by the edit (ADR-0020),
@@ -298,7 +308,7 @@ export async function offeringLocations(db: Prisma.TransactionClient, beanIds: r
  * undo it. The decision keeps the tablet that made it (`source`) and its
  * version. Says when it decided it, or null if the edit lost.
  */
-export async function showProfileAt(
+export function showProfileAt(
   tx: Prisma.TransactionClient,
   profileId: string,
   locationId: string,
@@ -307,33 +317,49 @@ export async function showProfileAt(
   at: Date,
   seenAt: Date | null,
 ): Promise<Date | null> {
+  return showAt(tx, "profile", profileId, locationId, source, shown, at, seenAt);
+}
+
+/** Shows or hides an item of a kind shown per Location at the Location, as `showProfileAt` does a Profile. */
+export async function showAt(
+  tx: Prisma.TransactionClient,
+  kind: ShownKind,
+  itemId: string,
+  locationId: string,
+  source: EditSource,
+  shown: boolean,
+  at: Date,
+  seenAt: Date | null,
+): Promise<Date | null> {
+  const { table, column, idType } = shownSql(kind);
   const [before] = await tx.$queryRaw<{ shown: boolean; decidedAt: Date; versionId: string | null; tabletId: string | null }[]>`
     SELECT here.shown, here.decided_at AS "decidedAt", here.version_id AS "versionId", here.decided_by_tablet_id AS "tabletId"
-    FROM profile_locations AS here WHERE here.profile_id = ${profileId} AND here.location_id = ${locationId}::uuid`;
+    FROM ${table} AS here WHERE here.${column} = ${itemId}::${idType} AND here.location_id = ${locationId}::uuid`;
   const tabletId = source.tabletId;
   const [changed] = await tx.$queryRaw<{ decidedAt: Date }[]>`
-    INSERT INTO profile_locations (profile_id, location_id, shown, changed_at, decided_at, decided_by_tablet_id)
-    VALUES (${profileId}, ${locationId}::uuid, ${shown}, ${at}::timestamptz, clock_timestamp(), ${tabletId}::uuid)
-    ON CONFLICT (profile_id, location_id) DO UPDATE SET
-      shown = EXCLUDED.shown, changed_at = GREATEST(EXCLUDED.changed_at, profile_locations.changed_at), decided_at = clock_timestamp(),
+    INSERT INTO ${table} AS here (${column}, location_id, shown, changed_at, decided_at, decided_by_tablet_id)
+    VALUES (${itemId}::${idType}, ${locationId}::uuid, ${shown}, ${at}::timestamptz, clock_timestamp(), ${tabletId}::uuid)
+    ON CONFLICT (${column}, location_id) DO UPDATE SET
+      shown = EXCLUDED.shown, changed_at = GREATEST(EXCLUDED.changed_at, here.changed_at), decided_at = clock_timestamp(),
       decided_by_tablet_id = EXCLUDED.decided_by_tablet_id
-      WHERE profile_locations.changed_at <= EXCLUDED.changed_at OR profile_locations.decided_at <= ${seenAt}::timestamptz
+      WHERE here.changed_at <= EXCLUDED.changed_at OR here.decided_at <= ${seenAt}::timestamptz
     RETURNING decided_at AS "decidedAt"`;
-  const item: ItemRef = { kind: "profile", id: profileId };
+  const item: ItemRef = { kind, id: itemId };
   if (!changed) {
     if (before && before.shown !== shown) await recordConflict(tx, item, locationId, "shown", shown, source, at);
     return null;
   }
-  await keepProfileVersion(tx, profileId, locationId, shown, source, at);
+  await keepShownVersion(tx, kind, itemId, locationId, shown, source, at);
   if (before && before.shown !== shown && unseen(before, seenAt, source)) await recordReplaced(tx, item, locationId, "shown", before.shown, before.versionId);
   return changed.decidedAt;
 }
 
-/** Keeps a decision of whether the Profile is shown at the Location as a version, whose id the decision keeps. */
-async function keepProfileVersion(tx: Prisma.TransactionClient, profileId: string, locationId: string, shown: boolean, source: EditSource, at: Date): Promise<void> {
-  const versionId = await recordVersion(tx, { kind: "profile", id: profileId }, locationId, { shown }, source, at);
+/** Keeps a decision of whether the item is shown at the Location as a version, whose id the decision keeps. */
+async function keepShownVersion(tx: Prisma.TransactionClient, kind: ShownKind, itemId: string, locationId: string, shown: boolean, source: EditSource, at: Date): Promise<void> {
+  const { table, column, idType } = shownSql(kind);
+  const versionId = await recordVersion(tx, { kind, id: itemId }, locationId, { shown }, source, at);
   await tx.$executeRaw`
-    UPDATE profile_locations SET version_id = ${versionId}::uuid WHERE profile_id = ${profileId} AND location_id = ${locationId}::uuid`;
+    UPDATE ${table} SET version_id = ${versionId}::uuid WHERE ${column} = ${itemId}::${idType} AND location_id = ${locationId}::uuid`;
 }
 
 /**
@@ -342,7 +368,7 @@ async function keepProfileVersion(tx: Prisma.TransactionClient, profileId: strin
  * to does, timed by its record, as `showProfileAt` keeps the tablet's.
  * Says when it decided it, or null if it did not.
  */
-export async function decideProfileAt(
+export function decideProfileAt(
   tx: Prisma.TransactionClient,
   profileId: string,
   locationId: string,
@@ -350,13 +376,33 @@ export async function decideProfileAt(
   shown: boolean,
   at: Date,
 ): Promise<Date | null> {
+  return decideAt(tx, "profile", profileId, locationId, source, shown, at);
+}
+
+/** Decides whether an item of a kind shown per Location is shown at the Location where nothing has decided it there yet, as `decideProfileAt` does a Profile. */
+export async function decideAt(
+  tx: Prisma.TransactionClient,
+  kind: ShownKind,
+  itemId: string,
+  locationId: string,
+  source: EditSource,
+  shown: boolean,
+  at: Date,
+): Promise<Date | null> {
+  const { table, column, idType } = shownSql(kind);
   const [decided] = await tx.$queryRaw<{ decidedAt: Date }[]>`
-    INSERT INTO profile_locations (profile_id, location_id, shown, changed_at, decided_at, decided_by_tablet_id)
-    VALUES (${profileId}, ${locationId}::uuid, ${shown}, ${at}::timestamptz, clock_timestamp(), ${source.tabletId}::uuid)
-    ON CONFLICT (profile_id, location_id) DO NOTHING
+    INSERT INTO ${table} (${column}, location_id, shown, changed_at, decided_at, decided_by_tablet_id)
+    VALUES (${itemId}::${idType}, ${locationId}::uuid, ${shown}, ${at}::timestamptz, clock_timestamp(), ${source.tabletId}::uuid)
+    ON CONFLICT (${column}, location_id) DO NOTHING
     RETURNING decided_at AS "decidedAt"`;
-  if (decided) await keepProfileVersion(tx, profileId, locationId, shown, source, at);
+  if (decided) await keepShownVersion(tx, kind, itemId, locationId, shown, source, at);
   return decided?.decidedAt ?? null;
+}
+
+/** A kind's table, column and id type as SQL. */
+function shownSql(kind: ShownKind): { table: Prisma.Sql; column: Prisma.Sql; idType: Prisma.Sql } {
+  const { table, column, idType } = SHOWN[kind];
+  return { table: Prisma.raw(table), column: Prisma.raw(column), idType: Prisma.raw(idType) };
 }
 
 /**

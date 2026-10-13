@@ -3,7 +3,7 @@ import { type WrittenKind, isWrittenKind } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { machineNotFound } from "../machines/input.js";
 import type { PrismaService } from "../prisma.service.js";
-import { type PlannedChange, deleteKey, leaveOutKey, writeKey } from "./holdings.js";
+import { type PlannedChange, deleteKey, leaveOutKey, removeKey, writeKey } from "./holdings.js";
 import { writtenKind } from "./kinds.js";
 import { changesDue } from "./tablet-due.js";
 
@@ -16,8 +16,8 @@ import { changesDue } from "./tablet-due.js";
 // that changes, as when the item is edited, or on the tablet's next
 // connection. Everything is in PostgreSQL, so every instance reads the same.
 
-/** A change the writer makes to a tablet: a write of an item or the settings, a delete, or setting aside a record. */
-export type ChangeType = "write" | "delete" | "leaveOut";
+/** A change the writer makes to a tablet: a write of an item or the settings, a delete, a removal from DYE2's list, or setting aside a record. */
+export type ChangeType = "write" | "delete" | "remove" | "leaveOut";
 
 /** A change made to a tablet, as its sharing status records it. */
 export interface TabletChange {
@@ -31,9 +31,10 @@ export interface TabletChange {
   localId: string | null;
 }
 
-/** The key a planned write, delete or leave-out is skipped and remembered under. */
+/** The key a planned write, delete, removal or leave-out is skipped and remembered under. */
 export function changeKey(change: PlannedChange): string {
   if ("delete" in change) return deleteKey(change.kind, change.localId);
+  if ("remove" in change) return removeKey(change.kind, change.localId);
   return "leaveOut" in change ? leaveOutKey(change.kind, change.localId) : writeKey(change.kind, change.globalId);
 }
 
@@ -41,6 +42,7 @@ export function changeKey(change: PlannedChange): string {
 export function tabletChange(change: PlannedChange): TabletChange {
   const key = changeKey(change);
   if ("delete" in change) return { key, change: "delete", kind: change.kind, itemId: change.globalId, localId: change.localId };
+  if ("remove" in change) return { key, change: "remove", kind: change.kind, itemId: change.globalId, localId: change.localId };
   if ("leaveOut" in change) return { key, change: "leaveOut", kind: change.kind, itemId: null, localId: change.localId };
   return { key, change: "write", kind: change.kind, itemId: change.globalId, localId: change.localId };
 }
@@ -151,6 +153,14 @@ export interface SharingStatusView {
   lastApplied: (ChangeView & { appliedAt: string }) | null;
   /** The changes its tablet refused that are still due, latest first; none while it is written nothing. */
   refused: RefusalView[];
+  /**
+   * DYE2's lists its tablet holds in a shape that is not recognised, as it
+   * last reported them or the plugin last found them, which nothing is
+   * written to (ADR-0005): each by its collection's name, and when it was
+   * first found so. Its other lists keep syncing. None while it is written
+   * nothing.
+   */
+  unrecognisedLists: { list: string; since: string }[];
 }
 
 /**
@@ -179,7 +189,7 @@ export async function sharingStatus(prisma: PrismaService, machineId: string): P
         FROM machines WHERE machines.id = ${machineId}::uuid`;
       if (!machine) throw machineNotFound();
       const { tabletId, locationId } = machine;
-      if (tabletId === null) return { tabletId: null, waiting: null, lastApplied: null, refused: [] };
+      if (tabletId === null) return { tabletId: null, waiting: null, lastApplied: null, refused: [], unrecognisedLists: [] };
       const [applied] = await tx.$queryRaw<(Omit<TabletChange, "key"> & { appliedAt: Date })[]>`
         SELECT change, kind, item_id AS "itemId", local_id AS "localId", applied_at AS "appliedAt" FROM tablet_last_applied WHERE tablet_id = ${tabletId}::uuid`;
       const takesPart = machine.sharing && locationId !== null;
@@ -206,8 +216,14 @@ export async function sharingStatus(prisma: PrismaService, machineId: string): P
         item: change.itemId === null ? null : (names.get(`${change.kind}:${change.itemId}`) ?? null),
         localId: change.localId,
       });
+      // Only while it takes part, as nothing is written to a capture-only Machine's lists, recognised or not.
+      const unrecognised = takesPart
+        ? await tx.$queryRaw<{ list: string; since: Date }[]>`
+            SELECT list, since FROM tablet_unrecognised_lists WHERE tablet_id = ${tabletId}::uuid ORDER BY list`
+        : [];
       return {
         tabletId,
+        unrecognisedLists: unrecognised.map((row) => ({ list: row.list, since: row.since.toISOString() })),
         waiting: takesPart ? planned.length - stillRefused.size + awaiting : null,
         lastApplied: applied ? { ...view(applied), appliedAt: applied.appliedAt.toISOString() } : null,
         refused: refused.map((row) => ({ ...view(row), status: row.status, error: row.error, refusedAt: row.refusedAt.toISOString() })),

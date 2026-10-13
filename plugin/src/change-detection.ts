@@ -10,7 +10,7 @@ export type Fingerprint =
 
 /** What one read of a collection from Decaid's API gave. */
 export type Reading =
-  /** The read failed, or had nothing to report, such as a DYE2 key never written. */
+  /** The read failed, or had nothing to report, such as a machine's settings with no machine connected. */
   | { kind: "unavailable" }
   /** Decaid answered 304: the ETag sent with If-None-Match is still current. */
   | { kind: "notModified" }
@@ -61,6 +61,33 @@ export function decide(last: Fingerprint | undefined, reading: Reading, full: bo
 export function pairedDevices(inventory: unknown): unknown[] | null {
   if (!Array.isArray(inventory)) return null;
   return inventory.filter((device) => !(typeof device === "object" && device !== null && (device as { state?: unknown }).state === "discovered"));
+}
+
+/**
+ * When the plugin first read each record of one of DYE2's lists in its
+ * current content (ADR-0005): DYE2's records carry no edit time, so this
+ * times their edits. Kept for one runtime, by record id: a record whose
+ * content changed since the last read, or new to the list, was first read
+ * now; one read the same keeps its time.
+ */
+export class FirstReads {
+  private known = new Map<string, { hash: string; at: string }>();
+
+  /** Each record's time, in the order of the list read at `now`, a UTC time: null for one without a string id. */
+  times(records: readonly unknown[], now: string): (string | null)[] {
+    const next = new Map<string, { hash: string; at: string }>();
+    const times = records.map((record) => {
+      const id = typeof record === "object" && record !== null && !Array.isArray(record) ? (record as { id?: unknown }).id : undefined;
+      if (typeof id !== "string") return null;
+      const hash = contentHash(JSON.stringify(record));
+      const before = this.known.get(id);
+      const at = before?.hash === hash ? before.at : now;
+      next.set(id, { hash, at });
+      return at;
+    });
+    this.known = next;
+    return times;
+  }
 }
 
 /**

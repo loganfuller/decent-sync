@@ -6,8 +6,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { type LibraryKind, api, type ShotPage } from "@/lib/api";
-import { LIBRARY_KINDS } from "@/lib/library-kinds";
+import { api, type ShotPage } from "@/lib/api";
+import { LIBRARY_KINDS, type ShotsKind } from "@/lib/library-kinds";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
 // The Shots a Library item's page lists: those linked to it, through the
@@ -20,7 +20,7 @@ const PAGE_SIZE = 10;
  * its history. The Shots list filters by Bean Batch and Grinder, so their
  * pages link to it, filtered.
  */
-export function ItemShotsCard({ kind, id }: { kind: LibraryKind; id: string }) {
+export function ItemShotsCard({ kind, id }: { kind: ShotsKind; id: string }) {
   const { shotsFilter: filter, name, filteredInShotsList: inList } = LIBRARY_KINDS[kind];
   const [offset, setOffset] = useState(0);
   const query = new URLSearchParams({ [filter]: id, limit: String(PAGE_SIZE), offset: String(offset) }).toString();

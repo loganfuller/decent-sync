@@ -48,7 +48,11 @@ set the values Streamline remembers of the settings it writes, so Streamline
 keeps the Location's (Steam and rinse settings, below). Ticket
 [#135](https://github.com/loganfuller/decent-sync/issues/135) describes each
 kind of Library item once on each side, so milestone 3's kinds are each
-added in one place (Adding a Library kind, below). It follows ADR-0003,
+added in one place (Adding a Library kind, below). Ticket
+[#138](https://github.com/loganfuller/decent-sync/issues/138) adds Baskets
+and Tools, which DYE2 keeps in lists in Decaid's store: taken in from those
+lists, shown or hidden at each Location, and written back to them (Taking in
+a tablet's baskets and tools, below). It follows ADR-0003, ADR-0005,
 ADR-0006, ADR-0008, ADR-0014, ADR-0016, ADR-0018, ADR-0019, ADR-0020 and
 ADR-0021.
 
@@ -102,7 +106,11 @@ A tablet holds only what its Machine's Location offers (ADR-0008):
 - a **Profile** while it is shown there, unless it is Archived. A Profile is
   shown only where a tablet created it, or held it visible when nothing had
   decided it there yet, until it is hidden there or shown elsewhere; Decaid's
-  bundled Profiles too (Taking in a tablet's profiles, below).
+  bundled Profiles too (Taking in a tablet's profiles, below);
+- a **Basket** or **Tool** while it is shown there, unless it is Archived:
+  shown where a tablet created it, or entered one of its name, until it is
+  hidden there or shown elsewhere (Taking in a tablet's baskets and tools,
+  below).
 
 So a Bean with batches is offered only where they are: once its last batch
 at a Location is finished, it is no longer offered there. Archived items are
@@ -111,7 +119,9 @@ Batch or Profile; a Grinder is Archived there too, or
 by archiving or deleting it on a tablet at its Location. What the Location offers is written
 to each of its tablets, with each batch's remaining weight there and each
 Profile visible, and what it does not offer is archived or hidden on them,
-never deleted, so their Shots still find it (Writing to tablets, below).
+never deleted, so their Shots still find it (Writing to tablets, below);
+but a Basket or Tool it does not show is removed from DYE2's list, which
+can hide nothing (Taking in a tablet's baskets and tools, below).
 
 ## Storage
 
@@ -217,7 +227,29 @@ never deleted, so their Shots still find it (Writing to tablets, below).
   repeats it, so an answer that comes after its write stopped being awaited,
   as across a reconnect, says what its record has seen of the content too. A
   reset tablet has a new tablet id, so it starts with nothing here.
-- `field_edits` on `beans`, `bean_batches`, `grinders` and `profiles`: the
+- `baskets` and `tools`: each Basket and Tool, by its global id, with its
+  content, DYE2's record fields as the tablet that created it sent them, but
+  the record's id, `createdAt` and global id, which belong to each tablet's
+  record, as edited since; its name as they are matched (`match_key`, kept to
+  its name as edited); whether it is Archived; the Location of the tablet
+  that created it; when it joined the Library; and its fields' latest edits.
+- `basket_locations` and `tool_locations`: whether each is shown at a
+  Location, a field of its own kept as `profile_locations` keeps a
+  Profile's.
+- `tablet_baskets` and `tablet_tools`: each tablet's map of its records in
+  DYE2's lists, by DYE2's id, with the record as the tablet last had it, when
+  the plugin first read it (`record_updated_at`), the latest decision of its
+  showing and the latest edit of its content it has seen, as
+  `tablet_profiles` keeps them; what the record held for each field just
+  before the server's latest write to that field, while the tablet has not
+  set the field to a value of its own since (`before_write`); and
+  whether a report has listed it since the server's write created it
+  (`listed`).
+- `tablet_unrecognised_lists`: each of DYE2's lists a tablet holds in a shape
+  that is not recognised, which nothing is written to or taken in from, and
+  since when.
+- `field_edits` on `beans`, `bean_batches`, `grinders`, `profiles`, `baskets`
+  and `tools`: the
   latest edit of each field of the item's content, `{ at, decidedAt,
   tabletId, versionId }`: when it was made, never earlier than the edit
   before it; when it was decided, by PostgreSQL's clock, after every edit of
@@ -423,6 +455,12 @@ tablets, below).
   A Profile is never created or edited here: Decaid computes its id from what
   the machine executes, so Profiles join the Library from tablets, and their
   title, author and notes are edited there.
+- **Baskets and Tools** are shown or hidden at each Location as a Profile is
+  (`showEquipment`), which is how a lab's Basket reaches a cafe: showing one
+  there writes it to the cafe's tablets, and hiding it there removes it from
+  their lists, and from no other Location's. They join the Library from
+  tablets; creating, editing, Archiving and deleting them here come with
+  their pages.
 - **Archive and restore.** An Archived Bean or batch is offered nowhere, with
   the Bean's batches, and is archived on every tablet that holds it, but kept,
   with each Location's state of it, so restoring it offers it again where it
@@ -436,7 +474,7 @@ tablets, below).
 - **Who.** An Admin does everything. Staff edit the Library's shared content
   anywhere (a Bean, a batch's details) and Archive and restore items, but add
   and finish batches, set their remaining weight, create and edit Grinders,
-  and show and hide Profiles only at the Locations they work at, as a Grinder
+  and show and hide Profiles, Baskets and Tools only at the Locations they work at, as a Grinder
   belongs to one (ADR-0008), and never hard-delete.
 
 ### Hard deletes
@@ -763,6 +801,99 @@ tablet's Location only, and a Profile whose steps changed is a new Profile,
 shown where it was changed only, while the old one is hidden there and still
 shown wherever else it was.
 
+## Taking in a tablet's baskets and tools
+
+Decaid has no resource for baskets or tools, so DYE2 keeps them whole in a
+list under one key of Decaid's store each, `baskets` and `equipment` under
+`dye2.reaplugin`, and every save reads the list and posts it back (ADR-0005).
+The plugin reports them as the `dye2Baskets` and `dye2Equipment` collections,
+a key never written as an empty list, and each record beside when it first
+read the record's current content, as they carry no edit time
+(`COLLECTIONS.md`). They are taken in as beans are, under the same locks,
+each kind under a matching lock of its own (`takeInEquipment` in
+`equipment.ts`, planned by the pure `planEquipmentIntake` in
+`equipment-intake.ts`). A Basket is a model of basket, at every Location, and
+a Tool any other gear DYE2 lists; each is in the Library, and each Location
+shows or hides it, as a Profile (ADR-0008). Grinders stay per Location.
+
+- **Unrecognised shapes.** A list that is not an array of records each with an
+  id no other holds (`dye2Records` in `protocol/`) takes nothing in, and the
+  tablet's map stays as it was, so nothing in it reads as deleted. It is kept
+  for the tablet (`tablet_unrecognised_lists`), and the tablet's writer
+  writes nothing to that list, nor removes from it, until a report holds it
+  in a shape that is recognised. Its other lists keep syncing. The plugin
+  finds the same as it writes (`listUnrecognised`).
+- A record without what DYE2 always saves (its id and name) or a time is
+  ignored.
+- **Content and ids.** A record's content is its fields but its id,
+  `createdAt` and global id, which DYE2 keeps in a top-level field of the
+  record's own (`decentSyncId`, ADR-0006) and keeps when it saves. A record
+  the map holds by DYE2's id stays that item whatever global id it carries,
+  so one that lost it, as from another app's save or a backup taken before
+  it was written, has it written back. One the map does not hold carrying an
+  item's global id is that item, changing nothing at the Location, as a
+  bean's.
+- **Edits.** A record the map holds that differs from the record known is an
+  edit of each field of its content it changed, timed by when the plugin
+  first read it, merged per field (Edits, above). But a field the report
+  sets back to the value the tablet held just before the server's latest
+  write to that field (`before_write`), is taken as
+  unchanged: DYE2's pages save every field as they loaded it, and another
+  app rewriting the list at the same moment as the plugin's write puts the
+  record back as it was (ADR-0005). The item's value is then written again.
+  A write's answer showing such a field, as the plugin read the list before
+  another write to the record, is taken the same way; if the record holds the
+  item's content all the same, as when that write was undone, the tablet has
+  seen it (`content_seen_at`), and nothing is written. A field an answer
+  shows holding the item's value is no edit of the tablet's, and keeps its
+  value before the server's write: the plugin left out a write of a value
+  the tablet held already, the record known behind it after an answer was
+  lost. A field whose value before the server's write both the record and
+  the item hold again, on the tablet's next report or answer, keeps it no
+  longer, so a later write of the field guards against a stale save of it.
+  A barista who deliberately sets a field back to exactly that value has to
+  set it again: the write that puts the item's value back over it does not
+  keep that value as the tablet's before it, so setting it once more is an
+  edit. So is setting it back once the tablet has reported the field with
+  any other value. The cost: a second stale save of the field in a row, or
+  the rewrite lost again at once, counts as the tablet's edit; so does a save
+  from a page opened before two of the server's writes of the field, setting
+  it back to its value before the first; and a stale save of a field whose
+  value before the server's write the item took again, by another tablet's
+  edit, before the tablet reported it, once the server writes the field
+  next.
+- **New records** are matched by name, ignoring case and white space at
+  either end (`equipmentMatchKey`), to the oldest of the kind not Archived,
+  as DYE2 itself refuses a second tool of one name (ADR-0018): linked, the
+  record takes the item's content, each field it held otherwise kept as a
+  Conflict, and the item is shown at the tablet's Location. Otherwise it
+  joins the Library, shown at the tablet's Location only.
+- **Gone from the list.** A record the map holds that a report listed before
+  was deleted on the tablet: the item is hidden at the tablet's Location
+  only (ADR-0019), as a deleted Profile is, timed when the server learns of
+  it, and the map holds it no more. DYE2 deletes Tools; it cannot delete a
+  Basket, but one gone is taken the same way. A record the server's write
+  created that no report listed before it went was lost to another app
+  rewriting the list as the plugin wrote it: the map forgets it, and the
+  writer writes it again where its Location shows it.
+- **Joining.** A report that is part of joining takes nothing of the
+  tablet's in, as for any kind (Joining a Location, below): its records of
+  items the Library has are those items, written the Location's state, and
+  the rest are left out, removed from the list by the writer, as DYE2 can
+  neither archive nor hide one, and not kept (ADR-0005). A Location that
+  shows none of the kind yet takes the joining tablet's own. A record left
+  out that is listed again after its removal, as another app rewrote the list
+  at the same moment, is removed again. A tablet that took part at its
+  Location before Baskets and Tools were shared is not joining as it first
+  reports them: the migration that added them records those lists as taken
+  in where its profiles were, so its baskets and tools join the Library.
+
+So a Basket or Tool created in DYE2 on one tablet is written to the other
+tablets at its Location, and to another Location's once shown there; an edit
+on any tablet reaches every tablet that holds it; and deleting a Tool hides it
+at that Location only. Hiding one at a Location removes it from that
+Location's tablets' lists.
+
 ## Writing to tablets
 
 Each welcomed connection that is not mismatched has a writer
@@ -793,6 +924,14 @@ each update also writing the item's content where the record differs from it
    for its Decaid's version; or that it holds hidden or deleted, made visible.
    Then each Profile the tablet holds visible that the Location does not
    show, hidden, never deleted.
+6. Each Basket, then each Tool, the Location shows that the tablet lacks,
+   created in DYE2's list, or whose record lacks its global id, which is
+   written; then each the tablet holds that the Location does not show, as
+   one hidden there or Archived, removed from the list (`remove`), as DYE2
+   can neither archive nor hide one (ADR-0005). These lists are written to
+   every sharing tablet, whether or not DYE2 is installed there, so
+   installing DYE2 later finds them ready, but never one the tablet holds in
+   a shape that is not recognised.
 
 Every record the tablet holds whose content differs from its item's, offered
 at the Location or not, is written the item's content, in the same update as
@@ -813,11 +952,13 @@ item no Shot names from every tablet that holds it, is the one exception
 the shared settings. After them, before the writes above, each record a
 joining tablet held that the Library leaves out and that is not set aside
 there yet is archived or hidden (`leaveOut`; Joining a Location, below),
-batches first, then beans, grinders and profiles.
+batches first, then beans, grinders and profiles, and last baskets and
+tools, which are removed from DYE2's list instead (Taking in a tablet's
+baskets and tools, above).
 
 It writes nothing until that connection's reports of the tablet's beans, bean
-batches, grinders and profiles, which the plugin sends on every welcome, have
-been taken in, nor between a report of its beans and the report of its batches the plugin
+batches, grinders, profiles, baskets and tools, which the plugin sends on
+every welcome, have been taken in, nor between a report of its beans and the report of its batches the plugin
 sends after it, so a change the tablet made to both, such as deleting a bean
 with its batches, is taken in whole first. It then writes only while the
 connection still holds the Machine and the Machine takes part where the
@@ -919,7 +1060,8 @@ says nothing new of what the tablet had seen of its Location's state
 
 The plugin (`plugin/src/library-writes.ts`) carries writes out through
 Decaid's API, one at a time, between its reads of the lists it writes to (the
-beans, bean batches, grinders and profiles), never during one
+beans, bean batches, grinders and profiles, and DYE2's baskets and
+equipment), never during one
 (`LibraryAccess`), and
 queues each answer in its outbox, behind
 every report read before the write. So the server takes in each report read
@@ -999,6 +1141,26 @@ tablet's list of batches to show it does not.
   gone is deleted. It answers `deleted`, or `writeRefused`, through its
   outbox as it answers a write.
 
+- To write a Basket or Tool (`dye2Writer`), it reads its list from Decaid's
+  store, a key never written being an empty list, and answers
+  `listUnrecognised`, writing nothing, if the list is not in a shape it
+  recognises. To create one, a record carrying the global id, made by a
+  write whose answer was lost, is the answer; a record without a global id
+  of the item's name, entered before the tablet reported it, becomes the
+  item, only the global id written to it (`linked`); otherwise it adds a
+  record with the item's content, a new random UUID as its id, as DYE2 gives
+  one, and `createdAt`. To update one, it sets the fields the record still
+  holds as the server expects, a cleared one left out of the record. Either
+  way the global id goes in the record's own field, and the list is posted
+  back whole (`POST /store/dye2.reaplugin/{key}`), only where it changed. To
+  remove one (`remove`), it leaves the record out of the list and posts it
+  back, unless it carries another item's global id, and answers `removed`,
+  as it does for one already gone. A record of one an Admin hard-deleted is
+  removed the same way, and one the Library leaves out too, answered as set
+  aside. Each is timed by the plugin's clock, as DYE2's records carry none.
+  Its next read of the list it wrote is reported whatever it holds, so a
+  write another app's rewrite of the list lost at the same moment shows up
+  there (ADR-0005); the server then writes it again.
 - To set aside a record the Library leaves out (`leaveOut`), it reads the
   record, and archives a bean, bean batch or grinder (`PUT /beans/{id}`,
   `/bean-batches/{id}` or `/grinders/{id}` with `archived`, its `extras`
@@ -1042,7 +1204,11 @@ mismatched connection's that reported its hardware:
   tablet's answer to, delete it answered `deleted`, or record it set aside,
   and when, by PostgreSQL's clock (`tablet_last_applied`), whether or not
   its connection still awaited the answer.
-- **The changes refused:** each write, delete or leave-out the tablet
+- **DYE2 lists not written:** each of DYE2's lists the tablet holds in a shape
+  that is not recognised, as it last reported it or the plugin last found it
+  as it wrote, which nothing is written to or taken in from until it reports
+  it in a shape that is (`tablet_unrecognised_lists`).
+- **The changes refused:** each write, delete, removal or leave-out the tablet
   refused while its connection awaited the answer, with Decaid's HTTP
   status and what it answered, the latest refusal of each item or record
   kept (`tablet_refusals`). The status is null where there is none: Decaid
@@ -1261,8 +1427,9 @@ it.
   Location than its tablet's latest reports, and asks the plugin for them
   afresh, its Workflow first (Writing to tablets, above). Once they are
   taken in there, the tablet is written what the Location offers, its shown
-  Profiles, the batches at it and their Beans, and its Grinders, and what it
-  does not offer is archived or hidden on the tablet, never deleted. The
+  Profiles, Baskets and Tools, the batches at it and their Beans, and its
+  Grinders, and what it does not offer is archived or hidden on the tablet,
+  never deleted, but for a Basket or Tool, removed from DYE2's list. The
   Workflow taken in as the tablet joins has had none of the Location's
   steam and rinse settings, so it sets only those the Location has not set
   yet, and is written the others, unless the Machine's sharing of them is
@@ -1429,6 +1596,20 @@ Every endpoint requires the account session; Staff read them as Admins do.
   /api/grinders/:id` and `DELETE /api/profiles/:id` hard-delete one, a Bean
   with its batches, and answer 204: Admins only. 409 if a Shot names it, or
   one of a Bean's batches, or it is one of Decaid's bundled Profiles.
+- `GET /api/baskets` and `GET /api/tools` return `{ baskets }` and
+  `{ tools }`, each `{ id, name, archived, shownAt, createdAt,
+  createdLocation }`, by name, ignoring case; `shownAt` as a Profile's. `GET
+  /api/baskets/:id` and `GET /api/tools/:id` return `{ basket }` or `{ tool
+  }`, the same with its `content`, DYE2's record fields but its id,
+  `createdAt` and global id, and `locations`, each Location that has decided
+  whether it shows it, as a Profile's; or 404. `PUT
+  /api/baskets/:id/locations/:locationId` and `PUT
+  /api/tools/:id/locations/:locationId`, with `{ shown }`, show it at the
+  Location or hide it there, as for a Profile: shown, it is written to the
+  Location's tablets; hidden, it is removed from their lists. 403 for Staff
+  at a Location they do not work at. Their `history` and `conflicts` are an
+  item's (below). Creating, editing, Archiving and deleting them come with
+  their pages.
 - `GET /api/beans/:id/history`, `GET /api/bean-batches/:id/history`,
   `GET /api/grinders/:id/history` and `GET /api/profiles/:id/history` return
   `{ versions }`, the item's versions (ADR-0020), the latest taken in first,
@@ -1449,10 +1630,10 @@ Every endpoint requires the account session; Staff read them as Admins do.
 - `GET /api/conflicts` returns `{ conflicts }`, the open Conflicts, the
   latest first, each `{ id, item, field, value, location, source, editedAt,
   createdAt, state, current, resolvable }`: the item `{ kind, id, name }`,
-  `kind` being `bean`, `beanBatch`, `grinder` or `profile`, and `name` a
-  Bean's roaster and name, a batch's Bean and the day it was roasted, as
-  `Guji, roasted 2026-10-01`, a Grinder's model or
-  a Profile's title, null where its content has none; or, of `kind`
+  `kind` being `bean`, `beanBatch`, `grinder`, `profile`, `basket` or `tool`,
+  and `name` a Bean's roaster and name, a batch's Bean and the day it was
+  roasted, as `Guji, roasted 2026-10-01`, a Grinder's model, a Profile's
+  title or a Basket's or Tool's name, null where its content has none; or, of `kind`
   `settings`, a Location's steam and rinse settings, named
   `Steam and rinse`, whose Location `location` names; the field and the
   losing value, null where the edit cleared it; the Location whose state the
@@ -1508,21 +1689,22 @@ Every endpoint requires the account session; Staff read them as Admins do.
   `noLocation`, `sharingOff` or both, none while it takes part.
 - `GET /api/machines/:id/sharing-status` returns `{ status }`, the
   Machine's sharing status (above): `{ tabletId, waiting, lastApplied,
-  refused }`. `tabletId` is the tablet it is read for, or null if none has
+  refused, unrecognisedLists }`. `tabletId` is the tablet it is read for, or null if none has
   connected. `waiting` is how many changes that tablet is
   due and has not refused, or null while it is written nothing, as the
   Machine is capture-only or no tablet has connected. `lastApplied` is the
   last change it applied, or null, and `refused` the changes it refused that
   are still due, the latest refused first (Sharing status, above), each `{ change, kind, item,
-  localId }`: `change` is `write`, `delete` or `leaveOut`; `kind` a Library
+  localId }`: `change` is `write`, `delete`, `remove` or `leaveOut`; `kind` a Library
   kind, `settings` or `workflow`; `item` the item, `{ kind, id, name }`,
   named as a Conflict's is, or for the Workflow "Grinder and batch", null
   for a record set aside, which is none of the Library's, or an item
   deleted since; and `localId` Decaid's id for the record, null for a
   create, the settings and the Workflow. `lastApplied` adds `appliedAt`,
   and each refusal `status`, Decaid's HTTP status or null if it gave none,
-  `error`, what it answered or why, and `refusedAt`. 404 for no such
-  Machine.
+  `error`, what it answered or why, and `refusedAt`. `unrecognisedLists` are DYE2's lists not written, each
+  `{ list, since }`, by the collection's name, such as `dye2Baskets`. 404
+  for no such Machine.
 - `PUT /api/machines/:id/settings-sharing`, with `{ sharesSettings }`,
   switches whether the Machine shares its Location's settings, and returns
   the same. 400 without a boolean, 404 for no such Machine, 403 for Staff
@@ -1569,8 +1751,7 @@ of its content, what a tablet is due and holds, the writer's waits and the
 gateway's answers, joining, hard deletes and sharing status on the server;
 the lists the plugin reports and how it writes, deletes and sets aside
 records; and history, Conflicts and sharing status in the management
-interface. A new kind, such as milestone 3's Recipe, Basket and Tool,
-needs:
+interface. A new kind, such as milestone 3's Recipe, needs:
 
 1. **The protocol** (`protocol/src/index.ts`): an entry in
    `LIBRARY_ITEM_KINDS`, in the order its list is read and written, after
@@ -1640,12 +1821,12 @@ Profiles.
 `server/test/library-management.test.ts`,
 `server/test/library-profile-management.test.ts`,
 `server/test/location-settings.test.ts`, `server/test/joining.test.ts` and
-`server/test/capture-only.test.ts` and `server/test/sharing-status.test.ts`
-cover this through Seam 1, with the
+`server/test/capture-only.test.ts`, `server/test/sharing-status.test.ts` and
+`server/test/library-equipment.test.ts` cover this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL;
 `server/test/bean-intake.test.ts`, `server/test/batch-intake.test.ts`,
 `server/test/grinder-intake.test.ts`, `server/test/profile-intake.test.ts`,
-`server/test/holdings.test.ts`, `server/test/merge.test.ts`,
+`server/test/equipment-intake.test.ts`, `server/test/holdings.test.ts`, `server/test/merge.test.ts`,
 `server/test/settings-intake.test.ts` and `server/test/join-plan.test.ts`
 the pure modules;
 `server/test/simulated-bean-writes.test.ts`,

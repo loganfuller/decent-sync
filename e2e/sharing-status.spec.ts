@@ -1,5 +1,5 @@
 import { expect as baseExpect, type Page, test } from "@playwright/test";
-import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { NO_DYE2_EQUIPMENT, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 
 // A Machine's page shows its sharing status: how many changes are waiting for
@@ -32,7 +32,7 @@ test("a Machine's page shows the changes waiting for its tablet, the last it app
   const { machine, token } = (await created.json()) as { machine: { id: string }; token: string };
   const tablet = SimulatedTablet.load({
     settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
-    api: { ...derivedDe1Pro({ serial: "25201" }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] },
+    api: { ...derivedDe1Pro({ serial: "25201" }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_EQUIPMENT },
     timeScale: 50,
   });
   tablets.push(tablet);
@@ -66,6 +66,38 @@ test("a Machine's page shows the changes waiting for its tablet, the last it app
   baseExpect(tablet.beans().map((record) => record.name).sort()).toEqual(["House Blend", "Seasonal"]);
   // The Bean refused stays refused until it changes again.
   await expect(refused.getByRole("row", { name: /Refused Blend/ })).toBeVisible();
+});
+
+test("a Machine's page shows a DYE2 list its tablet holds in a shape not recognised, which nothing is written to", async ({ page }) => {
+  const location = await page.request.post("/api/locations", { data: { name: "Belmont", timeZone: "America/Chicago" } });
+  baseExpect(location.status()).toBe(201);
+  const belmont = ((await location.json()) as { location: { id: string } }).location;
+  const created = await page.request.post("/api/machines", { data: { name: "Belmont group", locationId: belmont.id } });
+  baseExpect(created.status()).toBe(201);
+  const { machine, token } = (await created.json()) as { machine: { id: string }; token: string };
+  const tablet = SimulatedTablet.load({
+    settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
+    // Its baskets kept by another app in a shape DYE2 never saves.
+    api: {
+      ...derivedDe1Pro({ serial: "25202" }),
+      "/beans": [],
+      "/bean-batches": [],
+      "/grinders": [],
+      "/profiles": [],
+      ...NO_DYE2_EQUIPMENT,
+      "/store/dye2.reaplugin/baskets": { basket: "18g" },
+    },
+    timeScale: 50,
+  });
+  tablets.push(tablet);
+  await tablet.waitForLog(/^Connected to /);
+
+  await page.goto(`/machines/${machine.id}`);
+  const sharing = page.getByRole("region", { name: "Sharing" });
+  const lists = sharing.getByRole("group", { name: "DYE2 lists not written" });
+  await expect(lists).toContainText("DYE2 lists it stopped writing");
+  await expect(lists.getByRole("listitem")).toHaveText([/^Baskets \(DYE2\), since /]);
+  await expect(sharing.getByText("None: its tablet is up to date")).toBeVisible();
 });
 
 /** Offers a new Bean at the Location with a batch there, through the REST API. */

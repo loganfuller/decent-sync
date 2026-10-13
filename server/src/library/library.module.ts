@@ -3,6 +3,8 @@ import { BeanBatchesController } from "./bean-batches.controller.js";
 import { BeanBatchesService } from "./bean-batches.service.js";
 import { BeansController } from "./beans.controller.js";
 import { BeansService } from "./beans.service.js";
+import { BasketsController, ToolsController } from "./equipment.controller.js";
+import { EquipmentService } from "./equipment.service.js";
 import { ConflictsController } from "./conflicts.controller.js";
 import { ConflictsService } from "./conflicts.service.js";
 import { GrindersController } from "./grinders.controller.js";
@@ -28,6 +30,8 @@ import { SharingService } from "./sharing.service.js";
     BeanBatchesController,
     GrindersController,
     ProfilesController,
+    BasketsController,
+    ToolsController,
     ConflictsController,
     LocationSettingsController,
     SharingController,
@@ -37,6 +41,7 @@ import { SharingService } from "./sharing.service.js";
     BeanBatchesService,
     GrindersService,
     ProfilesService,
+    EquipmentService,
     HistoryService,
     ConflictsService,
     LocationSettingsService,

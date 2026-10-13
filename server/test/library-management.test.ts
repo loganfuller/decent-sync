@@ -2,7 +2,7 @@ import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
 import { shotFixture, withShots } from "./support/shot-fixtures.js";
-import { SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
+import { NO_DYE2_EQUIPMENT, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 and the REST API for ticket #87: Beans, Bean Batches and Grinders
@@ -61,7 +61,7 @@ describe("Editing the Library in the management interface", { timeout: 60_000 },
   function load(machine: CreatedMachine, serial: string, instance: TestServer = server, apiDelayMs?: (method: string, path: string) => number): SimulatedTablet {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] },
+      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_EQUIPMENT },
       timeScale: 50,
       ...(apiDelayMs ? { apiDelayMs } : {}),
     });
@@ -402,7 +402,7 @@ describe("Editing the Library in the management interface", { timeout: 60_000 },
     const shots = Array.from({ length: 40 }, (_, index) => shotNaming(`shot-backfilled-${index}`, "21101", {}));
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: server.url }), PollSeconds: 5 },
-      api: withShots({ ...derivedDe1Pro({ serial: "21101" }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] }, shots),
+      api: withShots({ ...derivedDe1Pro({ serial: "21101" }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_EQUIPMENT }, shots),
       timeScale: 50,
       apiDelayMs: (method, path) => (method === "GET" && path.startsWith("/shots/") ? 400 : 0),
     });

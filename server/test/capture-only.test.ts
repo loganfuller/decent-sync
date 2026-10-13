@@ -1,7 +1,7 @@
 import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView, acceptInvite } from "./support/admin-api.js";
-import { SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
+import { NO_DYE2_EQUIPMENT, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #90: an Admin turns sharing off for a Machine at a
@@ -61,6 +61,7 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
         "/bean-batches": [],
         "/grinders": [],
         "/profiles": bundledProfiles(),
+        ...NO_DYE2_EQUIPMENT,
         "/workflow": { ...workflow, context: { targetDoseWeight: 18, targetYield: 36 } },
       },
       timeScale: 50,

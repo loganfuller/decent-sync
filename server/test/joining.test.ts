@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { globalIdOf } from "@decent-sync/protocol";
+import { LIBRARY_LISTS, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView } from "./support/admin-api.js";
-import { RawConnection, SimulatedTablet, derivedDe1Pro, derivedProfile, helloWith, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
+import { NO_DYE2_EQUIPMENT, RawConnection, SimulatedTablet, derivedDe1Pro, derivedProfile, helloWith, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #89: a Machine joining a Location, as it is adopted
@@ -95,7 +95,9 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const context = options.fresh ? { targetDoseWeight: 18, targetYield: 36 } : undefined;
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial }), ...library, "/workflow": workflowWith(options.parts ?? {}, context) },
+      // DYE2's lists empty: the fixture basket, shared like any other item, would be written its global id in the background,
+      // which this file does not count.
+      api: { ...derivedDe1Pro({ serial }), ...NO_DYE2_EQUIPMENT, ...library, "/workflow": workflowWith(options.parts ?? {}, context) },
       timeScale: 50,
     });
     tablets.push(tablet);
@@ -562,7 +564,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     // Its Workflow is taken in while it is capture-only; it is then adopted at the cafe before its lists arrive.
     await raw.deliver(workflow());
     expect((await move(machine, cafe)).status).toBe(201);
-    for (const name of ["beans", "beanBatches", "grinders", "profiles"]) await raw.deliver(report(name));
+    for (const name of LIBRARY_LISTS) await raw.deliver(report(name));
     await expect.poll(() => sent("requestCollections").length, { timeout: 10_000 }).toBe(1);
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(sent("write")).toEqual([]);
@@ -583,7 +585,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const sent = (type: string) => raw.messages.filter((message) => (message as { type?: unknown }).type === type);
     await raw.deliver(workflow({ targetDoseWeight: 18 }));
     expect((await move(machine, cafe)).status).toBe(201);
-    for (const name of ["beans", "beanBatches", "grinders", "profiles"]) await raw.deliver(report(name));
+    for (const name of LIBRARY_LISTS) await raw.deliver(report(name));
     await expect.poll(() => sent("requestCollections").length, { timeout: 10_000 }).toBe(1);
     // The Workflow it sends again holds what PostgreSQL refuses to store, so it is set aside, and the cafe's Bean is written.
     await raw.deliver(workflow({ targetDoseWeight: 18, notes: "Bright\u0000, sweet" }));

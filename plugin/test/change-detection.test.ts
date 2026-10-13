@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
-import { type Fingerprint, type Reading, contentHash, decide, ifNoneMatch, pairedDevices } from "../src/change-detection.js";
+import { FirstReads, type Fingerprint, type Reading, contentHash, decide, ifNoneMatch, pairedDevices } from "../src/change-detection.js";
 
 // Module tests for the plugin's change detection, with collections Decaid
 // v0.8.7 sent (server/test/fixtures/decaid/), or derived from them by the
@@ -48,7 +48,7 @@ describe("collections compared by content", () => {
     expect(readInTurn([value(settings), unavailable, unavailable, value(settings), value(settings)]).sent).toEqual([true, true, false, true, false]);
   });
 
-  it("sends a collection unavailable from the start, such as a DYE2 key never written", () => {
+  it("sends a collection unavailable from the start, such as a machine's settings with no machine connected", () => {
     expect(readInTurn([unavailable, unavailable]).sent).toEqual([true, false]);
     expect(readInTurn([unavailable, unavailable], true).sent).toEqual([true, true]);
   });
@@ -123,5 +123,20 @@ describe("paired devices", () => {
   it("is nothing to report unless Decaid answers with a list", () => {
     for (const inventory of [null, {}, "devices"]) expect(pairedDevices(inventory)).toBeNull();
     expect(pairedDevices([])).toEqual([]);
+  });
+});
+
+describe("FirstReads", () => {
+  it("times each record of one of DYE2's lists by when its current content was first read", () => {
+    const reads = new FirstReads();
+    const basket = { id: "5a792f42-b6ff-44e0-a58c-ed165741b789", name: "Fixture 18g Precision", diameterMm: 58.5 };
+    const tool = { id: "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6", name: "Fixture WDT Tool" };
+    expect(reads.times([basket, { name: "no id" }], "2026-10-12T20:00:00.000Z")).toEqual(["2026-10-12T20:00:00.000Z", null]);
+    // Read the same, it keeps its time; edited, or new, it is read now.
+    expect(reads.times([{ ...basket }, tool], "2026-10-12T20:01:00.000Z")).toEqual(["2026-10-12T20:00:00.000Z", "2026-10-12T20:01:00.000Z"]);
+    expect(reads.times([{ ...basket, diameterMm: 58.4 }, tool], "2026-10-12T20:02:00.000Z")).toEqual(["2026-10-12T20:02:00.000Z", "2026-10-12T20:01:00.000Z"]);
+    // Gone and back, it is read anew.
+    reads.times([tool], "2026-10-12T20:03:00.000Z");
+    expect(reads.times([{ ...basket, diameterMm: 58.4 }], "2026-10-12T20:04:00.000Z")).toEqual(["2026-10-12T20:04:00.000Z"]);
   });
 });

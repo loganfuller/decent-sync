@@ -288,6 +288,14 @@ export function machineSnapshot(state: string, substate: string): Record<string,
 }
 
 /**
+ * DYE2's baskets and tools, empty, for a test tablet whose Library is
+ * otherwise the test's own: the test tablet's basket, which every derived
+ * tablet holds, is shared through the Library like any other (ADR-0005),
+ * and would be written to the Location's other tablets.
+ */
+export const NO_DYE2_EQUIPMENT: DecaidApi = { "/store/dye2.reaplugin/baskets": [], "/store/dye2.reaplugin/equipment": [] };
+
+/**
  * Derived from de1ProOnDecaid087(): the same responses, with the machine's
  * reported model and serial, the preferred machine's connection id, or
  * Decaid's version (such as 0.8.6+2801, split into its version and build

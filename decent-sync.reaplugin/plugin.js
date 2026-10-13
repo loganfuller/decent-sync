@@ -232,12 +232,35 @@ var __decentSync = (() => {
     const id = isObject(extras) ? extras[GLOBAL_ID_KEY] : void 0;
     return isGlobalId(id) ? id.toLowerCase() : null;
   }
+  var DYE2_NAMESPACE = "dye2.reaplugin";
+  var DYE2_LISTS = { dye2Recipes: "recipes", dye2Equipment: "equipment", dye2Baskets: "baskets" };
+  function isDye2List(name) {
+    return Object.prototype.hasOwnProperty.call(DYE2_LISTS, name);
+  }
+  function dye2Records(value) {
+    if (!Array.isArray(value)) return null;
+    const ids = /* @__PURE__ */ new Set();
+    for (const record of value) {
+      if (!isObject(record) || !isRecordId(record.id) || ids.has(record.id)) return null;
+      ids.add(record.id);
+    }
+    return value;
+  }
+  function dye2GlobalIdOf(record) {
+    const id = isObject(record) ? record[GLOBAL_ID_KEY] : void 0;
+    return isGlobalId(id) ? id.toLowerCase() : null;
+  }
+  function equipmentMatchKey(name) {
+    return name.trim().toLowerCase();
+  }
   var GLOBAL_ITEM_ID = { test: isGlobalId, problem: "must be a UUID" };
   var LIBRARY_ITEM_KINDS = {
     bean: { list: "beans", id: GLOBAL_ITEM_ID },
     beanBatch: { list: "beanBatches", id: GLOBAL_ITEM_ID, under: "bean" },
     grinder: { list: "grinders", id: GLOBAL_ITEM_ID },
-    profile: { list: "profiles", id: { test: isRecordId, problem: `must be a Profile's id of 1 to ${MAX_RECORD_ID_LENGTH} characters without NUL` } }
+    profile: { list: "profiles", id: { test: isRecordId, problem: `must be a Profile's id of 1 to ${MAX_RECORD_ID_LENGTH} characters without NUL` } },
+    basket: { list: "dye2Baskets", id: GLOBAL_ITEM_ID, dye2Key: "baskets" },
+    tool: { list: "dye2Equipment", id: GLOBAL_ITEM_ID, dye2Key: "equipment" }
   };
   var LIBRARY_KINDS = Object.keys(LIBRARY_ITEM_KINDS);
   function isLibraryKind(kind) {
@@ -246,6 +269,10 @@ var __decentSync = (() => {
   var LIBRARY_LISTS = LIBRARY_KINDS.map((kind) => LIBRARY_ITEM_KINDS[kind].list);
   function isLibraryList(name) {
     return LIBRARY_LISTS.includes(name);
+  }
+  function dye2Key(kind) {
+    const description = LIBRARY_ITEM_KINDS[kind];
+    return description.dye2Key;
   }
   function listKind(list) {
     return LIBRARY_KINDS.find((kind) => LIBRARY_ITEM_KINDS[kind].list === list);
@@ -388,6 +415,13 @@ var __decentSync = (() => {
         });
       case "delete":
         return check(object3, "delete", (fields) => {
+          fields.id();
+          fields.string("kind", { nonEmpty: true });
+          fields.itemId("globalId", object3.kind);
+          fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+        });
+      case "remove":
+        return check(object3, "remove", (fields) => {
           fields.id();
           fields.string("kind", { nonEmpty: true });
           fields.itemId("globalId", object3.kind);
@@ -548,6 +582,26 @@ var __decentSync = (() => {
     if (!Array.isArray(inventory)) return null;
     return inventory.filter((device) => !(typeof device === "object" && device !== null && device.state === "discovered"));
   }
+  var FirstReads = class {
+    constructor() {
+      __publicField(this, "known", /* @__PURE__ */ new Map());
+    }
+    /** Each record's time, in the order of the list read at `now`, a UTC time: null for one without a string id. */
+    times(records, now2) {
+      const next = /* @__PURE__ */ new Map();
+      const times = records.map((record) => {
+        const id = typeof record === "object" && record !== null && !Array.isArray(record) ? record.id : void 0;
+        if (typeof id !== "string") return null;
+        const hash = contentHash(JSON.stringify(record));
+        const before = this.known.get(id);
+        const at = before?.hash === hash ? before.at : now2;
+        next.set(id, { hash, at });
+        return at;
+      });
+      this.known = next;
+      return times;
+    }
+  };
   function contentHash(text) {
     let h1 = 3735928559;
     let h2 = 1103547991;
@@ -645,13 +699,14 @@ var __decentSync = (() => {
       return false;
     }
   }
-  async function readCollection(path, etag) {
+  async function readCollection(path, etag, emptyWhenNull = false) {
     try {
       const response = await fetch(API + path, etag === null ? void 0 : { headers: { "If-None-Match": etag } });
       if (response.status === 304) return { kind: "notModified" };
       if (!response.ok) return { kind: "unavailable" };
       const value = await response.json();
-      return value === null ? { kind: "unavailable" } : { kind: "value", value, etag: response.headers.get("etag") };
+      if (value === null) return emptyWhenNull ? { kind: "value", value: [], etag: null } : { kind: "unavailable" };
+      return { kind: "value", value, etag: response.headers.get("etag") };
     } catch {
       return { kind: "unavailable" };
     }
@@ -756,6 +811,75 @@ var __decentSync = (() => {
     }
   }
 
+  // src/tablet-id.ts
+  var KEY = "tabletId";
+  var BACKUP_RETRY_MS = 3e4;
+  var TabletId = class {
+    constructor(storage, log) {
+      __publicField(this, "storage", storage);
+      __publicField(this, "log", log);
+      /** Known once read or made, for as long as this load lasts. */
+      __publicField(this, "id");
+      /** The read of the id under way, shared by callers meanwhile. */
+      __publicField(this, "reading");
+      /** The next attempt to have Decaid's backups include the id, while one is due. */
+      __publicField(this, "backupRetry");
+      __publicField(this, "stopped", false);
+    }
+    /**
+     * The tablet's id: the one in plugin storage, or, if that key was never
+     * written, a new one, once Decaid has written it there, or, while Decaid
+     * leaves writes unanswered (storage.ts), once it is sent: a Decaid that
+     * cannot write it gives the tablet a new id each load. Rejects, saying why,
+     * if Decaid refuses or does not answer in time; reading again later
+     * retries.
+     */
+    read() {
+      if (this.id !== void 0) return Promise.resolve(this.id);
+      this.reading ?? (this.reading = this.readOrMake().finally(() => {
+        this.reading = void 0;
+      }));
+      return this.reading;
+    }
+    stop() {
+      this.stopped = true;
+      if (this.backupRetry !== void 0) clearTimeout(this.backupRetry);
+    }
+    async readOrMake() {
+      const stored = await this.storage.read(KEY, "a read of this tablet's id");
+      if (isTabletId(stored)) return this.known(stored);
+      const made = randomUuid();
+      await this.storage.write(KEY, made, "the write of this tablet's new id");
+      this.log(
+        stored === null ? `This tablet had no id in Decaid's plugin storage, so it was given one: ${made}.` : `This tablet's id in Decaid's plugin storage was not a UUID, so it was given a new one: ${made}.`
+      );
+      return this.known(made);
+    }
+    /** Keeps the id, once read or written, for this load, and has Decaid's backups include it. */
+    known(id) {
+      this.id = id;
+      void this.keepInBackups();
+      return id;
+    }
+    /** Has Decaid's store API read the plugin's storage, so backups hold the id, asking again until it answers. */
+    async keepInBackups() {
+      if (await keepStorageInBackups() || this.stopped) return;
+      this.backupRetry = setTimeout(() => {
+        this.backupRetry = void 0;
+        void this.keepInBackups();
+      }, BACKUP_RETRY_MS);
+    }
+  };
+  function randomUuid() {
+    const hex2 = (digits) => {
+      let text = "";
+      for (let digit = 0; digit < digits; digit++) text += Math.floor(Math.random() * 16).toString(16);
+      return text;
+    };
+    const variant = (8 + Math.floor(Math.random() * 4)).toString(16);
+    return `${hex2(8)}-${hex2(4)}-4${hex2(3)}-${variant}${hex2(3)}-${hex2(12)}`;
+  }
+
   // src/library-writes.ts
   var ROUTES = {
     bean: {
@@ -791,11 +915,12 @@ var __decentSync = (() => {
     grinder: recordWriter("grinder", ROUTES.grinder),
     profile: {
       list: "/profiles?includeHidden=true",
-      records: "/profiles",
       write: writeProfile,
       remove: purgeProfile,
-      setAside: hideProfile
+      setAside: (leave) => readThen("/profiles", leave, hideProfile)
     },
+    basket: dye2Writer("baskets"),
+    tool: dye2Writer("equipment"),
     [SETTINGS_KIND]: { write: writeSettings, changesWorkflow: true },
     [WORKFLOW_KIND]: { write: clearWorkflow, changesWorkflow: true }
   };
@@ -814,19 +939,19 @@ var __decentSync = (() => {
   function recordWriter(kind, route) {
     return {
       list: route.list,
-      records: route.records,
       write: async (write) => {
         if (write.localId === null) return await create(route, write);
         const updated = await update(route, write, write.localId);
         return answerTo(write, updated.answer, updated.written);
       },
       remove: (remove, namedByShot) => deleteRecord(kind, route, remove, namedByShot),
-      setAside: archiveRecord
+      setAside: (leave) => readThen(route.records, leave, archiveRecord)
     };
   }
   var LibraryAccess = class {
     constructor() {
       __publicField(this, "queue", Promise.resolve());
+      __publicField(this, "listeners", []);
     }
     /** Runs `work` once everything asked for before it is done, and resolves or rejects as it does. */
     run(work) {
@@ -834,6 +959,19 @@ var __decentSync = (() => {
       this.queue = done.catch(() => {
       });
       return done;
+    }
+    /** Tells `listener` of each list the plugin wrote, as it is written (`wrote`). */
+    onWrite(listener) {
+      this.listeners.push(listener);
+    }
+    /**
+     * The plugin wrote one of DYE2's lists, whose reports are compared by
+     * content: its next read is reported whatever it holds, so one another app
+     * rewrote at the same moment, losing the write, is reported though it reads
+     * as it was last reported (ADR-0005).
+     */
+    wrote(list) {
+      for (const listener of this.listeners) listener(list);
     }
   };
   var LibraryWrites = class {
@@ -859,7 +997,7 @@ var __decentSync = (() => {
     }
     /** Deletes a record of a hard-deleted item once the reads and writes before it are done, and queues its answer. It never rejects. */
     remove(remove) {
-      return this.library.run(async () => this.outbox.enqueue(await carryOutDelete(remove, (kind, ids) => this.namedByShot(kind, ids))));
+      return this.library.run(async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutDelete(remove, (kind, ids) => this.namedByShot(kind, ids)))));
     }
     /**
      * Whether a Shot this plugin queued since it loaded, or has yet to read and
@@ -891,14 +1029,23 @@ var __decentSync = (() => {
       const skin = isObject2(context.extras) ? context.extras.workflowSkin : void 0;
       if (isObject2(skin) && typeof skin.selectedProfileId === "string") this.shotsName.add(`profile:${skin.selectedProfileId}`);
     }
+    /** Removes a record from one of DYE2's lists once the reads and writes before it are done, and queues its answer. It never rejects. */
+    drop(remove) {
+      return this.library.run(async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutRemove(remove))));
+    }
+    /** Has the next read of the kind's list reported whatever it holds, if it is one of DYE2's, which the plugin may just have written; returns the answer. */
+    wrote(kind, answer) {
+      if (isLibraryKind(kind) && dye2Key(kind) !== void 0) this.library.wrote(LIBRARY_ITEM_KINDS[kind].list);
+      return answer;
+    }
     /** Sets aside a record the Library leaves out once the reads and writes before it are done, and queues its answer. It never rejects. */
     leaveOut(leave) {
-      return this.library.run(async () => this.outbox.enqueue(await setAside(leave)));
+      return this.library.run(async () => this.outbox.enqueue(this.wrote(leave.kind, await setAside(leave))));
     }
     /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
     apply(write) {
       if (!writerOf(write.kind)?.changesWorkflow) {
-        return this.library.run(async () => this.outbox.enqueue(await carryOut(write, this.log)));
+        return this.library.run(async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write, this.log))));
       }
       return this.library.run(async () => {
         this.workflow.hold();
@@ -912,6 +1059,15 @@ var __decentSync = (() => {
       });
     }
   };
+  async function carryOutRemove(remove) {
+    const drop = libraryWriterOf(remove.kind)?.drop;
+    if (!drop) return refused(remove, null, `This plugin cannot remove a ${remove.kind}`);
+    try {
+      return await drop(remove);
+    } catch (error) {
+      return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   async function carryOutDelete(remove, namedByShot) {
     const writer = libraryWriterOf(remove.kind);
     if (!writer) return refused(remove, null, `This plugin cannot delete a ${remove.kind}`);
@@ -943,7 +1099,7 @@ var __decentSync = (() => {
       const named = await namedByShot(child, ids);
       if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
       for (const id of ids) {
-        const gone = await request("DELETE", `${WRITERS[child].records}/${encodeURIComponent(id)}`);
+        const gone = await request("DELETE", `${routeOf(child).records}/${encodeURIComponent(id)}`);
         if (!gone.ok && gone.status !== 404) return refused(remove, gone.status, gone.text);
       }
     }
@@ -990,16 +1146,20 @@ var __decentSync = (() => {
     const writer = libraryWriterOf(leave.kind);
     if (!writer) return answer("refused", null, `This plugin cannot set aside a ${leave.kind}`);
     try {
-      const path = `${writer.records}/${encodeURIComponent(leave.localId)}`;
-      const current = await request("GET", path);
-      if (current.status === 404) return answer("gone");
-      const record = current.ok ? parsed2(current.text) : void 0;
-      if (!isObject2(record)) return answer("refused", current.status, current.text);
-      const outcome = await writer.setAside(leave, record, path);
+      const outcome = await writer.setAside(leave);
+      if (outcome === "unrecognised") return unrecognised(leave);
       return typeof outcome === "string" ? answer(outcome) : answer("refused", outcome.status, outcome.text);
     } catch (error) {
       return answer("refused", null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+  async function readThen(records, leave, setAsideRecord) {
+    const path = `${records}/${encodeURIComponent(leave.localId)}`;
+    const current = await request("GET", path);
+    if (current.status === 404) return "gone";
+    const record = current.ok ? parsed2(current.text) : void 0;
+    if (!isObject2(record)) return current;
+    return setAsideRecord(leave, record, path);
   }
   async function archiveRecord(_leave, record, path) {
     if (globalIdOf(record) !== null) return "taken";
@@ -1203,6 +1363,9 @@ var __decentSync = (() => {
       ...write.contentDecidedAt === void 0 ? {} : { contentDecidedAt: write.contentDecidedAt }
     };
   }
+  function unrecognised(request2) {
+    return { type: "listUnrecognised", id: request2.id, kind: request2.kind };
+  }
   function refused(write, status, error) {
     return { type: "writeRefused", id: write.id, kind: write.kind, globalId: write.globalId, status, error: error.slice(0, MAX_REFUSAL_LENGTH) };
   }
@@ -1216,16 +1379,102 @@ var __decentSync = (() => {
   function isObject2(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
+  function dye2Writer(key) {
+    const path = `/store/${DYE2_NAMESPACE}/${key}`;
+    return {
+      list: path,
+      write: (write) => writeInList(path, write),
+      // A hard-deleted item's record is removed as one its Location no longer shows is: no Shot names it by its id here.
+      remove: async (remove) => {
+        const answer = await removeFromList(path, remove);
+        return answer.type === "removed" ? { ...answer, type: "deleted" } : answer;
+      },
+      drop: (remove) => removeFromList(path, remove),
+      setAside: (leave) => leaveOutOfList(path, leave)
+    };
+  }
+  async function readList(path) {
+    const answer = await request("GET", path);
+    const value = answer.ok ? parsed2(answer.text) : void 0;
+    if (value === void 0) return { refused: answer };
+    if (value === null) return { records: [] };
+    const records = dye2Records(value);
+    return records === null ? { unrecognised: true } : { records: [...records] };
+  }
+  async function writeInList(path, write) {
+    const list = await readList(path);
+    if ("refused" in list) return refused(write, list.refused.status, list.refused.text);
+    if ("unrecognised" in list) return unrecognised(write);
+    const { records } = list;
+    const globalId = write.globalId.toLowerCase();
+    const now2 = (/* @__PURE__ */ new Date()).toISOString();
+    let index;
+    let record;
+    let writtenFields;
+    let linked = false;
+    if (write.localId === null) {
+      const held = records.find((candidate) => dye2GlobalIdOf(candidate) === globalId);
+      if (held) return written(write, held, [], now2);
+      const name = write.fields.name;
+      index = records.findIndex(
+        (candidate) => dye2GlobalIdOf(candidate) === null && typeof candidate.name === "string" && typeof name === "string" && equipmentMatchKey(candidate.name) === equipmentMatchKey(name)
+      );
+      if (index !== -1) {
+        record = { ...records[index], [GLOBAL_ID_KEY]: write.globalId };
+        writtenFields = [];
+        linked = true;
+      } else {
+        index = records.length;
+        record = { ...withValues(write.fields), id: randomUuid(), createdAt: now2, [GLOBAL_ID_KEY]: write.globalId };
+        writtenFields = Object.keys(write.fields);
+      }
+    } else {
+      index = records.findIndex((candidate) => candidate.id === write.localId);
+      if (index === -1) return refused(write, 404, "Record not found");
+      const current = records[index];
+      const fields = settable(write, (field) => current[field]);
+      record = { ...current, ...withValues(fields), [GLOBAL_ID_KEY]: write.globalId };
+      for (const [field, value] of Object.entries(fields)) if (value === null) delete record[field];
+      writtenFields = Object.keys(fields);
+      if (sameValue(record, current)) return written(write, current, writtenFields, now2);
+    }
+    records[index] = record;
+    const posted = await request("POST", path, records);
+    if (!posted.ok) return refused(write, posted.status, posted.text);
+    const answer = written(write, record, writtenFields, now2);
+    return linked ? { ...answer, linked } : answer;
+  }
+  async function removeFromList(path, remove) {
+    const removed = { type: "removed", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
+    const list = await readList(path);
+    if ("refused" in list) return refused(remove, list.refused.status, list.refused.text);
+    if ("unrecognised" in list) return unrecognised(remove);
+    const index = list.records.findIndex((record) => record.id === remove.localId);
+    if (index === -1) return removed;
+    const carried = dye2GlobalIdOf(list.records[index]);
+    if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
+    const posted = await request("POST", path, list.records.filter((_, at) => at !== index));
+    return posted.ok ? removed : refused(remove, posted.status, posted.text);
+  }
+  async function leaveOutOfList(path, leave) {
+    const list = await readList(path);
+    if ("refused" in list) return list.refused;
+    if ("unrecognised" in list) return "unrecognised";
+    const index = list.records.findIndex((record) => record.id === leave.localId);
+    if (index === -1) return "gone";
+    if (dye2GlobalIdOf(list.records[index]) !== null) return "taken";
+    const posted = await request("POST", path, list.records.filter((_, at) => at !== index));
+    return posted.ok ? "setAside" : posted;
+  }
+  function withValues(fields) {
+    return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null));
+  }
 
   // src/collections.ts
   var SOURCES = [
     ...LIBRARY_KINDS.map((kind) => ({ name: LIBRARY_ITEM_KINDS[kind].list, path: libraryListPath(kind) })),
-    // Read here until a kind of Library item is reported in it, as milestone 3's are in DYE2's keys.
-    ...[
-      { name: "dye2Recipes", path: "/store/dye2.reaplugin/recipes" },
-      { name: "dye2Equipment", path: "/store/dye2.reaplugin/equipment" },
-      { name: "dye2Baskets", path: "/store/dye2.reaplugin/baskets" }
-    ].filter((source) => !isLibraryList(source.name)),
+    // Read here until a kind of Library item is reported in it.
+    ...Object.keys(DYE2_LISTS).filter((name) => !isLibraryList(name)).map((name) => ({ name, path: `/store/dye2.reaplugin/${DYE2_LISTS[name]}` })),
     { name: "appSettings", path: "/settings" },
     { name: "machineSettings", path: "/machine/settings" },
     { name: "advancedSettings", path: "/machine/settings/advanced" },
@@ -1241,12 +1490,15 @@ var __decentSync = (() => {
       __publicField(this, "pollMs", pollMs);
       /** What was last queued for each collection. */
       __publicField(this, "last", /* @__PURE__ */ new Map());
+      /** When each record of each of DYE2's lists that is a Library list was first read in its current content. */
+      __publicField(this, "firstReads", /* @__PURE__ */ new Map());
       /** For each collection, the latest delivery queued, and the latest queued with a value. */
       __publicField(this, "queued", /* @__PURE__ */ new Map());
       __publicField(this, "wanted");
       __publicField(this, "reading", false);
       __publicField(this, "stopped", false);
       __publicField(this, "pollTimer");
+      library.onWrite((list) => this.last.delete(list));
     }
     start() {
       this.schedulePoll();
@@ -1293,13 +1545,13 @@ var __decentSync = (() => {
     /** Reads a collection, and queues it if it is to be sent. Says whether a value was queued. */
     async capture(source, full) {
       const last = this.last.get(source.name);
-      const reading = selected(source, await readCollection(source.path, full ? null : ifNoneMatch(last)));
+      const reading = selected(source, await readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name)));
       if (this.stopped) return false;
       const decision = decide(last, reading, full);
       if (decision.next) this.last.set(source.name, decision.next);
       if (!decision.send || reading.kind === "notModified") return false;
       const id = this.outbox.nextId();
-      const delivery = reading.kind === "value" ? { type: "collection", id, name: source.name, available: true, value: reading.value, ...placedInTime(source.name, reading.value) } : { type: "collection", id, name: source.name, available: false };
+      const delivery = reading.kind === "value" ? { type: "collection", id, name: source.name, available: true, value: reading.value, ...this.placedInTime(source.name, reading.value) } : { type: "collection", id, name: source.name, available: false };
       const earlier = this.queued.get(source.name);
       if (earlier) {
         if (delivery.available || earlier.latest !== earlier.value) this.outbox.supersede(earlier.latest);
@@ -1309,11 +1561,24 @@ var __decentSync = (() => {
       this.outbox.enqueue(delivery);
       return delivery.available;
     }
+    /**
+     * For a Library list, each record's `updatedAt` placed in UTC, beside the
+     * list: Decaid writes it in the tablet's local time without an offset,
+     * which only the plugin, running in the tablet's time zone, can place.
+     * DYE2's records carry no edit time, so for a list of a kind DYE2 keeps,
+     * when the plugin first read each record's current content
+     * (`FirstReads`, ADR-0005).
+     */
+    placedInTime(name, value) {
+      if (!isLibraryList(name) || !Array.isArray(value)) return {};
+      if (dye2Key(listKind(name)) !== void 0) {
+        let reads = this.firstReads.get(name);
+        if (!reads) this.firstReads.set(name, reads = new FirstReads());
+        return { updatedAt: reads.times(value, (/* @__PURE__ */ new Date()).toISOString()) };
+      }
+      return { updatedAt: value.map((record) => utcTime(record?.updatedAt)) };
+    }
   };
-  function placedInTime(name, value) {
-    if (!isLibraryList(name) || !Array.isArray(value)) return {};
-    return { updatedAt: value.map((record) => utcTime(record?.updatedAt)) };
-  }
   function selected(source, reading) {
     if (reading.kind !== "value" || !source.select) return reading;
     const value = source.select(reading.value);
@@ -2298,75 +2563,6 @@ var __decentSync = (() => {
     for (const waiter of command.waiting) waiter.reject(error);
   }
 
-  // src/tablet-id.ts
-  var KEY = "tabletId";
-  var BACKUP_RETRY_MS = 3e4;
-  var TabletId = class {
-    constructor(storage, log) {
-      __publicField(this, "storage", storage);
-      __publicField(this, "log", log);
-      /** Known once read or made, for as long as this load lasts. */
-      __publicField(this, "id");
-      /** The read of the id under way, shared by callers meanwhile. */
-      __publicField(this, "reading");
-      /** The next attempt to have Decaid's backups include the id, while one is due. */
-      __publicField(this, "backupRetry");
-      __publicField(this, "stopped", false);
-    }
-    /**
-     * The tablet's id: the one in plugin storage, or, if that key was never
-     * written, a new one, once Decaid has written it there, or, while Decaid
-     * leaves writes unanswered (storage.ts), once it is sent: a Decaid that
-     * cannot write it gives the tablet a new id each load. Rejects, saying why,
-     * if Decaid refuses or does not answer in time; reading again later
-     * retries.
-     */
-    read() {
-      if (this.id !== void 0) return Promise.resolve(this.id);
-      this.reading ?? (this.reading = this.readOrMake().finally(() => {
-        this.reading = void 0;
-      }));
-      return this.reading;
-    }
-    stop() {
-      this.stopped = true;
-      if (this.backupRetry !== void 0) clearTimeout(this.backupRetry);
-    }
-    async readOrMake() {
-      const stored = await this.storage.read(KEY, "a read of this tablet's id");
-      if (isTabletId(stored)) return this.known(stored);
-      const made = newTabletId();
-      await this.storage.write(KEY, made, "the write of this tablet's new id");
-      this.log(
-        stored === null ? `This tablet had no id in Decaid's plugin storage, so it was given one: ${made}.` : `This tablet's id in Decaid's plugin storage was not a UUID, so it was given a new one: ${made}.`
-      );
-      return this.known(made);
-    }
-    /** Keeps the id, once read or written, for this load, and has Decaid's backups include it. */
-    known(id) {
-      this.id = id;
-      void this.keepInBackups();
-      return id;
-    }
-    /** Has Decaid's store API read the plugin's storage, so backups hold the id, asking again until it answers. */
-    async keepInBackups() {
-      if (await keepStorageInBackups() || this.stopped) return;
-      this.backupRetry = setTimeout(() => {
-        this.backupRetry = void 0;
-        void this.keepInBackups();
-      }, BACKUP_RETRY_MS);
-    }
-  };
-  function newTabletId() {
-    const hex2 = (digits) => {
-      let text = "";
-      for (let digit = 0; digit < digits; digit++) text += Math.floor(Math.random() * 16).toString(16);
-      return text;
-    };
-    const variant = (8 + Math.floor(Math.random() * 4)).toString(16);
-    return `${hex2(8)}-${hex2(4)}-4${hex2(3)}-${variant}${hex2(3)}-${hex2(12)}`;
-  }
-
   // src/connection.ts
   var MIN_RECONNECT_MS = 1e3;
   var MAX_RECONNECT_MS = 6e4;
@@ -2666,6 +2862,9 @@ var __decentSync = (() => {
           break;
         case "delete":
           void this.writes.remove(message);
+          break;
+        case "remove":
+          void this.writes.drop(message);
           break;
         case "leaveOut":
           void this.writes.leaveOut(message);

@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useId, useState } from "react";
 import { Link } from "react-router";
-import { itemPath } from "@/components/conflicts";
+import { ItemLink, itemPath } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
 import { formatTime } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -161,6 +161,23 @@ export function MachineSharingCard({ machine, isAdmin, onChanged }: { machine: M
             </Table>
           </div>
         )}
+        {status && status.unrecognisedLists.length > 0 && (
+          <div className="grid gap-2" role="group" aria-label="DYE2 lists not written">
+            <h3 className="text-sm font-medium">DYE2 lists it stopped writing</h3>
+            <p className="text-sm text-muted-foreground">
+              Its tablet holds these in a shape Decent Sync does not recognise, so nothing is written to them or taken in from them, rather
+              than risk corrupting DYE2's data. Its other lists keep syncing. Writing starts again once its tablet reports one in a shape it
+              recognises.
+            </p>
+            <ul className="grid gap-1 text-sm">
+              {status.unrecognisedLists.map(({ list, since }) => (
+                <li key={list}>
+                  {listTitle(list)}, since {formatTime(since)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {isAdmin && (
           <div className="flex items-center gap-3">
             <Switch id={switchId} checked={machine.sharing} disabled={busy} onCheckedChange={(checked) => {
@@ -210,6 +227,11 @@ function waitingText(status: SharingStatus, online: boolean): string {
   return online ? count : `${count}, written once its tablet connects`;
 }
 
+/** What a tablet's list is called, by its collection's name: a Library kind's list (`LIBRARY_KINDS`), or the name itself. */
+function listTitle(name: string): string {
+  return Object.values(LIBRARY_KINDS).find(({ list }) => list.name === name)?.list.title ?? name;
+}
+
 /** A change made to the Machine's tablet, naming its item, linked to its page, where the Library still has it. */
 function ChangeDescription({ change, location }: { change: TabletChange; location: Location | null }) {
   const kind = kindName(change.kind);
@@ -224,12 +246,13 @@ function ChangeDescription({ change, location }: { change: TabletChange; locatio
   if (change.item) {
     const { item: named } = change;
     item = (
-      <Link to={itemPath(named.kind as ItemKind, named.id, location)} className="underline-offset-4 hover:underline">
+      <ItemLink path={itemPath(named.kind as ItemKind, named.id, location)}>
         {change.kind === "settings" ? kind : named.name === null ? `Unnamed ${kind}` : `${kind} ${named.name}`}
-      </Link>
+      </ItemLink>
     );
   } else {
     item = change.localId === null ? `A ${kind} since deleted` : record;
   }
+  if (change.change === "remove") return <>{item} removed from its DYE2 list</>;
   return change.change === "delete" ? <>{item} deleted</> : <>{item} written</>;
 }

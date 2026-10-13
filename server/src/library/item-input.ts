@@ -164,6 +164,6 @@ export function readGrinderLocation(body: unknown): string {
 /** Whether a request shows a Profile at a Location or hides it there: `{ shown }`. */
 export function readShown(body: unknown): boolean {
   const shown = typeof body === "object" && body !== null ? (body as { shown?: unknown }).shown : undefined;
-  if (typeof shown !== "boolean") throw new BadRequestException("Send shown: true to show the Profile at this Location, or false to hide it here");
+  if (typeof shown !== "boolean") throw new BadRequestException("Send shown: true to show it at this Location, or false to hide it here");
   return shown;
 }

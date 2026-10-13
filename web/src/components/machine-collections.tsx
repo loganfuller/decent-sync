@@ -133,7 +133,10 @@ export function LibraryCard({ collections }: { collections: CollectionSummary[] 
         <CardTitle>
           <h2>Library</h2>
         </CardTitle>
-        <CardDescription>As its tablet reported it, archived and hidden entries included. Nothing is sent back to the tablet.</CardDescription>
+        <CardDescription>
+          As its tablet reported it, archived and hidden entries included. Its beans, bean batches, grinders, profiles, baskets and tools are
+          shared with its Location's other tablets while it takes part in the Library; its DYE2 recipes are only recorded.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <Table aria-label="Library">

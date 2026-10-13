@@ -172,6 +172,10 @@ model Location {
   batches         BatchLocation[]
   profilesCreated Profile[]            @relation("ProfilesCreated")
   profiles        ProfileLocation[]
+  basketsCreated  Basket[]             @relation("BasketsCreated")
+  baskets         BasketLocation[]
+  toolsCreated    Tool[]               @relation("ToolsCreated")
+  tools           ToolLocation[]
   grinders        Grinder[]
   settings        LocationSettings?
   itemVersions    ItemVersion[]
@@ -200,57 +204,57 @@ enum MachineIdentification {
 /// machine entry. Its identity is its model and serial (ADR-0004), bound when
 /// a connection with its token first reports real ones, or entered by an Admin.
 model Machine {
-  id                 String                @id @default(uuid(7)) @db.Uuid
+  id                  String                @id @default(uuid(7)) @db.Uuid
   /// Stored trimmed; unique so lists and choosers name a Machine unambiguously.
-  name               String                @unique
+  name                String                @unique
   /// The hardware its token is bound to; null until bound.
-  model              String?
-  serial             String?
-  identification     MachineIdentification @default(HARDWARE_NOT_REPORTED)
+  model               String?
+  serial              String?
+  identification      MachineIdentification @default(HARDWARE_NOT_REPORTED)
   /// The hardware the latest `hello` that reported any did, as reported:
   /// for a mismatch, the other hardware; for an Unidentified Machine, its "0".
-  reportedModel      String?               @map("reported_model")
-  reportedSerial     String?               @map("reported_serial")
-  firmware           String?
+  reportedModel       String?               @map("reported_model")
+  reportedSerial      String?               @map("reported_serial")
+  firmware            String?
   /// The connection id, plugin and Decaid versions of the latest accepted
   /// `hello`, and the address its connection came from as the server saw it.
-  connectionId       String?               @map("connection_id")
-  pluginVersion      String?               @map("plugin_version")
-  decaidVersion      String?               @map("decaid_version")
-  remoteAddress      String?               @map("remote_address")
+  connectionId        String?               @map("connection_id")
+  pluginVersion       String?               @map("plugin_version")
+  decaidVersion       String?               @map("decaid_version")
+  remoteAddress       String?               @map("remote_address")
   /// Whether it takes part in the Library at its Location: on unless an
   /// Admin turned sharing off, making it a Capture-only Machine, whose
   /// records are captured but whose tablet is written nothing and whose
   /// Library changes are not taken in.
-  sharing            Boolean               @default(true)
+  sharing             Boolean               @default(true)
   /// When an Admin last turned sharing back on, by PostgreSQL's clock; null
   /// if never. Each of its tablet's reports records it (`tablet_reports`),
   /// so the first report since is part of joining its Location (ADR-0008).
-  sharingSince       DateTime?             @map("sharing_since") @db.Timestamptz(3)
+  sharingSince        DateTime?             @map("sharing_since") @db.Timestamptz(3)
   /// Whether its tablet shares its Location's steam and rinse settings
   /// (ADR-0014): with sharing turned off, nothing of them is taken
   /// from it or written to it, and with sharing turned back on it takes the
   /// Location's.
-  sharesSettings     Boolean               @default(true) @map("shares_settings")
+  sharesSettings      Boolean               @default(true) @map("shares_settings")
   /// When an account last switched it on, by PostgreSQL's clock; null if
   /// never. A change its tablet observed before then, delivered after, was
   /// made while it kept its own settings, and is not shared.
-  sharesSettingsSince DateTime?            @map("shares_settings_since") @db.Timestamptz(3)
+  sharesSettingsSince DateTime?             @map("shares_settings_since") @db.Timestamptz(3)
   /// Why a connection with its token was last refused, until one is accepted.
-  refusalReason      String?               @map("refusal_reason")
-  refusedAt          DateTime?             @map("refused_at") @db.Timestamptz(3)
+  refusalReason       String?               @map("refusal_reason")
+  refusedAt           DateTime?             @map("refused_at") @db.Timestamptz(3)
   /// When a plugin connected with its token was last heard from.
-  lastSeenAt         DateTime?             @map("last_seen_at") @db.Timestamptz(3)
+  lastSeenAt          DateTime?             @map("last_seen_at") @db.Timestamptz(3)
   /// The connection that holds the Machine, on whichever server instance:
   /// written when a hello is accepted, cleared when that connection closes.
   /// Online while set and heard from recently, so a crashed instance's
   /// connections go offline by themselves.
-  connectedSessionId String?               @map("connected_session_id") @db.Uuid
+  connectedSessionId  String?               @map("connected_session_id") @db.Uuid
   /// The tablet that connection comes from, set and cleared with it, so the
   /// next accepted `hello` can tell another tablet from this one reconnecting.
-  connectedTabletId  String?               @map("connected_tablet_id") @db.Uuid
-  createdAt          DateTime              @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
-  updatedAt          DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  connectedTabletId   String?               @map("connected_tablet_id") @db.Uuid
+  createdAt           DateTime              @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   shots              Shot[]
   steamRecords       SteamRecord[]
@@ -359,6 +363,9 @@ model Tablet {
   beanBatches  TabletBeanBatch[]
   grinders     TabletGrinder[]
   profiles     TabletProfile[]
+  baskets      TabletBasket[]
+  tools        TabletTool[]
+  unrecognised TabletUnrecognisedList[]
   settings     TabletSettings?
   itemVersions ItemVersion[]
   conflicts    Conflict[]
@@ -1030,6 +1037,201 @@ model TabletProfile {
   @@map("tablet_profiles")
 }
 
+/// A Basket (glossary), by its global id (ADR-0006): DYE2's basket (`baskets`): its name, size, diameter and notes, kept in
+/// DYE2's list in Decaid's store (ADR-0005). In the Library, and shown or
+/// hidden at each Location (`BasketLocation`, ADR-0008).
+model Basket {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  /// DYE2's record fields, those it does not know included, as the tablet
+  /// that created it sent them: all but its id, `createdAt` and global id,
+  /// which belong to each tablet's record.
+  content           Json      @db.JsonB
+  /// Its name as Baskets are matched (ADR-0018), without spaces at either end
+  /// and in lower case (`equipmentMatchKey` in protocol/).
+  matchKey          String    @map("match_key")
+  /// Retired everywhere: shown nowhere, but kept so past Shots still name it.
+  archived          Boolean   @default(false)
+  /// The Location of the tablet that created it.
+  createdLocationId String?   @map("created_location_id") @db.Uuid
+  createdLocation   Location? @relation("BasketsCreated", fields: [createdLocationId], references: [id], onDelete: SetNull)
+  /// When it joined the Library, by PostgreSQL's clock.
+  createdAt         DateTime  @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  /// Each content field's latest edit (ADR-0020), as `Bean.fieldEdits`.
+  fieldEdits        Json      @default("{}") @map("field_edits") @db.JsonB
+
+  locations BasketLocation[]
+  tablets   TabletBasket[]
+
+  @@index([matchKey])
+  @@map("baskets")
+}
+
+/// Whether a Basket is shown at one Location (ADR-0008), a field of its own
+/// (ADR-0020), as `ProfileLocation` keeps a Profile's. A Location with no
+/// row for it has decided nothing of it, and does not show it.
+model BasketLocation {
+  basketId          String   @map("basket_id") @db.Uuid
+  basket            Basket   @relation(fields: [basketId], references: [id], onDelete: Cascade)
+  locationId        String   @map("location_id") @db.Uuid
+  location          Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  shown             Boolean
+  /// The time of the edit that last showed or hid it there.
+  changedAt         DateTime @map("changed_at") @db.Timestamptz(3)
+  /// When that was decided, by PostgreSQL's clock.
+  decidedAt         DateTime @default(dbgenerated("transaction_timestamp()")) @map("decided_at") @db.Timestamptz(3)
+  /// The tablet whose edit decided that, as `ProfileLocation.decidedByTabletId`.
+  decidedByTabletId String?  @map("decided_by_tablet_id") @db.Uuid
+  /// The version that decided it (`ItemVersion`).
+  versionId         String?  @map("version_id") @db.Uuid
+
+  @@id([basketId, locationId])
+  @@index([locationId])
+  @@map("basket_locations")
+}
+
+/// A Library Basket's record on one tablet (ADR-0006), as `TabletBean`
+/// keeps a Bean's, in DYE2's list: the record as that tablet last had it.
+model TabletBasket {
+  tabletId        String    @map("tablet_id") @db.Uuid
+  tablet          Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  basketId        String    @map("basket_id") @db.Uuid
+  basket          Basket    @relation(fields: [basketId], references: [id], onDelete: Cascade)
+  /// DYE2's id for the record on that tablet.
+  localId         String    @map("local_id")
+  /// The record, as the tablet reported it or the plugin wrote it.
+  record          Json      @db.JsonB
+  /// When the plugin first read the record's content, placed in UTC: DYE2's
+  /// records carry no edit time (ADR-0005). Null if it could not be read.
+  recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
+  /// Each field as the tablet held it just before the server's latest write
+  /// to that field: a field a report, or a write's answer, sets back to its
+  /// value there is taken as unchanged, as from a page opened before the
+  /// write, or a write lost to another app rewriting the list (ADR-0005).
+  /// Null before any write.
+  beforeWrite     Json?     @map("before_write") @db.JsonB
+  /// Whether a report has listed the record since the server's write that
+  /// created it: one gone from the list that never was was lost to another
+  /// app rewriting the list at the same moment, not deleted there.
+  listed          Boolean   @default(true)
+  /// The latest decision of whether the Location shows the Basket that the
+  /// record has seen, as `TabletProfile.seenAt`.
+  seenAt          DateTime? @map("seen_at") @db.Timestamptz(3)
+  seenLocationId  String?   @map("seen_location_id") @db.Uuid
+  /// The latest edit of the item's content that the record has seen, as `TabletBean.contentSeenAt`.
+  contentSeenAt   DateTime? @map("content_seen_at") @db.Timestamptz(3)
+
+  @@id([tabletId, basketId])
+  @@unique([tabletId, localId])
+  @@index([basketId])
+  @@map("tablet_baskets")
+}
+
+/// A Tool (glossary), by its global id (ADR-0006): DYE2's equipment (`equipment`): its name and free-form attributes, kept in
+/// DYE2's list in Decaid's store (ADR-0005). In the Library, and shown or
+/// hidden at each Location (`ToolLocation`, ADR-0008).
+model Tool {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  /// DYE2's record fields, those it does not know included, as the tablet
+  /// that created it sent them: all but its id, `createdAt` and global id,
+  /// which belong to each tablet's record.
+  content           Json      @db.JsonB
+  /// Its name as Tools are matched (ADR-0018), without spaces at either end
+  /// and in lower case (`equipmentMatchKey` in protocol/).
+  matchKey          String    @map("match_key")
+  /// Retired everywhere: shown nowhere, but kept so past Shots still name it.
+  archived          Boolean   @default(false)
+  /// The Location of the tablet that created it.
+  createdLocationId String?   @map("created_location_id") @db.Uuid
+  createdLocation   Location? @relation("ToolsCreated", fields: [createdLocationId], references: [id], onDelete: SetNull)
+  /// When it joined the Library, by PostgreSQL's clock.
+  createdAt         DateTime  @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  /// Each content field's latest edit (ADR-0020), as `Bean.fieldEdits`.
+  fieldEdits        Json      @default("{}") @map("field_edits") @db.JsonB
+
+  locations ToolLocation[]
+  tablets   TabletTool[]
+
+  @@index([matchKey])
+  @@map("tools")
+}
+
+/// Whether a Tool is shown at one Location (ADR-0008), a field of its own
+/// (ADR-0020), as `ProfileLocation` keeps a Profile's. A Location with no
+/// row for it has decided nothing of it, and does not show it.
+model ToolLocation {
+  toolId            String   @map("tool_id") @db.Uuid
+  tool              Tool     @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  locationId        String   @map("location_id") @db.Uuid
+  location          Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  shown             Boolean
+  /// The time of the edit that last showed or hid it there.
+  changedAt         DateTime @map("changed_at") @db.Timestamptz(3)
+  /// When that was decided, by PostgreSQL's clock.
+  decidedAt         DateTime @default(dbgenerated("transaction_timestamp()")) @map("decided_at") @db.Timestamptz(3)
+  /// The tablet whose edit decided that, as `ProfileLocation.decidedByTabletId`.
+  decidedByTabletId String?  @map("decided_by_tablet_id") @db.Uuid
+  /// The version that decided it (`ItemVersion`).
+  versionId         String?  @map("version_id") @db.Uuid
+
+  @@id([toolId, locationId])
+  @@index([locationId])
+  @@map("tool_locations")
+}
+
+/// A Library Tool's record on one tablet (ADR-0006), as `TabletBean`
+/// keeps a Bean's, in DYE2's list: the record as that tablet last had it.
+model TabletTool {
+  tabletId        String    @map("tablet_id") @db.Uuid
+  tablet          Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  toolId          String    @map("tool_id") @db.Uuid
+  tool            Tool      @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  /// DYE2's id for the record on that tablet.
+  localId         String    @map("local_id")
+  /// The record, as the tablet reported it or the plugin wrote it.
+  record          Json      @db.JsonB
+  /// When the plugin first read the record's content, placed in UTC: DYE2's
+  /// records carry no edit time (ADR-0005). Null if it could not be read.
+  recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
+  /// Each field as the tablet held it just before the server's latest write
+  /// to that field: a field a report, or a write's answer, sets back to its
+  /// value there is taken as unchanged, as from a page opened before the
+  /// write, or a write lost to another app rewriting the list (ADR-0005).
+  /// Null before any write.
+  beforeWrite     Json?     @map("before_write") @db.JsonB
+  /// Whether a report has listed the record since the server's write that
+  /// created it: one gone from the list that never was was lost to another
+  /// app rewriting the list at the same moment, not deleted there.
+  listed          Boolean   @default(true)
+  /// The latest decision of whether the Location shows the Tool that the
+  /// record has seen, as `TabletProfile.seenAt`.
+  seenAt          DateTime? @map("seen_at") @db.Timestamptz(3)
+  seenLocationId  String?   @map("seen_location_id") @db.Uuid
+  /// The latest edit of the item's content that the record has seen, as `TabletBean.contentSeenAt`.
+  contentSeenAt   DateTime? @map("content_seen_at") @db.Timestamptz(3)
+
+  @@id([tabletId, toolId])
+  @@unique([tabletId, localId])
+  @@index([toolId])
+  @@map("tablet_tools")
+}
+
+/// One of DYE2's lists that a tablet last reported, or answered a write of,
+/// in a shape the plugin and server do not recognise (`dye2Records` in
+/// protocol/): nothing is taken in from it, nor written to it, on that
+/// tablet until it reports it in one they do (ADR-0005). Its Machine's
+/// sharing status shows it.
+model TabletUnrecognisedList {
+  tabletId String   @map("tablet_id") @db.Uuid
+  tablet   Tablet   @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  /// The list, as the collection is named, such as `dye2Baskets`.
+  list     String
+  /// When it was first found so, by PostgreSQL's clock.
+  since    DateTime @default(dbgenerated("transaction_timestamp()")) @db.Timestamptz(3)
+
+  @@id([tabletId, list])
+  @@map("tablet_unrecognised_lists")
+}
+
 /// Each item that keeps versions and Conflicts (ADR-0020): every Library
 /// item and each Location's steam and rinse settings, by its kind
 /// and id, as `ItemVersion` and `Conflict` name it, so a new kind needs no
@@ -1265,7 +1467,7 @@ model TabletLeftOut {
 model TabletReport {
   tabletId     String    @map("tablet_id") @db.Uuid
   tablet       Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
-  /// `beans`, `beanBatches`, `grinders`, `profiles` or `workflow`.
+  /// `beans`, `beanBatches`, `grinders`, `profiles`, `dye2Baskets`, `dye2Equipment` or `workflow`.
   report       String
   assignmentId String    @map("assignment_id") @db.Uuid
   locationId   String    @map("location_id") @db.Uuid
@@ -1303,9 +1505,9 @@ model WorkflowClear {
 model TabletRefusal {
   tabletId  String   @map("tablet_id") @db.Uuid
   tablet    Tablet   @relation(fields: [tabletId], references: [id], onDelete: Cascade)
-  /// What the writer skips it under: `writeKey`, `deleteKey` or `leaveOutKey` (holdings.ts).
+  /// What the writer skips it under: `writeKey`, `deleteKey`, `removeKey` or `leaveOutKey` (holdings.ts).
   changeKey String   @map("change_key")
-  /// `write`, `delete` or `leaveOut`.
+  /// `write`, `delete`, `remove` or `leaveOut`.
   change    String
   /// A Library kind, `settings` or `workflow`.
   kind      String
@@ -1333,7 +1535,7 @@ model TabletRefusal {
 model TabletLastApplied {
   tabletId  String   @id @map("tablet_id") @db.Uuid
   tablet    Tablet   @relation(fields: [tabletId], references: [id], onDelete: Cascade)
-  /// `write`, `delete` or `leaveOut`.
+  /// `write`, `delete`, `remove` or `leaveOut`.
   change    String
   kind      String
   itemId    String?  @map("item_id")
