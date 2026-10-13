@@ -315,28 +315,29 @@ export function settingsValues(view: Readonly<RecipeView>, fields: Iterable<stri
 /**
  * The settings of those a tablet's Workflow changed (`values`) that it set
  * back to a value its recipes held just before the server's latest write of
- * it (`beforeWrites`, each record's `before_write`), one the settings held
- * before (`former`), where they now hold another (`current`): a recipe
+ * it (`beforeWrites`, each record's `before_write`), the settings' value
+ * just before their current one (`previous`): a recipe
  * applied from a copy read before that write, as DYE2's dashboard and
  * Streamline's strip read their recipes once and keep them, which is no
  * edit (ADR-0005), and the settings' value is written back. That holds until
  * the settings' value changes again, as a page may apply the same copy all
  * day: a barista who sets exactly that value on the machine meanwhile has it
- * written back, and changes it in the management interface instead. A value
- * the settings never held, as a joining tablet's recipes held of its own, is
- * no stale copy's, and a setting the settings have not set yet takes any.
+ * written back, and changes it in the management interface instead. Any
+ * other value, as an older one a record held of a steam mode it no longer
+ * has, or a joining tablet's recipes held of their own, is no stale copy's,
+ * and a setting the settings have not set yet takes any.
  */
 export function staleApplied(
   values: Readonly<Partial<Record<SharedSetting, number>>>,
   beforeWrites: readonly Readonly<Record<string, unknown>>[],
   current: LocationValues,
-  former: Readonly<Partial<Record<SharedSetting, readonly number[]>>>,
+  previous: Readonly<Partial<Record<SharedSetting, number>>>,
 ): SharedSetting[] {
   const stale: SharedSetting[] = [];
   for (const [path, setting] of Object.entries(MIRRORED_PATHS)) {
     const value = values[setting];
     if (value === undefined || current[setting] === undefined || sameValue(current[setting], value)) continue;
-    if (!(former[setting] ?? []).some((held) => sameValue(held, value))) continue;
+    if (!sameValue(previous[setting], value)) continue;
     if (beforeWrites.some((before) => Object.prototype.hasOwnProperty.call(before, path) && sameValue(before[path], value))) stale.push(setting);
   }
   return stale;

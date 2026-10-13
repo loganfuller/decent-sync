@@ -399,7 +399,8 @@ export async function recordRecipeWritten(
     const context = await intakeContext(tx, ids, item.locationId, [view], [content]);
     let edited: EditOutcome | null = null;
     // A field set back by a stale save, or a write lost, that no longer holds the Recipe's value, which is written again; or
-    // one of the settings the record mirrors that no longer holds theirs.
+    // one of the settings the record mirrors that does not hold theirs, as a blank value or one put back on a Machine whose
+    // sharing of them is off.
     let stale = false;
     let staleSettings = false;
     let answeredBefore: { beforeWrite?: Record<string, unknown> | null } = {};
@@ -414,7 +415,7 @@ export async function recordRecipeWritten(
       if (here) await editSettingsInRecipe(tx, tablet, locationId!, settingsValues(view, Object.keys(answered.values)), at);
       const now = await recordFor(tx, tablet, locationId, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, localId);
       stale = answered.stale && !holdsRecipe(view, now);
-      staleSettings = answered.stale && !holdsRecord(view, now);
+      staleSettings = !holdsRecord(view, now);
       answeredBefore = { beforeWrite: answered.beforeWrite };
     } else if (linked && (!here || (await forgetLeftOut(tx, tablet.tabletId, localId)))) {
       // A record the Library left out as the tablet joined, not yet removed, or one at another Location than the Recipe's:

@@ -1536,17 +1536,17 @@ it:
   shown again, often all day, so either may apply a recipe as it was before
   the server last wrote it, again and again. A Workflow setting changed, in
   a report or a write's answer, to a value the tablet's recipes held just
-  before the server's latest write of it (`before_write`), which the
-  Location held before (its versions) and holds no longer, is such an apply,
-  and no edit (`staleApplied` in `recipe-intake.ts`, ADR-0005): the
-  Location's value is written back. That holds until the Location's value
-  changes again, as the recipes' rewrite then holds the value before that
-  instead. So a barista who sets exactly the Location's previous value on
-  the machine has it written back, and changes it in the management
-  interface instead, or sets another value first. A value the Location
-  never held, as a joining tablet's recipes held of their own, is no stale
-  copy's; nor is one older than the Location's previous value, which is not
-  caught, nor one of a setting the Location has not set yet.
+  before the server's latest write of it (`before_write`) that is the
+  Location's value just before its current one (its latest version setting
+  another, by `seq`), is such an apply, and no edit (`staleApplied` in
+  `recipe-intake.ts`, ADR-0005): the Location's value is written back. That
+  holds until the Location's value changes again. So a barista who sets
+  exactly the Location's previous value on the machine has it written back,
+  and changes it in the management interface instead, or sets another value
+  first. Any other value is no stale copy's: one older than the Location's
+  previous value, which is not caught, as one a record held of a steam mode
+  it has left, a joining tablet's recipes' own, or one of a setting the
+  Location has not set yet.
 
 Each welcomed connection's writer (Writing to tablets, above) writes the
 tablet its Machine's Location's settings where its Workflow holds others,

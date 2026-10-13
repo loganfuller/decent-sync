@@ -305,17 +305,27 @@ async function recipesBeforeWrite(tx: Prisma.TransactionClient, tabletId: string
 async function dropStaleApplies(tx: Prisma.TransactionClient, tabletId: string, settings: EditedSettings, values: Partial<Record<SharedSetting, number>>): Promise<void> {
   const candidates = MIRRORED_SETTINGS.filter((field) => values[field] !== undefined);
   if (candidates.length === 0) return;
-  for (const field of staleApplied(values, await recipesBeforeWrite(tx, tabletId), settings.values, await formerValues(tx, settings.id, candidates))) delete values[field];
+  for (const field of staleApplied(values, await recipesBeforeWrite(tx, tabletId), settings.values, await previousValues(tx, settings, candidates))) delete values[field];
 }
 
-/** Each value the settings held of those given, by their versions. */
-async function formerValues(tx: Prisma.TransactionClient, settingsId: string, fields: readonly SharedSetting[]): Promise<Partial<Record<SharedSetting, number[]>>> {
-  const rows = await tx.$queryRaw<{ field: SharedSetting; value: unknown }[]>`
-    SELECT DISTINCT field.key AS field, field.value FROM item_versions AS version, jsonb_each(version.fields) AS field
-    WHERE version.kind = ${SETTINGS_KIND} AND version.item_id = ${settingsId} AND field.key = ANY(${fields}::text[])`;
-  const former: Partial<Record<SharedSetting, number[]>> = {};
-  for (const { field, value } of rows) if (typeof value === "number") (former[field] ??= []).push(value);
-  return former;
+/**
+ * The value each of those settings held just before its current one: that
+ * of its latest version setting another, as versions record only the edits
+ * that applied, in the order they did (`seq`, taken under the settings' row
+ * lock).
+ */
+async function previousValues(tx: Prisma.TransactionClient, settings: EditedSettings, fields: readonly SharedSetting[]): Promise<Partial<Record<SharedSetting, number>>> {
+  const previous: Partial<Record<SharedSetting, number>> = {};
+  for (const field of fields) {
+    const current = settings.values[field];
+    if (current === undefined) continue;
+    const [row] = await tx.$queryRaw<{ value: unknown }[]>`
+      SELECT fields -> ${field} AS value FROM item_versions
+      WHERE kind = ${SETTINGS_KIND} AND item_id = ${settings.id} AND fields ? ${field} AND fields -> ${field} <> ${JSON.stringify(current)}::jsonb
+      ORDER BY seq DESC LIMIT 1`;
+    if (typeof row?.value === "number") previous[field] = row.value;
+  }
+  return previous;
 }
 
 /** The settings DYE2's recipes hold a value of, which they mirror. */

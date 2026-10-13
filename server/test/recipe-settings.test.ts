@@ -346,6 +346,25 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
     await holds(two, { "rinseData.duration": 6 });
   });
 
+  it("takes a steam flow a recipe held before its steam mode was switched as an edit once the Location's has changed since", async () => {
+    const { here, one, two, settings } = await lab("Switched", 44081);
+    await saveInDye2(one, recipes.saveSlot2);
+    for (const tablet of [one, two]) await expect.poll(() => mirrored(tablet, "2"), { timeout: 15_000 }).toMatchObject({ steamMode: "flow", steamFlowMls: 1.7 });
+    // Switched to steaming by time on the second tablet: every record of it loses its flow of 1.7.
+    await editInDye2(two, "2", { "dashboardVariables.steamMode": "time", "dashboardVariables.steamFlowMls": undefined, "dashboardVariables.steamTimeS": 1.7 });
+    for (const tablet of [one, two]) {
+      await expect.poll(() => mirrored(tablet, "2"), { timeout: 15_000 }).toEqual({ steamMode: "time", steamTimeS: 33, steamFlowMls: undefined, flushS: 6 });
+    }
+    // The Location's flow changes twice, so 1.7 is no longer the value before its current one.
+    for (const flow of [2.1, 2.5]) {
+      expect((await api.call("PATCH", `/location-settings/${settings.id}`, { values: { "steamSettings.flow": flow } })).status).toBe(200);
+      for (const tablet of [one, two]) await holds(tablet, { "steamSettings.flow": flow });
+    }
+    await one.changeSettings({ steamSettings: { flow: 1.7 } });
+    await expect.poll(async () => (await settingsAt(here)).values["steamSettings.flow"], { timeout: 15_000 }).toBe(1.7);
+    await holds(two, { "steamSettings.flow": 1.7 });
+  });
+
   it("takes no edit from a steam value DYE2's editor carries over as a recipe's steam mode is switched", async () => {
     const { here, one, two, settings } = await lab("Toggled", 44061);
     await saveInDye2(one, recipes.saveSlot1);
