@@ -22,6 +22,7 @@ import {
   type MappedKind,
   type MappedRecipe,
   type RecipeView,
+  type ReportedRecipe,
   type TabletIds,
   type WriteContext,
   editedPaths,
@@ -207,6 +208,12 @@ export async function takeInRecipes(
   const newlyListed = mapped.filter((record) => !record.listed && listed.has(record.localId)).map((record) => record.localId);
   if (newlyListed.length > 0) {
     await tx.$executeRaw`UPDATE tablet_recipes SET listed = true WHERE tablet_id = ${tablet.tabletId}::uuid AND local_id = ANY(${newlyListed}::text[])`;
+  }
+  // A tablet holding no recipe, nor any the map holds, has nothing to take in, so takes no lock of its Location's.
+  if (listed.size === 0 && mapped.length === 0) {
+    if ((await setAsideDeleted(tx, tablet.tabletId, "recipe", [], listed, mappedIds)).due) await notify(tx, "library_changes", locationId);
+    await screenLeftOut(tx, tablet.tabletId, "recipe", [], (record: ReportedRecipe) => ({ localId: record.localId, setAside: false }), listed, mappedIds, joining, true);
+    return takenInAt;
   }
   // Records of Recipes an Admin hard-deleted are removed on the tablet rather than taken in.
   const screened = await setAsideDeleted(tx, tablet.tabletId, "recipe", read, listed, mappedIds);
