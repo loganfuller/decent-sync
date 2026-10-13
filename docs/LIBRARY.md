@@ -1026,11 +1026,14 @@ never matched (ADR-0018).
   back to its value before the server's latest write to it, as for baskets
   and tools (`before_write`). A record the server creates in a slot it
   removed another record from, as one whose Recipe left the slot or whose
-  Machine left the Location, takes that record as what the tablet held
-  there just before the write (`tablet_removed_recipes`): DYE2 saves a page's
-  fields over the record in the slot, keeping its global id, so a page
-  opened on the earlier recipe would otherwise have its every field taken as
-  an edit of the new Recipe. A record in a slot the map does not hold is in
+  Machine left the Location, takes each field that record held otherwise as
+  what the tablet held there just before the write (`tablet_removed_recipes`,
+  `heldBeforeReplaced`), whether its answer shows it or, after a lost answer,
+  the tablet's next report: DYE2 saves a page's fields over the record in the
+  slot, keeping its global id, so a page opened on the earlier recipe would
+  otherwise have its every field taken as an edit of the new Recipe. A field
+  both hold is left out, so a later write of it guards against a stale save
+  as any write does. A record in a slot the map does not hold is in
   the slot of the Location's Recipe there, if any: carrying that Recipe's
   global id, it is its record, as after a lost answer; otherwise it was saved
   in that slot on the tablet before it held the Recipe, and each field of its
