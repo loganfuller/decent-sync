@@ -3,7 +3,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
-import { type MappedEquipment, answeredEquipment, beforeWriteAfter, equipmentContent, planEquipmentIntake, readReportedEquipment } from "./equipment-intake.js";
+import { type MappedEquipment, answeredEquipment, beforeWriteAfter, equipmentContent, planEquipmentIntake, readReportedEquipment, withoutSettled } from "./equipment-intake.js";
 import { setAsideDeleted } from "./hard-deletes.js";
 import { tabletSource } from "./history.js";
 import {
@@ -149,7 +149,11 @@ export async function takeInEquipment(
   await lockItems(
     tx,
     kind,
-    steps.flatMap((step) => ((step.kind === "update" && !joining && Object.keys(step.content).length > 0) || (step.kind === "link" && !joining) ? [step.itemId] : [])),
+    steps.flatMap((step) =>
+      (step.kind === "update" && !joining && (Object.keys(step.content).length > 0 || mappedById.get(step.itemId)?.beforeWrite)) || (step.kind === "link" && !joining)
+        ? [step.itemId]
+        : [],
+    ),
   );
   const source = tabletSource(tablet);
 
@@ -207,8 +211,10 @@ export async function takeInEquipment(
     if (record.globalId !== itemId) writesDue = true;
     const seen = decided === null ? null : { at: decided, locationId };
     const known = step.kind === "update" ? mappedById.get(itemId) : undefined;
-    // A field the tablet set to a value of its own no longer takes setting it back for a stale save.
-    const beforeWrite = known ? { beforeWrite: beforeWriteAfter(known.beforeWrite, known.record, record.record) } : {};
+    // A field the tablet set to a value of its own no longer takes setting it back for a stale save, nor one it and the item
+    // both hold at its value before the server's write.
+    const standing = known ? beforeWriteAfter(known.beforeWrite, known.record, record.record) : null;
+    const beforeWrite = known ? { beforeWrite: standing && !joining ? withoutSettled(standing, record.record, await itemContent(tx, kind, itemId)) : standing } : {};
     await saveRecord(tx, kind, tablet.tabletId, itemId, record.localId, record.record, record.updatedAt, { seen, contentSeen: null, listed: true, ...beforeWrite });
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
@@ -240,6 +246,12 @@ export async function recordUnrecognised(prisma: PrismaService, tabletId: string
     await lockTablet(tx, tabletId);
     await markUnrecognised(tx, tabletId, kind, true);
   });
+}
+
+/** The item's content, read in the transaction; none if the Library no longer has it. */
+async function itemContent(tx: Prisma.TransactionClient, kind: EquipmentKind, itemId: string): Promise<Record<string, unknown>> {
+  const [row] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM ${Prisma.raw(TABLES[kind].table)} WHERE id = ${itemId}::uuid`;
+  return row && row.content !== null && typeof row.content === "object" ? (row.content as Record<string, unknown>) : {};
 }
 
 /**

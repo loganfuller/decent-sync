@@ -10,6 +10,7 @@ import {
   heldBefore,
   planEquipmentIntake,
   readReportedEquipment,
+  withoutSettled,
 } from "../src/library/equipment-intake.js";
 import { dye2Keys } from "./support/simulated-dye2.js";
 
@@ -120,9 +121,23 @@ describe("DYE2's baskets and tools as Library items", () => {
     // Written B over A, the tablet's report read before that write is taken in after its answer; the write of B again, left
     // out as the tablet holds B already, answers with B.
     const known = { ...wdt, notes: "A" };
-    expect(answeredEquipment(known, { ...wdt, notes: "B" }, new Set(), { notes: "A" }, { ...wdt, notes: "B" }).beforeWrite).toEqual({ notes: "A" });
-    // A value of the tablet's own is forgotten.
-    expect(answeredEquipment(known, { ...wdt, notes: "C" }, new Set(), { notes: "A" }, { ...wdt, notes: "B" }).beforeWrite).toBeNull();
+    // Holding the item's value, it is no edit of the tablet's.
+    expect(answeredEquipment(known, { ...wdt, notes: "B" }, new Set(), { notes: "A" }, { ...wdt, notes: "B" })).toEqual({ values: {}, stale: false, beforeWrite: { notes: "A" } });
+    // A value of the tablet's own is its edit, and forgotten.
+    expect(answeredEquipment(known, { ...wdt, notes: "C" }, new Set(), { notes: "A" }, { ...wdt, notes: "B" })).toEqual({ values: { notes: "C" }, stale: false, beforeWrite: null });
+  });
+
+  it("forgets a field's value before the server's write once the record and the item both hold it again, so a later write of the field guards against a stale save", () => {
+    // Written E2 over E1, a write lost; the item's edit undone to E1, the write putting it back is left out, the tablet holding E1.
+    const undone = answeredEquipment({ ...wdt, notes: "E2" }, { ...wdt, notes: "E1" }, new Set(), { notes: "E1" }, { ...wdt, notes: "E1" });
+    expect(undone).toEqual({ values: {}, stale: false, beforeWrite: null });
+    // Written E3 next, a page opened before saving E1 is stale.
+    const before = heldBefore({ ...wdt, notes: "E1" }, ["notes"], undone.beforeWrite);
+    expect(editedContent({ ...wdt, notes: "E3" }, { ...wdt, notes: "E1" }, before)).toEqual({});
+    // Only a field both hold is forgotten.
+    expect(withoutSettled({ notes: "E1", name: "Old" }, { ...wdt, notes: "E1" }, { ...wdt, notes: "E1" })).toEqual({ name: "Old" });
+    expect(withoutSettled({ notes: "E1" }, { ...wdt, notes: "E1" }, { ...wdt, notes: "E2" })).toEqual({ notes: "E1" });
+    expect(withoutSettled(null, wdt, wdt)).toBeNull();
   });
 
   it("keeps a field's value before the latest write that set it, through later writes of other fields", () => {

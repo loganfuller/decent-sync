@@ -164,6 +164,22 @@ export function heldBefore(
 }
 
 /**
+ * `beforeWrite` without each field whose value before the server's write
+ * both the record and the item hold: nothing stale is left to guard against
+ * there, and a later write of the field over it would otherwise be taken for
+ * one putting the item's value back over a stale save (`heldBefore`). Null
+ * once none is left.
+ */
+export function withoutSettled(
+  beforeWrite: Readonly<Record<string, unknown>> | null,
+  record: Readonly<Record<string, unknown>>,
+  item: Readonly<Record<string, unknown>>,
+): Record<string, unknown> | null {
+  const left = Object.entries(beforeWrite ?? {}).filter(([field, value]) => !(sameValue(record[field], value) && sameValue(item[field], value)));
+  return left.length === 0 ? null : Object.fromEntries(left);
+}
+
+/**
  * What a write's answer gives of a tablet's record the map holds (`known`):
  * the fields of its content the write did not set that the tablet edited
  * since its last report (`editedContent`), each with its value; whether any
@@ -175,7 +191,11 @@ export function heldBefore(
  * set, a value the tablet has since set to one of its own is forgotten
  * (`beforeWriteAfter`), but not for the item's value (`item`, its content
  * before this answer), which the server wrote: a write the plugin left out,
- * the record known being a report read before the write it answers.
+ * the tablet holding it already, as the record known is behind it after an
+ * answer was lost. Such a
+ * field holding the item's value is no edit either; one whose value before
+ * the write the record and the item both hold again is forgotten
+ * (`withoutSettled`).
  */
 export function answeredEquipment(
   known: Readonly<Record<string, unknown>>,
@@ -186,13 +206,16 @@ export function answeredEquipment(
 ): { values: Record<string, unknown>; stale: boolean; beforeWrite: Record<string, unknown> | null } {
   const unwritten = (entries: Record<string, unknown>) => Object.fromEntries(Object.entries(entries).filter(([field]) => !written.has(field)));
   const changed = unwritten(changedFields(equipmentContent(known), equipmentContent(answered)));
-  const values = unwritten(editedContent(known, answered, beforeWrite));
+  const edited = unwritten(editedContent(known, answered, beforeWrite));
+  const holdsItem = (field: string) => sameValue(answered[field], item[field]);
+  const values = Object.fromEntries(Object.entries(edited).filter(([field]) => !holdsItem(field)));
+  const stale = Object.keys(changed).some((field) => !Object.prototype.hasOwnProperty.call(edited, field) && !holdsItem(field));
   const pick = (writtenFields: boolean) => Object.fromEntries(Object.entries(beforeWrite ?? {}).filter(([field]) => written.has(field) === writtenFields));
   const standing = beforeWriteAfter(pick(false), known, answered) ?? {};
-  const kept = Object.entries(pick(false)).filter(([field]) => Object.prototype.hasOwnProperty.call(standing, field) || sameValue(answered[field], item[field]));
+  const kept = Object.fromEntries(Object.entries(pick(false)).filter(([field]) => Object.prototype.hasOwnProperty.call(standing, field) || holdsItem(field)));
   // A field the write set keeps its value before the previous write, for `heldBefore` to tell a write over a stale save.
-  const previous = { ...Object.fromEntries(kept), ...pick(true) };
-  return { values, stale: Object.keys(changed).length > Object.keys(values).length, beforeWrite: heldBefore(known, written, previous) };
+  const previous = { ...withoutSettled(kept, answered, item), ...pick(true) };
+  return { values, stale, beforeWrite: heldBefore(known, written, previous) };
 }
 
 /**

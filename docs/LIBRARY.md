@@ -840,7 +840,15 @@ shows or hides it, as a Profile (ADR-0008). Grinders stay per Location.
   app rewriting the list at the same moment as the plugin's write puts the
   record back as it was (ADR-0005). The item's value is then written again.
   A write's answer showing such a field, as the plugin read the list before
-  another write to the record, is taken the same way.
+  another write to the record, is taken the same way; if the record holds the
+  item's content all the same, as when that write was undone, the tablet has
+  seen it (`content_seen_at`), and nothing is written. A field an answer
+  shows holding the item's value is no edit of the tablet's, and keeps its
+  value before the server's write: the plugin left out a write of a value
+  the tablet held already, the record known behind it after an answer was
+  lost. A field whose value before the server's write both the record and
+  the item hold again keeps it no longer, so a later write of the field
+  guards against a stale save of it.
   A barista who deliberately sets a field back to exactly that value has to
   set it again: the write that puts the item's value back over it does not
   keep that value as the tablet's before it, so setting it once more is an
