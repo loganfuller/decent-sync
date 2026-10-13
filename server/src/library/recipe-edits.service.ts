@@ -109,8 +109,8 @@ export class RecipeEditsService {
       if ((await tx.location.count({ where: { id: to.locationId } })) === 0) throw new NotFoundException("No such Location");
       await lockLocation(tx, to.locationId);
       // Read as it stands, without its lock: the copy is of its content then, and changes nothing of it.
-      const [original] = await tx.$queryRaw<{ locationId: string | null; content: unknown }[]>`
-        SELECT location_id::text AS "locationId", content FROM recipes WHERE id = ${id}::uuid`;
+      const [original] = await tx.$queryRaw<{ id: string; locationId: string | null; content: unknown }[]>`
+        SELECT id::text AS id, location_id::text AS "locationId", content FROM recipes WHERE id = ${id}::uuid`;
       if (!original) throw new NotFoundException("No such Recipe");
       // A copy is for another Location; at its own, the slot chosen could be the Recipe's own, which the copy would take from it.
       if (original.locationId === to.locationId) throw new BadRequestException("Copy a Recipe to another Location than its own");
@@ -128,7 +128,8 @@ export class RecipeEditsService {
       const set = await recipeEditValues(tx, to.locationId, content, {}, source, at);
       // A new Recipe holds no field it has no value for.
       const values = Object.fromEntries(Object.entries(set).filter(([, value]) => value !== null && value !== undefined));
-      return insertRecipe(tx, to.locationId, values, to.slot, source, at, { id, locationId: original.locationId });
+      // Its id as PostgreSQL writes it, as versions name items, however the request spelled it.
+      return insertRecipe(tx, to.locationId, values, to.slot, source, at, { id: original.id, locationId: original.locationId });
     }, INTAKE_TRANSACTION);
   }
 

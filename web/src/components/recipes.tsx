@@ -958,16 +958,15 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
   const slot = slotMode === "next" ? free : slotMode === "chosen" ? slotEntered(slotText) : undefined;
   const there = slot === undefined ? undefined : targetRecipes?.find((candidate) => candidate.slot === slot);
 
-  // A Recipe naming a Bean with no batch takes that Bean's batch most recently added at the Location, or none, keeping the Bean.
+  // A Recipe naming a Bean with no batch takes that Bean's batch most recently added at the Location, or none, keeping
+  // the Bean: the latest added there, then the latest created, then by id, as the server picks it (`batchOfBean`).
+  const sinceAtTarget = (batch: BeanBatchSummary) => Date.parse(batch.locations.find((at) => at.location.id === locationId)?.since ?? "") || 0;
   const beanOnly = recipe.uses.beanBatch === null ? recipe.uses.bean : null;
   const beanBatchThere = beanOnly
     ? (choices?.batches ?? [])
         .filter((batch) => batch.bean.id === beanOnly.id && !batch.archived && atTarget(batch))
-        .sort((a, b) => sinceAtTarget(b).localeCompare(sinceAtTarget(a)))[0]
+        .sort((a, b) => sinceAtTarget(b) - sinceAtTarget(a) || Date.parse(b.createdAt) - Date.parse(a.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0]
     : undefined;
-  function sinceAtTarget(batch: BeanBatchSummary): string {
-    return batch.locations.find((at) => at.location.id === locationId)?.since ?? "";
-  }
   const keptText =
     beanOnly && target
       ? beanBatchThere

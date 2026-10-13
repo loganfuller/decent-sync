@@ -234,6 +234,9 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
     expect(other_.content).not.toHaveProperty("grinderId");
     const none = await copy(original.id, { locationId: cafe.id, grinderId: null, beanBatchId: null });
     expect(none.slot).toBeNull();
+    // Copied through its id in upper case, its copy's history still names it.
+    const upper = await copy(original.id.toUpperCase(), { locationId: cafe.id, grinderId: null, beanBatchId: null });
+    expect((await versions(upper.id)).at(-1)!.copiedFrom).toMatchObject({ id: original.id, name: "Choices Espresso" });
     expect(none.content).toEqual({ name: "Choices Espresso", dose: 18, steamMode: "flow", hotWaterMode: "vol", showOnDashboard: true });
     // The lab's batch, not chosen, was not added at the cafe.
     expect((await send<{ batch: { locations: { location: { id: string } }[] } }>("GET", `/bean-batches/${batch.id}`)).batch.locations.map((here) => here.location.id)).toEqual([
@@ -252,7 +255,7 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
     // Its batch Archived since: kept, it is refused, but another may be chosen.
     expect((await api.call("PUT", `/bean-batches/${batch.id}/archived`, { archived: true })).status).toBe(200);
     expect(await refusal({ locationId: cafe.id, grinderId: null })).toBe(409);
-    expect((await recipesAt(cafe)).map((listed) => listed.id).sort()).toEqual([other_.id, none.id].sort());
+    expect((await recipesAt(cafe)).map((listed) => listed.id).sort()).toEqual([other_.id, none.id, upper.id].sort());
   });
 
   it("offers a Bean the Recipe names with no batch at the Location, or takes its batch there, and copies only to another Location", async () => {
