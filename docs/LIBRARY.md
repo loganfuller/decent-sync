@@ -424,7 +424,7 @@ a Conflict, so neither waits on the other in turn.
   used sets its Bean too, a Bean used alone takes the Recipe's batch of it or
   that Bean's batch most recently added at its Location, or none, keeping the
   Bean, a ratio used sets the yield to the dose times it, as picking a ratio
-  in DYE2's editor does, the ratio and the Tools' attributes follow, and what it newly uses is offered at its
+  in DYE2's editor does, refused with 409 while the Recipe has no dose, the ratio and the Tools' attributes follow, and what it newly uses is offered at its
   Location, or refused with 409 where it is Archived. It commits with a
   `NOTIFY` on `library_changes`, so every tablet that holds the item, at every
   Location, is written it; a tablet's edit made before it that arrives later,
@@ -535,7 +535,8 @@ tablets, below).
   a Tool's attributes go with the Tool when an edit drops it, or clears the
   Tools. A Recipe's
   slot is its Location's state, not its content: it is created in a slot
-  chosen, the lowest one free (`next`), or none, and moved to another, or
+  chosen, the lowest one free (`next`), no Recipe's, its own included, or
+  none, and moved to another, or
   taken out of its slot, each a version of its own setting `slot` at the
   Location, as a tablet taking one out of its slot is. A Recipe in the slot
   chosen takes the moved one's old slot, or none for a new one or one that

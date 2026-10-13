@@ -347,6 +347,15 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect(kept.beanId).toBe(brazil.bean.id);
     expect(kept).not.toHaveProperty("beanBatchId");
 
+    // A ratio cannot be used on a Recipe with no dose: the Conflict stays open until one is set.
+    await edit(created.id, { dose: null });
+    const ratioConflict = (await conflicts()).find((open) => open.field === "ratio")!;
+    const refused = await api.call("POST", `/conflicts/${ratioConflict.id}/use`, { seen: ratioConflict.current.versionId });
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { message: string }).message).toContain("no dose");
+    expect((await conflicts()).map((open) => open.field)).toContain("ratio");
+    await edit(created.id, { dose: 18 });
+
     // Using the 1:3 ratio sets the yield to the dose times it, as picking it in DYE2's editor does.
     await use("ratio");
     expect((await recipe(created.id)).content).toMatchObject({ dose: 18, yield: 54, ratio: 3 });
@@ -386,8 +395,11 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect((await versions(two.id)).map((version) => version.fields)).toEqual([{ slot: 4 }, { slot: 2 }, expect.objectContaining({ name: "Moved Two" })]);
     expect((await versions(four.id)).map((version) => version.fields)).toEqual([{ slot: 2 }, { slot: 4 }, expect.objectContaining({ name: "Moved Four" })]);
 
-    // The next free slot is the lowest the Location leaves empty.
+    // The next free slot is the lowest the Location leaves empty, which is never a Recipe's own.
     expect((await move(two.id, "next")).slot).toBe(1);
+    for (const tablet of lab.tablets) await poll(() => slotsOn(tablet)).toEqual(["1:Moved Two", "2:Moved Four"]);
+    expect((await move(two.id, "next")).slot).toBe(3);
+    expect((await move(two.id, 1)).slot).toBe(1);
     for (const tablet of lab.tablets) await poll(() => slotsOn(tablet)).toEqual(["1:Moved Two", "2:Moved Four"]);
 
     // Taken out of its slot, it is kept at the Location, unslotted, and its slot is emptied on the tablets.

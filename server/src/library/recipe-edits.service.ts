@@ -315,9 +315,10 @@ async function setUses(
  * sets of its dose, yield and DYE2's ratio, which DYE2's editor keeps only
  * while the yield is the dose times it, to a tenth of a gram: a ratio set
  * without a yield, as a Conflict about it holds, sets the yield to the dose
- * times it, as picking a ratio in DYE2's editor does; and a ratio the edit
- * leaves otherwise than the yield is cleared. Nothing for an edit setting
- * none of them, or one keeping them so.
+ * times it, as picking a ratio in DYE2's editor does, and is refused with
+ * 409 for a Recipe with no dose, which it cannot be applied to; and a ratio
+ * the edit leaves otherwise than the yield is cleared. Nothing for an edit
+ * setting none of them, or one keeping them so.
  */
 export function ratioValues(current: Readonly<Record<string, unknown>>, values: Readonly<Record<string, unknown>>): Record<string, unknown> {
   const has = (field: string) => Object.prototype.hasOwnProperty.call(values, field);
@@ -326,7 +327,10 @@ export function ratioValues(current: Readonly<Record<string, unknown>>, values: 
   if (typeof ratio !== "number") return {};
   const dose = has("dose") ? values.dose : current.dose;
   const scaled = typeof dose === "number" ? Math.round(dose * ratio * 10) / 10 : null;
-  if (has("ratio") && !has("yield") && scaled !== null) return { yield: scaled };
+  if (has("ratio") && !has("yield")) {
+    if (scaled === null) throw new ConflictException("This Recipe has no dose to apply a ratio to: set its dose first");
+    return { yield: scaled };
+  }
   const drink = has("yield") ? values.yield : current.yield;
   return scaled !== null && typeof drink === "number" && Math.abs(drink - scaled) < 0.05 ? {} : { ratio: null };
 }
@@ -347,7 +351,8 @@ async function freeSlot(
 ): Promise<number> {
   const slotted = await tx.$queryRaw<{ id: string; slot: number }[]>`
     SELECT id::text AS id, slot FROM recipes WHERE location_id = ${locationId}::uuid AND slot IS NOT NULL ORDER BY slot`;
-  const slot = choice === "next" ? lowestFree(slotted.filter((recipe) => recipe.id !== moving?.id).map((recipe) => recipe.slot)) : choice;
+  // The next free slot is one no Recipe is in, the moved one's own included.
+  const slot = choice === "next" ? lowestFree(slotted.map((recipe) => recipe.slot)) : choice;
   const there = slotted.find((recipe) => recipe.slot === slot && recipe.id !== moving?.id);
   if (there) {
     // The moved Recipe leaves its slot first, as each slot holds one Recipe.

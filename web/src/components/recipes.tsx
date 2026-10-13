@@ -229,10 +229,8 @@ function useChoices(): { choices: Choices | undefined; error: string | undefined
 function namesOf(choices: Choices | undefined): ReadonlyMap<string, string> {
   if (!choices) return new Map();
   return new Map<string, string>([
-    ...choices.batches.flatMap((batch) => [
-      [batch.id, batchName(batch)] as [string, string],
-      [batch.bean.id, batch.bean.name ?? "Unnamed Bean"] as [string, string],
-    ]),
+    ...choices.beans.map((bean) => [bean.id, bean.name ?? "Unnamed Bean"] as [string, string]),
+    ...choices.batches.map((batch) => [batch.id, batchName(batch)] as [string, string]),
     ...choices.profiles.map((profile) => [profile.id, profileTitle(profile)] as [string, string]),
     ...choices.grinders.map((grinder) => [grinder.id, grinderName(grinder)] as [string, string]),
     ...choices.baskets.map((basket) => [basket.id, basket.name ?? "Unnamed Basket"] as [string, string]),
@@ -370,8 +368,8 @@ function changedContent(initial: FormValues, values: FormValues, tools: Equipmen
 type SlotMode = "next" | "none" | "chosen";
 
 /** The lowest Recipe Slot none of these Recipes is in. */
-function lowestFree(recipes: readonly Pick<Recipe, "id" | "slot">[], except?: string): number {
-  const taken = new Set(recipes.filter((recipe) => recipe.id !== except).map((recipe) => recipe.slot));
+function lowestFree(recipes: readonly Pick<Recipe, "slot">[]): number {
+  const taken = new Set(recipes.map((recipe) => recipe.slot));
   let slot = 1;
   while (taken.has(slot)) slot++;
   return slot;
@@ -831,7 +829,7 @@ function MoveRecipeDialog({ recipe, recipes, onMoved }: { recipe: Recipe; recipe
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const id = useId();
-  const free = lowestFree(recipes, recipe.id);
+  const free = lowestFree(recipes);
   const slot = mode === "next" ? free : slotEntered(slotText);
   const there = slot === undefined ? undefined : recipes.find((candidate) => candidate.slot === slot && candidate.id !== recipe.id);
 
