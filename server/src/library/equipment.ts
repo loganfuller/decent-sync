@@ -64,8 +64,13 @@ const TABLES: Readonly<Record<EquipmentKind, { table: string; map: string; colum
   tool: { table: "tools", map: "tablet_tools", column: "tool_id", matchingLock: 4_000_010 },
 };
 
-/** Holds the lock the kind's new records are matched by name under until the transaction ends, so two tablets entering the same one at once make one. */
-async function lockMatching(tx: Prisma.TransactionClient, kind: EquipmentKind): Promise<void> {
+/**
+ * Holds the lock the kind's new records are matched by name under until the
+ * transaction ends, so two tablets entering the same one at once make one,
+ * and none is matched to one created or Archived in the management interface
+ * at once.
+ */
+export async function lockMatching(tx: Prisma.TransactionClient, kind: EquipmentKind): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(${TABLES[kind].matchingLock}::bigint)`;
 }
 

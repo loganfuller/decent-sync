@@ -1051,7 +1051,7 @@ model Basket {
   matchKey          String    @map("match_key")
   /// Retired everywhere: shown nowhere, but kept so past Shots still name it.
   archived          Boolean   @default(false)
-  /// The Location of the tablet that created it.
+  /// The Location it was created at: its first tablet's, or the one chosen in the management interface.
   createdLocationId String?   @map("created_location_id") @db.Uuid
   createdLocation   Location? @relation("BasketsCreated", fields: [createdLocationId], references: [id], onDelete: SetNull)
   /// When it joined the Library, by PostgreSQL's clock.
@@ -1140,7 +1140,7 @@ model Tool {
   matchKey          String    @map("match_key")
   /// Retired everywhere: shown nowhere, but kept so past Shots still name it.
   archived          Boolean   @default(false)
-  /// The Location of the tablet that created it.
+  /// The Location it was created at: its first tablet's, or the one chosen in the management interface.
   createdLocationId String?   @map("created_location_id") @db.Uuid
   createdLocation   Location? @relation("ToolsCreated", fields: [createdLocationId], references: [id], onDelete: SetNull)
   /// When it joined the Library, by PostgreSQL's clock.

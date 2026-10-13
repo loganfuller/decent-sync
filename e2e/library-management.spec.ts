@@ -121,6 +121,22 @@ test("creating a Bean whose roaster and name the Library has is refused, with a 
   expect(beans.filter((bean) => bean.name.toLowerCase().includes("heirloom"))).toHaveLength(1);
 });
 
+test("a Bean's form saves an edit of one field while another holds a value the form cannot read", async ({ page }) => {
+  // Decaid takes any whole number as an altitude, which the form reads as whole numbers of 0 or more.
+  const created = await page.request.post("/api/beans", { data: { content: { roaster: "Sandbox Coffee Roasters", name: "Below Sea Level", altitude: [-5] } } });
+  baseExpect(created.status()).toBe(201);
+  const { id } = ((await created.json()) as { bean: { id: string } }).bean;
+
+  await page.goto(`/library/beans/${id}`);
+  await page.getByRole("button", { name: "Edit the coffee" }).click();
+  const coffee = page.getByRole("form", { name: "Edit the coffee" });
+  await coffee.getByLabel("Notes", { exact: true }).fill("Salted caramel");
+  await coffee.getByRole("button", { name: "Save" }).click();
+  await expect(field(page.getByLabel("Coffee", { exact: true }), "Notes")).toHaveText("Salted caramel");
+  const { bean } = (await (await page.request.get(`/api/beans/${id}`)).json()) as { bean: { content: Record<string, unknown> } };
+  baseExpect(bean.content).toMatchObject({ notes: "Salted caramel", altitude: [-5] });
+});
+
 async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {
   const response = await page.request.post("/api/locations", { data: { name, timeZone: "America/Chicago" } });
   baseExpect(response.status()).toBe(201);

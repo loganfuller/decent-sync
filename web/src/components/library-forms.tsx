@@ -15,14 +15,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, api, type BeanBatch, type BeanSummary, type Location } from "@/lib/api";
+import { LIBRARY_KINDS } from "@/lib/library-kinds";
 
-// Creating and editing the Library's Beans, Bean Batches and Grinders,
-// Archiving and restoring them and Profiles, adding and finishing batches at
-// Locations, and an Admin's hard delete. Each change is the account's edit, made over
-// the item as it stands, and is written to every tablet that holds it.
+// Creating and editing the Library's Beans, Bean Batches, Grinders, Baskets
+// and Tools, Archiving and restoring them and Profiles, adding and finishing
+// batches at Locations, and an Admin's hard delete. Each change is the
+// account's edit, made over the item as it stands, and is written to every
+// tablet that holds it.
 
-/** How a form reads a field: as text, longer text, a number, a day, yes or no, a list, a list of whole numbers, or one of some choices. */
-type FieldKind = "text" | "longText" | "number" | "day" | "flag" | "list" | "wholeList" | "choice";
+/**
+ * How a form reads a field: as text, longer text, a number, a day, yes or
+ * no, a list, a list of whole numbers, one of some choices, or a Tool's
+ * attributes, name and value pairs.
+ */
+type FieldKind = "text" | "longText" | "number" | "day" | "flag" | "list" | "wholeList" | "choice" | "attributes";
+
+/** A Tool's attribute as DYE2 keeps it: a name (`key`) and its value. */
+export interface Attribute {
+  key: string;
+  value: string;
+}
 
 interface FormField {
   /** Decaid's name for it. */
@@ -33,6 +45,8 @@ interface FormField {
   required?: boolean;
   /** For a choice, each value and its label. */
   choices?: [value: string, label: string][];
+  /** For a choice, whether it may be left unset, as a Basket's size. */
+  optional?: boolean;
 }
 
 /** A Bean's fields, in Decaid's order. */
@@ -92,11 +106,41 @@ export const GRINDER_FIELDS: FormField[] = [
   { field: "rpmBigStep", label: "RPM big step", kind: "number" },
 ];
 
+/** A Basket's fields, as DYE2's baskets page has them. */
+export const BASKET_FIELDS: FormField[] = [
+  { field: "name", label: "Name", kind: "text", required: true },
+  {
+    field: "size",
+    label: "Size",
+    kind: "choice",
+    optional: true,
+    choices: [
+      ["single", "Single"],
+      ["double", "Double"],
+      ["triple", "Triple"],
+      ["bottomless", "Bottomless"],
+      ["other", "Other"],
+    ],
+  },
+  { field: "diameterMm", label: "Diameter (mm)", kind: "number" },
+  { field: "notes", label: "Notes", kind: "longText" },
+];
+
+/** A Tool's fields, as DYE2's equipment page has them: its name, and its attributes, which DYE2 keeps as `custom`. */
+export const TOOL_FIELDS: FormField[] = [
+  { field: "name", label: "Name", kind: "text", required: true },
+  { field: "custom", label: "Attributes", kind: "attributes" },
+];
+
 /** A form's values: each field as its input holds it. */
-type Values = Record<string, string | boolean>;
+type Value = string | boolean | Attribute[];
+type Values = Record<string, Value>;
+
+/** Stands for an optional choice left unset, as a Select's options each need a value. */
+const NOT_SET = "not-set";
 
 /** A field's value as its input holds it, from an item's content. */
-function inputValue(field: FormField, value: unknown): string | boolean {
+function inputValue(field: FormField, value: unknown): Value {
   switch (field.kind) {
     case "flag":
       return value === true;
@@ -108,15 +152,24 @@ function inputValue(field: FormField, value: unknown): string | boolean {
     case "wholeList":
       return Array.isArray(value) ? value.join(", ") : "";
     case "choice":
-      return typeof value === "string" ? value : (field.choices?.[0]?.[0] ?? "");
+      return typeof value === "string" ? value : field.optional ? "" : (field.choices?.[0]?.[0] ?? "");
+    case "attributes":
+      return Array.isArray(value)
+        ? value.flatMap((pair: unknown) =>
+            typeof pair === "object" && pair !== null && typeof (pair as { key?: unknown }).key === "string"
+              ? [{ key: (pair as { key: string }).key, value: String((pair as { value?: unknown }).value ?? "") }]
+              : [],
+          )
+        : [];
     default:
       return typeof value === "string" ? value : "";
   }
 }
 
-/** An input's value as the server takes it: null clears the field. */
-function contentValue(field: FormField, value: string | boolean): unknown {
+/** An input's value as the server takes it: null clears the field. Attributes without a name are left out, as DYE2 leaves them. */
+function contentValue(field: FormField, value: Value): unknown {
   if (typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.filter((pair) => pair.key.trim() !== "").map((pair) => ({ key: pair.key.trim(), value: pair.value.trim() }));
   const text = value.trim();
   if (text === "") return null;
   switch (field.kind) {
@@ -150,19 +203,43 @@ function newContent(fields: FormField[], values: Values): Record<string, unknown
   }));
 }
 
-/** The fields an edit changes, each with its value, null to clear it. */
+/**
+ * The fields an edit changes, each with its value, null to clear it: those
+ * whose value reads otherwise than it did, so 58.0 over 58, a space at either
+ * end or an attribute row without a name is no edit. Only a field changed as
+ * entered is read, so one the form cannot read is left as it is.
+ */
 function changedContent(fields: FormField[], initial: Values, values: Values): Record<string, unknown> {
-  return Object.fromEntries(fields.flatMap((field) => (values[field.field] === initial[field.field] ? [] : [[field.field, contentValue(field, values[field.field] ?? "")]])));
+  return Object.fromEntries(
+    fields.flatMap((field) => {
+      // Compared as entered first, so a Tool's attributes, a new list on every change, are unchanged once put back as they were.
+      if (JSON.stringify(values[field.field]) === JSON.stringify(initial[field.field])) return [];
+      const value = contentValue(field, values[field.field] ?? "");
+      return JSON.stringify(value) === JSON.stringify(readable(field, initial[field.field] ?? "")) ? [] : [[field.field, value]];
+    }),
+  );
+}
+
+/** A field's initial value as the server takes it, or undefined where the form cannot read it, so any value read now differs. */
+function readable(field: FormField, value: Value): unknown {
+  try {
+    return contentValue(field, value);
+  } catch {
+    return undefined;
+  }
 }
 
 /** The inputs of a form of an item's fields. */
-function ContentInputs({ fields, values, onChange }: { fields: FormField[]; values: Values; onChange(field: string, value: string | boolean): void }) {
+function ContentInputs({ fields, values, onChange }: { fields: FormField[]; values: Values; onChange(field: string, value: Value): void }) {
   const id = useId();
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {fields.map((field) => {
         const inputId = `${id}-${field.field}`;
         const value = values[field.field];
+        if (field.kind === "attributes") {
+          return <AttributeInputs key={field.field} label={field.label} pairs={Array.isArray(value) ? value : []} onChange={(pairs) => onChange(field.field, pairs)} />;
+        }
         if (field.kind === "flag") {
           return (
             <div key={field.field} className="flex items-center gap-2 self-end py-1.5">
@@ -177,11 +254,12 @@ function ContentInputs({ fields, values, onChange }: { fields: FormField[]; valu
             {field.kind === "longText" ? (
               <Textarea id={inputId} value={String(value ?? "")} onChange={(event) => onChange(field.field, event.target.value)} />
             ) : field.kind === "choice" ? (
-              <Select value={String(value ?? "")} onValueChange={(chosen) => onChange(field.field, chosen)}>
+              <Select value={value === "" && field.optional ? NOT_SET : String(value ?? "")} onValueChange={(chosen) => onChange(field.field, chosen === NOT_SET ? "" : chosen)}>
                 <SelectTrigger id={inputId} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  {field.optional && <SelectItem value={NOT_SET}>Not set</SelectItem>}
                   {field.choices?.map(([choice, label]) => (
                     <SelectItem key={choice} value={choice}>
                       {label}
@@ -205,6 +283,35 @@ function ContentInputs({ fields, values, onChange }: { fields: FormField[]; valu
         );
       })}
     </div>
+  );
+}
+
+/**
+ * A Tool's attributes as rows of a name and a value, as DYE2's equipment page
+ * edits them: a row is added or removed, and one left without a name is not
+ * saved.
+ */
+function AttributeInputs({ label, pairs, onChange }: { label: string; pairs: Attribute[]; onChange(pairs: Attribute[]): void }) {
+  const set = (index: number, change: Partial<Attribute>) => onChange(pairs.map((pair, at) => (at === index ? { ...pair, ...change } : pair)));
+  return (
+    <fieldset className="grid gap-2 sm:col-span-2">
+      <legend className="mb-2 text-sm font-medium">{label}</legend>
+      {pairs.length === 0 && <p className="text-sm text-muted-foreground">None yet.</p>}
+      {pairs.map((pair, index) => (
+        <div key={index} className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
+          <Input aria-label={`Attribute ${index + 1} name`} placeholder="Name, such as Needles" value={pair.key} onChange={(event) => set(index, { key: event.target.value })} />
+          <Input aria-label={`Attribute ${index + 1} value`} placeholder="Value, such as 8" value={pair.value} onChange={(event) => set(index, { value: event.target.value })} />
+          <Button type="button" variant="outline" size="sm" aria-label={`Remove attribute ${index + 1}`} onClick={() => onChange(pairs.filter((_, at) => at !== index))}>
+            Remove
+          </Button>
+        </div>
+      ))}
+      <div>
+        <Button type="button" variant="outline" size="sm" onClick={() => onChange([...pairs, { key: "", value: "" }])}>
+          Add an attribute
+        </Button>
+      </div>
+    </fieldset>
   );
 }
 
@@ -539,6 +646,106 @@ export function NewBatchDialog({ bean, beans }: { bean?: { id: string; name: str
               );
             })}
           </fieldset>
+          <div>
+            <Button type="submit" disabled={saving}>
+              Create
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** The existing Basket or Tool a new one would be, from a refusal. */
+function existingEquipment(caught: unknown): { id: string; name: string | null; archived: boolean } | undefined {
+  if (!(caught instanceof ApiError) || caught.status !== 409) return undefined;
+  const existing = (caught.data as { existing?: unknown } | undefined)?.existing;
+  return typeof existing === "object" && existing !== null && typeof (existing as { id?: unknown }).id === "string"
+    ? (existing as { id: string; name: string | null; archived: boolean })
+    : undefined;
+}
+
+/**
+ * Creates a Basket or Tool, shown at the Location chosen only, as one entered
+ * on a tablet there is: Staff only at their own. One whose name the Library
+ * has is refused, with a link to that one, to show at the Location, or
+ * restore if it is Archived.
+ */
+export function NewEquipmentDialog({ kind }: { kind: "basket" | "tool" }) {
+  const navigate = useNavigate();
+  const mayChangeAt = useMayChangeAt();
+  const { locations, error: locationsError } = useLocations();
+  const { name, api: apiPath, pages } = LIBRARY_KINDS[kind];
+  const fields = kind === "basket" ? BASKET_FIELDS : TOOL_FIELDS;
+  const [open, setOpen] = useState(false);
+  const [locationId, setLocationId] = useState("");
+  const [values, setValues] = useState<Values>(() => valuesOf(fields, {}));
+  const [error, setError] = useState<ReactNode>();
+  const [saving, setSaving] = useState(false);
+  const id = useId();
+
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (locationId === "") return setError("Choose the Location it is shown at");
+    setSaving(true);
+    setError(undefined);
+    try {
+      const created = await api<Record<string, { id: string }>>("POST", apiPath, { locationId, content: newContent(fields, values) });
+      setOpen(false);
+      void navigate(`${pages}/${created[kind]!.id}`);
+    } catch (caught) {
+      const existing = existingEquipment(caught);
+      setError(
+        existing ? (
+          <>
+            The Library has this {name} already{existing.archived ? ", Archived" : ""}:{" "}
+            <Link to={`${pages}/${existing.id}`} className="underline underline-offset-4" onClick={() => setOpen(false)}>
+              {existing.name ?? `Unnamed ${name}`}
+            </Link>
+            . {existing.archived ? "Restore it on its page instead." : "Show it at the Location on its page instead."}
+          </>
+        ) : (
+          failure(caught, `The ${name} could not be created`)
+        ),
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button>New {name}</Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>New {name}</DialogTitle>
+          <DialogDescription>
+            {kind === "basket" ? "A model of basket, one at every Location." : "A piece of gear, such as a WDT tool or a puck screen."} It is shown at the
+            Location chosen, and written to that Location's tablets only, until it is shown elsewhere.
+          </DialogDescription>
+        </DialogHeader>
+        <form aria-label={`New ${name}`} className="grid gap-4" onSubmit={create}>
+          {error && <FormError error={error} />}
+          {locationsError && <FormError error={locationsError} />}
+          <div className="grid gap-2">
+            <Label htmlFor={`${id}-location`}>Shown at</Label>
+            <Select value={locationId} onValueChange={setLocationId}>
+              <SelectTrigger id={`${id}-location`} className="w-full">
+                <SelectValue placeholder="Choose a Location" />
+              </SelectTrigger>
+              <SelectContent>
+                {locations?.filter((location) => mayChangeAt(location.id)).map((location: Location) => (
+                  <SelectItem key={location.id} value={location.id}>
+                    {location.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <ContentInputs fields={fields} values={values} onChange={(field, value) => setValues((current) => ({ ...current, [field]: value }))} />
           <div>
             <Button type="submit" disabled={saving}>
               Create

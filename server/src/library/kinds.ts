@@ -264,6 +264,20 @@ const GRINDER_FIELDS: Readonly<Record<string, FieldType>> = {
   rpmBigStep: "number",
 };
 
+/** A Basket's fields, as DYE2's baskets page saves them. */
+const BASKET_FIELDS: Readonly<Record<string, FieldType>> = {
+  name: "name",
+  size: "basketSize",
+  diameterMm: "number",
+  notes: "text",
+};
+
+/** A Tool's fields, as DYE2's equipment page saves them: its name, and its attributes as `custom`. */
+const TOOL_FIELDS: Readonly<Record<string, FieldType>> = {
+  name: "name",
+  custom: "attributes",
+};
+
 /** Each kind of Library item, described once. */
 export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
   bean: {
@@ -573,21 +587,23 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     recordWritten: (prisma, tablet, answer) =>
       recordProfileWritten(prisma, tablet, answer.globalId, answer.written, answer.record, answer.updatedAt, answer.seen, answer.contentSeen),
   },
-  basket: equipmentKind("basket", "Basket", { table: "baskets", map: "tablet_baskets", column: "basket_id", shown: "basket_locations" }),
-  tool: equipmentKind("tool", "Tool", { table: "tools", map: "tablet_tools", column: "tool_id", shown: "tool_locations" }),
+  basket: equipmentKind("basket", "Basket", { table: "baskets", map: "tablet_baskets", column: "basket_id", shown: "basket_locations" }, { fields: BASKET_FIELDS, defaults: {} }),
+  // DYE2's page saves a Tool's attributes, none if none are entered.
+  tool: equipmentKind("tool", "Tool", { table: "tools", map: "tablet_tools", column: "tool_id", shown: "tool_locations" }, { fields: TOOL_FIELDS, defaults: { custom: [] } }),
 };
 
 /**
  * A kind DYE2 keeps in a list of Decaid's store, Baskets or Tools (ADR-0005):
  * in the Library, and shown or hidden at each Location as a Profile is
  * (ADR-0008), its records carrying their global id in a top-level field of
- * their own. Neither belongs to a Location, and neither is set in the
- * management interface yet, nor named by Shots the server links.
+ * their own. Neither belongs to a Location, nor is named by Shots the server
+ * links yet.
  */
 function equipmentKind(
   kind: EquipmentKind,
   name: string,
   tables: { table: string; map: string; column: string; shown: string },
+  editable: EditableContent,
 ): LibraryKindDescription {
   const table = Prisma.raw(tables.table);
   const map = Prisma.raw(tables.map);
@@ -608,7 +624,7 @@ function equipmentKind(
     values: (content) => content,
     recordValues: (record) => equipmentContent(record),
     keptColumns: (content) => (typeof content.name === "string" ? Prisma.sql`, match_key = ${equipmentMatchKey(content.name)}` : Prisma.empty),
-    editable: null,
+    editable,
     holdings: {
       key: kind === "basket" ? "baskets" : "tools",
       offered: async (tx, _tabletId, locationId) =>

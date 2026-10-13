@@ -1,7 +1,8 @@
 import { useCallback } from "react";
 import { Link } from "react-router";
 import { LibraryNav } from "@/components/bean-batches";
-import { ProfileBadges, profilePath, profileTitle, shownAtText } from "@/components/profiles";
+import { ProfileBadges, profilePath, profileTitle } from "@/components/profiles";
+import { shownAtText } from "@/components/shown-locations";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type ProfileSummary } from "@/lib/api";

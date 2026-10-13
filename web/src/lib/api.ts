@@ -569,6 +569,32 @@ export interface Profile extends ProfileSummary {
   locations: { location: Location; shown: boolean; since: string }[];
 }
 
+/** A Basket or Tool in the Library, as the Baskets and Tools lists show it: DYE2's baskets and its equipment. */
+export interface EquipmentSummary {
+  /** Its global id, which its record on each tablet carries. */
+  id: string;
+  name: string | null;
+  archived: boolean;
+  /** The Locations showing it, by name. None while it is Archived. */
+  shownAt: ProfileAtLocation[];
+  /** When it joined the Library. */
+  createdAt: string;
+  /** The Location it was created at, by a tablet there or here. */
+  createdLocation: Location | null;
+  /** DYE2's record fields, such as a Basket's `size` or a Tool's attributes as `custom`. */
+  content: Record<string, unknown>;
+}
+
+/** A Basket or Tool with where it is shown. */
+export interface Equipment extends EquipmentSummary {
+  /**
+   * Each Location that has decided whether it shows it, by name, kept while
+   * it is Archived: whether it is shown there, and since when that was
+   * decided. A Location not listed does not show it.
+   */
+  locations: { location: Location; shown: boolean; since: string }[];
+}
+
 /** The kinds of Library item (`LIBRARY_KINDS`). */
 export type { LibraryKind };
 

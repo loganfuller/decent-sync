@@ -2,6 +2,8 @@ import { type ReactNode, Suspense, lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import { AuthProvider, useAuth, useIsAdmin } from "@/auth";
 import { AccountsPage } from "@/pages/AccountsPage";
+import { BasketPage } from "@/pages/BasketPage";
+import { BasketsPage } from "@/pages/BasketsPage";
 import { BeanBatchPage } from "@/pages/BeanBatchPage";
 import { BeanBatchesPage } from "@/pages/BeanBatchesPage";
 import { BeanPage } from "@/pages/BeanPage";
@@ -20,6 +22,8 @@ import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { SetupPage } from "@/pages/SetupPage";
 import { HomePage, Shell } from "@/pages/Shell";
 import { SignInPage, type SignInState } from "@/pages/SignInPage";
+import { ToolPage } from "@/pages/ToolPage";
+import { ToolsPage } from "@/pages/ToolsPage";
 
 // The Shot and Steam Record pages load their charts and calendar only when opened, which keeps them out of every other page.
 const ShotsPage = lazy(() => import("@/pages/ShotsPage").then((page) => ({ default: page.ShotsPage })));
@@ -55,6 +59,10 @@ export function App() {
             <Route path="/library/grinders/:id" element={<GrinderPage />} />
             <Route path="/library/profiles" element={<ProfilesPage />} />
             <Route path="/library/profiles/:id" element={<ProfilePage />} />
+            <Route path="/library/baskets" element={<BasketsPage />} />
+            <Route path="/library/baskets/:id" element={<BasketPage />} />
+            <Route path="/library/tools" element={<ToolsPage />} />
+            <Route path="/library/tools/:id" element={<ToolPage />} />
             <Route path="/library/conflicts" element={<ConflictsPage />} />
             <Route path="/locations" element={<LocationsPage />} />
             <Route path="/locations/:id" element={<LocationPage />} />

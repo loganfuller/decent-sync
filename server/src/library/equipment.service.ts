@@ -19,14 +19,18 @@ export interface EquipmentSummary {
   shownAt: { location: LocationView; since: string }[];
   /** When it joined the Library, by PostgreSQL's clock. */
   createdAt: string;
-  /** The Location of the tablet that created it, if it still exists. */
+  /** The Location it was created at, by a tablet there or in the management interface, if it still exists. */
   createdLocation: LocationView | null;
+  /**
+   * DYE2's record fields, as the tablet that created it sent them, those this
+   * server does not know included, as edited since: a few short fields, so
+   * the lists show them.
+   */
+  content: Record<string, unknown>;
 }
 
-/** A Basket or Tool with its content, as the REST API returns one. */
+/** A Basket or Tool with where it is shown, as the REST API returns one. */
 export interface EquipmentView extends EquipmentSummary {
-  /** DYE2's record fields, as the tablet that created it sent them, those this server does not know included, as edited since. */
-  content: Record<string, unknown>;
   /**
    * Each Location that has decided whether it shows it, by name: whether it
    * is shown there, and when that was last decided, by PostgreSQL's clock.
@@ -56,7 +60,7 @@ const SHOWN: Readonly<Record<EquipmentKind, { table: string; column: string }>> 
   tool: { table: "tool_locations", column: "tool_id" },
 };
 
-/** The Library's Baskets and Tools, which Staff read as Admins do. They join it from tablets (`library/equipment.ts`). */
+/** The Library's Baskets and Tools, which Staff read as Admins do. They join it from tablets (`library/equipment.ts`), or are created in the management interface. */
 @Injectable()
 export class EquipmentService {
   constructor(private readonly prisma: PrismaService) {}
@@ -80,7 +84,6 @@ export class EquipmentService {
     const locations = await this.locations([item], places);
     return {
       ...summary(item, places, locations),
-      content: object(item.content),
       locations: places
         .map((here) => ({ location: locations.get(here.locationId)!, shown: here.shown, since: here.decidedAt.toISOString() }))
         .sort((a, b) => a.location.name.localeCompare(b.location.name)),
@@ -128,6 +131,7 @@ function summary(item: ItemRow, places: readonly PlaceRow[], locations: Readonly
           .sort((a, b) => a.location.name.localeCompare(b.location.name)),
     createdAt: item.createdAt.toISOString(),
     createdLocation: item.createdLocationId === null ? null : (locations.get(item.createdLocationId) ?? null),
+    content: object(item.content),
   };
 }
 

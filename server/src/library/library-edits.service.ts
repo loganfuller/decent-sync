@@ -1,4 +1,4 @@
-import { type LibraryKind, beanMatchKey } from "@decent-sync/protocol";
+import { type LibraryKind, beanMatchKey, equipmentMatchKey } from "@decent-sync/protocol";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { type Scope, includesLocation } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
@@ -6,6 +6,7 @@ import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { lockBeanMatching } from "./beans.js";
 import { editContent, lockItems, recordJoined } from "./content-edits.js";
+import { type EquipmentKind, lockMatching } from "./equipment.js";
 import { type EditSource, type LibraryItemRef, accountSource, recordVersion } from "./history.js";
 import { INTAKE_TRANSACTION } from "./intake.js";
 import { KINDS, idSql } from "./kinds.js";
@@ -15,7 +16,8 @@ import { type ShownKind, addBatchAt, enterRemainingWeight, finishBatchAt, lockLo
 // interface, Archiving and restoring them, and adding and finishing batches
 // at Locations with their remaining weight there (ticket #87); showing and
 // hiding Profiles at Locations, and Archiving and restoring them (ticket
-// #88); and showing and hiding Baskets and Tools at Locations (ticket #138).
+// #88); and showing and hiding Baskets and Tools at Locations (ticket #138),
+// and creating, editing, Archiving and restoring them (ticket #139).
 // A Profile is never created or edited here: Decaid computes its id from
 // what the machine executes, so Profiles join the Library from tablets.
 // Each is an edit by the account, timed by PostgreSQL's clock (ADR-0016), made over the
@@ -27,15 +29,15 @@ import { type ShownKind, addBatchAt, enterRemainingWeight, finishBatchAt, lockLo
 // offers it now, is written it.
 //
 // Locks are taken as a tablet's edits take them, after its own: a Location's
-// lock before an item's, and new or Archived Beans under the lock beans are
-// matched under, so a tablet never links a new bean to a Bean Archived at
-// once, and two Beans of one roaster and name are never created at once.
+// lock before an item's, and new or Archived Beans, Baskets and Tools under
+// the lock their kind is matched under, so a tablet never links a new record
+// to an item Archived at once, and two of one name are never created at once.
 //
-// Staff edit the Library's shared content anywhere (a Bean's, and a batch's
-// details) and Archive and restore items, but add and finish batches, set
-// their remaining weight, create and edit Grinders, and show and hide
-// Profiles, Baskets and Tools only at their own Locations, as a Grinder
-// belongs to one.
+// Staff edit the Library's shared content anywhere (a Bean's, a batch's
+// details, a Basket's and a Tool's) and Archive and restore items, but add
+// and finish batches, set their remaining weight, create and edit Grinders,
+// create Baskets and Tools, and show and hide Profiles, Baskets and Tools
+// only at their own Locations, as a Grinder belongs to one.
 
 /** A batch at a Location as a request sets it: whether it is there, and its remaining weight there, null to clear it. */
 export interface BatchPlacement {
@@ -204,6 +206,76 @@ export class LibraryEditsService {
    */
   async showEquipment(kind: "basket" | "tool", id: string, locationId: string, shown: boolean, accountId: string, scope: Scope): Promise<void> {
     await this.show(kind, id, locationId, shown, accountId, scope);
+  }
+
+  /**
+   * Creates a Basket or Tool with the content, shown at the Location only,
+   * as one entered on a tablet there is (ADR-0008). 404 if there is no such
+   * Location, 403 for Staff elsewhere, and 409, naming the item and whether
+   * it is Archived, if the Library has one of the kind of the same name
+   * already, as a Bean is refused: one not Archived is the item a tablet's
+   * record of that name would be (ADR-0018), and one Archived is restored
+   * rather than duplicated, but only where none of the name is current: the
+   * one named is the one a tablet's record would be linked to, if any.
+   * Decided under the lock the
+   * kind's new records are matched under, so two are never created at once,
+   * through any instance, nor one beside a tablet's new record.
+   */
+  async createEquipment(kind: EquipmentKind, locationId: string, content: Record<string, unknown>, accountId: string, scope: Scope): Promise<string> {
+    const description = KINDS[kind];
+    if (!includesLocation(scope, locationId)) throw staffElsewhere(`create a ${description.name}`);
+    return this.prisma.$transaction(async (tx) => {
+      await lockMatching(tx, kind);
+      await this.checkLocations(tx, [locationId]);
+      await lockLocation(tx, locationId);
+      const matchKey = equipmentMatchKey(String(content.name));
+      const [existing] = await tx.$queryRaw<{ id: string; content: unknown; archived: boolean }[]>`
+        SELECT id::text AS id, content, archived FROM ${Prisma.raw(description.table)} WHERE match_key = ${matchKey} ORDER BY archived, created_at, id LIMIT 1`;
+      if (existing) {
+        const name = (existing.content as { name?: unknown } | null)?.name;
+        throw new ConflictException({
+          statusCode: 409,
+          error: "Conflict",
+          message: `The Library has a ${description.name} of this name already`,
+          existing: { id: existing.id, name: typeof name === "string" ? name : null, archived: existing.archived },
+        });
+      }
+      const [created] = await tx.$queryRaw<[{ id: string }]>`
+        INSERT INTO ${Prisma.raw(description.table)} (id, content, match_key, created_location_id)
+        VALUES (gen_random_uuid(), ${JSON.stringify(content)}::jsonb, ${matchKey}, ${locationId}::uuid)
+        RETURNING id::text AS id`;
+      const source = accountSource(accountId);
+      const when = await editTime(tx);
+      await recordJoined(tx, { kind, id: created.id }, content, when, source);
+      const [{ seenAt }] = await tx.$queryRaw<[{ seenAt: Date }]>`SELECT clock_timestamp() AS "seenAt"`;
+      await showAt(tx, kind, created.id, locationId, source, true, when, seenAt);
+      await notify(tx, "library_changes", locationId);
+      return created.id;
+    }, INTAKE_TRANSACTION);
+  }
+
+  /** Edits a Basket's or Tool's content, anywhere. */
+  async editEquipment(kind: EquipmentKind, id: string, values: Record<string, unknown>, accountId: string): Promise<void> {
+    await this.editShared({ kind, id }, values, accountId, null);
+  }
+
+  /**
+   * Archives a Basket or Tool, so it is shown nowhere and removed from every
+   * tablet's list, or restores it, written again where it is shown: anywhere,
+   * Staff too. Under the lock its kind is matched under, so a tablet never
+   * links a new record to one Archived at once.
+   */
+  async archiveEquipment(kind: EquipmentKind, id: string, archived: boolean, accountId: string): Promise<void> {
+    const description = KINDS[kind];
+    await this.prisma.$transaction(async (tx) => {
+      await lockMatching(tx, kind);
+      await lockItems(tx, kind, [id]);
+      const changed = await tx.$executeRaw`
+        UPDATE ${Prisma.raw(description.table)} SET archived = ${archived} WHERE id = ${id}::uuid AND archived = ${!archived}`;
+      if (changed === 0) return void (await found(tx, kind, id));
+      await recordVersion(tx, { kind, id }, null, { archived }, accountSource(accountId), await editTime(tx));
+      await notify(tx, "library_changes", id);
+    }, INTAKE_TRANSACTION);
   }
 
   /** Shows or hides an item of a kind shown per Location, as the account's edit of the Location's state, having seen every decision made there before it. */
