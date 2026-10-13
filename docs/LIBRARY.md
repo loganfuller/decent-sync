@@ -952,8 +952,9 @@ item no Shot names from every tablet that holds it, is the one exception
 the shared settings. After them, before the writes above, each record a
 joining tablet held that the Library leaves out and that is not set aside
 there yet is archived or hidden (`leaveOut`; Joining a Location, below),
-batches first, then beans, grinders and profiles; a Basket or Tool is
-removed instead (Taking in a tablet's baskets and tools, above).
+batches first, then beans, grinders and profiles, and last baskets and
+tools, which are removed from DYE2's list instead (Taking in a tablet's
+baskets and tools, above).
 
 It writes nothing until that connection's reports of the tablet's beans, bean
 batches, grinders, profiles, baskets and tools, which the plugin sends on
