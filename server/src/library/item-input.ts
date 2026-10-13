@@ -280,6 +280,31 @@ export function readNewRecipe(body: unknown): { locationId: string; slot: SlotCh
   return { locationId: fields.locationId.toLowerCase(), slot: slotOf(fields.slot ?? null), content: readNewContent("recipe", body) };
 }
 
+/**
+ * A Recipe's copy to a Location, from a request: `{ locationId, slot,
+ * grinderId, beanBatchId }`, the Location it goes to, in lower case, the
+ * Recipe Slot it goes in there (none if not given), its Grinder there, null
+ * for none, and the Bean Batch it uses instead of the Recipe's, null for
+ * none, or undefined, where not given, to keep the Recipe's (ticket #144).
+ */
+export function readRecipeCopy(body: unknown): { locationId: string; slot: SlotChoice; grinderId: string | null; beanBatchId: string | null | undefined } {
+  const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  if (typeof fields.locationId !== "string" || !UUID.test(fields.locationId)) throw new BadRequestException("Name the Location the copy goes to as locationId");
+  const id = (field: "grinderId" | "beanBatchId", what: string) => {
+    const value = fields[field];
+    if (value === null) return null;
+    if (typeof value !== "string" || !UUID.test(value)) throw new BadRequestException(`${field} must be ${what}'s id, or null for none`);
+    return value.toLowerCase();
+  };
+  if (!Object.prototype.hasOwnProperty.call(fields, "grinderId")) throw new BadRequestException("Choose the copy's Grinder at its Location as grinderId, or null for none");
+  return {
+    locationId: fields.locationId.toLowerCase(),
+    slot: slotOf(fields.slot ?? null),
+    grinderId: id("grinderId", "a Grinder"),
+    beanBatchId: Object.prototype.hasOwnProperty.call(fields, "beanBatchId") ? id("beanBatchId", "a Bean Batch") : undefined,
+  };
+}
+
 /** A new Basket or Tool, from a request: `{ locationId, content }`, the Location it is first shown at, in lower case, and its content. */
 export function readNewEquipment(kind: "basket" | "tool", body: unknown): { locationId: string; content: Record<string, unknown> } {
   const locationId = typeof body === "object" && body !== null ? (body as { locationId?: unknown }).locationId : undefined;

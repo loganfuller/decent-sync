@@ -41,6 +41,14 @@ export interface VersionView {
   editedAt: string;
   /** When the server took it in, by PostgreSQL's clock. */
   receivedAt: string;
+  /**
+   * For an item copied in the management interface, as a Recipe is copied to
+   * a Location (ticket #144), its first version names the item it was copied
+   * from: its id, its name now (null where it has none, or the Library no
+   * longer has it), and its Location when it was copied, if that still
+   * exists. Null for every other version.
+   */
+  copiedFrom: { id: string; name: string | null; location: LocationView | null } | null;
 }
 
 /** A Library item a Conflict is about, or a Location's steam and rinse settings (`settings`), whose Location the Conflict names. */
@@ -104,10 +112,17 @@ export class HistoryService {
   /** The item's versions, the latest taken in first; 404 if the Library does not have it. */
   async versions(item: ItemRef, scope: Scope): Promise<VersionView[]> {
     const [versions, exists] = await Promise.all([
-      this.prisma.itemVersion.findMany({ where: itemKey(item), include: withSource, orderBy: [{ receivedAt: "desc" }, { seq: "desc" }] }),
+      this.prisma.itemVersion.findMany({
+        where: itemKey(item),
+        include: { ...withSource, copiedFromLocation: true },
+        orderBy: [{ receivedAt: "desc" }, { seq: "desc" }],
+      }),
       this.exists(item),
     ]);
     if (!exists) throw new NotFoundException(`No such ${versionedKind(item.kind).name}`);
+    // The items copies were copied from, read as the item's kind reads them, so a copy names its original as it is named now.
+    const copiedFromIds = [...new Set(versions.flatMap((version) => (version.copiedFromId === null ? [] : [version.copiedFromId])))];
+    const originals = copiedFromIds.length === 0 ? new Map<string, VersionedItem>() : await versionedKind(item.kind).read(this.prisma, copiedFromIds);
     return versions.map((version) => ({
       id: version.id,
       fields: isObject(version.fields) ? version.fields : {},
@@ -115,6 +130,14 @@ export class HistoryService {
       source: viewSource(version, scope),
       editedAt: version.editedAt.toISOString(),
       receivedAt: version.receivedAt.toISOString(),
+      copiedFrom:
+        version.copiedFromId === null
+          ? null
+          : {
+              id: version.copiedFromId,
+              name: originals.get(version.copiedFromId)?.name ?? null,
+              location: version.copiedFromLocation ? viewLocation(version.copiedFromLocation) : null,
+            },
     }));
   }
 

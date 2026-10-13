@@ -1,5 +1,5 @@
 import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
-import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, RECIPE_FIELD, globalIdOf } from "@decent-sync/protocol";
 import { DYE2_NAMESPACE, dye2List } from "../server/test/support/simulated-dye2.js";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
@@ -10,7 +10,8 @@ import { useFreshServer } from "./support/fresh-server.js";
 // restored, which reaches the DYE2 recipes of the simulated tablets running
 // the built plugin there; what the form offers at the Location; a Recipe
 // whose batch is finished there flagged; its Conflicts; and what Staff may
-// change. Serials are made up, from 45501.
+// change. A Recipe copied to another Location (ticket #144) reaches that
+// Location's tablets. Serials are made up, from 45501.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
@@ -281,6 +282,124 @@ test("the form clears a Recipe's Bean saved on a tablet with no batch of it at i
   await expect.poll(() => slotOn(tablet, 1)?.beanId ?? null).toBeNull();
 });
 
+test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: Uptown's tablets hold it by their own ids, the Recipe there leaves its slot, and its history names the original", async ({
+  page,
+}) => {
+  const lab = await createLocation(page, "Copy lab");
+  const uptown = await createLocation(page, "Copy Uptown");
+  const labTablet = await tabletAt(page, "Copy lab 1", lab, "45541");
+  const uptownTablets = [await tabletAt(page, "Copy Uptown 1", uptown, "45542"), await tabletAt(page, "Copy Uptown 2", uptown, "45543")];
+  // The lab's batch, Grinder, Profile and Basket; Uptown has two Grinders, one of the lab's model.
+  const batch = await createBatch(page, "Copy Guji", lab);
+  const labGrinder = await createGrinder(page, lab, "Copy EK43");
+  await createGrinder(page, uptown, "Copy EK43");
+  const mazzer = await createGrinder(page, uptown, "Copy Mazzer");
+  const profile = await labTablet.addProfile(derivedProfile("Copy Bloom", 7.75));
+  const profileId = String(profile.id);
+  await expect.poll(async () => (await page.request.get(`/api/profiles/${encodeURIComponent(profileId)}`)).status()).toBe(200);
+  const basketResponse = await page.request.post("/api/baskets", { data: { locationId: lab.id, content: { name: "Copy 20g" } } });
+  baseExpect(basketResponse.status()).toBe(201);
+  const basket = ((await basketResponse.json()) as { basket: { id: string } }).basket;
+  const original = await createRecipe(page, lab, 1, {
+    name: "Copy Lab Guji",
+    beanBatchId: batch.id,
+    profileId,
+    dose: 18,
+    yield: 40,
+    grinderId: labGrinder.id,
+    grindSetting: 2.5,
+    basketId: basket.id,
+    hotWaterMode: "temp",
+    hotWaterTemperature: 85,
+  });
+  const house = await createRecipe(page, uptown, 1, { name: "Copy Uptown House" });
+  for (const tablet of uptownTablets) await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(house.id);
+  const originalBefore = await (await page.request.get(`/api/recipes/${original.id}`)).json();
+
+  await page.goto(`/library/recipes/${original.id}`);
+  await page.getByRole("button", { name: "Copy to a Location" }).click();
+  const form = page.getByRole("form", { name: "Copy the Recipe" });
+  await form.getByLabel("Copy to").click();
+  await page.getByRole("option", { name: "Copy Uptown" }).click();
+  // The Grinder of the Recipe's model at Uptown is offered first; the Mazzer is chosen instead.
+  await expect(form.getByLabel("Grinder")).toHaveText("Copy EK43");
+  await expect(form).toContainText("Its grind setting, 2.5, is kept as a starting point.");
+  await form.getByLabel("Grinder").click();
+  await page.getByRole("option", { name: "Copy Mazzer" }).click();
+  await form.getByLabel("Recipe Slot").click();
+  await page.getByRole("option", { name: "A slot of my choosing" }).click();
+  await form.getByLabel("Slot", { exact: true }).fill("1");
+  await expect(form.getByRole("list", { name: "About this slot" })).toContainText("Slot 1 holds Copy Uptown House, which is taken out of its slot and kept at Copy Uptown.");
+  await expect(form.getByLabel("Bean Batch")).toHaveText("Copy Guji, roasted 2026-10-01 (this Recipe's)");
+  // The form says what copying adds and shows at Uptown before saving.
+  const also = form.getByRole("status", { name: "Copying also" });
+  await expect(also).toContainText("adds the Bean Batch Copy Guji, roasted 2026-10-01 at Copy Uptown");
+  await expect(also).toContainText("shows the Profile Copy Bloom at Copy Uptown");
+  await expect(also).toContainText("shows the Basket Copy 20g at Copy Uptown");
+  await form.getByRole("button", { name: "Copy" }).click();
+
+  // The copy's page: in slot 1 at Uptown, with the Mazzer, its history naming the original.
+  await expect(page.getByText("Slot 1 at Copy Uptown")).toBeVisible();
+  const copyId = page.url().split("/").pop()!;
+  baseExpect(copyId).not.toBe(original.id);
+  const details = page.getByLabel("Recipe", { exact: true });
+  await expect(field(details, "Grinder")).toHaveText("Copy Mazzer");
+  await expect(field(details, "Grind setting")).toHaveText("2.5");
+  await expect(field(details, "Bean Batch")).toHaveText("Copy Guji, roasted 2026-10-01");
+  const history = rows(page.getByRole("table", { name: "History" }));
+  await expect(history.last()).toContainText("Copied from Copy Lab Guji at Copy lab");
+  await expect(history.last().getByRole("link", { name: "Copy Lab Guji" })).toHaveAttribute("href", `/library/recipes/${original.id}`);
+
+  // Uptown's tablets hold it in slot 1, naming its Grinder, batch and Basket by their own ids.
+  for (const tablet of uptownTablets) {
+    await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(copyId);
+    const record = slotOn(tablet, 1)!;
+    const local = (records: Record_[], id: string) => records.find((held) => held[GLOBAL_ID_KEY] === id || globalIdOf(held) === id)?.id;
+    baseExpect(record).toMatchObject({ name: "Copy Lab Guji", profileId });
+    baseExpect((record.dashboardVariables as Record_).grinderId).toBe(local(tablet.grinders(), mazzer.id));
+    baseExpect((record.dashboardVariables as Record_).grinderId).toBeDefined();
+    baseExpect((record.dashboardVariables as Record_).basketId).toBe(local(dye2List(tablet, "baskets") as Record_[], basket.id));
+    baseExpect((record[RECIPE_FIELD] as Record_).beanBatchId).toBe(local(tablet.batches(), batch.id));
+    baseExpect((record[RECIPE_FIELD] as Record_).beanBatchId).toBeDefined();
+  }
+  // The batch is at Uptown now, and the Profile and Basket shown there.
+  type Places = { location: { id: string } }[];
+  const read = async <T>(path: string) => (await (await page.request.get(path)).json()) as T;
+  const ids = (places: Places) => places.map((here) => here.location.id);
+  baseExpect(ids((await read<{ batch: { locations: Places } }>(`/api/bean-batches/${batch.id}`)).batch.locations)).toContain(uptown.id);
+  baseExpect(ids((await read<{ profile: { shownAt: Places } }>(`/api/profiles/${encodeURIComponent(profileId)}`)).profile.shownAt)).toContain(uptown.id);
+  baseExpect(ids((await read<{ basket: { shownAt: Places } }>(`/api/baskets/${basket.id}`)).basket.shownAt)).toContain(uptown.id);
+  // The Recipe that was in slot 1 is kept at Uptown in no slot; the original is unchanged, still in the lab's slot 1.
+  await page.getByRole("link", { name: "← Copy Uptown" }).click();
+  await expect(rows(page.getByRole("table", { name: "Recipes in no slot" }))).toHaveText([/Copy Uptown House/]);
+  await expect(rows(page.getByRole("table", { name: "Recipe Slots" }))).toHaveText([/^1Copy Lab Guji/]);
+  baseExpect(await (await page.request.get(`/api/recipes/${original.id}`)).json()).toEqual(originalBefore);
+  baseExpect(slotOn(labTablet, 1)?.[GLOBAL_ID_KEY]).toBe(original.id);
+});
+
+test("Staff copy a Recipe only to the Locations they work at", async ({ page, browser }) => {
+  const home = await createLocation(page, "Copy Staff home");
+  const elsewhere = await createLocation(page, "Copy Staff elsewhere");
+  const recipe = await createRecipe(page, elsewhere, 1, { name: "Copy Elsewhere Espresso" });
+  const sam = await staffAt(page, browser, "sam.copies@example.com", home);
+  try {
+    const samsPage = await sam.newPage();
+    await samsPage.goto(`/library/recipes/${recipe.id}`);
+    await expect(samsPage.getByText("Only Admins, and Staff working at Copy Staff elsewhere, change its Recipes.")).toBeVisible();
+    // Sam may copy it, but only to the Location Sam works at.
+    await samsPage.getByRole("button", { name: "Copy to a Location" }).click();
+    const form = samsPage.getByRole("form", { name: "Copy the Recipe" });
+    await form.getByLabel("Copy to").click();
+    await expect(samsPage.getByRole("option")).toHaveText(["Copy Staff home"]);
+    await samsPage.keyboard.press("Escape");
+    const refused = await samsPage.request.post(`/api/recipes/${recipe.id}/copies`, { data: { locationId: elsewhere.id, slot: 2, grinderId: null } });
+    baseExpect(refused.status()).toBe(403);
+    baseExpect(((await (await page.request.get(`/api/locations/${elsewhere.id}/recipes`)).json()) as { recipes: unknown[] }).recipes).toHaveLength(1);
+  } finally {
+    await sam.close();
+  }
+});
+
 async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {
   const response = await page.request.post("/api/locations", { data: { name, timeZone: "America/Chicago" } });
   baseExpect(response.status()).toBe(201);
@@ -295,6 +414,12 @@ async function createBatch(page: Page, name: string, at: { id: string }): Promis
   const batch = await page.request.post("/api/bean-batches", { data: { beanId, content: { roastDate: "2026-10-01" }, locations: [{ locationId: at.id }] } });
   baseExpect(batch.status()).toBe(201);
   return ((await batch.json()) as { batch: { id: string } }).batch;
+}
+
+async function createGrinder(page: Page, at: { id: string }, model: string): Promise<{ id: string }> {
+  const response = await page.request.post("/api/grinders", { data: { locationId: at.id, content: { model } } });
+  baseExpect(response.status()).toBe(201);
+  return ((await response.json()) as { grinder: { id: string } }).grinder;
 }
 
 async function createRecipe(page: Page, at: { id: string }, slot: number | null, content: Record_): Promise<{ id: string }> {

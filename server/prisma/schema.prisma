@@ -179,7 +179,8 @@ model Location {
   recipes         Recipe[]
   grinders        Grinder[]
   settings        LocationSettings?
-  itemVersions    ItemVersion[]
+  itemVersions    ItemVersion[]        @relation("VersionLocation")
+  copiesFrom      ItemVersion[]        @relation("VersionCopiedFrom")
   conflicts       Conflict[]
   workflowClears  WorkflowClear[]
 
@@ -1345,37 +1346,44 @@ model VersionedItem {
 /// Location, and only those fields. Joining the Library is the item's first
 /// version. See server/src/library/history.ts.
 model ItemVersion {
-  id         String        @id @default(uuid(7)) @db.Uuid
+  id                   String        @id @default(uuid(7)) @db.Uuid
   /// The item's kind and id (`VersionedItem`).
-  kind       String
-  itemId     String        @map("item_id")
-  item       VersionedItem @relation(fields: [kind, itemId], references: [kind, itemId], onDelete: Cascade)
+  kind                 String
+  itemId               String        @map("item_id")
+  item                 VersionedItem @relation(fields: [kind, itemId], references: [kind, itemId], onDelete: Cascade)
   /// The Location whose state of the item it changed; a Location's settings,
   /// which keep versions as items do, always name their Location.
-  locationId String?       @map("location_id") @db.Uuid
-  location   Location?     @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  locationId           String?       @map("location_id") @db.Uuid
+  location             Location?     @relation("VersionLocation", fields: [locationId], references: [id], onDelete: Cascade)
   /// The fields it set, by Decaid's names or a Location's state's
   /// (`atLocation`, `remainingWeight`, `shown`, or a shared setting such as
   /// `steamSettings.flow`), each with its value.
-  fields     Json          @db.JsonB
+  fields               Json          @db.JsonB
   /// The Machine whose tablet made it, if one did.
-  machineId  String?       @map("machine_id") @db.Uuid
-  machine    Machine?      @relation(fields: [machineId], references: [id], onDelete: SetNull)
-  tabletId   String?       @map("tablet_id") @db.Uuid
-  tablet     Tablet?       @relation(fields: [tabletId], references: [id], onDelete: SetNull)
+  machineId            String?       @map("machine_id") @db.Uuid
+  machine              Machine?      @relation(fields: [machineId], references: [id], onDelete: SetNull)
+  tabletId             String?       @map("tablet_id") @db.Uuid
+  tablet               Tablet?       @relation(fields: [tabletId], references: [id], onDelete: SetNull)
   /// The account that made it in the management interface, if one did.
-  accountId  String?       @map("account_id") @db.Uuid
-  account    Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  accountId            String?       @map("account_id") @db.Uuid
+  account              Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
   /// When it was made: a tablet's by its record's `updatedAt` in UTC, a
   /// delete, which Decaid does not time, by PostgreSQL's clock (ADR-0020).
-  editedAt   DateTime      @map("edited_at") @db.Timestamptz(3)
+  editedAt             DateTime      @map("edited_at") @db.Timestamptz(3)
   /// When the server took it in, by PostgreSQL's clock.
-  receivedAt DateTime      @default(dbgenerated("transaction_timestamp()")) @map("received_at") @db.Timestamptz(3)
+  receivedAt           DateTime      @default(dbgenerated("transaction_timestamp()")) @map("received_at") @db.Timestamptz(3)
   /// The order it was taken in, which `receivedAt` cannot tell apart within one transaction.
-  seq        BigInt        @default(autoincrement())
+  seq                  BigInt        @default(autoincrement())
+  /// For a Recipe copied to a Location in the management interface (ticket
+  /// #144), its first version names the Recipe it was copied from, kept
+  /// though that Recipe is deleted, and that Recipe's Location then.
+  copiedFromId         String?       @map("copied_from_id")
+  copiedFromLocationId String?       @map("copied_from_location_id") @db.Uuid
+  copiedFromLocation   Location?     @relation("VersionCopiedFrom", fields: [copiedFromLocationId], references: [id], onDelete: SetNull)
 
   @@index([kind, itemId, receivedAt])
   @@index([locationId])
+  @@index([copiedFromLocationId])
   @@index([machineId])
   @@index([tabletId])
   @@index([accountId])

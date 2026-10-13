@@ -1,11 +1,12 @@
 import { type FormEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
+import { useIsAdmin, useStaffLocationIds } from "@/auth";
 import { batchName } from "@/components/bean-batches";
 import { ItemConflictsCard, ItemHistoryCard, attributePairs } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
 import { grinderName } from "@/components/grinders";
 import { ArchiveButton, type Attribute, FormError, failure, useMayChangeAt } from "@/components/library-forms";
-import { ConfirmButton, formatTime } from "@/components/machines";
+import { ConfirmButton, formatTime, useLocations } from "@/components/machines";
 import { profilePath, profileTitle } from "@/components/profiles";
 import { OrNone } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -38,7 +39,8 @@ import { LIBRARY_KINDS } from "@/lib/library-kinds";
 // barista and the drinker, moves it between slots, takes it out of its slot,
 // and Archives and restores it; each change reaches every tablet there.
 // Picking a Bean Batch, Profile, Basket or Tool its Location does not offer
-// offers it there, as the form says before saving.
+// offers it there, as the form says before saving. A Recipe is copied to a
+// Location as a new Recipe there, offering there what it uses.
 
 /** The highest Recipe Slot DYE2's recipe editor edits; its dashboard and Streamline's strip show every slot. */
 export const EDITABLE_SLOTS = 5;
@@ -387,10 +389,10 @@ function slotEntered(text: string): number | undefined {
 /** The highest Recipe Slot the server stores (`MAX_SLOT` in server/src/library/item-input.ts). */
 const MAX_SLOT = 2_147_483_647;
 
-/** What a slot chosen means: the Recipe there leaves it, and above 5 DYE2's editor cannot edit it. */
-function SlotNotes({ slot, there, swappedTo }: { slot: number | undefined; there: Recipe | undefined; swappedTo: number | null }) {
+/** What a slot chosen means: the Recipe there leaves it, kept at its Location (`keptAt`, here by default), and above 5 DYE2's editor cannot edit it. */
+function SlotNotes({ slot, there, swappedTo, keptAt = "here" }: { slot: number | undefined; there: Recipe | undefined; swappedTo: number | null; keptAt?: string }) {
   const notes: string[] = [];
-  if (there) notes.push(`Slot ${slot} holds ${recipeName(there)}, which ${swappedTo === null ? "is taken out of its slot and kept here" : `moves to slot ${swappedTo}`}.`);
+  if (there) notes.push(`Slot ${slot} holds ${recipeName(there)}, which ${swappedTo === null ? `is taken out of its slot and kept ${keptAt}` : `moves to slot ${swappedTo}`}.`);
   if (slot !== undefined && slot > EDITABLE_SLOTS) {
     notes.push(`Slot ${slot} is not editable in DYE2's recipe editor, though DYE2's dashboard and Streamline's strip show it.`);
   }
@@ -906,13 +908,281 @@ function MoveRecipeDialog({ recipe, recipes, onMoved }: { recipe: Recipe; recipe
   );
 }
 
+/** Stands for keeping the Recipe's own Bean Batch in its copy. */
+const KEEP = "keep";
+
+/**
+ * Copies a Recipe to a Location the account changes Recipes at, as a new
+ * Recipe there whose history names this one (ticket #144): in a slot chosen,
+ * the Recipe there taken out of it, the next free one, or none, with one of
+ * that Location's Grinders, its grind setting kept as a starting point, and
+ * its Bean Batch, or another at that Location, or none. It says first what
+ * copying adds, offers or shows there. A copy goes to another Location than
+ * the Recipe's own.
+ */
+function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choices | undefined }) {
+  const navigate = useNavigate();
+  const mayChangeAt = useMayChangeAt();
+  const { locations, error: locationsError } = useLocations();
+  const [open, setOpen] = useState(false);
+  const [locationId, setLocationId] = useState("");
+  const [targetRecipes, setTargetRecipes] = useState<Recipe[]>();
+  const [slotMode, setSlotMode] = useState<SlotMode>("next");
+  const [slotText, setSlotText] = useState("");
+  const [grinderId, setGrinderId] = useState(NONE);
+  const keptBatch = () => (recipe.uses.beanBatch || recipe.uses.bean ? KEEP : NONE);
+  const [batchId, setBatchId] = useState(keptBatch);
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const id = useId();
+  const target = locations?.find((location) => location.id === locationId);
+
+  // The Location's Recipes, for what a slot chosen holds there and its next free one.
+  useEffect(() => {
+    setTargetRecipes(undefined);
+    if (locationId === "") return;
+    let current = true;
+    api<{ recipes: Recipe[] }>("GET", `/locations/${locationId}/recipes`).then(
+      ({ recipes }) => current && setTargetRecipes(recipes),
+      (caught: unknown) => current && setError(failure(caught, "That Location's Recipes could not be loaded")),
+    );
+    return () => {
+      current = false;
+    };
+  }, [locationId]);
+
+  const grinders = (choices?.grinders ?? []).filter((grinder) => grinder.location?.id === locationId && !grinder.archived);
+  const archivedBeans = new Set((choices?.beans ?? []).filter((bean) => bean.archived).map((bean) => bean.id));
+  const atTarget = (batch: BeanBatchSummary) => batch.locations.some((at) => at.location.id === locationId);
+  const batches = (choices?.batches ?? []).filter((batch) => !batch.archived && !archivedBeans.has(batch.bean.id) && atTarget(batch) && batch.id !== recipe.uses.beanBatch?.id);
+  const free = targetRecipes ? lowestFree(targetRecipes) : undefined;
+  const slot = slotMode === "next" ? free : slotMode === "chosen" ? slotEntered(slotText) : undefined;
+  const there = slot === undefined ? undefined : targetRecipes?.find((candidate) => candidate.slot === slot);
+
+  // A Recipe naming a Bean with no batch takes that Bean's batch most recently added at the Location, or none, keeping
+  // the Bean: the latest added there, then the latest created, then by id, as the server picks it (`batchOfBean`).
+  const sinceAtTarget = (batch: BeanBatchSummary) => Date.parse(batch.locations.find((at) => at.location.id === locationId)?.since ?? "") || 0;
+  // A batch a hard delete took is left out of the copy, which then names its Bean alone.
+  const batchGone = recipe.uses.beanBatch !== null && choices !== undefined && !choices.batches.some((batch) => batch.id === recipe.uses.beanBatch!.id);
+  const beanOnly = recipe.uses.beanBatch === null || batchGone ? recipe.uses.bean : null;
+  const beanBatchThere = beanOnly
+    ? (choices?.batches ?? [])
+        .filter((batch) => batch.bean.id === beanOnly.id && !batch.archived && atTarget(batch))
+        .sort((a, b) => sinceAtTarget(b) - sinceAtTarget(a) || Date.parse(b.createdAt) - Date.parse(a.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0]
+    : undefined;
+  const keptText =
+    beanOnly && target
+      ? beanBatchThere
+        ? `${batchName(beanBatchThere)} (this Recipe's Bean's latest batch at ${target.name})`
+        : `${beanOnly.name ?? "Unnamed Bean"}, no batch (this Recipe's Bean, with none at ${target.name})`
+      : `${usedBatchText(recipe) ?? "Its batch"} (this Recipe's)`;
+
+  // What copying adds or shows at the Location that it does not offer now, so the copy can be loaded there.
+  const offered: string[] = [];
+  if (target && choices) {
+    const shownThere = (item: { shownAt: { location: { id: string } }[] } | undefined) => item?.shownAt.some((at) => at.location.id === locationId) ?? true;
+    const ownBatch = choices.batches.find((batch) => batch.id === recipe.uses.beanBatch?.id);
+    if (batchId === KEEP && ownBatch && !atTarget(ownBatch)) offered.push(`adds the Bean Batch ${batchName(ownBatch)} at ${target.name}`);
+    const bean = choices.beans.find((candidate) => candidate.id === beanOnly?.id);
+    if (batchId === KEEP && bean && !beanBatchThere && !bean.offeredAt.some((at) => at.id === locationId)) {
+      offered.push(`offers the Bean ${bean.name ?? "Unnamed Bean"} at ${target.name}`);
+    }
+    const profile = choices.profiles.find((candidate) => candidate.id === recipe.uses.profile?.id);
+    if (profile && !shownThere(profile)) offered.push(`shows the Profile ${profileTitle(profile)} at ${target.name}`);
+    const basket = choices.baskets.find((candidate) => candidate.id === recipe.uses.basket?.id);
+    if (basket && !shownThere(basket)) offered.push(`shows the Basket ${basket.name ?? "Unnamed Basket"} at ${target.name}`);
+    for (const used of recipe.uses.tools) {
+      const tool = choices.tools.find((candidate) => candidate.id === used.id);
+      if (tool && !shownThere(tool)) offered.push(`shows the Tool ${tool.name ?? "Unnamed Tool"} at ${target.name}`);
+    }
+    // What a hard delete left it naming is left out of the copy.
+    const gone = (kind: string, used: { id: string } | null, listed: readonly { id: string }[]) =>
+      used && !listed.some((item) => item.id === used.id) ? [`leaves out its ${kind}, which the Library no longer has`] : [];
+    offered.push(
+      ...(batchId === KEEP ? gone("Bean Batch", recipe.uses.beanBatch, choices.batches) : []),
+      ...(batchId === KEEP ? gone("Bean", recipe.uses.bean, choices.beans) : []),
+      ...gone("Profile", recipe.uses.profile, choices.profiles),
+      ...gone("Basket", recipe.uses.basket, choices.baskets),
+      ...recipe.uses.tools.flatMap((tool) => gone("Tool", tool, choices.tools)),
+    );
+  }
+
+  function chooseLocation(next: string) {
+    setLocationId(next);
+    setError(undefined);
+    // The Grinder of the Recipe's model there, if that Location has one.
+    const model = recipe.uses.grinder?.model?.trim().toLowerCase();
+    const same = (choices?.grinders ?? []).find(
+      (grinder) => grinder.location?.id === next && !grinder.archived && model !== undefined && grinder.model?.trim().toLowerCase() === model,
+    );
+    setGrinderId(same?.id ?? NONE);
+    if (batchId !== KEEP) setBatchId(NONE);
+  }
+
+  async function copy(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(undefined);
+    if (locationId === "") return setError("Choose the Location to copy it to");
+    if (slotMode === "chosen" && slot === undefined) return setError(`Enter the slot as a whole number from 1 to ${MAX_SLOT}`);
+    setSaving(true);
+    try {
+      const { recipe: copied } = await api<{ recipe: Recipe }>("POST", `/recipes/${recipe.id}/copies`, {
+        locationId,
+        slot: slotMode === "next" ? "next" : slotMode === "chosen" ? slot : null,
+        grinderId: grinderId === NONE ? null : grinderId,
+        ...(batchId === KEEP ? {} : { beanBatchId: batchId === NONE ? null : batchId }),
+      });
+      setOpen(false);
+      void navigate(`${LIBRARY_KINDS.recipe.pages}/${copied.id}`);
+    } catch (caught) {
+      setError(failure(caught, "The Recipe could not be copied"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        setError(undefined);
+        // Each opening starts afresh from the Recipe as it is now, which may have been edited since.
+        if (next) {
+          setLocationId("");
+          setSlotMode("next");
+          setSlotText("");
+          setGrinderId(NONE);
+          setBatchId(keptBatch());
+        }
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="outline">Copy to a Location</Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Copy {recipeName(recipe)} to a Location</DialogTitle>
+          <DialogDescription>
+            A new Recipe there, as a starting point: its history starts with the copy, and this Recipe is not changed. It keeps its dial, grind
+            setting and hot water; its steam and flush are that Location's settings.
+          </DialogDescription>
+        </DialogHeader>
+        <form aria-label="Copy the Recipe" className="grid gap-4" onSubmit={copy}>
+          {error && <FormError error={error} />}
+          {locationsError && <FormError error={locationsError} />}
+          <div className="grid gap-2">
+            <Label htmlFor={`${id}-location`}>Copy to</Label>
+            <Select value={locationId} onValueChange={chooseLocation}>
+              <SelectTrigger id={`${id}-location`} className="w-full">
+                <SelectValue placeholder="Choose a Location" />
+              </SelectTrigger>
+              <SelectContent>
+                {locations
+                  ?.filter((location) => mayChangeAt(location.id) && location.id !== recipe.location?.id)
+                  .map((location) => (
+                    <SelectItem key={location.id} value={location.id}>
+                      {location.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {target && (
+            <>
+              <div className="grid gap-2">
+                <Label htmlFor={`${id}-slot-mode`}>Recipe Slot</Label>
+                <Select value={slotMode} onValueChange={(value) => setSlotMode(value as SlotMode)}>
+                  <SelectTrigger id={`${id}-slot-mode`} className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="next">The next free slot{free === undefined ? "" : ` (${free})`}</SelectItem>
+                    <SelectItem value="chosen">A slot of my choosing</SelectItem>
+                    <SelectItem value="none">No slot: kept there only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {slotMode === "chosen" && (
+                <div className="grid gap-2">
+                  <Label htmlFor={`${id}-slot`}>Slot</Label>
+                  <Input id={`${id}-slot`} type="number" inputMode="numeric" min={1} max={MAX_SLOT} step={1} value={slotText} onChange={(event) => setSlotText(event.target.value)} />
+                </div>
+              )}
+              <SlotNotes slot={slot} there={there} swappedTo={null} keptAt={`at ${target.name}`} />
+
+              <div className="grid gap-2">
+                <Label htmlFor={`${id}-grinder`}>Grinder</Label>
+                <Select value={grinderId} onValueChange={setGrinderId}>
+                  <SelectTrigger id={`${id}-grinder`} className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>None</SelectItem>
+                    {grinders.map((grinder) => (
+                      <SelectItem key={grinder.id} value={grinder.id}>
+                        {grinderName(grinder)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-muted-foreground">
+                  One of {target.name}'s Grinders.
+                  {typeof recipe.content.grindSetting === "number" && ` Its grind setting, ${recipe.content.grindSetting}, is kept as a starting point.`}
+                </p>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor={`${id}-batch`}>Bean Batch</Label>
+                <Select value={batchId} onValueChange={setBatchId}>
+                  <SelectTrigger id={`${id}-batch`} className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {batchId === KEEP || recipe.uses.beanBatch || recipe.uses.bean ? (
+                      <SelectItem value={KEEP}>{keptText}</SelectItem>
+                    ) : null}
+                    <SelectItem value={NONE}>None</SelectItem>
+                    <ChoiceGroup label={`At ${target.name}`} items={batches.map((batch) => [batch.id, batchName(batch)])} />
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {offered.length > 0 && (
+                <Alert role="status" aria-label="Copying also">
+                  <AlertDescription>
+                    <p>Copying also:</p>
+                    <ul className="list-disc pl-5">
+                      {offered.map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              )}
+            </>
+          )}
+          <div>
+            <Button type="submit" disabled={saving || !choices || !target || targetRecipes === undefined}>
+              Copy
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /**
  * One Recipe: where it is, its fields, its open Conflicts and its history.
  * An Admin, or Staff working at its Location, edits it, moves it to another
- * slot or takes it out of its slot, and Archives or restores it.
+ * slot or takes it out of its slot, and Archives or restores it; an Admin,
+ * or Staff, copies it to a Location they change Recipes at.
  */
 export function RecipeDetails({ id }: { id: string }) {
   const mayChangeAt = useMayChangeAt();
+  const isAdmin = useIsAdmin();
+  const staffLocations = useStaffLocationIds();
   const { choices } = useChoices();
   const names = useMemo(() => namesOf(choices), [choices]);
   const [loaded, setLoaded] = useState<{ recipe: Recipe; recipes: Recipe[] }>();
@@ -967,6 +1237,8 @@ export function RecipeDetails({ id }: { id: string }) {
   const { location, content, uses } = recipe;
   const title = recipeName(recipe);
   const mayChange = location !== null && mayChangeAt(location.id);
+  // A copy goes to another Location the account changes Recipes at: an Admin's any, Staff's their own.
+  const mayCopy = isAdmin || [...staffLocations].some((staffLocation) => staffLocation !== location?.id);
   const path = `/recipes/${encodeURIComponent(id)}`;
   const toolAttributes = typeof content.toolAttributes === "object" && content.toolAttributes !== null ? (content.toolAttributes as Record<string, unknown>) : {};
 
@@ -1002,22 +1274,26 @@ export function RecipeDetails({ id }: { id: string }) {
         </Alert>
       )}
 
-      {mayChange ? (
+      {(mayChange || mayCopy) && (
         <div className="flex flex-wrap items-start gap-2">
-          <RecipeFormDialog location={location} recipes={recipes} recipe={recipe} onSaved={changed} />
-          {!recipe.archived && <MoveRecipeDialog recipe={recipe} recipes={recipes} onMoved={changed} />}
-          {recipe.slot !== null && <TakeOutButton recipe={recipe} onDone={changed} />}
-          <ArchiveButton
-            path={path}
-            name={title}
-            archived={recipe.archived}
-            effect={`taken out of its slot, so removed from every tablet's DYE2 recipes; restored, it is kept at ${location.name} in no slot`}
-            onDone={changed}
-          />
+          {mayChange && (
+            <>
+              <RecipeFormDialog location={location} recipes={recipes} recipe={recipe} onSaved={changed} />
+              {!recipe.archived && <MoveRecipeDialog recipe={recipe} recipes={recipes} onMoved={changed} />}
+              {recipe.slot !== null && <TakeOutButton recipe={recipe} onDone={changed} />}
+              <ArchiveButton
+                path={path}
+                name={title}
+                archived={recipe.archived}
+                effect={`taken out of its slot, so removed from every tablet's DYE2 recipes; restored, it is kept at ${location.name} in no slot`}
+                onDone={changed}
+              />
+            </>
+          )}
+          {mayCopy && <CopyRecipeDialog recipe={recipe} choices={choices} />}
         </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">Only Admins, and Staff working at {location?.name ?? "its Location"}, change its Recipes.</p>
       )}
+      {!mayChange && <p className="text-sm text-muted-foreground">Only Admins, and Staff working at {location?.name ?? "its Location"}, change its Recipes.</p>}
 
       <ItemConflictsCard kind="recipe" id={id} onResolved={changed} names={names} />
 

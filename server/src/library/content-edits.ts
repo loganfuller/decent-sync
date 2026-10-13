@@ -1,6 +1,6 @@
 import type { LibraryKind } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
-import { type EditSource, type LibraryItemRef as ItemRef, recordConflict, recordReplaced, recordVersion } from "./history.js";
+import { type CopiedFrom, type EditSource, type LibraryItemRef as ItemRef, recordConflict, recordReplaced, recordVersion } from "./history.js";
 import { KINDS, idSql, idsSql } from "./kinds.js";
 import { isObject } from "./listed.js";
 import { type FieldEdits, changedFields, editsAfter, latestDecision, mergeEdit, readFieldEdits } from "./merge.js";
@@ -140,10 +140,17 @@ export async function editContent(tx: Prisma.TransactionClient, item: ItemRef, e
 /**
  * Keeps an item that just joined the Library as its first version: `values`,
  * its content as edits merge it, each field's latest edit from then on, made
- * at `at` by `source`.
+ * at `at` by `source`, and for a copy, the item it was copied from.
  */
-export async function recordJoined(tx: Prisma.TransactionClient, item: ItemRef, values: Readonly<Record<string, unknown>>, at: Date, source: EditSource): Promise<void> {
-  const versionId = await recordVersion(tx, item, null, values, source, at);
+export async function recordJoined(
+  tx: Prisma.TransactionClient,
+  item: ItemRef,
+  values: Readonly<Record<string, unknown>>,
+  at: Date,
+  source: EditSource,
+  copiedFrom?: CopiedFrom,
+): Promise<void> {
+  const versionId = await recordVersion(tx, item, null, values, source, at, copiedFrom);
   const decidedAt = await decisionTime(tx, {});
   const fieldEdits = editsAfter({}, values, { at, tabletId: source.tabletId }, decidedAt, versionId);
   const description = KINDS[item.kind];

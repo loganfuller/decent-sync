@@ -83,6 +83,7 @@ const STAFF = [
   "PATCH /api/recipes/:id",
   "PUT /api/recipes/:id/slot",
   "PUT /api/recipes/:id/archived",
+  "POST /api/recipes/:id/copies",
   "GET /api/recipes/:id/history",
   "GET /api/recipes/:id/conflicts",
   "GET /api/locations",
