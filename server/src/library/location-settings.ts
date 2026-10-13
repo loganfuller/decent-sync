@@ -10,7 +10,7 @@ import { standing } from "./join-plan.js";
 import { currentEntry, takeInWorkflowContext, takenIn } from "./joining.js";
 import { transactionTime } from "./location-state.js";
 import { type FieldEdits, editsAfter, latestDecision, mergeEdit, readFieldEdits } from "./merge.js";
-import { MIRRORED_PATHS, staleApplied } from "./recipe-intake.js";
+import { MIRRORED_PATHS, blankApplied, staleApplied } from "./recipe-intake.js";
 import { type LocationValues, mirroredValues, readLocationValues, settingsEdits, settingsToWrite } from "./settings-intake.js";
 
 // Each Location's steam and rinse settings, shared by its Machines whatever
@@ -299,10 +299,12 @@ async function recipesBeforeWrite(tx: Prisma.TransactionClient, tabletId: string
 
 /**
  * Leaves out of a tablet's changes of the settings (`values`) each that a
- * recipe applied from a stale copy made (`staleApplied` in recipe-intake.ts):
- * no edit, so the settings' value is written back.
+ * recipe applied from a stale copy made (`staleApplied` in recipe-intake.ts),
+ * or a blank one (`blankApplied`): no edit, so the settings' value is written
+ * back.
  */
 async function dropStaleApplies(tx: Prisma.TransactionClient, tabletId: string, settings: EditedSettings, values: Partial<Record<SharedSetting, number>>): Promise<void> {
+  for (const field of blankApplied(values, settings.values)) delete values[field];
   const candidates = MIRRORED_SETTINGS.filter((field) => values[field] !== undefined);
   if (candidates.length === 0) return;
   for (const field of staleApplied(values, await recipesBeforeWrite(tx, tabletId), settings.values, await previousValues(tx, settings, candidates))) delete values[field];

@@ -18,6 +18,7 @@ import {
   recipeView,
   recipeWorkflow,
   recordOf,
+  blankApplied,
   settingsValues,
   staleApplied,
   tabletIds,
@@ -366,6 +367,15 @@ describe("DYE2's recipes as Recipes", () => {
     expect(settingsValues(switchedBack, ["dashboardVariables.steamFlowMls"], written)).toEqual({});
     // A change of anything else edits no setting.
     expect(changed({ dose: 19, hotWaterTempC: 90 })).toEqual({});
+  });
+
+  it("takes no Workflow steam flow, steam time or flush of 0 as an edit, as a blank recipe applied holds 0", () => {
+    const current = { ...LOCATION };
+    expect(blankApplied({ "steamSettings.flow": 0, "rinseData.duration": 0, "steamSettings.duration": 25 }, current)).toEqual(["steamSettings.flow", "rinseData.duration"]);
+    // Other settings, and a setting the Location has not set yet, are taken as they are.
+    expect(blankApplied({ "steamSettings.stopAtTemperature": 0, "rinseData.flow": 0 }, current)).toEqual([]);
+    const { "rinseData.duration": _flush, ...unset } = current;
+    expect(blankApplied({ "rinseData.duration": 0 }, unset)).toEqual([]);
   });
 
   it("takes a Workflow set back to a value the tablet's recipes held before the server's latest write as a recipe applied from a stale copy", () => {

@@ -107,10 +107,12 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
   /** Resolves once the tablet's Workflow holds those settings. */
   const holds = (tablet: SimulatedTablet, values: Record<string, number>) => expect.poll(() => held(tablet, Object.keys(values)), { timeout: 15_000 }).toEqual(values);
   const inSlot = (tablet: SimulatedTablet, slot: string) => (Array.isArray(dye2List(tablet, "recipes")) ? (dye2List(tablet, "recipes") as Record_[]) : []).find((record) => record.id === slot);
+  /** The `dashboardVariables` of the tablet's recipe in that slot. */
+  const variables = (tablet: SimulatedTablet, slot: string) => (inSlot(tablet, slot)?.dashboardVariables ?? {}) as Record_;
   /** The steam mode and the steam and flush values of the tablet's recipe in that slot; a value it holds none of is undefined. */
   const mirrored = (tablet: SimulatedTablet, slot: string) => {
-    const variables = (inSlot(tablet, slot)?.dashboardVariables ?? {}) as Record_;
-    return { steamMode: variables.steamMode, steamTimeS: variables.steamTimeS, steamFlowMls: variables.steamFlowMls, flushS: variables.flushS };
+    const { steamMode, steamTimeS, steamFlowMls, flushS } = variables(tablet, slot);
+    return { steamMode, steamTimeS, steamFlowMls, flushS };
   };
   /** Resolves once the latest Workflow of the Machine's the server stored has that dose. */
   const dosed = ({ machine }: CreatedMachine, dose: number) =>
@@ -212,6 +214,11 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
     expect((await applyInDye2(one, "3")).status).toBe(200);
     await dosed(machines[0], 0);
     expect(held(one)).toEqual(LOCATION);
+    // Applied from the copy DYE2's dashboard read as the editor saved it, before the server wrote the Location's values into
+    // it, it sets 0, which is no edit: the Location's are written back.
+    expect((await applyInDye2(one, "3", { ...inSlot(one, "3")!, dashboardVariables: { ...variables(one, "3"), steamFlowMls: 0, flushS: 0 } })).status).toBe(200);
+    expect(held(one, ["steamSettings.flow", "rinseData.duration"])).toEqual({ "steamSettings.flow": 0, "rinseData.duration": 0 });
+    await holds(one, { "steamSettings.flow": 1.7, "rinseData.duration": 6 });
     expect((await settingsAt(here)).values).toMatchObject(LOCATION);
     expect(await versions(settings)).toHaveLength(history.length);
     expect(held(two)).toEqual(LOCATION);

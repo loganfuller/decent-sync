@@ -314,6 +314,21 @@ export function settingsValues(view: Readonly<RecipeView>, fields: Iterable<stri
 }
 
 /**
+ * The settings of those a tablet's Workflow changed (`values`) that it set to
+ * 0, where the settings hold a value (`current`): a recipe saved with a blank
+ * steam or flush field holds 0, which DYE2's dashboard applies from the copy
+ * it read as the editor saved it, before the server wrote the settings' value
+ * into it. So 0 is no edit of these settings from a tablet, and the settings'
+ * value is written back; the management interface still sets one.
+ */
+export function blankApplied(values: Readonly<Partial<Record<SharedSetting, number>>>, current: LocationValues): SharedSetting[] {
+  return Object.values(MIRRORED_PATHS).filter((setting) => {
+    const value = values[setting];
+    return value !== undefined && value <= 0 && current[setting] !== undefined;
+  });
+}
+
+/**
  * The settings of those a tablet's Workflow changed (`values`) that it set
  * back to a value its recipes held just before the server's latest write of
  * it (`beforeWrites`, each record's `before_write`), the settings' value

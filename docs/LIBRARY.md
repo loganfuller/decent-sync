@@ -1532,6 +1532,15 @@ it:
   the Location's settings, as a change in its Workflow is, taken in with the
   tablet's report of its recipes, or a write's answer, under the Recipes' row
   locks, then the settings'.
+- **A blank value applied.** A recipe saved with a blank steam or flush
+  field holds 0, which DYE2's dashboard applies from the copy it read as the
+  editor saved it, before the server wrote the Location's values into it.
+  So a Workflow steam time, steam flow or flush time of 0 is no edit, in a
+  report or a write's answer, where the Location has set it, and the
+  Location's value is written back (`blankApplied` in `recipe-intake.ts`);
+  the management interface still sets one. Such a copy's other values, as a
+  steam value carried over by a mode switch, or a new recipe's own, are
+  taken as edits if applied before the server rewrote the record (#161).
 - **Recipes applied from a stale copy.** DYE2's dashboard reads its recipes
   once, as it opens, and Streamline's strip keeps them until its page is
   shown again, often all day, so either may apply a recipe as it was before
