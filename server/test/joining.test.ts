@@ -95,7 +95,8 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const context = options.fresh ? { targetDoseWeight: 18, targetYield: 36 } : undefined;
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
-      // DYE2's lists empty: what the test tablet's basket would be written, shared like any other, is not this file's to count.
+      // DYE2's lists empty: the fixture basket, shared like any other item, would be written its global id in the background,
+      // which this file does not count.
       api: { ...derivedDe1Pro({ serial }), ...NO_DYE2_EQUIPMENT, ...library, "/workflow": workflowWith(options.parts ?? {}, context) },
       timeScale: 50,
     });

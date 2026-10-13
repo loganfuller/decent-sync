@@ -952,7 +952,8 @@ item no Shot names from every tablet that holds it, is the one exception
 the shared settings. After them, before the writes above, each record a
 joining tablet held that the Library leaves out and that is not set aside
 there yet is archived or hidden (`leaveOut`; Joining a Location, below),
-batches first, then beans, grinders and profiles.
+batches first, then beans, grinders and profiles; a Basket or Tool is
+removed instead (Taking in a tablet's baskets and tools, above).
 
 It writes nothing until that connection's reports of the tablet's beans, bean
 batches, grinders, profiles, baskets and tools, which the plugin sends on
@@ -1425,9 +1426,9 @@ it.
   Location than its tablet's latest reports, and asks the plugin for them
   afresh, its Workflow first (Writing to tablets, above). Once they are
   taken in there, the tablet is written what the Location offers, its shown
-  Profiles, the batches at it and their Beans, and its Grinders, and what it
-  does not offer is archived or hidden on the tablet, never deleted, but for
-  a Basket or Tool, removed from DYE2's list. The
+  Profiles, Baskets and Tools, the batches at it and their Beans, and its
+  Grinders, and what it does not offer is archived or hidden on the tablet,
+  never deleted, but for a Basket or Tool, removed from DYE2's list. The
   Workflow taken in as the tablet joins has had none of the Location's
   steam and rinse settings, so it sets only those the Location has not set
   yet, and is written the others, unless the Machine's sharing of them is
