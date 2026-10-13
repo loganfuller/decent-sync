@@ -5,7 +5,7 @@ import type { PrismaService } from "../prisma.service.js";
 import { profileOfSql } from "../shots/links.js";
 import { type EditOutcome, editContent, lockItems, recordJoined } from "./content-edits.js";
 import { markUnrecognised } from "./dye2-lists.js";
-import { answeredEquipment, beforeWriteAfter, editedContent, withoutSettled } from "./equipment-intake.js";
+import { answeredEquipment, beforeWriteAfter, editedContent, heldBefore, withoutSettled } from "./equipment-intake.js";
 import { setAsideDeleted } from "./hard-deletes.js";
 import { recordVersion, tabletSource } from "./history.js";
 import type { HeldRecord, OfferedRecipe } from "./holdings.js";
@@ -233,6 +233,10 @@ export async function takeInRecipes(
   if (newlyListed.length > 0) {
     await tx.$executeRaw`UPDATE tablet_recipes SET listed = true WHERE tablet_id = ${tablet.tabletId}::uuid AND local_id = ANY(${newlyListed}::text[])`;
   }
+  // A slot listed holds a record now, not the one the server removed from it.
+  if (listed.size > 0) {
+    await tx.$executeRaw`DELETE FROM tablet_removed_recipes WHERE tablet_id = ${tablet.tabletId}::uuid AND local_id = ANY(${[...listed]}::text[])`;
+  }
   // A tablet holding no recipe, nor any the map holds, has nothing to take in, so takes no lock of its Location's.
   if (listed.size === 0 && mapped.length === 0) {
     if ((await setAsideDeleted(tx, tablet.tabletId, "recipe", [], listed, mappedIds)).due) await notify(tx, "library_changes", locationId);
@@ -355,6 +359,10 @@ async function takeOutOfSlot(tx: Prisma.TransactionClient, recipeId: string, loc
  * wrote it, but for one set back to its value before an earlier write of the
  * server's, which is taken as unchanged and written again, and one holding
  * the value the server writes there, which is no edit (`answeredEquipment`).
+ * A record the server created in a slot it removed another record from
+ * takes that record as what the tablet held there before the write
+ * (`before_write`, from `tablet_removed_recipes`), so a save from a page
+ * opened on it keeps the Recipe's fields it set back (ADR-0005).
  * A record the plugin `linked`, saved in the slot before the tablet reported
  * it, is an edit of the Recipe, each field it holds otherwise merged with
  * Conflicts, but for one the Library left out as the tablet joined, which
@@ -417,11 +425,16 @@ export async function recordRecipeWritten(
       stale = answered.stale && !holdsRecipe(view, now);
       staleSettings = !holdsRecord(view, now);
       answeredBefore = { beforeWrite: answered.beforeWrite };
-    } else if (linked && (!here || (await forgetLeftOut(tx, tablet.tabletId, localId)))) {
+    } else if (!linked) {
+      // Created in a slot the server removed another record from: the tablet held that record there just before.
+      const [removed] = await tx.$queryRaw<{ record: Record<string, unknown> }[]>`
+        SELECT record FROM tablet_removed_recipes WHERE tablet_id = ${tablet.tabletId}::uuid AND local_id = ${localId}`;
+      if (removed) answeredBefore = { beforeWrite: heldBefore(recipeView(removed.record), written) };
+    } else if (!here || (await forgetLeftOut(tx, tablet.tabletId, localId))) {
       // A record the Library left out as the tablet joined, not yet removed, or one at another Location than the Recipe's:
       // the Recipe is written over it, so the record has not seen its content.
       edited = { writesDue: true, lost: true };
-    } else if (linked) {
+    } else {
       // Saved in the slot before the tablet reported it: each field it holds otherwise is its edit, merged with Conflicts.
       const values = libraryValues(view, EDITED_PATHS, content, await context(view));
       const changed = Object.fromEntries(Object.entries(values).filter(([field, value]) => !sameValue(content[field], value)));

@@ -555,7 +555,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       // The tablet holds the record no more, whether or not its removal is still awaited.
       if (session.writer && isDye2Kind(answer.kind)) {
         const tabletId = session.live!.tabletId;
-        await recordRemoved(this.prisma, answer.kind, tabletId, answer.localId);
+        await recordRemoved(this.prisma, answer.kind, tabletId, answer.localId, true);
         const applied = { key: removeKey(answer.kind, answer.localId), change: "remove", kind: answer.kind, itemId: answer.globalId, localId: answer.localId } as const;
         await recordApplied(this.prisma, tabletId, applied);
         if (write) outcome = "written";
@@ -563,7 +563,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     } else if (write?.type === "remove") {
       if (answer.type === "writeRefused" && answer.status === null && answer.error === ANOTHER_ITEMS_RECORD && isDye2Kind(write.kind)) {
         // Not the item's record after all: the tablet's next report takes it in as any record carrying that id.
-        await recordRemoved(this.prisma, write.kind, session.live!.tabletId, write.localId);
+        await recordRemoved(this.prisma, write.kind, session.live!.tabletId, write.localId, false);
         this.logger.log(`The tablet of ${this.describe(session)} holds ${quoted(write.kind)} ${write.localId} as another item's; it is not removed`);
       } else if (answer.type === "writeRefused") {
         this.logger.warn(
