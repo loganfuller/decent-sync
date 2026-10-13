@@ -989,7 +989,12 @@ never matched (ADR-0018).
   settings, below), whether or not the Machine's steam is off. A blank value,
   which DYE2's editor saves as 0 and leaves out for the steam mode not
   picked, is no edit, nor is a value the settings hold already, nor a field
-  set back to its value before the server's latest write. A record the map
+  set back to its value before the server's latest write. Nor is a steam
+  value saved with a change of the recipe's steam mode: DYE2's editor keeps
+  the number shown as the mode is switched, so a 30 s time would become a
+  30 ml/s flow. The Recipe's steam mode changes, and the new mode's value is
+  written; Streamline, switching it as it saves a Workflow change into the
+  recipe, has made that change in the Workflow too. A record the map
   does not hold, as one saved in a slot before the tablet held the Recipe, or
   a new Recipe, edits none of them, as its values were never the
   Location's: they are written over. On a Machine whose sharing of them is
@@ -1526,6 +1531,15 @@ it:
   the Location's settings, as a change in its Workflow is, taken in with the
   tablet's report of its recipes, or a write's answer, under the Recipes' row
   locks, then the settings'.
+- **Recipes applied from a stale copy.** DYE2's dashboard reads its recipes
+  once, as it opens, and Streamline's strip keeps them until its page is
+  shown again, so either may apply a recipe as it was before the server last
+  wrote it. A Workflow setting changed to a value the tablet's recipes held
+  just before the server's latest write of it (`before_write`), where the
+  Location holds another, is such an apply, and no edit (`staleApplied` in
+  `recipe-intake.ts`, ADR-0005): the Location's value is written back. A
+  barista who sets exactly that value on the machine has to set it again,
+  and a copy older than the server's latest write is not caught.
 
 Each welcomed connection's writer (Writing to tablets, above) writes the
 tablet its Machine's Location's settings where its Workflow holds others,

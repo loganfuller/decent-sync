@@ -21,7 +21,10 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // applying one, the DYE2 way or the Streamline way, changes neither the
 // Location's settings nor another Machine's Workflow, and one saved blank
 // sets no 0. A change of them inside a recipe is an edit of the Location's
-// settings, which reaches every Machine and recipe there. Through the built
+// settings, which reaches every Machine and recipe there, but a recipe
+// applied from a copy read before the server's latest write of it is no
+// edit, and neither is a steam value DYE2's editor carries over as it
+// switches a recipe's steam mode. Through the built
 // plugin in simulated tablets, acting as DYE2 v0.1.19 and Streamline v0.2.13
 // do with the steps recorded from them (fixtures/decaid/dye2-v0.1.19/), on
 // two server instances sharing one database, with assertions through the
@@ -250,7 +253,8 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
     expect((await versions(settings))[0]).toMatchObject({ fields: { "rinseData.duration": 9 }, source: { machine: { name: "Flushed lab 2" } } });
     expect(await conflicts(settings)).toEqual([]);
 
-    // Streamline's auto-save of a steam flow change into the recipe it applied reaches the Location too.
+    // Streamline's auto-save of a steam flow change, into the Workflow and the recipe it applied, reaches the Location and
+    // every recipe there.
     expect((await applyInStreamline(one, "2")).status).toBe(200);
     expect(await autoSaveInStreamline(one, streamline.autoSaveSteam)).toBeDefined();
     await expect.poll(async () => (await settingsAt(here)).values["steamSettings.flow"], { timeout: 15_000 }).toBe(1.3);
@@ -286,5 +290,44 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
     expect((await switchTwo(true)).status).toBe(200);
     await holds(two, LOCATION);
     await expect.poll(() => mirrored(two, "2"), { timeout: 15_000 }).toEqual({ steamMode: "flow", steamTimeS: undefined, steamFlowMls: 1.7, flushS: 6 });
+  });
+
+  it("takes no edit from a recipe applied from a copy read before the Location's settings changed, and writes the Location's back", async () => {
+    const { here, one, two, settings } = await lab("Stale", 44051);
+    await saveInDye2(one, recipes.saveSlot2);
+    for (const tablet of [one, two]) await expect.poll(() => mirrored(tablet, "2"), { timeout: 15_000 }).toMatchObject({ steamFlowMls: 1.7, flushS: 6 });
+    // Streamline's strip on the second tablet reads its recipes, and keeps them.
+    const copy = structuredClone(inSlot(two, "2")!);
+
+    expect((await api.call("PATCH", `/location-settings/${settings.id}`, { values: { "steamSettings.flow": 2.1, "rinseData.duration": 8 } })).status).toBe(200);
+    for (const tablet of [one, two]) {
+      await holds(tablet, { "steamSettings.flow": 2.1, "rinseData.duration": 8 });
+      await expect.poll(() => mirrored(tablet, "2"), { timeout: 15_000 }).toMatchObject({ steamFlowMls: 2.1, flushS: 8 });
+    }
+    const history = await versions(settings);
+
+    // Applied from the copy it kept, the recipe sets the old values, which are no edit: the Location's are written back.
+    expect((await applyInStreamline(two, "2", copy)).status).toBe(200);
+    expect(held(two, ["steamSettings.flow", "rinseData.duration"])).toEqual({ "steamSettings.flow": 1.7, "rinseData.duration": 6 });
+    await holds(two, { "steamSettings.flow": 2.1, "rinseData.duration": 8 });
+    expect((await settingsAt(here)).values).toMatchObject({ "steamSettings.flow": 2.1, "rinseData.duration": 8 });
+    expect(await versions(settings)).toHaveLength(history.length);
+    expect(held(one, ["steamSettings.flow", "rinseData.duration"])).toEqual({ "steamSettings.flow": 2.1, "rinseData.duration": 8 });
+  });
+
+  it("takes no edit from a steam value DYE2's editor carries over as a recipe's steam mode is switched", async () => {
+    const { here, one, two, settings } = await lab("Toggled", 44061);
+    await saveInDye2(one, recipes.saveSlot1);
+    for (const tablet of [one, two]) await expect.poll(() => mirrored(tablet, "1"), { timeout: 15_000 }).toMatchObject({ steamMode: "time", steamTimeS: 33 });
+    const history = await versions(settings);
+
+    // The editor shows 33 s; switched to steaming by flow, it keeps 33, now as ml/s, and saves it as the flow.
+    await editInDye2(two, "1", { "dashboardVariables.steamMode": "flow", "dashboardVariables.steamTimeS": undefined, "dashboardVariables.steamFlowMls": 33 });
+    // The Recipe steams by flow now, at the Location's flow, on every tablet.
+    for (const tablet of [one, two]) {
+      await expect.poll(() => mirrored(tablet, "1"), { timeout: 15_000 }).toEqual({ steamMode: "flow", steamTimeS: undefined, steamFlowMls: 1.7, flushS: 6 });
+    }
+    expect((await settingsAt(here)).values).toMatchObject(LOCATION);
+    expect(await versions(settings)).toHaveLength(history.length);
   });
 });

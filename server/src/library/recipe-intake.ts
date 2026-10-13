@@ -293,15 +293,47 @@ export function editedPaths(changed: Readonly<Record<string, unknown>>): string[
  * record that mirror them (`MIRRORED_PATHS`) edits, each with its value: but
  * a blank one, which DYE2's editor saves as 0 and DYE2 leaves out as absent,
  * is no edit, so a recipe saved with blank fields never sets a wand to 0.
+ * Nor is a steam value saved with a change of the record's steam mode: DYE2's
+ * editor keeps the number shown as its mode is switched, so a 30 s steam time
+ * would be saved as a 30 ml/s flow. The value of the new mode is written
+ * then, and Streamline, switching it as it saves a Workflow change into the
+ * recipe, made that change in the Workflow too.
  */
 export function settingsValues(view: Readonly<RecipeView>, fields: Iterable<string>): Partial<Record<SharedSetting, number>> {
+  const changed = new Set(fields);
   const values: Partial<Record<SharedSetting, number>> = {};
-  for (const path of fields) {
+  for (const path of changed) {
     const setting = MIRRORED_PATHS[path];
     const value = view[path];
-    if (setting !== undefined && typeof value === "number" && Number.isFinite(value) && value > 0) values[setting] = value;
+    if (setting === undefined || typeof value !== "number" || !Number.isFinite(value) || value <= 0) continue;
+    if (setting.startsWith("steamSettings.") && changed.has(`${DV}.steamMode`)) continue;
+    values[setting] = value;
   }
   return values;
+}
+
+/**
+ * The settings of those a tablet's Workflow changed (`values`) that it set
+ * back to a value its recipes held just before the server's latest write of
+ * it (`beforeWrites`, each record's `before_write`), where the settings now
+ * hold another (`current`): a recipe applied from a copy read before that
+ * write, as DYE2's dashboard and Streamline's strip read their recipes once
+ * and keep them, which is no edit (ADR-0005), and the settings' value is
+ * written back. A barista who deliberately sets exactly that value on the
+ * machine has to set it again.
+ */
+export function staleApplied(
+  values: Readonly<Partial<Record<SharedSetting, number>>>,
+  beforeWrites: readonly Readonly<Record<string, unknown>>[],
+  current: LocationValues,
+): SharedSetting[] {
+  const stale: SharedSetting[] = [];
+  for (const [path, setting] of Object.entries(MIRRORED_PATHS)) {
+    const value = values[setting];
+    if (value === undefined || sameValue(current[setting], value)) continue;
+    if (beforeWrites.some((before) => Object.prototype.hasOwnProperty.call(before, path) && sameValue(before[path], value))) stale.push(setting);
+  }
+  return stale;
 }
 
 /** What writing a Recipe to a tablet reads besides it: the tablet's ids for what it names, and what DYE2 copies of each. */

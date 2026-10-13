@@ -19,6 +19,7 @@ import {
   recipeWorkflow,
   recordOf,
   settingsValues,
+  staleApplied,
   tabletIds,
 } from "../src/library/recipe-intake.js";
 import { type LocationValues, mirroredValues } from "../src/library/settings-intake.js";
@@ -352,13 +353,27 @@ describe("DYE2's recipes as Recipes", () => {
       return settingsValues(view, Object.keys(editedContent(written, view, null)));
     };
     expect(changed({ steamTimeS: 28, flushS: 4 })).toEqual({ "steamSettings.duration": 28, "rinseData.duration": 4 });
-    // Switched to steaming by flow, as Streamline's auto-save does, its flow is the edit.
-    expect(changed({ steamMode: "flow", steamFlowMls: 1.4 })).toEqual({ "steamSettings.flow": 1.4 });
+    // Switched to steaming by flow in DYE2's editor, which keeps the 32 s shown as 32 ml/s, its steam value is no edit; its
+    // flush still is.
+    expect(changed({ steamMode: "flow", steamTimeS: undefined, steamFlowMls: 32, flushS: 4 })).toEqual({ "rinseData.duration": 4 });
     // DYE2's editor saves a blank field as 0, and leaves out the steam value of the other mode: neither is an edit.
     expect(changed({ steamTimeS: 0, flushS: 0 })).toEqual({});
     expect(changed({ steamMode: "flow", steamTimeS: undefined, steamFlowMls: 0 })).toEqual({});
     // A change of anything else edits no setting.
     expect(changed({ dose: 19, hotWaterTempC: 90 })).toEqual({});
+  });
+
+  it("takes a Workflow set back to a value the tablet's recipes held before the server's latest write as a recipe applied from a stale copy", () => {
+    const beforeWrites = [{ "dashboardVariables.steamFlowMls": 1.3, "dashboardVariables.flushS": 4 }, { "dashboardVariables.dose": 18 }];
+    const current = { ...LOCATION, "steamSettings.flow": 1.6, "rinseData.duration": 6 };
+    // The flow and flush a copy read before the server wrote the Location's into it set: stale. The steam time is another.
+    expect(staleApplied({ "steamSettings.flow": 1.3, "rinseData.duration": 4, "steamSettings.duration": 28 }, beforeWrites, current)).toEqual([
+      "steamSettings.flow",
+      "rinseData.duration",
+    ]);
+    // A value no recipe held before a write, or one the settings hold now, is not; nor is a setting no recipe mirrors.
+    expect(staleApplied({ "steamSettings.flow": 1.4, "rinseData.duration": 6 }, beforeWrites, current)).toEqual([]);
+    expect(staleApplied({ "rinseData.flow": 4 }, [{ "rinseData.flow": 4 }], current)).toEqual([]);
   });
 
   it("decides a report by slot: an edit of the Recipe in it, a new Recipe in an empty one, and a removal that takes one out", () => {

@@ -10,7 +10,7 @@ import { standing } from "./join-plan.js";
 import { currentEntry, takeInWorkflowContext, takenIn } from "./joining.js";
 import { transactionTime } from "./location-state.js";
 import { type FieldEdits, editsAfter, latestDecision, mergeEdit, readFieldEdits } from "./merge.js";
-import { MIRRORED_PATHS } from "./recipe-intake.js";
+import { MIRRORED_PATHS, staleApplied } from "./recipe-intake.js";
 import { type LocationValues, mirroredValues, readLocationValues, settingsEdits, settingsToWrite } from "./settings-intake.js";
 
 // Each Location's steam and rinse settings, shared by its Machines whatever
@@ -20,14 +20,21 @@ import { type LocationValues, mirroredValues, readLocationValues, settingsEdits,
 // timed by when the plugin observed them; only the settings count, so a
 // change of its hot water, which is each Machine's own, to be set by its
 // Loaded Recipe (ADR-0022), is no edit of them. The first Machine at a
-// Location to report its Workflow sets them. A Machine whose settings
-// sharing is turned off takes no part: nothing of them is taken from its
-// tablet or written to it.
+// Location to report its Workflow sets them. DYE2's recipes hold a steam
+// time or flow and a flush time, which applying one merges into the
+// Workflow, so each recipe written to a tablet mirrors them
+// (`mirroredSettings`), and a change of one inside a recipe is an edit of
+// them too (`editSettingsInRecipe`); a Workflow set back to a value its
+// recipes held before the server's latest write of it, as by a recipe
+// applied from a stale copy, is not. A Machine whose settings sharing is
+// turned off takes no part: nothing of them is taken from its tablet or
+// written to it, and its recipes mirror its own.
 // The server keeps, per tablet, the settings as it last had them, reported
 // or as Decaid returned the plugin's write of them, so the plugin's own
 // write is never read as the tablet's edit (ADR-0003). Under the same locks
 // as the Library's intake: the reporting Machine's row, the tablet's, then
-// the settings' row, which edits in the management interface take alone.
+// the settings' row, which edits in the management interface take alone,
+// and an edit inside a recipe takes after the Recipes' rows.
 
 /** A Location's settings, as edits merge them. */
 interface EditedSettings {
@@ -181,6 +188,8 @@ export async function takeInWorkflow(tx: Prisma.TransactionClient, tablet: Repor
     return takenInAt;
   }
   const values = settingsEdits(known?.values ?? null, reported, settings.fieldEdits);
+  // A recipe applied from a copy read before the server's latest write of it is no edit: the Location's are written back.
+  for (const field of staleApplied(values, await recipesBeforeWrite(tx, tablet.tabletId), settings.values)) delete values[field];
   const edit = { values, at: new Date(observedAt), seenAt: known?.contentSeenAt ?? null };
   const edited = await editSettings(tx, settings.id, edit, tabletSource(tablet));
   await saveHeld(tx, tablet.tabletId, settings.id, reported, null);
@@ -231,6 +240,8 @@ export async function recordSettingsWritten(
     }
     const holds = contentSeen !== null && edited !== null && !edited.lost;
     await saveHeld(tx, tablet.tabletId, settingsId, reported, holds ? contentSeen : null);
+    // Sharing off since the write was sent: its recipes mirror its own, which the write changed.
+    if (!shares && mirroredChanged(held?.values ?? null, reported)) await notify(tx, "library_changes", settings.locationId);
     return "recorded";
   }, INTAKE_TRANSACTION);
 }
@@ -275,6 +286,13 @@ export async function editSettingsInRecipe(
   const seenAt = held?.settingsId === settings.id ? held.contentSeenAt : null;
   const edited = await editSettings(tx, settings.id, { values: changed, at, seenAt }, tabletSource(tablet));
   if (edited.writesDue) await notify(tx, "library_changes", locationId);
+}
+
+/** What the tablet's recipes held just before the server's latest write of each of their fields (`before_write`), by their paths. */
+async function recipesBeforeWrite(tx: Prisma.TransactionClient, tabletId: string): Promise<Record<string, unknown>[]> {
+  const rows = await tx.$queryRaw<{ beforeWrite: Record<string, unknown> }[]>`
+    SELECT before_write AS "beforeWrite" FROM tablet_recipes WHERE tablet_id = ${tabletId}::uuid AND before_write IS NOT NULL`;
+  return rows.map((row) => row.beforeWrite);
 }
 
 /** The settings DYE2's recipes hold a value of, which they mirror. */

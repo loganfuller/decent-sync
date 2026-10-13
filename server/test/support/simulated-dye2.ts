@@ -310,10 +310,12 @@ function asList(value: unknown): Record_[] {
  * its Profile, whole from its `profileSnapshot` where that has steps and
  * otherwise from the tablet's profiles, hidden ones included, and its steam,
  * hot water and flush values of their modes, then sends the whole Workflow
- * in one `PUT /workflow`. Resolves with what Decaid answered.
+ * in one `PUT /workflow`. `copy` is the recipe as a page read it earlier,
+ * which it applies instead of the tablet's, as the dashboard reads its
+ * recipes once, when it opens. Resolves with what Decaid answered.
  */
-export async function applyInDye2(tablet: SimulatedTablet, slot: string): Promise<DecaidAnswer> {
-  const recipe = recipeIn(tablet, slot);
+export async function applyInDye2(tablet: SimulatedTablet, slot: string, copy?: Record_): Promise<DecaidAnswer> {
+  const recipe = copy ?? recipeIn(tablet, slot);
   const live = (await tablet.callApi("GET", "/workflow")).body as Record_;
   const dv = (recipe.dashboardVariables ?? {}) as Record_;
   const context: Record_ = { ...((live.context ?? {}) as Record_) };
@@ -341,11 +343,13 @@ export async function applyInDye2(tablet: SimulatedTablet, slot: string): Promis
  * Profile whole, from the tablet's profiles where it carries no steps, and
  * the recipe's steam, hot water and flush values of their modes, then sends
  * the whole Workflow in one `PUT /workflow`. The values Streamline keeps of
- * those settings in its own namespace are not set here. Resolves with what
- * Decaid answered.
+ * those settings in its own namespace are not set here. `copy` is the recipe
+ * as the strip read it earlier, which it applies instead of the tablet's, as
+ * the strip keeps the recipes it read until the page is shown again.
+ * Resolves with what Decaid answered.
  */
-export async function applyInStreamline(tablet: SimulatedTablet, slot: string): Promise<DecaidAnswer> {
-  const recipe = recipeIn(tablet, slot);
+export async function applyInStreamline(tablet: SimulatedTablet, slot: string, copy?: Record_): Promise<DecaidAnswer> {
+  const recipe = copy ?? recipeIn(tablet, slot);
   const live = (await tablet.callApi("GET", "/workflow")).body as Record_;
   const workflow = (recipe.workflow ?? {}) as Record_;
   live.context = { ...((live.context ?? {}) as Record_), ...((workflow.context ?? {}) as Record_) };
