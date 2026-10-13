@@ -251,6 +251,32 @@ test("the form keeps a Tool Archived since as one to uncheck, beside a new one, 
   await expect(field(details, "Tools")).toContainText("Form New WDT");
 });
 
+test("the form clears a Recipe's Bean saved on a tablet with no batch of it at its Location", async ({ page }) => {
+  const lab = await createLocation(page, "Bean-only lab");
+  const tablet = await tabletAt(page, "Bean-only lab 1", lab, "45531");
+  const recipe = await createRecipe(page, lab, 1, { name: "Bean-only Espresso" });
+  await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(recipe.id);
+  // A Bean added on the tablet, with no batch anywhere, picked in DYE2's editor for the recipe in slot 1.
+  const bean = await tablet.addBean({ roaster: "Roux", name: "Bean-only Sidamo" });
+  const list = (dye2List(tablet, "recipes") as Record_[]).map((record) => (record.id === "1" ? { ...record, beanId: bean.id } : record));
+  baseExpect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, list)).status).toBe(200);
+  await expect.poll(async () => ((await (await page.request.get(`/api/recipes/${recipe.id}`)).json()) as { recipe: { uses: { bean: { name: string } | null } } }).recipe.uses.bean?.name).toBe(
+    "Bean-only Sidamo",
+  );
+
+  await page.goto(`/library/recipes/${recipe.id}`);
+  const details = page.getByLabel("Recipe", { exact: true });
+  await expect(field(details, "Bean Batch")).toHaveText("Bean-only Sidamo, no batch");
+  await page.getByRole("button", { name: "Edit the Recipe" }).click();
+  const form = page.getByRole("form", { name: "Edit Bean-only Espresso" });
+  await expect(form.getByLabel("Bean Batch")).toHaveText("Bean-only Sidamo, no batch");
+  await form.getByLabel("Bean Batch").click();
+  await page.getByRole("option", { name: "None", exact: true }).click();
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(field(details, "Bean Batch")).toHaveText("-");
+  await expect.poll(() => slotOn(tablet, 1)?.beanId ?? null).toBeNull();
+});
+
 async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {
   const response = await page.request.post("/api/locations", { data: { name, timeZone: "America/Chicago" } });
   baseExpect(response.status()).toBe(201);

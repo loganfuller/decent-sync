@@ -241,6 +241,9 @@ function namesOf(choices: Choices | undefined): ReadonlyMap<string, string> {
 /** Stands for no item, as a Select's options each need a value. */
 const NONE = "none";
 
+/** Stands for a Recipe's Bean with no batch, as a Bean picked on a tablet with none at its Location leaves it: kept unless another is picked. */
+const BEAN_ONLY = "bean-only";
+
 /** The Recipe form's values: each field as its input holds it. */
 interface FormValues {
   name: string;
@@ -294,7 +297,7 @@ function valuesOf(content: Record<string, unknown>): FormValues {
   return {
     name: text("name"),
     beverage: text("beverage"),
-    beanBatchId: id("beanBatchId"),
+    beanBatchId: typeof content.beanBatchId !== "string" && typeof content.beanId === "string" ? BEAN_ONLY : id("beanBatchId"),
     profileId: id("profileId"),
     dose: number("dose"),
     yield: number("yield"),
@@ -329,7 +332,8 @@ function contentOf(values: FormValues, tools: EquipmentSummary[]): Record<string
   const content: Record<string, unknown> = {
     name: values.name.trim() === "" ? null : values.name.trim(),
     beverage: values.beverage.trim() === "" ? null : values.beverage.trim(),
-    beanBatchId: values.beanBatchId === NONE ? null : values.beanBatchId,
+    // A Bean with no batch is kept as it is; None clears it, with its batch.
+    ...(values.beanBatchId === BEAN_ONLY ? {} : { beanBatchId: values.beanBatchId === NONE ? null : values.beanBatchId }),
     profileId: values.profileId === NONE ? null : values.profileId,
     grinderId: values.grinderId === NONE ? null : values.grinderId,
     basketId: values.basketId === NONE ? null : values.basketId,
@@ -377,8 +381,11 @@ function lowestFree(recipes: readonly Pick<Recipe, "slot">[]): number {
 
 /** A slot number entered, or undefined for none that is a whole number from 1. */
 function slotEntered(text: string): number | undefined {
-  return /^\d+$/.test(text.trim()) && Number(text) > 0 ? Number(text) : undefined;
+  return /^\d+$/.test(text.trim()) && Number(text) > 0 && Number(text) <= MAX_SLOT ? Number(text) : undefined;
 }
+
+/** The highest Recipe Slot the server stores (`MAX_SLOT` in server/src/library/item-input.ts). */
+const MAX_SLOT = 2_147_483_647;
 
 /** What a slot chosen means: the Recipe there leaves it, and above 5 DYE2's editor cannot edit it. */
 function SlotNotes({ slot, there, swappedTo }: { slot: number | undefined; there: Recipe | undefined; swappedTo: number | null }) {
@@ -517,7 +524,7 @@ function RecipeForm({
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(undefined);
-    if (slotMode === "chosen" && slot === undefined) return setError("Enter the slot as a whole number from 1");
+    if (slotMode === "chosen" && slot === undefined) return setError(`Enter the slot as a whole number from 1 to ${MAX_SLOT}`);
     let content: Record<string, unknown>;
     try {
       content = recipe ? changedContent(initial, values, choices?.tools ?? []) : contentOf(values, choices?.tools ?? []);
@@ -772,7 +779,7 @@ function RecipeForm({
           {slotMode === "chosen" && (
             <div className="grid gap-2">
               <Label htmlFor={`${id}-slot`}>Slot</Label>
-              <Input id={`${id}-slot`} type="number" inputMode="numeric" min={1} step={1} value={slotText} onChange={(event) => setSlotText(event.target.value)} />
+              <Input id={`${id}-slot`} type="number" inputMode="numeric" min={1} max={MAX_SLOT} step={1} value={slotText} onChange={(event) => setSlotText(event.target.value)} />
             </div>
           )}
           <div className="sm:col-span-2">
@@ -835,7 +842,7 @@ function MoveRecipeDialog({ recipe, recipes, onMoved }: { recipe: Recipe; recipe
 
   async function move(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (slot === undefined) return setError("Enter the slot as a whole number from 1");
+    if (slot === undefined) return setError(`Enter the slot as a whole number from 1 to ${MAX_SLOT}`);
     setSaving(true);
     setError(undefined);
     try {
@@ -884,7 +891,7 @@ function MoveRecipeDialog({ recipe, recipes, onMoved }: { recipe: Recipe; recipe
           {mode === "chosen" && (
             <div className="grid gap-2">
               <Label htmlFor={`${id}-slot`}>Slot</Label>
-              <Input id={`${id}-slot`} type="number" inputMode="numeric" min={1} step={1} value={slotText} onChange={(event) => setSlotText(event.target.value)} />
+              <Input id={`${id}-slot`} type="number" inputMode="numeric" min={1} max={MAX_SLOT} step={1} value={slotText} onChange={(event) => setSlotText(event.target.value)} />
             </div>
           )}
           <SlotNotes slot={slot} there={there} swappedTo={recipe.slot} />

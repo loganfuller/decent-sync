@@ -58,9 +58,10 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
   });
 
   /** The built plugin on a tablet of the Machine, polling every 5 s (0.1 s here), its Library and DYE2's lists empty. */
-  function load(machine: CreatedMachine, serial: number, instance: TestServer): SimulatedTablet {
+  function load(machine: CreatedMachine, serial: number, instance: TestServer, stallUpload?: (frame: unknown) => boolean): SimulatedTablet {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
+      stallUpload,
       api: { ...derivedDe1Pro({ serial: String(serial) }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS },
       timeScale: 50,
     });
@@ -415,6 +416,36 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     for (const tablet of lab.tablets) await poll(() => slotsOn(tablet)).toEqual(["1:Moved Four"]);
   });
 
+  it("writes a Recipe moved to another slot and back again in the slot its record was removed from, however its answers lag", async () => {
+    const lab = await api.createLocation("Moved back lab", "America/Chicago");
+    const machine = await api.createMachine("Moved back lab 1", lab.id);
+    // The tablet's answers of each kind wait while held, as on a slow network, until let through.
+    const held = new Set<string>();
+    const tablet = load(machine, 45081, server, (frame) => held.has(String((frame as { type?: unknown }).type)));
+    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    const four = await create(lab, 2, { name: "Back Four" });
+    await poll(() => slotsOn(tablet)).toEqual(["2:Back Four"]);
+
+    // Written in slot 1, its answer held; moved to slot 3, so its record in slot 1 is removed, that answer held in turn.
+    held.add("written");
+    const two = await create(lab, 1, { name: "Back Two" });
+    await poll(() => slotsOn(tablet)).toEqual(["1:Back Two", "2:Back Four"]);
+    expect((await move(two.id, "next")).slot).toBe(3);
+    held.add("removed");
+    held.delete("written");
+    tablet.resumeUpload();
+    await poll(() => slotsOn(tablet)).toEqual(["2:Back Four"]);
+
+    // Moved back to slot 1 before the writer looks again: it is written there again, with the same fields as before.
+    expect((await move(two.id, 1)).slot).toBe(1);
+    held.clear();
+    tablet.resumeUpload();
+    await poll(() => slotsOn(tablet)).toEqual(["1:Back Two", "2:Back Four"]);
+    expect(await move(four.id, null)).toMatchObject({ slot: null });
+    await poll(() => slotsOn(tablet)).toEqual(["1:Back Two"]);
+    expect(server.output()).not.toMatch(/is still due Recipe .* once written/);
+  });
+
   it("Archives a Recipe, which leaves its slot, restores it unslotted, and refuses to slot it while Archived", async () => {
     const lab = await locationWith("Archived recipe lab", 45041, [server]);
     const created = await create(lab.location, 3, { name: "Archived Espresso" });
@@ -460,6 +491,8 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect(await refusal({ steamMode: "time" })).toBe(400);
     expect(await refusal({ dose: -1 })).toBe(400);
     expect((await api.call("POST", "/recipes", { locationId: lab.id, slot: 0, content: {} })).status).toBe(400);
+    // A slot beyond what PostgreSQL's integer holds.
+    expect((await api.call("POST", "/recipes", { locationId: lab.id, slot: 2_147_483_648, content: {} })).status).toBe(400);
     expect(await recipesAt(lab)).toEqual([]);
   });
 

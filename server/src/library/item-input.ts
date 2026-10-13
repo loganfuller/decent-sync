@@ -251,6 +251,9 @@ export function readGrinderLocation(body: unknown): string {
  */
 export type SlotChoice = number | "next" | null;
 
+/** The highest Recipe Slot, the largest whole number PostgreSQL's `integer` holds. */
+export const MAX_SLOT = 2_147_483_647;
+
 /** A Recipe Slot from a request's `slot`: a whole number from 1, `next`, or null for none. */
 export function readSlot(body: unknown): SlotChoice {
   const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
@@ -262,8 +265,8 @@ export function readSlot(body: unknown): SlotChoice {
 
 function slotOf(slot: unknown): SlotChoice {
   if (slot === null || slot === "next") return slot;
-  if (typeof slot === "number" && Number.isSafeInteger(slot) && slot > 0) return slot;
-  throw new BadRequestException("slot must be a whole number from 1, next for the lowest one free, or null for none");
+  if (typeof slot === "number" && Number.isSafeInteger(slot) && slot > 0 && slot <= MAX_SLOT) return slot;
+  throw new BadRequestException(`slot must be a whole number from 1 to ${MAX_SLOT}, next for the lowest one free, or null for none`);
 }
 
 /**

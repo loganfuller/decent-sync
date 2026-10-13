@@ -1293,7 +1293,9 @@ whose local id the map holds as another item, is not recorded.
 A refusal, an answer that cannot be recorded, no answer within 300 s, or an
 item due again with the same fields it was last written, expecting the record
 to hold the same values, found due at every
-look since, which writing again would not change, skips that item while the
+look since and with its record not removed from the tablet meanwhile, as a
+Recipe moved to another slot and back is, which writing again would not
+change, skips that item while the
 same is due to it: the fields, the values expected, and the decisions of the
 Location's state and of the item's content the write carries
 (`changeSignature` in `sharing-status.ts`). The other writes go on. Once
@@ -1958,7 +1960,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
   it sets `slot` at its Location, null out of any. Staff read them as Admins
   do.
 - `POST /api/recipes`, with `{ locationId, slot, content }`, creates a
-  Recipe at the Location, in `slot`, a whole number from 1, `next` for the
+  Recipe at the Location, in `slot`, a whole number from 1 to 2147483647
+  (PostgreSQL's `integer`), `next` for the
   lowest free, or null (the default) for none, and returns `{ recipe }` with
   201. `PATCH /api/recipes/:id`, with `{ content }`, each field to change,
   null to clear it, edits one. `PUT /api/recipes/:id/slot`, with `{ slot }`
