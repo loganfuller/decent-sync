@@ -1537,9 +1537,12 @@ it:
   wrote it. A Workflow setting changed to a value the tablet's recipes held
   just before the server's latest write of it (`before_write`), where the
   Location holds another, is such an apply, and no edit (`staleApplied` in
-  `recipe-intake.ts`, ADR-0005): the Location's value is written back. A
-  barista who sets exactly that value on the machine has to set it again,
-  and a copy older than the server's latest write is not caught.
+  `recipe-intake.ts`, ADR-0005): the Location's value is written back, and
+  the tablet's recipes' value before that write is forgotten. As for a stale
+  save, that holds once: a barista who sets exactly that value on the
+  machine has to set it again, which is then an edit, and so is a second
+  apply from the same copy. A copy older than the server's latest write is
+  not caught, nor is a setting the Location has not set yet.
 
 Each welcomed connection's writer (Writing to tablets, above) writes the
 tablet its Machine's Location's settings where its Workflow holds others,

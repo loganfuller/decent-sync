@@ -315,6 +315,29 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
     expect(held(one, ["steamSettings.flow", "rinseData.duration"])).toEqual({ "steamSettings.flow": 2.1, "rinseData.duration": 8 });
   });
 
+  it("takes a setting set back on the machine to its value before the recipes were rewritten as an edit once it is set again", async () => {
+    const { here, one, two, settings } = await lab("Undone", 44071);
+    await saveInDye2(one, recipes.saveSlot1);
+    for (const tablet of [one, two]) await expect.poll(() => mirrored(tablet, "1").flushS, { timeout: 15_000 }).toBe(6);
+    // A flush of 9 tried on the first machine reaches the Location and every recipe there.
+    await one.changeSettings({ rinseData: { duration: 9 } });
+    await expect.poll(async () => (await settingsAt(here)).values["rinseData.duration"], { timeout: 15_000 }).toBe(9);
+    for (const tablet of [one, two]) await expect.poll(() => mirrored(tablet, "1").flushS, { timeout: 15_000 }).toBe(9);
+
+    // Set back to 6, the value its recipe held before, it is taken for a recipe applied from a stale copy, and 9 is written back.
+    await one.changeSettings({ rinseData: { duration: 6 } });
+    await holds(one, { "rinseData.duration": 9 });
+    expect((await settingsAt(here)).values["rinseData.duration"]).toBe(9);
+    // Set to 6 again, it is the barista's edit.
+    await one.changeSettings({ rinseData: { duration: 6 } });
+    await expect.poll(async () => (await settingsAt(here)).values["rinseData.duration"], { timeout: 15_000 }).toBe(6);
+    for (const tablet of [one, two]) {
+      await holds(tablet, { "rinseData.duration": 6 });
+      await expect.poll(() => mirrored(tablet, "1").flushS, { timeout: 15_000 }).toBe(6);
+    }
+    expect((await versions(settings))[0]).toMatchObject({ fields: { "rinseData.duration": 6 }, source: { machine: { name: "Undone lab 1" } } });
+  });
+
   it("takes no edit from a steam value DYE2's editor carries over as a recipe's steam mode is switched", async () => {
     const { here, one, two, settings } = await lab("Toggled", 44061);
     await saveInDye2(one, recipes.saveSlot1);

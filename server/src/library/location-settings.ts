@@ -189,7 +189,9 @@ export async function takeInWorkflow(tx: Prisma.TransactionClient, tablet: Repor
   }
   const values = settingsEdits(known?.values ?? null, reported, settings.fieldEdits);
   // A recipe applied from a copy read before the server's latest write of it is no edit: the Location's are written back.
-  for (const field of staleApplied(values, await recipesBeforeWrite(tx, tablet.tabletId), settings.values)) delete values[field];
+  const stale = staleApplied(values, await recipesBeforeWrite(tx, tablet.tabletId), settings.values);
+  for (const field of stale) delete values[field];
+  await forgetBeforeWrite(tx, tablet.tabletId, stale);
   const edit = { values, at: new Date(observedAt), seenAt: known?.contentSeenAt ?? null };
   const edited = await editSettings(tx, settings.id, edit, tabletSource(tablet));
   await saveHeld(tx, tablet.tabletId, settings.id, reported, null);
@@ -293,6 +295,20 @@ async function recipesBeforeWrite(tx: Prisma.TransactionClient, tabletId: string
   const rows = await tx.$queryRaw<{ beforeWrite: Record<string, unknown> }[]>`
     SELECT before_write AS "beforeWrite" FROM tablet_recipes WHERE tablet_id = ${tabletId}::uuid AND before_write IS NOT NULL`;
   return rows.map((row) => row.beforeWrite);
+}
+
+/**
+ * Forgets what the tablet's recipes held of those settings before the
+ * server's latest write of them, as a Workflow set back to it was taken for
+ * a stale apply once (`staleApplied`): setting it again is an edit, as a
+ * stale save written over is (`heldBefore` in equipment-intake.ts).
+ */
+async function forgetBeforeWrite(tx: Prisma.TransactionClient, tabletId: string, settings: readonly SharedSetting[]): Promise<void> {
+  const paths = Object.entries(MIRRORED_PATHS).flatMap(([path, setting]) => (settings.includes(setting) ? [path] : []));
+  if (paths.length === 0) return;
+  await tx.$executeRaw`
+    UPDATE tablet_recipes SET before_write = NULLIF(before_write - ${paths}::text[], '{}'::jsonb)
+    WHERE tablet_id = ${tabletId}::uuid AND before_write ?| ${paths}::text[]`;
 }
 
 /** The settings DYE2's recipes hold a value of, which they mirror. */

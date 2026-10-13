@@ -374,6 +374,9 @@ describe("DYE2's recipes as Recipes", () => {
     // A value no recipe held before a write, or one the settings hold now, is not; nor is a setting no recipe mirrors.
     expect(staleApplied({ "steamSettings.flow": 1.4, "rinseData.duration": 6 }, beforeWrites, current)).toEqual([]);
     expect(staleApplied({ "rinseData.flow": 4 }, [{ "rinseData.flow": 4 }], current)).toEqual([]);
+    // A setting the Location has not set yet takes the value.
+    const { "steamSettings.flow": _flow, ...unset } = current;
+    expect(staleApplied({ "steamSettings.flow": 1.3 }, beforeWrites, unset)).toEqual([]);
   });
 
   it("decides a report by slot: an edit of the Recipe in it, a new Recipe in an empty one, and a removal that takes one out", () => {
