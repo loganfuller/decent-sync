@@ -962,7 +962,9 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
   // A Recipe naming a Bean with no batch takes that Bean's batch most recently added at the Location, or none, keeping
   // the Bean: the latest added there, then the latest created, then by id, as the server picks it (`batchOfBean`).
   const sinceAtTarget = (batch: BeanBatchSummary) => Date.parse(batch.locations.find((at) => at.location.id === locationId)?.since ?? "") || 0;
-  const beanOnly = recipe.uses.beanBatch === null ? recipe.uses.bean : null;
+  // A batch a hard delete took is left out of the copy, which then names its Bean alone.
+  const batchGone = recipe.uses.beanBatch !== null && choices !== undefined && !choices.batches.some((batch) => batch.id === recipe.uses.beanBatch!.id);
+  const beanOnly = recipe.uses.beanBatch === null || batchGone ? recipe.uses.bean : null;
   const beanBatchThere = beanOnly
     ? (choices?.batches ?? [])
         .filter((batch) => batch.bean.id === beanOnly.id && !batch.archived && atTarget(batch))
