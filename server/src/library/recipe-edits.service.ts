@@ -94,9 +94,8 @@ export class RecipeEditsService {
    */
   async edit(id: string, values: Record<string, unknown>, accountId: string, scope: Scope): Promise<void> {
     await this.change(id, accountId, scope, "edit a Recipe", async (tx, recipe, source, at) => {
-      const set = await setUses(tx, recipe.locationId, values, recipe.content, source, at);
-      const ratio = keptRatio(recipe.content, set);
-      const edited = await editContent(tx, { kind: "recipe", id }, { values: ratio === undefined ? set : { ...set, ratio }, at, seenAt: "everything" }, source);
+      const set = await recipeEditValues(tx, recipe.locationId, values, recipe.content, source, at);
+      const edited = await editContent(tx, { kind: "recipe", id }, { values: set, at, seenAt: "everything" }, source);
       return edited.writesDue;
     });
   }
@@ -170,9 +169,56 @@ export class RecipeEditsService {
 }
 
 /**
+ * What an account's edit of a Recipe at the Location setting `values` over
+ * its content now (`current`) sets, as the management interface makes one
+ * and using a Conflict's value does (conflicts.service.ts), so the Recipe's
+ * fields stay consistent however they are set:
+ *
+ * - what it uses checked and offered at the Location (`setUses`);
+ * - a Bean set alone, as a Conflict about it holds, takes the Recipe's batch
+ *   if it is of that Bean, or else that Bean's batch most recently added at
+ *   the Location, or none, as a Bean picked in DYE2 does (ADR-0005);
+ * - DYE2's ratio kept only while the yield is the dose times it (`keptRatio`).
+ */
+export async function recipeEditValues(
+  tx: Prisma.TransactionClient,
+  locationId: string,
+  values: Readonly<Record<string, unknown>>,
+  current: Readonly<Record<string, unknown>>,
+  source: EditSource,
+  at: Date,
+): Promise<Record<string, unknown>> {
+  const asked: Record<string, unknown> = { ...values };
+  if (Object.prototype.hasOwnProperty.call(values, "beanId") && !Object.prototype.hasOwnProperty.call(values, "beanBatchId")) {
+    asked.beanBatchId = typeof values.beanId === "string" ? await batchOfBean(tx, locationId, values.beanId, current.beanBatchId) : null;
+  }
+  const set = await setUses(tx, locationId, asked, current, source, at);
+  const ratio = keptRatio(current, set);
+  return ratio === undefined ? set : { ...set, ratio };
+}
+
+/** The batch a Recipe naming the Bean uses: its batch now if it is of that Bean, or else the Bean's batch most recently added at the Location and still there, or none. */
+async function batchOfBean(tx: Prisma.TransactionClient, locationId: string, beanId: string, currentBatch: unknown): Promise<string | null> {
+  if (typeof currentBatch === "string") {
+    const [same] = await tx.$queryRaw<unknown[]>`SELECT 1 FROM bean_batches WHERE id = ${currentBatch}::uuid AND bean_id = ${beanId}::uuid`;
+    if (same) return currentBatch;
+  }
+  const [latest] = await tx.$queryRaw<{ id: string }[]>`
+    SELECT batch.id::text AS id
+    FROM bean_batches AS batch
+    JOIN beans AS bean ON bean.id = batch.bean_id
+    JOIN batch_locations AS here ON here.batch_id = batch.id AND here.location_id = ${locationId}::uuid
+    WHERE batch.bean_id = ${beanId}::uuid AND here.added_at IS NOT NULL AND here.finished_at IS NULL AND NOT batch.archived AND NOT bean.archived
+    ORDER BY here.added_at DESC, batch.created_at DESC, batch.id
+    LIMIT 1`;
+  return latest?.id ?? null;
+}
+
+/**
  * The values an edit of a Recipe at the Location sets (`values`), over its
- * content now (`current`, empty for a new one), with what they use checked
- * and offered there, under each item's row lock:
+ * content now (`current`, empty for a new one), with what they newly use
+ * checked and offered there, under each item's row lock: one it uses already,
+ * as an Archived Tool it keeps beside a new one, is not checked again.
  *
  * - a Grinder only one of the Location's, not Archived;
  * - a Bean Batch not Archived, added at the Location if it is not there, and
@@ -196,7 +242,7 @@ async function setUses(
   const set: Record<string, unknown> = { ...values };
   const [{ seenAt }] = await tx.$queryRaw<[{ seenAt: Date }]>`SELECT clock_timestamp() AS "seenAt"`;
 
-  if (typeof values.grinderId === "string") {
+  if (typeof values.grinderId === "string" && values.grinderId !== current.grinderId) {
     const [grinder] = await tx.$queryRaw<{ locationId: string | null; archived: boolean }[]>`
       SELECT location_id::text AS "locationId", archived FROM grinders WHERE id = ${values.grinderId}::uuid FOR SHARE`;
     if (!grinder) throw new BadRequestException("No such Grinder");
@@ -204,7 +250,8 @@ async function setUses(
   }
 
   if (values.beanBatchId === null) set.beanId = null;
-  if (typeof values.beanBatchId === "string") {
+  if (typeof values.beanBatchId === "string" && values.beanBatchId === current.beanBatchId) set.beanId = current.beanId ?? null;
+  if (typeof values.beanBatchId === "string" && values.beanBatchId !== current.beanBatchId) {
     // The batch's row locked, so it is not Archived or deleted until it is added here.
     const [batch] = await tx.$queryRaw<{ beanId: string; archived: boolean; beanArchived: boolean; here: boolean }[]>`
       SELECT batch.bean_id::text AS "beanId", batch.archived, bean.archived AS "beanArchived",
@@ -224,7 +271,9 @@ async function setUses(
   for (const { field, kind, table, idType, name } of SHOWN) {
     const named = values[field];
     const ids = Array.isArray(named) ? (named as string[]) : typeof named === "string" ? [named] : [];
-    for (const itemId of [...ids].sort()) {
+    const had = current[field];
+    const used = new Set(Array.isArray(had) ? had : typeof had === "string" ? [had] : []);
+    for (const itemId of [...ids].filter((id) => !used.has(id)).sort()) {
       const [item] = await tx.$queryRaw<{ archived: boolean; shown: boolean }[]>`
         SELECT items.archived, COALESCE(here.shown, false) AS shown
         FROM ${Prisma.raw(table)} AS items
@@ -237,9 +286,9 @@ async function setUses(
     }
   }
 
-  const tools = new Set(
-    (Array.isArray(set.toolIds) ? set.toolIds : Array.isArray(current.toolIds) ? current.toolIds : []).filter((tool): tool is string => typeof tool === "string"),
-  );
+  // The Tools it names once edited: none where the edit clears them.
+  const named = Object.prototype.hasOwnProperty.call(values, "toolIds") ? values.toolIds : current.toolIds;
+  const tools = new Set((Array.isArray(named) ? named : []).filter((tool): tool is string => typeof tool === "string"));
   if (isObject(values.toolAttributes)) {
     const unnamed = Object.keys(values.toolAttributes).filter((tool) => !tools.has(tool));
     if (unnamed.length > 0) throw new BadRequestException("toolAttributes names a Tool the Recipe does not use");

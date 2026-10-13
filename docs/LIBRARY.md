@@ -418,7 +418,13 @@ a Conflict, so neither waits on the other in turn.
   changes only under it, as a tablet's is (`editContent`, with `seenAt`
   `everything`); one of a Location's state, under the Location's lock, as
   having seen every decision made there before it (`addBatchAt`,
-  `finishBatchAt`, `enterRemainingWeight`, `showProfileAt`). It commits with a
+  `finishBatchAt`, `enterRemainingWeight`, `showProfileAt`). A Recipe's value
+  is used as an edit of it in the management interface is made
+  (`recipeEditValues`, Editing in the management interface, below): a batch
+  used sets its Bean too, a Bean used alone takes the Recipe's batch of it or
+  that Bean's batch most recently added at its Location, the ratio and the
+  Tools' attributes follow, and what it newly uses is offered at its
+  Location, or refused with 409 where it is Archived. It commits with a
   `NOTIFY` on `library_changes`, so every tablet that holds the item, at every
   Location, is written it; a tablet's edit made before it that arrives later,
   as from one that was offline, loses to it and is kept as a Conflict. A
@@ -514,16 +520,19 @@ tablets, below).
   flow, and whether it shows on the dashboard. Its steam mode stays as a
   tablet saved it, a new one's by flow, as DYE2's editor makes one. A new one
   shows on the dashboard and takes hot water by volume unless given
-  otherwise. What it uses is checked against its Location as it is set,
-  under each item's row lock: its Grinder is one of the Location's, not
-  Archived, and a Bean Batch, Profile, Basket or Tool is not Archived; a
+  otherwise. What it newly uses is checked against its Location as it is
+  set, under each item's row lock, but not what it uses already, so a Tool
+  Archived since stays beside a new one: its Grinder is one of the
+  Location's, not Archived, and a Bean Batch, of a Bean not Archived,
+  Profile, Basket or Tool is not Archived; a
   batch not at the Location is added there (`addBatchAt`), and a Profile,
   Basket or Tool not shown there is shown there (`showAt`), each the
   account's edit of the Location's state of it, so the Recipe can be loaded
   there. Its Bean is its batch's, and clearing its batch clears it. Its
   ratio is kept only while its yield is its dose times it, to a tenth of a
   gram, as DYE2's editor keeps it, and cleared by an edit that breaks that;
-  a Tool's attributes go with the Tool when an edit drops it. A Recipe's
+  a Tool's attributes go with the Tool when an edit drops it, or clears the
+  Tools. A Recipe's
   slot is its Location's state, not its content: it is created in a slot
   chosen, the lowest one free (`next`), or none, and moved to another, or
   taken out of its slot, each a version of its own setting `slot` at the

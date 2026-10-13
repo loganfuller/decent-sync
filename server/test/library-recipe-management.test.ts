@@ -249,6 +249,62 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect(refused.status).toBe(400);
   });
 
+  it("keeps a Tool Archived since beside a new one, and drops every Tool's attributes when the Tools are cleared with null", async () => {
+    const lab = await api.createLocation("Kept tool lab", "America/Chicago");
+    const newTool = (body: string) => send<{ tool: { id: string } }>("POST", "/tools", { locationId: lab.id, content: { name: body } }, api, 201).then((created) => created.tool);
+    const old = await newTool("Kept Old WDT");
+    const created = await create(lab, 1, { name: "Kept Espresso", toolIds: [old.id], toolAttributes: { [old.id]: [{ key: "Needles", value: "8" }] } });
+    expect((await api.call("PUT", `/tools/${old.id}/archived`, { archived: true })).status).toBe(200);
+
+    // The Archived Tool, which the Recipe uses already, is not refused as a new Tool joins it; it cannot be picked anew.
+    const replacement = await newTool("Kept New WDT");
+    expect((await edit(created.id, { toolIds: [old.id, replacement.id] })).content.toolIds).toEqual([old.id, replacement.id]);
+    const other = await create(lab, 2, { name: "Other Espresso" });
+    expect((await api.call("PATCH", `/recipes/${other.id}`, { content: { toolIds: [old.id] } })).status).toBe(409);
+
+    const cleared = await edit(created.id, { toolIds: null });
+    expect(cleared.content).not.toHaveProperty("toolIds");
+    expect(cleared.content.toolAttributes).toEqual({});
+  });
+
+  it("keeps a Recipe's Bean its batch's when a Conflict's batch of another Bean is used", async () => {
+    const lab = await locationWith("Conflicted batch lab", 45061, [server, other]);
+    const start = await library("Conflicted Start", lab.location, [lab.location]);
+    const brazil = await library("Conflicted Brazil", lab.location, [lab.location]);
+    const kenya = await library("Conflicted Kenya", lab.location, [lab.location]);
+    const created = await create(lab.location, 1, { name: "Conflicted Espresso", beanBatchId: start.batch.id });
+    const [one, two] = lab.tablets as [SimulatedTablet, SimulatedTablet];
+    for (const tablet of [one, two]) await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(created.id);
+    await poll(() => localId(one.beans(), brazil.bean.id)).toBeDefined();
+    await poll(() => localId(two.beans(), kenya.bean.id)).toBeDefined();
+
+    // Offline, one tablet's DYE2 editor picks the Brazil and the other, later, the Kenya: the Kenya and its batch win, and
+    // the Brazil and its batch, replaced without being seen, are kept as Conflicts.
+    const pick = async (tablet: SimulatedTablet, beanId: unknown) => {
+      const list = (dye2List(tablet, "recipes") as Record_[]).map((record) => (record.id === "1" ? { ...record, beanId } : record));
+      expect((await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", list)).status).toBe(200);
+    };
+    one.loseNetwork();
+    two.loseNetwork();
+    await pick(one, localId(one.beans(), brazil.bean.id));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await pick(two, localId(two.beans(), kenya.bean.id));
+    one.restoreNetwork();
+    await poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(brazil.batch.id);
+    two.restoreNetwork();
+    await poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(kenya.batch.id);
+    type Open = { id: string; field: string; value: unknown; current: { versionId: string | null } };
+    const conflicts = async () => (await send<{ conflicts: Open[] }>("GET", `/recipes/${created.id}/conflicts`)).conflicts;
+    await poll(async () => (await conflicts()).map((conflict) => conflict.field).sort()).toEqual(["beanBatchId", "beanId"]);
+
+    // Using the Brazil's batch makes the Brazil the Recipe's Bean too, rather than leaving the Kenya beside it.
+    const batchConflict = (await conflicts()).find((conflict) => conflict.field === "beanBatchId")!;
+    expect(batchConflict.value).toBe(brazil.batch.id);
+    await send("POST", `/conflicts/${batchConflict.id}/use`, { seen: batchConflict.current.versionId });
+    expect((await recipe(created.id)).content).toMatchObject({ beanId: brazil.bean.id, beanBatchId: brazil.batch.id });
+    for (const tablet of [one, two]) await poll(() => slotOn(tablet, 1)?.beanId).toBe(localId(tablet.beans(), brazil.bean.id));
+  });
+
   it("clears DYE2's ratio when an edit leaves the yield other than the dose times it", async () => {
     const lab = await locationWith("Ratio lab", 45021, [server]);
     const created = await create(lab.location, 1, { name: "Ratio Espresso", dose: 18, yield: 36 });

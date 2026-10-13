@@ -11,7 +11,9 @@ import { type EditSource, type LibraryItemRef, accountSource } from "./history.j
 import { INTAKE_TRANSACTION } from "./intake.js";
 import { editSettings, lockSettings } from "./location-settings.js";
 import { KINDS, idSql, isVersionedKind } from "./kinds.js";
+import { isObject } from "./listed.js";
 import { lockLocation } from "./location-state.js";
+import { recipeEditValues } from "./recipe-edits.service.js";
 
 // Resolving a Conflict (ADR-0020): using its value, which makes it a new edit
 // in the management interface, timed by PostgreSQL's clock (ADR-0016), and
@@ -22,7 +24,9 @@ import { lockLocation } from "./location-state.js";
 // it, so an edit decided since is never replaced unseen. Using a value takes the Location's lock,
 // for a Location's state or a Grinder, then the item's, as a tablet's edit
 // does after its own locks; a tablet's report never locks a Conflict, so
-// neither waits on the other in turn.
+// neither waits on the other in turn. A Recipe's value is used as an edit
+// of it in the management interface is made (`recipeEditValues`), so its Bean
+// follows its batch and what it uses is offered at its Location.
 
 /** A Conflict as resolving it reads it, under its row lock. */
 interface LockedConflict {
@@ -131,7 +135,12 @@ async function useValue(
     const [row] = await tx.$queryRaw<{ versionId: string | null }[]>`
       SELECT field_edits -> ${field} ->> 'versionId' AS "versionId" FROM ${Prisma.raw(description.table)} WHERE id = ${idSql(description, item.id)}`;
     checkSeen(row?.versionId ?? null, seen);
-    const edited = await editContent(tx, item, { values: { [field]: value ?? null }, at, seenAt: "everything" }, source);
+    let values: Record<string, unknown> = { [field]: value ?? null };
+    if (item.kind === "recipe" && conflict.itemLocationId) {
+      const [recipe] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM recipes WHERE id = ${item.id}::uuid`;
+      values = await recipeEditValues(tx, conflict.itemLocationId, values, isObject(recipe?.content) ? recipe.content : {}, source, at);
+    }
+    const edited = await editContent(tx, item, { values, at, seenAt: "everything" }, source);
     // Every Location's tablets may hold the item; each writer reads what its tablet is due.
     if (edited.writesDue) await notify(tx, "library_changes", item.id);
     return;

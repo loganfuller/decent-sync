@@ -214,6 +214,43 @@ test("a Conflict over a Recipe's name, saved on two tablets offline, is shown on
   for (const tablet of [one, two]) await expect.poll(() => slotOn(tablet, 1)?.name).toBe("House Espresso (Brazil)");
 });
 
+test("the form keeps a Tool Archived since as one to uncheck, beside a new one, and offers no batch of an Archived Bean", async ({ page }) => {
+  const lab = await createLocation(page, "Form lab");
+  const tool = async (name: string) => {
+    const response = await page.request.post("/api/tools", { data: { locationId: lab.id, content: { name } } });
+    baseExpect(response.status()).toBe(201);
+    return ((await response.json()) as { tool: { id: string } }).tool;
+  };
+  const old = await tool("Form Old WDT");
+  await tool("Form New WDT");
+  const recipe = await createRecipe(page, lab, 1, { name: "Form Espresso", toolIds: [old.id] });
+  baseExpect((await page.request.put(`/api/tools/${old.id}/archived`, { data: { archived: true } })).status()).toBe(200);
+  const archivedBatch = await createBatch(page, "Form Retired", lab);
+  const { batch: retired } = (await (await page.request.get(`/api/bean-batches/${archivedBatch.id}`)).json()) as { batch: { bean: { id: string } } };
+  baseExpect((await page.request.put(`/api/beans/${retired.bean.id}/archived`, { data: { archived: true } })).status()).toBe(200);
+
+  await page.goto(`/library/recipes/${recipe.id}`);
+  await page.getByRole("button", { name: "Edit the Recipe" }).click();
+  const form = page.getByRole("form", { name: "Edit Form Espresso" });
+  await form.getByLabel("Bean Batch").click();
+  await expect(page.getByRole("option", { name: /Form Retired/ })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  // A new Tool joins the Archived one, which is kept; saved, the Recipe uses both.
+  await form.getByLabel("Form New WDT").check();
+  await form.getByRole("button", { name: "Save" }).click();
+  const details = page.getByLabel("Recipe", { exact: true });
+  await expect(field(details, "Tools")).toContainText("Form New WDT");
+  await expect(field(details, "Tools")).toContainText("Form Old WDT");
+  // Unchecked, the Archived Tool is dropped, and cannot be checked again.
+  await page.getByRole("button", { name: "Edit the Recipe" }).click();
+  const kept = form.getByRole("checkbox", { name: /Form Old WDT/ });
+  await kept.uncheck();
+  await expect(kept).toBeDisabled();
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(field(details, "Tools")).not.toContainText("Form Old WDT");
+  await expect(field(details, "Tools")).toContainText("Form New WDT");
+});
+
 async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {
   const response = await page.request.post("/api/locations", { data: { name, timeZone: "America/Chicago" } });
   baseExpect(response.status()).toBe(201);

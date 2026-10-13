@@ -23,6 +23,7 @@ import {
   ApiError,
   api,
   type BeanBatchSummary,
+  type BeanSummary,
   type EquipmentSummary,
   type GrinderSummary,
   type Location,
@@ -190,9 +191,10 @@ function RecipesTable({ label, recipes, slots }: { label: string; recipes: Recip
   );
 }
 
-/** What the Recipe form picks from: the Library's batches, Profiles, Grinders, Baskets and Tools. */
+/** What the Recipe form picks from: the Library's batches, with their Beans, Profiles, Grinders, Baskets and Tools. */
 interface Choices {
   batches: BeanBatchSummary[];
+  beans: BeanSummary[];
   profiles: ProfileSummary[];
   grinders: GrinderSummary[];
   baskets: EquipmentSummary[];
@@ -207,12 +209,13 @@ function useChoices(): { choices: Choices | undefined; error: string | undefined
     let current = true;
     Promise.all([
       api<{ batches: BeanBatchSummary[] }>("GET", "/bean-batches"),
+      api<{ beans: BeanSummary[] }>("GET", "/beans"),
       api<{ profiles: ProfileSummary[] }>("GET", "/profiles"),
       api<{ grinders: GrinderSummary[] }>("GET", "/grinders"),
       api<{ baskets: EquipmentSummary[] }>("GET", "/baskets"),
       api<{ tools: EquipmentSummary[] }>("GET", "/tools"),
     ]).then(
-      ([{ batches }, { profiles }, { grinders }, { baskets }, { tools }]) => current && setChoices({ batches, profiles, grinders, baskets, tools }),
+      ([{ batches }, { beans }, { profiles }, { grinders }, { baskets }, { tools }]) => current && setChoices({ batches, beans, profiles, grinders, baskets, tools }),
       (caught: unknown) => current && setError(failure(caught, "What a Recipe may use could not be loaded")),
     );
     return () => {
@@ -479,14 +482,20 @@ function RecipeForm({
   const slot = slotMode === "next" ? lowestFree(recipes) : slotMode === "chosen" ? slotEntered(slotText) : undefined;
   const there = slot === undefined ? undefined : recipes.find((candidate) => candidate.slot === slot);
 
-  // What this Location offers of each kind, and the rest, which saving offers here; Archived items are offered nowhere.
-  const batches = (choices?.batches ?? []).filter((batch) => !batch.archived);
+  // What this Location offers of each kind, and the rest, which saving offers here; Archived items, and the batches of
+  // an Archived Bean, are offered nowhere.
+  const archivedBeans = new Set((choices?.beans ?? []).filter((bean) => bean.archived).map((bean) => bean.id));
+  const batches = (choices?.batches ?? []).filter((batch) => !batch.archived && !archivedBeans.has(batch.bean.id));
   const batchHere = (batch: BeanBatchSummary) => batch.locations.some((at) => at.location.id === here);
   const profiles = (choices?.profiles ?? []).filter((profile) => !profile.archived);
   const shownHere = (item: { shownAt: { location: { id: string } }[] }) => item.shownAt.some((at) => at.location.id === here);
   const grinders = (choices?.grinders ?? []).filter((grinder) => grinder.location?.id === here && !grinder.archived);
   const baskets = (choices?.baskets ?? []).filter((basket) => !basket.archived);
   const tools = (choices?.tools ?? []).filter((tool) => !tool.archived);
+  // Tools the Recipe uses that are offered nowhere now, as one Archived since: kept, or unchecked to drop them, never picked anew.
+  const keptTools = (choices ? initial.toolIds : [])
+    .filter((toolId) => !tools.some((tool) => tool.id === toolId))
+    .map((toolId) => ({ id: toolId, name: choices?.tools.find((tool) => tool.id === toolId)?.name ?? recipe?.uses.tools.find((tool) => tool.id === toolId)?.name ?? null }));
 
   // What saving offers here that it does not offer now: only what this form changes.
   const offered: string[] = [];
@@ -653,7 +662,26 @@ function RecipeForm({
 
         <fieldset className="grid gap-2 sm:col-span-2">
           <legend className="mb-2 text-sm font-medium">Tools</legend>
-          {tools.length === 0 && <p className="text-sm text-muted-foreground">The Library has no Tools yet.</p>}
+          {tools.length === 0 && keptTools.length === 0 && <p className="text-sm text-muted-foreground">The Library has no Tools yet.</p>}
+          {keptTools.map((tool) => {
+            const checked = values.toolIds.includes(tool.id);
+            return (
+              <div key={tool.id} className="flex items-center gap-2">
+                <Checkbox
+                  id={`${id}-tool-${tool.id}`}
+                  checked={checked}
+                  disabled={!checked}
+                  onCheckedChange={(value) =>
+                    value !== true && setValues((current) => ({ ...current, toolIds: current.toolIds.filter((candidate) => candidate !== tool.id) }))
+                  }
+                />
+                <Label htmlFor={`${id}-tool-${tool.id}`}>
+                  {tool.name ?? "Unnamed Tool"}
+                  <span className="font-normal text-muted-foreground"> (Archived: uncheck it to drop it)</span>
+                </Label>
+              </div>
+            );
+          })}
           {tools.map((tool) => {
             const checked = values.toolIds.includes(tool.id);
             const toolName = tool.name ?? "Unnamed Tool";
