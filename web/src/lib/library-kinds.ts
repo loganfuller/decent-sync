@@ -8,8 +8,8 @@ interface LibraryKindView {
   pages: string | null;
   /** Where the REST API has its items, each under its id. */
   api: string;
-  /** The Shots list's filter by an item of the kind. */
-  shotsFilter: string;
+  /** The Shots list's filter by an item of the kind; null for a kind no Shot is linked to yet, as Baskets and Tools until #147. */
+  shotsFilter: string | null;
   /** Whether the Shots list offers that filter, as it does for Bean Batches and Grinders, so an item's page links to it. */
   filteredInShotsList: boolean;
 }
@@ -23,9 +23,12 @@ export const LIBRARY_KINDS = {
   beanBatch: { name: "Bean Batch", list: { name: "beanBatches", title: "Bean Batches" }, pages: "/library/bean-batches", api: "/bean-batches", shotsFilter: "beanBatchId", filteredInShotsList: true },
   grinder: { name: "Grinder", list: { name: "grinders", title: "Grinders" }, pages: "/library/grinders", api: "/grinders", shotsFilter: "grinderId", filteredInShotsList: true },
   profile: { name: "Profile", list: { name: "profiles", title: "Profiles" }, pages: "/library/profiles", api: "/profiles", shotsFilter: "profileId", filteredInShotsList: false },
-  basket: { name: "Basket", list: { name: "dye2Baskets", title: "Baskets (DYE2)" }, pages: null, api: "/baskets", shotsFilter: "basketId", filteredInShotsList: false },
-  tool: { name: "Tool", list: { name: "dye2Equipment", title: "Tools (DYE2's equipment)" }, pages: null, api: "/tools", shotsFilter: "toolId", filteredInShotsList: false },
+  basket: { name: "Basket", list: { name: "dye2Baskets", title: "Baskets (DYE2)" }, pages: null, api: "/baskets", shotsFilter: null, filteredInShotsList: false },
+  tool: { name: "Tool", list: { name: "dye2Equipment", title: "Tools (DYE2's equipment)" }, pages: null, api: "/tools", shotsFilter: null, filteredInShotsList: false },
 } as const satisfies Readonly<Record<string, LibraryKindView>>;
 
 /** The kinds of Library item. */
 export type LibraryKind = keyof typeof LIBRARY_KINDS;
+
+/** The kinds of Library item the Shots list filters by. */
+export type ShotsKind = { [K in LibraryKind]: (typeof LIBRARY_KINDS)[K]["shotsFilter"] extends string ? K : never }[LibraryKind];
