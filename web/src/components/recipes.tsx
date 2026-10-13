@@ -917,7 +917,8 @@ const KEEP = "keep";
  * the Recipe there taken out of it, the next free one, or none, with one of
  * that Location's Grinders, its grind setting kept as a starting point, and
  * its Bean Batch, or another at that Location, or none. It says first what
- * copying adds or shows there.
+ * copying adds, offers or shows there. A copy goes to another Location than
+ * the Recipe's own.
  */
 function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choices | undefined }) {
   const navigate = useNavigate();
@@ -957,12 +958,33 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
   const slot = slotMode === "next" ? free : slotMode === "chosen" ? slotEntered(slotText) : undefined;
   const there = slot === undefined ? undefined : targetRecipes?.find((candidate) => candidate.slot === slot);
 
+  // A Recipe naming a Bean with no batch takes that Bean's batch most recently added at the Location, or none, keeping the Bean.
+  const beanOnly = recipe.uses.beanBatch === null ? recipe.uses.bean : null;
+  const beanBatchThere = beanOnly
+    ? (choices?.batches ?? [])
+        .filter((batch) => batch.bean.id === beanOnly.id && !batch.archived && atTarget(batch))
+        .sort((a, b) => sinceAtTarget(b).localeCompare(sinceAtTarget(a)))[0]
+    : undefined;
+  function sinceAtTarget(batch: BeanBatchSummary): string {
+    return batch.locations.find((at) => at.location.id === locationId)?.since ?? "";
+  }
+  const keptText =
+    beanOnly && target
+      ? beanBatchThere
+        ? `${batchName(beanBatchThere)} (this Recipe's Bean's latest batch at ${target.name})`
+        : `${beanOnly.name ?? "Unnamed Bean"}, no batch (this Recipe's Bean, with none at ${target.name})`
+      : `${usedBatchText(recipe) ?? "Its batch"} (this Recipe's)`;
+
   // What copying adds or shows at the Location that it does not offer now, so the copy can be loaded there.
   const offered: string[] = [];
   if (target && choices) {
     const shownThere = (item: { shownAt: { location: { id: string } }[] } | undefined) => item?.shownAt.some((at) => at.location.id === locationId) ?? true;
     const ownBatch = choices.batches.find((batch) => batch.id === recipe.uses.beanBatch?.id);
     if (batchId === KEEP && ownBatch && !atTarget(ownBatch)) offered.push(`adds the Bean Batch ${batchName(ownBatch)} at ${target.name}`);
+    const bean = choices.beans.find((candidate) => candidate.id === beanOnly?.id);
+    if (batchId === KEEP && bean && !beanBatchThere && !bean.offeredAt.some((at) => at.id === locationId)) {
+      offered.push(`offers the Bean ${bean.name ?? "Unnamed Bean"} at ${target.name}`);
+    }
     const profile = choices.profiles.find((candidate) => candidate.id === recipe.uses.profile?.id);
     if (profile && !shownThere(profile)) offered.push(`shows the Profile ${profileTitle(profile)} at ${target.name}`);
     const basket = choices.baskets.find((candidate) => candidate.id === recipe.uses.basket?.id);
@@ -1037,11 +1059,10 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
               </SelectTrigger>
               <SelectContent>
                 {locations
-                  ?.filter((location) => mayChangeAt(location.id))
+                  ?.filter((location) => mayChangeAt(location.id) && location.id !== recipe.location?.id)
                   .map((location) => (
                     <SelectItem key={location.id} value={location.id}>
                       {location.name}
-                      {location.id === recipe.location?.id ? " (its own)" : ""}
                     </SelectItem>
                   ))}
               </SelectContent>
@@ -1099,7 +1120,7 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
                   </SelectTrigger>
                   <SelectContent>
                     {batchId === KEEP || recipe.uses.beanBatch || recipe.uses.bean ? (
-                      <SelectItem value={KEEP}>{`${usedBatchText(recipe) ?? "Its batch"} (this Recipe's)`}</SelectItem>
+                      <SelectItem value={KEEP}>{keptText}</SelectItem>
                     ) : null}
                     <SelectItem value={NONE}>None</SelectItem>
                     <ChoiceGroup label={`At ${target.name}`} items={batches.map((batch) => [batch.id, batchName(batch)])} />

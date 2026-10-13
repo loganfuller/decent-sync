@@ -10,7 +10,7 @@ import { INTAKE_TRANSACTION } from "./intake.js";
 import type { SlotChoice } from "./item-input.js";
 import { editTime, staffElsewhere } from "./library-edits.service.js";
 import { isObject } from "./listed.js";
-import { type ShownKind, addBatchAt, lockLocation, showAt } from "./location-state.js";
+import { type ShownKind, addBatchAt, lockLocation, offerBeanAt, showAt } from "./location-state.js";
 
 // Recipes created and edited in the management interface, moved between the
 // Recipe Slots of their Location, taken out of them, Archived and restored
@@ -100,8 +100,8 @@ export class RecipeEditsService {
    * Location's on each tablet there. It goes in the slot chosen, the Recipe
    * there taken out of it and kept, or the lowest free one, or none. The
    * Recipe copied is not changed. 404 for no such Recipe or Location, 403
-   * for Staff not working at the Location, and 400 or 409 for an item the
-   * copy cannot use there.
+   * for Staff not working at the Location, 400 for the Recipe's own
+   * Location, and 400 or 409 for an item the copy cannot use there.
    */
   async copy(id: string, to: RecipeCopy, accountId: string, scope: Scope): Promise<string> {
     if (!includesLocation(scope, to.locationId)) throw staffElsewhere("copy a Recipe to a Location");
@@ -112,6 +112,8 @@ export class RecipeEditsService {
       const [original] = await tx.$queryRaw<{ locationId: string | null; content: unknown }[]>`
         SELECT location_id::text AS "locationId", content FROM recipes WHERE id = ${id}::uuid`;
       if (!original) throw new NotFoundException("No such Recipe");
+      // A copy is for another Location; at its own, the slot chosen could be the Recipe's own, which the copy would take from it.
+      if (original.locationId === to.locationId) throw new BadRequestException("Copy a Recipe to another Location than its own");
       const content: Record<string, unknown> = isObject(original.content) ? { ...original.content } : {};
       delete content.grinderId;
       if (to.grinderId !== null) content.grinderId = to.grinderId;
@@ -251,8 +253,8 @@ async function insertRecipe(
  * - a Bean set alone, as a Conflict about it holds, takes the Recipe's batch
  *   if it is of that Bean, or else that Bean's batch most recently added at
  *   the Location, or none, keeping the Bean, as a Bean picked in DYE2 does
- *   (ADR-0005): 400 for a Bean the Library does not have, 409 for one
- *   Archived;
+ *   (ADR-0005), and offered at the Location then (`offerBeanAt`): 400 for a
+ *   Bean the Library does not have, 409 for one Archived;
  * - DYE2's ratio kept only while the yield is the dose times it, and a ratio
  *   set, as a Conflict about it holds, setting the yield (`ratioValues`).
  */
@@ -273,6 +275,8 @@ export async function recipeEditValues(
       if (bean.archived) throw new ConflictException("This Bean is Archived: restore it before a Recipe uses it");
     }
     asked.beanBatchId = typeof values.beanId === "string" ? await batchOfBean(tx, locationId, values.beanId, current.beanBatchId) : null;
+    // A Bean newly set with no batch at the Location is offered there, as a tablet there creating it is, so its tablets can name it.
+    if (typeof values.beanId === "string" && values.beanId !== current.beanId && asked.beanBatchId === null) await offerBeanAt(tx, values.beanId, locationId);
   }
   const set = await setUses(tx, locationId, asked, current, source, at);
   // A Bean with no batch at the Location is still the Recipe's, as a tablet picking it makes it.

@@ -1,7 +1,7 @@
 import { GLOBAL_ID_KEY, RECIPE_FIELD, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
-import { dye2List } from "./support/simulated-dye2.js";
+import { DYE2_NAMESPACE, dye2List } from "./support/simulated-dye2.js";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -253,6 +253,44 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
     expect((await api.call("PUT", `/bean-batches/${batch.id}/archived`, { archived: true })).status).toBe(200);
     expect(await refusal({ locationId: cafe.id, grinderId: null })).toBe(409);
     expect((await recipesAt(cafe)).map((listed) => listed.id).sort()).toEqual([other_.id, none.id].sort());
+  });
+
+  it("offers a Bean the Recipe names with no batch at the Location, or takes its batch there, and copies only to another Location", async () => {
+    const lab = await locationWith("Bean-only copy lab", 46010, [server]);
+    const cafe = await locationWith("Bean-only copy cafe", 46011, [server]);
+    const uptown = await api.createLocation("Bean-only copy Uptown", "America/Chicago");
+    const labTablet = lab.tablets[0]!;
+    const original = await create(lab.location, 1, { name: "Bean-only Espresso" });
+    await poll(() => slotOn(labTablet, 1)?.[GLOBAL_ID_KEY]).toBe(original.id);
+    // A Bean added on the lab's tablet, with no batch anywhere, picked in DYE2's editor for the recipe in slot 1, once it has joined the Library.
+    const added = await labTablet.addBean({ roaster: "Roux", name: "Bean-only copy Sidamo" });
+    await poll(() => globalIdOf(labTablet.beans().find((held) => held.id === added.id) ?? {})).toBeTruthy();
+    const bean = { id: String(globalIdOf(labTablet.beans().find((held) => held.id === added.id)!)) };
+    const list = (dye2List(labTablet, "recipes") as Record_[]).map((record) => (record.id === "1" ? { ...record, beanId: added.id } : record));
+    expect((await labTablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, list)).status).toBe(200);
+    await poll(async () => (await recipe(original.id)).content.beanId).toBe(bean.id);
+    const uptownBatch = (
+      await send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { roastDate: "2026-10-01" }, locations: [{ locationId: uptown.id }] }, api, 201)
+    ).batch;
+    const offeredAt = async () => (await send<{ bean: { offeredAt: { id: string }[] } }>("GET", `/beans/${bean.id}`)).bean.offeredAt.map((at) => at.id);
+    expect(await offeredAt()).toContain(lab.location.id);
+
+    // At the cafe, with no batch of it, the Bean is offered, so the cafe's tablet names it by its own id.
+    const atCafe = await copy(original.id, { locationId: cafe.location.id, slot: 1, grinderId: null });
+    expect(atCafe.content).toMatchObject({ beanId: bean.id });
+    expect(atCafe.content).not.toHaveProperty("beanBatchId");
+    expect(await offeredAt()).toContain(cafe.location.id);
+    const tablet = cafe.tablets[0]!;
+    await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(atCafe.id);
+    await poll(() => slotOn(tablet, 1)?.beanId).toBe(localId(tablet.beans(), bean.id));
+    expect(slotOn(tablet, 1)?.beanId).toBeDefined();
+    // At Uptown, it takes the Bean's batch there.
+    expect((await copy(original.id, { locationId: uptown.id, grinderId: null })).content).toMatchObject({ beanId: bean.id, beanBatchId: uptownBatch.id });
+
+    // Not to its own Location, where the slot chosen could be its own.
+    expect((await api.call("POST", `/recipes/${original.id}/copies`, { locationId: lab.location.id, slot: 1, grinderId: null })).status).toBe(400);
+    expect(await recipe(original.id)).toMatchObject({ slot: 1, location: { id: lab.location.id } });
+    expect((await recipesAt(lab.location)).map((listed) => listed.id)).toEqual([original.id]);
   });
 
   it("puts one copy in a slot when two are copied into it at once through two instances", async () => {

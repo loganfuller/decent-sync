@@ -425,7 +425,7 @@ a Conflict, so neither waits on the other in turn.
   (`recipeEditValues`, Editing in the management interface, below): a batch
   used sets its Bean too, a Bean used alone takes the Recipe's batch of it or
   that Bean's batch most recently added at its Location, or none, keeping the
-  Bean, a ratio used sets the yield to the dose times it, as picking a ratio
+  Bean, which is then offered there (`offerBeanAt`), a ratio used sets the yield to the dose times it, as picking a ratio
   in DYE2's editor does, refused with 409 while the Recipe has no dose, the ratio and the Tools' attributes follow, and what it newly uses is offered at its
   Location, or refused with 409 where it is Archived, and Tools' attributes
   used keep those of the Tools it still uses. It commits with a
@@ -553,8 +553,9 @@ tablets, below).
   a Recipe moved is removed from its old slot on each tablet there and
   written in its new one (`recipeWrites` in `holdings.ts`). Hard deletes come
   with the Shots linked to them.
-- **Copying a Recipe.** A Recipe is copied to a Location, its own or another,
-  as a new Recipe there (`POST /api/recipes/:id/copies`), a starting point
+- **Copying a Recipe.** A Recipe is copied to another Location than its own
+  (never its own, where the slot chosen could be the Recipe's, which the copy
+  would take from it, 400) as a new Recipe there (`POST /api/recipes/:id/copies`), a starting point
   for that Location's dial. The copy takes the Recipe's content as it stands,
   read without its lock, and changes nothing of it, but for its Grinder, the
   one chosen from that Location's Grinders or none, its grind setting kept
@@ -564,7 +565,7 @@ tablets, below).
   added there, and a Profile, Basket or Tool not shown there is shown there,
   so it can be loaded at once, and one Archived is refused. A Bean it names
   with no batch takes that Bean's batch most recently added there, or none,
-  keeping the Bean, as a Bean set alone does. Its hot water is the Recipe's;
+  keeping the Bean, offered there, as a Bean set alone does. Its hot water is the Recipe's;
   its steam and flush, which no Recipe carries, are that Location's on every
   tablet there. It goes in the slot chosen, the Recipe there taken out of
   it and kept there, or the lowest free one, or none, under that Location's
