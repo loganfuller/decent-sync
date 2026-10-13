@@ -2,15 +2,16 @@ import { useCallback } from "react";
 import { Link, useParams } from "react-router";
 import { useStaffLocationIds } from "@/auth";
 import { LocationSettingsCard } from "@/components/location-settings";
+import { LocationRecipesCard } from "@/components/recipes";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { ApiError, api, type Location, type LocationSettings } from "@/lib/api";
+import { ApiError, api, type Location, type LocationSettings, type Recipe } from "@/lib/api";
 import { usePolled } from "@/lib/use-polled";
 
 /**
- * One Location: the steam and rinse settings its Machines share, and each
- * Machine's switch for sharing them. Loaded every 5 s, so a change
- * made on a tablet shows.
+ * One Location: its Recipes, in its Recipe Slots and in none, the steam and
+ * rinse settings its Machines share, and each Machine's switch for sharing
+ * them. Loaded every 5 s, so a change made on a tablet shows.
  */
 export function LocationPage() {
   const { id = "" } = useParams();
@@ -22,11 +23,12 @@ function LocationDetails({ id }: { id: string }) {
   // Null once the Location is found gone.
   const load = useCallback(async () => {
     try {
-      const [{ locations }, { settings }] = await Promise.all([
+      const [{ locations }, { settings }, { recipes }] = await Promise.all([
         api<{ locations: Location[] }>("GET", "/locations"),
         api<{ settings: LocationSettings }>("GET", `/locations/${encodeURIComponent(id)}/settings`),
+        api<{ recipes: Recipe[] }>("GET", `/locations/${encodeURIComponent(id)}/recipes`),
       ]);
-      return { location: locations.find((location) => location.id === id), settings };
+      return { location: locations.find((location) => location.id === id), settings, recipes };
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 404) return null;
       throw caught;
@@ -59,7 +61,7 @@ function LocationDetails({ id }: { id: string }) {
       </section>
     );
   }
-  const { location, settings } = data;
+  const { location, settings, recipes } = data;
 
   return (
     <section className="grid gap-6">
@@ -77,6 +79,7 @@ function LocationDetails({ id }: { id: string }) {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
+      {location && <LocationRecipesCard location={location} recipes={recipes} onChanged={reload} />}
       <LocationSettingsCard settings={settings} onSaved={reload} />
     </section>
   );

@@ -281,6 +281,36 @@ const TOOL_FIELDS: Readonly<Record<string, FieldType>> = {
   custom: "attributes",
 };
 
+/**
+ * A Recipe's fields the management interface sets, in the Library's terms
+ * (`recipeContent` in recipe-intake.ts), as DYE2's recipe editor saves them
+ * but for steam and flush, which mirror the Location's settings, the barista
+ * and drinker, which a Recipe never carries, its steam mode, a steam setting
+ * too, and its ratio, kept while its yield is its dose times it
+ * (recipe-edits.service.ts). Its Bean is its Bean Batch's.
+ */
+const RECIPE_FIELDS: Readonly<Record<string, FieldType>> = {
+  name: "text",
+  beverage: "text",
+  beanBatchId: "id",
+  profileId: "profileId",
+  dose: "number",
+  yield: "number",
+  grinderId: "id",
+  grindSetting: "number",
+  rpm: "number",
+  brewTemperature: "number",
+  basketId: "id",
+  toolIds: "ids",
+  toolAttributes: "toolAttributes",
+  hotWaterMode: "hotWaterMode",
+  hotWaterVolume: "number",
+  hotWaterTemperature: "number",
+  hotWaterDuration: "number",
+  hotWaterFlow: "number",
+  showOnDashboard: "flag",
+};
+
 /** Each kind of Library item, described once. */
 export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
   bean: {
@@ -608,8 +638,8 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     // A tablet's record names what it uses by the tablet's ids, so its content is written by the paths the server writes.
     recordValues: (record) => recipeView(record),
     keptColumns: () => Prisma.empty,
-    // Created and edited in the management interface in a later ticket (#143).
-    editable: null,
+    // DYE2's editor shows a new recipe on the dashboard, its steam by flow and its hot water by volume.
+    editable: { fields: RECIPE_FIELDS, defaults: { showOnDashboard: true, steamMode: "flow", hotWaterMode: "vol" } },
     holdings: { key: "recipes", offered: (tx, tablet, locationId) => offeredRecipes(tx, tablet, locationId), held: (tx, tabletId) => heldRecipes(tx, tabletId) },
     plan: (offer, held) => recipeWrites(offer, held),
     offersAnySql: (locationId) => Prisma.sql`SELECT 1 FROM recipes WHERE location_id = ${locationId}::uuid AND slot IS NOT NULL AND NOT archived LIMIT 1`,
