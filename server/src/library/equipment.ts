@@ -261,7 +261,8 @@ async function itemContent(tx: Prisma.TransactionClient, kind: EquipmentKind, it
  * record known was edited on the tablet since its last report, and is merged
  * as a report's edit would be (ADR-0020), timed when the plugin wrote it, but
  * for one set back to its value before an earlier write of the server's,
- * which is taken as unchanged, as in a report, and written again. A
+ * which is taken as unchanged, as in a report, and written again, and one
+ * holding the item's value, which is no edit (`answeredEquipment`). A
  * record the plugin `linked`, one of the same name entered there before the
  * tablet reported it, takes the item's content, each field it held otherwise
  * kept as a Conflict (ADR-0018). What the record held for each field the

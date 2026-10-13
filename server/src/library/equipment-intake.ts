@@ -192,10 +192,9 @@ export function withoutSettled(
  * (`beforeWriteAfter`), but not for the item's value (`item`, its content
  * before this answer), which the server wrote: a write the plugin left out,
  * the tablet holding it already, as the record known is behind it after an
- * answer was lost. Such a
- * field holding the item's value is no edit either; one whose value before
- * the write the record and the item both hold again is forgotten
- * (`withoutSettled`).
+ * answer was lost. Such a field holding the item's value is no edit either;
+ * one whose value before the write the record and the item both hold again
+ * is forgotten (`withoutSettled`).
  */
 export function answeredEquipment(
   known: Readonly<Record<string, unknown>>,

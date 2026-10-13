@@ -847,8 +847,8 @@ shows or hides it, as a Profile (ADR-0008). Grinders stay per Location.
   value before the server's write: the plugin left out a write of a value
   the tablet held already, the record known behind it after an answer was
   lost. A field whose value before the server's write both the record and
-  the item hold again keeps it no longer, so a later write of the field
-  guards against a stale save of it.
+  the item hold again, on the tablet's next report or answer, keeps it no
+  longer, so a later write of the field guards against a stale save of it.
   A barista who deliberately sets a field back to exactly that value has to
   set it again: the write that puts the item's value back over it does not
   keep that value as the tablet's before it, so setting it once more is an
@@ -856,7 +856,10 @@ shows or hides it, as a Profile (ADR-0008). Grinders stay per Location.
   any other value. The cost: a second stale save of the field in a row, or
   the rewrite lost again at once, counts as the tablet's edit; so does a save
   from a page opened before two of the server's writes of the field, setting
-  it back to its value before the first.
+  it back to its value before the first; and a stale save of a field whose
+  value before the server's write the item took again, by another tablet's
+  edit, before the tablet reported it, once the server writes the field
+  next.
 - **New records** are matched by name, ignoring case and white space at
   either end (`equipmentMatchKey`), to the oldest of the kind not Archived,
   as DYE2 itself refuses a second tool of one name (ADR-0018): linked, the
