@@ -23,11 +23,13 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // slot on the Location's other tablets, naming its Bean, Grinder, Basket and
 // Tools by each tablet's own ids, and to no other Location's; edits merge per
 // field with Conflicts (ADR-0020); a recipe gone from a tablet's list is taken
-// out of its slot there (ADR-0019). Through the built plugin in simulated
-// tablets, acting as DYE2 v0.1.19 and Streamline v0.2.13 do with the steps
-// recorded from them (fixtures/decaid/dye2-v0.1.19/), on two server
-// instances sharing one database, with assertions through the REST API and
-// what each simulated tablet's store holds. Serials are made up, from 42001.
+// out of its slot there (ADR-0019). And for ticket #142, a save from a DYE2
+// page opened before another tablet's change keeps that change (ADR-0005).
+// Through the built plugin in simulated tablets, acting as DYE2 v0.1.19 and
+// Streamline v0.2.13 do with the steps recorded from them
+// (fixtures/decaid/dye2-v0.1.19/), on two server instances sharing one
+// database, with assertions through the REST API and what each simulated
+// tablet's store holds. Serials are made up, from 42001.
 
 type Record_ = Record<string, unknown>;
 
@@ -307,6 +309,39 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     // Its history holds each accepted edit, the first its joining the Library from the tablet that saved it.
     const versions = ((await (await api.call("GET", `/recipes/${saved!.id}/history`)).json()) as { versions: { fields: Record_; source: { machine: { name: string } | null } }[] }).versions;
     expect(versions.at(-1)).toMatchObject({ fields: { name: "Fixture Ethiopia Espresso", dose: 18 }, source: { machine: { name: "Edited lab 1" } } });
+  });
+
+  it("keeps another tablet's change of a recipe saved from a DYE2 recipe page opened before it, and spreads what the save changed", async () => {
+    const { here, one, two } = await lab("Stale", 42081);
+    // The first tablet's recipe editor opens on slot 1 as saved: the values the recorded edit of it was made from.
+    await saveInDye2(one, recipes.saveSlot1);
+    await expect.poll(() => inSlot(two, "1")?.[GLOBAL_ID_KEY], { timeout: 15_000 }).toEqual(expect.any(String));
+    await expect.poll(() => inSlot(one, "1")?.[GLOBAL_ID_KEY], { timeout: 15_000 }).toEqual(expect.any(String));
+    const [saved] = await recipesAt(here);
+    expect(saved!.content).toMatchObject({ dose: 18, grindSetting: 2.5, hotWaterTemperature: 85 });
+
+    // The second tablet changes the grind setting from 2.5 to 2.6, which the first is written.
+    await editInDye2(two, "1", { "dashboardVariables.grind": 2.6 });
+    await expect.poll(() => variables(inSlot(one, "1")).grind, { timeout: 15_000 }).toBe(2.6);
+
+    // The first tablet's page, loaded before that, saves its barista's dose of 18.5: the recorded editor save, but with the
+    // grind setting and hot water temperature the page loaded rather than those the recording changed.
+    const fromPage = (grind: number) => (item: Record_) => ({ ...item, dashboardVariables: { ...variables(item), grind, hotWaterTempC: 85 } });
+    await saveInDye2(one, recipes.editSlot1, fromPage(2.5));
+    // The grind setting it set back is no edit: the second tablet's is kept, and written to the first again. The dose reaches
+    // every tablet.
+    await expect.poll(async () => (await recipe(saved!.id)).content.dose, { timeout: 15_000 }).toBe(18.5);
+    for (const tablet of [one, two]) {
+      await expect.poll(() => [variables(inSlot(tablet, "1")).dose, variables(inSlot(tablet, "1")).grind], { timeout: 15_000 }).toEqual([18.5, 2.6]);
+    }
+    expect((await recipe(saved!.id)).content).toMatchObject({ dose: 18.5, grindSetting: 2.6, hotWaterTemperature: 85 });
+    expect(((await (await api.call("GET", `/recipes/${saved!.id}/conflicts`)).json()) as { conflicts: unknown[] }).conflicts).toEqual([]);
+
+    // Saved again from that page with a grind setting of 2.8, another value than the one before the server's write, it is an
+    // edit as usual.
+    await saveInDye2(one, recipes.editSlot1, fromPage(2.8));
+    for (const tablet of [one, two]) await expect.poll(() => variables(inSlot(tablet, "1")).grind, { timeout: 15_000 }).toBe(2.8);
+    expect((await recipe(saved!.id)).content).toMatchObject({ dose: 18.5, grindSetting: 2.8 });
   });
 
   it("takes a Streamline auto-save into a recipe in, and writes it to every tablet at the Location", async () => {

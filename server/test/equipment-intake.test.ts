@@ -72,6 +72,32 @@ describe("DYE2's baskets and tools as Library items", () => {
     expect(editedContent(written, wdt, null)).toEqual({ custom: wdt.custom, name: wdt.name });
   });
 
+  it("takes only a field's value just before the server's latest write to it as unchanged, through several writes of it in a row", () => {
+    // The tablet held notes A; the server wrote B, which the tablet reported, then C, which it reported too.
+    const first = heldBefore({ ...wdt, notes: "A" }, ["notes"]);
+    const second = heldBefore({ ...wdt, notes: "B" }, ["notes"], beforeWriteAfter(first, { ...wdt, notes: "B" }, { ...wdt, notes: "B" }));
+    expect(second).toEqual({ notes: "B" });
+    const written = { ...wdt, notes: "C" };
+    const standing = beforeWriteAfter(second, written, written);
+    // A page opened between the two writes saves B back: no edit.
+    expect(editedContent(written, { ...wdt, notes: "B" }, standing)).toEqual({});
+    // One opened before both saves A back, which is taken as an edit: only the value before the latest write is kept.
+    expect(editedContent(written, { ...wdt, notes: "A" }, standing)).toEqual({ notes: "A" });
+    // A third write keeps C, the value just before it.
+    expect(heldBefore(written, ["notes"], standing)).toEqual({ notes: "C" });
+  });
+
+  it("takes a field the server never wrote as the tablet's edit whatever it is set to, an earlier value of the tablet's own included", () => {
+    // The server wrote only the notes; the tablet had changed the diameter itself, from 58.4 to 58.6.
+    const before = heldBefore({ ...basket18, notes: "A" }, ["notes"]);
+    const known = { ...basket18, notes: "B", diameterMm: 58.6 };
+    // A save setting both back: the notes are unchanged, the diameter is an edit. So is a diameter of another value.
+    expect(editedContent(known, { ...known, notes: "A", diameterMm: 58.4 }, before)).toEqual({ diameterMm: 58.4 });
+    expect(editedContent(known, { ...known, diameterMm: 58.3 }, before)).toEqual({ diameterMm: 58.3 });
+    // A field the record held no value for, set to one, is an edit too.
+    expect(editedContent({ ...basket20, notes: "B" }, { ...basket20, notes: "B", colour: "black" }, heldBefore(basket20, ["notes"]))).toEqual({ colour: "black" });
+  });
+
   it("forgets a field's value before the server's write once the tablet sets it to a value of its own, so setting it back is an edit", () => {
     const written = { ...wdt, notes: "B" };
     const before = heldBefore({ ...wdt, notes: "A" }, ["notes"]);
