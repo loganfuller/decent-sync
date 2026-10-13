@@ -350,7 +350,7 @@ describe("DYE2's recipes as Recipes", () => {
     const changed = (variables: Record_) => {
       const record = recordOf(written);
       const view = recipeView({ ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), ...variables } });
-      return settingsValues(view, Object.keys(editedContent(written, view, null)));
+      return settingsValues(view, Object.keys(editedContent(written, view, null)), written);
     };
     expect(changed({ steamTimeS: 28, flushS: 4 })).toEqual({ "steamSettings.duration": 28, "rinseData.duration": 4 });
     // Switched to steaming by flow in DYE2's editor, which keeps the 32 s shown as 32 ml/s, its steam value is no edit; its
@@ -359,6 +359,11 @@ describe("DYE2's recipes as Recipes", () => {
     // DYE2's editor saves a blank field as 0, and leaves out the steam value of the other mode: neither is an edit.
     expect(changed({ steamTimeS: 0, flushS: 0 })).toEqual({});
     expect(changed({ steamMode: "flow", steamTimeS: undefined, steamFlowMls: 0 })).toEqual({});
+    // Nor in another steam mode than the record held, though the switch itself is no edit, as one set back to the mode it
+    // held before the server's latest write.
+    const record = recordOf(written);
+    const switchedBack = recipeView({ ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), steamMode: "flow", steamTimeS: undefined, steamFlowMls: 32 } });
+    expect(settingsValues(switchedBack, ["dashboardVariables.steamFlowMls"], written)).toEqual({});
     // A change of anything else edits no setting.
     expect(changed({ dose: 19, hotWaterTempC: 90 })).toEqual({});
   });

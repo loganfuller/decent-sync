@@ -379,5 +379,15 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
     }
     expect((await settingsAt(here)).values).toMatchObject(LOCATION);
     expect(await versions(settings)).toHaveLength(history.length);
+
+    // Switched back to steaming by time on the first tablet, which held it by time before the server's write, the switch is
+    // a stale save, and the 1.7 it carries over is still no steam time.
+    await editInDye2(one, "1", { "dashboardVariables.steamMode": "time", "dashboardVariables.steamFlowMls": undefined, "dashboardVariables.steamTimeS": 1.7 });
+    for (const tablet of [one, two]) {
+      await expect.poll(() => mirrored(tablet, "1"), { timeout: 15_000 }).toEqual({ steamMode: "flow", steamTimeS: undefined, steamFlowMls: 1.7, flushS: 6 });
+    }
+    expect((await settingsAt(here)).values).toMatchObject(LOCATION);
+    expect(await versions(settings)).toHaveLength(history.length);
+    expect(held(two)).toEqual(LOCATION);
   });
 });

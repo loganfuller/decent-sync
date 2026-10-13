@@ -314,7 +314,7 @@ export async function takeInRecipes(
           await editContent(tx, { kind: "recipe", id: itemId }, { values, at: record.updatedAt, seenAt: known.contentSeenAt }, source);
         }
         // A steam or flush value changed is an edit of the settings the record mirrors, not of the Recipe.
-        await editSettingsInRecipe(tx, tablet, locationId, settingsValues(view, Object.keys(edits)), record.updatedAt);
+        await editSettingsInRecipe(tx, tablet, locationId, settingsValues(view, Object.keys(edits), knownView), record.updatedAt);
       }
       // A field the tablet set to a value of its own no longer takes setting it back for a stale save, nor one it and the
       // Recipe both hold at its value before the server's write.
@@ -412,7 +412,7 @@ export async function recordRecipeWritten(
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
       const values = paths.length === 0 || !here ? {} : libraryValues(view, paths, content, await context(view));
       edited = await editContent(tx, ref, { values, at, seenAt: known.contentSeenAt }, source);
-      if (here) await editSettingsInRecipe(tx, tablet, locationId!, settingsValues(view, Object.keys(answered.values)), at);
+      if (here) await editSettingsInRecipe(tx, tablet, locationId!, settingsValues(view, Object.keys(answered.values), recipeView(known.record)), at);
       const now = await recordFor(tx, tablet, locationId, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, localId);
       stale = answered.stale && !holdsRecipe(view, now);
       staleSettings = !holdsRecord(view, now);
@@ -427,6 +427,8 @@ export async function recordRecipeWritten(
       const changed = Object.fromEntries(Object.entries(values).filter(([field, value]) => !sameValue(content[field], value)));
       edited = await editContent(tx, ref, { values: changed, at, seenAt: null }, source);
     }
+    // A record linked holds what was saved in the slot, its steam and flush values the tablet's own.
+    if (!known && linked) staleSettings = !holdsRecord(view, await recordFor(tx, tablet, locationId, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, localId));
     if (((edited?.writesDue ?? false) || staleSettings) && locationId !== null) await notify(tx, "library_changes", locationId);
     const holds = contentSeen !== null && !stale && (edited !== null ? !edited.lost : holdsRecipe(view, await recordFor(tx, tablet, locationId, ids, content, localId)));
     await saveRecord(tx, tablet.tabletId, itemId, localId, record, at, { contentSeen: holds ? contentSeen : null, listed: known?.listed ?? false, ...answeredBefore });

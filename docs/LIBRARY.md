@@ -990,9 +990,10 @@ never matched (ADR-0018).
   which DYE2's editor saves as 0 and leaves out for the steam mode not
   picked, is no edit, nor is a value the settings hold already, nor a field
   set back to its value before the server's latest write. Nor is a steam
-  value saved with a change of the recipe's steam mode: DYE2's editor keeps
-  the number shown as the mode is switched, so a 30 s time would become a
-  30 ml/s flow. The Recipe's steam mode changes, and the new mode's value is
+  value saved in another steam mode than the record held, whether or not the
+  switch is itself an edit, as one set back by a stale save is not: DYE2's
+  editor keeps the number shown as the mode is switched, so a 30 s time
+  would become a 30 ml/s flow. The Recipe's steam mode changes, and the new mode's value is
   written; Streamline, switching it as it saves a Workflow change into the
   recipe, has made that change in the Workflow too. A record the map
   does not hold, as one saved in a slot before the tablet held the Recipe, or

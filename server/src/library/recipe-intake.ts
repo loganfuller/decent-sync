@@ -293,20 +293,21 @@ export function editedPaths(changed: Readonly<Record<string, unknown>>): string[
  * record that mirror them (`MIRRORED_PATHS`) edits, each with its value: but
  * a blank one, which DYE2's editor saves as 0 and DYE2 leaves out as absent,
  * is no edit, so a recipe saved with blank fields never sets a wand to 0.
- * Nor is a steam value saved with a change of the record's steam mode: DYE2's
+ * Nor is a steam value saved in another steam mode than the record known
+ * (`known`) held, whether or not the switch is an edit of the Recipe: DYE2's
  * editor keeps the number shown as its mode is switched, so a 30 s steam time
  * would be saved as a 30 ml/s flow. The value of the new mode is written
  * then, and Streamline, switching it as it saves a Workflow change into the
  * recipe, made that change in the Workflow too.
  */
-export function settingsValues(view: Readonly<RecipeView>, fields: Iterable<string>): Partial<Record<SharedSetting, number>> {
-  const changed = new Set(fields);
+export function settingsValues(view: Readonly<RecipeView>, fields: Iterable<string>, known: Readonly<RecipeView>): Partial<Record<SharedSetting, number>> {
+  const switched = !sameValue(view[`${DV}.steamMode`], known[`${DV}.steamMode`]);
   const values: Partial<Record<SharedSetting, number>> = {};
-  for (const path of changed) {
+  for (const path of new Set(fields)) {
     const setting = MIRRORED_PATHS[path];
     const value = view[path];
     if (setting === undefined || typeof value !== "number" || !Number.isFinite(value) || value <= 0) continue;
-    if (setting.startsWith("steamSettings.") && changed.has(`${DV}.steamMode`)) continue;
+    if (setting.startsWith("steamSettings.") && switched) continue;
     values[setting] = value;
   }
   return values;
