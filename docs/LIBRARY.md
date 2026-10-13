@@ -119,7 +119,9 @@ Batch or Profile; a Grinder is Archived there too, or
 by archiving or deleting it on a tablet at its Location. What the Location offers is written
 to each of its tablets, with each batch's remaining weight there and each
 Profile visible, and what it does not offer is archived or hidden on them,
-never deleted, so their Shots still find it (Writing to tablets, below).
+never deleted, so their Shots still find it (Writing to tablets, below);
+but a Basket or Tool it does not show is removed from DYE2's list, which
+can hide nothing (Taking in a tablet's baskets and tools, below).
 
 ## Storage
 
@@ -1056,7 +1058,8 @@ says nothing new of what the tablet had seen of its Location's state
 
 The plugin (`plugin/src/library-writes.ts`) carries writes out through
 Decaid's API, one at a time, between its reads of the lists it writes to (the
-beans, bean batches, grinders and profiles), never during one
+beans, bean batches, grinders and profiles, and DYE2's baskets and
+equipment), never during one
 (`LibraryAccess`), and
 queues each answer in its outbox, behind
 every report read before the write. So the server takes in each report read
@@ -1423,7 +1426,8 @@ it.
   afresh, its Workflow first (Writing to tablets, above). Once they are
   taken in there, the tablet is written what the Location offers, its shown
   Profiles, the batches at it and their Beans, and its Grinders, and what it
-  does not offer is archived or hidden on the tablet, never deleted. The
+  does not offer is archived or hidden on the tablet, never deleted, but for
+  a Basket or Tool, removed from DYE2's list. The
   Workflow taken in as the tablet joins has had none of the Location's
   steam and rinse settings, so it sets only those the Location has not set
   yet, and is written the others, unless the Machine's sharing of them is
@@ -1745,8 +1749,7 @@ of its content, what a tablet is due and holds, the writer's waits and the
 gateway's answers, joining, hard deletes and sharing status on the server;
 the lists the plugin reports and how it writes, deletes and sets aside
 records; and history, Conflicts and sharing status in the management
-interface. A new kind, such as milestone 3's Recipe, Basket and Tool,
-needs:
+interface. A new kind, such as milestone 3's Recipe, needs:
 
 1. **The protocol** (`protocol/src/index.ts`): an entry in
    `LIBRARY_ITEM_KINDS`, in the order its list is read and written, after

@@ -1467,7 +1467,7 @@ model TabletLeftOut {
 model TabletReport {
   tabletId     String    @map("tablet_id") @db.Uuid
   tablet       Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
-  /// `beans`, `beanBatches`, `grinders`, `profiles` or `workflow`.
+  /// `beans`, `beanBatches`, `grinders`, `profiles`, `dye2Baskets`, `dye2Equipment` or `workflow`.
   report       String
   assignmentId String    @map("assignment_id") @db.Uuid
   locationId   String    @map("location_id") @db.Uuid
@@ -1505,9 +1505,9 @@ model WorkflowClear {
 model TabletRefusal {
   tabletId  String   @map("tablet_id") @db.Uuid
   tablet    Tablet   @relation(fields: [tabletId], references: [id], onDelete: Cascade)
-  /// What the writer skips it under: `writeKey`, `deleteKey` or `leaveOutKey` (holdings.ts).
+  /// What the writer skips it under: `writeKey`, `deleteKey`, `removeKey` or `leaveOutKey` (holdings.ts).
   changeKey String   @map("change_key")
-  /// `write`, `delete` or `leaveOut`.
+  /// `write`, `delete`, `remove` or `leaveOut`.
   change    String
   /// A Library kind, `settings` or `workflow`.
   kind      String
@@ -1535,7 +1535,7 @@ model TabletRefusal {
 model TabletLastApplied {
   tabletId  String   @id @map("tablet_id") @db.Uuid
   tablet    Tablet   @relation(fields: [tabletId], references: [id], onDelete: Cascade)
-  /// `write`, `delete` or `leaveOut`.
+  /// `write`, `delete`, `remove` or `leaveOut`.
   change    String
   kind      String
   itemId    String?  @map("item_id")

@@ -10,7 +10,7 @@ export type Fingerprint =
 
 /** What one read of a collection from Decaid's API gave. */
 export type Reading =
-  /** The read failed, or had nothing to report, such as a DYE2 key never written. */
+  /** The read failed, or had nothing to report, such as a machine's settings with no machine connected. */
   | { kind: "unavailable" }
   /** Decaid answered 304: the ETag sent with If-None-Match is still current. */
   | { kind: "notModified" }

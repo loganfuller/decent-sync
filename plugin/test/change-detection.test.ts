@@ -48,7 +48,7 @@ describe("collections compared by content", () => {
     expect(readInTurn([value(settings), unavailable, unavailable, value(settings), value(settings)]).sent).toEqual([true, true, false, true, false]);
   });
 
-  it("sends a collection unavailable from the start, such as a DYE2 key never written", () => {
+  it("sends a collection unavailable from the start, such as a machine's settings with no machine connected", () => {
     expect(readInTurn([unavailable, unavailable]).sent).toEqual([true, false]);
     expect(readInTurn([unavailable, unavailable], true).sent).toEqual([true, true]);
   });

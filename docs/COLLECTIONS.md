@@ -94,7 +94,8 @@ tests (`plugin/test/change-detection.test.ts`):
 - Whenever it sends the beans, it sends the bean batches in full after them,
   changed or not, as the server takes in a batch only once it knows the
   batch's bean (`LIBRARY.md`). The library's lists the server writes to (the
-  beans, bean batches, grinders and profiles) are read, and queued, between
+  beans, bean batches, grinders and profiles, and DYE2's baskets and
+  equipment) are read, and queued, between
   the server's writes to the tablet, never during one.
 - A newer delivery of a collection drops an older one still queued, unless
   the older one was ever handed to a connection. Such a delivery may still be
