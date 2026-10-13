@@ -338,6 +338,8 @@ describe("DYE2's recipes as Recipes", () => {
     const { steamMode: _mode, ...modeless } = slot1Content;
     expect(steamAndFlush(recipeRecord(modeless, 1, writing(otherIds, shared)))).toEqual([null, null, 6]);
     expect(steamAndFlush(recipeRecord(slot1Content, 1, writing(otherIds, {})))).toEqual([null, null, null]);
+    // Nor is a value of 0, as a Machine with sharing off may hold of its own.
+    expect(steamAndFlush(recipeRecord(slot1Content, 1, writing(otherIds, { ...OWN, "steamSettings.duration": 0, "rinseData.duration": 0 })))).toEqual([null, null, null]);
     // The blank recipe DYE2 saved, its steam flow and flush 0, is written the Location's, never 0.
     const blankContent = recipeContent(recipeView(blank), intake());
     expect(steamAndFlush(recipeRecord(blankContent, 3, writing(otherIds, shared)))).toEqual([null, 1.6, 6]);

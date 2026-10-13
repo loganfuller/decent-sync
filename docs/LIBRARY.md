@@ -1067,7 +1067,8 @@ written (`recipeRecord` in `recipe-intake.ts`) holds:
   its Machine's sharing of them is off, its own, as its Workflow last held
   them. Its steam time where its steam mode is `time`, its steam flow where
   it is `flow`, the other left out, as DYE2's editor shows a time whatever
-  the mode, and its flush time; a setting not known yet is left out. So
+  the mode, and its flush time; a setting not known yet, or of 0, is left
+  out. So
   applying a recipe, the DYE2 way or the Streamline way, sets the values the
   Workflow holds already, and one saved blank sets no 0. Applying one sets
   only the steam time or flow, never the steam temperature, so a Machine
@@ -1538,9 +1539,14 @@ it:
   So a Workflow steam time, steam flow or flush time of 0 is no edit, in a
   report or a write's answer, where the Location has set it, and the
   Location's value is written back (`blankApplied` in `recipe-intake.ts`);
-  the management interface still sets one. Such a copy's other values, as a
-  steam value carried over by a mode switch, or a new recipe's own, are
-  taken as edits if applied before the server rewrote the record (#161).
+  the management interface still sets one. Streamline's Auto Steam sets a
+  steam time of 0 too, to disarm the wand until a pitcher is picked, which
+  the Location's value is likewise written over: it does not work on a
+  Machine sharing the settings. A recipe never holds a value of 0, as a
+  Machine with sharing off may hold of its own (`recipeRecord`). Such a
+  copy's other values, as a steam value carried over by a mode switch, or a
+  new recipe's own, are taken as edits if applied before the server
+  rewrote the record (#161).
 - **Recipes applied from a stale copy.** DYE2's dashboard reads its recipes
   once, as it opens, and Streamline's strip keeps them until its page is
   shown again, often all day, so either may apply a recipe as it was before

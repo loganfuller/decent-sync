@@ -384,7 +384,7 @@ export interface WriteContext {
  * full Profile in `profileSnapshot`, so it applies where the Profile is
  * hidden; a blank barista and drinker; the steam and rinse settings it
  * mirrors (`MIRRORED_PATHS`), its steam's of its steam mode alone, and none
- * not known; the hot water value of its mode,
+ * not known or of 0; the hot water value of its mode,
  * with all four and its Bean Batch, by the tablet's id, in the record's own
  * field (RECIPE_FIELD); and `title`, `subtitle` and the embedded `workflow`
  * as DYE2 derives them (`recipeWorkflow`).
@@ -411,7 +411,12 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
   const hotWaterMode = content.hotWaterMode ?? null;
   const steamMode = content.steamMode ?? null;
   const value = (key: string) => content[key] ?? null;
-  const setting = (field: SharedSetting) => context.settings[field] ?? null;
+  // A value of 0, which only a Machine's own Workflow or the management interface holds, is left out, so applying the
+  // recipe never sets a wand to 0.
+  const setting = (field: SharedSetting) => {
+    const held = context.settings[field];
+    return typeof held === "number" && held > 0 ? held : null;
+  };
   const view: RecipeView = {
     name: value("name"),
     beverage: value("beverage"),
