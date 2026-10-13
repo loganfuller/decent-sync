@@ -642,18 +642,19 @@ export function NewBatchDialog({ bean, beans }: { bean?: { id: string; name: str
 }
 
 /** The existing Basket or Tool a new one would be, from a refusal. */
-function existingEquipment(caught: unknown): { id: string; name: string | null } | undefined {
+function existingEquipment(caught: unknown): { id: string; name: string | null; archived: boolean } | undefined {
   if (!(caught instanceof ApiError) || caught.status !== 409) return undefined;
   const existing = (caught.data as { existing?: unknown } | undefined)?.existing;
   return typeof existing === "object" && existing !== null && typeof (existing as { id?: unknown }).id === "string"
-    ? (existing as { id: string; name: string | null })
+    ? (existing as { id: string; name: string | null; archived: boolean })
     : undefined;
 }
 
 /**
  * Creates a Basket or Tool, shown at the Location chosen only, as one entered
  * on a tablet there is: Staff only at their own. One whose name the Library
- * has is refused, with a link to that one.
+ * has is refused, with a link to that one, to show at the Location, or
+ * restore if it is Archived.
  */
 export function NewEquipmentDialog({ kind }: { kind: "basket" | "tool" }) {
   const navigate = useNavigate();
@@ -682,11 +683,11 @@ export function NewEquipmentDialog({ kind }: { kind: "basket" | "tool" }) {
       setError(
         existing ? (
           <>
-            The Library has this {name} already:{" "}
+            The Library has this {name} already{existing.archived ? ", Archived" : ""}:{" "}
             <Link to={`${pages}/${existing.id}`} className="underline underline-offset-4" onClick={() => setOpen(false)}>
               {existing.name ?? `Unnamed ${name}`}
             </Link>
-            . Show that one at the Location on its page instead.
+            . {existing.archived ? "Restore it on its page instead." : "Show it at the Location on its page instead."}
           </>
         ) : (
           failure(caught, `The ${name} could not be created`)

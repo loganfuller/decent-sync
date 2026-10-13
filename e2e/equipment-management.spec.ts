@@ -232,6 +232,29 @@ test("Staff edit a Basket's content, but cannot show or hide it at a Location th
   }
 });
 
+test("creating a Tool whose name the Library has is refused, with a link to that Tool, which is to be restored if Archived", async ({ page }) => {
+  const lab = await createLocation(page, "Duplicate lab");
+  const created = await page.request.post("/api/tools", { data: { locationId: lab.id, content: { name: "Duplicate Puck Screen" } } });
+  baseExpect(created.status()).toBe(201);
+  const { id } = ((await created.json()) as { tool: { id: string } }).tool;
+  baseExpect((await page.request.put(`/api/tools/${id}/archived`, { data: { archived: true } })).status()).toBe(200);
+
+  await page.goto("/library/tools");
+  await page.getByRole("button", { name: "New Tool" }).click();
+  const dialog = page.getByRole("dialog", { name: "New Tool" });
+  await dialog.getByLabel("Shown at").click();
+  await page.getByRole("option", { name: "Duplicate lab" }).click();
+  await dialog.getByLabel("Name", { exact: true }).fill(" duplicate PUCK screen ");
+  await dialog.getByRole("button", { name: "Create" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("The Library has this Tool already, Archived");
+  await expect(dialog.getByRole("alert")).toContainText("Restore it on its page instead.");
+  await dialog.getByRole("link", { name: "Duplicate Puck Screen" }).click();
+  await expect(page.getByRole("heading", { name: "Duplicate Puck Screen", level: 1 })).toContainText("Archived");
+  await expect(page.getByRole("button", { name: "Restore" })).toBeVisible();
+  const { tools } = (await (await page.request.get("/api/tools")).json()) as { tools: { name: string }[] };
+  baseExpect(tools.filter((tool) => tool.name.toLowerCase().includes("puck screen"))).toHaveLength(1);
+});
+
 async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {
   const response = await page.request.post("/api/locations", { data: { name, timeZone: "America/Chicago" } });
   baseExpect(response.status()).toBe(201);

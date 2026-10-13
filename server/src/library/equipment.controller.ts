@@ -32,7 +32,7 @@ abstract class EquipmentController {
     return this.equipment.get(this.kind, readEquipmentId(this.kind, id));
   }
 
-  /** Creates one, shown at the Location: `{ locationId, content }`, its name required. 409, with the `existing` item, if one has its name. */
+  /** Creates one, shown at the Location: `{ locationId, content }`, its name required. 409, with the `existing` item and whether it is Archived, if one has its name. */
   protected async create(body: unknown, session: SignedIn): Promise<EquipmentView> {
     const { locationId, content } = readNewEquipment(this.kind, body);
     return this.equipment.get(this.kind, await this.edits.createEquipment(this.kind, locationId, content, session.account.id, session.scope));

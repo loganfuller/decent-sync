@@ -36,10 +36,10 @@ function itemApiPath(kind: ItemKind, id: string): string {
   return `${kind === "settings" ? "/location-settings" : LIBRARY_KINDS[kind].api}/${encodeURIComponent(id)}`;
 }
 
-/** A field's name as people read it: a Location's state of the item names the Location, and a field of its content is spelled out, as `roastDate` is "Roast date". */
 /** Content fields whose names do not spell out as people read them: a Basket's diameter, and a Tool's attributes, which DYE2 keeps as `custom`. */
 const FIELD_LABELS: Readonly<Record<string, string>> = { diameterMm: "Diameter (mm)", custom: "Attributes" };
 
+/** A field's name as people read it: a Location's state of the item names the Location, and a field of its content is spelled out, as `roastDate` is "Roast date". */
 export function fieldLabel(field: string, location: Location | null): string {
   if (location !== null) {
     if (field === "atLocation") return `At ${location.name}`;

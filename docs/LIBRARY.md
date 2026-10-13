@@ -115,7 +115,7 @@ A tablet holds only what its Machine's Location offers (ADR-0008):
 So a Bean with batches is offered only where they are: once its last batch
 at a Location is finished, it is no longer offered there. Archived items are
 offered nowhere. Only the management interface Archives a Bean, Bean
-Batch or Profile; a Grinder is Archived there too, or
+Batch, Profile, Basket or Tool; a Grinder is Archived there too, or
 by archiving or deleting it on a tablet at its Location. What the Location offers is written
 to each of its tablets, with each batch's remaining weight there and each
 Profile visible, and what it does not offer is archived or hidden on them,
@@ -230,9 +230,11 @@ can hide nothing (Taking in a tablet's baskets and tools, below).
 - `baskets` and `tools`: each Basket and Tool, by its global id, with its
   content, DYE2's record fields as the tablet that created it sent them, but
   the record's id, `createdAt` and global id, which belong to each tablet's
-  record, as edited since; its name as they are matched (`match_key`, kept to
-  its name as edited); whether it is Archived; the Location of the tablet
-  that created it; when it joined the Library; and its fields' latest edits.
+  record, as edited since, or as the management interface created it; its
+  name as they are matched (`match_key`, kept to its name as edited); whether
+  it is Archived; the Location it was created at, by a tablet there or in the
+  management interface; when it joined the Library; and its fields' latest
+  edits.
 - `basket_locations` and `tool_locations`: whether each is shown at a
   Location, a field of its own kept as `profile_locations` keeps a
   Profile's.
@@ -467,9 +469,12 @@ tablets, below).
   their lists, and from no other Location's. One created here is shown at
   the Location chosen only, as one entered on a tablet there is (ADR-0008),
   which records it as created there. One whose name, ignoring case and white
-  space at either end, is that of an item of its kind the Library has,
-  Archived or not, is refused, naming that item, as a tablet's would be that
-  one (ADR-0018); it is decided under the lock the kind's new records are
+  space at either end, is that of an item of its kind the Library has is
+  refused, naming that item and whether it is Archived, as a Bean is: one not
+  Archived is the item a tablet's record of that name would be (ADR-0018), to
+  be shown at the Location instead, and one Archived is to be restored rather
+  than duplicated, though a tablet's new record of that name, which is never
+  linked to an Archived item, joins the Library as a new one. It is decided under the lock the kind's new records are
   matched under (`lockMatching` in `equipment.ts`), so two are never created
   at once, through any instance, nor one beside a tablet's new record. An
   edit that gives one another's name is not refused, as for a Bean. A new
@@ -1632,8 +1637,8 @@ Every endpoint requires the account session; Staff read them as Admins do.
   item's (below).
 - `POST /api/baskets` and `POST /api/tools`, with `{ locationId, content }`,
   its name required, create one shown at that Location, and return `{ basket
-  }` or `{ tool }` with 201; 409 with `{ existing: { id, name } }` if the
-  Library has one of its kind of that name, Archived or not; 404 for no such
+  }` or `{ tool }` with 201; 409 with `{ existing: { id, name, archived } }` if
+  the Library has one of its kind of that name, Archived or not; 404 for no such
   Location; 403 for Staff at a Location they do not work at. `PATCH
   /api/baskets/:id` and `PATCH /api/tools/:id`, with `{ content }`, each
   field to change, null to clear it, edit one, and `PUT

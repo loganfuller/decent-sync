@@ -139,13 +139,13 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
     const basket = await create("baskets", lab, { name: "Duplicate 20g High-flow" });
     const refused = await api.call("POST", "/baskets", { locationId: lab.id, content: { name: "  duplicate 20G high-flow " } });
     expect(refused.status).toBe(409);
-    expect(await refused.json()).toMatchObject({ existing: { id: basket.id, name: "Duplicate 20g High-flow" } });
+    expect(await refused.json()).toMatchObject({ existing: { id: basket.id, name: "Duplicate 20g High-flow", archived: false } });
 
     const tool = await create("tools", lab, { name: "Duplicate WDT Tool" });
     expect((await archive("tools", tool.id, true)).status).toBe(200);
     const archivedRefusal = await api.call("POST", "/tools", { locationId: lab.id, content: { name: "Duplicate WDT tool" } });
     expect(archivedRefusal.status).toBe(409);
-    expect(await archivedRefusal.json()).toMatchObject({ existing: { id: tool.id } });
+    expect(await archivedRefusal.json()).toMatchObject({ existing: { id: tool.id, archived: true } });
     // A Basket and a Tool may share a name: each kind is matched by itself.
     expect((await api.call("POST", "/tools", { locationId: lab.id, content: { name: "Duplicate 20g High-flow" } })).status).toBe(201);
   });

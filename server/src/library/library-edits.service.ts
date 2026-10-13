@@ -211,9 +211,11 @@ export class LibraryEditsService {
   /**
    * Creates a Basket or Tool with the content, shown at the Location only,
    * as one entered on a tablet there is (ADR-0008). 404 if there is no such
-   * Location, 403 for Staff elsewhere, and 409, naming the item, if the
-   * Library has one of the kind of the same name already, Archived or not,
-   * as a tablet's would be that one (ADR-0018). Decided under the lock the
+   * Location, 403 for Staff elsewhere, and 409, naming the item and whether
+   * it is Archived, if the Library has one of the kind of the same name
+   * already, as a Bean is refused: one not Archived is the item a tablet's
+   * record of that name would be (ADR-0018), and one Archived is restored
+   * rather than duplicated. Decided under the lock the
    * kind's new records are matched under, so two are never created at once,
    * through any instance, nor one beside a tablet's new record.
    */
@@ -225,15 +227,15 @@ export class LibraryEditsService {
       await this.checkLocations(tx, [locationId]);
       await lockLocation(tx, locationId);
       const matchKey = equipmentMatchKey(String(content.name));
-      const [existing] = await tx.$queryRaw<{ id: string; content: unknown }[]>`
-        SELECT id::text AS id, content FROM ${Prisma.raw(description.table)} WHERE match_key = ${matchKey} ORDER BY created_at, id LIMIT 1`;
+      const [existing] = await tx.$queryRaw<{ id: string; content: unknown; archived: boolean }[]>`
+        SELECT id::text AS id, content, archived FROM ${Prisma.raw(description.table)} WHERE match_key = ${matchKey} ORDER BY created_at, id LIMIT 1`;
       if (existing) {
         const name = (existing.content as { name?: unknown } | null)?.name;
         throw new ConflictException({
           statusCode: 409,
           error: "Conflict",
           message: `The Library has a ${description.name} of this name already`,
-          existing: { id: existing.id, name: typeof name === "string" ? name : null },
+          existing: { id: existing.id, name: typeof name === "string" ? name : null, archived: existing.archived },
         });
       }
       const [created] = await tx.$queryRaw<[{ id: string }]>`
