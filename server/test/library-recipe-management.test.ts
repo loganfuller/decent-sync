@@ -2,7 +2,7 @@ import { GLOBAL_ID_KEY, RECIPE_FIELD, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
 import { dye2List } from "./support/simulated-dye2.js";
-import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
+import { NO_DYE2_LISTS, Refusal, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 and the REST API for ticket #143: Recipes created, edited, moved
@@ -475,6 +475,43 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect((await move(two.id, 1)).slot).toBe(1);
     held.clear();
     tablet.resumeUpload();
+    await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(two.id);
+    expect(server.output()).not.toMatch(/is still due Recipe .* once written/);
+  });
+
+  it("writes a Recipe moved away and back again in a slot whose record another app lost meanwhile", async () => {
+    const lab = await api.createLocation("Lost slot lab", "America/Chicago");
+    const machine = await api.createMachine("Lost slot lab 1", lab.id);
+    const held = new Set<string>();
+    const tablet = load(machine, 45101, server, (frame) => held.has(String((frame as { type?: unknown }).type)));
+    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+
+    // Written in slot 1, its answer held, and moved to the next free slot before the writer looks again.
+    held.add("written");
+    const two = await create(lab, 1, { name: "Lost Two" });
+    await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(two.id);
+    expect((await move(two.id, "next")).slot).toBe(2);
+
+    // Another app rewrites the list without it, which the plugin reads at its next poll (every 0.1 s here) and reports
+    // once the held answer is through, as its outbox sends one delivery at a time.
+    expect((await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", [])).status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+
+    // Decaid's store fails for a moment, so its removal from slot 1 and its write in slot 2 are refused; the report
+    // forgets its record in slot 1.
+    const restore = tablet.refuseFor("/store/dye2.reaplugin/recipes", new Refusal(500, { error: "Store unavailable" }));
+    const refusals = () => tablet.sent.filter((frame) => (frame as { type?: unknown }).type === "writeRefused").length;
+    held.clear();
+    tablet.resumeUpload();
+    await poll(refusals).toBeGreaterThanOrEqual(1);
+    // Its write in slot 2 refused too, once the report forgot its record in slot 1.
+    const refusedWrites = async () =>
+      (await send<{ status: { refused: { change: string }[] } }>("GET", `/machines/${machine.machine.id}/sharing-status`)).status.refused.filter((refused) => refused.change === "write").length;
+    await poll(refusedWrites).toBeGreaterThan(0);
+    restore();
+
+    // Moved back to slot 1: it is written there again, the map showing the tablet lacks it.
+    expect((await move(two.id, 1)).slot).toBe(1);
     await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(two.id);
     expect(server.output()).not.toMatch(/is still due Recipe .* once written/);
   });

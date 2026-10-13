@@ -670,6 +670,20 @@ export class SimulatedTablet {
   }
 
   /**
+   * Answers a route of Decaid's API with the refusal until the function
+   * returned is called, which serves what it held again, as Decaid failing
+   * for a moment does. Nothing is written to it meanwhile: a write reads it
+   * first.
+   */
+  refuseFor(route: string, refusal: Refusal): () => void {
+    const held = this.api[route];
+    this.api[route] = refusal;
+    return () => {
+      this.api[route] = held;
+    };
+  }
+
+  /**
    * Connects the machine to the tablet: /machine/info answers from now on,
    * and Decaid starts sending machine state updates, of which this delivers
    * one, with the state /machine/state answers.

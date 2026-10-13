@@ -1295,7 +1295,9 @@ item due again with the same fields it was last written, expecting the record
 to hold the same values, found due at every
 look since and with its record not gone from the tablet meanwhile, removed
 or found to be another item's, as a Recipe moved to another slot and back
-is, which writing again would not
+is, and, for a write creating its record, no report of the tablet's lists
+taken in since, which would show the tablet lacks it, as when another app
+rewriting a DYE2 list lost it, which writing again would not
 change, skips that item while the
 same is due to it: the fields, the values expected, and the decisions of the
 Location's state and of the item's content the write carries

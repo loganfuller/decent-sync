@@ -126,8 +126,16 @@ export class TabletWriter {
    * answer brought in, and is written again. A look the writer skips while it
    * waits for a report of the batches cannot tell, so it keeps them. The
    * tablet no longer holding the item's record forgets them (`recordGone`).
+   * A create (no record of the item on the tablet's map) due again after a
+   * report of the tablet's lists was taken in since is written again: the
+   * map shows the tablet lacks the record, as when another app's rewrite of a
+   * DYE2 list lost it, so writing it does change something. Each is kept
+   * with how many reports had been taken in when it was written
+   * (`reportsTakenIn`).
    */
-  private readonly lastWritten = new Map<string, string>();
+  private readonly lastWritten = new Map<string, { fields: string; reports: number }>();
+  /** How many reports of the tablet's lists this connection has taken in, as `lastWritten` tells a create due again since one from one due as it was. */
+  private reportsTakenIn = 0;
   /**
    * Where the connection's latest report of each list was taken in
    * (`standing`): its Location, and when the Machine's sharing was last
@@ -225,7 +233,10 @@ export class TabletWriter {
    * list its records are made under began (`awaitChildren`).
    */
   reported(list: TakenInList, takenInAt: string | null | undefined): void {
-    if (takenInAt !== undefined) this.reportedAt.set(list, takenInAt);
+    if (takenInAt !== undefined) {
+      this.reportedAt.set(list, takenInAt);
+      this.reportsTakenIn++;
+    }
     this.awaitingLists.delete(list);
     this.wake();
   }
@@ -318,7 +329,9 @@ export class TabletWriter {
       const item = "leaveOut" in due ? `${name} record ${due.localId}` : `${name} ${due.globalId}`;
       const fields =
         "delete" in due ? "delete" : "remove" in due ? "remove" : "leaveOut" in due ? "leaveOut" : JSON.stringify({ fields: due.fields, expected: due.expected ?? null });
-      if (this.lastWritten.get(key) === fields) {
+      const last = this.lastWritten.get(key);
+      const created = "fields" in due && due.localId === null;
+      if (last !== undefined && last.fields === fields && !(created && last.reports !== this.reportsTakenIn)) {
         this.log.warn(`Tablet ${this.tablet.tabletId} is still due ${item} once written; it is tried again once it changes or the tablet reconnects`);
         this.skipped.set(key, change.signature);
         // Shown with the tablet's refusals, so it does not wait unexplained.
@@ -333,7 +346,7 @@ export class TabletWriter {
         if (outcome === "timedOut") {
           this.log.warn(`Tablet ${this.tablet.tabletId} did not answer setting aside ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
         }
-        if (outcome === "written") this.lastWritten.set(key, fields);
+        if (outcome === "written") this.lastWritten.set(key, { fields, reports: this.reportsTakenIn });
         else this.skip(key, change.signature);
         continue;
       }
@@ -349,7 +362,7 @@ export class TabletWriter {
         if (outcome === "timedOut") {
           this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the delete of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
         }
-        if (outcome === "written") this.lastWritten.set(key, fields);
+        if (outcome === "written") this.lastWritten.set(key, { fields, reports: this.reportsTakenIn });
         else if (outcome === "deferred") this.defer(key);
         else this.skip(key, change.signature);
         continue;
@@ -367,7 +380,7 @@ export class TabletWriter {
           this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the removal of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
         }
         // Its record gone, the gateway has had it forget the item's last write (`recordGone`).
-        if (outcome === "written") this.lastWritten.set(key, fields);
+        if (outcome === "written") this.lastWritten.set(key, { fields, reports: this.reportsTakenIn });
         else this.skip(key, change.signature);
         continue;
       }
@@ -389,7 +402,7 @@ export class TabletWriter {
       if (outcome === "timedOut") {
         this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the write of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
       }
-      if (outcome === "written") this.lastWritten.set(key, fields);
+      if (outcome === "written") this.lastWritten.set(key, { fields, reports: this.reportsTakenIn });
       else this.skip(key, change.signature);
     }
   }
