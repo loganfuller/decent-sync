@@ -18,5 +18,5 @@ We rejected sharing only the stored recipes, picked up the next time a barista l
 
 - **Every tweak is the Recipe's.** A change to the dial on a Machine with a Recipe loaded changes it on every Machine at the Location. That is the intent: a dose is never changed for one customer.
 - **Matching can load a recipe nobody tapped.** A barista who dials in exactly a Recipe's profile, dose, yield, grinder and setting by hand loads it, which records what the Machine is doing anyway. Applying a DYE2 favourite while a Recipe is loaded is a change like any other: an edit of the Recipe, unless it changes the profile, grinder or Bean.
-- **The plugin writes more of the Workflow.** Beyond milestone 2's shared settings and the clearing on joining (ADR-0008), it writes a Loaded Recipe's values. ADR-0021's adapter therefore covers the hot water settings Streamline remembers, when the plugin writes them for a Loaded Recipe.
+- **The plugin writes more of the Workflow.** Beyond milestone 2's shared settings and the clearing on joining (ADR-0008), it writes a Loaded Recipe's values. A skin that remembers the hot water settings takes them as its own (ADR-0021).
 - **Shots name their Recipe.** Each Shot is linked to the Recipe loaded when it was pulled, so milestone 5 needs no inferred recipes.

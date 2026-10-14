@@ -41,7 +41,7 @@ import {
 import { type Answer, readShot, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
 import type { Outbox } from "./outbox.js";
-import { forgetInStreamline, rememberInStreamline } from "./streamline.js";
+import { keepStreamlineSteamTemperature } from "./streamline.js";
 import { randomUuid } from "./tablet-id.js";
 
 // The Library items the server shares, written to this tablet through
@@ -55,8 +55,8 @@ import { randomUuid } from "./tablet-id.js";
 // it to (`LibraryWrite.expected`), so a barista's change the tablet has not
 // reported yet is kept, and reaches the server in the answer (ADR-0020).
 // A Location's steam and rinse settings are written into the
-// tablet's Workflow the same way (ADR-0014), the values Streamline remembers
-// of them set first to match (ADR-0021), and so is the clearing of the
+// tablet's Workflow the same way (ADR-0014), with the steam temperature
+// Streamline remembers set to match (ADR-0021), and so is the clearing of the
 // Workflow's grinder and batch as its Machine joins a Location that does not
 // offer them (ADR-0008). A record of an item an Admin
 // hard-deleted is deleted the same way too, a Profile's purged, the one
@@ -649,11 +649,10 @@ async function writeProfile(write: LibraryWrite): Promise<WriteAnswer> {
  * reads the Workflow, then sets, through `PUT /workflow`, which Decaid merges
  * into it, the fields it still holds as the server expects, its steam
  * settings only while it keeps steam on: a barista may have turned steam off
- * since the tablet last reported, which stays on this Machine. Before it
- * sets them, it sets the values Streamline remembers of them to match
- * (`rememberInStreamline`), so Streamline does not push its own back, and
- * sets them back should Decaid refuse the Workflow (`forgetInStreamline`)
- * (ADR-0021). The answer is
+ * since the tablet last reported, which stays on this Machine. A skin that
+ * remembers them takes the Workflow's as its own, but for Streamline's steam
+ * temperature, which is set to match once Decaid has taken the Workflow
+ * (`keepStreamlineSteamTemperature`, ADR-0021). The answer is
  * the Workflow's steam and rinse parts as Decaid returned them,
  * or as read when nothing was left to set, timed now, as a Workflow carries
  * no time. Decaid refuses to change them while no machine is connected.
@@ -672,12 +671,10 @@ async function writeSettings(write: LibraryWrite, log: (message: string) => void
     Object.entries(settable(write, held)).filter(([field]) => steamOn || !(STEAM_SETTINGS as readonly string[]).includes(field)),
   );
   if (Object.keys(fields).length === 0) return written(write, workflowSettings(workflow), [], new Date().toISOString());
-  const remembered = await rememberInStreamline(fields, log);
   const answer = await request("PUT", "/workflow", settingsParts(fields));
-  // A write Decaid did not answer may still take, so what Streamline remembers stays set.
-  if (!answer.ok) await forgetInStreamline(remembered, log);
   const updated = answer.ok ? parsed(answer.text) : undefined;
   if (!isObject(updated)) return refused(write, answer.status, answer.text);
+  if ("steamSettings.targetTemperature" in fields) await keepStreamlineSteamTemperature(fields["steamSettings.targetTemperature"], log);
   return written(write, workflowSettings(updated), Object.keys(fields), new Date().toISOString());
 }
 

@@ -756,59 +756,25 @@ var __decentSync = (() => {
   }
 
   // src/streamline.ts
-  var NAMESPACE = "streamline-app";
-  var REMEMBERED = {
-    "steamSettings.duration": { key: "last-steam-duration" },
-    "steamSettings.flow": { key: "last-steam-flow" },
-    // Only a stop that is on: 0 is off (`setStopAtTemperature`).
-    "steamSettings.stopAtTemperature": { key: "last-milk-stop", remembers: (value) => value > 0 },
-    // The temperature Streamline turns steam back on at (`steamHeaterFor`), so never one that is off.
-    "steamSettings.targetTemperature": { key: "last-steam-temp", remembers: (value) => value >= STEAM_ON_FROM },
-    "hotWaterData.volume": { key: "last-hot-water-volume" },
-    "hotWaterData.targetTemperature": { key: "last-hot-water-temp" },
-    "rinseData.duration": { key: "last-flush-duration" }
-  };
-  async function rememberInStreamline(fields, log) {
-    const changes = [];
-    for (const [field, value] of Object.entries(fields)) {
-      const remembered = Object.prototype.hasOwnProperty.call(REMEMBERED, field) ? REMEMBERED[field] : void 0;
-      if (!remembered || typeof value !== "number" || !Number.isFinite(value) || remembered.remembers?.(value) === false) continue;
-      const { key } = remembered;
-      const path = `/store/${NAMESPACE}/${encodeURIComponent(key)}`;
-      try {
-        const held = await request("GET", path);
-        if (!held.ok) {
-          log(`Could not read Streamline's ${key}: Decaid answered ${held.status}. Streamline may set it back.`);
-          continue;
-        }
-        const stored = parsed(held.text);
-        if (stored === null || stored === value) continue;
-        if (typeof stored !== "number" || !Number.isFinite(stored)) {
-          log(`Streamline's ${key} holds something other than a number, so it is left as it is.`);
-          continue;
-        }
-        const set = await request("POST", path, value);
-        if (set.ok) changes.push({ key, before: stored, after: value });
-        else log(`Could not set Streamline's ${key}: Decaid answered ${set.status}. Streamline may set it back.`);
-      } catch (error) {
-        log(`Could not set Streamline's ${key} or the rest: Decaid did not answer (${error instanceof Error ? error.message : String(error)}). Streamline may set them back.`);
-        break;
-      }
-    }
-    return changes;
-  }
-  async function forgetInStreamline(changes, log) {
-    for (const { key, before, after } of changes) {
-      const path = `/store/${NAMESPACE}/${encodeURIComponent(key)}`;
-      try {
-        const held = await request("GET", path);
-        if (!held.ok || parsed(held.text) !== after) continue;
-        const set = await request("POST", path, before);
-        if (!set.ok) log(`Could not set Streamline's ${key} back: Decaid answered ${set.status}. Streamline may push a value the Workflow was refused.`);
-      } catch (error) {
-        log(`Could not set Streamline's ${key} or the rest back: Decaid did not answer (${error instanceof Error ? error.message : String(error)}). Streamline may push values the Workflow was refused.`);
+  var PATH = "/store/streamline-app/last-steam-temp";
+  async function keepStreamlineSteamTemperature(temperature, log) {
+    if (typeof temperature !== "number" || !Number.isFinite(temperature) || temperature < STEAM_ON_FROM) return;
+    try {
+      const held = await request("GET", PATH);
+      if (!held.ok) {
+        log(`Could not read Streamline's last-steam-temp: Decaid answered ${held.status}. Streamline may set the steam temperature back.`);
         return;
       }
+      const stored = parsed(held.text);
+      if (stored === null || stored === temperature) return;
+      if (typeof stored !== "number" || !Number.isFinite(stored)) {
+        log("Streamline's last-steam-temp holds something other than a number, so it is left as it is.");
+        return;
+      }
+      const set = await request("POST", PATH, temperature);
+      if (!set.ok) log(`Could not set Streamline's last-steam-temp: Decaid answered ${set.status}. Streamline may set the steam temperature back.`);
+    } catch (error) {
+      log(`Could not set Streamline's last-steam-temp: Decaid did not answer (${error instanceof Error ? error.message : String(error)}). Streamline may set the steam temperature back.`);
     }
   }
   function parsed(text) {
@@ -1233,11 +1199,10 @@ var __decentSync = (() => {
       Object.entries(settable(write, held)).filter(([field]) => steamOn || !STEAM_SETTINGS.includes(field))
     );
     if (Object.keys(fields).length === 0) return written(write, workflowSettings(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
-    const remembered = await rememberInStreamline(fields, log);
     const answer = await request("PUT", "/workflow", settingsParts(fields));
-    if (!answer.ok) await forgetInStreamline(remembered, log);
     const updated = answer.ok ? parsed2(answer.text) : void 0;
     if (!isObject2(updated)) return refused(write, answer.status, answer.text);
+    if ("steamSettings.targetTemperature" in fields) await keepStreamlineSteamTemperature(fields["steamSettings.targetTemperature"], log);
     return written(write, workflowSettings(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
   }
   async function clearWorkflow(write) {

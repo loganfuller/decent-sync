@@ -1,15 +1,20 @@
 import type { SimulatedTablet } from "./simulated-tablet.js";
 
 // Streamline (streamline-js) running as a simulated tablet's skin, as far as
-// it touches the shared settings, as at v0.2.12 (bf72a0c). The plugin is not
-// told of it: it calls Decaid's API as anything else on the tablet does
+// it touches the shared settings, as on `main` at 07be2b3 (2026-10-14), the
+// first builds Decent Sync supports (ADR-0017). The plugin is not told of it:
+// it calls Decaid's API as anything else on the tablet does
 // (`SimulatedTablet.callApi`).
 //
 // Streamline remembers what the barista last set for some settings in
 // Decaid's store, under `streamline-app` (the `*_LAST_VALUE_KEY` constants in
-// streamline-js:src/modules/api.js), and pushes a remembered value back
-// through `PUT /workflow` whenever the Workflow holds another, whoever
-// changed it (`resyncIfDrifted`). It checks:
+// streamline-js:src/modules/api.js), and compares the Workflow with it
+// (`resyncIfDrifted`, which `decideResync` in src/modules/resync-policy.js
+// decides for). A value the Workflow holds that differs from the one
+// remembered is adopted: kept in the store, nothing pushed (ADR-0021). It
+// pushes only its own push that has not reached the Workflow (`pending`), and
+// the value remembered for a setting the Workflow lacks, and it ignores a
+// differing value seen within `ECHO_WINDOW_MS` of its own push. It checks:
 //
 // - On every shot-settings frame from the machine, for steam duration and
 //   hot water volume and temperature (`resyncDriftedShotSettings` and
@@ -26,15 +31,23 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 //
 // Each push, and a barista's change made in Streamline (`set()`), goes
 // through Streamline's setter for the value, which keeps the value in the
-// store before it changes the Workflow (`setTargetHotWaterVolume` and the
-// others), but for the flush duration, kept after (`updateFlushValue` in
-// src/modules/ui.js). Its Auto steam mode, which pushes nothing, is left out.
+// store and marks it pending before it changes the Workflow, and clears the
+// mark once the Workflow took it (`pushRemembered`, used by
+// `setTargetHotWaterVolume` and the others). The steam temperature is kept
+// without a mark, and the flush duration only after the Workflow took it
+// (`updateFlushValue` in src/modules/ui.js). Left out: each profile's saved
+// steam time and flow, sent on a switch to it (`applySavedSteamSettings`), its
+// Auto steam mode, which writes back the steam settings it found on entering
+// it, and its 20 s Workflow poll, which only repaints its tiles (ADR-0021).
 
 /** Streamline's namespace in Decaid's store. */
 export const STREAMLINE_NAMESPACE = "streamline-app";
 
 /** How long Streamline waits before pushing a value it pushed on a shot-settings frame again (app.js). */
 export const RESYNC_COOLDOWN_MS = 30_000;
+
+/** How long after its own push Streamline ignores a differing value as a stale echo (resync-policy.js). */
+export const ECHO_WINDOW_MS = 10_000;
 
 /** The keys Streamline keeps the shared settings under (api.js). */
 export type StreamlineKey =
@@ -72,12 +85,23 @@ export async function startStreamline(tablet: SimulatedTablet, remembered: Parti
   return streamline;
 }
 
+/** What Streamline does with a value the Workflow holds (`decideResync`). */
+type Decision = { action: "none" } | { action: "push"; value: number } | { action: "adopt"; value: unknown };
+
 export class SimulatedStreamline {
   /** Each value Streamline pushed back over the Workflow, in order. */
   readonly pushes: { key: StreamlineKey; value: number }[] = [];
+  /** Streamline's clock, Date.now() unless a test holds it still, as to stay inside `ECHO_WINDOW_MS`. */
+  clock: () => number = () => Date.now();
+  /** Each value Streamline adopted from the Workflow, in order. */
+  readonly adopted: { key: StreamlineKey; value: unknown }[] = [];
+  /** Its own pushes not yet taken by the Workflow, kept per device (`readPendingPush`). */
+  private readonly pendingPushes = new Map<StreamlineKey, number>();
+  /** Its latest push of each key, and when, by `clock` (`lastOwnPush`). */
+  private readonly lastOwnPush = new Map<StreamlineKey, { value: number; at: number }>();
   /** The value of each field the last shot-settings frame carried. */
   private readonly lastSeen = new Map<string, number>();
-  /** When each field was last pushed, by Date.now(), as `lastResyncAt` keeps it. */
+  /** When each field was last pushed, by `clock`, as `lastResyncAt` keeps it. */
   private readonly lastResyncAt = new Map<string, number>();
   /** What Streamline is still doing in reply to a frame or a load. */
   private readonly pending = new Set<Promise<unknown>>();
@@ -125,8 +149,8 @@ export class SimulatedStreamline {
     this.stopListening();
   }
 
-  /** Keeps the value in Decaid's store, as `persistSharedValue` does. */
-  async keep(key: StreamlineKey, value: number): Promise<void> {
+  /** Keeps the value in Decaid's store, as `persistSharedValue` does: one adopted from the Workflow whatever it is. */
+  async keep(key: StreamlineKey, value: unknown): Promise<void> {
     const { status, body } = await this.tablet.callApi("POST", `/store/${STREAMLINE_NAMESPACE}/${key}`, value);
     if (status !== 200) throw new Error(`Decaid refused to keep ${key} with ${status}: ${JSON.stringify(body)}`);
   }
@@ -139,7 +163,7 @@ export class SimulatedStreamline {
 
   /** `resyncDriftedShotSettings`, for the frame the machine echoes after the Workflow changed. */
   private async shotSettings(workflow: Record_): Promise<void> {
-    const now = Date.now();
+    const now = this.clock();
     const checks: Promise<unknown>[] = [];
     for (const { field, key } of SHOT_SETTINGS_FIELDS) {
       const value = settingOf(workflow, field);
@@ -153,30 +177,32 @@ export class SimulatedStreamline {
     await Promise.allSettled(checks);
   }
 
-  /** `resyncIfDrifted`: pushes the value kept at the key if there is one and the Workflow holds another. */
+  /** `resyncIfDrifted`: adopts a value the Workflow holds that differs from the one kept, or pushes as `decide` says. Resolves with the value pushed, else null. */
   private async resyncIfDrifted(key: StreamlineKey, value: unknown): Promise<number | null> {
     const { body: remembered } = await this.tablet.callApi("GET", `/store/${STREAMLINE_NAMESPACE}/${key}`);
-    if (remembered === null || remembered === undefined || remembered === value) return null;
-    this.pushes.push({ key, value: remembered as number });
-    await this.push(key, remembered as number);
-    return remembered as number;
+    const decision = decide({ remembered, observed: value, pending: this.pendingPushes.get(key) ?? null, lastPush: this.lastOwnPush.get(key) ?? null, now: this.clock() });
+    if (decision.action === "adopt") {
+      this.adopted.push({ key, value: decision.value });
+      await this.keep(key, decision.value);
+      return null;
+    }
+    if (decision.action !== "push") return null;
+    this.pushes.push({ key, value: decision.value });
+    await this.push(key, decision.value);
+    return decision.value;
   }
 
   /** Streamline's setter for the value. */
   private async push(key: StreamlineKey, value: number): Promise<void> {
     switch (key) {
       case "last-hot-water-volume":
-        await this.keep(key, value);
-        return this.change({ hotWaterData: { volume: value } });
+        return this.pushRemembered(key, value, () => this.change({ hotWaterData: { volume: value } }));
       case "last-hot-water-temp":
-        await this.keep(key, value);
-        return this.change({ hotWaterData: { targetTemperature: value } });
+        return this.pushRemembered(key, value, () => this.change({ hotWaterData: { targetTemperature: value } }));
       case "last-steam-duration":
-        await this.keep(key, value);
-        return this.change({ steamSettings: { duration: value, ...(await this.steamHeaterFor(value)) } });
+        return this.pushRemembered(key, value, async () => this.change({ steamSettings: { duration: value, ...(await this.steamHeaterFor(value)) } }));
       case "last-steam-flow":
-        await this.keep(key, value);
-        return this.change({ steamSettings: { flow: value } });
+        return this.pushRemembered(key, value, () => this.change({ steamSettings: { flow: value } }));
       case "last-steam-temp": {
         const temperature = Math.round(value);
         if (temperature > 0) await this.keep(key, temperature);
@@ -184,13 +210,23 @@ export class SimulatedStreamline {
       }
       case "last-milk-stop": {
         const stop = Math.min(80, Math.max(0, value));
-        if (stop > 0) await this.keep(key, stop);
-        return this.change({ steamSettings: { stopAtTemperature: stop } });
+        const send = () => this.change({ steamSettings: { stopAtTemperature: stop } });
+        return stop > 0 ? this.pushRemembered(key, stop, send) : send();
       }
       case "last-flush-duration":
         await this.change({ rinseData: { duration: value } });
         return this.keep(key, value);
     }
+  }
+
+  /** `pushRemembered`: keeps the value and marks it pending, then sends it, clearing the mark once the Workflow took it. */
+  private async pushRemembered(key: StreamlineKey, value: number, send: () => Promise<void>): Promise<void> {
+    await this.keep(key, value);
+    this.lastOwnPush.set(key, { value, at: this.clock() });
+    this.pendingPushes.set(key, value);
+    await send();
+    this.lastOwnPush.set(key, { value, at: this.clock() });
+    this.pendingPushes.delete(key);
   }
 
   /** `steamHeaterFor`: steam off with a duration of 0, keeping the temperature it was at, and otherwise back at the one kept. */
@@ -209,6 +245,18 @@ export class SimulatedStreamline {
     const { status, body } = await this.tablet.callApi("PUT", "/workflow", parts);
     if (status !== 200) throw new Error(`Decaid refused Streamline's change with ${status}: ${JSON.stringify(body)}`);
   }
+}
+
+/** `decideResync`: what Streamline does with the value the Workflow holds, given the one it keeps. */
+function decide({ remembered, observed, pending, lastPush, now }: { remembered: unknown; observed: unknown; pending: number | null; lastPush: { value: number; at: number } | null; now: number }): Decision {
+  // Its own push the Workflow has not taken is tried again.
+  if (pending !== null && pending !== observed) return { action: "push", value: pending };
+  if (remembered === null || remembered === undefined) return { action: "none" };
+  // A setting the Workflow lacks is filled from the value kept.
+  if (observed === null || observed === undefined) return { action: "push", value: remembered as number };
+  if (remembered === observed) return { action: "none" };
+  if (lastPush && now - lastPush.at < ECHO_WINDOW_MS && observed !== lastPush.value) return { action: "none" };
+  return { action: "adopt", value: observed };
 }
 
 /** A setting of a Workflow by its name, such as `steamSettings.flow`. */
