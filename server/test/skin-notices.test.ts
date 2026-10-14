@@ -282,10 +282,10 @@ describe("Telling skins of Recipes changed in the management interface", { timeo
     for (const { machine } of [...lab, cafeMachine]) await api.waitForMachine(machine.name, (viewed) => viewed.online);
     const pushes = () => here.map((tablet) => tablet.pushes("changed").length);
 
-    /** Waits until each tablet at the Location holds `expected`, and has pushed since `before`. */
-    const pushedOnEach = async (before: number[], expected: string[]) => {
+    /** Waits until each tablet at the Location holds `expected`, and has pushed at least `count` times since `before`. */
+    const pushedOnEach = async (before: number[], expected: string[], count = 1) => {
       for (const tablet of here) await poll(() => slots(tablet)).toEqual(expected);
-      await poll(() => pushes().every((count, index) => count > before[index]!)).toBe(true);
+      await poll(() => pushes().every((pushed, index) => pushed - before[index]! >= count)).toBe(true);
     };
 
     let before = pushes();
@@ -297,8 +297,9 @@ describe("Telling skins of Recipes changed in the management interface", { timeo
     await pushedOnEach(before, ["1:Skin ristretto"]);
 
     before = pushes();
+    // Removed from slot 1, then written in slot 3, each pushed.
     await send("PUT", `/recipes/${created.id}/slot`, { slot: 3 });
-    await pushedOnEach(before, ["3:Skin ristretto"]);
+    await pushedOnEach(before, ["3:Skin ristretto"], 2);
 
     before = pushes();
     await send("PUT", `/recipes/${created.id}/slot`, { slot: null });
