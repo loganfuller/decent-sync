@@ -36,7 +36,7 @@ References written `<name>:<path>` are relative to that checkout. Use an existin
 |---|---|---|
 | `decaid` | [decentespresso/decaid](https://github.com/decentespresso/decaid), `$DECAID_DIR` | Verify host behavior in source at the oldest supported version (ADR-0017) and the version under investigation |
 | `dye2` | [decentespresso/dye2](https://github.com/decentespresso/dye2), existing checkout | Verify recipe, equipment and basket storage shapes and how DYE2 applies a recipe; milestone 3 writes them (ADR-0005) |
-| `streamline-js` | [decentespresso/streamline-js](https://github.com/decentespresso/streamline-js), existing checkout | Verify the settings Streamline remembers and pushes back, which the plugin's adapter follows (ADR-0021), and how its DYE strip applies DYE2 recipes and saves changes into them (ADR-0005, ADR-0022) |
+| `streamline-js` | [decentespresso/streamline-js](https://github.com/decentespresso/streamline-js), existing checkout | Verify the settings Streamline remembers, and that it adopts a Workflow change made elsewhere (ADR-0021), and how its DYE strip applies DYE2 recipes and saves changes into them (ADR-0005, ADR-0022) |
 | `decent-sync-plugin` | [loganfuller/decent-sync-plugin](https://github.com/loganfuller/decent-sync-plugin), `$DECENT_SYNC_PLUGIN_DIR` | Archived prototype, read-only prior art only |
 
 ## Task references

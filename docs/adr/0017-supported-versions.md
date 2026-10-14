@@ -1,5 +1,5 @@
 ---
-status: accepted (amended in place on 2026-10-07: the protocol version stays 1 until v1)
+status: accepted (amended in place on 2026-10-07: the protocol version stays 1 until v1; on 2026-10-14: Streamline only from builds that adopt Workflow changes made elsewhere)
 ---
 
 # A short window of Decaid and plugin versions, enforced at hello
@@ -21,4 +21,5 @@ We rejected checking the Decaid version in the plugin. The minimum would then mo
 - **de1app.** The plugin skips Decaid's imports from the legacy Tcl app (ids `de1app-*`, ADR-0004). Nothing else handles them.
 - **Unfamiliar fields are still accepted.** Validators ignore fields they do not know, and Decaid payloads are stored as sent, so a newer Decaid or plugin within the window doesn't break capture.
 - **Raising the Decaid minimum is a release step from v1.** Before tagging, check Decaid's releases and set `OLDEST_SUPPORTED_DECAID`. Once the server is upgraded, it refuses tablets below the new minimum, so the release notes name it.
+- **Skins.** The window covers Decaid and Decent Sync's own plugin and server. Of the skins, Streamline is supported only from builds that adopt a Workflow change made elsewhere rather than pushing their remembered value back (decentespresso/streamline-js#109, ADR-0021). For now, those builds are its `main` and its `dist` branch, which still reports 0.2.13. Its first release after v0.2.13 will include the change. Nothing is written for Streamline v0.2.13 or earlier.
 - **Older hardware stays supported.** The window covers software only. DE1s that report serial `"0"`, and Shots recorded before Decaid v0.7.6 that a supported Decaid still serves, are handled as ADR-0015 describes.
