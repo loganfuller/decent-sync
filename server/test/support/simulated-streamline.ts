@@ -35,9 +35,10 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 // mark once the Workflow took it (`pushRemembered`, used by
 // `setTargetHotWaterVolume` and the others). The steam temperature is kept
 // without a mark, and the flush duration only after the Workflow took it
-// (`updateFlushValue` in src/modules/ui.js). Its Auto steam mode, which
-// pushes nothing, and its 20 s Workflow poll, which only repaints its tiles,
-// are left out.
+// (`updateFlushValue` in src/modules/ui.js). Left out: each profile's saved
+// steam time and flow, sent on a switch to it (`applySavedSteamSettings`), its
+// Auto steam mode, which writes back the steam settings it found on entering
+// it, and its 20 s Workflow poll, which only repaints its tiles (ADR-0021).
 
 /** Streamline's namespace in Decaid's store. */
 export const STREAMLINE_NAMESPACE = "streamline-app";

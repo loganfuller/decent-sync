@@ -1712,7 +1712,8 @@ Workflow holds that differs from the one remembered, rather than pushing
 theirs back (ADR-0021, ADR-0017; the evidence is in `AI_RUNTIME_NOTES.md`,
 Skins). The steam temperature is the exception: Streamline never compares
 the one it remembers (`last-steam-temp`) with the Workflow, yet sends it
-with every steam time but 0 (`steamHeaterFor`). So once Decaid has taken a
+with every steam time but 0 (`steamHeaterFor`), as on a steam time change,
+a profile switch or its own retry. So once Decaid has taken a
 steam temperature the plugin wrote, of at least 135 °C (`STEAM_ON_FROM`),
 the plugin sets that key to match (`keepStreamlineSteamTemperature`,
 `plugin/src/streamline.ts`), where it holds a number, and sets nothing else
@@ -1720,7 +1721,11 @@ in a skin's namespace. A failure to read or set it is logged, and the
 answer the server gets is the same. Streamline v0.2.13 or earlier, or
 another skin that pushes what it remembers back, undoes the Location's
 changes on its Machine and shares its own, so that Machine's sharing of the
-settings needs turning off (ADR-0021).
+settings needs turning off (ADR-0021). Streamline also sends each profile's
+saved steam time and flow (`streamlineProfileOverrides`) on every switch to
+that profile and every wake with a wake profile set, and never takes a
+Workflow change into them, so such a switch becomes the Location's steam
+time and flow (ADR-0021).
 
 The plugin reads the Workflow, then writes the settings it still holds as
 the server expects, so a change made on the tablet in the moments between
