@@ -1,7 +1,7 @@
 import { PROTOCOL_VERSION } from "@decent-sync/protocol";
 import { parse } from "acorn";
 import { describe, expect, it } from "vitest";
-import { SimulatedTablet, loadPlugin, readBuiltPlugin } from "../../server/test/support/simulated-tablet.js";
+import { SimulatedTablet, declaredEndpoints, loadPlugin, readBuiltPlugin } from "../../server/test/support/simulated-tablet.js";
 
 describe("the built plugin", () => {
   const { source, manifest } = readBuiltPlugin();
@@ -18,9 +18,16 @@ describe("the built plugin", () => {
     expect(settings.PollSeconds).toMatchObject({ type: "number", default: 30 });
   });
 
-  it("declares the permissions it uses, plugin storage for the tablet's id among them", () => {
+  it("declares the permissions it uses, plugin storage for the tablet's id and emit for skins among them", () => {
     // Decaid installs an update that adds a permission only once someone approves it on the tablet.
-    expect(manifest.permissions).toEqual(["log", "api", "events.machine", "events.shots", "events.workflow", "network.websocket", "pluginStorage"]);
+    expect(manifest.permissions).toEqual(["log", "api", "emit", "events.machine", "events.shots", "events.workflow", "network.websocket", "pluginStorage"]);
+  });
+
+  it("declares the endpoints a skin uses, an HTTP skin and a WebSocket changed, each as Decaid reads one", () => {
+    expect(declaredEndpoints(manifest)).toEqual([
+      { id: "skin", type: "http" },
+      { id: "changed", type: "websocket" },
+    ]);
   });
 
   it("returns from onLoad at once, leaving reading Decaid's API and plugin storage and connecting to timers", () => {
@@ -30,6 +37,7 @@ describe("the built plugin", () => {
         log: () => {},
         transport: { open: () => calls.push("transport.open"), onEvent: () => {}, send: () => {}, close: () => {} },
         storage: () => calls.push("storage"),
+        emit: () => calls.push("emit"),
       },
       fetch: () => {
         calls.push("fetch");
@@ -44,6 +52,7 @@ describe("the built plugin", () => {
     expect(calls).not.toContain("fetch");
     expect(calls).not.toContain("storage");
     expect(calls).not.toContain("transport.open");
+    expect(calls).not.toContain("emit");
   });
 
   it("loads in a simulated tablet, and tries to connect from its timer", async () => {

@@ -16,6 +16,14 @@ export interface PluginHost {
    * (`_handlePluginStorage` in plugin_manager.dart).
    */
   storage(command: StorageCommand): void;
+  /**
+   * With `emit`, sends the payload, as JSON, to every WebSocket open on the
+   * plugin's endpoint of that name (`/ws/v1/plugins/{id}/{event}`), which the
+   * manifest declares. Returns nothing, and keeps nothing for a socket opened
+   * later. Without the permission it throws (`requirePermission` in
+   * plugin_manager.dart, `_handlePluginSocketEndpoint` in plugins_handler.dart).
+   */
+  emit(event: string, payload: unknown): void;
 }
 
 export type StorageCommand = { type: "read"; key: string } | { type: "write"; key: string; data: unknown };
@@ -48,10 +56,35 @@ export interface PluginEvent {
   payload?: unknown;
 }
 
+/**
+ * A request to one of the plugin's HTTP endpoints, `/api/v1/plugins/{id}/{endpoint}`,
+ * which Decaid dispatches only for an endpoint the manifest declares, with `api`
+ * (`_handlePluginApiEndpoint` in plugins_handler.dart).
+ */
+export interface HttpRequest {
+  requestId: string;
+  /** The endpoint's id in the manifest. */
+  endpoint: string;
+  method: string;
+  headers: Record<string, string>;
+  /** The body read as JSON, null when empty. */
+  body: unknown;
+  query: Record<string, string>;
+}
+
+/** What Decaid answers an HTTP request with; status 200 if none. */
+export interface HttpAnswer {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+}
+
 export interface Plugin {
   id: string;
   version: string;
   onLoad(settings: PluginSettings): void;
   onUnload(): void;
   onEvent(event: PluginEvent): void;
+  /** Answers the requests to the plugin's HTTP endpoints, as Decaid's loader finds it on the plugin. */
+  __httpRequestHandler(request: HttpRequest): HttpAnswer;
 }

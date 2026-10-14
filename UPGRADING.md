@@ -11,6 +11,35 @@ section).
 
 ## Unreleased
 
+### Approve the plugin update on every tablet
+
+The plugin now tells Streamline when it has written a tablet's DYE2
+recipes, so a dashboard left open shows a Recipe added, edited, moved or
+taken out of its slot at once, in its DYE strip, without the barista
+leaving and returning to it. That needs Decaid's `emit` permission. Decaid
+installs a plugin update by itself only when the update asks for no new
+permissions, so on each tablet this one waits under Decaid's Settings,
+Plugins, saying it needs approval and adds `emit`, until someone at that
+tablet presses **Review**, then **Approve and update**. From a computer on
+the same network, this does the same:
+
+```bash
+curl -X POST http://<tablet>:8080/api/v1/plugins/decent-sync.reaplugin/update/approve
+```
+
+Until a tablet's update is approved, it runs the plugin it has, from an
+earlier release, which this release does not support
+([ADR-0017](docs/adr/0017-supported-versions.md)).
+
+Streamline's builds with live plugin notifications
+([decentespresso/streamline-js#120](https://github.com/decentespresso/streamline-js/pull/120)
+and [#127](https://github.com/decentespresso/streamline-js/pull/127)) take
+the plugin's notice: its `dist` branch for now, or its first release after
+v0.2.13, which the next section asks for anyway. A dashboard that was hidden
+when the recipes changed, Streamline v0.2.13 and any other skin show the
+change once the dashboard is opened again, regains focus or becomes visible,
+as before.
+
 ### Run a Streamline build that keeps changes made elsewhere
 
 Streamline remembers what a barista last set for steam, hot water and flush.

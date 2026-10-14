@@ -85,6 +85,17 @@ import { rememberSecret, watchLog } from "./secrets.js";
 //   the answers. Its values belong to a `PluginStorage`, which outlives the
 //   load: give the next load of the same tablet the same one. Decaid's store API (`/store/{plugin id}`) reads the
 //   same values.
+// - `host.emit`, given only to a plugin whose manifest declares `emit`,
+//   sends its payload, through JSON, to the sockets open on the plugin's
+//   WebSocket endpoint of that name, keeping nothing for one opened later:
+//   `emits` lists what it sent, and `pushes` what a skin listening on an
+//   endpoint the manifest declares heard (`_handlePluginSocketEndpoint` in
+//   plugins_handler.dart); `failEmits` makes it throw. `callEndpoint` calls
+//   one of the plugin's HTTP endpoints as a skin does through
+//   `/api/v1/plugins/{id}/{endpoint}`, answered only for an `http` endpoint
+//   the manifest declares, with `api` (`_handlePluginApiEndpoint`). The
+//   manifest's `api` entries must each be shaped as Decaid's
+//   `ApiEndpoint.fromJson` reads them, or the plugin does not load.
 // - Unloading calls onUnload, then cancels the generation's timers and closes
 //   its transports, dropping their later events.
 // - Timers are the host's, so a test can run them faster with `timeScale` to
@@ -121,6 +132,35 @@ export interface BuiltPlugin {
   onLoad(settings: Record<string, unknown>): unknown;
   onUnload(): unknown;
   onEvent(event: { name: string; payload?: unknown }): unknown;
+  /** Answers the requests to the plugin's HTTP endpoints; Decaid's loader sets it from `handleHttpRequest` too. */
+  __httpRequestHandler?(request: Record<string, unknown>): unknown;
+  handleHttpRequest?(request: Record<string, unknown>): unknown;
+}
+
+/** An endpoint the plugin's manifest declares, as Decaid's `ApiEndpoint.fromJson` reads it (plugin_manifest.dart). */
+interface DeclaredEndpoint {
+  id: string;
+  type: "http" | "websocket";
+}
+
+/** The endpoints a manifest declares; throws for an entry Decaid v0.8.7 could not read, so would not load the plugin with. */
+export function declaredEndpoints(manifest: Record<string, unknown>): DeclaredEndpoint[] {
+  const api = manifest.api ?? [];
+  if (!Array.isArray(api)) throw new Error("The manifest's api must be a list");
+  return api.map((entry: unknown) => {
+    const { id, type, data } = (entry ?? {}) as Record<string, unknown>;
+    if (typeof id !== "string") throw new Error(`An api entry's id must be a string: ${JSON.stringify(entry)}`);
+    if (type !== "http" && type !== "websocket") throw new Error(`An api entry's type must be http or websocket: ${JSON.stringify(entry)}`);
+    if (typeof data !== "object" || data === null || Array.isArray(data)) throw new Error(`An api entry's data must be an object: ${JSON.stringify(entry)}`);
+    return { id, type };
+  });
+}
+
+/** What Decaid answers a request to one of the plugin's HTTP endpoints with: its body as sent, a string. */
+export interface EndpointAnswer {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
 }
 
 export function readBuiltPlugin(): { source: string; manifest: Record<string, unknown> } {
@@ -546,6 +586,10 @@ class TransportError extends Error {
 
 export class SimulatedTablet {
   readonly logs: string[] = [];
+  /** What the plugin emitted while loaded, in order: the endpoint it named, and the payload read back from the JSON Decaid sends. */
+  readonly emits: { event: string; payload: unknown }[] = [];
+  /** Makes `host.emit` throw this, as when Decaid refuses it, until cleared. */
+  failEmits?: Error;
   /** Decaid's storage for the plugin, which outlasts this load. */
   readonly storage: PluginStorage;
   /** The Decaid API routes the plugin requested, in order, such as "/machine/info". */
@@ -587,6 +631,9 @@ export class SimulatedTablet {
   refuseWrites?: (request: { method: string; route: string; body: unknown }) => DecaidAnswer | undefined;
   /** The plugin's id, which names its storage in Decaid's store API. */
   private readonly pluginId: string;
+  /** The endpoints the plugin's manifest declares. */
+  private readonly endpoints: DeclaredEndpoint[];
+  private readonly permissions: readonly string[];
   private readonly timeScale: number;
   private readonly apiDelayMs: (method: string, path: string) => number;
   private readonly answerOnArrival: boolean;
@@ -639,10 +686,17 @@ export class SimulatedTablet {
     watchLog("a simulated tablet's log", () => this.logs.join("\n"));
     const { source, manifest } = readBuiltPlugin();
     this.pluginId = String(manifest.id);
+    this.endpoints = declaredEndpoints(manifest);
     const permissions = manifest.permissions as string[];
+    this.permissions = permissions;
     this.plugin = loadPlugin(source, String(manifest.id), {
       host: {
         log: (message: unknown) => this.logs.push(String(message)),
+        emit: permissions.includes("emit")
+          ? (event: unknown, payload: unknown) => this.emit(event, payload)
+          : () => {
+              throw new Error(`Plugin ${String(manifest.id)} requires manifest permission emit`);
+            },
         transport: {
           open: (options: unknown) => this.open(options),
           onEvent: (handle: string, listener: (event: TransportEvent) => void) => this.onEvent(handle, listener),
@@ -886,6 +940,58 @@ export class SimulatedTablet {
       this.transports.clear();
       for (const socket of this.unnoticed) socket.terminate();
     }
+  }
+
+  /** Sends an emitted payload as Decaid does: through JSON, to the sockets open on the endpoint, none once unloaded. */
+  private emit(event: unknown, payload: unknown): void {
+    if (this.failEmits) throw this.failEmits;
+    if (this.unloaded) return;
+    this.emits.push({ event: String(event), payload: payload === undefined ? null : JSON.parse(JSON.stringify(payload)) });
+  }
+
+  /**
+   * What a skin listening on the plugin's WebSocket endpoint since the load
+   * heard: each payload emitted there. Throws for an endpoint the manifest
+   * does not declare as a WebSocket, which Decaid opens no socket on.
+   */
+  pushes(endpoint: string): unknown[] {
+    const declared = this.endpoints.find((candidate) => candidate.id === endpoint);
+    if (declared?.type !== "websocket") throw new Error(`Decaid opens no socket on ${endpoint}: the manifest does not declare it as a websocket endpoint`);
+    return this.emits.filter((emitted) => emitted.event === endpoint).map((emitted) => emitted.payload);
+  }
+
+  /**
+   * Calls one of the plugin's HTTP endpoints as a skin does, through
+   * `/api/v1/plugins/{id}/{endpoint}`: 404 for an endpoint the manifest does
+   * not declare, 403 without `api`, 400 for a WebSocket endpoint, and 500 if
+   * the plugin's handler throws or rejects; otherwise its answer, status 200
+   * if it gives none.
+   */
+  async callEndpoint(endpoint: string, options: { method?: string; query?: Record<string, string>; body?: unknown } = {}): Promise<EndpointAnswer> {
+    const json = (status: number, body: unknown): EndpointAnswer => ({ status, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const declared = this.endpoints.find((candidate) => candidate.id === endpoint);
+    if (this.unloaded) return json(404, { error: `plugin with ${this.pluginId} not loaded` });
+    if (!this.permissions.includes("api")) return json(403, { error: `PluginPermissionError: Plugin ${this.pluginId} requires manifest permission api` });
+    if (!declared) return json(404, { error: `endpoint ${endpoint} not available` });
+    if (declared.type !== "http") return json(400, { error: `endpoint ${endpoint} is not a http type` });
+    const handler = this.plugin.__httpRequestHandler;
+    if (typeof handler !== "function") throw new Error("The plugin has no __httpRequestHandler, so Decaid never answers the request");
+    const request = {
+      requestId: `${this.pluginId}_${endpoint}_${Date.now()}`,
+      endpoint,
+      method: options.method ?? "GET",
+      headers: {},
+      body: options.body === undefined ? null : JSON.parse(JSON.stringify(options.body)),
+      query: options.query ?? {},
+    };
+    let answer: Record<string, unknown>;
+    try {
+      answer = (await handler.call(this.plugin, request)) as Record<string, unknown>;
+    } catch (error) {
+      return json(500, { error: String(error) });
+    }
+    const headers = Object.fromEntries(Object.entries((answer.headers ?? {}) as Record<string, unknown>).map(([name, value]) => [name, String(value)]));
+    return { status: typeof answer.status === "number" ? answer.status : 200, headers, body: String(answer.body ?? "") };
   }
 
   /** Resolves with the first log line, past or future, that matches. */
@@ -1618,6 +1724,7 @@ export function loadPlugin(source: string, manifestId: string, scope: PluginScop
   if (plugin.id !== manifestId) {
     throw new Error(`Plugin ID mismatch. Expected: ${manifestId}, Got: ${plugin.id}`);
   }
+  if (typeof plugin.handleHttpRequest === "function") plugin.__httpRequestHandler = plugin.handleHttpRequest;
   return plugin;
 }
 

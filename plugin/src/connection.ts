@@ -21,6 +21,7 @@ import { MachineEvents } from "./machine-events.js";
 import { Outbox } from "./outbox.js";
 import { Sender } from "./sender.js";
 import { ShotCapture } from "./shots.js";
+import { tellSkins } from "./skins.js";
 import type { SyncSettings } from "./settings.js";
 import { SteamCapture } from "./steams.js";
 import { PluginStorage } from "./storage.js";
@@ -184,6 +185,7 @@ export class SyncConnection {
         if (this.sentHardware !== null) this.machineAway = true;
       },
       log,
+      tellSkins(host, log),
     );
     this.tabletId = new TabletId(this.storage, log);
   }
