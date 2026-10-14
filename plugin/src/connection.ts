@@ -183,6 +183,7 @@ export class SyncConnection {
       () => {
         if (this.sentHardware !== null) this.machineAway = true;
       },
+      log,
     );
     this.tabletId = new TabletId(this.storage, log);
   }

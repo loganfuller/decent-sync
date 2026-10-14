@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { type SimulatedStreamline, type StreamlineKey, startStreamline } from "./support/simulated-streamline.js";
+import { STREAMLINE_NAMESPACE, type SimulatedStreamline, type StreamlineKey, startStreamline } from "./support/simulated-streamline.js";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -8,10 +8,11 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // last set for some of the steam, hot water and rinse settings in Decaid's
 // store. The builds Decent Sync supports adopt a value the Workflow holds
 // that differs from the one remembered, rather than pushing theirs back
-// (ADR-0021, ADR-0017). So the plugin writes a Location's settings into the
-// Workflow alone, never Streamline's keys, and Streamline keeps the
-// Location's. The Location's settings are steam and rinse alone, so hot water
-// stays each Machine's own (ADR-0014).
+// (ADR-0021, ADR-0017), but for the steam temperature, which Streamline sends
+// with every steam time and never adopts. So the plugin writes a Location's
+// settings into the Workflow, then sets Streamline's steam temperature to
+// match, and Streamline keeps the Location's. The Location's settings are
+// steam and rinse alone, so hot water stays each Machine's own (ADR-0014).
 // Through the built plugin in simulated tablets running the simulated
 // Streamline, with assertions through the REST API and what each simulated
 // tablet's Decaid holds. Serials are made up, from 23001.
@@ -152,12 +153,13 @@ describe("Streamline's remembered steam and rinse values", { timeout: 60_000 }, 
     const streamline = await streamlineOn(tablet);
     // The machine switched off, as for the night, while the tablet stays connected: Decaid refuses the Workflow.
     tablet.machineConnected = false;
-    expect((await change(settings, { "steamSettings.duration": 90 })).status).toBe(200);
+    expect((await change(settings, { "steamSettings.duration": 90, "steamSettings.targetTemperature": 150 })).status).toBe(200);
     await expect.poll(() => settingsAnswers(tablet).some((answer) => answer.type === "writeRefused"), { timeout: 10_000 }).toBe(true);
+    // The steam temperature is set only once Decaid has taken the Workflow.
     expect(tablet.storeWrites).toEqual([]);
-    expect(streamline.remembered("last-steam-duration")).toBe(120);
+    expect([streamline.remembered("last-steam-duration"), streamline.remembered("last-steam-temp")]).toEqual([120, 160]);
     // Set back before the machine returns, the Location's value is what the tablet holds, so nothing is written to it.
-    expect((await change(settings, { "steamSettings.duration": 120 })).status).toBe(200);
+    expect((await change(settings, { "steamSettings.duration": 120, "steamSettings.targetTemperature": 160 })).status).toBe(200);
     tablet.connectMachine();
     await tablet.waitForLog(/The machine is connected again/);
     await streamline.reload();
@@ -182,10 +184,83 @@ describe("Streamline's remembered steam and rinse values", { timeout: 60_000 }, 
     expect(streamline.pushes).toEqual([]);
     expect(streamline.adopted).toEqual([{ key: "last-steam-flow", value: 2 }]);
     expect(streamline.remembered("last-steam-flow")).toBe(2);
-    expect(tablet.storeWrites).toEqual([]);
+    // Streamline never adopts the steam temperature, so the plugin set it.
+    expect(streamline.remembered("last-steam-temp")).toBe(150);
+    expect(tablet.storeWrites).toEqual([{ namespace: STREAMLINE_NAMESPACE, key: "last-steam-temp", value: 150 }]);
     expect(setting(tablet, "steamSettings.flow")).toBe(2);
     expect((await settingsAt(location)).values["steamSettings.flow"]).toBe(2);
     expect(await versionsBy(settings, machines[0]!)).toHaveLength(1);
+  });
+
+  it("keeps a steam temperature changed in the management interface when a barista then changes the steam time in Streamline, which sends its remembered temperature with it", async () => {
+    const { location, machines, tablets, settings } = await cafe("Steam temperature", 23091, 23092);
+    const [first, second] = tablets as [SimulatedTablet, SimulatedTablet];
+    const [mine, theirs] = [await streamlineOn(first), await streamlineOn(second)];
+    expect((await change(settings, { "steamSettings.targetTemperature": 150 })).status).toBe(200);
+    for (const tablet of tablets) await holds(tablet, { "steamSettings.targetTemperature": 150 });
+    for (const [tablet, skin] of [[first, mine], [second, theirs]] as const) {
+      expect(skin.remembered("last-steam-temp")).toBe(150);
+      expect(tablet.storeWrites).toEqual([{ namespace: STREAMLINE_NAMESPACE, key: "last-steam-temp", value: 150 }]);
+    }
+    // Streamline's steam time setter sends the steam temperature it remembers along with it (`steamHeaterFor`).
+    await mine.set("last-steam-duration", 100);
+    await holds(second, { "steamSettings.duration": 100 });
+    await Promise.all([mine.settled(), theirs.settled()]);
+    for (const tablet of tablets) expect(setting(tablet, "steamSettings.targetTemperature")).toBe(150);
+    expect((await settingsAt(location)).values).toMatchObject({ "steamSettings.duration": 100, "steamSettings.targetTemperature": 150 });
+    expect((await versionsBy(settings, machines[0]!))[0]).toMatchObject({ fields: { "steamSettings.duration": 100 } });
+    expect((await versionsBy(settings, machines[0]!))[0]!.fields).not.toHaveProperty(["steamSettings.targetTemperature"]);
+  });
+
+  it("sets no steam temperature on a tablet where Streamline keeps none, nor over a key holding anything but a number", async () => {
+    const { tablets, settings } = await cafe("Plain", 23031, 23032);
+    const [kept, none] = tablets as [SimulatedTablet, SimulatedTablet];
+    expect((await kept.callApi("POST", `/store/${STREAMLINE_NAMESPACE}/last-steam-temp`, "hot")).status).toBe(200);
+    expect((await change(settings, { "steamSettings.targetTemperature": 150 })).status).toBe(200);
+    for (const tablet of tablets) await holds(tablet, { "steamSettings.targetTemperature": 150 });
+    await kept.waitForLog(/Streamline's last-steam-temp holds something other than a number/);
+    for (const tablet of tablets) expect(tablet.storeWrites).toEqual([]);
+    expect([kept.storeValue(STREAMLINE_NAMESPACE, "last-steam-temp"), none.storeValue(STREAMLINE_NAMESPACE, "last-steam-temp")]).toEqual(["hot", null]);
+  });
+
+  it("lets Streamline push a barista's change Decaid refused once the machine is back, over a Location change made since", async () => {
+    const { location, tablets, settings } = await cafe("Pending", 23101);
+    const [tablet] = tablets as [SimulatedTablet];
+    const streamline = await streamlineOn(tablet);
+    tablet.machineConnected = false;
+    // Streamline keeps the value and marks it pending before Decaid refuses it.
+    await expect(streamline.set("last-steam-duration", 100)).rejects.toThrow(/refused Streamline's change/);
+    expect((await change(settings, { "steamSettings.duration": 90 })).status).toBe(200);
+    await expect.poll(() => settingsAnswers(tablet).some((answer) => answer.type === "writeRefused"), { timeout: 10_000 }).toBe(true);
+    tablet.connectMachine();
+    // The server writes the Location's 90 again, and Streamline, on the machine's echo of it, pushes its pending 100, which becomes the Location's.
+    await expect.poll(() => streamline.pushes, { timeout: 10_000 }).toEqual([{ key: "last-steam-duration", value: 100 }]);
+    await expect.poll(async () => (await settingsAt(location)).values["steamSettings.duration"], { timeout: 10_000 }).toBe(100);
+    await holds(tablet, { "steamSettings.duration": 100 });
+  });
+
+  it("leaves a Location change written within 10 s of a barista's change in Streamline to the Workflow, Streamline keeping the barista's value", async () => {
+    const { location, tablets, settings } = await cafe("Echo", 23111);
+    const [tablet] = tablets as [SimulatedTablet];
+    const streamline = await streamlineOn(tablet);
+    // Streamline's clock held still, so what follows is inside ECHO_WINDOW_MS of its own push.
+    const now = Date.now();
+    streamline.clock = () => now;
+    await streamline.set("last-steam-duration", 100);
+    await expect.poll(async () => (await settingsAt(location)).values["steamSettings.duration"], { timeout: 10_000 }).toBe(100);
+    expect((await change(settings, { "steamSettings.duration": 90 })).status).toBe(200);
+    await holds(tablet, { "steamSettings.duration": 90 });
+    await streamline.settled();
+    // Taken as a stale echo of its own push: neither adopted nor pushed back over.
+    expect([streamline.pushes, streamline.adopted]).toEqual([[], []]);
+    expect(streamline.remembered("last-steam-duration")).toBe(100);
+    expect((await settingsAt(location)).values["steamSettings.duration"]).toBe(90);
+    // Once the window is over, Streamline adopts the Workflow's.
+    streamline.clock = () => now + 11_000;
+    await streamline.reload();
+    await streamline.settled();
+    expect(streamline.adopted).toEqual([{ key: "last-steam-duration", value: 90 }]);
+    expect(setting(tablet, "steamSettings.duration")).toBe(90);
   });
 
   it("leaves Streamline's milk stop as it is for a stop turned off, and the steam values while the Machine's steam is off", async () => {

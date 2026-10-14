@@ -90,15 +90,17 @@ type Decision = { action: "none" } | { action: "push"; value: number } | { actio
 export class SimulatedStreamline {
   /** Each value Streamline pushed back over the Workflow, in order. */
   readonly pushes: { key: StreamlineKey; value: number }[] = [];
+  /** Streamline's clock, Date.now() unless a test holds it still, as to stay inside `ECHO_WINDOW_MS`. */
+  clock: () => number = () => Date.now();
   /** Each value Streamline adopted from the Workflow, in order. */
   readonly adopted: { key: StreamlineKey; value: unknown }[] = [];
   /** Its own pushes not yet taken by the Workflow, kept per device (`readPendingPush`). */
   private readonly pendingPushes = new Map<StreamlineKey, number>();
-  /** Its latest push of each key, and when, by Date.now() (`lastOwnPush`). */
+  /** Its latest push of each key, and when, by `clock` (`lastOwnPush`). */
   private readonly lastOwnPush = new Map<StreamlineKey, { value: number; at: number }>();
   /** The value of each field the last shot-settings frame carried. */
   private readonly lastSeen = new Map<string, number>();
-  /** When each field was last pushed, by Date.now(), as `lastResyncAt` keeps it. */
+  /** When each field was last pushed, by `clock`, as `lastResyncAt` keeps it. */
   private readonly lastResyncAt = new Map<string, number>();
   /** What Streamline is still doing in reply to a frame or a load. */
   private readonly pending = new Set<Promise<unknown>>();
@@ -160,7 +162,7 @@ export class SimulatedStreamline {
 
   /** `resyncDriftedShotSettings`, for the frame the machine echoes after the Workflow changed. */
   private async shotSettings(workflow: Record_): Promise<void> {
-    const now = Date.now();
+    const now = this.clock();
     const checks: Promise<unknown>[] = [];
     for (const { field, key } of SHOT_SETTINGS_FIELDS) {
       const value = settingOf(workflow, field);
@@ -177,7 +179,7 @@ export class SimulatedStreamline {
   /** `resyncIfDrifted`: adopts a value the Workflow holds that differs from the one kept, or pushes as `decide` says. Resolves with the value pushed, else null. */
   private async resyncIfDrifted(key: StreamlineKey, value: unknown): Promise<number | null> {
     const { body: remembered } = await this.tablet.callApi("GET", `/store/${STREAMLINE_NAMESPACE}/${key}`);
-    const decision = decide({ remembered, observed: value, pending: this.pendingPushes.get(key) ?? null, lastPush: this.lastOwnPush.get(key) ?? null, now: Date.now() });
+    const decision = decide({ remembered, observed: value, pending: this.pendingPushes.get(key) ?? null, lastPush: this.lastOwnPush.get(key) ?? null, now: this.clock() });
     if (decision.action === "adopt") {
       this.adopted.push({ key, value: decision.value });
       await this.keep(key, decision.value);
@@ -219,10 +221,10 @@ export class SimulatedStreamline {
   /** `pushRemembered`: keeps the value and marks it pending, then sends it, clearing the mark once the Workflow took it. */
   private async pushRemembered(key: StreamlineKey, value: number, send: () => Promise<void>): Promise<void> {
     await this.keep(key, value);
-    this.lastOwnPush.set(key, { value, at: Date.now() });
+    this.lastOwnPush.set(key, { value, at: this.clock() });
     this.pendingPushes.set(key, value);
     await send();
-    this.lastOwnPush.set(key, { value, at: Date.now() });
+    this.lastOwnPush.set(key, { value, at: this.clock() });
     this.pendingPushes.delete(key);
   }
 
