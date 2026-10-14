@@ -54,8 +54,7 @@ import { randomUuid } from "./tablet-id.js";
 // it to (`LibraryWrite.expected`), so a barista's change the tablet has not
 // reported yet is kept, and reaches the server in the answer (ADR-0020).
 // A Location's steam and rinse settings are written into the
-// tablet's Workflow the same way (ADR-0014), the values Streamline remembers
-// of them set first to match (ADR-0021), and so is the clearing of the
+// tablet's Workflow the same way (ADR-0014), and so is the clearing of the
 // Workflow's grinder and batch as its Machine joins a Location that does not
 // offer them (ADR-0008). A record of an item an Admin
 // hard-deleted is deleted the same way too, a Profile's purged, the one
@@ -107,7 +106,7 @@ interface Route {
  */
 interface KindWriter {
   /** Carries out a write, and answers it. It may throw, as when Decaid does not answer. */
-  write(write: LibraryWrite, log: (message: string) => void): Promise<WriteAnswer>;
+  write(write: LibraryWrite): Promise<WriteAnswer>;
   /**
    * Whether its writes change the tablet's Workflow: the change of the
    * Workflow a write causes is held back until its answer is queued, so the
@@ -296,7 +295,6 @@ export class LibraryWrites {
     private readonly workflow: WorkflowChanges,
     /** Told when Decaid refuses a write of the shared settings as no machine is connected. */
     private readonly machineMissing: () => void,
-    private readonly log: (message: string) => void,
   ) {
     outbox.watch((delivery) => {
       if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shot);
@@ -371,12 +369,12 @@ export class LibraryWrites {
   /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
   apply(write: LibraryWrite): Promise<void> {
     if (!writerOf(write.kind)?.changesWorkflow) {
-      return this.library.run(async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write, this.log))));
+      return this.library.run(async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write))));
     }
     return this.library.run(async () => {
       this.workflow.hold();
       try {
-        const answer = await carryOut(write, this.log);
+        const answer = await carryOut(write);
         if (answer.type === "writeRefused" && answer.status === 500 && answer.error.includes("DeviceNotConnectedException")) this.machineMissing();
         this.outbox.enqueue(answer);
       } finally {
@@ -589,11 +587,11 @@ function deleted(remove: LibraryDelete): ItemDeleted {
 }
 
 /** Carries out a write, as its kind does (`KindWriter.write`). */
-async function carryOut(write: LibraryWrite, log: (message: string) => void): Promise<WriteAnswer> {
+async function carryOut(write: LibraryWrite): Promise<WriteAnswer> {
   const writer = writerOf(write.kind);
   if (!writer) return refused(write, null, `This plugin cannot write a ${write.kind}`);
   try {
-    return await writer.write(write, log);
+    return await writer.write(write);
   } catch (error) {
     return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
   }

@@ -920,12 +920,11 @@ var __decentSync = (() => {
     }
   };
   var LibraryWrites = class {
-    constructor(library, outbox, workflow, machineMissing, log) {
+    constructor(library, outbox, workflow, machineMissing) {
       __publicField(this, "library", library);
       __publicField(this, "outbox", outbox);
       __publicField(this, "workflow", workflow);
       __publicField(this, "machineMissing", machineMissing);
-      __publicField(this, "log", log);
       /**
        * The batch, Grinder and profile records the Shots this plugin queued since
        * it loaded name, as `kind:id`: a few per batch, Grinder and profile used.
@@ -990,12 +989,12 @@ var __decentSync = (() => {
     /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
     apply(write) {
       if (!writerOf(write.kind)?.changesWorkflow) {
-        return this.library.run(async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write, this.log))));
+        return this.library.run(async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write))));
       }
       return this.library.run(async () => {
         this.workflow.hold();
         try {
-          const answer = await carryOut(write, this.log);
+          const answer = await carryOut(write);
           if (answer.type === "writeRefused" && answer.status === 500 && answer.error.includes("DeviceNotConnectedException")) this.machineMissing();
           this.outbox.enqueue(answer);
         } finally {
@@ -1122,11 +1121,11 @@ var __decentSync = (() => {
   function deleted(remove) {
     return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
   }
-  async function carryOut(write, log) {
+  async function carryOut(write) {
     const writer = writerOf(write.kind);
     if (!writer) return refused(write, null, `This plugin cannot write a ${write.kind}`);
     try {
-      return await writer.write(write, log);
+      return await writer.write(write);
     } catch (error) {
       return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -2665,8 +2664,7 @@ var __decentSync = (() => {
         this.machineEvents,
         () => {
           if (this.sentHardware !== null) this.machineAway = true;
-        },
-        log
+        }
       );
       this.tabletId = new TabletId(this.storage, log);
     }
