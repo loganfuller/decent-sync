@@ -11,6 +11,20 @@ section).
 
 ## Unreleased
 
+### Run a Streamline build that keeps changes made elsewhere
+
+Streamline remembers what a barista last set for steam, hot water and flush.
+Up to v0.2.13 it pushed those values back over any change made elsewhere,
+so this plugin used to set Streamline's remembered values before writing a
+Location's settings. Streamline's builds since
+[decentespresso/streamline-js#109](https://github.com/decentespresso/streamline-js/pull/109)
+keep a change made elsewhere instead, and this release no longer sets
+Streamline's values. Run such a build on every tablet that uses Streamline:
+its `dist` branch for now, or its first release after v0.2.13. On a tablet
+still running v0.2.13, Streamline undoes the Location's steam and flush
+changes on its Machine and shares its own, so turn that Machine's settings
+sharing off until Streamline is updated.
+
 ### Hot water settings are no longer shared
 
 A Location's Machines now share only their steam and rinse settings. Each

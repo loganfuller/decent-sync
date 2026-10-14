@@ -42,7 +42,7 @@ import { rememberSecret, watchLog } from "./secrets.js";
 //   `null` for a key never set or deleted. A value starts as `api` serves it,
 //   and `storeWrites` records the plugin's writes. `startStreamline`
 //   (simulated-streamline.ts) runs Streamline as the tablet's skin, which
-//   pushes the values it keeps there back over the Workflow, as
+//   keeps values there and adopts a Workflow change made elsewhere, as
 //   streamline-js does, and simulated-dye2.ts replays what DYE2 and
 //   Streamline were recorded writing there and to the Workflow.
 // - Of Decaid's writes, it carries out only those to beans (`POST /beans`,

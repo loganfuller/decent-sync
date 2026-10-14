@@ -43,9 +43,10 @@ instead. Ticket [#92](https://github.com/loganfuller/decent-sync/issues/92)
 links each Shot to the Bean Batch, Grinder and Profile it used, through its
 tablet's map, so Shots are filtered by them and each item's page lists its
 Shots (`SHOTS.md`, Links to the Library). Ticket
-[#130](https://github.com/loganfuller/decent-sync/issues/130) has the plugin
-set the values Streamline remembers of the settings it writes, so Streamline
-keeps the Location's (Steam and rinse settings, below). Ticket
+[#130](https://github.com/loganfuller/decent-sync/issues/130) had the plugin
+set the values Streamline remembers of the settings it writes, until
+Streamline itself took a change made elsewhere (Steam and rinse settings,
+below). Ticket
 [#135](https://github.com/loganfuller/decent-sync/issues/135) describes each
 kind of Library item once on each side, so milestone 3's kinds are each
 added in one place (Adding a Library kind, below). Ticket
@@ -1706,46 +1707,14 @@ an edit lost (`recordSettingsWritten`).
 
 Streamline, a skin, remembers what the barista last set for some of the
 steam, hot water and rinse settings in Decaid's store, under
-`streamline-app`, and pushes a remembered value back through `PUT /workflow`
-whenever the Workflow holds another, whoever changed it: on the machine's echo of a Workflow change, for steam
-time and hot water volume and temperature, and each time it loads, for all
-of them but the steam temperature, which it sends only along with a steam
-time it pushes (ADR-0021; the evidence is in `AI_RUNTIME_NOTES.md`, Skins). So
-before the plugin sets the settings, it sets the value Streamline remembers
-of each one it is about to set, through Decaid's store API
-(`rememberInStreamline`, `plugin/src/streamline.ts`), then writes the
-Workflow, the order Streamline's own steam and hot water setters use:
-
-| Setting | Streamline's key | Only when |
-|---|---|---|
-| `steamSettings.duration` | `last-steam-duration` | |
-| `steamSettings.flow` | `last-steam-flow` | |
-| `steamSettings.stopAtTemperature` | `last-milk-stop` | above 0: Streamline remembers only a stop that is on |
-| `steamSettings.targetTemperature` | `last-steam-temp` | at least 135 °C (`STEAM_ON_FROM`): the temperature Streamline turns steam back on at |
-| `hotWaterData.volume` | `last-hot-water-volume` | a write carries it: none does yet, as a Location's settings carry no hot water, until a Loaded Recipe's is written (ADR-0022) |
-| `hotWaterData.targetTemperature` | `last-hot-water-temp` | as for the volume |
-| `rinseData.duration` | `last-flush-duration` | |
-
-It reads each key first (`GET /store/streamline-app/{key}`), and sets one
-(`POST`, a JSON number, as Streamline's `persistSharedValue` does) only
-where it holds another number: Decaid answers `null` for a key never set,
-which Streamline pushes nothing for, so a tablet that never ran Streamline
-is set no key, and a key holding anything else is left alone and logged.
-Only the settings that go into the `PUT` are set: not one a barista changed
-since the tablet last reported, nor steam settings while steam is off. If
-Decaid fails to read or set a key, the plugin logs it and writes the Workflow
-all the same, and Streamline may push its value back, as it did before. If
-Decaid then refuses the Workflow, the plugin sets each key it set back to
-what it held, where it still holds the value set
-(`forgetInStreamline`): left set, it would hold a value the Workflow never
-took, which Streamline pushes once it loads again, and which would undo
-the Location's value had that been set back meanwhile to what the Workflow
-holds, as the server would then have nothing to write. A write Decaid does
-not answer may still take, so its keys stay set. None of this changes
-the answer the server gets. Another skin that pushes what it remembers back,
-with no such adapter, undoes the Location's changes on its Machine and
-shares its own, so that Machine's sharing of the settings needs turning off
-(ADR-0021).
+`streamline-app`. The builds Decent Sync supports adopt a value the
+Workflow holds that differs from the one remembered, rather than pushing
+theirs back (ADR-0021, ADR-0017; the evidence is in `AI_RUNTIME_NOTES.md`,
+Skins), so the plugin writes the Workflow alone and sets nothing in a
+skin's namespace. Streamline v0.2.13 or earlier, or another skin that
+pushes what it remembers back, undoes the Location's changes on its Machine
+and shares its own, so that Machine's sharing of the settings needs turning
+off (ADR-0021).
 
 Decaid refuses (500, `DeviceNotConnectedException`) to change steam, hot
 water or rinse settings while no machine is connected to the tablet, as the
