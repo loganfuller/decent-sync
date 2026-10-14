@@ -1363,8 +1363,8 @@ says nothing new of what the tablet had seen of its Location's state
 
 The plugin (`plugin/src/library-writes.ts`) carries writes out through
 Decaid's API, one at a time, between its reads of the lists it writes to (the
-beans, bean batches, grinders and profiles, and DYE2's baskets and
-equipment), never during one
+beans, bean batches, grinders and profiles, and DYE2's baskets,
+equipment and recipes), never during one
 (`LibraryAccess`), and
 queues each answer in its outbox, behind
 every report read before the write. So the server takes in each report read
@@ -1489,7 +1489,12 @@ tablet's list of batches to show it does not.
   the write's fields and `capturedAt`. To update one, it sets each path the
   record still holds as the server expects. Whenever it posts DYE2's recipes
   back, it puts them in slot order, as every tablet at a Location holds
-  them: DYE2 adds a recipe saved in a new slot at the end.
+  them: DYE2 adds a recipe saved in a new slot at the end. Once Decaid has
+  taken a post of DYE2's recipes, whether a write, a removal, a set-aside or
+  a delete made it, the plugin pushes `{"what":"workflow"}` on its `changed`
+  endpoint, so Streamline's dashboard re-reads them (ticket #168,
+  `plugin/src/skins.ts`, `AI_RUNTIME_NOTES.md`, Skins). A write that posts
+  nothing pushes nothing, and a push Decaid refuses is only logged.
 - To set aside a record the Library leaves out (`leaveOut`), it reads the
   record, and archives a bean, bean batch or grinder (`PUT /beans/{id}`,
   `/bean-batches/{id}` or `/grinders/{id}` with `archived`, its `extras`

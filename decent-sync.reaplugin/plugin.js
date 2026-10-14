@@ -950,12 +950,13 @@ var __decentSync = (() => {
     }
   };
   var LibraryWrites = class {
-    constructor(library, outbox, workflow, machineMissing, log) {
+    constructor(library, outbox, workflow, machineMissing, log, posted) {
       __publicField(this, "library", library);
       __publicField(this, "outbox", outbox);
       __publicField(this, "workflow", workflow);
       __publicField(this, "machineMissing", machineMissing);
       __publicField(this, "log", log);
+      __publicField(this, "posted", posted);
       /**
        * The batch, Grinder and profile records the Shots this plugin queued since
        * it loaded name, as `kind:id`: a few per batch, Grinder and profile used.
@@ -972,7 +973,7 @@ var __decentSync = (() => {
     }
     /** Deletes a record of a hard-deleted item once the reads and writes before it are done, and queues its answer. It never rejects. */
     remove(remove) {
-      return this.library.run(async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutDelete(remove, (kind, ids) => this.namedByShot(kind, ids)))));
+      return this.library.run(async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutDelete(remove, (kind, ids) => this.namedByShot(kind, ids), this.posted))));
     }
     /**
      * Whether a Shot this plugin queued since it loaded, or has yet to read and
@@ -1006,7 +1007,7 @@ var __decentSync = (() => {
     }
     /** Removes a record from one of DYE2's lists once the reads and writes before it are done, and queues its answer. It never rejects. */
     drop(remove) {
-      return this.library.run(async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutRemove(remove))));
+      return this.library.run(async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutRemove(remove, this.posted))));
     }
     /** Has the next read of the kind's list reported whatever it holds, if it is one of DYE2's, which the plugin may just have written; returns the answer. */
     wrote(kind, answer) {
@@ -1015,17 +1016,17 @@ var __decentSync = (() => {
     }
     /** Sets aside a record the Library leaves out once the reads and writes before it are done, and queues its answer. It never rejects. */
     leaveOut(leave) {
-      return this.library.run(async () => this.outbox.enqueue(this.wrote(leave.kind, await setAside(leave))));
+      return this.library.run(async () => this.outbox.enqueue(this.wrote(leave.kind, await setAside(leave, this.posted))));
     }
     /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
     apply(write) {
       if (!writerOf(write.kind)?.changesWorkflow) {
-        return this.library.run(async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write, this.log))));
+        return this.library.run(async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write, this.log, this.posted))));
       }
       return this.library.run(async () => {
         this.workflow.hold();
         try {
-          const answer = await carryOut(write, this.log);
+          const answer = await carryOut(write, this.log, this.posted);
           if (answer.type === "writeRefused" && answer.status === 500 && answer.error.includes("DeviceNotConnectedException")) this.machineMissing();
           this.outbox.enqueue(answer);
         } finally {
@@ -1034,20 +1035,20 @@ var __decentSync = (() => {
       });
     }
   };
-  async function carryOutRemove(remove) {
+  async function carryOutRemove(remove, posted) {
     const drop = libraryWriterOf(remove.kind)?.drop;
     if (!drop) return refused(remove, null, `This plugin cannot remove a ${remove.kind}`);
     try {
-      return await drop(remove);
+      return await drop(remove, posted);
     } catch (error) {
       return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  async function carryOutDelete(remove, namedByShot) {
+  async function carryOutDelete(remove, namedByShot, posted) {
     const writer = libraryWriterOf(remove.kind);
     if (!writer) return refused(remove, null, `This plugin cannot delete a ${remove.kind}`);
     try {
-      return await writer.remove(remove, namedByShot);
+      return await writer.remove(remove, namedByShot, posted);
     } catch (error) {
       return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -1109,7 +1110,7 @@ var __decentSync = (() => {
   }
   var SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches";
   var MAX_SHOTS_READ = 20;
-  async function setAside(leave) {
+  async function setAside(leave, posted) {
     const answer = (outcome, status, error) => ({
       type: "leftOut",
       id: leave.id,
@@ -1121,7 +1122,7 @@ var __decentSync = (() => {
     const writer = libraryWriterOf(leave.kind);
     if (!writer) return answer("refused", null, `This plugin cannot set aside a ${leave.kind}`);
     try {
-      const outcome = await writer.setAside(leave);
+      const outcome = await writer.setAside(leave, posted);
       if (outcome === "unrecognised") return unrecognised(leave);
       return typeof outcome === "string" ? answer(outcome) : answer("refused", outcome.status, outcome.text);
     } catch (error) {
@@ -1152,11 +1153,11 @@ var __decentSync = (() => {
   function deleted(remove) {
     return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
   }
-  async function carryOut(write, log) {
+  async function carryOut(write, log, posted) {
     const writer = writerOf(write.kind);
     if (!writer) return refused(write, null, `This plugin cannot write a ${write.kind}`);
     try {
-      return await writer.write(write, log);
+      return await writer.write(write, log, posted);
     } catch (error) {
       return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -1355,17 +1356,17 @@ var __decentSync = (() => {
   }
   function dye2Writer(key) {
     const path = `/store/${DYE2_NAMESPACE}/${key}`;
-    const list = { path, key };
+    const list = (posted) => ({ path, key, posted });
     return {
       list: path,
-      write: (write) => key === "recipes" ? writeRecipe(list, write) : writeInList(list, write),
+      write: (write, _log, posted) => key === "recipes" ? writeRecipe(list(posted), write) : writeInList(list(posted), write),
       // A hard-deleted item's record is removed as one its Location no longer shows is: no Shot names it by its id here.
-      remove: async (remove) => {
-        const answer = await removeFromList(list, remove);
+      remove: async (remove, _namedByShot, posted) => {
+        const answer = await removeFromList(list(posted), remove);
         return answer.type === "removed" ? { ...answer, type: "deleted" } : answer;
       },
-      drop: (remove) => removeFromList(list, remove),
-      setAside: (leave) => leaveOutOfList(list, leave)
+      drop: (remove, posted) => removeFromList(list(posted), remove),
+      setAside: (leave, posted) => leaveOutOfList(list(posted), leave)
     };
   }
   async function readList({ path, key }) {
@@ -1376,9 +1377,11 @@ var __decentSync = (() => {
     const records = dye2Records(value, key);
     return records === null ? { unrecognised: true } : { records: [...records] };
   }
-  function postList({ path, key }, records) {
+  async function postList({ path, key, posted }, records) {
     const ordered = key === "recipes" ? [...records].sort((a, b) => Number(a.id) - Number(b.id)) : records;
-    return request("POST", path, ordered);
+    const answer = await request("POST", path, ordered);
+    if (answer.ok) posted(key);
+    return answer;
   }
   async function writeInList(path, write) {
     const list = await readList(path);
@@ -2346,6 +2349,30 @@ var __decentSync = (() => {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
   }
 
+  // src/skins.ts
+  var SKIN_ENDPOINT = "skin";
+  var CHANGED_ENDPOINT = "changed";
+  var SKIN_ANSWER = { version: 1, surfaces: [], live: { endpoint: CHANGED_ENDPOINT } };
+  var RECIPES_CHANGED = { what: "workflow" };
+  function answerHttp(request2) {
+    if (request2.endpoint !== SKIN_ENDPOINT) return json(404, { error: "Not found" });
+    if (request2.method !== "GET") return { ...json(405, { error: "Only GET is answered" }), headers: { "Content-Type": "application/json", Allow: "GET" } };
+    return json(200, SKIN_ANSWER);
+  }
+  function json(status, body) {
+    return { status, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  }
+  function tellSkins(host, log) {
+    return (key) => {
+      if (key !== "recipes") return;
+      try {
+        host.emit(CHANGED_ENDPOINT, RECIPES_CHANGED);
+      } catch (error) {
+        log(`Could not tell skins that DYE2's recipes changed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+  }
+
   // src/steams.ts
   var PAGE_SIZE2 = 100;
   var FULL_READ_INTERVALS = 10;
@@ -2697,7 +2724,8 @@ var __decentSync = (() => {
         () => {
           if (this.sentHardware !== null) this.machineAway = true;
         },
-        log
+        log,
+        tellSkins(host, log)
       );
       this.tabletId = new TabletId(this.storage, log);
     }
@@ -3132,7 +3160,9 @@ var __decentSync = (() => {
         if (event?.name === "workflowUpdated") connection?.workflowUpdated(event.payload);
         if (event?.name === "stateUpdate") connection?.stateUpdate(event.payload);
         if (event?.name === "storageRead" || event?.name === "storageWrite") connection?.storageEvent(event.name, event.payload);
-      }
+      },
+      // Answered whether or not the plugin connects: a skin asks every loaded plugin.
+      __httpRequestHandler: answerHttp
     };
   }
   return __toCommonJS(index_exports);

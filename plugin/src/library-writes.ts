@@ -72,7 +72,8 @@ import { randomUuid } from "./tablet-id.js";
 // its own, which DYE2 keeps when it saves. DYE2 can neither archive nor hide
 // a record, so one its Location stops offering is removed from the list. A
 // recipe's id is its Recipe Slot, and the plugin keeps the list in slot
-// order whenever it writes it.
+// order whenever it writes it. Once Decaid takes a post of DYE2's recipes,
+// the skins listening for changes are told (`ListPosted`, skins.ts).
 
 /** Where a kind's records live in Decaid's API, for the kinds whose records the plugin writes as they are (`recordWriter`). */
 interface Route {
@@ -108,7 +109,7 @@ interface Route {
  */
 interface KindWriter {
   /** Carries out a write, and answers it. It may throw, as when Decaid does not answer. */
-  write(write: LibraryWrite, log: (message: string) => void): Promise<WriteAnswer>;
+  write(write: LibraryWrite, log: (message: string) => void, posted: ListPosted): Promise<WriteAnswer>;
   /**
    * Whether its writes change the tablet's Workflow: the change of the
    * Workflow a write causes is held back until its answer is queued, so the
@@ -122,12 +123,15 @@ interface LibraryKindWriter extends KindWriter {
   /** Where Decaid's API lists the kind's records, archived or hidden ones included, which the plugin reports (`CollectionCapture`). */
   list: string;
   /** Deletes the tablet's record of a hard-deleted item (`carryOutDelete`), and answers it. It may throw, as `write` may. */
-  remove(remove: LibraryDelete, namedByShot: NamedByShot): Promise<DeleteAnswer>;
+  remove(remove: LibraryDelete, namedByShot: NamedByShot, posted: ListPosted): Promise<DeleteAnswer>;
   /** Sets aside a record the Library leaves out (`setAside`): what to answer, or that its list is in a shape not recognised. It may throw, as `write` may. */
-  setAside(leave: LeaveOut): Promise<ItemLeftOut["outcome"] | Answer | "unrecognised">;
+  setAside(leave: LeaveOut, posted: ListPosted): Promise<ItemLeftOut["outcome"] | Answer | "unrecognised">;
   /** For a kind DYE2 keeps, removes the tablet's record from its list, as its Location no longer offers the item (`LibraryRemove`). It may throw, as `write` may. */
-  drop?(remove: LibraryRemove): Promise<RemoveAnswer>;
+  drop?(remove: LibraryRemove, posted: ListPosted): Promise<RemoveAnswer>;
 }
+
+/** Told each time Decaid takes a post of one of DYE2's lists, under its key, and never when nothing was posted. It must not throw. */
+export type ListPosted = (key: Dye2Key) => void;
 
 /** Whether a Shot this plugin queued since it loaded, or has yet to send, names one of a kind's records (`LibraryWrites.namedByShot`). */
 type NamedByShot = (kind: LibraryKind, ids: ReadonlySet<string>) => Promise<boolean | "tooMany">;
@@ -298,6 +302,8 @@ export class LibraryWrites {
     /** Told when Decaid refuses a write of the shared settings as no machine is connected. */
     private readonly machineMissing: () => void,
     private readonly log: (message: string) => void,
+    /** Told of each post of one of DYE2's lists Decaid took. */
+    private readonly posted: ListPosted,
   ) {
     outbox.watch((delivery) => {
       if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shot);
@@ -317,7 +323,7 @@ export class LibraryWrites {
 
   /** Deletes a record of a hard-deleted item once the reads and writes before it are done, and queues its answer. It never rejects. */
   remove(remove: LibraryDelete): Promise<void> {
-    return this.library.run(async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutDelete(remove, (kind, ids) => this.namedByShot(kind, ids)))));
+    return this.library.run(async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutDelete(remove, (kind, ids) => this.namedByShot(kind, ids), this.posted))));
   }
 
   /**
@@ -355,7 +361,7 @@ export class LibraryWrites {
 
   /** Removes a record from one of DYE2's lists once the reads and writes before it are done, and queues its answer. It never rejects. */
   drop(remove: LibraryRemove): Promise<void> {
-    return this.library.run(async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutRemove(remove))));
+    return this.library.run(async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutRemove(remove, this.posted))));
   }
 
   /** Has the next read of the kind's list reported whatever it holds, if it is one of DYE2's, which the plugin may just have written; returns the answer. */
@@ -366,18 +372,18 @@ export class LibraryWrites {
 
   /** Sets aside a record the Library leaves out once the reads and writes before it are done, and queues its answer. It never rejects. */
   leaveOut(leave: LeaveOut): Promise<void> {
-    return this.library.run(async () => this.outbox.enqueue(this.wrote(leave.kind, await setAside(leave))));
+    return this.library.run(async () => this.outbox.enqueue(this.wrote(leave.kind, await setAside(leave, this.posted))));
   }
 
   /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
   apply(write: LibraryWrite): Promise<void> {
     if (!writerOf(write.kind)?.changesWorkflow) {
-      return this.library.run(async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write, this.log))));
+      return this.library.run(async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write, this.log, this.posted))));
     }
     return this.library.run(async () => {
       this.workflow.hold();
       try {
-        const answer = await carryOut(write, this.log);
+        const answer = await carryOut(write, this.log, this.posted);
         if (answer.type === "writeRefused" && answer.status === 500 && answer.error.includes("DeviceNotConnectedException")) this.machineMissing();
         this.outbox.enqueue(answer);
       } finally {
@@ -391,11 +397,11 @@ export class LibraryWrites {
  * Removes the tablet's record from one of DYE2's lists (`LibraryRemove`), as
  * its kind does (`LibraryKindWriter.drop`).
  */
-async function carryOutRemove(remove: LibraryRemove): Promise<RemoveAnswer> {
+async function carryOutRemove(remove: LibraryRemove, posted: ListPosted): Promise<RemoveAnswer> {
   const drop = libraryWriterOf(remove.kind)?.drop;
   if (!drop) return refused(remove, null, `This plugin cannot remove a ${remove.kind}`);
   try {
-    return await drop(remove);
+    return await drop(remove, posted);
   } catch (error) {
     return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -408,11 +414,11 @@ async function carryOutRemove(remove: LibraryRemove): Promise<RemoveAnswer> {
  * to be read (SHOTS_STILL_TO_READ), as during a backfill, which the server
  * asks again for soon, on the same connection.
  */
-async function carryOutDelete(remove: LibraryDelete, namedByShot: NamedByShot): Promise<DeleteAnswer> {
+async function carryOutDelete(remove: LibraryDelete, namedByShot: NamedByShot, posted: ListPosted): Promise<DeleteAnswer> {
   const writer = libraryWriterOf(remove.kind);
   if (!writer) return refused(remove, null, `This plugin cannot delete a ${remove.kind}`);
   try {
-    return await writer.remove(remove, namedByShot);
+    return await writer.remove(remove, namedByShot, posted);
   } catch (error) {
     return refused(remove, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -523,7 +529,7 @@ const MAX_SHOTS_READ = 20;
  * grinder, or hides a profile, unless it is so already. A record already
  * gone is `gone`.
  */
-async function setAside(leave: LeaveOut): Promise<ItemLeftOut | ListUnrecognised> {
+async function setAside(leave: LeaveOut, posted: ListPosted): Promise<ItemLeftOut | ListUnrecognised> {
   const answer = (outcome: ItemLeftOut["outcome"], status?: number | null, error?: string): ItemLeftOut => ({
     type: "leftOut",
     id: leave.id,
@@ -535,7 +541,7 @@ async function setAside(leave: LeaveOut): Promise<ItemLeftOut | ListUnrecognised
   const writer = libraryWriterOf(leave.kind);
   if (!writer) return answer("refused", null, `This plugin cannot set aside a ${leave.kind}`);
   try {
-    const outcome = await writer.setAside(leave);
+    const outcome = await writer.setAside(leave, posted);
     if (outcome === "unrecognised") return unrecognised(leave);
     return typeof outcome === "string" ? answer(outcome) : answer("refused", outcome.status, outcome.text);
   } catch (error) {
@@ -590,11 +596,11 @@ function deleted(remove: LibraryDelete): ItemDeleted {
 }
 
 /** Carries out a write, as its kind does (`KindWriter.write`). */
-async function carryOut(write: LibraryWrite, log: (message: string) => void): Promise<WriteAnswer> {
+async function carryOut(write: LibraryWrite, log: (message: string) => void, posted: ListPosted): Promise<WriteAnswer> {
   const writer = writerOf(write.kind);
   if (!writer) return refused(write, null, `This plugin cannot write a ${write.kind}`);
   try {
-    return await writer.write(write, log);
+    return await writer.write(write, log, posted);
   } catch (error) {
     return refused(write, null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -908,27 +914,32 @@ function isObject(value: unknown): value is Record<string, unknown> {
  */
 function dye2Writer(key: Dye2Key): LibraryKindWriter {
   const path = `/store/${DYE2_NAMESPACE}/${key}`;
-  const list = { path, key };
+  const list = (posted: ListPosted): ListPath => ({ path, key, posted });
   return {
     list: path,
-    write: (write) => (key === "recipes" ? writeRecipe(list, write) : writeInList(list, write)),
+    write: (write, _log, posted) => (key === "recipes" ? writeRecipe(list(posted), write) : writeInList(list(posted), write)),
     // A hard-deleted item's record is removed as one its Location no longer shows is: no Shot names it by its id here.
-    remove: async (remove) => {
-      const answer = await removeFromList(list, remove);
+    remove: async (remove, _namedByShot, posted) => {
+      const answer = await removeFromList(list(posted), remove);
       return answer.type === "removed" ? { ...answer, type: "deleted" } : answer;
     },
-    drop: (remove) => removeFromList(list, remove),
-    setAside: (leave) => leaveOutOfList(list, leave),
+    drop: (remove, posted) => removeFromList(list(posted), remove),
+    setAside: (leave, posted) => leaveOutOfList(list(posted), leave),
   };
 }
 
 /** A key DYE2 keeps one of its lists under. */
-type Dye2Key = "baskets" | "equipment" | "recipes";
+export type Dye2Key = "baskets" | "equipment" | "recipes";
 
-/** Where one of DYE2's lists is kept in Decaid's store, and its key there, which says what shape it is recognised in (`dye2Records`). */
+/**
+ * Where one of DYE2's lists is kept in Decaid's store, its key there, which
+ * says what shape it is recognised in (`dye2Records`), and what to tell of a
+ * post of it Decaid takes.
+ */
 interface ListPath {
   path: string;
   key: Dye2Key;
+  posted: ListPosted;
 }
 
 /** One of DYE2's lists as the tablet holds it: its records, or that it is in a shape not recognised, or Decaid's refusal to read it. */
@@ -947,11 +958,13 @@ async function readList({ path, key }: ListPath): Promise<Dye2List> {
 /**
  * Posts one of DYE2's lists back whole, DYE2's recipes in slot order, as
  * every tablet at a Location holds them (ADR-0005): DYE2 adds a recipe saved
- * in a new slot at the end.
+ * in a new slot at the end. A post Decaid takes is told of (`ListPosted`).
  */
-function postList({ path, key }: ListPath, records: Record<string, unknown>[]): Promise<Answer> {
+async function postList({ path, key, posted }: ListPath, records: Record<string, unknown>[]): Promise<Answer> {
   const ordered = key === "recipes" ? [...records].sort((a, b) => Number(a.id) - Number(b.id)) : records;
-  return request("POST", path, ordered);
+  const answer = await request("POST", path, ordered);
+  if (answer.ok) posted(key);
+  return answer;
 }
 
 /**

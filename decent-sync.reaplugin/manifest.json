@@ -8,6 +8,7 @@
   "permissions": [
     "log",
     "api",
+    "emit",
     "events.machine",
     "events.shots",
     "events.workflow",
@@ -33,5 +34,16 @@
       "description": "How often to check the machine, library, settings and paired devices for changes. At least 5."
     }
   },
-  "api": []
+  "api": [
+    {
+      "id": "skin",
+      "type": "http",
+      "data": {}
+    },
+    {
+      "id": "changed",
+      "type": "websocket",
+      "data": {}
+    }
+  ]
 }
