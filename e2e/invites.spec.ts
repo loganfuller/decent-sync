@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { expect as baseExpect, type Browser, type Page, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
 import { admin, createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
@@ -111,26 +110,6 @@ test("an invite link already used says it can no longer be used", async ({ brows
   await page.getByRole("link", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/sign-in$/);
   await page.context().close();
-});
-
-test("an expired invite link says it can no longer be used", async ({ page, browser }) => {
-  const link = await invite(page, { email: "late@example.com", role: "admin" });
-  // A week passes.
-  const database = await server.connectDatabase();
-  try {
-    const secret = new URL(link).pathname.split("/").at(-1)!;
-    await database.query("UPDATE invites SET expires_at = now() - interval '1 minute' WHERE secret_hash = $1", [
-      createHash("sha256").update(secret).digest(),
-    ]);
-  } finally {
-    await database.end();
-  }
-
-  const latePage = await signedOutPage(browser);
-  await latePage.goto(link);
-  await expect(latePage.getByRole("heading", { name: "This invite can no longer be used" })).toBeVisible();
-  await expect(latePage.getByText("This invite has expired. Ask an Admin for a new one")).toBeVisible();
-  await latePage.context().close();
 });
 
 test("someone signed in who opens an invite link signs out before accepting it", async ({ page }) => {

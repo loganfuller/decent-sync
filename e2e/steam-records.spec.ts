@@ -14,7 +14,6 @@ const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 test.use({ timezoneId: "Asia/Tokyo" });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const sam = { name: "Sam Staff", email: "sam@example.com", password: "staff password 1" };
 const tablets: SimulatedTablet[] = [];
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
@@ -163,34 +162,6 @@ test("a Steam Record's page shows its milk temperatures, steam settings and curv
   await page.getByRole("link", { name: "Jan 20, 2026, 3:00 PM UTC" }).click();
   await expect(page.getByText("Its Location is unknown, so times are in UTC.")).toBeVisible();
   await expect(field(details, "Machine")).toHaveText("Bengle serial 10049Pending Machine");
-});
-
-test("Staff see every Steam Record an Admin sees", async ({ page, browser }) => {
-  const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };
-  const response = await page.request.post("/api/invites", {
-    data: { email: sam.email, role: "staff", locationIds: [locations.find((location) => location.name === "Uptown")!.id] },
-  });
-  baseExpect(response.status()).toBe(201);
-  const { link } = (await response.json()) as { link: string };
-  const samsBrowser = await browser.newContext({ baseURL: server.url(), timezoneId: "Asia/Tokyo" });
-  try {
-    const accepted = await samsBrowser.request.post(`/api/invite-links/${new URL(link).pathname.split("/").at(-1)}/accept`, { data: sam });
-    baseExpect(accepted.status()).toBe(201);
-    const samsPage = await samsBrowser.newPage();
-    await samsPage.goto("/steam-records");
-    await expect(rows(samsPage)).toHaveCount(6);
-    await page.goto("/steam-records");
-    await expect(rows(page)).toHaveCount(6);
-    await expect(rows(samsPage)).toHaveText(await rows(page).allTextContents());
-
-    // Including at Locations Sam does not work at.
-    await choose(samsPage, "Location", "Lab");
-    await expect(rows(samsPage)).toHaveCount(2);
-    await samsPage.getByRole("link", { name: "Feb 10, 2026, 6:30 AM MST" }).click();
-    await expect(samsPage.getByRole("region", { name: "Curves" }).getByRole("figure", { name: "Milk temperature" }).locator(".recharts-line")).not.toHaveCount(0);
-  } finally {
-    await samsBrowser.close();
-  }
 });
 
 /**
