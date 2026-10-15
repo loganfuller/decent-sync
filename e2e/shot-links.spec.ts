@@ -78,8 +78,11 @@ test("a batch's page lists its Shots from both Locations, and the Shots list fil
   await page.getByRole("option", { name: "Any Grinder" }).click();
   await page.getByLabel("Bean Batch", { exact: true }).click();
   await page.getByRole("option", { name: "Not linked to a Bean Batch" }).click();
+  // The list filtered by Grinder also had one Shot, so wait for this one's row before counting.
+  const unlinked = list.getByRole("row", { name: /Lab group .* 60 Fixture Barista$/ });
+  await expect(unlinked).toBeVisible();
   await expect(list.getByRole("row")).toHaveCount(2);
-  await list.getByRole("row").nth(1).getByRole("link").first().click();
+  await unlinked.getByRole("link").first().click();
   await expect(field(page.getByLabel("Shot", { exact: true }), "Bean Batch")).toHaveText("Not in the Library");
 
   // A linked Shot's page links to what it used.
