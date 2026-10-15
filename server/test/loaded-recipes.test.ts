@@ -148,6 +148,21 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     expect(streamline.remembered("last-hot-water-temp")).toBe(HOT_WATER.targetTemperature);
     expect(streamline.pushes).toEqual([]);
     expect(tablet.workflow().hotWaterData).toEqual(HOT_WATER);
+
+    // Once a Shot is stored, Streamline clears the batch, grinder, Basket and RPM: the Recipe stays loaded.
+    const batch = context(tablet).beanBatchId;
+    await streamline.shotStored();
+    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }, { timeout: 15_000 }).toMatchObject({
+      workflow: { workflow: { context: { extras: { rpm: null } } } },
+    });
+    expect(context(tablet).beanBatchId).toBeUndefined();
+    expect(named(tablet)).toBe(one);
+    expect((await loadedRecipe(machine))?.recipe.id).toBe(one);
+    // Applied again, the Recipe's batch is written back, its Basket and RPM with it.
+    expect((await applyInStreamline(tablet, "1")).status).toBe(200);
+    await expect.poll(() => context(tablet).beanBatchId, { timeout: 15_000 }).toBe(batch);
+    expect(extras(tablet)).toMatchObject({ rpm: 900, basketId: (inSlot(tablet, "1")!.dashboardVariables as Record_).basketId });
+    expect(named(tablet)).toBe(one);
   });
 
   it("loads a recipe applied from a copy read before its dial changed, and writes its current values", async () => {

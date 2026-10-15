@@ -864,14 +864,29 @@ var __decentSync = (() => {
       return globalId !== null && isSlotId(record.id) ? [{ globalId, slot: Number(record.id), record }] : [];
     });
   }
-  function loadWrite(workflow, record, globalId, load, kept = /* @__PURE__ */ new Set()) {
+  function loadWrite(workflow, record, globalId, load, kept = /* @__PURE__ */ new Set(), keptWhereHeld = /* @__PURE__ */ new Set()) {
     const context = isObject2(workflow.context) ? workflow.context : {};
     const extras = isObject2(context.extras) ? context.extras : {};
     const variables = isObject2(record.dashboardVariables) ? record.dashboardVariables : {};
     const [dial] = recipeDials(record);
     const contextWrite = {};
     const extrasWrite = {};
-    const writes = (part) => !kept.has(part);
+    const hotWaterHeld = isObject2(workflow.hotWaterData) ? workflow.hotWaterData : {};
+    const holds = {
+      dose: context.targetDoseWeight,
+      yield: context.targetYield,
+      grind: context.grinderSetting,
+      grinder: context.grinderId,
+      profile: workflow.profile,
+      rpm: extras.rpm,
+      basket: extras.basketId,
+      batch: context.beanBatchId,
+      targetTemperature: hotWaterHeld.targetTemperature,
+      duration: hotWaterHeld.duration,
+      volume: hotWaterHeld.volume,
+      flow: hotWaterHeld.flow
+    };
+    const writes = (part) => !kept.has(part) && !(keptWhereHeld.has(part) && holds[part] !== null && holds[part] !== void 0);
     if (writes("dose") && dial.dose !== null && !sameNumber(dial.dose, numberOf(context.targetDoseWeight))) contextWrite.targetDoseWeight = dial.dose;
     if (writes("yield") && dial.yield !== null && !sameNumber(dial.yield, numberOf(context.targetYield))) contextWrite.targetYield = dial.yield;
     if (writes("grind") && dial.grind !== null && !sameGrind(dial.grind, grindOf(context.grinderSetting))) contextWrite.grinderSetting = dial.grind;
@@ -940,10 +955,13 @@ var __decentSync = (() => {
       const chosen = chooseLoad(after.dial, loaded, held, bean2);
       if (chosen) {
         const kept2 = new Set(picked ? ["batch"] : []);
-        if (pending.kind === "load" && pending.globalId === chosen.globalId) for (const part of pending.kept) kept2.add(part);
-        if (pending.kind === "none" && after.named === chosen.globalId) {
+        const same = pending.kind === "load" && pending.globalId === chosen.globalId;
+        if (same) {
+          for (const part of pending.kept) if (AFTER_LOADED.includes(part)) kept2.add(part);
+        }
+        if (pending.kind === "none" && after.named === chosen.globalId || same && pending.alone !== void 0) {
           const current = chosen.now.some((candidate) => matches(candidate, after.dial));
-          for (const part of current ? AFTER_LOADED : ["batch"]) kept2.add(part);
+          return { kind: "load", globalId: chosen.globalId, kept: kept2, alone: new Set(current ? AFTER_LOADED : ["batch"]) };
         }
         return { kind: "load", globalId: chosen.globalId, kept: kept2 };
       }
@@ -963,7 +981,7 @@ var __decentSync = (() => {
     const profiles = named((dial) => dial.profile);
     if (after.dial.profile !== before.dial.profile && profiles.length > 0 && !profiles.includes(after.dial.profile)) return true;
     const grinders = named((dial) => dial.grinder);
-    if (after.dial.grinder !== before.dial.grinder && grinders.length > 0 && !grinders.includes(after.dial.grinder)) return true;
+    if (after.dial.grinder !== before.dial.grinder && after.dial.grinder !== null && grinders.length > 0 && !grinders.includes(after.dial.grinder)) return true;
     return after.bean !== before.bean && after.bean !== null && bean !== null && after.bean !== bean;
   }
   function numberOf(value) {
@@ -2248,7 +2266,8 @@ var __decentSync = (() => {
      * Decaid answered the write with, or that nothing was left to write, or
      * otherwise with the Workflow Decaid holds, to be decided on first. A load writes the recipe's current
      * values and global id (`loadWrite`) but the parts changed since it was
-     * loaded; Decaid refuses to change the hot water settings while no machine
+     * loaded, and, for the recipe the Workflow names already, those it holds a
+     * value for but its dial (`alone`); Decaid refuses to change the hot water settings while no machine
      * is connected, so the rest is then written without them, the Workflow
      * read and checked again. An unload clears the global id the Workflow
      * names. Decaid has no conditional write, so a change made between the
@@ -2268,7 +2287,7 @@ var __decentSync = (() => {
       const context = pending.kept.has("batch") ? { ...await this.loadContext(recipe.record), batch: null } : await this.loadContext(recipe.record);
       let hotWater = false;
       const build = (withHotWater) => (workflow) => {
-        const all = loadWrite(workflow, recipe.record, recipe.globalId, context, pending.kept);
+        const all = loadWrite(workflow, recipe.record, recipe.globalId, context, pending.kept, pending.alone);
         if (all === null || withHotWater) {
           hotWater = all !== null && "hotWaterData" in all;
           return all;

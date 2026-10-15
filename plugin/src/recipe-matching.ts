@@ -249,7 +249,8 @@ export interface LoadContext {
  * applying a DYE2 recipe never sets, and of its four hot water settings,
  * which it keeps in its own field (RECIPE_FIELD), and the recipe's global
  * id (LOADED_RECIPE_KEY). A value the recipe holds none of is left as the
- * Workflow has it. Null if the Workflow holds all of it already.
+ * Workflow has it, as is each part `kept`, and each of `keptWhereHeld` the
+ * Workflow holds a value for. Null if the Workflow holds all of it already.
  */
 export function loadWrite(
   workflow: Record<string, unknown>,
@@ -257,6 +258,7 @@ export function loadWrite(
   globalId: string,
   load: LoadContext,
   kept: ReadonlySet<WrittenPart> = new Set(),
+  keptWhereHeld: ReadonlySet<WrittenPart> = new Set(),
 ): Record<string, unknown> | null {
   const context = isObject(workflow.context) ? workflow.context : {};
   const extras = isObject(context.extras) ? context.extras : {};
@@ -264,7 +266,22 @@ export function loadWrite(
   const [dial] = recipeDials(record) as [RecipeDial];
   const contextWrite: Record<string, unknown> = {};
   const extrasWrite: Record<string, unknown> = {};
-  const writes = (part: WrittenPart) => !kept.has(part);
+  const hotWaterHeld = isObject(workflow.hotWaterData) ? workflow.hotWaterData : {};
+  const holds: Readonly<Record<WrittenPart, unknown>> = {
+    dose: context.targetDoseWeight,
+    yield: context.targetYield,
+    grind: context.grinderSetting,
+    grinder: context.grinderId,
+    profile: workflow.profile,
+    rpm: extras.rpm,
+    basket: extras.basketId,
+    batch: context.beanBatchId,
+    targetTemperature: hotWaterHeld.targetTemperature,
+    duration: hotWaterHeld.duration,
+    volume: hotWaterHeld.volume,
+    flow: hotWaterHeld.flow,
+  };
+  const writes = (part: WrittenPart) => !kept.has(part) && !(keptWhereHeld.has(part) && holds[part] !== null && holds[part] !== undefined);
   if (writes("dose") && dial.dose !== null && !sameNumber(dial.dose, numberOf(context.targetDoseWeight))) contextWrite.targetDoseWeight = dial.dose;
   if (writes("yield") && dial.yield !== null && !sameNumber(dial.yield, numberOf(context.targetYield))) contextWrite.targetYield = dial.yield;
   if (writes("grind") && dial.grind !== null && !sameGrind(dial.grind, grindOf(context.grinderSetting))) contextWrite.grinderSetting = dial.grind;
@@ -342,7 +359,25 @@ export function changedParts(a: Record<string, unknown>, b: Record<string, unkno
  * loaded (`kept`), which stay as they were changed; or clearing its Loaded
  * Recipe.
  */
-export type Pending = { kind: "none" } | { kind: "load"; globalId: string; kept: ReadonlySet<WrittenPart> } | { kind: "unload" };
+export type Pending =
+  | { kind: "none" }
+  | {
+      kind: "load";
+      globalId: string;
+      kept: ReadonlySet<WrittenPart>;
+      /**
+       * For a load of the recipe the Workflow names already, the parts it
+       * leaves as the Workflow holds them, where it holds a value for them,
+       * as the barista may have changed them since it was loaded.
+       */
+      alone?: ReadonlySet<WrittenPart>;
+    }
+  | { kind: "unload" };
+
+/** Every part a pending load leaves as the Workflow holds it: those kept, and those it writes only where the Workflow holds none. */
+export function keptParts(pending: Extract<Pending, { kind: "load" }>): Set<WrittenPart> {
+  return new Set([...pending.kept, ...(pending.alone ?? [])]);
+}
 
 /** A Workflow as a change is decided on: its dial, its Bean Batch, that batch's Bean where it matters, and the Loaded Recipe it names. */
 export interface ChangedSetUp {
@@ -399,13 +434,17 @@ export function decideChange(
     const chosen = chooseLoad(after.dial, loaded, held, bean);
     if (chosen) {
       const kept = new Set<WrittenPart>(picked ? ["batch"] : []);
-      if (pending.kind === "load" && pending.globalId === chosen.globalId) for (const part of pending.kept) kept.add(part);
-      // The recipe the Workflow names, with nothing left to write: its dial set back, or applied again as it is now, is
-      // written its current dial alone, the rest staying as the barista left it. A stale copy of it, matching only a
-      // dial it held before, has the rest corrected too, but its batch, which no app applying a recipe sets.
-      if (pending.kind === "none" && after.named === chosen.globalId) {
+      const same = pending.kind === "load" && pending.globalId === chosen.globalId;
+      // The dial matches the recipe again: the barista's changes since its load still to be written stay, but their
+      // changes of the dial, which it sets again.
+      if (same) for (const part of pending.kept) if (AFTER_LOADED.includes(part)) kept.add(part);
+      // The recipe the Workflow names, with nothing else left to write: its dial set back, or applied again as it is
+      // now, is written its current dial alone, the rest staying as the barista left it, where the Workflow holds a
+      // value for it. A stale copy of it, matching only a dial it held before, has the rest corrected too, but its
+      // batch, which no app applying a recipe sets. Decided afresh at each such change, as each would be at once.
+      if ((pending.kind === "none" && after.named === chosen.globalId) || (same && pending.alone !== undefined)) {
         const current = chosen.now.some((candidate) => matches(candidate, after.dial));
-        for (const part of current ? AFTER_LOADED : (["batch"] as const)) kept.add(part);
+        return { kind: "load", globalId: chosen.globalId, kept, alone: new Set<WrittenPart>(current ? AFTER_LOADED : ["batch"]) };
       }
       return { kind: "load", globalId: chosen.globalId, kept };
     }
@@ -432,7 +471,8 @@ export interface WorkflowSetUp {
  * Whether a change of the Workflow unloads its Loaded Recipe, seen on the
  * tablet (ADR-0022): a change of its profile, grinder or Bean to one the
  * recipe, as the tablet holds it now (`dials`, `bean`), does not name. One
- * the recipe names none of, or a Bean Batch cleared, unloads nothing.
+ * the recipe names none of, or a grinder or Bean Batch cleared, as
+ * Streamline clears them once each Shot is stored, unloads nothing.
  * Another recipe loaded replaces it (`chooseLoad`), and a change of its
  * dose, yield or grind setting, as a barista's tweak, keeps it.
  */
@@ -441,7 +481,8 @@ export function unloads(before: WorkflowSetUp, after: WorkflowSetUp, dials: read
   const profiles = named((dial) => dial.profile);
   if (after.dial.profile !== before.dial.profile && profiles.length > 0 && !profiles.includes(after.dial.profile!)) return true;
   const grinders = named((dial) => dial.grinder);
-  if (after.dial.grinder !== before.dial.grinder && grinders.length > 0 && !grinders.includes(after.dial.grinder!)) return true;
+  // A grinder cleared, as Streamline clears it once each Shot is stored, unloads nothing, as a batch cleared does not.
+  if (after.dial.grinder !== before.dial.grinder && after.dial.grinder !== null && grinders.length > 0 && !grinders.includes(after.dial.grinder)) return true;
   return after.bean !== before.bean && after.bean !== null && bean !== null && after.bean !== bean;
 }
 

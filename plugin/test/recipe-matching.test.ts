@@ -10,6 +10,7 @@ import {
   changedParts,
   chooseLoad,
   decideChange,
+  keptParts,
   loadWrite,
   matches,
   profileKey,
@@ -199,11 +200,11 @@ describe("when the plugin unloads a recipe", () => {
   it("unloads on a change of its profile, grinder or Bean to one the recipe does not name", () => {
     expect(unloads(loaded, changed({ profile: profileKey(library.profiles[1]!.profile) }), dials, bean)).toBe(true);
     expect(unloads(loaded, changed({ grinder: "another-grinder" }), dials, bean)).toBe(true);
-    expect(unloads(loaded, changed({ grinder: null }), dials, bean)).toBe(true);
     expect(unloads(loaded, changed({}, "6b16db38-425e-48ec-93b7-e03e1d8707cd"), dials, bean)).toBe(true);
   });
 
-  it("keeps it through a tweak of its dose, yield or grind setting, another batch of its Bean, or a batch cleared", () => {
+  it("keeps it through a tweak of its dose, yield or grind setting, another batch of its Bean, or a grinder or batch cleared, as Streamline clears them once each Shot is stored", () => {
+    expect(unloads(loaded, changed({ grinder: null }), dials, bean)).toBe(false);
     expect(unloads(loaded, changed({ dose: 19, yield: 40, grind: "2.9" }), dials, bean)).toBe(false);
     expect(unloads(loaded, changed({}, bean), dials, bean)).toBe(false);
     expect(unloads(loaded, changed({}, null), dials, bean)).toBe(false);
@@ -239,7 +240,8 @@ describe("deciding each change of the Workflow in turn", () => {
       pending = decideChange(pending, before && setUp(before), setUp(workflow), before ? changedParts(before, workflow) : new Set(), tabletRecipes);
       before = workflow;
     }
-    return pending;
+    // Each part a load leaves, whether kept or left where the Workflow holds a value for it.
+    return pending.kind === "load" ? { kind: "load", globalId: pending.globalId, kept: keptParts(pending) } : pending;
   }
   const beans = { "batch-e": ethiopia, "batch-e2": ethiopia, "batch-b": brazil };
   const loaded = withId(derived(slot1, { beanBatchId: "batch-e" }), ONE);
@@ -306,6 +308,45 @@ describe("deciding each change of the Workflow in turn", () => {
     expect(decided([derived(current, { grinderSetting: "2.8" }), loaded], beans, tablet)).toEqual({ kind: "load", globalId: ONE, kept: new Set(["batch"]) });
     // As it is now, applied again: its dial alone.
     expect(decided([derived(current, { targetDoseWeight: 19.5 }), current], beans, tablet)).toEqual({ kind: "load", globalId: ONE, kept: new Set(afterLoaded) });
+  });
+
+  /** The Workflow as Streamline leaves it once a Shot is stored (`clearDyeWorkflowContext` in streamline-js:src/modules/dyeStrip.js). */
+  const shotStored = (from: Record_) => {
+    const context = { ...(from.context as Record_) };
+    for (const field of ["beanBatchId", "coffeeName", "coffeeRoaster", "grinderId", "grinderModel", "baristaName", "drinkerName"]) delete context[field];
+    context.extras = { ...(context.extras as Record_), basketId: null, basketName: null, rpm: null, note: null };
+    return { ...from, context };
+  };
+
+  it("keeps a Recipe loaded through what Streamline clears once each Shot is stored, and writes it back as the Recipe is applied again", () => {
+    const withRpm = derived(loaded, { extras: { ...((loaded.context as Record_).extras as Record_), rpm: 900, basketId: "basket-1" } });
+    const cleared = shotStored(withRpm);
+    expect(decided([withRpm, cleared], beans).kind).toBe("load");
+    expect(decided([derived(withRpm, { targetDoseWeight: 17 }), cleared], beans)).toEqual({ kind: "none" });
+    // DYE2's dashboard applies it again, its grinder but no batch: the Recipe's batch, RPM and Basket are written back.
+    const reapplied = derived(cleared, { grinderId: (slot1.context as Record_).grinderId, grinderModel: (slot1.context as Record_).grinderModel });
+    const pending = decideChange(
+      { kind: "none" },
+      { dial: workflowDial(cleared), batch: null, bean: null, named: ONE },
+      { dial: workflowDial(reapplied), batch: null, bean: null, named: ONE },
+      changedParts(cleared, reapplied),
+      recipes,
+    );
+    expect(pending).toMatchObject({ kind: "load", globalId: ONE, kept: new Set(), alone: new Set(afterLoaded) });
+    const record = { ...recipe("1"), [RECIPE_FIELD]: { beanBatchId: "batch-e", hotWaterData: {} } };
+    const write = loadWrite(reapplied, record, ONE, { profile: null, batch: { id: "batch-e", coffeeName: "E", coffeeRoaster: "R" } }, new Set(), pending.kind === "load" ? pending.alone : undefined);
+    expect(write?.context).toMatchObject({ beanBatchId: "batch-e", extras: { rpm: 900, basketId: "5a792f42-b6ff-44e0-a58c-ed165741b789" } });
+  });
+
+  it("corrects a stale copy of the Recipe the Workflow names though a set-back of a tweak of it is still to be written", () => {
+    const edited = recipe("1");
+    Object.assign(edited.dashboardVariables as Record_, { dose: 19 });
+    Object.assign((edited.workflow as Record_).context as Record_, { targetDoseWeight: 19 });
+    const tablet = [held(ONE, 1, edited, [recipe("1")])];
+    const current = derived(loaded, { targetDoseWeight: 19 });
+    const atOnce = decided([derived(current, { grinderSetting: "2.8" }), loaded], beans, tablet);
+    expect(atOnce).toEqual({ kind: "load", globalId: ONE, kept: new Set(["batch"]) });
+    expect(decided([current, derived(current, { grinderSetting: "2.8" }), current, loaded], beans, tablet)).toEqual(atOnce);
   });
 
   it("loads another recipe applied over a load still to be written", () => {

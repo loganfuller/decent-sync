@@ -308,7 +308,8 @@ export class LoadedRecipes {
    * Decaid answered the write with, or that nothing was left to write, or
    * otherwise with the Workflow Decaid holds, to be decided on first. A load writes the recipe's current
    * values and global id (`loadWrite`) but the parts changed since it was
-   * loaded; Decaid refuses to change the hot water settings while no machine
+   * loaded, and, for the recipe the Workflow names already, those it holds a
+   * value for but its dial (`alone`); Decaid refuses to change the hot water settings while no machine
    * is connected, so the rest is then written without them, the Workflow
    * read and checked again. An unload clears the global id the Workflow
    * names. Decaid has no conditional write, so a change made between the
@@ -331,7 +332,7 @@ export class LoadedRecipes {
     const context: LoadContext = pending.kept.has("batch") ? { ...(await this.loadContext(recipe.record)), batch: null } : await this.loadContext(recipe.record);
     let hotWater = false;
     const build = (withHotWater: boolean) => (workflow: Record<string, unknown>) => {
-      const all = loadWrite(workflow, recipe.record, recipe.globalId, context, pending.kept);
+      const all = loadWrite(workflow, recipe.record, recipe.globalId, context, pending.kept, pending.alone);
       if (all === null || withHotWater) {
         hotWater = all !== null && "hotWaterData" in all;
         return all;
