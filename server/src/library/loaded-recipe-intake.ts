@@ -251,6 +251,35 @@ export function recipeParts(content: Readonly<Record<string, unknown>>, local: (
 }
 
 /**
+ * The parts of a Recipe the Workflow is to hold (`target`, as `recipeParts`
+ * reads it) that wait for the tablet's record of the Recipe (`record`, as
+ * the server last knew it) to hold them too: its Profile, Grinder and Bean
+ * Batch. The plugin judges a change of the Workflow's Profile, Grinder or
+ * Bean against the tablet's record, and unloads the Recipe where the record
+ * names another (recipe-matching.ts), so one written into the Workflow
+ * before its record, as when the tablet refused the record's write, would
+ * unload it. Each that waits is undefined, as one the tablet holds no record
+ * of yet is.
+ */
+export function heldByRecord(
+  target: Readonly<Record<LoadedRecipePart, PartValue | undefined>>,
+  record: Readonly<Record<string, unknown>> | null,
+): Record<LoadedRecipePart, PartValue | undefined> {
+  const variables = isObject(record?.dashboardVariables) ? record.dashboardVariables : {};
+  const own = isObject(record?.[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
+  const holds: Partial<Record<LoadedRecipePart, unknown>> = {
+    profile: record?.profileId ?? null,
+    grinder: variables.grinderId ?? null,
+    batch: own.beanBatchId ?? null,
+  };
+  const parts = { ...target };
+  for (const part of ["profile", "grinder", "batch"] as const) {
+    if (parts[part] !== null && parts[part] !== undefined && !sameValue(holds[part], parts[part])) parts[part] = undefined;
+  }
+  return parts;
+}
+
+/**
  * What a write puts in the Workflow beside a part's id: the Grinder's model,
  * the Basket's name, and the batch's Bean's name and roaster, as DYE2
  * copies them, and the Profile whole, as Decaid keeps it.

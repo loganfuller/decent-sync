@@ -230,6 +230,30 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 
+  it("writes the Recipe's Grinder into a Workflow only once its tablet holds the Recipe's record naming it, so a refused write of the record leaves it loaded", async () => {
+    const { here, machines, c, one } = await lab("Refused record", 48101);
+    const created = await api.call("POST", "/grinders", { locationId: here.id, content: { model: "Refused EK43" } });
+    const grinder = ((await created.json()) as { grinder: { id: string } }).grinder.id;
+    const before = context(c).grinderId;
+    c.refuseWrites = ({ route }) => (route === "/store/dye2.reaplugin/recipes" ? { status: 500, body: { error: "Recipe write failed" } } : undefined);
+    expect((await api.call("PATCH", `/recipes/${one}`, { content: { grinderId: grinder, grindSetting: 4.1 } })).status).toBe(200);
+    // The grind is written, the Grinder waits for the record, and the Recipe stays loaded.
+    await expect.poll(() => context(c).grinderSetting).toBe("4.1");
+    await settle();
+    expect(context(c).grinderId).toBe(before);
+    expect(named(c)).toBe(one);
+    await loads(machines.c, one);
+    // Its record written once it reconnects, the Grinder follows, still loaded.
+    c.refuseWrites = undefined;
+    c.dropConnections();
+    await expect.poll(() => localId(c, "/grinders", grinder)).toEqual(expect.any(String));
+    const onC = await localId(c, "/grinders", grinder);
+    await expect.poll(() => context(c).grinderId).toBe(onC);
+    await settle();
+    expect(named(c)).toBe(one);
+    await loads(machines.c, one);
+  });
+
   it("moves the Recipe to the next batch of its Bean picked on A, written into C's Workflow, and unloads it on a batch of another Bean, leaving the Recipe as it was", async () => {
     const { machines, a, c, one } = await lab("Rebagged", 48031);
     const library = dye2Library();

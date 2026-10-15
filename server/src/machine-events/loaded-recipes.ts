@@ -14,6 +14,7 @@ import {
   type StaleCheck,
   type WorkflowParts,
   changedParts,
+  heldByRecord,
   partEdits,
   partsWrite,
   readParts,
@@ -347,8 +348,10 @@ export async function settlePendingParts(tx: Prisma.TransactionClient, tablet: R
  * Location given (null while it takes part nowhere, as when capture-only):
  * where its Workflow last named a Recipe that is its Machine's Loaded Recipe,
  * in a slot of that Location, the Recipe's fields that the Workflow holds
- * otherwise (`partsWrite`), those naming a Basket or batch its tablet holds
- * no record of yet waiting until it is written one, as it is before this;
+ * otherwise (`partsWrite`), those naming a Grinder, Basket or batch its
+ * tablet holds no record of yet waiting until it is written one, as it is
+ * before this, and its Profile, Grinder and batch until its record of the
+ * Recipe names them (`heldByRecord`), as when the tablet refused it;
  * where it named any other, as one taken out of its slot or Archived, or
  * when the Machine is no longer at its Location, or capture-only, the
  * clearing of its Loaded Recipe.
@@ -368,7 +371,10 @@ export async function loadedRecipeDue(tx: Prisma.TransactionClient, tablet: { ma
     UNION ALL SELECT 'beanBatch', batch_id::text, local_id FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid
     UNION ALL SELECT 'grinder', grinder_id::text, local_id FROM tablet_grinders WHERE tablet_id = ${tablet.tabletId}::uuid`;
   const locals = new Map(rows.map((row) => [`${row.kind}:${row.itemId}`, row.localId]));
-  const target = recipeParts(content, (kind, itemId) => locals.get(`${kind}:${itemId.toLowerCase()}`));
+  const [record] = await tx.$queryRaw<{ record: Record<string, unknown> }[]>`
+    SELECT record FROM tablet_recipes WHERE tablet_id = ${tablet.tabletId}::uuid AND recipe_id = ${known.recipeId}::uuid`;
+  // Its Profile, Grinder and batch wait for the tablet's record of it, which the plugin judges them by, written before.
+  const target = heldByRecord(recipeParts(content, (kind, itemId) => locals.get(`${kind}:${itemId.toLowerCase()}`)), record?.record ?? null);
   const [names] = await tx.$queryRaw<{ profile: unknown; grinderModel: unknown; basketName: unknown; coffeeName: unknown; coffeeRoaster: unknown }[]>`
     SELECT (SELECT content -> 'profile' FROM profiles WHERE id = ${String(content.profileId ?? "")}) AS profile,
       (SELECT content -> 'model' FROM grinders WHERE id::text = lower(${String(content.grinderId ?? "")})) AS "grinderModel",

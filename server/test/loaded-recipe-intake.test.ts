@@ -4,6 +4,7 @@ import {
   type PartLookups,
   type WorkflowParts,
   changedParts,
+  heldByRecord,
   partEdits,
   partsWrite,
   readParts,
@@ -203,6 +204,21 @@ describe("What a Workflow is written of its Loaded Recipe", () => {
     const target = recipeParts({ ...ratioOnly, dose: 19, beanBatchId: OTHER_BEANS_BATCH }, local);
     expect(target).toMatchObject({ yield: 38, batch: undefined });
     expect(partsWrite(target, HELD, names)?.fields).toEqual({ "context.targetDoseWeight": 19, "context.targetYield": 38 });
+  });
+});
+
+describe("The Profile, Grinder and batch written into a Workflow", () => {
+  const target = { ...HELD, profile: "profile:classic", grinder: "g2", batch: "b2", dose: 19 };
+
+  it("wait for the tablet's record of the Recipe to name them, as the plugin unloads the Recipe on one its record does not", () => {
+    expect(heldByRecord(target, { profileId: "profile:adaptive", dashboardVariables: { grinderId: "g1" }, [RECIPE_FIELD]: { beanBatchId: "b1" } })).toEqual({
+      ...target,
+      profile: undefined,
+      grinder: undefined,
+      batch: undefined,
+    });
+    expect(heldByRecord(target, { profileId: "profile:classic", dashboardVariables: { grinderId: "g2" }, [RECIPE_FIELD]: { beanBatchId: "b2" } })).toEqual(target);
+    expect(heldByRecord(target, null)).toMatchObject({ profile: undefined, grinder: undefined, batch: undefined, dose: 19 });
   });
 });
 
