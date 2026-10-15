@@ -342,8 +342,21 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await settle();
     expect(dye2Selection(c)).toEqual({ kind: "favourite", id: "fav-1" });
 
-    // An unload the server decides clears it too.
+    // An unload the server decides clears it too, though D's list loses the Recipe first, as its clear is refused once
+    // and written only once D reconnects.
+    let refused = false;
+    d.refuseWrites = ({ route, body }) => {
+      const extras = ((body as Record_ | null)?.context as Record_ | undefined)?.extras as Record_ | undefined;
+      if (refused || route !== "/workflow" || !extras || !(LOADED_RECIPE_KEY in extras)) return undefined;
+      refused = true;
+      return { status: 500, body: { error: "Workflow write failed" } };
+    };
     expect((await api.call("PUT", `/recipes/${two}/archived`, { archived: true })).status).toBe(200);
+    await expect.poll(() => refused).toBe(true);
+    await expect.poll(() => inSlot(d, "2")).toBeUndefined();
+    await settle();
+    expect(named(d)).toBe(two);
+    d.dropConnections();
     await expect.poll(() => named(d)).toBeNull();
     await expect.poll(() => dye2Selection(d)).toBeNull();
   });

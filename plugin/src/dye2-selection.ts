@@ -67,12 +67,17 @@ export class Dye2Selection {
    * DYE2 selects it where it is in a slot the tablet holds, again as it
    * moves to another slot, or as its profile changes, which clears DYE2's
    * selection; and a recipe it no longer names is cleared from DYE2's
-   * selection while DYE2 still has it selected. The first Workflow the
+   * selection while DYE2 still has it selected, in the slot it was last told
+   * of, though the tablet holds it in none by then. The first Workflow the
    * plugin sees, as on every load of it, clears nothing: DYE2 may hold a
    * selection a barista made since.
    */
-  follow(next: Followed): void {
+  follow(followed: Followed): void {
     const told = this.told;
+    // A Loaded Recipe gone from the tablet's slots, as before the server clears it, keeps the slot DYE2 was told of, so
+    // it is cleared from there.
+    const slot = followed.slot ?? (told?.globalId === followed.globalId ? told.slot : null);
+    const next = { ...followed, slot };
     if (told && told.globalId === next.globalId && told.slot === next.slot && (next.globalId === null || told.profile === next.profile)) return;
     this.told = next;
     if (next.globalId !== null && next.slot !== null) {
