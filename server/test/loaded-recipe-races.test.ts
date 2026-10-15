@@ -1,8 +1,7 @@
 import { LOADED_RECIPE_KEY, RECIPE_FIELD } from "@decent-sync/protocol";
-import { afterEach, describe, expect, it } from "vitest";
-import { LoadedTablets } from "./support/loaded-tablets.js";
+import { describe, expect, it } from "vitest";
 import { DYE2_NAMESPACE, dye2Keys, dye2Library, dye2Recording, replayWrites } from "./support/simulated-dye2.js";
-import { type DecaidApi, type SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
+import { type DecaidApi, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
 
 // Seam 1 for ticket #145: the plugin decides each change of a Workflow in
 // turn, as though at once, whatever a barista changes while it reads what a
@@ -18,10 +17,6 @@ const RECIPE = "0190a5a2-0000-7000-8000-000000000145";
 const HOT_WATER = { targetTemperature: 85, duration: 40, volume: 120, flow: 7.5 };
 
 describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_000 }, () => {
-  const tablets = new LoadedTablets();
-  afterEach(async () => {
-    await tablets.unloadAll();
-  });
 
   const library = dye2Library();
   const batchOf = (bean: string) => (library["/bean-batches"] as Record_[]).find((batch) => batch.beanId === (library["/beans"] as Record_[]).find((record) => String(record.name).endsWith(bean))!.id)!.id as string;
@@ -58,7 +53,7 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
       [`/store/${DYE2_NAMESPACE}/recipes`]: [{ ...slot1, decentSyncId: RECIPE, [RECIPE_FIELD]: { beanBatchId: ethiopia, hotWaterData: HOT_WATER } }, ...others],
     };
     let changing: Promise<unknown> | undefined;
-    const tablet: SimulatedTablet = tablets.load({
+    const tablet: SimulatedTablet = SimulatedTablet.load({
       // No server: a load is decided and recorded on the tablet alone.
       settings: settingsFor({ token: `races-${serial}`, serverUrl: "http://127.0.0.1:9" }),
       api,

@@ -27,7 +27,6 @@ describe("delivery id retention", { timeout: 30_000 }, () => {
   let api: AdminApi;
   let database: pg.Client;
   const instances: TestServer[] = [];
-  const raws: RawConnection[] = [];
   // The default heartbeat interval, 30 s, allows 90 s of silence, so connections here send no heartbeats.
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2" };
 
@@ -37,7 +36,6 @@ describe("delivery id retention", { timeout: 30_000 }, () => {
     database = await server.connectDatabase();
   });
   afterEach(async () => {
-    await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
     await Promise.all(instances.splice(0).map((instance) => instance.stop()));
   });
   afterAll(async () => {
@@ -66,9 +64,7 @@ describe("delivery id retention", { timeout: 30_000 }, () => {
    * the test holds, ahead of the delivery the test means to hold there.
    */
   async function connect(machine: CreatedMachine, serial: string, url = server.url) {
-    const raw = await RawConnection.welcomed(url, helloWith(machine.token, { machine: { model: "DE1Pro", serial } }), 60_000);
-    raws.push(raw);
-    return raw;
+    return RawConnection.welcomed(url, helloWith(machine.token, { machine: { model: "DE1Pro", serial } }), 60_000);
   }
   const transitions = async (machine: CreatedMachine) =>
     (await api.get<{ events: { state: string; substate: string }[] }>(`/machines/${machine.machine.id}/machine-state-events?limit=100`)).events

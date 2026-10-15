@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { LoadedTablets } from "./support/loaded-tablets.js";
+import { syncingTablet } from "./support/loaded-tablets.js";
 import { NO_DYE2_LISTS, PluginStorage, RawConnection, type SimulatedTablet, derivedDe1Pro, helloWith } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -51,8 +51,6 @@ describe("Bean Batches at Locations", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets = new LoadedTablets();
-  const raws: RawConnection[] = [];
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -60,8 +58,6 @@ describe("Bean Batches at Locations", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await tablets.unloadAll();
-    await Promise.all(raws.map((raw) => raw.terminate()));
     await other?.stop();
     await server?.stop();
   });
@@ -87,7 +83,7 @@ describe("Bean Batches at Locations", () => {
     } = {},
   ): SimulatedTablet {
     const { instance = server, beans = [], batches = [], ...rest } = options;
-    return tablets.syncing(machine, instance, { api: { ...derivedDe1Pro({ serial }), "/beans": beans, "/bean-batches": batches, "/grinders": [], ...NO_DYE2_LISTS }, ...rest });
+    return syncingTablet(machine, instance, { api: { ...derivedDe1Pro({ serial }), "/beans": beans, "/bean-batches": batches, "/grinders": [], ...NO_DYE2_LISTS }, ...rest });
   }
 
   const libraryBatches = async () => (await api.get<{ batches: BeanBatchSummary[] }>("/bean-batches")).batches;
@@ -137,7 +133,6 @@ describe("Bean Batches at Locations", () => {
    */
   async function rawHolder(machine: CreatedMachine, serial: string, bean: Record_, batch: Record_, instance = server) {
     const raw = await RawConnection.welcomed(instance.url, helloWith(machine.token, { machine: { model: "DE1Pro", serial } }));
-    raws.push(raw);
     const heldBean_ = { ...bean, id: randomUUID() };
     const heldBatch_ = { ...batch, id: randomUUID(), beanId: heldBean_.id };
     const deliver = (name: string, record: Record_, at: Date) =>
@@ -417,7 +412,6 @@ describe("Bean Batches at Locations", () => {
     // The other lab tablet sends raw frames: it holds the Bean and its batch under its own local ids, and reports its
     // edits, timed as it made them, only once the lab has changed since.
     const raw = await RawConnection.welcomed(other.url, helloWith(second.token, { machine: { model: "DE1Pro", serial: "16262" } }));
-    raws.push(raw);
     const held = { ...bean, id: randomUUID() };
     const heldFirst = { ...batch, id: randomUUID(), beanId: held.id };
     const report = (name: string, records: [Record_, string][]) => ({

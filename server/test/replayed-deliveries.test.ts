@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { CLOSE_CODES, type Chunk, MAX_ID_LENGTH, MAX_RECORD_ID_LENGTH, frames } from "@decent-sync/protocol";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { HANDLED_DELIVERY_LIMITS } from "../src/sync/handled-deliveries.js";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { derivedShot, shotFixture } from "./support/shot-fixtures.js";
@@ -25,7 +25,6 @@ describe("Deliveries sent again on one connection", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const raws: RawConnection[] = [];
 
   beforeAll(async () => {
     const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
@@ -33,18 +32,13 @@ describe("Deliveries sent again on one connection", () => {
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
   });
-  afterEach(async () => {
-    await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
-  });
   afterAll(async () => {
     await other?.stop();
     await server?.stop();
   });
 
   async function connect(machine: CreatedMachine, url = server.url) {
-    const raw = await RawConnection.welcomed(url, helloWith(machine.token));
-    raws.push(raw);
-    return raw;
+    return RawConnection.welcomed(url, helloWith(machine.token));
   }
   const received = (raw: RawConnection, type: string) => (raw.messages as Received[]).filter((message) => message.type === type);
   /** Sends an index and resolves with the request it was answered with, once it is acknowledged. */

@@ -2,7 +2,7 @@ import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { shotFixture, withShots } from "./support/shot-fixtures.js";
-import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
+import { syncingTablet, emptyLibrary } from "./support/loaded-tablets.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -45,7 +45,6 @@ describe("Editing the Library in the management interface", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets = new LoadedTablets();
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -53,14 +52,13 @@ describe("Editing the Library in the management interface", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await tablets.unloadAll();
     await other?.stop();
     await server?.stop();
   });
 
   /** The built plugin on a tablet of the Machine, polling every 5 s (0.1 s here), its Decaid's Library empty. */
   function load(machine: CreatedMachine, serial: string, instance: TestServer = server, apiDelayMs?: (method: string, path: string) => number): SimulatedTablet {
-    return tablets.syncing(machine, instance, { api: emptyLibrary(serial), apiDelayMs });
+    return syncingTablet(machine, instance, { api: emptyLibrary(serial), apiDelayMs });
   }
 
   /** A Location with a Machine, each tablet on one of the two instances in turn, every one online. */
@@ -382,7 +380,7 @@ describe("Editing the Library in the management interface", () => {
     const machine = await api.createMachine("Backfill cafe 1", location.id);
     // Forty Shots the server lacks, each slow to read, so the tablet has more still to send than a delete reads for a while.
     const shots = Array.from({ length: 40 }, (_, index) => shotNaming(`shot-backfilled-${index}`, "21101", {}));
-    const tablet = tablets.syncing(machine, server, {
+    const tablet = syncingTablet(machine, server, {
       api: withShots(emptyLibrary("21101"), shots),
       apiDelayMs: (method, path) => (method === "GET" && path.startsWith("/shots/") ? 400 : 0),
     });

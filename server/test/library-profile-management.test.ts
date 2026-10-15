@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { shotFixture } from "./support/shot-fixtures.js";
-import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
+import { syncingTablet, emptyLibrary } from "./support/loaded-tablets.js";
 import { type SimulatedTablet, de1ProOnDecaid087, derivedProfile } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -37,7 +37,6 @@ describe("Profiles in the management interface", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets = new LoadedTablets();
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -45,7 +44,6 @@ describe("Profiles in the management interface", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await tablets.unloadAll();
     await other?.stop();
     await server?.stop();
   });
@@ -61,7 +59,7 @@ describe("Profiles in the management interface", () => {
     options: { bundled?: boolean; apiDelayMs?: (method: string, path: string) => number; stallUpload?: (frame: unknown) => boolean } = {},
   ): SimulatedTablet {
     const profiles = options.bundled ? (de1ProOnDecaid087()["/profiles"] as Record_[]).filter((record) => record.isDefault === true) : [];
-    return tablets.syncing(machine, instance, { api: { ...emptyLibrary(serial), "/profiles": profiles }, apiDelayMs: options.apiDelayMs, stallUpload: options.stallUpload });
+    return syncingTablet(machine, instance, { api: { ...emptyLibrary(serial), "/profiles": profiles }, apiDelayMs: options.apiDelayMs, stallUpload: options.stallUpload });
   }
 
   /** A Location with a Machine for each serial, each tablet on one of the two instances in turn, every one online. */

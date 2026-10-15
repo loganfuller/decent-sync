@@ -2,7 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { LoadedTablets, emptyLibrary, localTime } from "./support/loaded-tablets.js";
+import { syncingTablet, emptyLibrary, localTime } from "./support/loaded-tablets.js";
 import { type SimulatedTablet, derivedProfile } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -52,7 +52,6 @@ describe("Resolving Conflicts", () => {
   let other: TestServer;
   let api: AdminApi;
   let adminId: string;
-  const tablets = new LoadedTablets();
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -61,14 +60,13 @@ describe("Resolving Conflicts", () => {
     adminId = (await api.get<{ account: { id: string } }>("/session")).account.id;
   });
   afterAll(async () => {
-    await tablets.unloadAll();
     await other?.stop();
     await server?.stop();
   });
 
   /** The built plugin on a tablet of the Machine, polling every 5 s (0.1 s here), its Decaid's Library empty. */
   function load(machine: CreatedMachine, serial: string, instance: TestServer = server): SimulatedTablet {
-    return tablets.syncing(machine, instance, { api: emptyLibrary(serial) });
+    return syncingTablet(machine, instance, { api: emptyLibrary(serial) });
   }
 
   /** The id of the Library's one Bean of that name, once there is one. */

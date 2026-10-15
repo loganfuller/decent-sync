@@ -1,7 +1,7 @@
 import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
+import { syncingTablet, emptyLibrary } from "./support/loaded-tablets.js";
 import { PluginStorage, type SimulatedTablet, derivedDe1Pro, simulatedLibrary } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -36,7 +36,6 @@ describe("Grinders belonging to a Location", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets = new LoadedTablets();
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -44,7 +43,6 @@ describe("Grinders belonging to a Location", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await tablets.unloadAll();
     await other?.stop();
     await server?.stop();
   });
@@ -61,7 +59,7 @@ describe("Grinders belonging to a Location", () => {
     options: { instance?: TestServer; storage?: PluginStorage; grinders?: Record_[]; apiDelayMs?: (method: string, path: string) => number } = {},
   ): SimulatedTablet {
     const { instance = server, grinders = [], ...rest } = options;
-    return tablets.syncing(machine, instance, { api: { ...emptyLibrary(serial), "/grinders": grinders }, ...rest });
+    return syncingTablet(machine, instance, { api: { ...emptyLibrary(serial), "/grinders": grinders }, ...rest });
   }
 
   const libraryGrinders = async () => (await api.get<{ grinders: GrinderSummary[] }>("/grinders")).grinders;

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { LoadedTablets } from "./support/loaded-tablets.js";
+import { syncingTablet } from "./support/loaded-tablets.js";
 import {
   DYE2_NAMESPACE,
   applyInDye2,
@@ -48,7 +48,6 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets = new LoadedTablets();
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -56,13 +55,12 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await tablets.unloadAll();
     await other?.stop();
     await server?.stop();
   });
 
   function load(machine: CreatedMachine, decaidApi: DecaidApi, instance: TestServer = server): SimulatedTablet {
-    return tablets.syncing(machine, instance, { api: decaidApi });
+    return syncingTablet(machine, instance, { api: decaidApi });
   }
 
   const settingsAt = async (location: LocationView) => (await api.get<{ settings: SettingsView }>(`/locations/${location.id}/settings`)).settings;

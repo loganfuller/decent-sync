@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { CLOSE_CODES } from "@decent-sync/protocol";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
 import { RawConnection, de1ProOnDecaid087, helloWith, workflowFixture } from "./support/simulated-tablet.js";
@@ -25,7 +25,6 @@ describe("Deliveries while a Machine's hardware is bound", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const raws: RawConnection[] = [];
   // Limits well beyond a test's waits, which may each take up to 4 s under load: a connection silent while the test
   // holds its Machine's row is dropped only after three heartbeat intervals, and one opened for a race sends its hello
   // only once the steps before it wait.
@@ -36,9 +35,6 @@ describe("Deliveries while a Machine's hardware is bound", () => {
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
   });
-  afterEach(async () => {
-    await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
-  });
   afterAll(async () => {
     await other?.stop();
     await server?.stop();
@@ -46,9 +42,7 @@ describe("Deliveries while a Machine's hardware is bound", () => {
 
   /** Welcomed on the first instance, sending heartbeats every `heartbeatMs`. */
   async function connect(machine: CreatedMachine, hello: Record<string, unknown>, heartbeatMs?: number) {
-    const raw = await RawConnection.welcomed(server.url, helloWith(machine.token, hello), heartbeatMs);
-    raws.push(raw);
-    return raw;
+    return RawConnection.welcomed(server.url, helloWith(machine.token, hello), heartbeatMs);
   }
   /**
    * Decides the steps in the order given: holds the Machine's row as
@@ -147,7 +141,6 @@ describe("Deliveries while a Machine's hardware is bound", () => {
       const delivering = await connect(machine, { tabletId, machine: byHello ? null : { model: "DE1Pro", serial: "0" } }, SILENT);
       // The tablet's next connection, through the other instance.
       const binding = byHello ? await RawConnection.open(other.url) : null;
-      if (binding) raws.push(binding);
       const sent = delivery();
       let entered: Promise<Response> | undefined;
       const deliver = () => delivering.send(sent);

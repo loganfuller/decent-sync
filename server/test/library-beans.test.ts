@@ -3,7 +3,7 @@ import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
-import { LoadedTablets } from "./support/loaded-tablets.js";
+import { syncingTablet } from "./support/loaded-tablets.js";
 import { NO_DYE2_LISTS, type PluginStorage, RawConnection, SimulatedTablet, derivedDe1Pro, helloWith } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -36,8 +36,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets = new LoadedTablets();
-  const raws: RawConnection[] = [];
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -45,8 +43,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await tablets.unloadAll();
-    await Promise.all(raws.map((raw) => raw.terminate()));
     await other?.stop();
     await server?.stop();
   });
@@ -62,7 +58,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     options: { instance?: TestServer; storage?: PluginStorage; beans?: Record_[]; pollSeconds?: number } = {},
   ): SimulatedTablet {
     const { instance = server, beans = [], ...rest } = options;
-    return tablets.syncing(machine, instance, {
+    return syncingTablet(machine, instance, {
       // No profiles or grinders, so only Beans are written to it: library-profiles.test.ts and library-grinders.test.ts write those.
       api: { ...derivedDe1Pro({ serial }), "/beans": beans, "/profiles": [], "/grinders": [], ...NO_DYE2_LISTS },
       ...rest,
@@ -237,7 +233,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const tabletId = randomUUID();
     const hello = helloWith(second.token, { tabletId, machine: { model: "DE1Pro", serial: "14132" } });
     const raw = await RawConnection.welcomed(server.url, hello);
-    raws.push(raw);
     await raw.deliver(emptyBeans());
     await raw.deliver(emptyBatches());
     for (const empty of [emptyProfiles(), ...emptyDye2Lists()]) await raw.deliver(empty);
@@ -277,7 +272,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
 
     // The same tablet reconnects, and is asked for both again, each once the one before it is answered.
     const back = await RawConnection.welcomed(server.url, { ...hello, tabletId });
-    raws.push(back);
     await back.deliver(emptyBeans());
     await back.deliver(emptyBatches());
     for (const empty of [emptyProfiles(), ...emptyDye2Lists()]) await back.deliver(empty);
@@ -373,7 +367,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const second = await api.createMachine("Race Belmont group", belmont.id);
     const one = await RawConnection.welcomed(server.url, helloWith(first.token, { machine: { model: "DE1Pro", serial: "14101" } }));
     const two = await RawConnection.welcomed(other.url, helloWith(second.token, { machine: { model: "DE1Pro", serial: "14102" } }));
-    raws.push(one, two);
     const report = (name: string) => ({
       type: "collection",
       id: randomUUID(),
@@ -478,7 +471,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const binding = await RawConnection.welcomed(server.url, helloWith(mismatched.token, { machine: { model: "DE1Pro", serial: "14073" } }));
     await binding.close();
     const raw = await RawConnection.welcomed(server.url, helloWith(mismatched.token, { machine: { model: "DE1Pro", serial: "14074" } }));
-    raws.push(raw);
     await raw.deliver({
       type: "collection",
       id: randomUUID(),
@@ -508,7 +500,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     // A tablet on other hardware with the group's token is a mismatch; it answers a write nobody asked of it.
     const tabletId = randomUUID();
     const mismatched = await RawConnection.welcomed(server.url, helloWith(machine.token, { tabletId, machine: { model: "DE1Pro", serial: "14163" } }));
-    raws.push(mismatched);
     await mismatched.deliver({
       type: "written",
       id: randomUUID(),
@@ -522,7 +513,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
 
     // On its token's own hardware, the same tablet holds no beans: it is written the Bean, not read as having deleted it.
     const back = await RawConnection.welcomed(server.url, helloWith(machine.token, { tabletId, machine: { model: "DE1Pro", serial: "14162" } }));
-    raws.push(back);
     await back.deliver(emptyBeans());
     await back.deliver(emptyBatches());
     for (const empty of [emptyProfiles(), ...emptyDye2Lists()]) await back.deliver(empty);
@@ -546,7 +536,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const tabletId = randomUUID();
     const hello = helloWith(machine.token, { tabletId, machine: { model: "DE1Pro", serial: "14172" } });
     const first = await RawConnection.welcomed(server.url, hello, 60_000);
-    raws.push(first);
     const beats = setInterval(() => first.send({ type: "heartbeat" }), 300);
     await first.deliver(emptyBeans());
     await first.deliver(emptyBatches());
@@ -567,7 +556,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
       await database.query("BEGIN");
       await database.query("SELECT 1 FROM machines WHERE id = $1 FOR NO KEY UPDATE", [machine.machine.id]);
       second = await RawConnection.open(server.url);
-      raws.push(second);
       second.send(hello);
       // The first to wait for a row waits for its holder's transaction, so these count every wait for a lock.
       await waitForLockWaits(server);

@@ -1,7 +1,7 @@
 import { GLOBAL_ID_KEY, RECIPE_FIELD } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
-import { LoadedTablets } from "./support/loaded-tablets.js";
+import { syncingTablet } from "./support/loaded-tablets.js";
 import {
   DYE2_NAMESPACE,
   type Dye2Key,
@@ -67,7 +67,6 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets = new LoadedTablets();
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -75,14 +74,13 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await tablets.unloadAll();
     await other?.stop();
     await server?.stop();
   });
 
   /** The built plugin on a tablet of the Machine, connected to an instance, polling every 5 s (0.1 s here) unless `pollSeconds` says otherwise. */
   function load(machine: CreatedMachine, decaidApi: DecaidApi, instance: TestServer = server, pollSeconds = 5): SimulatedTablet {
-    return tablets.syncing(machine, instance, { api: decaidApi, pollSeconds });
+    return syncingTablet(machine, instance, { api: decaidApi, pollSeconds });
   }
 
   /** A Location with two Machines, the first's tablet the recording's, on one instance, the second's empty, on the other. */

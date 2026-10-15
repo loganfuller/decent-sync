@@ -48,7 +48,6 @@ describe("Library, settings and paired devices", () => {
   let other: TestServer;
   let api: AdminApi;
   const tablets = new LoadedTablets();
-  const raws: RawConnection[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
@@ -58,7 +57,6 @@ describe("Library, settings and paired devices", () => {
   });
   afterEach(async () => {
     const used = await tablets.unloadAll();
-    await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
     // The plugin only reads Decaid's API, DYE2's storage included, for a Machine at no Location, as all of these are.
     for (const tablet of used) expect(tablet.writes).toEqual([]);
   });
@@ -102,9 +100,7 @@ describe("Library, settings and paired devices", () => {
   }
 
   async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
-    const raw = await RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
-    raws.push(raw);
-    return raw;
+    return RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
   }
   const report = (name: string, value?: unknown) =>
     value === undefined
@@ -395,7 +391,6 @@ describe("Library, settings and paired devices", () => {
       // Machine the first delivery holds, as does releasing the dropped connection, so nothing is sent again yet.
       await first.terminate();
       second = await RawConnection.open(other.url);
-      raws.push(second);
       second.send(helloWith(machine.token, { machine: hardware }));
       await waitForLockWaits(server, { count: 3 });
       expect(second.messages).toEqual([]);
