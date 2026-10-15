@@ -381,6 +381,13 @@ describe("deciding each change of the Workflow in turn", () => {
     expect(decided([withId(derived(loaded, { grinderSetting: "2.8" }), ONE), withId(shotStored(derived(loaded, { grinderSetting: "2.8" })), ONE)], beans, tablet)).toEqual({ kind: "none" });
   });
 
+  it("loads no other recipe from the first Workflow naming the Loaded Recipe, though a recipe leaving blank what it no longer matches matches it", () => {
+    expect(decided([derived(loaded, { grinderSetting: "2.6" })], beans, [held(ONE, 1, recipe("1")), loose("grind")])).toEqual({ kind: "none" });
+    expect(decided([shotStored(loaded)], beans, [held(ONE, 1, recipe("1")), loose("grinder")])).toEqual({ kind: "none" });
+    // Naming none, it may load one.
+    expect(decided([derived(withId(loaded, null), { grinderSetting: "2.6" })], beans, [held(ONE, 1, recipe("1")), loose("grind")])).toMatchObject({ kind: "load", globalId: THREE });
+  });
+
   it("loads another recipe applied over a load still to be written", () => {
     expect(decided([derived(slot1, { targetDoseWeight: 17 }), slot1, slot2])).toEqual({ kind: "load", globalId: TWO, kept: new Set() });
   });

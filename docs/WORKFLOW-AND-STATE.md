@@ -251,17 +251,22 @@ from the Workflow deliveries.
   - A load of the recipe the Workflow names already, with nothing left to
     write, its dial set back or applied again as it is now, writes its
     current dial alone: its RPM, Basket, batch and hot water stay as the
-    barista left them, where the Workflow holds a value for them, so the
-    Recipe applied again after Streamline cleared them has them written
-    back. A stale copy of it, matching only a dial it held before, has all
+    barista left them, where the Workflow holds a value for them, so a
+    Recipe naming a grinder, applied again after Streamline cleared them,
+    has them written back. One naming no grinder is no change of its dial
+    when applied again then, so nothing is written: DYE2 sets its Basket and
+    RPM as it applies it, but its batch stays cleared. A stale copy of it, matching only a dial it held before, has all
     but its batch corrected, as no app applying a recipe sets one. The
     barista's changes of the dial before such a match are no longer kept:
     the match sets it again. A part the barista cleared on purpose is
     written back as well, as a cleared part cannot tell who cleared it.
   - The first Workflow, as on every load of the plugin, is no change. One
-    naming a recipe it matches is written that recipe's dial alone, and one
-    naming none loads no recipe of another Bean than its batch's, as when
-    the barista unloaded it so before the plugin last unloaded.
+    naming a recipe loads no other, though another matches it, as one
+    leaving blank the grind the barista tweaked would: where it matches the
+    recipe it names, that one is written its dial alone, and otherwise it
+    stays as it is. One naming none loads no recipe of another Bean than
+    its batch's, as when the barista unloaded it so before the plugin last
+    unloaded.
 - **Held or sent at once.** A change is held back (Held back, below) if the
   Workflow names a Loaded Recipe, which it may unload or replace, or matches
   a recipe as the tablet held it when last read, or a write is still to be

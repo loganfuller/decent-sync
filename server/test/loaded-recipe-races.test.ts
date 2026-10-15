@@ -184,14 +184,14 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     expect(context(tablet)).toMatchObject({ beanBatchId: ethiopia, targetDoseWeight: 18.5 });
   });
 
-  it("keeps the Recipe loaded through a tweak of its grind, though a recipe in another slot that leaves its grind blank then matches", async () => {
-    // Slot 1's recipe saved again in slot 3, for a batch of another Bean, before its grind was settled.
+  /** Slot 1's recipe saved again in slot 3, for a batch of another Bean, before its grind was settled. */
+  function looseSlot3(): Record_ {
     const [slot1] = dye2Keys().recipes as [Record_];
     const variables = { ...(slot1.dashboardVariables as Record_) };
     delete variables.grind;
     const embedded = { ...((slot1.workflow as Record_).context as Record_) };
     delete embedded.grinderSetting;
-    const slot3 = {
+    return {
       ...slot1,
       id: "3",
       name: "Tomorrow's roast",
@@ -200,9 +200,23 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
       decentSyncId: "0190a5a2-0000-7000-8000-000000000146",
       [RECIPE_FIELD]: { beanBatchId: brazil, hotWaterData: { ...HOT_WATER, volume: 200 } },
     };
+  }
+
+  it("keeps the Recipe loaded through a tweak of its grind, though a recipe in another slot that leaves its grind blank then matches", async () => {
+    const slot3 = looseSlot3();
     const { tablet } = load("47291", appliedWith(ethiopia, true), undefined, {}, undefined, [slot3]);
     await settled();
     await tablet.changeSettings({ context: { grinderSetting: "2.6" } });
+    await settled();
+    expect(named(tablet)).toBe(RECIPE);
+    expect(context(tablet)).toMatchObject({ beanBatchId: ethiopia, grinderSetting: "2.6" });
+    expect((tablet.workflow().hotWaterData as Record_).volume).not.toBe(200);
+  });
+
+  it("keeps the Recipe a Workflow the plugin loads with names, though it no longer matches it and a recipe in another slot that leaves its grind blank does", async () => {
+    const tweaked = appliedWith(ethiopia, true);
+    (tweaked.context as Record_).grinderSetting = "2.6";
+    const { tablet } = load("47301", tweaked, undefined, {}, undefined, [looseSlot3()]);
     await settled();
     expect(named(tablet)).toBe(RECIPE);
     expect(context(tablet)).toMatchObject({ beanBatchId: ethiopia, grinderSetting: "2.6" });

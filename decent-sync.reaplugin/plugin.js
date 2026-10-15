@@ -953,7 +953,8 @@ var __decentSync = (() => {
     const loaded = pending.kind === "load" ? pending.globalId : pending.kind === "unload" ? null : after.named;
     if (dialChanged) {
       const bean2 = picked || !before && after.named === null ? after.bean : null;
-      const chosen = chooseLoad(after.dial, loaded, held, bean2, before ? changed : void 0);
+      const candidates = !before && after.named !== null ? held.filter((recipe2) => recipe2.globalId === after.named) : held;
+      const chosen = chooseLoad(after.dial, loaded, candidates, bean2, before ? changed : void 0);
       if (chosen) {
         const kept2 = new Set(picked ? ["batch"] : []);
         const same = pending.kind === "load" && pending.globalId === chosen.globalId;
