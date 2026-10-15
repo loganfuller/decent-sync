@@ -20,7 +20,7 @@ const RUNNING = 2;
 const WAITING = 16;
 const BUSY = "The server is busy checking other passwords. Try again in a moment.";
 
-describe("password checks on one server instance", { timeout: 30_000 }, () => {
+describe("password checks on one server instance", () => {
   runAsSteps();
   let server: TestServer;
   let database: pg.Client;
@@ -89,7 +89,7 @@ describe("password checks on one server instance", { timeout: 30_000 }, () => {
     database = await server.connectDatabase();
     // The first unknown email also hashes the dummy password it is checked against; done here, each later check hashes once.
     expect((await signIn("first@example.com")).status).toBe(401);
-  }, 60_000);
+  });
   afterAll(async () => {
     fs.rmSync(gateDir, { recursive: true, force: true });
     await database?.end();

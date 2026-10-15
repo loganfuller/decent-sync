@@ -27,7 +27,7 @@ export interface Credit {
 }
 
 /** The time zone a record's times are shown in: its Location's, or UTC when its Location is unknown. */
-export function recordTimeZone(record: Pick<Credit, "location">): string {
+function recordTimeZone(record: Pick<Credit, "location">): string {
   return record.location?.timeZone ?? "UTC";
 }
 
@@ -53,7 +53,7 @@ const INFERRED_MACHINE = "This Shot recorded no machine hardware, so it is credi
 const INFERRED_LOCATION = "This Location follows from an inferred Machine's Location History.";
 
 /** Marks a credit that was inferred rather than recorded. */
-export function InferredBadge({ what }: { what: "Machine" | "Location" }) {
+function InferredBadge({ what }: { what: "Machine" | "Location" }) {
   return (
     <Badge variant="outline" title={what === "Machine" ? INFERRED_MACHINE : INFERRED_LOCATION}>
       Inferred

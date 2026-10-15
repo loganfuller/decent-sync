@@ -1,5 +1,5 @@
 import { CLOSE_CODES } from "@decent-sync/protocol";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi } from "./support/admin-api.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
@@ -14,18 +14,15 @@ const HEARTBEAT_SECONDS = 0.5;
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "1", SYNC_HEARTBEAT_SECONDS: String(HEARTBEAT_SECONDS) };
 const de1Pro = (serial: string) => ({ model: "DE1Pro", serial, firmware: "1333" });
 
-describe("several server instances", { timeout: 30_000 }, () => {
+describe("several server instances", () => {
   let first: TestServer;
   let second: TestServer;
   /** The Admin on the first instance, and on the second. */
   let api: AdminApi;
   let other: AdminApi;
-  const tablets: SimulatedTablet[] = [];
-  const connections: RawConnection[] = [];
 
   const connect = async (server: TestServer, hello: Record<string, unknown>) => {
     const raw = await RawConnection.open(server.url);
-    connections.push(raw);
     raw.send(hello);
     await raw.message(0);
     return raw;
@@ -36,12 +33,8 @@ describe("several server instances", { timeout: 30_000 }, () => {
     second = await startTestServer({ env, sharing: first });
     api = await AdminApi.setUp(first.url);
     other = api.at(second.url);
-  }, 60_000);
-  afterEach(async () => {
-    await Promise.all(connections.splice(0).map((raw) => raw.terminate()));
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
     await second?.stop();
     await first?.stop();
   });
@@ -49,7 +42,6 @@ describe("several server instances", { timeout: 30_000 }, () => {
   it("lists a Machine connected to one instance as online on another", async () => {
     const created = await api.createMachine("Uptown");
     const tablet = SimulatedTablet.load({ settings: settingsFor(created), api: derivedDe1Pro({ serial: "12001" }) });
-    tablets.push(tablet);
     expect(await other.waitForMachine("Uptown", (machine) => machine.online)).toMatchObject({ identification: "identified", serial: "12001" });
 
     // Heartbeats on the first instance keep it online on the second.
@@ -74,7 +66,6 @@ describe("several server instances", { timeout: 30_000 }, () => {
   it("closes a connection to one instance when its token is reissued on another", async () => {
     const created = await api.createMachine("Lab");
     const tablet = SimulatedTablet.load({ settings: settingsFor(created), api: derivedDe1Pro({ serial: "12201" }) });
-    tablets.push(tablet);
     await api.waitForMachine("Lab", (machine) => machine.online);
 
     const response = await other.call("POST", `/machines/${created.machine.id}/token`);
@@ -103,7 +94,7 @@ describe("several server instances", { timeout: 30_000 }, () => {
       await connect(doomed, helloWith(token, { machine: de1Pro("12401") }));
       expect(await api.machineNamed("On a crashing instance")).toMatchObject({ online: true });
 
-      // Nothing tells the other instances; only the silence does, within waitForMachine's 10 s.
+      // Nothing tells the other instances; only the silence does, within waitForMachine's 15 s.
       await doomed.kill();
       await api.waitForMachine("On a crashing instance", (machine) => !machine.online);
     } finally {
@@ -147,7 +138,6 @@ describe("several server instances", { timeout: 30_000 }, () => {
         await client.query("SELECT 1 FROM machines WHERE id = $1 FOR UPDATE", [id]);
       }
       const raw = await RawConnection.open(leaving.url);
-      connections.push(raw);
       raw.send(helloWith(late.token, { machine: de1Pro("12602") }));
       await waitForLockWaits(first);
 
@@ -205,7 +195,9 @@ describe("several server instances", { timeout: 30_000 }, () => {
       expect(await revokedRaw.closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
       expect(quiet.output()).toMatch(/Not listening for access changes/);
       expect(keptRaw.messages).toEqual([expect.objectContaining({ type: "welcome" })]);
-      expect(await api.machineNamed("Kept while not listening")).toMatchObject({ online: true });
+      // Read through the quiet instance: an instance counts a connection unheard for three of its own heartbeat
+      // intervals as gone, and the first's is 0.5 s, which this test outlasts on a busy machine.
+      expect(await api.at(quiet.url).machineNamed("Kept while not listening")).toMatchObject({ online: true });
     } finally {
       await database.end();
       await quiet.stop();

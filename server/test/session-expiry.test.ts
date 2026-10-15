@@ -16,7 +16,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 const DAY_MS = 24 * 60 * 60_000;
 const LIFETIME_SECONDS = 30 * 24 * 60 * 60;
 
-describe("session expiry across server instances", { timeout: 30_000 }, () => {
+describe("session expiry across server instances", () => {
   let first: TestServer;
   let ahead: TestServer;
   let behind: TestServer;
@@ -72,7 +72,7 @@ describe("session expiry across server instances", { timeout: 30_000 }, () => {
     // The offsets reach the servers' code.
     expect(await api.at(ahead.url).instanceClockOffsetMs(database)).toBeGreaterThan(2 * DAY_MS - 60_000);
     expect(await api.at(behind.url).instanceClockOffsetMs(database)).toBeLessThan(-2 * DAY_MS + 60_000);
-  }, 60_000);
+  });
   afterAll(async () => {
     await database?.end();
     await Promise.all([ahead?.stop(), behind?.stop()]);

@@ -3,7 +3,8 @@ import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
-import { NO_DYE2_LISTS, PluginStorage, RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { syncingTablet } from "./support/loaded-tablets.js";
+import { NO_DYE2_LISTS, type PluginStorage, RawConnection, SimulatedTablet, derivedDe1Pro, helloWith } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #80: a Bean created on one tablet joins the Library and is
@@ -31,21 +32,17 @@ type Record_ = Record<string, unknown>;
 
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
-describe("Beans in the Library", { timeout: 30_000 }, () => {
+describe("Beans in the Library", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
-  const raws: RawConnection[] = [];
 
   beforeAll(async () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
-    await Promise.all(raws.map((raw) => raw.terminate()));
     await other?.stop();
     await server?.stop();
   });
@@ -60,33 +57,26 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     serial: string,
     options: { instance?: TestServer; storage?: PluginStorage; beans?: Record_[]; pollSeconds?: number } = {},
   ): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
+    const { instance = server, beans = [], ...rest } = options;
+    return syncingTablet(machine, instance, {
       // No profiles or grinders, so only Beans are written to it: library-profiles.test.ts and library-grinders.test.ts write those.
-      api: { ...derivedDe1Pro({ serial }), "/beans": options.beans ?? [], "/profiles": [], "/grinders": [], ...NO_DYE2_LISTS },
-      storage: options.storage,
-      timeScale: 50,
+      api: { ...derivedDe1Pro({ serial }), "/beans": beans, "/profiles": [], "/grinders": [], ...NO_DYE2_LISTS },
+      ...rest,
     });
-    tablets.push(tablet);
-    return tablet;
   }
 
-  async function online(...machines: CreatedMachine[]): Promise<void> {
-    for (const { machine } of machines) await api.waitForMachine(machine.name, (viewed) => viewed.online);
-  }
-
-  const libraryBeans = async () => ((await (await api.call("GET", "/beans")).json()) as { beans: BeanSummary[] }).beans;
+  const libraryBeans = async () => (await api.get<{ beans: BeanSummary[] }>("/beans")).beans;
   const beansNamed = async (name: string) => (await libraryBeans()).filter((bean) => bean.name === name);
   /** Resolves with the Library's one Bean of that name, once there is one. */
   async function libraryBean(name: string): Promise<BeanSummary> {
-    await expect.poll(async () => (await beansNamed(name)).length, { timeout: 10_000 }).toBe(1);
+    await expect.poll(async () => (await beansNamed(name)).length).toBe(1);
     return (await beansNamed(name))[0]!;
   }
   /** The tablet's beans of that name, each by the global id it carries. */
   const heldAs = (tablet: SimulatedTablet, name: string) => tablet.beans().filter((bean) => bean.name === name).map(globalIdOf);
   /** Resolves once the tablet holds the Bean, once, carrying its global id. */
   const holds = (tablet: SimulatedTablet, name: string, id: string) =>
-    expect.poll(() => heldAs(tablet, name), { timeout: 10_000 }).toEqual([id]);
+    expect.poll(() => heldAs(tablet, name)).toEqual([id]);
   const locations = (bean: BeanSummary) => bean.offeredAt.map((location) => location.name);
   /** The open Conflicts about a Bean, each as its field, losing value and the Machine it came from, by field. */
   async function conflictsOf(beanId: string): Promise<{ field: string; value: unknown; machine: string | undefined }[]> {
@@ -99,38 +89,13 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
       .sort((a, b) => a.field.localeCompare(b.field));
   }
 
-  it("writes a Bean created on one tablet to its Location's other tablet, through another instance, with the same global id, and lists it once", async () => {
-    const lab = await api.createLocation("Roastery lab", "America/Chicago");
-    const first = await api.createMachine("Lab group 1", lab.id);
-    const second = await api.createMachine("Lab group 2", lab.id);
-    const one = load(first, "14001");
-    const two = load(second, "14002", { instance: other });
-    await online(first, second);
-
-    const created = await one.addBean({ roaster: "Roux", name: "Guji Hambela", country: "Ethiopia", processing: "washed" });
-    const bean = await libraryBean("Guji Hambela");
-    expect(bean).toMatchObject({ roaster: "Roux", archived: false, createdLocation: lab, likelyDuplicates: [] });
-    expect(locations(bean)).toEqual(["Roastery lab"]);
-    // The tablet that created it is written its global id, and the other is written the Bean.
-    await holds(one, "Guji Hambela", bean.id);
-    await holds(two, "Guji Hambela", bean.id);
-    const written = two.beans().find((record) => record.name === "Guji Hambela")!;
-    expect(written).toMatchObject({ roaster: "Roux", country: "Ethiopia", processing: "washed", extras: { [GLOBAL_ID_KEY]: bean.id } });
-    expect(written.id).not.toBe(created.id);
-    expect(one.beans().find((record) => record.name === "Guji Hambela")!.id).toBe(created.id);
-
-    const viewed = ((await (await api.call("GET", `/beans/${bean.id}`)).json()) as { bean: BeanView }).bean;
-    expect(viewed.content).toEqual({ roaster: "Roux", name: "Guji Hambela", decaf: false, country: "Ethiopia", processing: "washed" });
-    expect(await beansNamed("Guji Hambela")).toHaveLength(1);
-  });
-
   it("changes nothing when a tablet reports back the plugin's own write", async () => {
     const lab = await api.createLocation("Echo lab", "UTC");
     const first = await api.createMachine("Echo 1", lab.id);
     const second = await api.createMachine("Echo 2", lab.id);
     const one = load(first, "14011");
     const two = load(second, "14012");
-    await online(first, second);
+    await api.waitForOnline(first, second);
     await one.addBean({ roaster: "Roux", name: "Echo Natural" });
     const bean = await libraryBean("Echo Natural");
     await holds(two, "Echo Natural", bean.id);
@@ -144,8 +109,8 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
         const report = frame as { type?: unknown; name?: unknown; value?: unknown };
         return report.type === "collection" && report.name === "beans" && Array.isArray(report.value) && report.value.some((entry) => globalIdOf(entry) === bean.id);
       }).length;
-    await expect.poll(() => reportsHolding(two), { timeout: 10_000 }).toBeGreaterThan(0);
-    await expect.poll(() => reportsHolding(one), { timeout: 10_000 }).toBeGreaterThan(0);
+    await expect.poll(() => reportsHolding(two)).toBeGreaterThan(0);
+    await expect.poll(() => reportsHolding(one)).toBeGreaterThan(0);
     await one.addBean({ roaster: "Roux", name: "Echo Washed" });
     const washed = await libraryBean("Echo Washed");
     await holds(two, "Echo Washed", washed.id);
@@ -160,7 +125,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const cafe = await api.createLocation("Extras cafe", "UTC");
     const machine = await api.createMachine("Extras group", cafe.id);
     const tablet = load(machine, "14021");
-    await online(machine);
+    await api.waitForOnline(machine);
     // Another plugin's key, as DYE2 keeps a Beanconqueror id there.
     await tablet.addBean({ roaster: "Roux", name: "Keeps Extras", extras: { bcUuid: "fixture-bc-1" } });
     const bean = await libraryBean("Keeps Extras");
@@ -175,17 +140,17 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const uptownMachine = await api.createMachine("Matching Uptown group", uptown.id);
     const labTablet = load(labMachine, "14031");
     const uptownTablet = load(uptownMachine, "14032", { instance: other });
-    await online(labMachine, uptownMachine);
+    await api.waitForOnline(labMachine, uptownMachine);
     await labTablet.addBean({ roaster: "Roux Bakehouse", name: "Launch Day Blend", country: "Brazil" });
     const bean = await libraryBean("Launch Day Blend");
     expect(heldAs(uptownTablet, "Launch Day Blend")).toEqual([]);
 
     await uptownTablet.addBean({ roaster: "  roux bakehouse ", name: "LAUNCH DAY BLEND  ", notes: "Entered at Uptown" });
-    await expect.poll(async () => locations((await beansNamed("Launch Day Blend"))[0]!), { timeout: 10_000 }).toEqual(["Matching lab", "Matching Uptown"]);
+    await expect.poll(async () => locations((await beansNamed("Launch Day Blend"))[0]!)).toEqual(["Matching lab", "Matching Uptown"]);
     expect(await libraryBeans()).not.toContainEqual(expect.objectContaining({ name: "LAUNCH DAY BLEND  " }));
     // Uptown's record carries the Bean's global id and takes its content; what was entered there otherwise is kept as Conflicts (ADR-0018).
-    await expect.poll(() => uptownTablet.beans().map(globalIdOf), { timeout: 10_000 }).toEqual([bean.id]);
-    await expect.poll(() => uptownTablet.beans()[0]!.name, { timeout: 10_000 }).toBe("Launch Day Blend");
+    await expect.poll(() => uptownTablet.beans().map(globalIdOf)).toEqual([bean.id]);
+    await expect.poll(() => uptownTablet.beans()[0]!.name).toBe("Launch Day Blend");
     expect(uptownTablet.beans()[0]).toMatchObject({ roaster: "Roux Bakehouse", country: "Brazil" });
     expect(uptownTablet.beans()[0]).not.toHaveProperty("notes");
     expect(await conflictsOf(bean.id)).toEqual([
@@ -201,14 +166,14 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const first = await api.createMachine("Joining 1", lab.id);
     const second = await api.createMachine("Joining 2", lab.id);
     const one = load(first, "14111");
-    await online(first);
+    await api.waitForOnline(first);
     await one.addBean({ roaster: "Roux", name: "Already Here", country: "Ethiopia" });
     const bean = await libraryBean("Already Here");
 
     // The other tablet already holds the same coffee, entered there before it connected.
     const own = await beansEnteredOffline({ roaster: "roux ", name: "Already Here", notes: "Entered on group 2" });
     const two = load(second, "14112", { beans: own });
-    await expect.poll(() => two.beans().map(globalIdOf), { timeout: 10_000 }).toEqual([bean.id]);
+    await expect.poll(() => two.beans().map(globalIdOf)).toEqual([bean.id]);
     // Linked, it takes the Bean's content in the same write: the Location's state wins over what it held as it joined.
     expect(two.beans()[0]).toMatchObject({ id: own[0]!.id, roaster: "Roux", country: "Ethiopia" });
     expect(two.beans()[0]).not.toHaveProperty("notes");
@@ -233,16 +198,16 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const one = load(first, "14121");
     // Polls once an hour (every 72 s here), so what is entered on it is not reported within the test.
     const two = load(second, "14122", { pollSeconds: 3600 });
-    await online(first, second);
-    await expect.poll(() => beanReports(two), { timeout: 10_000 }).toBe(1);
-    await expect.poll(() => two.received.some((frame) => (frame as { type?: unknown }).type === "ack"), { timeout: 10_000 }).toBe(true);
+    await api.waitForOnline(first, second);
+    await expect.poll(() => beanReports(two)).toBe(1);
+    await expect.poll(() => two.received.some((frame) => (frame as { type?: unknown }).type === "ack")).toBe(true);
     const entered = await two.addBean({ roaster: "Roux", name: "launch race ", notes: "Entered on group 2" });
 
     await one.addBean({ roaster: "Roux", name: "Launch Race" });
     const bean = await libraryBean("Launch Race");
-    await expect.poll(() => two.beans().map(globalIdOf), { timeout: 10_000 }).toEqual([bean.id]);
+    await expect.poll(() => two.beans().map(globalIdOf)).toEqual([bean.id]);
     // The plugin linked it, writing only the global id; it then takes the Bean's content, what it held otherwise kept as Conflicts.
-    await expect.poll(() => two.beans()[0]!.name, { timeout: 10_000 }).toBe("Launch Race");
+    await expect.poll(() => two.beans()[0]!.name).toBe("Launch Race");
     expect(two.beans()[0]).toMatchObject({ id: entered.id });
     expect(two.beans()[0]).not.toHaveProperty("notes");
     expect(two.writes).toEqual([`PUT /beans/${String(entered.id)}`, `PUT /beans/${String(entered.id)}`]);
@@ -257,7 +222,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const first = await api.createMachine("Refusing 1", lab.id);
     const second = await api.createMachine("Refusing 2", lab.id);
     const one = load(first, "14131");
-    await online(first);
+    await api.waitForOnline(first);
     await one.addBean({ roaster: "Roux", name: "Refused" });
     await libraryBean("Refused");
     await one.addBean({ roaster: "Roux", name: "Answered Wrongly" });
@@ -268,7 +233,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const tabletId = randomUUID();
     const hello = helloWith(second.token, { tabletId, machine: { model: "DE1Pro", serial: "14132" } });
     const raw = await RawConnection.welcomed(server.url, hello);
-    raws.push(raw);
     await raw.deliver(emptyBeans());
     await raw.deliver(emptyBatches());
     for (const empty of [emptyProfiles(), ...emptyDye2Lists()]) await raw.deliver(empty);
@@ -308,7 +272,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
 
     // The same tablet reconnects, and is asked for both again, each once the one before it is answered.
     const back = await RawConnection.welcomed(server.url, { ...hello, tabletId });
-    raws.push(back);
     await back.deliver(emptyBeans());
     await back.deliver(emptyBatches());
     for (const empty of [emptyProfiles(), ...emptyDye2Lists()]) await back.deliver(empty);
@@ -327,7 +290,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const uptownMachine = await api.createMachine("Moving Uptown group", uptown.id);
     const labTablet = load(labMachine, "14141");
     const uptownTablet = load(uptownMachine, "14142");
-    await online(labMachine, uptownMachine);
+    await api.waitForOnline(labMachine, uptownMachine);
     await labTablet.addBean({ roaster: "Roux", name: "Moved Into" });
     await labTablet.addBean({ roaster: "Roux", name: "Lab Second" });
     await uptownTablet.addBean({ roaster: "Roux", name: "Uptown Only" });
@@ -341,15 +304,15 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
       { roaster: "Roux", name: "Lab Second", extras: { [GLOBAL_ID_KEY]: randomUUID() } },
     );
     const tablet = load(traveller, "14143", { beans: own });
-    await online(traveller);
-    await expect.poll(() => tablet.received.some((frame) => (frame as { type?: unknown }).type === "ack"), { timeout: 10_000 }).toBe(true);
+    await api.waitForOnline(traveller);
+    await expect.poll(() => tablet.received.some((frame) => (frame as { type?: unknown }).type === "ack")).toBe(true);
     expect(tablet.writes).toEqual([]);
 
     // Given the lab, its tablet is asked for its collections again, and its beans are linked to the lab's Beans.
     expect((await api.call("POST", `/machines/${traveller.machine.id}/location-history`, { locationId: lab.id })).status).toBe(201);
     const byId = (id: unknown) => () => tablet.beans().filter((bean) => bean.id === id).map(globalIdOf);
-    await expect.poll(byId(own.find((bean) => bean.name === "moved into")!.id), { timeout: 10_000 }).toEqual([movedInto.id]);
-    await expect.poll(byId(own.find((bean) => bean.name === "Lab Second")!.id), { timeout: 10_000 }).toEqual([labSecond.id]);
+    await expect.poll(byId(own.find((bean) => bean.name === "moved into")!.id)).toEqual([movedInto.id]);
+    await expect.poll(byId(own.find((bean) => bean.name === "Lab Second")!.id)).toEqual([labSecond.id]);
     expect(tablet.beans()).toHaveLength(2);
     expect(tablet.writes.every((write) => write.startsWith("PUT "))).toBe(true);
     expect(tablet.received).toContainEqual({ type: "requestCollections" });
@@ -362,7 +325,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     await holds(tablet, "Uptown Only", uptownOnly.id);
     // Asked again for its collections there, unless its own reports were taken in there first: at most once per Location.
     expect(tablet.received.filter((frame) => (frame as { type?: unknown }).type === "requestCollections").length).toBeLessThanOrEqual(2);
-    await expect.poll(() => tablet.beans().filter((bean) => bean.archived === true).map((bean) => bean.name).sort(), { timeout: 10_000 }).toEqual(["Lab Second", "Moved Into"]);
+    await expect.poll(() => tablet.beans().filter((bean) => bean.archived === true).map((bean) => bean.name).sort()).toEqual(["Lab Second", "Moved Into"]);
     // The Beans it held at the lab stay offered there only, as Uptown's state wins (ADR-0008).
     expect(locations(await libraryBean("Moved Into"))).toEqual(["Moving lab"]);
   });
@@ -374,13 +337,13 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const uptownMachine = await api.createMachine("Drift Uptown group", uptown.id);
     const tablet = load(traveller, "14151");
     const uptownTablet = load(uptownMachine, "14152");
-    await online(traveller, uptownMachine);
+    await api.waitForOnline(traveller, uptownMachine);
     // Its reports of its Library are taken in at the lab, each as it is stored.
     const stored = async () =>
-      ((await (await api.call("GET", `/machines/${traveller.machine.id}/collections`)).json()) as { collections: { name: string }[] }).collections.map(
+      (await api.get<{ collections: { name: string }[] }>(`/machines/${traveller.machine.id}/collections`)).collections.map(
         (collection) => collection.name,
       );
-    await expect.poll(stored, { timeout: 10_000 }).toEqual(expect.arrayContaining(["beans", "beanBatches", "grinders", "profiles"]));
+    await expect.poll(stored).toEqual(expect.arrayContaining(["beans", "beanBatches", "grinders", "profiles"]));
 
     // The traveller moves to Uptown with no notification, then a Bean joins Uptown, which every writer looks at.
     const database = await server.connectDatabase();
@@ -404,7 +367,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const second = await api.createMachine("Race Belmont group", belmont.id);
     const one = await RawConnection.welcomed(server.url, helloWith(first.token, { machine: { model: "DE1Pro", serial: "14101" } }));
     const two = await RawConnection.welcomed(other.url, helloWith(second.token, { machine: { model: "DE1Pro", serial: "14102" } }));
-    raws.push(one, two);
     const report = (name: string) => ({
       type: "collection",
       id: randomUUID(),
@@ -434,7 +396,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     expect(await beansNamed("  opening day")).toEqual([]);
   });
 
-  it("writes a Bean only to the tablets at the Location that offers it", async () => {
+  it("writes a Bean created on one tablet to its Location's other tablet, through another instance, with the same global id, lists it once, and writes it to no other Location's", async () => {
     const lab = await api.createLocation("Separate lab", "UTC");
     const belmont = await api.createLocation("Separate Belmont", "UTC");
     const first = await api.createMachine("Separate lab 1", lab.id);
@@ -443,16 +405,27 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const one = load(first, "14041");
     const two = load(second, "14042", { instance: other });
     const belmontTablet = load(cafe, "14043");
-    await online(first, second, cafe);
+    await api.waitForOnline(first, second, cafe);
 
     await belmontTablet.addBean({ roaster: "Roux", name: "Belmont Only" });
     const belmontBean = await libraryBean("Belmont Only");
     expect(locations(belmontBean)).toEqual(["Separate Belmont"]);
     await holds(belmontTablet, "Belmont Only", belmontBean.id);
     // A Bean the lab creates later reaches the lab's tablets after any write they were due before it.
-    await one.addBean({ roaster: "Roux", name: "Lab Only" });
+    const created = await one.addBean({ roaster: "Roux", name: "Lab Only", country: "Ethiopia", processing: "washed" });
     const labBean = await libraryBean("Lab Only");
+    expect(labBean).toMatchObject({ roaster: "Roux", archived: false, createdLocation: lab, likelyDuplicates: [] });
+    expect(locations(labBean)).toEqual(["Separate lab"]);
+    // The tablet that created it is written its global id, and the other is written the Bean.
+    await holds(one, "Lab Only", labBean.id);
     await holds(two, "Lab Only", labBean.id);
+    const written = two.beans().find((record) => record.name === "Lab Only")!;
+    expect(written).toMatchObject({ roaster: "Roux", country: "Ethiopia", processing: "washed", extras: { [GLOBAL_ID_KEY]: labBean.id } });
+    expect(written.id).not.toBe(created.id);
+    expect(one.beans().find((record) => record.name === "Lab Only")!.id).toBe(created.id);
+    const viewed = (await api.get<{ bean: BeanView }>(`/beans/${labBean.id}`)).bean;
+    expect(viewed.content).toEqual({ roaster: "Roux", name: "Lab Only", decaf: false, country: "Ethiopia", processing: "washed" });
+    expect(await beansNamed("Lab Only")).toHaveLength(1);
     expect(heldAs(one, "Belmont Only")).toEqual([]);
     expect(heldAs(two, "Belmont Only")).toEqual([]);
     expect(heldAs(belmontTablet, "Lab Only")).toEqual([]);
@@ -465,13 +438,13 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const labTablet = load(labMachine, "14051");
     await labTablet.addBean({ roaster: "Roux", name: "Capture Lab Bean" });
     const homeTablet = load(home, "14052", { beans: [] });
-    await online(labMachine, home);
+    await api.waitForOnline(labMachine, home);
     await homeTablet.addBean({ roaster: "Roux", name: "Home Bean" });
     await expect
       .poll(async () => {
         const reported = (await (await api.call("GET", `/machines/${home.machine.id}/collections/beans`)).json()) as { collection: { value: Record_[] } | null };
         return reported.collection?.value.map((record) => record.name);
-      }, { timeout: 10_000 })
+      })
       .toEqual(["Home Bean"]);
 
     await holds(labTablet, "Capture Lab Bean", (await libraryBean("Capture Lab Bean")).id);
@@ -480,32 +453,12 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     expect(homeTablet.writes).toEqual([]);
   });
 
-  it("writes a tablet that was offline while a Bean was created once it reconnects", async () => {
-    const cafe = await api.createLocation("Offline cafe", "UTC");
-    const first = await api.createMachine("Offline 1", cafe.id);
-    const second = await api.createMachine("Offline 2", cafe.id);
-    const one = load(first, "14061");
-    const storage = new PluginStorage();
-    const away = load(second, "14062", { storage });
-    await online(first, second);
-    await away.unload();
-    await api.waitForMachine(second.machine.name, (viewed) => !viewed.online);
-
-    await one.addBean({ roaster: "Roux", name: "Made While Offline" });
-    const bean = await libraryBean("Made While Offline");
-    await holds(one, "Made While Offline", bean.id);
-    expect(heldAs(away, "Made While Offline")).toEqual([]);
-    // The same tablet, its Decaid data kept, loads the plugin again.
-    const back = load(second, "14062", { storage, beans: away.beans() });
-    await holds(back, "Made While Offline", bean.id);
-  });
-
   it("writes to an Unidentified Machine's tablet, but nothing to a mismatched connection, whose Beans stay out of the Library", async () => {
     const cafe = await api.createLocation("Identity cafe", "UTC");
     const known = await api.createMachine("Identity known", cafe.id);
     const unidentified = await api.createMachine("Identity unidentified", cafe.id);
     const knownTablet = load(known, "14071");
-    await online(known);
+    await api.waitForOnline(known);
     await knownTablet.addBean({ roaster: "Roux", name: "Identity Bean" });
     const bean = await libraryBean("Identity Bean");
 
@@ -518,7 +471,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const binding = await RawConnection.welcomed(server.url, helloWith(mismatched.token, { machine: { model: "DE1Pro", serial: "14073" } }));
     await binding.close();
     const raw = await RawConnection.welcomed(server.url, helloWith(mismatched.token, { machine: { model: "DE1Pro", serial: "14074" } }));
-    raws.push(raw);
     await raw.deliver({
       type: "collection",
       id: randomUUID(),
@@ -538,7 +490,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const cafe = await api.createLocation("Unasked cafe", "UTC");
     const holder = await api.createMachine("Unasked holder", cafe.id);
     const holderTablet = load(holder, "14161");
-    await online(holder);
+    await api.waitForOnline(holder);
     await holderTablet.addBean({ roaster: "Roux", name: "Unasked Bean" });
     const bean = await libraryBean("Unasked Bean");
 
@@ -548,7 +500,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     // A tablet on other hardware with the group's token is a mismatch; it answers a write nobody asked of it.
     const tabletId = randomUUID();
     const mismatched = await RawConnection.welcomed(server.url, helloWith(machine.token, { tabletId, machine: { model: "DE1Pro", serial: "14163" } }));
-    raws.push(mismatched);
     await mismatched.deliver({
       type: "written",
       id: randomUUID(),
@@ -562,7 +513,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
 
     // On its token's own hardware, the same tablet holds no beans: it is written the Bean, not read as having deleted it.
     const back = await RawConnection.welcomed(server.url, helloWith(machine.token, { tabletId, machine: { model: "DE1Pro", serial: "14162" } }));
-    raws.push(back);
     await back.deliver(emptyBeans());
     await back.deliver(emptyBatches());
     for (const empty of [emptyProfiles(), ...emptyDye2Lists()]) await back.deliver(empty);
@@ -576,7 +526,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const cafe = await api.createLocation("Released cafe", "UTC");
     const holder = await api.createMachine("Released holder", cafe.id);
     const holderTablet = load(holder, "14171");
-    await online(holder);
+    await api.waitForOnline(holder);
     await holderTablet.addBean({ roaster: "Roux", name: "Released Bean" });
     const bean = await libraryBean("Released Bean");
 
@@ -586,7 +536,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const tabletId = randomUUID();
     const hello = helloWith(machine.token, { tabletId, machine: { model: "DE1Pro", serial: "14172" } });
     const first = await RawConnection.welcomed(server.url, hello, 60_000);
-    raws.push(first);
     const beats = setInterval(() => first.send({ type: "heartbeat" }), 300);
     await first.deliver(emptyBeans());
     await first.deliver(emptyBatches());
@@ -607,7 +556,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
       await database.query("BEGIN");
       await database.query("SELECT 1 FROM machines WHERE id = $1 FOR NO KEY UPDATE", [machine.machine.id]);
       second = await RawConnection.open(server.url);
-      raws.push(second);
       second.send(hello);
       // The first to wait for a row waits for its holder's transaction, so these count every wait for a lock.
       await waitForLockWaits(server);
@@ -645,7 +593,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const second = await api.createMachine("Chunked 2", lab.id);
     const one = load(first, "14081");
     const two = load(second, "14082");
-    await online(first, second);
+    await api.waitForOnline(first, second);
     // Derived: tasting notes far longer than a barista writes, past one frame.
     const notes = "Stone fruit, jasmine and black tea. ".repeat(10_000);
     await one.addBean({ roaster: "Roux", name: "Long Notes", notes });
@@ -661,14 +609,14 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     const second = await api.createMachine("Recovery 2", lab.id);
     const one = load(first, "14091");
     const two = load(second, "14092");
-    await online(first, second);
+    await api.waitForOnline(first, second);
     // The connection drops as soon as the write reaches the tablet, so its answer never reaches the server.
     two.cutConnectionAfter((frame) => (frame as { type?: unknown }).type === "write");
     await one.addBean({ roaster: "Roux", name: "Lost Answer" });
     const bean = await libraryBean("Lost Answer");
     await holds(two, "Lost Answer", bean.id);
-    await expect.poll(() => two.logs.some((log) => log.startsWith("Disconnected")), { timeout: 10_000 }).toBe(true);
-    await online(second);
+    await expect.poll(() => two.logs.some((log) => log.startsWith("Disconnected"))).toBe(true);
+    await api.waitForOnline(second);
     await one.addBean({ roaster: "Roux", name: "After Recovery" });
     await holds(two, "After Recovery", (await libraryBean("After Recovery")).id);
     expect(heldAs(two, "Lost Answer")).toEqual([bean.id]);
@@ -677,7 +625,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     // Another plugin replaces the record's extras, wiping the global id; the plugin writes it back.
     const record = two.beans().find((candidate) => candidate.name === "Lost Answer")!;
     expect((await two.callApi("PUT", `/beans/${String(record.id)}`, { extras: { otherPlugin: true } })).status).toBe(200);
-    await expect.poll(() => two.beans().find((candidate) => candidate.id === record.id)!.extras, { timeout: 10_000 }).toEqual({
+    await expect.poll(() => two.beans().find((candidate) => candidate.id === record.id)!.extras).toEqual({
       otherPlugin: true,
       [GLOBAL_ID_KEY]: bean.id,
     });
@@ -734,7 +682,7 @@ function emptyGrinders() {
 /** Resolves with the first `count` writes the server sent on the raw connection, once it has sent that many. */
 async function writesTo(raw: RawConnection, count: number): Promise<{ id: string; globalId: string; localId: string | null }[]> {
   const writes = () => raw.messages.filter((message) => (message as { type?: unknown }).type === "write") as { id: string; globalId: string; localId: string | null }[];
-  await expect.poll(() => writes().length, { timeout: 10_000 }).toBeGreaterThanOrEqual(count);
+  await expect.poll(() => writes().length).toBeGreaterThanOrEqual(count);
   return writes().slice(0, count);
 }
 

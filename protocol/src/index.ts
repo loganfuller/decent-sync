@@ -528,7 +528,7 @@ export interface CollectionDelivery {
 
 /**
  * What a kind declares its items' ids to be, which every message naming an
- * item of that kind is checked against (`isItemId`).
+ * item of that kind is checked against (`itemIdRule`).
  */
 export interface ItemIdRule {
   /** Whether a value is such an id. */
@@ -731,11 +731,6 @@ export function itemIdRule(kind: string): ItemIdRule {
   return isLibraryKind(kind) ? LIBRARY_ITEM_KINDS[kind].id : GLOBAL_ITEM_ID;
 }
 
-/** Whether a value is the id of an item of that kind (`itemIdRule`). */
-export function isItemId(kind: string, value: unknown): value is string {
-  return itemIdRule(kind).test(value);
-}
-
 /**
  * The parts of Decaid's Workflow that a Location shares between its
  * Machines, whatever their model (ADR-0014): the steam and rinse settings.
@@ -912,7 +907,7 @@ export interface LibraryWrite {
   id: string;
   /** One of LIBRARY_KINDS, SETTINGS_KIND or WORKFLOW_KIND. A plugin answers a kind it does not know with `writeRefused`. */
   kind: string;
-  /** The item's global id, a Profile's id, the settings' id, or the tablet's id for a Workflow (`isItemId`). */
+  /** The item's global id, a Profile's id, the settings' id, or the tablet's id for a Workflow (`itemIdRule`). */
   globalId: string;
   /** The tablet's record to update, or null to create one. */
   localId: string | null;
@@ -1015,7 +1010,7 @@ export interface LibraryDelete {
   type: "delete";
   /** Names this delete, which its answer repeats. */
   id: string;
-  /** One of DELETED_KINDS. A plugin answers a kind it does not know with `writeRefused`. */
+  /** One of LIBRARY_KINDS (`isDeletedKind`). A plugin answers a kind it does not know with `writeRefused`. */
   kind: string;
   /** The deleted item's global id, which the record carries; a Profile's is Decaid's id, as its record's is. */
   globalId: string;
@@ -1098,15 +1093,13 @@ export const RECORD_CHANGED = "The record changed since the plugin last read the
  */
 export const SHOTS_STILL_TO_READ = "More Shots are still to be sent than a delete reads; ask again once they are";
 
-/**
- * The kinds of Library item an Admin hard-deletes from tablets: every kind,
- * as a tablet holds records of each. A tablet's own delete of a Profile only
- * hides it at its Location (ADR-0019).
- */
-export const DELETED_KINDS = LIBRARY_KINDS;
-
 export type DeletedKind = LibraryKind;
 
+/**
+ * Whether an Admin hard-deletes items of that kind from tablets: every
+ * Library kind, as a tablet holds records of each. A tablet's own delete of a
+ * Profile only hides it at its Location (ADR-0019).
+ */
 export function isDeletedKind(kind: string): kind is DeletedKind {
   return isLibraryKind(kind);
 }
@@ -1142,7 +1135,7 @@ export interface LeaveOut {
   type: "leaveOut";
   /** Names this request, which its answer repeats. */
   id: string;
-  /** One of DELETED_KINDS, the kinds a tablet holds records of. A plugin answers a kind it does not know as `refused`. */
+  /** One of LIBRARY_KINDS (`isDeletedKind`), the kinds a tablet holds records of. A plugin answers a kind it does not know as `refused`. */
   kind: string;
   /** The tablet's record to set aside. */
   localId: string;

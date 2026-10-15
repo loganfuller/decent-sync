@@ -179,7 +179,7 @@ export function readSeen(body: unknown): string | null {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function readConflictId(id: string): string {
+function readConflictId(id: string): string {
   if (!UUID.test(id)) throw new NotFoundException("No such Conflict");
   return id;
 }

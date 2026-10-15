@@ -191,7 +191,7 @@ function contentValue(field: FormField, value: Value): unknown {
 }
 
 /** The values of a form showing an item's content. */
-export function valuesOf(fields: FormField[], content: Record<string, unknown>): Values {
+function valuesOf(fields: FormField[], content: Record<string, unknown>): Values {
   return Object.fromEntries(fields.map((field) => [field.field, inputValue(field, content[field.field])]));
 }
 

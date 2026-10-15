@@ -1,8 +1,9 @@
 import { GLOBAL_ID_KEY, RECIPE_FIELD, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
+import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { DYE2_NAMESPACE, dye2List } from "./support/simulated-dye2.js";
-import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
+import { syncingTablet, emptyLibrary } from "./support/loaded-tablets.js";
+import { type SimulatedTablet, derivedProfile } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 and the REST API for ticket #144: a Recipe copied to another
@@ -42,28 +43,20 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
 
   beforeAll(async () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
     await other?.stop();
     await server?.stop();
   });
 
   /** The built plugin on a tablet of the Machine, polling every 5 s (0.1 s here), its Library and DYE2's lists empty. */
   function load(machine: CreatedMachine, serial: number, instance: TestServer): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial: String(serial) }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS },
-      timeScale: 50,
-    });
-    tablets.push(tablet);
-    return tablet;
+    return syncingTablet(machine, instance, { api: emptyLibrary(serial) });
   }
 
   /** A Location with a Machine whose tablet is online through each instance given. */
@@ -73,40 +66,28 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
     for (const [index, instance] of instances.entries()) {
       const machine = await api.createMachine(`${name} ${index + 1}`, location.id);
       loaded.push(load(machine, serial + index, instance));
-      await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+      await api.waitForOnline(machine);
     }
     return { location, tablets: loaded };
   }
 
-  async function send<T>(method: string, path: string, body?: unknown, as: AdminApi = api, status = 200): Promise<T> {
-    const response = await as.call(method, path, body);
-    expect(response.status, await response.clone().text()).toBe(status);
-    return (await response.json()) as T;
-  }
   const create = (location: LocationView, slot: number | null, content: Record_) =>
-    send<{ recipe: RecipeView }>("POST", "/recipes", { locationId: location.id, slot, content }, api, 201).then((created) => created.recipe);
+    api.send<{ recipe: RecipeView }>("POST", "/recipes", { locationId: location.id, slot, content }, 201).then((created) => created.recipe);
   const copy = (id: string, body: Record_, as: AdminApi = api) =>
-    send<{ recipe: RecipeView }>("POST", `/recipes/${id}/copies`, body, as, 201).then((copied) => copied.recipe);
-  const recipe = (id: string) => send<{ recipe: RecipeView }>("GET", `/recipes/${id}`).then((read) => read.recipe);
-  const recipesAt = (location: LocationView) => send<{ recipes: RecipeView[] }>("GET", `/locations/${location.id}/recipes`).then((read) => read.recipes);
-  const versions = async (id: string) => (await send<{ versions: VersionView[] }>("GET", `/recipes/${id}/history`)).versions;
+    as.send<{ recipe: RecipeView }>("POST", `/recipes/${id}/copies`, body, 201).then((copied) => copied.recipe);
+  const recipe = (id: string) => api.get<{ recipe: RecipeView }>(`/recipes/${id}`).then((read) => read.recipe);
+  const recipesAt = (location: LocationView) => api.get<{ recipes: RecipeView[] }>(`/locations/${location.id}/recipes`).then((read) => read.recipes);
+  const versions = async (id: string) => (await api.get<{ versions: VersionView[] }>(`/recipes/${id}/history`)).versions;
 
   /** A batch, roasted on 2026-10-01, of a new Bean of that name, at each Location given. */
   async function batchAt(name: string, ...locations: LocationView[]) {
-    const bean = (await send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name } }, api, 201)).bean;
-    const batch = (
-      await send<{ batch: { id: string } }>(
-        "POST",
-        "/bean-batches",
-        { beanId: bean.id, content: { roastDate: "2026-10-01" }, locations: locations.map((location) => ({ locationId: location.id })) },
-        api,
-        201,
-      )
-    ).batch;
+    const bean = (await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name } }, 201)).bean;
+    const locationIds = locations.map((location) => ({ locationId: location.id }));
+    const batch = (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { roastDate: "2026-10-01" }, locations: locationIds }, 201)).batch;
     return { bean, batch };
   }
   const grinderAt = async (location: LocationView, model: string) =>
-    (await send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: location.id, content: { model } }, api, 201)).grinder;
+    (await api.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: location.id, content: { model } }, 201)).grinder;
 
   /** The tablet's recipe in a slot, if it holds one there. */
   const slotOn = (tablet: SimulatedTablet, slot: number): Record_ | undefined => {
@@ -115,12 +96,6 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
   };
   /** The tablet's own id for its record of a Library item, by the global id the record carries. */
   const localId = (records: Record_[], id: string) => records.find((record) => globalIdOf(record) === id || record[GLOBAL_ID_KEY] === id)?.id;
-  const poll = <T>(read: () => T) => expect.poll(read, { timeout: 15_000 });
-
-  async function staffAt(email: string, ...locations: LocationView[]): Promise<AdminApi> {
-    const { link } = await api.invite(email, "staff", locations.map((location) => location.id));
-    return AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Staff", password: "staff password 1" }));
-  }
 
   it("copies a lab Recipe to a cafe's slot 1 with a cafe Grinder: the cafe's tablets hold it by their own ids, its batch added and its Profile, Basket and Tool shown there", async () => {
     const lab = await locationWith("Copied lab", 46001, [server]);
@@ -130,9 +105,9 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
     const cafeGrinder = await grinderAt(cafe.location, "Copied EK43");
     const profile = await lab.tablets[0]!.addProfile(derivedProfile("Copied Bloom", 7.25));
     const profileId = String(profile.id);
-    await poll(async () => (await api.call("GET", `/profiles/${encodeURIComponent(profileId)}`)).status).toBe(200);
-    const basket = (await send<{ basket: { id: string } }>("POST", "/baskets", { locationId: lab.location.id, content: { name: "Copied 20g" } }, api, 201)).basket;
-    const tool = (await send<{ tool: { id: string } }>("POST", "/tools", { locationId: lab.location.id, content: { name: "Copied WDT" } }, api, 201)).tool;
+    await expect.poll(async () => (await api.call("GET", `/profiles/${encodeURIComponent(profileId)}`)).status).toBe(200);
+    const basket = (await api.send<{ basket: { id: string } }>("POST", "/baskets", { locationId: lab.location.id, content: { name: "Copied 20g" } }, 201)).basket;
+    const tool = (await api.send<{ tool: { id: string } }>("POST", "/tools", { locationId: lab.location.id, content: { name: "Copied WDT" } }, 201)).tool;
 
     const original = await create(lab.location, 2, {
       name: "Copied Espresso",
@@ -152,10 +127,10 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
       hotWaterDuration: 30,
       hotWaterFlow: 6,
     });
-    await poll(() => slotOn(lab.tablets[0]!, 2)?.[GLOBAL_ID_KEY]).toBe(original.id);
+    await expect.poll(() => slotOn(lab.tablets[0]!, 2)?.[GLOBAL_ID_KEY]).toBe(original.id);
     const originalHistory = await versions(original.id);
     const before = await create(cafe.location, 1, { name: "Cafe House" });
-    for (const tablet of cafe.tablets) await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(before.id);
+    for (const tablet of cafe.tablets) await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(before.id);
 
     const copied = await copy(original.id, { locationId: cafe.location.id, slot: 1, grinderId: cafeGrinder.id });
     expect(copied.id).not.toBe(original.id);
@@ -171,16 +146,16 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
 
     // The batch is at the cafe now, and the Profile, Basket and Tool shown there.
     const atCafe = (here: { location: { id: string } }) => here.location.id === cafe.location.id;
-    expect((await send<{ batch: { locations: { location: { id: string } }[] } }>("GET", `/bean-batches/${batch.id}`)).batch.locations.some(atCafe)).toBe(true);
+    expect((await api.get<{ batch: { locations: { location: { id: string } }[] } }>(`/bean-batches/${batch.id}`)).batch.locations.some(atCafe)).toBe(true);
     for (const path of [`/profiles/${encodeURIComponent(profileId)}`, `/baskets/${basket.id}`, `/tools/${tool.id}`]) {
-      const read = Object.values(await send<Record<string, { shownAt: { location: { id: string } }[] }>>("GET", path))[0]!;
+      const read = Object.values(await api.get<Record<string, { shownAt: { location: { id: string } }[] }>>(path))[0]!;
       expect(read.shownAt.some(atCafe), path).toBe(true);
     }
 
     // Each cafe tablet holds the copy in slot 1, naming its Grinder, batch, Basket and Tool by its own ids.
     for (const tablet of cafe.tablets) {
-      await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(copied.id);
-      await poll(() => localId(tablet.grinders(), cafeGrinder.id)).toBeDefined();
+      await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(copied.id);
+      await expect.poll(() => localId(tablet.grinders(), cafeGrinder.id)).toBeDefined();
       const toolId = String(localId(dye2List(tablet, "equipment") as Record_[], tool.id));
       expect(slotOn(tablet, 1)).toMatchObject({
         name: "Copied Espresso",
@@ -239,7 +214,7 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
     expect((await versions(upper.id)).at(-1)!.copiedFrom).toMatchObject({ id: original.id, name: "Choices Espresso" });
     expect(none.content).toEqual({ name: "Choices Espresso", dose: 18, steamMode: "flow", hotWaterMode: "vol", showOnDashboard: true });
     // The lab's batch, not chosen, was not added at the cafe.
-    expect((await send<{ batch: { locations: { location: { id: string } }[] } }>("GET", `/bean-batches/${batch.id}`)).batch.locations.map((here) => here.location.id)).toEqual([
+    expect((await api.get<{ batch: { locations: { location: { id: string } }[] } }>(`/bean-batches/${batch.id}`)).batch.locations.map((here) => here.location.id)).toEqual([
       lab.id,
     ]);
 
@@ -264,18 +239,18 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
     const uptown = await api.createLocation("Bean-only copy Uptown", "America/Chicago");
     const labTablet = lab.tablets[0]!;
     const original = await create(lab.location, 1, { name: "Bean-only Espresso" });
-    await poll(() => slotOn(labTablet, 1)?.[GLOBAL_ID_KEY]).toBe(original.id);
+    await expect.poll(() => slotOn(labTablet, 1)?.[GLOBAL_ID_KEY]).toBe(original.id);
     // A Bean added on the lab's tablet, with no batch anywhere, picked in DYE2's editor for the recipe in slot 1, once it has joined the Library.
     const added = await labTablet.addBean({ roaster: "Roux", name: "Bean-only copy Sidamo" });
-    await poll(() => globalIdOf(labTablet.beans().find((held) => held.id === added.id) ?? {})).toBeTruthy();
+    await expect.poll(() => globalIdOf(labTablet.beans().find((held) => held.id === added.id) ?? {})).toBeTruthy();
     const bean = { id: String(globalIdOf(labTablet.beans().find((held) => held.id === added.id)!)) };
     const list = (dye2List(labTablet, "recipes") as Record_[]).map((record) => (record.id === "1" ? { ...record, beanId: added.id } : record));
     expect((await labTablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, list)).status).toBe(200);
-    await poll(async () => (await recipe(original.id)).content.beanId).toBe(bean.id);
+    await expect.poll(async () => (await recipe(original.id)).content.beanId).toBe(bean.id);
     const uptownBatch = (
-      await send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { roastDate: "2026-10-01" }, locations: [{ locationId: uptown.id }] }, api, 201)
+      await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { roastDate: "2026-10-01" }, locations: [{ locationId: uptown.id }] }, 201)
     ).batch;
-    const offeredAt = async () => (await send<{ bean: { offeredAt: { id: string }[] } }>("GET", `/beans/${bean.id}`)).bean.offeredAt.map((at) => at.id);
+    const offeredAt = async () => (await api.get<{ bean: { offeredAt: { id: string }[] } }>(`/beans/${bean.id}`)).bean.offeredAt.map((at) => at.id);
     expect(await offeredAt()).toContain(lab.location.id);
 
     // At the cafe, with no batch of it, the Bean is offered, so the cafe's tablet names it by its own id.
@@ -284,8 +259,8 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
     expect(atCafe.content).not.toHaveProperty("beanBatchId");
     expect(await offeredAt()).toContain(cafe.location.id);
     const tablet = cafe.tablets[0]!;
-    await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(atCafe.id);
-    await poll(() => slotOn(tablet, 1)?.beanId).toBe(localId(tablet.beans(), bean.id));
+    await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(atCafe.id);
+    await expect.poll(() => slotOn(tablet, 1)?.beanId).toBe(localId(tablet.beans(), bean.id));
     expect(slotOn(tablet, 1)?.beanId).toBeDefined();
     // At Uptown, it takes the Bean's batch there.
     expect((await copy(original.id, { locationId: uptown.id, grinderId: null })).content).toMatchObject({ beanId: bean.id, beanBatchId: uptownBatch.id });
@@ -326,7 +301,7 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
   it("lets Staff copy a Recipe from any Location only to the Locations they work at", async () => {
     const home = await api.createLocation("Staff copy home", "America/Chicago");
     const elsewhere = await api.createLocation("Staff copy elsewhere", "America/Chicago");
-    const sam = await staffAt("sam.copies@example.com", home);
+    const sam = await api.staffAt("sam.copies@example.com", home);
     const theirs = await create(elsewhere, 1, { name: "Elsewhere Espresso" });
 
     const copied = await copy(theirs.id, { locationId: home.id, slot: 1, grinderId: null }, sam);

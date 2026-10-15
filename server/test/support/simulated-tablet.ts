@@ -11,6 +11,7 @@ import { createGrinder, deleteGrinder, listedGrinders, updateGrinder } from "./d
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
 import { updateWorkflow } from "./decaid-workflow.js";
 import { rememberSecret, watchLog } from "./secrets.js";
+import { opened } from "./test-scope.js";
 
 // Seam 1's simulated tablet: runs the built decent-sync.reaplugin/plugin.js
 // (`npm run build` first) in a stand-in for Decaid's plugin host, the way
@@ -27,8 +28,9 @@ import { rememberSecret, watchLog } from "./secrets.js";
 //   `GET /steams/ids` lists the Steam Records served at `/steams/{id}`,
 //   failing as Decaid's 10 MiB response limit fails it once the list passes
 //   `steamIdsLimitBytes`, and `GET /steams/latest` answers the newest of them
-//   without measurements, or `null`; `holdSteamReads` holds either, and
-//   `holdWorkflowReads` holds reads of the Workflow. The
+//   without measurements, or `null`; `holdSteamReads` holds either,
+//   `holdWorkflowReads` reads of the Workflow, and `holdShotReads` reads
+//   of each Shot. The
 //   library's lists leave out archived and hidden records unless asked for
 //   them, the bean batches leaving out those of archived beans too, and send
 //   an ETag, answering 304 to it in If-None-Match. A key of
@@ -323,7 +325,7 @@ export function derivedWorkflow(context: Record<string, unknown>): Record<string
  * `stateUpdate` carries it, in another of Decaid's states and substates
  * (MachineState and MachineSubstate in decaid:lib/src/models/device/machine.dart).
  */
-export function machineSnapshot(state: string, substate: string): Record<string, unknown> {
+function machineSnapshot(state: string, substate: string): Record<string, unknown> {
   return { ...readFixture("machine-state.json"), state: { state, substate } };
 }
 
@@ -614,6 +616,8 @@ export class SimulatedTablet {
   private readonly steamReadsHeld = new Map<HeldSteamRead, Promise<boolean>>();
   /** The reads of the Workflow held, as they are requested, until the promise settles. */
   private workflowReadsHeld: Promise<void> | undefined;
+  /** The reads of each Shot held, as they are requested, until the promise settles. */
+  private shotReadsHeld: Promise<void> | undefined;
   /** Every frame the plugin sent, parsed, in order. */
   readonly sent: unknown[] = [];
   /** Every text frame the server sent the plugin, parsed, in order. */
@@ -665,7 +669,9 @@ export class SimulatedTablet {
 
   /** Loads the built plugin and calls onLoad, as Decaid does when the plugin is enabled. */
   static load(options: SimulatedTabletOptions): SimulatedTablet {
-    return new SimulatedTablet(options);
+    const tablet = new SimulatedTablet(options);
+    opened({ end: () => tablet.unload() });
+    return tablet;
   }
 
   private constructor(options: SimulatedTabletOptions) {
@@ -835,6 +841,23 @@ export class SimulatedTablet {
     };
   }
 
+  /**
+   * Holds the plugin's reads of each Shot (`GET /shots/{id}`) until the
+   * function returned is called, as Decaid is slow to read one: each is
+   * answered, when released, from the Shots the tablet holds then.
+   */
+  holdShotReads(): () => void {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.shotReadsHeld = held;
+    return () => {
+      if (this.shotReadsHeld === held) this.shotReadsHeld = undefined;
+      release();
+    };
+  }
+
   /** Fails this many upcoming reads of a local API route, as a transient Decaid failure does. */
   failNextApiReads(path: string, count: number): void { this.apiFailures.set(path, count); }
 
@@ -967,7 +990,7 @@ export class SimulatedTablet {
    * the plugin's handler throws or rejects; otherwise its answer, status 200
    * if it gives none.
    */
-  async callEndpoint(endpoint: string, options: { method?: string; query?: Record<string, string>; body?: unknown } = {}): Promise<EndpointAnswer> {
+  async callEndpoint(endpoint: string, options: { method?: string; body?: unknown } = {}): Promise<EndpointAnswer> {
     const json = (status: number, body: unknown): EndpointAnswer => ({ status, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const declared = this.endpoints.find((candidate) => candidate.id === endpoint);
     if (this.unloaded) return json(404, { error: `plugin with ${this.pluginId} not loaded` });
@@ -982,7 +1005,7 @@ export class SimulatedTablet {
       method: options.method ?? "GET",
       headers: {},
       body: options.body === undefined ? null : JSON.parse(JSON.stringify(options.body)),
-      query: options.query ?? {},
+      query: {},
     };
     let answer: Record<string, unknown>;
     try {
@@ -994,13 +1017,46 @@ export class SimulatedTablet {
     return { status: typeof answer.status === "number" ? answer.status : 200, headers, body: String(answer.body ?? "") };
   }
 
+  /**
+   * How many times the server has acknowledged the frame with this id, as
+   * RawConnection's `acks` counts: none for a frame with no id, rather than
+   * every acknowledgment.
+   */
+  acks(id: unknown): number {
+    return typeof id === "string" ? this.received.filter((reply) => isAckOf(reply, id)).length : 0;
+  }
+
+  /**
+   * Whether the server has acknowledged every frame the plugin sent that
+   * matches, as it has when none does. `matches` reads each frame `sent`
+   * holds, typed as the caller reads it. A message sent in chunks is in
+   * `sent` only as its chunks, each carrying the message's id, which the
+   * server acknowledges once the whole message is in: a match on the
+   * message's type finds none of them, so match such a message by its id.
+   */
+  acknowledgedEvery<Frame>(matches: (frame: Frame) => boolean): boolean {
+    const acknowledged = this.acknowledgedIds();
+    return (this.sent as Frame[]).filter(matches).every((frame) => acknowledged.has((frame as { id?: unknown }).id));
+  }
+
+  /** Whether the server has acknowledged some frame the plugin sent that matches, as `acknowledgedEvery` reads them. */
+  acknowledgedSome<Frame>(matches: (frame: Frame) => boolean): boolean {
+    const acknowledged = this.acknowledgedIds();
+    return (this.sent as Frame[]).some((frame) => matches(frame) && acknowledged.has((frame as { id?: unknown }).id));
+  }
+
+  /** The ids of the frames the server has acknowledged so far. */
+  private acknowledgedIds(): Set<unknown> {
+    return new Set(this.received.flatMap((reply) => (isAckOf(reply) ? [(reply as { id?: unknown }).id] : [])));
+  }
+
   /** Resolves with the first log line, past or future, that matches. */
-  async waitForLog(pattern: RegExp, timeoutMs = 10_000): Promise<string> {
+  async waitForLog(pattern: RegExp, timeoutMs = 15_000): Promise<string> {
     return (await this.waitForLogs(pattern, 1, timeoutMs))[0]!;
   }
 
   /** Resolves once at least `count` log lines, past or future, match. */
-  async waitForLogs(pattern: RegExp, count: number, timeoutMs = 10_000): Promise<string[]> {
+  async waitForLogs(pattern: RegExp, count: number, timeoutMs = 15_000): Promise<string[]> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const lines = this.logs.filter((log) => pattern.test(log));
@@ -1223,6 +1279,7 @@ export class SimulatedTablet {
     }
     if ((route === "/steams/ids" || route === "/steams/latest") && (await this.steamReadsHeld.get(route))) throw new Error("Fetch timed out");
     if (method === "GET" && route === "/workflow") await this.workflowReadsHeld;
+    if (method === "GET" && route.startsWith("/shots/")) await this.shotReadsHeld;
     if (route === "/steams/ids") {
       // Every id at once, unpaginated, in the order of Decaid's primary key index.
       const ids = Object.keys(this.api).filter((path) => path.startsWith("/steams/")).map((path) => decodeURIComponent(path.slice("/steams/".length)));
@@ -1759,7 +1816,9 @@ export class RawConnection {
       socket.once("open", resolve);
       socket.once("error", reject);
     });
-    return new RawConnection(socket);
+    const raw = new RawConnection(socket);
+    opened({ end: () => raw.terminate() });
+    return raw;
   }
 
   /**
@@ -1797,29 +1856,26 @@ export class RawConnection {
   }
 
   /** Resolves with the message at `index` once it has arrived. */
-  async message(index: number, timeoutMs = 10_000): Promise<unknown> {
+  async message(index: number, timeoutMs = 15_000): Promise<unknown> {
     await this.until(() => this.messages.length > index, timeoutMs, `message ${index}`);
     return this.messages[index];
   }
 
   /** How many times the server has acknowledged the delivery with this id. */
   acks(id: string): number {
-    return this.messages.filter((message) => {
-      const { type, id: acked } = (message ?? {}) as { type?: unknown; id?: unknown };
-      return type === "ack" && acked === id;
-    }).length;
+    return this.messages.filter((message) => isAckOf(message, id)).length;
   }
 
   /** Resolves once the server has acknowledged the delivery with this id. */
-  async acknowledged(id: string, timeoutMs = 10_000): Promise<void> {
-    await this.until(() => this.acks(id) > 0, timeoutMs, `acknowledgment of ${id}`);
+  async acknowledged(id: string): Promise<void> {
+    await this.until(() => this.acks(id) > 0, 15_000, `acknowledgment of ${id}`);
   }
 
   /** Sends a delivery and resolves once the server acknowledges it, again if it had before. */
-  async deliver(message: { id: string; [field: string]: unknown }, timeoutMs = 10_000): Promise<void> {
+  async deliver(message: { id: string; [field: string]: unknown }): Promise<void> {
     const before = this.acks(message.id);
     this.send(message);
-    await this.until(() => this.acks(message.id) > before, timeoutMs, `acknowledgment of ${message.id}`);
+    await this.until(() => this.acks(message.id) > before, 15_000, `acknowledgment of ${message.id}`);
   }
 
   close(): Promise<{ code: number; reason: string }> {
@@ -1869,6 +1925,12 @@ function conditional(body: string, headers: Record<string, string>) {
   const etag = `"${createHash("sha256").update(body).digest("hex").slice(0, 16)}"`;
   const ifNoneMatch = Object.entries(headers).find(([name]) => name.toLowerCase() === "if-none-match")?.[1]?.trim();
   return ifNoneMatch === etag || ifNoneMatch === "*" ? response(304, "", { etag }) : response(200, body, { etag });
+}
+
+/** Whether a message the server sent is an acknowledgment: of the delivery with this id, if one is given. */
+function isAckOf(message: unknown, id?: string): boolean {
+  const { type, id: acked } = (message ?? {}) as { type?: unknown; id?: unknown };
+  return type === "ack" && (id === undefined || acked === id);
 }
 
 function delay(ms: number): Promise<void> {

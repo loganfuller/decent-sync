@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { CLOSE_CODES, type Chunk, MAX_FRAME_BYTES, MAX_ID_LENGTH, frames } from "@decent-sync/protocol";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { derivedShot, longShot, shotFixture, withShots } from "./support/shot-fixtures.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
@@ -26,18 +26,12 @@ describe("Chunked messages", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
-  const raws: RawConnection[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
-  afterEach(async () => {
-    await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
-    await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
   afterAll(async () => {
     await other?.stop();
@@ -55,22 +49,17 @@ describe("Chunked messages", () => {
     return derivedDe1Pro({ serial: machine.machine.id.replaceAll("-", "") });
   }
   function load(machine: CreatedMachine, shots: Record<string, unknown>[], options = {}) {
-    const tablet = SimulatedTablet.load({ settings: settingsFor(machine), api: withShots(tabletApi(machine), shots), timeScale: 50, ...options });
-    tablets.push(tablet);
-    return tablet;
+    return SimulatedTablet.load({ settings: settingsFor(machine), api: withShots(tabletApi(machine), shots), timeScale: 50, ...options });
   }
-  async function connect(machine: CreatedMachine, url = server.url) {
-    const raw = await RawConnection.welcomed(url, helloWith(machine.token));
-    raws.push(raw);
-    return raw;
+  function connect(machine: CreatedMachine, url = server.url) {
+    return RawConnection.welcomed(url, helloWith(machine.token));
   }
   async function stored(id: string) {
     await expect.poll(async () => (await api.call("GET", `/shots/${encodeURIComponent(id)}`)).status, { timeout: 20_000 }).toBe(200);
-    const response = await api.call("GET", `/shots/${encodeURIComponent(id)}`);
-    return ((await response.json()) as { shot: { record: Record<string, unknown> } }).shot;
+    return (await api.get<{ shot: { record: Record<string, unknown> } }>(`/shots/${encodeURIComponent(id)}`)).shot;
   }
   async function measurements(id: string) {
-    return ((await (await api.call("GET", `/shots/${encodeURIComponent(id)}/measurements`)).json()) as { measurements: unknown }).measurements;
+    return (await api.get<{ measurements: unknown }>(`/shots/${encodeURIComponent(id)}/measurements`)).measurements;
   }
   async function absent(id: string) {
     expect((await api.call("GET", `/shots/${encodeURIComponent(id)}`)).status).toBe(404);
@@ -82,9 +71,6 @@ describe("Chunked messages", () => {
   }
   function chunksSent(tablet: SimulatedTablet): Chunk[] {
     return tablet.sent.filter((message): message is Chunk => (message as Received).type === "chunk");
-  }
-  function acks(messages: unknown[], id: string): number {
-    return (messages as Received[]).filter((message) => message.type === "ack" && message.id === id).length;
   }
   function receipts(messages: unknown[], id?: string): number[] {
     return (messages as Received[]).flatMap((message) =>
@@ -105,11 +91,11 @@ describe("Chunked messages", () => {
     expect(chunks.length).toBeGreaterThan(4);
     expect(chunks.map(({ id, index, count }) => ({ id, index, count }))).toEqual(chunks.map((_, index) => ({ id, index, count: chunks.length })));
     for (const chunk of chunks) expect(Buffer.byteLength(JSON.stringify(chunk))).toBeLessThanOrEqual(MAX_FRAME_BYTES);
-    await expect.poll(() => acks(tablet.received, id)).toBe(1);
+    await expect.poll(() => tablet.acks(id)).toBe(1);
     expect(receipts(tablet.received, id)).toEqual(chunks.map((chunk) => chunk.index));
     // Nothing more arrives for it.
     await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(acks(tablet.received, id)).toBe(1);
+    expect(tablet.acks(id)).toBe(1);
     expect(chunksSent(tablet)).toHaveLength(chunks.length);
   });
 
@@ -120,7 +106,7 @@ describe("Chunked messages", () => {
     let stalled = true;
     const stallUpload = (frame: unknown) => stalled && (frame as Received).type === "chunk" && (frame as Received).index === 2;
     const tablet = load(machine, [record], { stallUpload });
-    await expect.poll(() => receipts(tablet.received).length, { timeout: 10_000 }).toBe(2);
+    await expect.poll(() => receipts(tablet.received).length).toBe(2);
     await absent("interrupted-long-shot");
     stalled = false;
     tablet.dropConnections();
@@ -134,8 +120,8 @@ describe("Chunked messages", () => {
     expect(chunks.every((chunk) => chunk.id === id)).toBe(true);
     expect(chunks.length).toBeGreaterThan(count);
     expect(chunks.slice(-count).map((chunk) => chunk.index)).toEqual(chunks.slice(-count).map((_, index) => index));
-    await expect.poll(() => acks(tablet.received, id)).toBe(1);
-    const listed = (await (await api.call("GET", `/shots?machineId=${machine.machine.id}`)).json()) as { shots: { id: string }[] };
+    await expect.poll(() => tablet.acks(id)).toBe(1);
+    const listed = await api.get<{ shots: { id: string }[] }>(`/shots?machineId=${machine.machine.id}`);
     expect(listed.shots.map((shot) => shot.id)).toEqual(["interrupted-long-shot"]);
   });
 
@@ -145,7 +131,7 @@ describe("Chunked messages", () => {
     const notes = "抽出はゆっくり、甘い余韻。\u{2615}\u{1f600}".repeat(25_000);
     const record = long("slow-upload-shot", { annotations: { ...(shotFixture().annotations as object), espressoNotes: notes } });
     const tablet = load(machine, [record], { uploadBytesPerSecond: 512 * 1024 });
-    await expect.poll(() => receipts(tablet.received).length, { timeout: 10_000 }).toBeGreaterThan(0);
+    await expect.poll(() => receipts(tablet.received).length).toBeGreaterThan(0);
     const heartbeatsBefore = tablet.sent.filter((message) => (message as Received).type === "heartbeat").length;
 
     // A Shot pulled while the long one is still on its way.
@@ -167,7 +153,7 @@ describe("Chunked messages", () => {
     // Heartbeats kept going alongside, and the connection never dropped.
     expect(tablet.sent.filter((message) => (message as Received).type === "heartbeat").length).toBeGreaterThan(heartbeatsBefore);
     expect(tablet.logs.filter((line) => line.startsWith("Disconnected"))).toEqual([]);
-  }, 30_000);
+  });
 
   it("puts duplicate and out-of-order chunks back together without corrupting the stored Shot", async () => {
     const machine = await api.createMachine("Raw chunks");
@@ -178,11 +164,11 @@ describe("Chunked messages", () => {
     // Last chunk first, and every other chunk twice.
     const order = [...chunks].reverse().flatMap((chunk, n) => (n % 2 === 0 ? [chunk, chunk] : [chunk]));
     for (const chunk of order) raw.send(chunk);
-    await expect.poll(() => acks(raw.messages, id), { timeout: 10_000 }).toBe(1);
+    await expect.poll(() => raw.acks(id)).toBe(1);
     // A stray copy after the Shot is complete starts nothing that could complete again.
     raw.send(chunks[1]);
     await expect.poll(() => receipts(raw.messages, id).length).toBe(order.length + 1);
-    expect(acks(raw.messages, id)).toBe(1);
+    expect(raw.acks(id)).toBe(1);
     expect((await stored("raw-chunked-shot")).record).toEqual({ ...record, measurements: undefined });
     expect(await measurements("raw-chunked-shot")).toEqual(record.measurements);
   });
@@ -200,7 +186,7 @@ describe("Chunked messages", () => {
     for (const chunk of rest) raw.send(chunk);
     expect((await raw.closed).code).toBe(CLOSE_CODES.protocol_error);
     expect(raw.messages).toContainEqual({ type: "error", code: "protocol_error", message: "chunk.data differs from an earlier copy of the same chunk" });
-    expect(acks(raw.messages, id)).toBe(0);
+    expect(raw.acks(id)).toBe(0);
     await absent("contradicted-shot");
   });
 
@@ -217,7 +203,7 @@ describe("Chunked messages", () => {
       const raw = await connect(machine);
       for (const frame of frames(text(id), id)) raw.send(frame.text);
       expect((await raw.closed).code).toBe(CLOSE_CODES.protocol_error);
-      expect(acks(raw.messages, id)).toBe(0);
+      expect(raw.acks(id)).toBe(0);
     }
     await absent("invalid-chunked-shot");
   });
@@ -238,7 +224,7 @@ describe("Chunked messages", () => {
       const second = await connect(machine, url === server.url ? other.url : server.url);
       for (const chunk of chunks.slice(half)) second.send(chunk);
       await expect.poll(() => receipts(second.messages, id).length).toBe(chunks.length - half);
-      expect(acks(second.messages, id)).toBe(0);
+      expect(second.acks(id)).toBe(0);
       await absent("partial-chunked-shot");
       await second.terminate();
     }
@@ -246,14 +232,13 @@ describe("Chunked messages", () => {
     // Sent whole, from its first chunk, it is stored once.
     const whole = await connect(machine);
     for (const chunk of chunks) whole.send(chunk);
-    await expect.poll(() => acks(whole.messages, id), { timeout: 10_000 }).toBe(1);
+    await expect.poll(() => whole.acks(id)).toBe(1);
     expect(await measurements("partial-chunked-shot")).toEqual(record.measurements);
   });
 
   it("accepts a hello in chunks, but holds no more before a hello than one frame could carry, ids included", async () => {
     const machine = await api.createMachine("Chunked hello");
     const raw = await RawConnection.open(server.url);
-    raws.push(raw);
     const chunks = chunked(helloWith(machine.token), "hello", 128);
     expect(chunks.length).toBeGreaterThan(2);
     for (const chunk of chunks) raw.send(chunk);
@@ -264,7 +249,6 @@ describe("Chunked messages", () => {
     await api.waitForMachine("Chunked hello", (view) => view.online);
 
     const flood = await RawConnection.open(server.url);
-    raws.push(flood);
     const padded = { ...helloWith(machine.token), padding: "x".repeat(DECAID_PENDING_LIMIT) };
     for (const chunk of chunked(padded, "padded")) flood.send(chunk);
     expect((await flood.closed).code).toBe(CLOSE_CODES.protocol_error);
@@ -274,7 +258,6 @@ describe("Chunked messages", () => {
 
     // Messages' ids count too: these two chunks' data fits, but not with their ids.
     const ids = await RawConnection.open(server.url);
-    raws.push(ids);
     const data = "x".repeat(DECAID_PENDING_LIMIT / 2 - MAX_ID_LENGTH / 2);
     for (const id of ["a", "b"]) ids.send({ type: "chunk", id: id.repeat(MAX_ID_LENGTH), index: 0, count: 2, data });
     expect((await ids.closed).code).toBe(CLOSE_CODES.protocol_error);

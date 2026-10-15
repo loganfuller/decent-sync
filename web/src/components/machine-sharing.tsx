@@ -1,5 +1,4 @@
 import { type ReactNode, useCallback, useId, useState } from "react";
-import { Link } from "react-router";
 import { ItemLink, itemPath } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
 import { formatTime } from "@/components/machines";

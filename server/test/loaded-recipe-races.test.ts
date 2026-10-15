@@ -1,5 +1,5 @@
 import { LOADED_RECIPE_KEY, RECIPE_FIELD } from "@decent-sync/protocol";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { DYE2_NAMESPACE, dye2Keys, dye2Library, dye2Recording, replayWrites } from "./support/simulated-dye2.js";
 import { type DecaidApi, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
 
@@ -16,11 +16,7 @@ type Record_ = Record<string, unknown>;
 const RECIPE = "0190a5a2-0000-7000-8000-000000000145";
 const HOT_WATER = { targetTemperature: 85, duration: 40, volume: 120, flow: 7.5 };
 
-describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_000 }, () => {
-  const tablets: SimulatedTablet[] = [];
-  afterEach(async () => {
-    await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
-  });
+describe("Deciding a Loaded Recipe while the Workflow changes", () => {
 
   const library = dye2Library();
   const batchOf = (bean: string) => (library["/bean-batches"] as Record_[]).find((batch) => batch.beanId === (library["/beans"] as Record_[]).find((record) => String(record.name).endsWith(bean))!.id)!.id as string;
@@ -67,8 +63,7 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
         return 300;
       },
     });
-    tablets.push(tablet);
-    return { tablet, changed: () => expect.poll(() => changing, { timeout: 10_000 }).toBeDefined().then(() => changing) };
+    return { tablet, changed: () => expect.poll(() => changing).toBeDefined().then(() => changing) };
   }
 
   const context = (tablet: SimulatedTablet) => (tablet.workflow().context ?? {}) as Record_;
@@ -92,7 +87,7 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     const { tablet, changed } = load("47211", structuredClone(library["/workflow"]) as Record_, (tablet) => tablet.changeSettings({ context: { targetDoseWeight: 18.6 } }));
     for (const answer of await replayWrites(tablet, applied)) expect(answer.status).toBe(200);
     await changed();
-    await expect.poll(() => named(tablet), { timeout: 10_000 }).toBe(RECIPE);
+    await expect.poll(() => named(tablet)).toBe(RECIPE);
     await settled();
     expect(context(tablet)).toMatchObject({ targetDoseWeight: 18.6, beanBatchId: ethiopia, grinderSetting: "2.7" });
     expect(tablet.workflow().hotWaterData).toEqual(HOT_WATER);
@@ -102,7 +97,7 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     const { tablet, changed } = load("47221", structuredClone(library["/workflow"]) as Record_, (tablet) => tablet.changeSettings({ hotWaterData: { volume: 61 } }), { dose: 19.5, grind: 2.9 });
     for (const answer of await replayWrites(tablet, applied)) expect(answer.status).toBe(200);
     await changed();
-    await expect.poll(() => named(tablet), { timeout: 10_000 }).toBe(RECIPE);
+    await expect.poll(() => named(tablet)).toBe(RECIPE);
     await settled();
     expect(context(tablet)).toMatchObject({ targetDoseWeight: 19.5, grinderSetting: "2.9", beanBatchId: ethiopia });
     expect(tablet.workflow().hotWaterData).toEqual({ ...HOT_WATER, volume: 61 });
@@ -112,7 +107,7 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     const { tablet, changed } = load("47231", structuredClone(library["/workflow"]) as Record_, (tablet) => tablet.changeSettings({ context: { beanBatchId: nextBag.id } }), { dose: 19.5, grind: 2.9 });
     for (const answer of await replayWrites(tablet, applied)) expect(answer.status).toBe(200);
     await changed();
-    await expect.poll(() => named(tablet), { timeout: 10_000 }).toBe(RECIPE);
+    await expect.poll(() => named(tablet)).toBe(RECIPE);
     await settled();
     expect(context(tablet)).toMatchObject({ targetDoseWeight: 19.5, grinderSetting: "2.9", beanBatchId: nextBag.id });
     expect(tablet.workflow().hotWaterData).toEqual(HOT_WATER);
@@ -145,14 +140,6 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     return workflow;
   };
 
-  it("leaves a Workflow the plugin loads with naming the Recipe as it is, its hot water and the next bag of its Bean as the barista set them", async () => {
-    const { tablet } = load("47251", appliedWith(nextBag.id, true, 61));
-    await settled();
-    expect(named(tablet)).toBe(RECIPE);
-    expect(context(tablet).beanBatchId).toBe(nextBag.id);
-    expect(tablet.workflow().hotWaterData).toEqual({ ...HOT_WATER, volume: 61 });
-  });
-
   it("loads nothing as the plugin loads with a Workflow holding the Recipe's dial and a batch of another Bean, as when the barista unloaded it so", async () => {
     const { tablet } = load("47261", appliedWith(brazil, false));
     await settled();
@@ -160,9 +147,13 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     expect(context(tablet).beanBatchId).toBe(brazil);
   });
 
-  it("writes the Recipe the Workflow names nothing as a tweak of it is set back, leaving the next bag and hot water the barista set", async () => {
+  it("leaves a Workflow the plugin loads with naming the Recipe as it is, then writes the Recipe nothing as a tweak of it is set back, leaving the next bag and hot water the barista set", async () => {
     const { tablet } = load("47271", appliedWith(nextBag.id, true, 61));
     await settled();
+    // The plugin loads with the Workflow naming the Recipe, and leaves it as it is.
+    expect(named(tablet)).toBe(RECIPE);
+    expect(context(tablet).beanBatchId).toBe(nextBag.id);
+    expect(tablet.workflow().hotWaterData).toEqual({ ...HOT_WATER, volume: 61 });
     await tablet.changeSettings({ context: { targetDoseWeight: 19 } });
     await settled();
     await tablet.changeSettings({ context: { targetDoseWeight: 18.5 } });

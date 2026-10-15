@@ -18,7 +18,7 @@ const CAP = 64;
 const HEARTBEAT_SECONDS = 0.5;
 const WARNING = /Refusing sync connections while 64 have not had a hello accepted/g;
 
-describe("connections awaiting hello on one server instance", { timeout: 30_000 }, () => {
+describe("connections awaiting hello on one server instance", () => {
   runAsSteps();
   let server: TestServer;
   let api: AdminApi;
@@ -65,7 +65,7 @@ describe("connections awaiting hello on one server instance", { timeout: 30_000 
   beforeAll(async () => {
     server = await startTestServer({ env: { SYNC_HELLO_TIMEOUT_SECONDS: "60", SYNC_HEARTBEAT_SECONDS: String(HEARTBEAT_SECONDS) } });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await tablet?.unload();
     await Promise.all([...silent, connected, waiting].filter(Boolean).map((connection) => connection.terminate()));

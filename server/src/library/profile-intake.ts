@@ -94,7 +94,7 @@ export type ProfileIntakeStep =
   | { kind: "delete"; profileId: string; updatedAt: Date | null; shown: false };
 
 /** The fields of a Profile's `profile` that are its content's edits: outside its id (ADR-0006). */
-export const PROFILE_TEXT = ["title", "author", "notes"] as const;
+const PROFILE_TEXT = ["title", "author", "notes"] as const;
 
 /** A Profile's title, author and notes, from its record or its content: each null where it has none. */
 export function profileText(record: Readonly<Record<string, unknown>>): Record<string, unknown> {

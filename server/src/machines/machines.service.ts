@@ -633,7 +633,7 @@ function hex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("hex");
 }
 
-export function describeHardware(hardware: Hardware): string {
+function describeHardware(hardware: Hardware): string {
   return `${hardware.model} serial ${hardware.serial}`;
 }
 

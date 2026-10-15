@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { CLOSE_CODES, type Chunk, MAX_ID_LENGTH, MAX_RECORD_ID_LENGTH, frames } from "@decent-sync/protocol";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { HANDLED_DELIVERY_LIMITS } from "../src/sync/handled-deliveries.js";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { derivedShot, shotFixture } from "./support/shot-fixtures.js";
@@ -25,16 +25,12 @@ describe("Deliveries sent again on one connection", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const raws: RawConnection[] = [];
 
   beforeAll(async () => {
     const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
-  afterEach(async () => {
-    await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
   afterAll(async () => {
     await other?.stop();
@@ -42,9 +38,7 @@ describe("Deliveries sent again on one connection", () => {
   });
 
   async function connect(machine: CreatedMachine, url = server.url) {
-    const raw = await RawConnection.welcomed(url, helloWith(machine.token));
-    raws.push(raw);
-    return raw;
+    return RawConnection.welcomed(url, helloWith(machine.token));
   }
   const received = (raw: RawConnection, type: string) => (raw.messages as Received[]).filter((message) => message.type === type);
   /** Sends an index and resolves with the request it was answered with, once it is acknowledged. */
@@ -55,12 +49,6 @@ describe("Deliveries sent again on one connection", () => {
     expect(requests).toHaveLength(before + 1);
     return requests.at(-1);
   }
-  async function get(path: string): Promise<unknown> {
-    const response = await api.call("GET", path);
-    expect(response.status).toBe(200);
-    return response.json();
-  }
-
   /** A real Shot naming no hardware, so it is credited to the Machine whose tablet sends it. */
   function shot(id: string, changes: Record<string, unknown> = {}) {
     const { machine, ...workflow } = shotFixture().workflow as Record<string, unknown>;
@@ -110,19 +98,19 @@ describe("Deliveries sent again on one connection", () => {
     }
 
     const visible = async () => ({
-      shots: await get(`/shots?limit=100&machineId=${machine.machine.id}`),
-      shot: await get("/shots/replayed-shot"),
-      measurements: await get("/shots/replayed-shot/measurements"),
-      steamRecords: await get(`/steam-records?limit=100&machineId=${machine.machine.id}`),
-      steam: await get("/steam-records/replayed-steam"),
-      workflowEvents: await get(`/machines/${machine.machine.id}/workflow-events?limit=100`),
-      stateEvents: await get(`/machines/${machine.machine.id}/machine-state-events?limit=100`),
-      collection: await get(`/machines/${machine.machine.id}/collections/machineSettings`),
+      shots: await api.get(`/shots?limit=100&machineId=${machine.machine.id}`),
+      shot: await api.get("/shots/replayed-shot"),
+      measurements: await api.get("/shots/replayed-shot/measurements"),
+      steamRecords: await api.get(`/steam-records?limit=100&machineId=${machine.machine.id}`),
+      steam: await api.get("/steam-records/replayed-steam"),
+      workflowEvents: await api.get(`/machines/${machine.machine.id}/workflow-events?limit=100`),
+      stateEvents: await api.get(`/machines/${machine.machine.id}/machine-state-events?limit=100`),
+      collection: await api.get(`/machines/${machine.machine.id}/collections/machineSettings`),
     });
     const before = await visible();
     expect(before.shot).toMatchObject({ shot: { enjoyment: 2 } });
-    expect(await get(`/machines/${machine.machine.id}/workflow-events?limit=1`)).toMatchObject({ total: 2, events: [{ workflow: dialledIn }] });
-    expect(await get(`/machines/${machine.machine.id}/machine-state-events?limit=1`)).toMatchObject({
+    expect(await api.get(`/machines/${machine.machine.id}/workflow-events?limit=1`)).toMatchObject({ total: 2, events: [{ workflow: dialledIn }] });
+    expect(await api.get(`/machines/${machine.machine.id}/machine-state-events?limit=1`)).toMatchObject({
       total: transitions + 1,
       events: [{ state: "espresso", substate: "pouring" }],
     });
@@ -139,7 +127,7 @@ describe("Deliveries sent again on one connection", () => {
     const elsewhere = await connect(machine, other.url);
     for (const delivery of Object.values(earliest)) await elsewhere.deliver(delivery);
     expect(await visible()).toEqual(before);
-  }, 30_000);
+  });
 
   it("answers a recent index sent again with the request it was answered with", async () => {
     const machine = await api.createMachine("Recent index");
@@ -156,7 +144,7 @@ describe("Deliveries sent again on one connection", () => {
     const ack = (raw.messages as Received[]).map((message) => message.type === "ack" && message.id === index.id).lastIndexOf(true);
     expect(raw.messages[ack - 1]).toEqual(request);
     expect(await requestFor(raw, steamIndex, "requestSteams")).toEqual({ type: "requestSteams", steamIds: ["recent-steam"] });
-    expect(await get(`/shots?limit=100&machineId=${machine.machine.id}`)).toMatchObject({ total: 1 });
+    expect(await api.get(`/shots?limit=100&machineId=${machine.machine.id}`)).toMatchObject({ total: 1 });
   });
 
   it("forgets earlier deliveries sooner while indexes were answered with many long ids", async () => {
@@ -211,7 +199,7 @@ describe("Deliveries sent again on one connection", () => {
       await refused(states, "machineState.id");
 
       expect((await api.call("GET", "/shots/long-id-shot")).status).toBe(404);
-      expect(await get(`/machines/${machine.machine.id}/machine-state-events`)).toMatchObject({ total: 0 });
+      expect(await api.get(`/machines/${machine.machine.id}/machine-state-events`)).toMatchObject({ total: 0 });
     });
 
     it("is refused on a chunk, before anything of its message is held", async () => {

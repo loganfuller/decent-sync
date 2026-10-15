@@ -66,7 +66,7 @@ const FIELD_LABELS: Readonly<Record<string, string>> = {
 };
 
 /** A field's name as people read it: a Location's state of the item names the Location, and a field of its content is spelled out, as `roastDate` is "Roast date". */
-export function fieldLabel(field: string, location: Location | null): string {
+function fieldLabel(field: string, location: Location | null): string {
   if (location !== null) {
     if (field === "atLocation") return `At ${location.name}`;
     if (field === "remainingWeight") return `Remaining weight at ${location.name}`;
@@ -94,7 +94,7 @@ function inOrder(fields: Record<string, unknown>): [string, unknown][] {
  * named by its id, as a Recipe names its Bean Batch, is named as `names`
  * names it, where it does.
  */
-export function valueText(field: string, value: unknown, names: ReadonlyMap<string, string> = new Map()): string {
+function valueText(field: string, value: unknown, names: ReadonlyMap<string, string> = new Map()): string {
   if (value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0)) return "None";
   if (typeof value === "string" && names.has(value)) return names.get(value)!;
   if (field === "hotWaterMode") return value === "temp" ? "Temperature" : value === "vol" ? "Volume" : String(value);
@@ -131,7 +131,7 @@ export function attributePairs(value: unknown): { key: string; value: string }[]
 }
 
 /** Where an edit came from: a Machine's tablet, or an account in the management interface. */
-export function SourceText({ source }: { source: EditSource | null }) {
+function SourceText({ source }: { source: EditSource | null }) {
   const { state } = useAuth();
   if (source === null) return <span className="text-muted-foreground">Not known</span>;
   if (source.machine) {

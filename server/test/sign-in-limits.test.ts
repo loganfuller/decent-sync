@@ -15,7 +15,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 const CAPACITY = 100_000;
 const ahead = { clockOffsetMs: 60 * 60_000 };
 
-describe("sign-in limits across server instances", { timeout: 30_000 }, () => {
+describe("sign-in limits across server instances", () => {
   let first: TestServer;
   let second: TestServer;
   let database: pg.Client;
@@ -51,7 +51,7 @@ describe("sign-in limits across server instances", { timeout: 30_000 }, () => {
 
     // The offset reaches the server's code.
     expect(await api.at(second.url).instanceClockOffsetMs(database)).toBeGreaterThan(ahead.clockOffsetMs - 60_000);
-  }, 60_000);
+  });
   afterAll(async () => {
     await database?.end();
     await second?.stop();

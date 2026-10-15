@@ -133,7 +133,7 @@ export async function changesDue(
 }
 
 /** The tablet's lists of DYE2's that it last reported, or the plugin last found, in a shape that is not recognised (`tablet_unrecognised_lists`). */
-export async function unrecognisedLists(tx: Prisma.TransactionClient, tabletId: string): Promise<Set<string>> {
+async function unrecognisedLists(tx: Prisma.TransactionClient, tabletId: string): Promise<Set<string>> {
   const rows = await tx.$queryRaw<{ list: string }[]>`SELECT list FROM tablet_unrecognised_lists WHERE tablet_id = ${tabletId}::uuid`;
   return new Set(rows.map((row) => row.list));
 }

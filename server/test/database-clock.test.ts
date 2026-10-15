@@ -22,7 +22,7 @@ const de1Pro = (serial: string) => ({ model: "DE1Pro", serial, firmware: "1333" 
  */
 const NOT_SERVER_TIMES = ["updated_at", "expires_at", "observed_at", "pulled_at", "steamed_at", "version_at", "effective_from"];
 
-describe("times stored by an instance whose clock is two days ahead", { timeout: 30_000 }, () => {
+describe("times stored by an instance whose clock is two days ahead", () => {
   runAsSteps();
 
   let server: TestServer;
@@ -67,7 +67,7 @@ describe("times stored by an instance whose clock is two days ahead", { timeout:
     database = await server.connectDatabase();
     // The offset reaches the server's code.
     expect(await api.instanceClockOffsetMs(database)).toBeGreaterThan(2 * DAY_MS - 60_000);
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(connections.splice(0).map((raw) => raw.terminate()));
   });

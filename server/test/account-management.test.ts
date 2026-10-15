@@ -74,7 +74,6 @@ async function waitUntilExpired(database: pg.Client, table: "invites" | "passwor
       async () =>
         (await database.query<{ expired: boolean }>(`SELECT expires_at <= clock_timestamp() AS expired FROM ${table} WHERE ${where} = $1`, [id]))
           .rows[0]!.expired,
-      { timeout: 10_000 },
     )
     .toBe(true);
 }
@@ -99,7 +98,7 @@ describe("account management", () => {
     uptown = await api.createLocation("Uptown", "America/Chicago");
     belmont = await api.createLocation("Belmont", "America/Chicago");
     sam = await invitePerson(api, "Sam Staff", "staff", [uptown.id, belmont.id]);
-  }, 60_000);
+  });
   afterAll(async () => {
     await database?.end();
     await other?.stop();
@@ -531,7 +530,7 @@ describe("account management", () => {
 });
 
 // Its rounds each create two Admins, which costs two password hashes.
-describe("the last active Admin", { timeout: 30_000 }, () => {
+describe("the last active Admin", () => {
   let server: TestServer;
   let other: TestServer;
   let database: pg.Client;
@@ -544,9 +543,9 @@ describe("the last active Admin", { timeout: 30_000 }, () => {
     other = await startTestServer({ sharing: server });
     database = await server.connectDatabase();
     ada = await AdminApi.setUp(server.url);
-    adaId = ((await (await ada.call("GET", "/session")).json()) as { account: { id: string } }).account.id;
+    adaId = (await ada.get<{ account: { id: string } }>("/session")).account.id;
     lab = await ada.createLocation("Lab", "America/Denver");
-  }, 60_000);
+  });
   afterAll(async () => {
     await database?.end();
     await other?.stop();
@@ -624,7 +623,7 @@ describe("the last active Admin", { timeout: 30_000 }, () => {
   });
 });
 
-describe("password reset link expiry across server instances", { timeout: 30_000 }, () => {
+describe("password reset link expiry across server instances", () => {
   let first: TestServer;
   let ahead: TestServer;
   let behind: TestServer;
@@ -656,7 +655,7 @@ describe("password reset link expiry across server instances", { timeout: 30_000
     // The offsets reach the servers' code.
     expect(await api.at(ahead.url).instanceClockOffsetMs(database)).toBeGreaterThan(2 * DAY_MS - 60_000);
     expect(await api.at(behind.url).instanceClockOffsetMs(database)).toBeLessThan(-2 * DAY_MS + 60_000);
-  }, 60_000);
+  });
   afterAll(async () => {
     await database?.end();
     await Promise.all([ahead?.stop(), behind?.stop()]);

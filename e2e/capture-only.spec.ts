@@ -1,6 +1,7 @@
 import { expect as baseExpect, type Page, test } from "@playwright/test";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 
 // A Machine's page shows whether it is a Capture-only Machine, and why: it
 // has no Location, or an Admin turned its sharing off, which an Admin does
@@ -11,22 +12,17 @@ const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 // Machine pages poll the server every few seconds.
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const sam = { name: "Sam Staff", email: "sam@example.com", password: "staff password 1" };
 const tablets: SimulatedTablet[] = [];
 
-test.beforeEach(async ({ page }) => {
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
 });
 
 test("a Machine with no Location shows it is capture-only because it has none", async ({ page }) => {
-  const machine = await createMachine(page, "Home machine", null);
+  const { machine } = await createMachine(page, "Home machine");
   await page.goto(`/machines/${machine.id}`);
   await expect(page.getByRole("heading", { name: "Home machine", level: 1 })).toBeVisible();
   await expect(page.getByText("Capture-only", { exact: true }).first()).toBeVisible();
@@ -38,8 +34,8 @@ test("a Machine with no Location shows it is capture-only because it has none", 
 
 test("an Admin turns a Machine's sharing off on its page, making it capture-only, and back on, so it joins its Location again", async ({ page, browser }) => {
   const uptown = await createLocation(page, "Uptown");
-  const machine = await createMachine(page, "Uptown group", uptown.id);
-  const tablet = await tabletOf(machine.token, "25101");
+  const { machine, token } = await createMachine(page, "Uptown group", uptown.id);
+  const tablet = await tabletOf(token, "25101");
   // Uptown offers a coffee of its own.
   const created = await page.request.post("/api/beans", { data: { content: { roaster: "Roux Bakehouse", name: "House Blend" } } });
   baseExpect(created.status()).toBe(201);
@@ -95,20 +91,6 @@ test("an Admin turns a Machine's sharing off on its page, making it capture-only
   await expect.poll(() => tablet.beans().find((record) => record.name === "Guji Hambela")?.archived).toBe(true);
   baseExpect(await beanNames(page)).toEqual(["House Blend"]);
 });
-
-async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {
-  const response = await page.request.post("/api/locations", { data: { name, timeZone: "America/Chicago" } });
-  baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { location: { id: string; name: string } }).location;
-}
-
-/** A Machine at the Location, or at none, through the REST API, with its token. */
-async function createMachine(page: Page, name: string, locationId: string | null): Promise<{ id: string; token: string }> {
-  const response = await page.request.post("/api/machines", { data: { name, ...(locationId === null ? {} : { locationId }) } });
-  baseExpect(response.status()).toBe(201);
-  const { machine, token } = (await response.json()) as { machine: { id: string }; token: string };
-  return { id: machine.id, token };
-}
 
 /**
  * A tablet connected with the token, polling every 5 s of its time, which runs 50 times faster here. Its Decaid holds

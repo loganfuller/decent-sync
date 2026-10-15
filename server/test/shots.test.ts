@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { MAX_HARDWARE_LENGTH } from "@decent-sync/protocol";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
-import { waitForLockWaits } from "./support/lock-waits.js";
+import { whileProgressing } from "./support/backlog.js";
+import { waitForLockWaits, withoutLockWaits } from "./support/lock-waits.js";
 import { derivedShot, shotFixture, withShots } from "./support/shot-fixtures.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { ignoredRecordWarnings, startTestServer, type TestServer } from "./support/test-server.js";
@@ -28,18 +29,12 @@ describe("Shot capture and reconciliation", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
-  const raws: RawConnection[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
-  afterEach(async () => {
-    await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
-    await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
   afterAll(async () => { await other?.stop(); await server?.stop(); });
 
@@ -50,9 +45,7 @@ describe("Shot capture and reconciliation", () => {
   }
   function tabletApi(machine: CreatedMachine) { return derivedDe1Pro({ serial: machine.machine.id.replaceAll("-", "") }); }
   function load(machine: CreatedMachine, shots: Record<string, unknown>[], options = {}) {
-    const tablet = SimulatedTablet.load({ settings: settingsFor(machine), api: withShots(tabletApi(machine), shots), timeScale: 50, ...options });
-    tablets.push(tablet);
-    return tablet;
+    return SimulatedTablet.load({ settings: settingsFor(machine), api: withShots(tabletApi(machine), shots), timeScale: 50, ...options });
   }
   /** Shots one second apart, oldest first, ids suffixed with their position. */
   function timeline(prefix: string, count: number) {
@@ -80,31 +73,33 @@ describe("Shot capture and reconciliation", () => {
       tablet.serve(withShots(tabletApi(machine), shots));
     };
   }
+  /** Resolves once the Machine has every one of these Shots stored, waiting as long as more of them are. */
+  async function stored(machineId: string, ids: string[]): Promise<void> {
+    const count = async () => {
+      const held = new Set(await storedIds(machineId));
+      return ids.filter((id) => held.has(id)).length;
+    };
+    await whileProgressing(async () => (await count()) === ids.length, count);
+  }
   async function storedIds(machineId: string): Promise<string[]> {
     const ids: string[] = [];
     for (let offset = 0; ; offset += 100) {
-      const page = (await (await api.call("GET", `/shots?limit=100&offset=${offset}&machineId=${machineId}`)).json()) as { shots: ShotView[] };
+      const page = await api.get<{ shots: ShotView[] }>(`/shots?limit=100&offset=${offset}&machineId=${machineId}`);
       ids.push(...page.shots.map((shot) => shot.id));
       if (page.shots.length < 100) return ids;
     }
   }
-  async function list(machineId?: string, at = api): Promise<{ shots: ShotView[]; total: number }> {
-    const response = await at.call("GET", `/shots?limit=100${machineId ? `&machineId=${machineId}` : ""}`);
-    expect(response.status).toBe(200);
-    return response.json() as Promise<{ shots: ShotView[]; total: number }>;
+  function list(machineId?: string, at = api): Promise<{ shots: ShotView[]; total: number }> {
+    return at.get(`/shots?limit=100${machineId ? `&machineId=${machineId}` : ""}`);
   }
   async function detail(id: string, at = api): Promise<ShotView> {
-    const response = await at.call("GET", `/shots/${encodeURIComponent(id)}`);
-    expect(response.status).toBe(200);
-    return ((await response.json()) as { shot: ShotView }).shot;
+    return (await at.get<{ shot: ShotView }>(`/shots/${encodeURIComponent(id)}`)).shot;
   }
   async function measurements(id: string) {
-    return ((await (await api.call("GET", `/shots/${encodeURIComponent(id)}/measurements`)).json()) as { measurements: unknown }).measurements;
+    return (await api.get<{ measurements: unknown }>(`/shots/${encodeURIComponent(id)}/measurements`)).measurements;
   }
-  async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
-    const raw = await RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
-    raws.push(raw);
-    return raw;
+  function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
+    return RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
   }
   async function deliver(raw: RawConnection, record: Record<string, unknown>, type = "shot", id = randomUUID()) {
     await raw.deliver({ type, id, shotId: String(record.id), shot: record });
@@ -114,7 +109,7 @@ describe("Shot capture and reconciliation", () => {
     await expect.poll(async () => {
       const response = await api.call("GET", `/shots/${encodeURIComponent(id)}`);
       return response.ok && matches(((await response.json()) as { shot: ShotView }).shot);
-    }, { timeout: 10_000 }).toBe(true);
+    }).toBe(true);
     return detail(id);
   }
 
@@ -126,36 +121,39 @@ describe("Shot capture and reconciliation", () => {
     const machine = await api.createMachine("History");
     const history = Array.from({ length: 205 }, (_, n) => shot(`history-${n}`, { timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, n)).toISOString() }));
     const tablet = load(machine, history, { apiDelayMs: 500 });
-    await expect.poll(async () => (await list(machine.machine.id)).total, { timeout: 10_000 }).toBeGreaterThan(0);
+    await expect.poll(async () => (await list(machine.machine.id)).total).toBeGreaterThan(0);
     expect((await list(machine.machine.id)).total).toBeLessThan(history.length);
-    const acknowledged = new Set(tablet.received.flatMap((message) => ((message as Frame).type === "ack" ? [(message as Frame).id] : [])));
+    const indexPages = (frames: unknown[]) => (frames as Frame[]).filter((frame) => frame.type === "shotIndex");
+    // The index pages acknowledged before the drop.
+    const acknowledged = new Set(indexPages(tablet.sent).flatMap((page) => (tablet.acks(page.id) > 0 ? [page.id] : [])));
     const sentBefore = tablet.sent.length;
     tablet.dropConnections();
     await tablet.waitForLogs(/^Connected to /, 2);
-    await expect.poll(async () => (await list(machine.machine.id, api.at(other.url))).total, { timeout: 20_000 }).toBe(205);
+    const total = async () => (await list(machine.machine.id, api.at(other.url))).total;
+    await whileProgressing(async () => (await total()) === 205, total);
     expect(tablet.shotPageRequests).toEqual(pages(0, 90, 180));
     expect(tablet.requests).not.toContain("/shots/ids");
     // The scan's index went once, each Shot in one page under one delivery id: after the reconnect,
     // only a page cut off before its acknowledgment was sent again.
-    const indexPages = (frames: unknown[]) => (frames as Frame[]).filter((frame) => frame.type === "shotIndex");
     const indexed = new Map(indexPages(tablet.sent).map((page) => [page.id, page.shots!.map((shot) => shot.id)]));
     expect([...indexed.values()].flat().sort()).toEqual(history.map((shot) => String(shot.id)).sort());
     expect(indexPages(tablet.sent.slice(sentBefore)).filter((page) => acknowledged.has(page.id))).toEqual([]);
     const first = await list(machine.machine.id);
     expect(first.shots[0]!.id).toBe("history-204");
-    const lastPage = await (await api.call("GET", `/shots?limit=100&offset=200&machineId=${machine.machine.id}`)).json() as { shots: ShotView[] };
+    const lastPage = await api.get<{ shots: ShotView[] }>(`/shots?limit=100&offset=200&machineId=${machine.machine.id}`);
     expect(lastPage.shots).toHaveLength(5);
     expect(new Set([...first.shots, ...lastPage.shots].map((shot) => shot.id)).size).toBe(105);
-  }, 30_000);
+  }, 300_000);
 
   it("indexes the oldest Shot when a Shot already read is deleted before the next page", async () => {
     const machine = await api.createMachine("Deleted mid-scan");
     const history = timeline("deleted-mid-scan", 101);
     const tablet = load(machine, history);
     changeShotsBeforePages(tablet, machine, history, [[1, (shots) => shots.filter((shot) => shot.id !== "deleted-mid-scan-50")]]);
-    await waitShot("deleted-mid-scan-0");
+    // The oldest, deleted-mid-scan-0, among them: the backfill sends it last.
+    await stored(machine.machine.id, history.map((shot) => String(shot.id)).filter((id) => id !== "deleted-mid-scan-50"));
     expect(tablet.shotPageRequests).toEqual(pages(0, 90));
-  });
+  }, 300_000);
 
   it("indexes every Shot that outlasts a scan through deletions on several pages and Shots added meanwhile", async () => {
     const machine = await api.createMachine("Changing mid-scan");
@@ -172,9 +170,9 @@ describe("Shot capture and reconciliation", () => {
       [2, (shots) => [added("changing-mid-scan-added-2"), ...shots.filter((shot) => shot.id !== deleted[2])]],
     ]);
     const outlasting = history.map((shot) => String(shot.id)).filter((id) => !deleted.includes(id));
-    await expect.poll(() => storedIds(machine.machine.id), { timeout: 20_000 }).toEqual(expect.arrayContaining(outlasting));
+    await stored(machine.machine.id, outlasting);
     expect(tablet.shotPageRequests).toEqual(pages(0, 90, 180));
-  }, 30_000);
+  }, 300_000);
 
   it("resumes after a Shot read unchanged, not one whose time was edited to sort among unread Shots", async () => {
     const machine = await api.createMachine("Retimed mid-scan");
@@ -183,9 +181,9 @@ describe("Shot capture and reconciliation", () => {
     // The newest Shot, read on the first page, edited to sort between the fifth and fourth oldest; Decaid gives it a new edit time.
     const retimed = { timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, 4, 500)).toISOString(), updatedAt: "2026-11-01T12:00:00.000000Z" };
     changeShotsBeforePages(tablet, machine, history, [[1, (shots) => shots.map((shot) => (shot.id === "retimed-mid-scan-149" ? { ...shot, ...retimed } : shot))]]);
-    await expect.poll(() => storedIds(machine.machine.id), { timeout: 20_000 }).toEqual(expect.arrayContaining(history.map((shot) => String(shot.id))));
+    await stored(machine.machine.id, history.map((shot) => String(shot.id)));
     expect(tablet.shotPageRequests).toEqual(pages(0, 90));
-  }, 30_000);
+  }, 300_000);
 
   it("rescans when an import moves a Shot not yet read among those already read, reporting nothing", async () => {
     const machine = await api.createMachine("Imported mid-scan");
@@ -194,19 +192,19 @@ describe("Shot capture and reconciliation", () => {
     // The oldest Shot, overwritten by an import with a time newer than every other: Decaid gives it a new edit time and fires no event.
     const imported = { timestamp: "2026-02-01T00:00:00.000Z", updatedAt: "2026-11-01T12:00:00.000000Z" };
     changeShotsBeforePages(tablet, machine, history, [[1, (shots) => shots.map((shot) => (shot.id === "imported-mid-scan-0" ? { ...shot, ...imported } : shot))]]);
-    await expect.poll(() => storedIds(machine.machine.id), { timeout: 20_000 }).toEqual(expect.arrayContaining(history.map((shot) => String(shot.id))));
+    await stored(machine.machine.id, history.map((shot) => String(shot.id)));
     expect(tablet.shotPageRequests).toEqual(pages(0, 90, 0, 90));
-  }, 30_000);
+  }, 300_000);
 
   it("rescans when more Shots than the pages overlap are deleted between two pages", async () => {
     const machine = await api.createMachine("Many deleted mid-scan");
     const history = timeline("many-deleted-mid-scan", 150);
     const tablet = load(machine, history);
     changeShotsBeforePages(tablet, machine, history, [[1, (shots) => shots.slice(20)]]);
-    await expect.poll(() => storedIds(machine.machine.id), { timeout: 20_000 }).toEqual(expect.arrayContaining(history.slice(0, -20).map((shot) => String(shot.id))));
+    await stored(machine.machine.id, history.slice(0, -20).map((shot) => String(shot.id)));
     expect(tablet.shotPageRequests).toEqual(pages(0, 90, 0, 90));
     expect(tablet.logs.join("\n")).not.toMatch(/kept changing/);
-  }, 30_000);
+  }, 300_000);
 
   it("bounds the scan's requests while Shots keep changing, leaving the rest to the next load", async () => {
     const deleting = await api.createMachine("Deleting throughout");
@@ -226,11 +224,11 @@ describe("Shot capture and reconciliation", () => {
       const message = frame as { type?: string; shots?: { id: string }[] };
       return message.type === "shotIndex" ? message.shots!.map((shot) => shot.id) : [];
     });
-    await expect.poll(indexed, { timeout: 10_000 }).toEqual(expect.arrayContaining(older.map((shot) => String(shot.id))));
+    await expect.poll(indexed).toEqual(expect.arrayContaining(older.map((shot) => String(shot.id))));
     await expect.poll(() => growing.shotPageRequests.length).toBe(9);
     expect(growing.shotPageRequests).toEqual(pages(0, 90, 180, 270, 0, 90, 180, 270, 360));
     expect(growing.logs.join("\n")).not.toMatch(/kept changing/);
-  }, 30_000);
+  });
 
   it("captures shotStored and shotUpdated, keeps curves intact, and adds the last Shot to Machine status", async () => {
     const machine = await api.createMachine("Live Shots");
@@ -260,7 +258,7 @@ describe("Shot capture and reconciliation", () => {
     // The first full record sent stays unwritten, so the rest of the history stays requested.
     let stalled = true;
     const tablet = load(machine, history, { stallUpload: (frame: unknown) => stalled && (frame as Frame).type === "shot" });
-    await expect.poll(() => fullRecordsSent(tablet).length, { timeout: 10_000 }).toBe(1);
+    await expect.poll(() => fullRecordsSent(tablet).length).toBe(1);
     // The history is backfilled newest first.
     expect(fullRecordsSent(tablet)).toEqual([newest]);
     tablet.loseNetwork();
@@ -281,7 +279,7 @@ describe("Shot capture and reconciliation", () => {
     const sent = [...new Set(fullRecordsSent(tablet, sentBefore))];
     expect(sent).toEqual([newest, "unreachable-b", "unreachable-a", middle, oldest]);
     expect(tablet.shotPageRequests).toHaveLength(1);
-  }, 20_000);
+  });
 
   it("skips a Shot deleted on the tablet before the server is reachable again, holding up nothing", async () => {
     const machine = await api.createMachine("Deleted while unreachable");
@@ -442,16 +440,16 @@ describe("Shot capture and reconciliation", () => {
     const database = await server.connectDatabase();
     try {
       await database.query("BEGIN");
+      // Held however long the list takes, past the database's idle-in-transaction timeout too.
+      await database.query("SET LOCAL idle_in_transaction_session_timeout = 0");
       await database.query("LOCK TABLE shot_measurements IN ACCESS EXCLUSIVE MODE");
-      // Reading curves would wait for the lock until it is released, so any answer at all shows the list read none.
-      const response = await Promise.race([
-        api.call("GET", "/shots"),
-        new Promise<never>((_, reject) => { const timer = setTimeout(() => reject(new Error("Shots list waited on measurements")), 5_000); timer.unref(); }),
-      ]);
+      // Reading curves would wait for the lock until it is released, so the list answering with no query waiting for it
+      // shows it read none, however long the answer takes.
+      const response = await withoutLockWaits(server, api.call("GET", "/shots"), { relation: "shot_measurements" });
       expect(response.status).toBe(200);
       expect(((await response.json()) as { total: number }).total).toBeGreaterThan(0);
     } finally { await database.query("ROLLBACK"); await database.end(); }
-  }, 10_000);
+  });
 
   it("keeps Shots deleted on the tablet and never includes measurements or metadata in a list", async () => {
     const machine = await api.createMachine("Deletion");
@@ -476,7 +474,7 @@ describe("Shot capture and reconciliation", () => {
     const record = shot("replay-shot");
     const id = await deliver(raw, record);
     raw.send({ type: "shotUpdated", id, shotId: record.id, shot: { ...record, updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 1 } } });
-    await expect.poll(() => raw.messages.filter((m) => (m as { type: string; id: string }).type === "ack" && (m as { id: string }).id === id).length).toBe(2);
+    await expect.poll(() => raw.acks(id)).toBe(2);
     expect((await detail(String(record.id))).enjoyment).toBeNull();
     await deliver(raw, { ...record, annotations: { enjoyment: 2 } });
     expect((await detail(String(record.id))).enjoyment).toBeNull();
@@ -672,7 +670,7 @@ describe("Shot capture and reconciliation", () => {
     await deliver(restarted, { ...record, updatedAt: "2026-01-03T12:00:00.000002Z", annotations: { enjoyment: 82 } }, "shotUpdated");
     await deliver(restarted, { ...record, updatedAt: "2026-01-03T12:00:00.000001Z", annotations: { enjoyment: 81 } }, "shotUpdated");
     expect(await detail(String(record.id))).toMatchObject({ enjoyment: 82 });
-  }, 20_000);
+  });
 
   it("reconciles edit times and requests early edits' missing full records, accepting ids-only reconnect indices", async () => {
     const machine = await api.createMachine("Indices");

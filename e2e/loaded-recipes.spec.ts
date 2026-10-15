@@ -1,8 +1,10 @@
-import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
+import { expect as baseExpect, type Page, test } from "@playwright/test";
 import { dye2GlobalIdOf } from "@decent-sync/protocol";
 import { DYE2_NAMESPACE, applyInDye2, dye2Keys, dye2Library, dye2List, dye2Recording, saveInDye2 } from "../server/test/support/simulated-dye2.js";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { createLocation, signInAsAdmin } from "./support/seed.js";
+import { field, rows } from "./support/locators.js";
 
 // Each Machine's Loaded Recipe in the management interface (ticket #145):
 // a recipe applied in DYE2 on a simulated tablet running the built plugin
@@ -11,16 +13,11 @@ import { useFreshServer } from "./support/fresh-server.js";
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const tablets: SimulatedTablet[] = [];
 
 type Record_ = Record<string, unknown>;
 
-test.beforeEach(async ({ page }) => {
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
@@ -75,12 +72,6 @@ test("a recipe applied in DYE2 shows as its Machine's Loaded Recipe on the Machi
   await expect(rows(machines).filter({ hasText: "Bar 1" })).toContainText("None");
 });
 
-async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {
-  const response = await page.request.post("/api/locations", { data: { name, timeZone: "America/Chicago" } });
-  baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { location: { id: string; name: string } }).location;
-}
-
 /** A Machine at the Location, its tablet connected with that API, polling every 5 s of its time, which runs 50 times faster here. */
 async function tabletAt(page: Page, name: string, location: { id: string }, api: Record<string, unknown>): Promise<{ id: string; tablet: SimulatedTablet }> {
   const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
@@ -96,13 +87,4 @@ async function tabletAt(page: Page, name: string, location: { id: string }, api:
 function slotOn(tablet: SimulatedTablet, slot: string): Record_ | undefined {
   const list = dye2List(tablet, "recipes");
   return Array.isArray(list) ? (list as Record_[]).find((record) => record.id === slot) : undefined;
-}
-
-function field(within: Locator, term: string) {
-  return within.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
-}
-
-/** A table's rows below its header. */
-function rows(table: Locator) {
-  return table.getByRole("row").filter({ hasNot: table.page().getByRole("columnheader") });
 }

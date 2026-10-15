@@ -1,6 +1,8 @@
 import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
 import { SimulatedTablet, derivedDe1Pro, settingsFor, workflowFixture } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { createLocation, signInAsAdmin } from "./support/seed.js";
+import { rows } from "./support/locators.js";
 
 // Each Location's steam and rinse settings in the management interface
 // (ADR-0014). Two simulated tablets running the built plugin at Uptown, a
@@ -12,15 +14,10 @@ import { useFreshServer } from "./support/fresh-server.js";
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const sam = { name: "Sam Staff", email: "sam@example.com", password: "staff password 1" };
 const tablets: SimulatedTablet[] = [];
 
-test.beforeEach(async ({ page }) => {
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
@@ -33,6 +30,8 @@ test("a Location's page shows its settings and Machines, changes them on every M
   const uptown = await createLocation(page, "Uptown");
   const belmont = await createLocation(page, "Belmont");
   const de1 = await tabletAt(page, "Uptown 1", uptown, { serial: "17101" });
+  // Connected is not yet taken in: the DE1Pro's Workflow sets Uptown's settings before the Bengle connects.
+  await expect.poll(async () => ((await (await page.request.get(`/api/locations/${uptown.id}/settings`)).json()) as { settings: { id: string | null } }).settings.id).not.toBeNull();
   const bengle = await tabletAt(page, "Uptown Bengle", uptown, { serial: "17102", model: "Bengle" }, { steamSettings: { flow: 1.2 } });
   // The Bengle takes the settings the DE1Pro, connected first, set.
   await expect.poll(() => setting(bengle, "steamSettings", "flow")).toBeCloseTo(2.5);
@@ -74,15 +73,15 @@ test("a Location's page shows its settings and Machines, changes them on every M
     await expect.poll(() => setting(tablet, "rinseData", "targetTemperature")).toBe(88);
   }
 
-  // A change on a tablet shows here.
+  // A change on a tablet shows here, and reaches the other tablet.
   await de1.changeSettings({ rinseData: { duration: 9 } });
   await expect(value(values, "Rinse time")).toHaveText("9 s");
+  await expect.poll(() => setting(bengle, "rinseData", "duration")).toBe(9);
 
   // With sharing turned off, the Bengle keeps its own; turned back on, it takes Uptown's.
   const bengleSwitch = machines.getByRole("switch", { name: "Uptown Bengle shares steam and rinse" });
   await bengleSwitch.click();
   await expect(bengleSwitch).not.toBeChecked();
-  await expect.poll(() => setting(bengle, "rinseData", "duration")).toBe(9);
   await bengle.changeSettings({ rinseData: { duration: 4 } });
   await de1.changeSettings({ steamSettings: { duration: 90 } });
   await expect(value(values, "Steam time")).toHaveText("90 s");
@@ -111,12 +110,6 @@ test("a Location's page shows its settings and Machines, changes them on every M
     await samsBrowser.close();
   }
 });
-
-async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {
-  const response = await page.request.post("/api/locations", { data: { name, timeZone: "America/Chicago" } });
-  baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { location: { id: string; name: string } }).location;
-}
 
 /** A Machine at the Location, its tablet connected, polling every 5 s of its time, which runs 50 times faster here. */
 async function tabletAt(
@@ -149,11 +142,6 @@ function workflowWith(parts: Record<string, Record<string, unknown>>): Record<st
 /** A setting of the tablet's Workflow, as Decaid holds it. */
 function setting(tablet: SimulatedTablet, part: string, name: string): unknown {
   return (tablet.workflow()[part] as Record<string, unknown>)[name];
-}
-
-/** A table's rows below its header. */
-function rows(table: Locator) {
-  return table.getByRole("row").filter({ hasNot: table.page().getByRole("columnheader") });
 }
 
 /** The value a settings table shows for a setting. */

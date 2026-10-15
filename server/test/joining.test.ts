@@ -55,7 +55,7 @@ function bundledProfiles(): Record_[] {
   return (derivedDe1Pro({})["/profiles"] as Record_[]).filter((profile) => profile.isDefault === true);
 }
 
-describe("Joining a Location", { timeout: 60_000 }, () => {
+describe("Joining a Location", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
@@ -66,7 +66,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
     await Promise.all(raws.map((raw) => raw.terminate()));
@@ -112,7 +112,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
   const settingsAt = async (location: LocationView) => (await read<{ settings: SettingsView }>(`/locations/${location.id}/settings`)).settings;
   /** Resolves with the Location's settings once they are set. */
   async function settingsOf(location: LocationView): Promise<Record<string, number | null>> {
-    await expect.poll(async () => (await settingsAt(location)).id, { timeout: 10_000 }).not.toBeNull();
+    await expect.poll(async () => (await settingsAt(location)).id).not.toBeNull();
     return (await settingsAt(location)).values;
   }
   /** The steam and rinse settings of the tablet's Workflow, as Decaid holds them, by their names. */
@@ -150,7 +150,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
   /** Resolves once every bean, batch and grinder record on the tablet carries a global id: the Library has taken them all in. */
   async function mapped(tablet: SimulatedTablet): Promise<void> {
     await expect
-      .poll(() => [...tablet.beans(), ...tablet.batches(), ...tablet.grinders()].filter((record) => globalIdOf(record) === null).length, { timeout: 15_000 })
+      .poll(() => [...tablet.beans(), ...tablet.batches(), ...tablet.grinders()].filter((record) => globalIdOf(record) === null).length)
       .toBe(0);
   }
   /**
@@ -159,7 +159,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
    * waits.
    */
   async function alike(held: (tablet: SimulatedTablet) => unknown, one: SimulatedTablet, another: SimulatedTablet): Promise<void> {
-    await expect.poll(() => [held(one), held(another)], { timeout: 15_000 }).toSatisfy(([mine, theirs]) => isDeepStrictEqual(mine, theirs), "the same on both tablets");
+    await expect.poll(() => [held(one), held(another)]).toSatisfy(([mine, theirs]) => isDeepStrictEqual(mine, theirs), "the same on both tablets");
   }
   /** What the server last took in of the tablet's list, as it reported it. */
   const captured = async ({ machine }: CreatedMachine, name: string) =>
@@ -190,8 +190,8 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const two = load(second, "23002", { instance: other, fresh: true, parts: { steamSettings: { flow: 0.7 }, hotWaterData: { volume: 80 }, rinseData: { duration: 9 } } });
     const ownHotWater = hotWater(two);
     await online(second);
-    await expect.poll(() => offered(two), { timeout: 15_000 }).toEqual(uptownOffers);
-    await expect.poll(() => tabletSettings(two), { timeout: 10_000 }).toEqual(values);
+    await expect.poll(() => offered(two)).toEqual(uptownOffers);
+    await expect.poll(() => tabletSettings(two)).toEqual(values);
     // Its hot water is its own, which it keeps, and the first Machine keeps its own.
     expect(hotWater(two)).toEqual(ownHotWater);
     expect(hotWater(two)).toMatchObject({ volume: 80 });
@@ -232,17 +232,17 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     expect(context(labTablet)).toMatchObject({ grinderModel: "DF64 v2", coffeeName: "Ethiopia Generic 100g Sample" });
 
     expect((await move(labMachine, belmont)).status).toBe(201);
-    await expect.poll(() => offered(labTablet), { timeout: 15_000 }).toEqual(belmontOffers);
+    await expect.poll(() => offered(labTablet)).toEqual(belmontOffers);
     // What only the lab offered is archived or hidden on it, never deleted.
     expect(heldIds(labTablet.beans(), true)).toEqual(labOffers.beans);
     expect(heldIds(labTablet.batches(), true)).toEqual(labOffers.batches);
     expect(heldIds(labTablet.grinders(), true)).toEqual(labOffers.grinders);
     expect(userProfiles(labTablet, false)).toEqual(labOffers.profiles);
     // It takes Belmont's steam and rinse settings, which it does not change, and keeps its own hot water.
-    await expect.poll(() => tabletSettings(labTablet), { timeout: 10_000 }).toEqual(belmontValues);
+    await expect.poll(() => tabletSettings(labTablet)).toEqual(belmontValues);
     expect((await settingsAt(belmont)).values).toEqual(belmontValues);
     // Belmont offers neither its grinder nor its batch, which are cleared; its profile, dose, yield, grinder setting and barista stay.
-    await expect.poll(() => GRINDER_AND_BATCH.filter((field) => field in context(labTablet)), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => GRINDER_AND_BATCH.filter((field) => field in context(labTablet))).toEqual([]);
     const { context: before, ...rest } = labWorkflow;
     const kept = Object.fromEntries(Object.entries(before as Record_).filter(([field]) => !GRINDER_AND_BATCH.includes(field)));
     expect(context(labTablet)).toEqual(kept);
@@ -267,11 +267,11 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     // The cafe takes the lab's batch its Workflow names, but none of its Grinders.
     const batchId = globalIdOf(labTablet.batches().find((batch) => batch.id === context(labTablet).beanBatchId))!;
     expect((await api.call("PUT", `/bean-batches/${batchId}/locations/${cafe.id}`, { atLocation: true })).status).toBe(200);
-    await expect.poll(() => heldIds(cafeTablet.batches(), false), { timeout: 10_000 }).toEqual([batchId]);
+    await expect.poll(() => heldIds(cafeTablet.batches(), false)).toEqual([batchId]);
 
     expect((await move(labMachine, cafe)).status).toBe(201);
-    await expect.poll(() => heldIds(labTablet.grinders(), false), { timeout: 15_000 }).toEqual([]);
-    await expect.poll(() => GRINDER_AND_BATCH.filter((field) => field in context(labTablet)), { timeout: 10_000 }).toEqual([
+    await expect.poll(() => heldIds(labTablet.grinders(), false)).toEqual([]);
+    await expect.poll(() => GRINDER_AND_BATCH.filter((field) => field in context(labTablet))).toEqual([
       "beanBatchId",
       "coffeeName",
       "coffeeRoaster",
@@ -290,7 +290,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     await mapped(tablet);
     expect((await move(traveller, belmont)).status).toBe(201);
     // Profiles are written last: once the lab's are hidden, the move is written whole.
-    await expect.poll(() => userProfiles(tablet, true), { timeout: 15_000 }).toEqual([]);
+    await expect.poll(() => userProfiles(tablet, true)).toEqual([]);
     expect(heldIds(tablet.grinders(), false)).toEqual([]);
     expect(GRINDER_AND_BATCH.filter((field) => field in context(tablet))).toEqual([]);
     const requests = () => tablet.received.filter((frame) => (frame as { type?: unknown }).type === "requestCollections").length;
@@ -306,7 +306,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     expect((await api.call("PATCH", `/machines/${traveller.machine.id}/location-history/${arrived!.id}`, { effectiveFrom: "2026-01-01T00:00:00Z" })).status).toBe(200);
     // A Bean Belmont enters after reaches the tablet, with nothing before it.
     await belmontTablet.addBean({ roaster: "Roux", name: "Correcting Sentinel" });
-    await expect.poll(() => tablet.beans().filter((bean) => bean.name === "Correcting Sentinel").length, { timeout: 10_000 }).toBe(1);
+    await expect.poll(() => tablet.beans().filter((bean) => bean.name === "Correcting Sentinel").length).toBe(1);
     expect(tablet.writes.slice(writes)).toEqual(["POST /beans"]);
     expect(requests()).toBe(asked);
     expect(tablet.workflow()).toEqual(workflow);
@@ -334,9 +334,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const tablet = load(traveller, "23042", { instance: other });
     await online(traveller);
     await expect
-      .poll(async () => (await read<{ collection: { value: unknown[] } | null }>(`/machines/${traveller.machine.id}/collections/grinders`)).collection?.value.length, {
-        timeout: 10_000,
-      })
+      .poll(async () => (await read<{ collection: { value: unknown[] } | null }>(`/machines/${traveller.machine.id}/collections/grinders`)).collection?.value.length)
       .toBe(2);
     expect(tablet.writes).toEqual([]);
     const ownBeans = tablet.beans().length;
@@ -344,28 +342,28 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
 
     expect((await move(traveller, uptown)).status).toBe(201);
     // It is written what Uptown offers, and its coffee of the same roaster and name is Uptown's Bean, with Uptown's notes.
-    await expect.poll(() => offered(tablet), { timeout: 15_000 }).toEqual(uptownOffers);
+    await expect.poll(() => offered(tablet)).toEqual(uptownOffers);
     const roest24 = tablet.beans().find((bean) => bean.name === "Left out traveller Roest #24 Eth")!;
     expect(globalIdOf(roest24)).toBe(uptownBean);
     expect(roest24.notes).toBe("Uptown's notes");
     expect((await read<{ conflicts: unknown[] }>(`/beans/${uptownBean}/conflicts`)).conflicts).toEqual([]);
     // Everything else it held stays out of the Library, archived or hidden on it, never deleted.
     const own = (records: Record_[]) => records.filter((record) => globalIdOf(record) === null);
-    await expect.poll(() => own(tablet.beans()).filter((bean) => bean.archived !== true).length, { timeout: 15_000 }).toBe(0);
-    await expect.poll(() => own(tablet.batches()).filter((batch) => batch.archived !== true).length, { timeout: 15_000 }).toBe(0);
-    await expect.poll(() => own(tablet.grinders()).filter((grinder) => grinder.archived !== true).length, { timeout: 15_000 }).toBe(0);
+    await expect.poll(() => own(tablet.beans()).filter((bean) => bean.archived !== true).length).toBe(0);
+    await expect.poll(() => own(tablet.batches()).filter((batch) => batch.archived !== true).length).toBe(0);
+    await expect.poll(() => own(tablet.grinders()).filter((grinder) => grinder.archived !== true).length).toBe(0);
     expect(own(tablet.beans())).toHaveLength(ownBeans - 1);
     expect(own(tablet.grinders())).toHaveLength(2);
     expect(userProfiles(tablet, false)).toEqual(expect.arrayContaining(ownProfiles));
     expect(await libraryBeans("Left out traveller")).toEqual(["Left out traveller Roest #24 Eth"]);
     expect(offered(uptownTablet)).toEqual(uptownOffers);
     // Uptown offers neither its grinder nor its batch, which are cleared.
-    await expect.poll(() => GRINDER_AND_BATCH.filter((field) => field in context(tablet)), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => GRINDER_AND_BATCH.filter((field) => field in context(tablet))).toEqual([]);
 
     // Its barista takes up one of its grinders again: un-archived there, it joins the Library at Uptown, as one entered then.
     const grinder = own(tablet.grinders())[0]!;
     await tablet.editGrinder(grinder.id, { archived: false });
-    await expect.poll(() => heldIds(uptownTablet.grinders(), false).length, { timeout: 15_000 }).toBe(uptownOffers.grinders.length + 1);
+    await expect.poll(() => heldIds(uptownTablet.grinders(), false).length).toBe(uptownOffers.grinders.length + 1);
     // Its tablet is written the Grinder's global id by a write of its own, apart from Uptown's tablet's.
     await alike((held) => heldIds(held.grinders(), false), tablet, uptownTablet);
   });
@@ -389,27 +387,27 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const kept = tablet.grinders().find((grinder) => grinder.id === context(tablet).grinderId)!;
     expect(archived.model).not.toBe(kept.model);
     await tablet.editGrinder(archived.id, { archived: true });
-    await expect.poll(async () => (await captured(traveller, "grinders")).find((grinder) => grinder.id === archived.id)?.archived, { timeout: 10_000 }).toBe(true);
+    await expect.poll(async () => (await captured(traveller, "grinders")).find((grinder) => grinder.id === archived.id)?.archived).toBe(true);
     expect((await move(traveller, cafe)).status).toBe(201);
     // Its Grinder and Profiles join the Library at the cafe, and reach the cafe's tablet; the grinder it archived stays out.
-    await expect.poll(() => cafeTablet.grinders().filter((grinder) => grinder.archived !== true).map((grinder) => grinder.model), { timeout: 15_000 }).toEqual([kept.model]);
+    await expect.poll(() => cafeTablet.grinders().filter((grinder) => grinder.archived !== true).map((grinder) => grinder.model)).toEqual([kept.model]);
     await alike((held) => heldIds(held.grinders(), false), tablet, cafeTablet);
     const archivedNow = tablet.grinders().find((grinder) => grinder.id === archived.id)!;
     expect(archivedNow.archived).toBe(true);
     expect(globalIdOf(archivedNow)).toBeNull();
     const atCafe = (await read<{ grinders: { model: string | null; location: LocationView | null }[] }>("/grinders")).grinders.filter((grinder) => grinder.location?.id === cafe.id);
     expect(atCafe.map((grinder) => grinder.model)).toEqual([kept.model]);
-    await expect.poll(() => userProfiles(cafeTablet, true), { timeout: 15_000 }).toEqual(ownProfiles);
+    await expect.poll(() => userProfiles(cafeTablet, true)).toEqual(ownProfiles);
     // Its coffees are left out, as the cafe offers one, and so are their batches, though the cafe offers none; but the batch
     // of the coffee linked to the cafe's joins the Library there, and reaches the cafe's tablet.
-    await expect.poll(() => tablet.beans().filter((bean) => globalIdOf(bean) === null && bean.archived !== true).length, { timeout: 15_000 }).toBe(0);
+    await expect.poll(() => tablet.beans().filter((bean) => globalIdOf(bean) === null && bean.archived !== true).length).toBe(0);
     const roest24 = tablet.beans().find((bean) => bean.name === "Bringing traveller Roest #24 Eth")!;
-    await expect.poll(() => heldIds(cafeTablet.batches(), false).length, { timeout: 15_000 }).toBe(1);
+    await expect.poll(() => heldIds(cafeTablet.batches(), false).length).toBe(1);
     await alike((held) => heldIds(held.batches(), false), tablet, cafeTablet);
     expect(tablet.batches().filter((batch) => batch.archived !== true).map((batch) => batch.beanId)).toEqual([roest24.id]);
     expect(await libraryBeans("Bringing traveller")).toEqual(["Bringing traveller Roest #24 Eth"]);
     // Its grinder joined the cafe, so its Workflow keeps it; its batch, whose coffee is left out, is cleared.
-    await expect.poll(() => GRINDER_AND_BATCH.filter((field) => field in context(tablet)), { timeout: 10_000 }).toEqual(["grinderId", "grinderModel"]);
+    await expect.poll(() => GRINDER_AND_BATCH.filter((field) => field in context(tablet))).toEqual(["grinderId", "grinderModel"]);
   });
 
   it("links a record left out at one join to the Library's item at a later join", async () => {
@@ -428,7 +426,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
 
     // At Uptown, which has no such coffee, it is left out, archived on the tablet.
     expect((await move(traveller, uptown)).status).toBe(201);
-    await expect.poll(() => record()[0]!.archived, { timeout: 15_000 }).toBe(true);
+    await expect.poll(() => record()[0]!.archived).toBe(true);
     expect(globalIdOf(record()[0]!)).toBeNull();
     // Belmont gets that coffee, and the Machine moves there: its record is Belmont's Bean, written as Belmont offers it.
     const created = (await (await api.call("POST", "/beans", { content: { roaster: "Roux Bakehouse", name: "Relinking traveller Roest #24 Eth" } })).json()) as {
@@ -438,8 +436,8 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
       201,
     );
     expect((await move(traveller, belmont)).status).toBe(201);
-    await expect.poll(() => globalIdOf(record()[0]!), { timeout: 15_000 }).toBe(created.bean.id);
-    await expect.poll(() => record()[0]!.archived, { timeout: 15_000 }).toBe(false);
+    await expect.poll(() => globalIdOf(record()[0]!)).toBe(created.bean.id);
+    await expect.poll(() => record()[0]!.archived).toBe(false);
     expect(record().map((bean) => bean.id)).toEqual([roest24!.id]);
   });
 
@@ -466,22 +464,20 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const stayingTablet = load(staying, "23062", { instance: other, fresh: true });
     await online(leaving, staying);
     await stayingTablet.addBean({ roaster: "Roux", name: "Leaving Before" });
-    await expect.poll(() => tablet.beans().filter((bean) => globalIdOf(bean) !== null).map((bean) => bean.name), { timeout: 10_000 }).toEqual(["Leaving Before"]);
+    await expect.poll(() => tablet.beans().filter((bean) => globalIdOf(bean) !== null).map((bean) => bean.name)).toEqual(["Leaving Before"]);
 
     // Its only Location History entry is removed: it is at no Location.
     const [entry] = (await machineView(leaving)).locationHistory;
     expect((await api.call("DELETE", `/machines/${leaving.machine.id}/location-history/${entry!.id}`)).status).toBe(200);
-    await expect.poll(async () => (await machineView(leaving)).location, { timeout: 10_000 }).toBeNull();
+    await expect.poll(async () => (await machineView(leaving)).location).toBeNull();
     const writes = tablet.writes.length;
     const held = tablet.beans();
     // The lab enters another coffee, and the leaving tablet one of its own, which is captured but not taken in.
     const after = await stayingTablet.addBean({ roaster: "Roux", name: "Leaving After" });
-    await expect.poll(() => globalIdOf(stayingTablet.beans().find((bean) => bean.id === after.id)), { timeout: 10_000 }).not.toBeNull();
+    await expect.poll(() => globalIdOf(stayingTablet.beans().find((bean) => bean.id === after.id))).not.toBeNull();
     await tablet.addBean({ roaster: "Roux", name: "Leaving Own" });
     await expect
-      .poll(async () => (await read<{ collection: { value: Record_[] } | null }>(`/machines/${leaving.machine.id}/collections/beans`)).collection?.value.map((bean) => bean.name), {
-        timeout: 10_000,
-      })
+      .poll(async () => (await read<{ collection: { value: Record_[] } | null }>(`/machines/${leaving.machine.id}/collections/beans`)).collection?.value.map((bean) => bean.name))
       .toEqual(expect.arrayContaining(["Leaving Before", "Leaving Own"]));
     expect(tablet.writes.length).toBe(writes);
     expect(tablet.beans().filter((bean) => bean.name !== "Leaving Own")).toEqual(held);
@@ -503,15 +499,15 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     // Decaid is slow to answer the plugin's read of the Workflow, so the barista acts while the plugin reads it to clear them.
     const release = tablet.holdWorkflowReads();
     expect((await move(labMachine, belmont)).status).toBe(201);
-    await expect.poll(() => tablet.received.some((frame) => (frame as { kind?: unknown }).kind === "workflow"), { timeout: 15_000 }).toBe(true);
+    await expect.poll(() => tablet.received.some((frame) => (frame as { kind?: unknown }).kind === "workflow")).toBe(true);
     const relabelled: Record_ = { ...context(tablet), grinderModel: "DF64 v2 (bar)", beanBatchId: picked.id, coffeeName: "Picked" };
     tablet.setWorkflow({ ...tablet.workflow(), context: relabelled });
     release();
-    await expect.poll(() => "grinderId" in context(tablet), { timeout: 15_000 }).toBe(false);
+    await expect.poll(() => "grinderId" in context(tablet)).toBe(false);
     expect(context(tablet)).toMatchObject({ beanBatchId: picked.id, coffeeName: "Picked", coffeeRoaster: relabelled.coffeeRoaster });
     expect("grinderModel" in context(tablet)).toBe(false);
     // Once the lab's Profiles are hidden on it, the move is written whole, and its grinder and batch are not due again.
-    await expect.poll(() => userProfiles(tablet, true), { timeout: 15_000 }).toEqual([]);
+    await expect.poll(() => userProfiles(tablet, true)).toEqual([]);
     expect(tablet.received.filter((frame) => (frame as { type?: unknown; kind?: unknown }).type === "write" && (frame as { kind?: unknown }).kind === "workflow")).toHaveLength(1);
   });
 
@@ -521,7 +517,7 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const labMachine = await api.createMachine("Mistaken lab 1", lab.id);
     const traveller = await api.createMachine("Mistaken traveller", lab.id);
     const belmontMachine = await api.createMachine("Mistaken Belmont 1", belmont.id);
-    const labTablet = load(labMachine, "23081", { fresh: true, parts: { steamSettings: { flow: 1.4 } } });
+    load(labMachine, "23081", { fresh: true, parts: { steamSettings: { flow: 1.4 } } });
     const belmontTablet = load(belmontMachine, "23083", { fresh: true });
     await online(labMachine, belmontMachine);
     await settingsOf(lab);
@@ -532,9 +528,9 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     const held = (archived: boolean) => tablet.beans().filter((bean) => globalIdOf(bean) !== null && (bean.archived === true) === archived).map((bean) => bean.name);
     // Its reports are taken in at Belmont, which writes it Belmont's coffee, before it moves back.
     expect((await move(traveller, belmont)).status).toBe(201);
-    await expect.poll(() => held(false), { timeout: 10_000 }).toEqual(["Mistaken Belmont Bean"]);
+    await expect.poll(() => held(false)).toEqual(["Mistaken Belmont Bean"]);
     expect((await move(traveller, lab)).status).toBe(201);
-    await expect.poll(() => held(true), { timeout: 10_000 }).toEqual(["Mistaken Belmont Bean"]);
+    await expect.poll(() => held(true)).toEqual(["Mistaken Belmont Bean"]);
     const asked = requests();
 
     // The move to Belmont was a mistake: removing it removes the move back too, as the Machine never left the lab.
@@ -544,9 +540,9 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     expect((await machineView(traveller)).locationHistory.map((entry) => entry.location.id)).toEqual([lab.id]);
     // A change its barista makes then is an edit at the lab, not given way to the lab's settings, and a coffee entered joins the Library.
     await tablet.changeSettings({ steamSettings: { flow: 2.1 } });
-    await expect.poll(async () => (await settingsAt(lab)).values["steamSettings.flow"], { timeout: 10_000 }).toBe(2.1);
+    await expect.poll(async () => (await settingsAt(lab)).values["steamSettings.flow"]).toBe(2.1);
     await tablet.addBean({ roaster: "Roux", name: "Mistaken Later" });
-    await expect.poll(() => held(false), { timeout: 10_000 }).toEqual(["Mistaken Later"]);
+    await expect.poll(() => held(false)).toEqual(["Mistaken Later"]);
     expect(requests()).toBe(asked);
     expect(tabletSettings(tablet)["steamSettings.flow"]).toBe(2.1);
   });
@@ -565,12 +561,12 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     await raw.deliver(workflow());
     expect((await move(machine, cafe)).status).toBe(201);
     for (const name of LIBRARY_LISTS) await raw.deliver(report(name));
-    await expect.poll(() => sent("requestCollections").length, { timeout: 10_000 }).toBe(1);
+    await expect.poll(() => sent("requestCollections").length).toBe(1);
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(sent("write")).toEqual([]);
     // Once its Workflow is taken in at the cafe, it is judged as joining: the batch it names, its own, is cleared first.
     await raw.deliver(workflow());
-    await expect.poll(() => sent("write").map((write) => (write as { kind?: unknown }).kind), { timeout: 10_000 }).toEqual(["workflow"]);
+    await expect.poll(() => sent("write").map((write) => (write as { kind?: unknown }).kind)).toEqual(["workflow"]);
   });
 
   it("writes to a joining tablet once a Workflow it sends again is set aside, as it cannot be stored, rather than waiting for it", async () => {
@@ -586,10 +582,10 @@ describe("Joining a Location", { timeout: 60_000 }, () => {
     await raw.deliver(workflow({ targetDoseWeight: 18 }));
     expect((await move(machine, cafe)).status).toBe(201);
     for (const name of LIBRARY_LISTS) await raw.deliver(report(name));
-    await expect.poll(() => sent("requestCollections").length, { timeout: 10_000 }).toBe(1);
+    await expect.poll(() => sent("requestCollections").length).toBe(1);
     // The Workflow it sends again holds what PostgreSQL refuses to store, so it is set aside, and the cafe's Bean is written.
     await raw.deliver(workflow({ targetDoseWeight: 18, notes: "Bright\u0000, sweet" }));
-    await expect.poll(() => sent("write").some((write) => (write as { kind?: unknown }).kind === "bean"), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => sent("write").some((write) => (write as { kind?: unknown }).kind === "bean")).toBe(true);
   });
 
   it("judges the batches a joining tablet holds as joining though its report of them came before its beans'", async () => {

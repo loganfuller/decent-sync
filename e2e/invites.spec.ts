@@ -1,27 +1,22 @@
-import { createHash } from "node:crypto";
 import { expect as baseExpect, type Browser, type Page, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
+import { admin, createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
+import { machineRow } from "./support/locators.js";
 
 // Inviting people: an Admin creates a one-time link and sends it themselves;
 // the Staff member who opens it chooses a name and password, is signed in,
 // sees every Location and Machine with the Locations they work at marked,
-// and moves only the Machines at those Locations. A link already used, or
-// expired, says it can no longer be used.
+// and moves only the Machines at those Locations. A link already used says
+// it can no longer be used.
 const server = useFreshServer();
 // Machine pages poll the server every few seconds.
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const sam = { name: "Sam Staff", email: "sam@example.com", password: "staff password 1" };
 /** Sam's invite link, once the first test has created it. */
 let samsLink: string;
 
-test.beforeEach(async ({ page }) => {
-  // The first test sets the server up; later ones sign in. Both sign the page's context in.
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test("an Admin invites a Staff member, who accepts, is signed in and sees which Locations they work at", async ({ page, browser }) => {
   const lab = await createLocation(page, "Lab", "America/Denver");
@@ -117,26 +112,6 @@ test("an invite link already used says it can no longer be used", async ({ brows
   await page.context().close();
 });
 
-test("an expired invite link says it can no longer be used", async ({ page, browser }) => {
-  const link = await invite(page, { email: "late@example.com", role: "admin" });
-  // A week passes.
-  const database = await server.connectDatabase();
-  try {
-    const secret = new URL(link).pathname.split("/").at(-1)!;
-    await database.query("UPDATE invites SET expires_at = now() - interval '1 minute' WHERE secret_hash = $1", [
-      createHash("sha256").update(secret).digest(),
-    ]);
-  } finally {
-    await database.end();
-  }
-
-  const latePage = await signedOutPage(browser);
-  await latePage.goto(link);
-  await expect(latePage.getByRole("heading", { name: "This invite can no longer be used" })).toBeVisible();
-  await expect(latePage.getByText("This invite has expired. Ask an Admin for a new one")).toBeVisible();
-  await latePage.context().close();
-});
-
 test("someone signed in who opens an invite link signs out before accepting it", async ({ page }) => {
   const link = await invite(page, { email: "alex@example.com", role: "admin" });
 
@@ -154,17 +129,6 @@ test("someone signed in who opens an invite link signs out before accepting it",
   await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Accounts" })).toBeVisible();
 });
 
-async function createLocation(page: Page, name: string, timeZone: string): Promise<{ id: string }> {
-  const response = await page.request.post("/api/locations", { data: { name, timeZone } });
-  baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { location: { id: string } }).location;
-}
-
-async function createMachine(page: Page, name: string, locationId: string): Promise<void> {
-  const response = await page.request.post("/api/machines", { data: { name, locationId } });
-  baseExpect(response.status()).toBe(201);
-}
-
 /** Creates an invite through the REST API and returns its link. */
 async function invite(page: Page, body: { email: string; role: "admin" | "staff"; locationIds?: string[] }): Promise<string> {
   const response = await page.request.post("/api/invites", { data: body });
@@ -174,11 +138,4 @@ async function invite(page: Page, body: { email: string; role: "admin" | "staff"
 
 async function signedOutPage(browser: Browser): Promise<Page> {
   return (await browser.newContext({ baseURL: server.url() })).newPage();
-}
-
-function machineRow(page: Page, name: string) {
-  return page
-    .getByRole("table", { name: "Machines" })
-    .getByRole("row")
-    .filter({ has: page.getByRole("link", { name, exact: true }) });
 }

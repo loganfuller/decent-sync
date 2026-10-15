@@ -1,5 +1,5 @@
 import { CLOSE_CODES } from "@decent-sync/protocol";
-import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
+import { expect as baseExpect, type Page, test } from "@playwright/test";
 import {
   PluginStorage,
   RawConnection,
@@ -10,6 +10,8 @@ import {
   settingsFor,
 } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { createMachine, signInAsAdmin } from "./support/seed.js";
+import { field, machineRow } from "./support/locators.js";
 
 // Machines in the management interface, as an Admin, with Seam 1's simulated
 // tablets running the built plugin against the same server. Hardware ids are
@@ -19,7 +21,6 @@ test.use({ permissions: ["clipboard-read", "clipboard-write"] });
 // Machine pages poll the server every few seconds, so status takes up to that long to show.
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const tablets: SimulatedTablet[] = [];
 const connections: RawConnection[] = [];
 
@@ -30,12 +31,7 @@ function loadTablet(settings: { serverUrl: string; token: string }, options: Omi
   return tablet;
 }
 
-test.beforeEach(async ({ page }) => {
-  // The first test sets the server up; later ones sign in. Both sign the page's context in.
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterEach(async () => {
   await Promise.all(connections.splice(0).map((raw) => raw.terminate()));
@@ -378,14 +374,6 @@ test("the Machine page shows a mismatch and its status while what its tablet rep
   await expect(page.getByRole("alert").filter({ hasText: "No such Pending Machine" })).toHaveCount(0);
 });
 
-/** Creates a machine entry through the REST API, for tests about what follows. */
-async function createMachine(page: Page, name: string): Promise<{ serverUrl: string; token: string }> {
-  const response = await page.request.post("/api/machines", { data: { name } });
-  baseExpect(response.status()).toBe(201);
-  const { serverUrl, token } = (await response.json()) as { serverUrl: string; token: string };
-  return { serverUrl, token };
-}
-
 /** Checks the page shows no token: no token notice, and the token nowhere in its text or fields. */
 async function expectTokenNotShown(page: Page, token: string) {
   await expect(page.getByRole("region", { name: /^Token for / })).toHaveCount(0);
@@ -398,18 +386,6 @@ async function clipboard(page: Page): Promise<string> {
   return page.evaluate(() => navigator.clipboard.readText());
 }
 
-function machineRow(page: Page, name: string) {
-  return page
-    .getByRole("table", { name: "Machines" })
-    .getByRole("row")
-    .filter({ has: page.getByRole("link", { name, exact: true }) });
-}
-
 function pendingMachine(page: Page, list: string, hardware: string) {
   return page.getByRole("list", { name: list, exact: true }).getByRole("listitem").filter({ hasText: hardware });
-}
-
-/** The value of a field on a Machine page, or in one part of it, by its term. */
-function field(scope: Page | Locator, term: string) {
-  return scope.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
 }

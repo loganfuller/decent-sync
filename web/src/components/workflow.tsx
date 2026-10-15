@@ -46,7 +46,7 @@ export function amount(value: unknown, unit: string): string | undefined {
   return typeof value === "number" && Number.isFinite(value) ? `${Number(value.toFixed(2))} ${unit}` : undefined;
 }
 
-export function list(...parts: (string | undefined)[]): string | undefined {
+function list(...parts: (string | undefined)[]): string | undefined {
   const present = parts.filter((part) => part !== undefined);
   return present.length > 0 ? present.join(", ") : undefined;
 }

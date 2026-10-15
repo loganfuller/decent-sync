@@ -17,11 +17,20 @@ export function derivedShot(id: string, changes: Record<string, unknown> = {}): 
 
 /**
  * Derived: the real Shot with the named changes and its measurement samples
- * repeated, in order and with their recorded times, until the record is
- * larger than `minBytes` of JSON, as a long filter or tea shot's would be.
+ * repeated until the record is larger than 1.25 MiB of JSON, as a long filter
+ * or tea shot's would be.
  */
-export function longShot(id: string, changes: Record<string, unknown> = {}, minBytes = 1.25 * 1024 * 1024): Record<string, unknown> {
-  const fixture = shotFixture();
+export function longShot(id: string, changes: Record<string, unknown> = {}): Record<string, unknown> {
+  return withRepeatedSamples(shotFixture(), id, changes);
+}
+
+/**
+ * Derived: a real Shot's or Steam Record's fixture with the named changes and
+ * its measurement samples repeated, in order and with their recorded times,
+ * until the record is larger than 1.25 MiB of JSON.
+ */
+export function withRepeatedSamples(fixture: Record<string, unknown>, id: string, changes: Record<string, unknown> = {}): Record<string, unknown> {
+  const minBytes = 1.25 * 1024 * 1024;
   const samples = fixture.measurements as unknown[];
   const record = { ...fixture, id, ...changes, measurements: [] as unknown[] };
   // Each repeat adds the samples and a comma, and drops the brackets.

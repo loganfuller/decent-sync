@@ -13,7 +13,7 @@ import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 const HISTORY_LIMIT = 20;
 
 /** A Recipe a Machine loaded, linked to its page, with its slot now, or that it is in none or Archived. */
-export function LoadedRecipeLink({ loaded }: { loaded: LoadedRecipe }) {
+function LoadedRecipeLink({ loaded }: { loaded: LoadedRecipe }) {
   const { recipe } = loaded;
   return (
     <span className="inline-flex flex-wrap items-center gap-2">

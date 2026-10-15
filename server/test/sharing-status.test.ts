@@ -41,7 +41,7 @@ interface SharingStatus {
 /** What Decaid v0.8.7 answers a bean it cannot cast (decaid-beans.ts). */
 const CAST_REFUSAL = { status: 400, body: { error: "type 'int' is not a subtype of type 'String?' in type cast" } };
 
-describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
+describe("Each Machine's sharing status", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
@@ -52,7 +52,7 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
     await Promise.all(raws.map((raw) => raw.terminate()));
@@ -85,7 +85,7 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
   /** The Library's one Bean of that name, once there is one. */
   async function libraryBean(name: string): Promise<{ id: string; roaster: string; name: string }> {
     const named = async () => ((await (await api.call("GET", "/beans")).json()) as { beans: { id: string; roaster: string; name: string }[] }).beans.filter((bean) => bean.name === name);
-    await expect.poll(async () => (await named()).length, { timeout: 10_000 }).toBe(1);
+    await expect.poll(async () => (await named()).length).toBe(1);
     return (await named())[0]!;
   }
 
@@ -113,14 +113,14 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
     const [acceptedOne, acceptedTwo] = [await libraryBean("Accepted One"), await libraryBean("Accepted Two")];
 
     // The other Beans reach the refusing tablet; the refused one does not.
-    await expect.poll(() => [heldAs(two, "Accepted One"), heldAs(two, "Accepted Two")], { timeout: 10_000 }).toEqual([[acceptedOne.id], [acceptedTwo.id]]);
+    await expect.poll(() => [heldAs(two, "Accepted One"), heldAs(two, "Accepted Two")]).toEqual([[acceptedOne.id], [acceptedTwo.id]]);
     expect(heldAs(two, "Refused Blend")).toEqual([]);
     // Once every answer is recorded, nothing is waiting: the refused Bean is refused, not waiting.
     await expect
       .poll(async () => {
         const { refused, waiting, lastApplied } = await statusOf(second);
         return { refused: refused.length, waiting, applied: lastApplied !== null };
-      }, { timeout: 10_000 })
+      })
       .toEqual({ refused: 1, waiting: 0, applied: true });
     const status = await statusOf(second);
     expect(status).toMatchObject({
@@ -146,11 +146,11 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
 
     // Edited, the Bean is written again, and once the tablet takes it, it leaves the refused list.
     expect((await api.call("PATCH", `/beans/${refused.id}`, { content: { notes: "Now with notes" } })).status).toBe(200);
-    await expect.poll(() => heldAs(two, "Refused Blend"), { timeout: 10_000 }).toEqual([refused.id]);
+    await expect.poll(() => heldAs(two, "Refused Blend")).toEqual([refused.id]);
     expect(two.beans().find((bean) => bean.name === "Refused Blend")).toMatchObject({ notes: "Now with notes" });
-    await expect.poll(async () => (await statusOf(second)).refused, { timeout: 10_000 }).toEqual([]);
-    await expect.poll(async () => (await statusOf(second)).waiting, { timeout: 10_000 }).toBe(0);
-    await expect.poll(async () => (await statusOf(second)).lastApplied, { timeout: 10_000 }).toMatchObject({ change: "write", item: { id: refused.id } });
+    await expect.poll(async () => (await statusOf(second)).refused).toEqual([]);
+    await expect.poll(async () => (await statusOf(second)).waiting).toBe(0);
+    await expect.poll(async () => (await statusOf(second)).lastApplied).toMatchObject({ change: "write", item: { id: refused.id } });
   });
 
   it("writes a refused Bean again once the tablet reconnects", async () => {
@@ -164,23 +164,23 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
 
     await one.addBean({ roaster: "Roux", name: "Refused Again" });
     const refused = await libraryBean("Refused Again");
-    await expect.poll(async () => (await statusOf(second)).refused.map((refusal) => refusal.item?.id), { timeout: 10_000 }).toEqual([refused.id]);
+    await expect.poll(async () => (await statusOf(second)).refused.map((refusal) => refusal.item?.id)).toEqual([refused.id]);
     // Refused again on its next connection, it stays refused, timed by the latest refusal.
     const firstRefusedAt = (await statusOf(second)).refused[0]!.refusedAt;
     two.dropConnections();
     await expect
-      .poll(async () => (await statusOf(second)).refused.map((refusal) => refusal.refusedAt !== firstRefusedAt && refusal.item?.id), { timeout: 10_000 })
+      .poll(async () => (await statusOf(second)).refused.map((refusal) => refusal.refusedAt !== firstRefusedAt && refusal.item?.id))
       .toEqual([refused.id]);
     expect(heldAs(two, "Refused Again")).toEqual([]);
 
     // Decaid takes it once the tablet reconnects.
     two.refuseWrites = undefined;
     two.dropConnections();
-    await expect.poll(() => heldAs(two, "Refused Again"), { timeout: 10_000 }).toEqual([refused.id]);
-    await expect.poll(async () => (await statusOf(second)).refused, { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => heldAs(two, "Refused Again")).toEqual([refused.id]);
+    await expect.poll(async () => (await statusOf(second)).refused).toEqual([]);
     // Recorded once the server has taken in its answer, which can come after the tablet holds the Bean.
     await expect
-      .poll(async () => (await statusOf(second)).lastApplied, { timeout: 10_000 })
+      .poll(async () => (await statusOf(second)).lastApplied)
       .toMatchObject({ change: "write", kind: "bean", item: { id: refused.id, name: "Roux Refused Again" } });
   });
 
@@ -194,30 +194,30 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
     await online(first, second);
     await one.addBean({ roaster: "Roux", name: "Archived While Refused" });
     const refused = await libraryBean("Archived While Refused");
-    await expect.poll(async () => (await statusOf(second)).refused.map((refusal) => refusal.item?.id), { timeout: 10_000 }).toEqual([refused.id]);
+    await expect.poll(async () => (await statusOf(second)).refused.map((refusal) => refusal.item?.id)).toEqual([refused.id]);
 
     // Archived, it is due to neither tablet, and its refusal is forgotten.
     expect((await api.call("PUT", `/beans/${refused.id}/archived`, { archived: true })).status).toBe(200);
-    await expect.poll(async () => (await statusOf(second)).refused, { timeout: 10_000 }).toEqual([]);
+    await expect.poll(async () => (await statusOf(second)).refused).toEqual([]);
     // Wait for the tablet that held it to archive it, so the restore below is the next change, and for the refusing
     // tablet to take a Bean offered after the archive, so its writer has looked since.
-    await expect.poll(() => one.beans().find((bean) => bean.name === "Archived While Refused")?.archived, { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => one.beans().find((bean) => bean.name === "Archived While Refused")?.archived).toBe(true);
     await one.addBean({ roaster: "Roux", name: "After the Archive" });
     const after = await libraryBean("After the Archive");
-    await expect.poll(() => heldAs(two, "After the Archive"), { timeout: 10_000 }).toEqual([after.id]);
+    await expect.poll(() => heldAs(two, "After the Archive")).toEqual([after.id]);
     // And for its answer to be recorded, so that write is not still due once the network drops.
-    await expect.poll(async () => (await statusOf(second)).waiting, { timeout: 10_000 }).toBe(0);
+    await expect.poll(async () => (await statusOf(second)).waiting).toBe(0);
 
     // Restored while the refusing tablet is offline, it is due again just as it was refused, and waits.
     two.loseNetwork();
     await api.waitForMachine(second.machine.name, (viewed) => !viewed.online);
     expect((await api.call("PUT", `/beans/${refused.id}/archived`, { archived: false })).status).toBe(200);
-    await expect.poll(async () => (await statusOf(second)).waiting, { timeout: 10_000 }).toBe(1);
+    await expect.poll(async () => (await statusOf(second)).waiting).toBe(1);
     expect((await statusOf(second)).refused).toEqual([]);
     two.refuseWrites = undefined;
     two.restoreNetwork();
-    await expect.poll(() => heldAs(two, "Archived While Refused"), { timeout: 10_000 }).toEqual([refused.id]);
-    await expect.poll(async () => (await statusOf(second)).waiting, { timeout: 10_000 }).toBe(0);
+    await expect.poll(() => heldAs(two, "Archived While Refused")).toEqual([refused.id]);
+    await expect.poll(async () => (await statusOf(second)).waiting).toBe(0);
   });
 
   it("counts the changes queued for a tablet while it is offline as waiting, down to none once it catches up", async () => {
@@ -229,8 +229,8 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
     await online(first, second);
     await one.addBean({ roaster: "Roux", name: "Before Offline" });
     const before = await libraryBean("Before Offline");
-    await expect.poll(() => heldAs(two, "Before Offline"), { timeout: 10_000 }).toEqual([before.id]);
-    await expect.poll(async () => (await statusOf(second)).waiting, { timeout: 10_000 }).toBe(0);
+    await expect.poll(() => heldAs(two, "Before Offline")).toEqual([before.id]);
+    await expect.poll(async () => (await statusOf(second)).waiting).toBe(0);
 
     two.loseNetwork();
     await api.waitForMachine(second.machine.name, (viewed) => !viewed.online);
@@ -239,12 +239,12 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
     const queued = [await libraryBean("Queued One"), await libraryBean("Queued Two")];
     // An edit of a Bean the tablet holds is a change waiting too.
     expect((await api.call("PATCH", `/beans/${before.id}`, { content: { notes: "Edited while offline" } })).status).toBe(200);
-    await expect.poll(async () => (await statusOf(second)).waiting, { timeout: 10_000 }).toBe(3);
+    await expect.poll(async () => (await statusOf(second)).waiting).toBe(3);
     expect((await statusOf(second)).refused).toEqual([]);
 
     two.restoreNetwork();
-    await expect.poll(() => queued.map((bean) => heldAs(two, bean.name)), { timeout: 10_000 }).toEqual(queued.map((bean) => [bean.id]));
-    await expect.poll(async () => (await statusOf(second)).waiting, { timeout: 10_000 }).toBe(0);
+    await expect.poll(() => queued.map((bean) => heldAs(two, bean.name))).toEqual(queued.map((bean) => [bean.id]));
+    await expect.poll(async () => (await statusOf(second)).waiting).toBe(0);
     expect(two.beans().find((bean) => bean.name === "Before Offline")).toMatchObject({ notes: "Edited while offline" });
   });
 
@@ -255,7 +255,7 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
     await online(owner);
     await tablet.addBean({ roaster: "Roux", name: "Owner's Coffee" });
     await libraryBean("Owner's Coffee");
-    await expect.poll(async () => (await statusOf(owner)).lastApplied?.item?.name, { timeout: 10_000 }).toBe("Roux Owner's Coffee");
+    await expect.poll(async () => (await statusOf(owner)).lastApplied?.item?.name).toBe("Roux Owner's Coffee");
     const own = await statusOf(owner);
     expect(own).toMatchObject({ waiting: 0, refused: [] });
 
@@ -278,7 +278,7 @@ describe("Each Machine's sharing status", { timeout: 60_000 }, () => {
     await tablet.addBean({ roaster: "Roux", name: "Before Capture-only" });
     await libraryBean("Before Capture-only");
     expect((await api.call("PUT", `/machines/${capturing.machine.id}/sharing`, { sharing: false })).status).toBe(200);
-    await expect.poll(async () => (await statusOf(capturing)).waiting, { timeout: 10_000 }).toBeNull();
+    await expect.poll(async () => (await statusOf(capturing)).waiting).toBeNull();
     expect((await statusOf(capturing)).tabletId).toEqual(expect.any(String));
 
     expect((await api.call("GET", "/machines/00000000-0000-4000-8000-000000000000/sharing-status")).status).toBe(404);

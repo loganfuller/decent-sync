@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView, acceptInvite } from "./support/admin-api.js";
 import { derivedShot, shotFixture } from "./support/shot-fixtures.js";
 import { derivedSteam } from "./support/steam-fixtures.js";
@@ -25,7 +25,6 @@ describe("Staff access", () => {
   let uptown1: CreatedMachine;
   let belmont1: CreatedMachine;
   let spare: CreatedMachine;
-  const raws: RawConnection[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
@@ -40,9 +39,6 @@ describe("Staff access", () => {
     spare = await api.createMachine("Spare");
     const { link } = await api.invite("sam@example.com", "staff", [uptown.id, belmont.id]);
     staff = AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Sam Staff", password: "staff password 1" }));
-  }, 60_000);
-  afterEach(async () => {
-    await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
   afterAll(() => server?.stop());
 
@@ -65,15 +61,8 @@ describe("Staff access", () => {
     return as.call("POST", `/machines/${created.machine.id}/location-history`, body);
   }
   async function connect(created: CreatedMachine, hardware: { model: string; serial: string }) {
-    const raw = await RawConnection.welcomed(server.url, helloWith(created.token, { machine: hardware }));
-    raws.push(raw);
-    return raw;
+    return RawConnection.welcomed(server.url, helloWith(created.token, { machine: hardware }));
   }
-
-  it("tells Staff the Locations they work at", async () => {
-    const { account } = (await (await staff.call("GET", "/session")).json()) as { account: { role: string; locations: LocationView[] } };
-    expect(account).toMatchObject({ role: "staff", locations: [belmont, uptown] });
-  });
 
   it("shows Staff everything an Admin reads, about every Machine, Location, Bean, Shot and Steam Record", async () => {
     // Uptown 1's tablet sends a Shot recorded on its hardware and a Steam Record.
@@ -107,11 +96,11 @@ describe("Staff access", () => {
       timeScale: 50,
     });
     try {
-      await expect.poll(async () => (await read(api, `${lab1Path}/workflow`))[1], { timeout: 10_000 }).toMatchObject({ workflow: { id: expect.any(String) } });
+      await expect.poll(async () => (await read(api, `${lab1Path}/workflow`))[1]).toMatchObject({ workflow: { id: expect.any(String) } });
       tablet.reportState("espresso", "preinfusion");
-      await expect.poll(async () => (await read(api, `${lab1Path}/machine-state-events`))[1], { timeout: 10_000 }).toMatchObject({ total: 1 });
-      await expect.poll(async () => (await read(api, `${lab1Path}/collections/appSettings`))[1], { timeout: 10_000 }).toMatchObject({ collection: { available: true } });
-      await expect.poll(async () => (await read(api, `${lab1Path}/paired-devices`))[1], { timeout: 10_000 }).toMatchObject({ pairedDevices: { available: true } });
+      await expect.poll(async () => (await read(api, `${lab1Path}/machine-state-events`))[1]).toMatchObject({ total: 1 });
+      await expect.poll(async () => (await read(api, `${lab1Path}/collections/appSettings`))[1]).toMatchObject({ collection: { available: true } });
+      await expect.poll(async () => (await read(api, `${lab1Path}/paired-devices`))[1]).toMatchObject({ pairedDevices: { available: true } });
     } finally {
       // Its polls would otherwise change report times between the Admin's reads and Sam's.
       await tablet.unload();

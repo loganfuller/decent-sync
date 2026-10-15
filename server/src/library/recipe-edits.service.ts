@@ -432,7 +432,7 @@ async function setUses(
  * the edit leaves otherwise than the yield is cleared. Nothing for an edit
  * setting none of them, or one keeping them so.
  */
-export function ratioValues(current: Readonly<Record<string, unknown>>, values: Readonly<Record<string, unknown>>): Record<string, unknown> {
+function ratioValues(current: Readonly<Record<string, unknown>>, values: Readonly<Record<string, unknown>>): Record<string, unknown> {
   const has = (field: string) => Object.prototype.hasOwnProperty.call(values, field);
   if (!has("dose") && !has("yield") && !has("ratio")) return {};
   const ratio = has("ratio") ? values.ratio : current.ratio;
@@ -477,7 +477,7 @@ async function freeSlot(
 }
 
 /** The lowest Recipe Slot, from 1, that none of these is. */
-export function lowestFree(slots: readonly number[]): number {
+function lowestFree(slots: readonly number[]): number {
   const taken = new Set(slots);
   let slot = 1;
   while (taken.has(slot)) slot++;

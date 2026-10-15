@@ -50,8 +50,8 @@ export class StandInServer {
   }
 
   /** Resolves once the plugin has been welcomed. */
-  async welcomed(timeoutMs = 10_000): Promise<void> {
-    await this.until(() => this.received.some((message) => message.type === "hello"), timeoutMs, "a hello");
+  async welcomed(): Promise<void> {
+    await this.until(() => this.received.some((message) => message.type === "hello"), 15_000, "a hello");
   }
 
   /** Sends the plugin a message, as the server does. */
@@ -61,10 +61,10 @@ export class StandInServer {
   }
 
   /** Sends the plugin a request and resolves with its answer, the plugin's message repeating the request's id. */
-  async ask(request: ServerMessage & { id: string }, timeoutMs = 10_000): Promise<Received> {
+  async ask(request: ServerMessage & { id: string }): Promise<Received> {
     this.send(request);
     const answer = () => this.received.find((message) => message.id === request.id);
-    await this.until(() => answer() !== undefined, timeoutMs, `the answer to ${request.type} ${request.id}`);
+    await this.until(() => answer() !== undefined, 15_000, `the answer to ${request.type} ${request.id}`);
     return answer()!;
   }
 

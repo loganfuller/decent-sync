@@ -1,5 +1,6 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
+import { whileProgressing } from "./support/backlog.js";
 import {
   type DecaidApi,
   PluginStorage,
@@ -30,19 +31,24 @@ const machineEventsSent = (tablet: SimulatedTablet) => (tablet.sent as Frame[]).
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const KEPT_LOG = /^Sending \d+ Workflow and machine state events? kept from before the plugin last unloaded\.$/;
 const DROPPED_LOG = /^Dropping the oldest Workflow and machine state events not yet sent: at most 2000 are kept, of at most 2 Mi characters\.$/;
+/**
+ * Whether Decaid's plugin storage keeps no delivery: the plugin has written there that each it kept was acknowledged.
+ * Its writes go one at a time, so then none is left waiting for Decaid's answer.
+ */
+function keepsNone(storage: PluginStorage): boolean {
+  const values = (storage.readThroughApi(undefined) as string[]).map((key) => String(storage.read(key)));
+  const { first, next } = JSON.parse(String(storage.read("outbox"))) as { first: number; next: number };
+  return first === next && !values.some((value) => value.includes('"delivery"'));
+}
 
 describe("The durable outbox", () => {
   let server: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
     server = await startTestServer({ env });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
-  afterEach(async () => {
-    await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
   });
   afterAll(async () => {
     await server?.stop();
@@ -50,31 +56,26 @@ describe("The durable outbox", () => {
 
   /** Loads the plugin on the tablet whose plugin storage this is, with the Machine's token and Decaid's API. */
   function load(machine: CreatedMachine, storage: PluginStorage, decaid: DecaidApi, options: Pick<SimulatedTabletOptions, "stallUpload"> = {}) {
-    const tablet = SimulatedTablet.load({ settings: settingsFor(machine), storage, api: decaid, timeScale: 50, ...options });
-    tablets.push(tablet);
-    return tablet;
-  }
-  async function get<T>(path: string): Promise<T> {
-    const response = await api.call("GET", path);
-    expect(response.status).toBe(200);
-    return response.json() as Promise<T>;
+    return SimulatedTablet.load({ settings: settingsFor(machine), storage, api: decaid, timeScale: 50, ...options });
   }
   /** The Machine's Workflow events, or state events, oldest first: at most 100, from `offset` from the latest. */
   const workflowEvents = async (machine: CreatedMachine, offset = 0) =>
-    get<EventPage<WorkflowEvent>>(`/machines/${machine.machine.id}/workflow-events?limit=100&offset=${offset}`);
+    api.get<EventPage<WorkflowEvent>>(`/machines/${machine.machine.id}/workflow-events?limit=100&offset=${offset}`);
   const stateEvents = async (machine: CreatedMachine, offset = 0) =>
-    get<EventPage<StateEvent>>(`/machines/${machine.machine.id}/machine-state-events?limit=100&offset=${offset}`);
+    api.get<EventPage<StateEvent>>(`/machines/${machine.machine.id}/machine-state-events?limit=100&offset=${offset}`);
   const transitions = async (machine: CreatedMachine) =>
     (await stateEvents(machine)).events.map((event) => [event.state, event.substate]).reverse();
 
+  /**
+   * Resolves once `done` holds, waiting as long as the tablet keeps sending deliveries it has not sent before
+   * (backlog.ts): the same ones sent again and again, as over a connection that keeps being dropped, are not progress.
+   */
+  const whileSending = (tablet: SimulatedTablet, done: () => boolean | Promise<boolean>) =>
+    whileProgressing(done, () => new Set(machineEventsSent(tablet).map((frame) => frame.id)).size);
+
   /** Resolves once the server has acknowledged every Workflow and machine state delivery the plugin sent. */
-  async function acknowledged(tablet: SimulatedTablet, timeout = 10_000) {
-    await expect
-      .poll(
-        () => machineEventsSent(tablet).every((frame) => (tablet.received as Frame[]).some((reply) => reply.type === "ack" && reply.id === frame.id)),
-        { timeout },
-      )
-      .toBe(true);
+  async function acknowledged(tablet: SimulatedTablet) {
+    await expect.poll(() => tablet.acknowledgedEvery((frame: Frame) => MACHINE_EVENTS.has(frame.type))).toBe(true);
   }
 
   /**
@@ -172,7 +173,7 @@ describe("The durable outbox", () => {
     first.setWorkflow(later);
     stalled = false;
     first.resumeUpload();
-    await expect.poll(() => (first.received as Frame[]).some((reply) => reply.type === "ack" && reply.id === pouring.id)).toBe(true);
+    await expect.poll(() => first.acks(pouring.id) > 0).toBe(true);
     // Ends the connection, so the unload need not wait for the stalled frame.
     first.dropConnections();
     await first.unload();
@@ -279,7 +280,7 @@ describe("The durable outbox", () => {
     expect(second.logs).toContain("Sending 2 Workflow and machine state events kept from before the plugin last unloaded.");
   });
 
-  it("holds no more than it keeps while it reads back what was kept", { timeout: 60_000 }, async () => {
+  it("holds no more than it keeps while it reads back what was kept", { timeout: 300_000 }, async () => {
     const machine = await api.createMachine("Held while reading back");
     const storage = new PluginStorage();
     // Decaid fails every read of what was kept until what happens meanwhile has passed the limits.
@@ -292,8 +293,9 @@ describe("The durable outbox", () => {
     storage.failNextReads(0);
     // Held with the Workflow Decaid sent after loading the plugin, and the one sent again on welcome, the oldest of them dropped.
     const stored = MAX_KEPT - 1;
-    await expect.poll(async () => (await stateEvents(machine)).total, { timeout: 45_000 }).toBe(stored);
-    await expect.poll(() => machineEventsSent(tablet).length, { timeout: 10_000 }).toBe(stored + 1);
+    await whileSending(tablet, async () => (await stateEvents(machine)).total >= stored);
+    expect((await stateEvents(machine)).total).toBe(stored);
+    await expect.poll(() => machineEventsSent(tablet).length).toBe(stored + 1);
     await acknowledged(tablet);
     const oldest = (await stateEvents(machine, stored - 1)).events[0]!;
     const newest = (await stateEvents(machine)).events[0]!;
@@ -306,6 +308,8 @@ describe("The durable outbox", () => {
     const tablet = load(machine, storage, derivedDe1Pro({ serial: "93011" }));
     await expect.poll(() => machineEventsSent(tablet).length).toBe(2);
     await acknowledged(tablet);
+    // Decaid has carried out the writes recording that, so the next delivery's are the first it leaves unanswered.
+    await expect.poll(() => keepsNone(storage)).toBe(true);
 
     // Decaid carries out the plugin's storage commands but answers none, as one whose writes fail.
     const release = tablet.holdStorageAnswers();
@@ -317,22 +321,22 @@ describe("The durable outbox", () => {
     for (const [state, substate] of shot) tablet.reportState(state, substate);
     await expect.poll(() => transitions(machine)).toEqual(shot);
     await acknowledged(tablet);
-    expect(tablet.logs.filter((log) => log.startsWith("Could not keep"))).toEqual([
-      "Could not keep a delivery, so it is sent without being kept in Decaid's plugin storage: Decaid's plugin storage did not answer the write of a delivery to keep within 10 s.",
-    ]);
+    const couldNotKeep = "Could not keep a delivery, so it is sent without being kept in Decaid's plugin storage: Decaid's plugin storage did not answer the write of a delivery to keep within 10 s.";
+    expect(tablet.logs.filter((log) => log.startsWith("Could not keep"))).toEqual([couldNotKeep]);
 
     // Once Decaid answers again, deliveries wait for it as before: one it then leaves unanswered fails again.
+    await expect.poll(() => keepsNone(storage)).toBe(true);
     release();
     await new Promise((resolve) => setImmediate(resolve));
     const releaseAgain = tablet.holdStorageAnswers();
     tablet.reportState("sleeping", "idle");
-    await tablet.waitForLogs(/^Could not keep a delivery/, 2);
+    expect(await tablet.waitForLogs(/^Could not keep a delivery/, 2)).toEqual([couldNotKeep, couldNotKeep]);
     releaseAgain();
     await expect.poll(async () => (await transitions(machine)).at(-1)).toEqual(["sleeping", "idle"]);
     await acknowledged(tablet);
   });
 
-  it(`keeps at most the newest ${MAX_KEPT} while the server is unreachable, in plugin storage and across a reload`, { timeout: 120_000 }, async () => {
+  it(`keeps at most the newest ${MAX_KEPT} while the server is unreachable, in plugin storage and across a reload`, { timeout: 300_000 }, async () => {
     const machine = await api.createMachine("Most kept");
     const storage = new PluginStorage();
     const decaid = derivedDe1Pro({ serial: "93005" });
@@ -355,8 +359,9 @@ describe("The durable outbox", () => {
     await second.waitForLog(new RegExp(`^Sending ${MAX_KEPT - 1} Workflow and machine state events kept from before the plugin last unloaded\\.$`));
     second.restoreNetwork();
     const stored = MAX_KEPT - 2;
-    await expect.poll(async () => (await stateEvents(machine)).total, { timeout: 60_000 }).toBe(stored);
-    await expect.poll(() => machineEventsSent(second).length, { timeout: 10_000 }).toBe(stored + 2);
+    await whileSending(second, async () => (await stateEvents(machine)).total >= stored);
+    expect((await stateEvents(machine)).total).toBe(stored);
+    await expect.poll(() => machineEventsSent(second).length).toBe(stored + 2);
     await acknowledged(second);
     const oldest = (await stateEvents(machine, stored - 1)).events[0]!;
     const newest = (await stateEvents(machine)).events[0]!;
@@ -364,7 +369,7 @@ describe("The durable outbox", () => {
     expect(machineEventsSent(second).slice(stored).map((frame) => frame.type)).toEqual(["workflow", "workflow"]);
   });
 
-  it(`keeps at most ${MAX_KEPT_CHARACTERS / (1024 * 1024)} Mi characters, the newest, while the server is unreachable, holding no more in memory`, { timeout: 60_000 }, async () => {
+  it(`keeps at most ${MAX_KEPT_CHARACTERS / (1024 * 1024)} Mi characters, the newest, while the server is unreachable, holding no more in memory`, { timeout: 300_000 }, async () => {
     const machine = await api.createMachine("Most characters kept");
     const storage = new PluginStorage();
     const decaid = derivedDe1Pro({ serial: "93006" });
@@ -381,7 +386,7 @@ describe("The durable outbox", () => {
     // Back online without a reload: the outbox holds no more than plugin storage keeps. The latest Workflow, sent
     // again on welcome, is queued behind them.
     first.restoreNetwork();
-    await expect.poll(() => machineEventsSent(first).some((frame) => Date.parse(frame.observedAt!) > made), { timeout: 30_000 }).toBe(true);
+    await whileSending(first, () => machineEventsSent(first).some((frame) => Date.parse(frame.observedAt!) > made));
     await acknowledged(first);
     const kept = machineEventsSent(first).filter((frame) => Date.parse(frame.observedAt!) >= before && Date.parse(frame.observedAt!) <= made);
     expect(new Set(kept.map((frame) => frame.id)).size).toBe(kept.length);

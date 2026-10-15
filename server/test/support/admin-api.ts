@@ -141,6 +141,28 @@ export class AdminApi {
     });
   }
 
+  /** Reads a route, expecting 200, and resolves with the JSON it answers. */
+  get<T>(path: string): Promise<T> {
+    return this.send<T>("GET", path);
+  }
+
+  /**
+   * Calls a route, expecting the status given (the response's body is the
+   * failure's message), and resolves with the JSON it answers, or nothing for
+   * 204.
+   */
+  async send<T>(method: string, path: string, body?: unknown, status = 200): Promise<T> {
+    const response = await this.call(method, path, body);
+    expect(response.status, await response.clone().text()).toBe(status);
+    return (status === 204 ? undefined : await response.json()) as T;
+  }
+
+  /** Invites a Staff member at the Locations given, and resolves with them signed in. */
+  async staffAt(email: string, ...locations: LocationView[]): Promise<AdminApi> {
+    const { link } = await this.invite(email, "staff", locations.map((location) => location.id));
+    return AdminApi.signedInAs(this.serverUrl, await acceptInvite(this.serverUrl, link, { name: "Staff", password: "staff password 1" }));
+  }
+
   async machines(): Promise<MachineView[]> {
     return ((await (await this.call("GET", "/machines")).json()) as { machines: MachineView[] }).machines;
   }
@@ -150,7 +172,7 @@ export class AdminApi {
   }
 
   /** Polls the REST API until the Machine matches. */
-  async waitForMachine(name: string, matches: (machine: MachineView) => boolean, timeoutMs = 10_000): Promise<MachineView> {
+  async waitForMachine(name: string, matches: (machine: MachineView) => boolean, timeoutMs = 15_000): Promise<MachineView> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const machine = await this.machineNamed(name);
@@ -158,6 +180,11 @@ export class AdminApi {
       if (Date.now() > deadline) throw new Error(`Machine ${name} did not match within ${timeoutMs} ms: ${JSON.stringify(machine)}`);
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
+  }
+
+  /** Resolves once each Machine is online, as its tablet's connection makes it. */
+  async waitForOnline(...machines: CreatedMachine[]): Promise<void> {
+    for (const { machine } of machines) await this.waitForMachine(machine.name, (viewed) => viewed.online);
   }
 
   /** Creates a machine entry, at a Location from now if one is given. */

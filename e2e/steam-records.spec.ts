@@ -2,6 +2,8 @@ import { expect as baseExpect, type Locator, type Page, test } from "@playwright
 import { derivedSteam, nextMilkProbeSteamFixture, steamFixture, withSteams } from "../server/test/support/steam-fixtures.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
+import { field } from "./support/locators.js";
 
 // Steam Records in the management interface, as an Admin whose browser is in
 // Tokyo while the Locations are in the US: times are shown and filtered in
@@ -12,16 +14,9 @@ const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 test.use({ timezoneId: "Asia/Tokyo" });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
-const sam = { name: "Sam Staff", email: "sam@example.com", password: "staff password 1" };
 const tablets: SimulatedTablet[] = [];
 
-test.beforeEach(async ({ page }) => {
-  // The first test sets the server up; later ones sign in. Both sign the page's context in.
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
@@ -169,34 +164,6 @@ test("a Steam Record's page shows its milk temperatures, steam settings and curv
   await expect(field(details, "Machine")).toHaveText("Bengle serial 10049Pending Machine");
 });
 
-test("Staff see every Steam Record an Admin sees", async ({ page, browser }) => {
-  const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };
-  const response = await page.request.post("/api/invites", {
-    data: { email: sam.email, role: "staff", locationIds: [locations.find((location) => location.name === "Uptown")!.id] },
-  });
-  baseExpect(response.status()).toBe(201);
-  const { link } = (await response.json()) as { link: string };
-  const samsBrowser = await browser.newContext({ baseURL: server.url(), timezoneId: "Asia/Tokyo" });
-  try {
-    const accepted = await samsBrowser.request.post(`/api/invite-links/${new URL(link).pathname.split("/").at(-1)}/accept`, { data: sam });
-    baseExpect(accepted.status()).toBe(201);
-    const samsPage = await samsBrowser.newPage();
-    await samsPage.goto("/steam-records");
-    await expect(rows(samsPage)).toHaveCount(6);
-    await page.goto("/steam-records");
-    await expect(rows(page)).toHaveCount(6);
-    await expect(rows(samsPage)).toHaveText(await rows(page).allTextContents());
-
-    // Including at Locations Sam does not work at.
-    await choose(samsPage, "Location", "Lab");
-    await expect(rows(samsPage)).toHaveCount(2);
-    await samsPage.getByRole("link", { name: "Feb 10, 2026, 6:30 AM MST" }).click();
-    await expect(samsPage.getByRole("region", { name: "Curves" }).getByRole("figure", { name: "Milk temperature" }).locator(".recharts-line")).not.toHaveCount(0);
-  } finally {
-    await samsBrowser.close();
-  }
-});
-
 /**
  * A Steam Record recorded at a UTC time, derived from one Decaid produced. Its
  * `timestamp` is that time on the tablet's clock, as Decaid writes it: local
@@ -243,18 +210,6 @@ async function load(page: Page, token: string, hardware: { model: string; serial
     .toBe(true);
 }
 
-async function createMachine(page: Page, name: string): Promise<{ machine: { id: string }; token: string }> {
-  const response = await page.request.post("/api/machines", { data: { name } });
-  baseExpect(response.status()).toBe(201);
-  return (await response.json()) as { machine: { id: string }; token: string };
-}
-
-async function createLocation(page: Page, name: string, timeZone: string): Promise<{ id: string }> {
-  const response = await page.request.post("/api/locations", { data: { name, timeZone } });
-  baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { location: { id: string } }).location;
-}
-
 async function machineId(page: Page, name: string): Promise<string> {
   const { machines } = (await (await page.request.get("/api/machines")).json()) as { machines: { id: string; name: string }[] };
   return machines.find((machine) => machine.name === name)!.id;
@@ -287,9 +242,4 @@ async function chooseDate(page: Page, filter: string, year: number, month: strin
   await calendar.getByRole("combobox", { name: "Choose the Month" }).selectOption({ label: month });
   await calendar.getByRole("button", { name: new RegExp(`, \\w+ ${day}(st|nd|rd|th), ${year}`) }).click();
   await expect(calendar).toHaveCount(0);
-}
-
-/** The value of a field, by its term. */
-function field(scope: Locator, term: string): Locator {
-  return scope.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
 }

@@ -48,7 +48,7 @@ export interface AwaitedWrite {
 export type WriteOutcome = "written" | "refused" | "deferred";
 
 /** Why an item written that is still due as it was is skipped, as its sharing status shows it. */
-export const STILL_DUE_ONCE_WRITTEN = "Written, but its record still differs as it did: writing it again would change nothing";
+const STILL_DUE_ONCE_WRITTEN = "Written, but its record still differs as it did: writing it again would change nothing";
 
 /** The Library lists whose reports are taken in before anything is written: what the tablet holds, one for each kind (LIBRARY_LISTS). */
 export type TakenInList = LibraryList;

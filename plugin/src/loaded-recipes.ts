@@ -45,7 +45,7 @@ import {
 const RECIPES = `/store/${DYE2_NAMESPACE}/recipes`;
 
 /** The most dials kept of those each recipe held before, the oldest dropped first. */
-export const MAX_EARLIER_DIALS = 20;
+const MAX_EARLIER_DIALS = 20;
 
 /** The most recipes whose earlier dials are kept, those seen least recently dropped first. */
 const MAX_KEPT_RECIPES = 200;

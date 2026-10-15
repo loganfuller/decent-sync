@@ -96,7 +96,7 @@ describe("Steam Records lists", () => {
       "roaming-noon": "2026-02-10T12:20:00Z",
     });
     pendingMachineId = (await api.pendingMachines()).find((pending) => pending.serial === hardware.unknown.serial)!.id;
-  }, 60_000);
+  });
   afterAll(async () => {
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
     await server?.stop();

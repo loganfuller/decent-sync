@@ -43,7 +43,7 @@ describe("invites", () => {
     api = await AdminApi.setUp(server.url);
     uptown = await api.createLocation("Uptown", "America/Chicago");
     belmont = await api.createLocation("Belmont", "America/Chicago");
-  }, 60_000);
+  });
   afterAll(async () => {
     await other?.stop();
     await server?.stop();
@@ -194,7 +194,7 @@ describe("invites", () => {
 // expiry set or judged by an instance's clock would differ from the
 // database's in every test below. Invites are aged through the database
 // directly: waiting days would not fit in a test.
-describe("invite expiry across server instances", { timeout: 30_000 }, () => {
+describe("invite expiry across server instances", () => {
   let first: TestServer;
   let ahead: TestServer;
   let behind: TestServer;
@@ -220,7 +220,7 @@ describe("invite expiry across server instances", { timeout: 30_000 }, () => {
     // The offsets reach the servers' code.
     expect(await api.at(ahead.url).instanceClockOffsetMs(database)).toBeGreaterThan(30 * DAY_MS - 60_000);
     expect(await api.at(behind.url).instanceClockOffsetMs(database)).toBeLessThan(-30 * DAY_MS + 60_000);
-  }, 60_000);
+  });
   afterAll(async () => {
     await database?.end();
     await Promise.all([ahead?.stop(), behind?.stop()]);

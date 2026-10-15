@@ -1,6 +1,7 @@
 import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { signInAsAdmin } from "./support/seed.js";
 
 // The Library's Beans, Bean Batches, Grinders and Profiles in the
 // management interface. Simulated tablets running the built plugin, at two
@@ -12,14 +13,9 @@ import { useFreshServer } from "./support/fresh-server.js";
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const tablets: SimulatedTablet[] = [];
 
-test.beforeEach(async ({ page }) => {
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
@@ -80,11 +76,14 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
   await expect.poll(async () => batchAt(page, "Batch Guji")).toEqual([["Batch lab", 180.5]]);
 
   // The lab's second group moves to the cafe, its tablet still holding the lab's batch, archived there, which a
-  // barista un-archives: the batch is at the cafe too, where no weight was entered yet.
+  // barista un-archives: the batch is at the cafe too, where no weight was entered yet. It moves once its tablet
+  // holds the batch, which the server writes there after the Library takes it in: moved before, it never would.
+  const lightBatch = () => travellerTablet.batches().find((record) => record.roastLevel === "light");
+  await expect.poll(lightBatch).toMatchObject({ archived: false });
   const traveller = await machineNamed(page, "Batch lab group 2");
   baseExpect((await page.request.post(`/api/machines/${traveller.id}/location-history`, { data: { locationId: cafe.id } })).status()).toBe(201);
-  await expect.poll(() => travellerTablet.batches().find((record) => record.roastLevel === "light")?.archived).toBe(true);
-  await travellerTablet.editBatch(travellerTablet.batches().find((record) => record.roastLevel === "light")!.id, { archived: false });
+  await expect.poll(() => lightBatch()?.archived).toBe(true);
+  await travellerTablet.editBatch(lightBatch()!.id, { archived: false });
   await expect.poll(async () => batchAt(page, "Batch Guji")).toEqual([["Batch cafe", null], ["Batch lab", 180.5]]);
   await expect.poll(async () => batchAt(page, "Batch Heirloom")).toEqual([["Batch cafe", null]]);
 

@@ -13,7 +13,7 @@ export interface SyncSettings {
 
 const DEFAULT_POLL_SECONDS = 30;
 /** Each poll reads Decaid's API; anything shorter is raised to this. */
-export const MIN_POLL_SECONDS = 5;
+const MIN_POLL_SECONDS = 5;
 
 /** The settings needed to connect, or what is missing or wrong, for the log. */
 export function readSettings(settings: PluginSettings): { ok: true; settings: SyncSettings } | { ok: false; problems: string[] } {
@@ -41,7 +41,7 @@ export function readSettings(settings: PluginSettings): { ok: true; settings: Sy
  * wss:// for https, on the same host and port. Any path is ignored, since the
  * public URL is an origin. Parsed by hand: Decaid's runtime has no `URL`.
  */
-export function syncUrlFor(serverUrl: string): string | undefined {
+function syncUrlFor(serverUrl: string): string | undefined {
   const match = /^(https?):\/\/([^/?#@\s]+)(?:[/?#]\S*)?$/i.exec(serverUrl);
   if (!match) return undefined;
   const scheme = match[1]!.toLowerCase() === "https" ? "wss" : "ws";

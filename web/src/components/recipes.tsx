@@ -43,15 +43,15 @@ import { LIBRARY_KINDS } from "@/lib/library-kinds";
 // Location as a new Recipe there, offering there what it uses.
 
 /** The highest Recipe Slot DYE2's recipe editor edits; its dashboard and Streamline's strip show every slot. */
-export const EDITABLE_SLOTS = 5;
+const EDITABLE_SLOTS = 5;
 
 /** A Recipe's name as lists show it. */
-export function recipeName(recipe: Pick<Recipe, "name">): string {
+function recipeName(recipe: Pick<Recipe, "name">): string {
   return recipe.name ?? "Unnamed Recipe";
 }
 
 /** What may need someone's attention about a Recipe. */
-export function RecipeBadges({ recipe }: { recipe: Recipe }) {
+function RecipeBadges({ recipe }: { recipe: Recipe }) {
   return (
     <div className="flex flex-wrap gap-1">
       {recipe.archived && <Badge variant="secondary">Archived</Badge>}
@@ -412,7 +412,7 @@ function SlotNotes({ slot, there, swappedTo, keptAt = "here" }: { slot: number |
  * Location's Grinders only; a Bean Batch, Profile, Basket or Tool the
  * Location does not offer is offered there once saved, which it says first.
  */
-export function RecipeFormDialog({
+function RecipeFormDialog({
   location,
   recipes,
   recipe,

@@ -1,8 +1,9 @@
 import { CLOSE_CODES, MAX_HARDWARE_LENGTH } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type MachineView } from "./support/admin-api.js";
+import { LoadedTablets } from "./support/loaded-tablets.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
-import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { RawConnection, type SimulatedTablet, type SimulatedTabletOptions, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { runAsSteps } from "./support/steps.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -15,17 +16,13 @@ const HEARTBEAT_SECONDS = 0.5;
 const FIXTURE_CONNECTION_ID = "00:00:5E:00:53:01";
 const de1Pro = (serial: string) => ({ model: "DE1Pro", serial, firmware: "1333" });
 
-describe("Machine identity", { timeout: 20_000 }, () => {
+describe("Machine identity", () => {
   let server: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
+  const tablets = new LoadedTablets();
   const connections: RawConnection[] = [];
 
-  const loadTablet = (settings: Record<string, unknown>, options: Omit<Parameters<typeof SimulatedTablet.load>[0], "settings"> = {}) => {
-    const tablet = SimulatedTablet.load({ settings, ...options });
-    tablets.push(tablet);
-    return tablet;
-  };
+  const loadTablet = (settings: Record<string, unknown>, options: Omit<SimulatedTabletOptions, "settings"> = {}) => tablets.load({ settings, ...options });
 
   /** Opens a raw connection and sends a hello, resolving with the connection once the server answers. */
   const connect = async (hello: Record<string, unknown>) => {
@@ -60,12 +57,12 @@ describe("Machine identity", { timeout: 20_000 }, () => {
       env: { SYNC_HELLO_TIMEOUT_SECONDS: "1", SYNC_HEARTBEAT_SECONDS: String(HEARTBEAT_SECONDS) },
     });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(connections.splice(0).map((raw) => raw.terminate()));
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await tablets.unloadAll();
     await server?.stop();
   });
 

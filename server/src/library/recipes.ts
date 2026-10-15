@@ -64,7 +64,7 @@ import {
 // Recipes' rows, then the Location's settings' row.
 
 /** The tablet's map of the items a recipe names, by their global ids and its own (ADR-0006). */
-export async function readTabletIds(tx: Prisma.TransactionClient, tabletId: string): Promise<TabletIds> {
+async function readTabletIds(tx: Prisma.TransactionClient, tabletId: string): Promise<TabletIds> {
   const rows = await tx.$queryRaw<{ kind: MappedKind; itemId: string; localId: string }[]>`
     SELECT 'bean' AS kind, bean_id::text AS "itemId", local_id AS "localId" FROM tablet_beans WHERE tablet_id = ${tabletId}::uuid
     UNION ALL SELECT 'beanBatch', batch_id::text, local_id FROM tablet_bean_batches WHERE tablet_id = ${tabletId}::uuid

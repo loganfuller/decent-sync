@@ -28,7 +28,7 @@ function bundledProfiles(): Record_[] {
   return (derivedDe1Pro({})["/profiles"] as Record_[]).filter((profile) => profile.isDefault === true);
 }
 
-describe("The capture-only switch", { timeout: 60_000 }, () => {
+describe("The capture-only switch", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
@@ -38,7 +38,7 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
     await other?.stop();
@@ -114,7 +114,7 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     const sharingTablet = load(sharing, "25002");
     await online(switched, sharing);
     await sharingTablet.addBean({ roaster: "Roux", name: "Switching Before" });
-    await expect.poll(() => sharedBeans(tablet), { timeout: 10_000 }).toEqual(["Switching Before"]);
+    await expect.poll(() => sharedBeans(tablet)).toEqual(["Switching Before"]);
     expect((await machineView(switched)).captureOnly).toEqual([]);
 
     // Turned off on one instance, while its tablet is connected to the other.
@@ -135,16 +135,16 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     const created = (await (await api.call("POST", "/beans", { content: { roaster: "Roux", name: "Switching Created" } })).json()) as { bean: { id: string } };
     expect((await api.call("POST", "/bean-batches", { beanId: created.bean.id, content: { roastDate: "2026-10-05" }, locations: [{ locationId: uptown.id }] })).status).toBe(201);
     await sharingTablet.addBean({ roaster: "Roux", name: "Switching Entered" });
-    await expect.poll(() => sharedBeans(sharingTablet), { timeout: 10_000 }).toEqual(["Switching Before", "Switching Created", "Switching Entered"]);
+    await expect.poll(() => sharedBeans(sharingTablet)).toEqual(["Switching Before", "Switching Created", "Switching Entered"]);
     // A Bean entered on its tablet is captured, but does not join the Library.
     await tablet.addBean({ roaster: "Roux", name: "Switching Own" });
-    await expect.poll(() => capturedBeans(switched), { timeout: 10_000 }).toEqual(expect.arrayContaining(["Switching Before", "Switching Own"]));
+    await expect.poll(() => capturedBeans(switched)).toEqual(expect.arrayContaining(["Switching Before", "Switching Own"]));
     // Its settings changed on its tablet are its own, and the Location's changed in the management interface are not written to it.
     await tablet.changeSettings({ rinseData: { duration: 13 } });
-    await expect.poll(async () => (await capturedWorkflow(switched))?.rinseData?.duration, { timeout: 10_000 }).toBe(13);
+    await expect.poll(async () => (await capturedWorkflow(switched))?.rinseData?.duration).toBe(13);
     const { settings } = await read<{ settings: { id: string; values: Record<string, number | null> } }>(`/locations/${uptown.id}/settings`);
     expect((await api.call("PATCH", `/location-settings/${settings.id}`, { values: { "rinseData.flow": 4.5 } })).status).toBe(200);
-    await expect.poll(() => setting(sharingTablet, "rinseData.flow"), { timeout: 10_000 }).toBe(4.5);
+    await expect.poll(() => setting(sharingTablet, "rinseData.flow")).toBe(4.5);
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(tablet.writes.length).toBe(writes);
     expect(tablet.beans().filter((bean) => bean.name !== "Switching Own")).toEqual(held);
@@ -155,11 +155,11 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     expect(await (await switchSharing(switched, true)).json()).toEqual({ sharing: true });
     expect((await machineView(switched)).captureOnly).toEqual([]);
     const uptownBeans = ["Switching Before", "Switching Created", "Switching Entered"];
-    await expect.poll(() => sharedBeans(tablet), { timeout: 15_000 }).toEqual(uptownBeans);
-    await expect.poll(() => setting(tablet, "rinseData.flow"), { timeout: 10_000 }).toBe(4.5);
-    await expect.poll(() => setting(tablet, "rinseData.duration"), { timeout: 10_000 }).toBe(settings.values["rinseData.duration"]);
+    await expect.poll(() => sharedBeans(tablet)).toEqual(uptownBeans);
+    await expect.poll(() => setting(tablet, "rinseData.flow")).toBe(4.5);
+    await expect.poll(() => setting(tablet, "rinseData.duration")).toBe(settings.values["rinseData.duration"]);
     const own = () => tablet.beans().find((bean) => bean.name === "Switching Own")!;
-    await expect.poll(() => own().archived, { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => own().archived).toBe(true);
     expect(globalIdOf(own())).toBeNull();
     expect((await libraryBeans("Switching")).map((bean) => bean.name)).toEqual(uptownBeans);
     expect(sharedBeans(sharingTablet)).toEqual(uptownBeans);
@@ -168,8 +168,8 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     // Its barista takes the coffee up again: un-archived there, it joins the Library at Uptown as one entered then.
     await tablet.editBean(own().id, { archived: false });
     const all = [...uptownBeans, "Switching Own"].sort();
-    await expect.poll(() => sharedBeans(sharingTablet), { timeout: 15_000 }).toEqual(all);
-    await expect.poll(() => sharedBeans(tablet), { timeout: 10_000 }).toEqual(all);
+    await expect.poll(() => sharedBeans(sharingTablet)).toEqual(all);
+    await expect.poll(() => sharedBeans(tablet)).toEqual(all);
     expect((await libraryBeans("Switching Own"))[0]!.offeredAt).toEqual([uptown]);
   });
 
@@ -179,9 +179,9 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     const tablet = load(switched, "25011", { instance: other, parts: { steamSettings: { flow: 1.3 } } });
     await online(switched);
     const settingsId = async () => (await read<{ settings: { id: string | null } }>(`/locations/${cafe.id}/settings`)).settings.id;
-    await expect.poll(settingsId, { timeout: 10_000 }).not.toBeNull();
+    await expect.poll(settingsId).not.toBeNull();
     // Its reports of its Library lists are all taken in, as they are stored.
-    await expect.poll(async () => (await collections(switched)).filter((name) => LISTS.includes(name)).sort(), { timeout: 10_000 }).toEqual([...LISTS].sort());
+    await expect.poll(async () => (await collections(switched)).filter((name) => LISTS.includes(name)).sort()).toEqual([...LISTS].sort());
     const asked = requests(tablet);
 
     expect((await switchSharing(switched, false)).status).toBe(200);
@@ -190,8 +190,8 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     expect(setting(tablet, "steamSettings.flow")).toBe(1.3);
     expect((await switchSharing(switched, true)).status).toBe(200);
     // Asked for its Workflow and collections afresh, it joins the cafe again, and takes its settings.
-    await expect.poll(() => requests(tablet), { timeout: 10_000 }).toBe(asked + 1);
-    await expect.poll(() => setting(tablet, "steamSettings.flow"), { timeout: 10_000 }).toBe(2.2);
+    await expect.poll(() => requests(tablet)).toBe(asked + 1);
+    await expect.poll(() => setting(tablet, "steamSettings.flow")).toBe(2.2);
   });
 
   it("writes its Location's state over an edit its tablet made while capture-only once sharing is back on, and deletes a Profile hard-deleted meanwhile", async () => {
@@ -202,11 +202,11 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     const bean = await tablet.addBean({ roaster: "Roux", name: "Offline Guji", notes: "Floral" });
     const grinder = await tablet.addGrinder({ model: "Offline EK43" });
     const profile = await tablet.addProfile(derivedProfile("Offline Espresso", 8.4));
-    await expect.poll(() => sharedBeans(tablet), { timeout: 10_000 }).toEqual(["Offline Guji"]);
-    await expect.poll(() => globalIdOf(tablet.grinders().find((record) => record.id === grinder.id)!), { timeout: 10_000 }).not.toBeNull();
+    await expect.poll(() => sharedBeans(tablet)).toEqual(["Offline Guji"]);
+    await expect.poll(() => globalIdOf(tablet.grinders().find((record) => record.id === grinder.id)!)).not.toBeNull();
     const beanId = globalIdOf(tablet.beans().find((record) => record.id === bean.id)!)!;
     const profilePath = `/profiles/${encodeURIComponent(String(profile.id))}`;
-    await expect.poll(async () => (await api.call("GET", profilePath)).status, { timeout: 10_000 }).toBe(200);
+    await expect.poll(async () => (await api.call("GET", profilePath)).status).toBe(200);
     const notes = async () => (await read<{ bean: { content: Record_ } }>(`/beans/${beanId}`)).bean.content.notes;
     const tabletNotes = () => tablet.beans().find((record) => record.id === bean.id)!.notes;
 
@@ -216,9 +216,7 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     await tablet.editBean(bean.id, { notes: "Floral, then stone fruit" });
     await tablet.editGrinder(grinder.id, { archived: true });
     await expect
-      .poll(async () => (await read<{ collection: { value: Record_[] } | null }>(`/machines/${switched.machine.id}/collections/grinders`)).collection?.value[0]?.archived, {
-        timeout: 10_000,
-      })
+      .poll(async () => (await read<{ collection: { value: Record_[] } | null }>(`/machines/${switched.machine.id}/collections/grinders`)).collection?.value[0]?.archived)
       .toBe(true);
     expect(await notes()).toBe("Floral");
     expect((await api.call("DELETE", profilePath)).status).toBe(204);
@@ -228,9 +226,9 @@ describe("The capture-only switch", { timeout: 60_000 }, () => {
     // Back on, Uptown's state wins: the Bean's notes and the Grinder are written back as the Library has them, with no
     // Conflict, and the Profile is deleted from it.
     expect((await switchSharing(switched, true)).status).toBe(200);
-    await expect.poll(tabletNotes, { timeout: 15_000 }).toBe("Floral");
-    await expect.poll(() => tablet.grinders().find((record) => record.id === grinder.id)!.archived, { timeout: 15_000 }).toBe(false);
-    await expect.poll(() => tablet.profiles().some((record) => record.id === profile.id), { timeout: 15_000 }).toBe(false);
+    await expect.poll(tabletNotes).toBe("Floral");
+    await expect.poll(() => tablet.grinders().find((record) => record.id === grinder.id)!.archived).toBe(false);
+    await expect.poll(() => tablet.profiles().some((record) => record.id === profile.id)).toBe(false);
     expect(await notes()).toBe("Floral");
     expect((await read<{ conflicts: unknown[] }>(`/beans/${beanId}/conflicts`)).conflicts).toEqual([]);
   });

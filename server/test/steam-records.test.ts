@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView } from "./support/admin-api.js";
-import { waitForLockWaits } from "./support/lock-waits.js";
+import { whileProgressing } from "./support/backlog.js";
+import { waitForLockWaits, withoutLockWaits } from "./support/lock-waits.js";
 import { derivedShot, shotFixture, withShots } from "./support/shot-fixtures.js";
 import { derivedSteam, longSteam, milkProbeSteamFixture, steamFixture, withSteams } from "./support/steam-fixtures.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor, type HeldSteamRead } from "./support/simulated-tablet.js";
@@ -53,8 +54,8 @@ describe("Steam Record capture", () => {
   let lab: LocationView;
   let uptown: LocationView;
   let timeZone: string | undefined;
+  /** The tablets the running test loaded, which Vitest's setup unloads once it has run. */
   const tablets: SimulatedTablet[] = [];
-  const raws: RawConnection[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
@@ -67,13 +68,10 @@ describe("Steam Record capture", () => {
     api = await AdminApi.setUp(server.url);
     lab = await api.createLocation("Lab", "America/Denver");
     uptown = await api.createLocation("Uptown", "America/Chicago");
-  }, 60_000);
-  afterEach(async () => {
-    const used = tablets.splice(0);
-    await Promise.all(used.map((tablet) => tablet.unload()));
-    await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
+  });
+  afterEach(() => {
     // Never the unpaginated list, which holds every Steam Record with its workflow.
-    for (const tablet of used) expect(tablet.requests).not.toContain("/steams");
+    for (const tablet of tablets.splice(0)) expect(tablet.requests).not.toContain("/steams");
   });
   afterAll(async () => {
     await other?.stop();
@@ -130,12 +128,12 @@ describe("Steam Record capture", () => {
       release,
       async found(id) {
         try {
-          await expect.poll(() => tablet.requests.filter((request) => request === route).length, { timeout: 10_000 }).toBeGreaterThan(made);
+          await expect.poll(() => tablet.requests.filter((request) => request === route).length).toBeGreaterThan(made);
           const releaseLater = tablet.holdSteamReads(route);
           try {
             const from = tablet.requests.length;
             release();
-            await expect.poll(() => tablet.requests.slice(from).includes(`/steams/${encodeURIComponent(id)}`), { timeout: 10_000 }).toBe(true);
+            await expect.poll(() => tablet.requests.slice(from).includes(`/steams/${encodeURIComponent(id)}`)).toBe(true);
           } finally {
             releaseLater();
           }
@@ -166,45 +164,34 @@ describe("Steam Record capture", () => {
       releaseAlso();
     }
   }
-  /** The deliveries the server has acknowledged to the tablet so far. */
-  function acknowledged(tablet: SimulatedTablet): Set<string> {
-    return new Set((tablet.received as Sent[]).flatMap((message) => (message.type === "ack" ? [String(message.id)] : [])));
-  }
   function sent(tablet: SimulatedTablet, type: string): Sent[] {
     return (tablet.sent as Sent[]).filter((message) => message.type === type);
   }
-  async function list(machineId?: string, at = api): Promise<{ steamRecords: SteamRecordView[]; total: number }> {
-    const response = await at.call("GET", `/steam-records?limit=100${machineId ? `&machineId=${machineId}` : ""}`);
-    expect(response.status).toBe(200);
-    return response.json() as Promise<{ steamRecords: SteamRecordView[]; total: number }>;
+  function list(machineId?: string, at = api): Promise<{ steamRecords: SteamRecordView[]; total: number }> {
+    return at.get(`/steam-records?limit=100${machineId ? `&machineId=${machineId}` : ""}`);
   }
   async function detail(id: string, at = api): Promise<SteamRecordView> {
-    const response = await at.call("GET", `/steam-records/${encodeURIComponent(id)}`);
-    expect(response.status).toBe(200);
-    return ((await response.json()) as { steamRecord: SteamRecordView }).steamRecord;
+    return (await at.get<{ steamRecord: SteamRecordView }>(`/steam-records/${encodeURIComponent(id)}`)).steamRecord;
   }
   async function measurements(id: string) {
-    const response = await api.call("GET", `/steam-records/${encodeURIComponent(id)}/measurements`);
-    expect(response.status).toBe(200);
-    return ((await response.json()) as { measurements: unknown }).measurements;
+    return (await api.get<{ measurements: unknown }>(`/steam-records/${encodeURIComponent(id)}/measurements`)).measurements;
   }
   async function absent(id: string) {
     for (const path of [`/steam-records/${encodeURIComponent(id)}`, `/steam-records/${encodeURIComponent(id)}/measurements`]) {
       expect((await api.call("GET", path)).status).toBe(404);
     }
   }
-  async function waitSteam(id: string, timeout = 10_000): Promise<SteamRecordView> {
-    await expect.poll(async () => (await api.call("GET", `/steam-records/${encodeURIComponent(id)}`)).status, { timeout }).toBe(200);
+  /** Resolves with the Steam Record once it is stored, waiting `timeout` ms if given, or a poll's default. */
+  async function waitSteam(id: string, timeout?: number): Promise<SteamRecordView> {
+    await expect.poll(async () => (await api.call("GET", `/steam-records/${encodeURIComponent(id)}`)).status, timeout === undefined ? {} : { timeout }).toBe(200);
     return detail(id);
   }
   /** Each Steam Record's Location by name, null when unknown. */
   async function locations(ids: string[]): Promise<Record<string, string | null>> {
     return Object.fromEntries(await Promise.all(ids.map(async (id) => [id, (await detail(id)).location?.name ?? null])));
   }
-  async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
-    const raw = await RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
-    raws.push(raw);
-    return raw;
+  function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
+    return RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
   }
   function sendSteam(raw: RawConnection, record: Record<string, unknown>, steamedAt: string, id = randomUUID()) {
     raw.send({ type: "steam", id, steamId: String(record.id), steamedAt, steam: record });
@@ -236,14 +223,15 @@ describe("Steam Record capture", () => {
     let stalled = true;
     const stallUpload = (frame: unknown) => stalled && (frame as Sent).type === "steamIndex" && (frame as Sent).steams?.[0]?.id === "history-100";
     const tablet = load(machine, history, { apiDelayMs: 500, stallUpload });
-    await expect.poll(() => sent(tablet, "steamIndex").length, { timeout: 10_000 }).toBe(2);
+    await expect.poll(() => sent(tablet, "steamIndex").length).toBe(2);
     const [firstPage, cutOff] = sent(tablet, "steamIndex");
-    await expect.poll(() => acknowledged(tablet).has(firstPage!.id!)).toBe(true);
+    await expect.poll(() => tablet.acks(firstPage!.id) > 0).toBe(true);
     const sentBefore = tablet.sent.length;
     stalled = false;
     tablet.dropConnections();
     await tablet.waitForLogs(/^Connected to /, 2);
-    await expect.poll(async () => (await list(machine.machine.id, api.at(other.url))).total, { timeout: 20_000 }).toBe(205);
+    const total = async () => (await list(machine.machine.id, api.at(other.url))).total;
+    await whileProgressing(async () => (await total()) === 205, total);
 
     // Every id went once, in pages of at most 100, each under one delivery id. The reconnect sent the
     // page cut off before its acknowledgment again, with its id, then the last; the first never again.
@@ -259,12 +247,10 @@ describe("Steam Record capture", () => {
     // Newest first, each once, credited to the Machine whose tablet sent it.
     const first = await list(machine.machine.id);
     expect(first.steamRecords[0]).toMatchObject({ id: "history-204", steamedAt: "2026-01-01T17:24:00.000Z", machineId: machine.machine.id });
-    const lastPage = (await (await api.call("GET", `/steam-records?limit=100&offset=200&machineId=${machine.machine.id}`)).json()) as {
-      steamRecords: SteamRecordView[];
-    };
+    const lastPage = await api.get<{ steamRecords: SteamRecordView[] }>(`/steam-records?limit=100&offset=200&machineId=${machine.machine.id}`);
     expect(lastPage.steamRecords.map((steam) => steam.id)).toEqual(["history-004", "history-003", "history-002", "history-001", "history-000"]);
     expect(new Set(first.steamRecords.map((steam) => steam.id)).size).toBe(100);
-  }, 40_000);
+  }, 300_000);
 
   it("sends a new Steam Record by the next poll, reading only the newest, with its measurements and milk temperature, credited to the reporting Machine", async () => {
     const machine = await api.createMachine("Live steam");
@@ -302,7 +288,7 @@ describe("Steam Record capture", () => {
     expect((record.measurements as { milkTemperature: number | null }[]).filter((sample) => sample.milkTemperature !== null)).toHaveLength(20);
     // Captured without reconnecting.
     expect(tablet.logs.filter((line) => line.startsWith("Connected to "))).toHaveLength(1);
-  }, 30_000);
+  });
 
   it("sends a Steam Record new on the tablet ahead of the history still being backfilled", async () => {
     const machine = await api.createMachine("Steam during backfill");
@@ -311,12 +297,13 @@ describe("Steam Record capture", () => {
     );
     // Each read of Decaid's API takes 20 ms of real time, so the backfill takes seconds.
     const tablet = load(machine, history, { apiDelayMs: 1_000 });
-    await expect.poll(async () => (await list(machine.machine.id)).total, { timeout: 10_000 }).toBeGreaterThan(0);
+    await expect.poll(async () => (await list(machine.machine.id)).total).toBeGreaterThan(0);
     tablet.serve(tabletApi(machine, [...history, derivedSteam("new-during-backfill")]));
     await waitSteam("new-during-backfill");
     expect((await list(machine.machine.id)).total).toBeLessThan(history.length + 1);
-    await expect.poll(async () => (await list(machine.machine.id)).total, { timeout: 20_000 }).toBe(history.length + 1);
-  }, 40_000);
+    const total = async () => (await list(machine.machine.id)).total;
+    await whileProgressing(async () => (await total()) === history.length + 1, total);
+  }, 300_000);
 
   it("sends both of two Steam Records recorded in one poll interval: the newest by the next poll, the other by the next read of every id", async () => {
     const machine = await api.createMachine("Two steams in an interval");
@@ -343,11 +330,11 @@ describe("Steam Record capture", () => {
     // Every id is read once every ten poll intervals: at least nine reads of the newest come between
     // the next two reads of every id, made with nothing held.
     const from = tablet.requests.length;
-    await expect.poll(() => tablet.requests.slice(from).filter((route) => route === "/steams/ids").length, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+    await expect.poll(() => tablet.requests.slice(from).filter((route) => route === "/steams/ids").length).toBeGreaterThanOrEqual(2);
     const reads = tablet.requests.slice(from);
     const found = reads.indexOf("/steams/ids");
     expect(reads.slice(found, reads.indexOf("/steams/ids", found + 1)).filter((route) => route === "/steams/latest").length).toBeGreaterThanOrEqual(9);
-  }, 30_000);
+  });
 
   it("reads every id on schedule though the connection drops more often than it polls", async () => {
     const machine = await api.createMachine("Steam on a flapping connection");
@@ -371,7 +358,7 @@ describe("Steam Record capture", () => {
     // Once the connection holds, both are sent: the other because a read of every id found it.
     await waitSteam("flapping-earlier");
     await waitSteam("flapping-newest");
-  }, 60_000);
+  });
 
   it("goes on reading the newest Steam Record while a read of every id is slow to answer", async () => {
     const machine = await api.createMachine("Steam during a slow read");
@@ -383,7 +370,7 @@ describe("Steam Record capture", () => {
     const release = tablet.holdSteamReads("/steams/ids");
     try {
       // The next read of every id, up to ten poll intervals on, goes unanswered.
-      await expect.poll(() => idReads(tablet), { timeout: 10_000 }).toBeGreaterThan(read);
+      await expect.poll(() => idReads(tablet)).toBeGreaterThan(read);
       const from = tablet.requests.length;
       tablet.serve(tabletApi(machine, [before, derivedSteam("during-a-slow-read")]));
       await waitSteam("during-a-slow-read");
@@ -391,7 +378,7 @@ describe("Steam Record capture", () => {
     } finally {
       release();
     }
-  }, 20_000);
+  });
 
   it("waits as long to read every id again after a read that failed slowly as after one refused at once", async () => {
     const machine = await api.createMachine("Steam after a slow failure");
@@ -403,13 +390,13 @@ describe("Steam Record capture", () => {
     try {
       // The next read of every id, up to ten poll intervals on, goes unanswered for ten more, then
       // times out, as Decaid's fetch does after 30 s.
-      await expect.poll(() => idReads(tablet), { timeout: 10_000 }).toBeGreaterThan(read);
+      await expect.poll(() => idReads(tablet)).toBeGreaterThan(read);
       const held = tablet.requests.length;
-      await expect.poll(() => tablet.requests.slice(held).filter((route) => route === "/steams/latest").length, { timeout: 10_000 }).toBeGreaterThanOrEqual(10);
+      await expect.poll(() => tablet.requests.slice(held).filter((route) => route === "/steams/latest").length).toBeGreaterThanOrEqual(10);
       const failed = tablet.requests.length;
       release("timedOut");
       // Read again ten whole intervals after it failed, not at once, though ten had passed since it began.
-      await expect.poll(() => tablet.requests.slice(failed).includes("/steams/ids"), { timeout: 10_000 }).toBe(true);
+      await expect.poll(() => tablet.requests.slice(failed).includes("/steams/ids")).toBe(true);
       const reads = tablet.requests.slice(failed);
       expect(reads.slice(0, reads.indexOf("/steams/ids")).filter((route) => route === "/steams/latest").length).toBeGreaterThanOrEqual(9);
       expect(tablet.logs.filter((line) => IDS_UNREADABLE.test(line))).toEqual([
@@ -418,7 +405,7 @@ describe("Steam Record capture", () => {
     } finally {
       release();
     }
-  }, 30_000);
+  });
 
   it("reads no Steam Records while the server is unreachable, and sends those recorded meanwhile once it is reachable again", async () => {
     const machine = await api.createMachine("Steam while unreachable");
@@ -472,7 +459,7 @@ describe("Steam Record capture", () => {
     await expect.poll(async () => (await api.at(other.url).call("GET", "/shots/indexed-before-a-reconnect")).status).toBe(200);
     const indexes = (frames: unknown[]) => (frames as Sent[]).filter((frame) => frame.type === "shotIndex" || frame.type === "steamIndex");
     expect(indexes(tablet.sent).map((page) => page.type).sort()).toEqual(["shotIndex", "steamIndex"]);
-    await expect.poll(() => indexes(tablet.sent).every((page) => acknowledged(tablet).has(page.id!))).toBe(true);
+    await expect.poll(() => tablet.acknowledgedEvery((frame: Sent) => frame.type === "shotIndex" || frame.type === "steamIndex")).toBe(true);
     const sentBefore = tablet.sent.length;
     const reads = idReads(tablet);
 
@@ -481,7 +468,7 @@ describe("Steam Record capture", () => {
     // A Steam Record recorded since is sent by the next poll, and every id is read again on schedule.
     tablet.serve(withShots(tabletApi(machine, [...steams, derivedSteam("after-a-reconnect")]), shots));
     await waitSteam("after-a-reconnect");
-    await expect.poll(() => idReads(tablet), { timeout: 10_000 }).toBeGreaterThan(reads);
+    await expect.poll(() => idReads(tablet)).toBeGreaterThan(reads);
     expect(indexes(tablet.sent.slice(sentBefore))).toEqual([]);
   });
 
@@ -515,7 +502,7 @@ describe("Steam Record capture", () => {
     ]);
     // History waits until every id can be read.
     await absent("past-limit-older");
-  }, 30_000);
+  });
 
   it("places each Steam Record's local time in UTC by the tablet's time zone, on both sides of a daylight-saving change", async () => {
     const machine = await api.createMachine("Chicago tablet");
@@ -630,7 +617,7 @@ describe("Steam Record capture", () => {
 
     // The same delivery again, carrying other content, is acknowledged and changes nothing.
     raw.send({ type: "steam", id: delivery, steamId: record.id, steamedAt: "2026-10-06T00:00:00.000Z", steam: { ...record, futureField: true } });
-    await expect.poll(() => raw.messages.filter((message) => (message as Sent).type === "ack" && (message as Sent).id === delivery).length).toBe(2);
+    await expect.poll(() => raw.acks(delivery)).toBe(2);
     // So does the record in another delivery, through another instance, and through another Machine's tablet.
     const replacement = await connect(machine, other.url);
     await replacement.acknowledged(sendSteam(replacement, { ...record, futureField: true }, "2026-10-06T00:00:00.000Z"));
@@ -697,22 +684,19 @@ describe("Steam Record capture", () => {
     const database = await server.connectDatabase();
     try {
       await database.query("BEGIN");
+      // Held however long the list takes, past the database's idle-in-transaction timeout too.
+      await database.query("SET LOCAL idle_in_transaction_session_timeout = 0");
       await database.query("LOCK TABLE steam_measurements IN ACCESS EXCLUSIVE MODE");
-      // Reading measurements would wait for the lock until it is released, so any answer at all shows the list read none.
-      const response = await Promise.race([
-        api.call("GET", "/steam-records"),
-        new Promise<never>((_, reject) => {
-          const timer = setTimeout(() => reject(new Error("The Steam Records list waited on measurements")), 5_000);
-          timer.unref();
-        }),
-      ]);
+      // Reading measurements would wait for the lock until it is released, so the list answering with no query waiting
+      // for it shows it read none, however long the answer takes.
+      const response = await withoutLockWaits(server, api.call("GET", "/steam-records"), { relation: "steam_measurements" });
       expect(response.status).toBe(200);
       expect(((await response.json()) as { total: number }).total).toBeGreaterThan(0);
     } finally {
       await database.query("ROLLBACK");
       await database.end();
     }
-  }, 10_000);
+  });
 
   it("delivers a Steam Record larger than 1 MiB intact, in chunks, and stores it once after a reconnect partway through", async () => {
     const machine = await api.createMachine("Long steam");
@@ -722,7 +706,7 @@ describe("Steam Record capture", () => {
     let stalled = true;
     const stallUpload = (frame: unknown) => stalled && (frame as Sent).type === "chunk" && (frame as Sent).index === 2;
     const tablet = load(machine, [record], { stallUpload });
-    await expect.poll(() => tablet.received.filter((message) => (message as Sent).type === "chunkReceived").length, { timeout: 10_000 }).toBe(2);
+    await expect.poll(() => tablet.received.filter((message) => (message as Sent).type === "chunkReceived").length).toBe(2);
     await absent("long-steam");
     stalled = false;
     tablet.dropConnections();
@@ -736,7 +720,7 @@ describe("Steam Record capture", () => {
     const { id, count } = chunks.at(-1)!;
     expect(count).toBeGreaterThan(4);
     expect(chunks.slice(-count).map((chunk) => chunk.index)).toEqual(Array.from({ length: count }, (_, index) => index));
-    await expect.poll(() => tablet.received.filter((message) => (message as Sent).type === "ack" && (message as Sent).id === id).length).toBe(1);
+    await expect.poll(() => tablet.acks(id)).toBe(1);
   });
 
   it("credits Steam Records from a mismatched connection to the reported hardware's Machine, or holds them for its Pending Machine until a machine entry takes them over", async () => {

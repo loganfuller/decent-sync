@@ -11,30 +11,13 @@ on:
 permissions:
   contents: read
 
+# The checks and tests run as parallel jobs, the tests in shards, so the run
+# takes about as long as its slowest shard rather than all of them in turn.
+# The release waits for the whole run.
 jobs:
-  ci:
+  checks:
     runs-on: ubuntu-26.04
     timeout-minutes: 20
-
-    services:
-      # Same major version as docker-compose.yml.
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: decent_sync
-          POSTGRES_PASSWORD: decent_sync
-          POSTGRES_DB: decent_sync
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U decent_sync -d decent_sync"
-          --health-interval 2s
-          --health-timeout 5s
-          --health-retries 30
-
-    env:
-      DATABASE_URL: postgresql://decent_sync:decent_sync@localhost:5432/decent_sync
-      PUBLIC_URL: http://localhost:3000
 
     steps:
       - uses: actions/checkout@v7
@@ -54,23 +37,102 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Build
+  # vitest.config.ts deals the test files out to the shards by size.
+  vitest:
+    name: vitest (${{ matrix.shard }}/4)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+
+    services:
+      postgres: &postgres
+        # Same major version as docker-compose.yml.
+        image: postgres:17
+        env:
+          POSTGRES_USER: decent_sync
+          POSTGRES_PASSWORD: decent_sync
+          POSTGRES_DB: decent_sync
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U decent_sync -d decent_sync"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+
+    env: &env
+      DATABASE_URL: postgresql://decent_sync:decent_sync@localhost:5432/decent_sync
+      PUBLIC_URL: http://localhost:3000
+
+    steps:
+      - &checkout
+        uses: actions/checkout@v7
+
+      - &setup-node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - &install
+        name: Install
+        run: npm ci
+
+      # Only a crash of PostgreSQL itself would need what it writes to be on
+      # disk, and the test databases are thrown away. Each test file creates
+      # and drops a database, which flushes the disk, and the tests commit
+      # thousands of transactions.
+      - &unflushed-postgres
+        name: Stop PostgreSQL waiting for the disk
+        run: >-
+          docker exec ${{ job.services.postgres.id }} psql -U decent_sync -d decent_sync
+          -c "ALTER SYSTEM SET fsync = off"
+          -c "ALTER SYSTEM SET synchronous_commit = off"
+          -c "ALTER SYSTEM SET full_page_writes = off"
+          -c "SELECT pg_reload_conf()"
+
+      - &build
+        name: Build
         run: npm run build
 
       - name: Vitest
-        run: npm test
+        run: npx vitest run --shard=${{ matrix.shard }}/4
+
+  playwright:
+    name: playwright (${{ matrix.shard }}/2)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+
+    services:
+      postgres: *postgres
+
+    env: *env
+
+    steps:
+      - *checkout
+      - *setup-node
+      - *install
+      - *unflushed-postgres
+      - *build
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
       - name: Playwright
-        run: npm run test:e2e
+        run: npx playwright test --shard=${{ matrix.shard }}/2
 
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: |
             playwright-report/
             test-results/

@@ -41,7 +41,6 @@ import {
   isLibraryKind,
   isLibraryList,
   isWrittenKind,
-  parentList,
 } from "@decent-sync/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { CollectionsService } from "../collections/collections.service.js";

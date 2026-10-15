@@ -3,6 +3,8 @@ import { globalIdOf } from "@decent-sync/protocol";
 import { shotFixture } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { signInAsAdmin } from "./support/seed.js";
+import { field } from "./support/locators.js";
 
 // Shots linked to the Library (ticket #92): each Library item's page lists
 // the Shots that used it, and the Shots list filters by Bean Batch and by
@@ -12,16 +14,11 @@ import { useFreshServer } from "./support/fresh-server.js";
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const tablets: SimulatedTablet[] = [];
 
 type Record_ = Record<string, unknown>;
 
-test.beforeEach(async ({ page }) => {
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
@@ -81,8 +78,11 @@ test("a batch's page lists its Shots from both Locations, and the Shots list fil
   await page.getByRole("option", { name: "Any Grinder" }).click();
   await page.getByLabel("Bean Batch", { exact: true }).click();
   await page.getByRole("option", { name: "Not linked to a Bean Batch" }).click();
+  // The list filtered by Grinder also had one Shot, so wait for this one's row before counting.
+  const unlinked = list.getByRole("row", { name: /Lab group .* 60 Fixture Barista$/ });
+  await expect(unlinked).toBeVisible();
   await expect(list.getByRole("row")).toHaveCount(2);
-  await list.getByRole("row").nth(1).getByRole("link").first().click();
+  await unlinked.getByRole("link").first().click();
   await expect(field(page.getByLabel("Shot", { exact: true }), "Bean Batch")).toHaveText("Not in the Library");
 
   // A linked Shot's page links to what it used.
@@ -125,8 +125,4 @@ async function tabletAt(page: Page, name: string, locationId: string, serial: st
   tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
   return tablet;
-}
-
-function field(within: ReturnType<Page["getByLabel"]>, term: string) {
-  return within.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
 }

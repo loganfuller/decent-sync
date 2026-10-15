@@ -29,7 +29,7 @@ import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 export type EquipmentKind = "basket" | "tool";
 
 /** A Basket's or Tool's name as lists show it. */
-export function equipmentName(kind: EquipmentKind, item: Pick<EquipmentSummary, "name">): string {
+function equipmentName(kind: EquipmentKind, item: Pick<EquipmentSummary, "name">): string {
   return item.name ?? `Unnamed ${LIBRARY_KINDS[kind].name}`;
 }
 

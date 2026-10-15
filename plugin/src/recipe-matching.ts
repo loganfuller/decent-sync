@@ -94,7 +94,7 @@ export function stepsKey(steps: unknown): string | null {
 }
 
 /** JSON with every object's keys sorted. */
-export function stableJson(value: unknown): string {
+function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
   if (isObject(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
   return JSON.stringify(value ?? null);
@@ -184,7 +184,7 @@ export function sameRecipeDial(a: RecipeDial, b: RecipeDial): boolean {
 }
 
 /** Whether two dials are the same. */
-export function sameDial(a: Dial, b: Dial): boolean {
+function sameDial(a: Dial, b: Dial): boolean {
   return (
     a.profile === b.profile &&
     sameNumber(a.dose, b.dose) &&
@@ -328,7 +328,7 @@ export function loadWrite(
 }
 
 /** A Workflow's hot water settings, as Decaid names them in its `hotWaterData`, which a Recipe holds all of. */
-export const HOT_WATER = ["targetTemperature", "duration", "volume", "flow"] as const;
+const HOT_WATER = ["targetTemperature", "duration", "volume", "flow"] as const;
 
 /** A part of a Workflow a load writes (`loadWrite`): its dial, RPM, Basket, Bean Batch, and each of its hot water settings. */
 export type WrittenPart = "dose" | "yield" | "grind" | "grinder" | "profile" | "rpm" | "basket" | "batch" | (typeof HOT_WATER)[number];

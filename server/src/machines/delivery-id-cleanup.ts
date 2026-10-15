@@ -15,7 +15,7 @@ import { PrismaService } from "../prisma.service.js";
  * after a newer one another tablet's mismatched session reported for the
  * same Machine.
  */
-export const DELIVERY_ID_RETENTION_DAYS = 90;
+const DELIVERY_ID_RETENTION_DAYS = 90;
 /** How often each server instance deletes the delivery ids it no longer keeps. */
 export const DELIVERY_ID_CLEANUP_INTERVAL_MS = 60 * 60_000;
 /** The most delivery ids one statement deletes, so a large backlog never holds one long statement. */

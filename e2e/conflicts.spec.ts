@@ -1,31 +1,29 @@
-import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
+import { expect as baseExpect, type Page, test } from "@playwright/test";
 import { globalIdOf } from "@decent-sync/protocol";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { createLocation, signInAsAdmin } from "./support/seed.js";
+import { field, rows } from "./support/locators.js";
 
 // Conflicts and each Library item's history in the management interface
 // (ADR-0020). Two simulated tablets running the built plugin at a lab, and
 // one at a cafe, hold a Bean; the lab's two edit the same field while
 // offline, and the later edit wins everywhere, the earlier kept as a
-// Conflict. Using its value makes it current on every tablet that holds the
-// Bean; dismissing one changes nothing else.
+// Conflict. Using its value makes it current, and dismissing one changes
+// nothing else; what the tablets are written then is
+// server/test/library-conflicts.test.ts's.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const tablets: SimulatedTablet[] = [];
 
-test.beforeEach(async ({ page }) => {
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
 });
 
-test("a Conflict made through two tablets is listed and noted on its item, whose page shows its history, and using its value makes it current on every tablet", async ({
+test("a Conflict made through two tablets is listed and noted on its item, whose page shows its history, and using its value makes it current", async ({
   page,
 }) => {
   const { one, two, cafe, beanId } = await sharedBean(page, "Used", "16101");
@@ -60,7 +58,6 @@ test("a Conflict made through two tablets is listed and noted on its item, whose
   await expect(history).toHaveCount(4);
   await expect(history.nth(0)).toContainText("You, here");
   await expect(history.nth(0)).toContainText("NotesPeach and jasmine");
-  for (const tablet of [one, two, cafe]) await expect.poll(() => heldBean(tablet, beanId)?.notes).toBe("Peach and jasmine");
 
   await page.goto("/library/conflicts");
   await expect(page.getByText("No open Conflicts.")).toBeVisible();
@@ -80,9 +77,6 @@ test("dismissing a Conflict closes it and changes nothing else", async ({ page }
   await expect(field(page.getByLabel("Coffee", { exact: true }), "Country")).toHaveText("Kenya");
   await expect(page.getByRole("region", { name: "Open Conflicts" })).toBeHidden();
   await expect(rows(page.getByRole("table", { name: "History" }))).toHaveCount(3);
-  // Nothing is written: after many of the tablets' polls, each still holds the value now.
-  await page.waitForTimeout(1_000);
-  for (const tablet of [one, two, cafe]) baseExpect(heldBean(tablet, beanId)?.country).toBe("Kenya");
 });
 
 /** A lab with two tablets and a cafe with one, each holding the same Bean, entered at both. */
@@ -96,7 +90,8 @@ async function sharedBean(page: Page, name: string, serial: string) {
   await expect.poll(() => two.beans().find((record) => record.name === `${name} Guji` && globalIdOf(record))).toBeTruthy();
   const beanId = globalIdOf(two.beans().find((record) => record.name === `${name} Guji`)!)!;
   await cafe.addBean({ roaster: "Roux", name: `${name} Guji` });
-  await expect.poll(() => globalIdOf(cafe.beans().find((record) => record.name === `${name} Guji`) ?? {})).toBe(beanId);
+  // Each tablet's record carries the Bean's global id, the first tablet's by a write of its own, before it is edited by it.
+  for (const tablet of [one, cafe]) await expect.poll(() => heldBean(tablet, beanId)).toBeDefined();
   return { one, two, cafe, beanId };
 }
 
@@ -123,12 +118,6 @@ function heldBean(tablet: SimulatedTablet, id: string): Record<string, unknown> 
   return tablet.beans().find((record) => globalIdOf(record) === id);
 }
 
-async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {
-  const response = await page.request.post("/api/locations", { data: { name, timeZone: "America/Chicago" } });
-  baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { location: { id: string; name: string } }).location;
-}
-
 /** A Machine at the Location, its tablet connected, polling every 5 s of its time, which runs 50 times faster here. */
 async function tabletAt(page: Page, name: string, location: { id: string }, serial: string): Promise<SimulatedTablet> {
   const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
@@ -142,13 +131,4 @@ async function tabletAt(page: Page, name: string, location: { id: string }, seri
   tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
   return tablet;
-}
-
-/** A table's rows below its header. */
-function rows(table: Locator) {
-  return table.getByRole("row").filter({ hasNot: table.page().getByRole("columnheader") });
-}
-
-function field(within: Locator, term: string) {
-  return within.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
 }

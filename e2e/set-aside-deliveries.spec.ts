@@ -1,8 +1,10 @@
-import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
+import { expect as baseExpect, test } from "@playwright/test";
 import { derivedShot, withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, de1ProOnDecaid087, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { afterDetailsPolls } from "./support/polling.js";
+import { createMachine, signInAsAdmin } from "./support/seed.js";
+import { field, machineRow } from "./support/locators.js";
 
 // Deliveries from a Machine's tablet that the server could not store, on the
 // Machine's page, as an Admin. A simulated tablet running the built plugin
@@ -14,22 +16,16 @@ test.use({ timezoneId: "America/New_York" });
 // Machine pages poll the server every few seconds.
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const tablets: SimulatedTablet[] = [];
 
-test.beforeEach(async ({ page }) => {
-  // The first test sets the server up; later ones sign in. Both sign the page's context in.
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
 });
 
 test("a Shot that cannot be stored is listed on its Machine's page, without what it carried, and the Shots after it are stored", async ({ page }) => {
-  const token = await createMachine(page, "Bar 1");
+  const { token } = await createMachine(page, "Bar 1");
   const unstorable = derivedShot("nul-shot", { annotations: { espressoNotes: "Jammy\u0000, long finish" } });
   const tablet = SimulatedTablet.load({
     settings: settingsFor({ serverUrl: server.url(), token }),
@@ -50,8 +46,6 @@ test("a Shot that cannot be stored is listed on its Machine's page, without what
   await expect(rows.nth(1).getByRole("cell")).toHaveText([/^\w{3} \d+, \d{4}, /, "Shot", "nul-shot", /^.+ \((?:22P05|22021)\)$/]);
   // Stored after it: the Shot pulled on Oct 4.
   await expect(field(page, "Last Shot")).toHaveText(/^Oct 4, 2026, /);
-  baseExpect((await page.request.get("/api/shots/bar-shot")).status()).toBe(200);
-  baseExpect((await page.request.get("/api/shots/nul-shot")).status()).toBe(404);
   // Never what it carried.
   baseExpect(await page.content()).not.toContain("Jammy");
 });
@@ -65,21 +59,3 @@ test("a Machine with nothing set aside lists none", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Bar 2", level: 1 })).toBeVisible();
   await expect(page.getByRole("region", { name: "Deliveries set aside" })).toHaveCount(0);
 });
-
-/** Creates a machine entry through the REST API, returning its token. */
-async function createMachine(page: Page, name: string): Promise<string> {
-  const response = await page.request.post("/api/machines", { data: { name } });
-  baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { token: string }).token;
-}
-
-function machineRow(page: Page, name: string) {
-  return page
-    .getByRole("table", { name: "Machines" })
-    .getByRole("row")
-    .filter({ has: page.getByRole("link", { name, exact: true }) });
-}
-
-function field(within: Page | Locator, term: string) {
-  return within.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
-}

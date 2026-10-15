@@ -3,7 +3,8 @@ import { ANOTHER_ITEMS_RECORD, GLOBAL_ID_KEY, RECORD_CHANGED, type ServerMessage
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { DYE2_NAMESPACE, dye2List } from "./support/simulated-dye2.js";
-import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
+import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
+import { type SimulatedTablet, settingsFor } from "./support/simulated-tablet.js";
 import { StandInServer } from "./support/stand-in-server.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -22,19 +23,13 @@ const RECIPES = `/store/${DYE2_NAMESPACE}/recipes`;
 const BASKETS = `/store/${DYE2_NAMESPACE}/baskets`;
 const PUSH = { what: "workflow" };
 
-const tablets: SimulatedTablet[] = [];
-afterAll(() => Promise.all(tablets.map((tablet) => tablet.unload())));
-
-/** A DE1Pro's Decaid with an empty library, and DYE2's lists empty. */
-function emptyDecaid(serial: number) {
-  return { ...derivedDe1Pro({ serial: String(serial) }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS };
-}
+const tablets = new LoadedTablets();
+afterAll(() => tablets.unloadAll());
 
 describe("The plugin's skin endpoint", () => {
   it("answers a GET of skin with no surfaces and its changed endpoint to listen on, and nothing else", async () => {
     // Without settings the plugin does not connect, and still answers: a skin asks every loaded plugin.
-    const tablet = SimulatedTablet.load({ settings: {} });
-    tablets.push(tablet);
+    const tablet = tablets.load({ settings: {} });
 
     const answer = await tablet.callEndpoint("skin");
     expect(answer.status).toBe(200);
@@ -48,15 +43,14 @@ describe("The plugin's skin endpoint", () => {
   });
 });
 
-describe("Telling skins of each write to DYE2's recipes", { timeout: 60_000 }, () => {
+describe("Telling skins of each write to DYE2's recipes", () => {
   let server: StandInServer;
   let tablet: SimulatedTablet;
   let asked = 0;
 
   beforeAll(async () => {
     server = await StandInServer.start();
-    tablet = SimulatedTablet.load({ settings: settingsFor({ token: "stand-in token 46001", serverUrl: server.url }), api: emptyDecaid(46001) });
-    tablets.push(tablet);
+    tablet = tablets.load({ settings: settingsFor({ token: "stand-in token 46001", serverUrl: server.url }), api: emptyLibrary(46001) });
     await server.welcomed();
   });
   afterAll(() => server?.stop());
@@ -248,29 +242,17 @@ describe("Telling skins of Recipes changed in the management interface", { timeo
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await other?.stop();
     await server?.stop();
   });
 
   function load(machine: CreatedMachine, serial: number, instance: TestServer): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
-      api: emptyDecaid(serial),
-      timeScale: 50,
-    });
-    tablets.push(tablet);
-    return tablet;
+    return tablets.syncing(machine, instance, { api: emptyLibrary(serial) });
   }
 
-  async function send<T>(method: string, path: string, body?: unknown, status = 200): Promise<T> {
-    const response = await api.call(method, path, body);
-    expect(response.status, await response.clone().text()).toBe(status);
-    return (await response.json()) as T;
-  }
   const slots = (tablet: SimulatedTablet) => ((dye2List(tablet, "recipes") ?? []) as Record_[]).map((record) => `${String(record.id)}:${String(record.name)}`);
-  const poll = <T>(read: () => T) => expect.poll(read, { timeout: 15_000 });
 
   it("pushes on each tablet at the Location as a Recipe is created, edited, moved and taken out of its slot there, and not for a Basket", async () => {
     const location: LocationView = await api.createLocation("Skin lab", "America/Chicago");
@@ -279,35 +261,35 @@ describe("Telling skins of Recipes changed in the management interface", { timeo
     const cafeMachine = await api.createMachine("Skin cafe 1", elsewhere.id);
     const here = [load(lab[0]!, 46002, server), load(lab[1]!, 46003, other)];
     const cafe = load(cafeMachine, 46004, server);
-    for (const { machine } of [...lab, cafeMachine]) await api.waitForMachine(machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(...lab, cafeMachine);
     const pushes = () => here.map((tablet) => tablet.pushes("changed").length);
 
     /** Waits until each tablet at the Location holds `expected`, and has pushed at least `count` times since `before`. */
     const pushedOnEach = async (before: number[], expected: string[], count = 1) => {
-      for (const tablet of here) await poll(() => slots(tablet)).toEqual(expected);
-      await poll(() => pushes().every((pushed, index) => pushed - before[index]! >= count)).toBe(true);
+      for (const tablet of here) await expect.poll(() => slots(tablet)).toEqual(expected);
+      await expect.poll(() => pushes().every((pushed, index) => pushed - before[index]! >= count)).toBe(true);
     };
 
     let before = pushes();
-    const created = (await send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: location.id, slot: 1, content: { name: "Skin espresso" } }, 201)).recipe;
+    const created = (await api.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: location.id, slot: 1, content: { name: "Skin espresso" } }, 201)).recipe;
     await pushedOnEach(before, ["1:Skin espresso"]);
 
     before = pushes();
-    await send("PATCH", `/recipes/${created.id}`, { content: { name: "Skin ristretto" } });
+    await api.send("PATCH", `/recipes/${created.id}`, { content: { name: "Skin ristretto" } });
     await pushedOnEach(before, ["1:Skin ristretto"]);
 
     before = pushes();
     // Removed from slot 1, then written in slot 3, each pushed.
-    await send("PUT", `/recipes/${created.id}/slot`, { slot: 3 });
+    await api.send("PUT", `/recipes/${created.id}/slot`, { slot: 3 });
     await pushedOnEach(before, ["3:Skin ristretto"], 2);
 
     before = pushes();
-    await send("PUT", `/recipes/${created.id}/slot`, { slot: null });
+    await api.send("PUT", `/recipes/${created.id}/slot`, { slot: null });
     await pushedOnEach(before, []);
 
     before = pushes();
-    const basket = (await send<{ basket: { id: string } }>("POST", "/baskets", { locationId: location.id, content: { name: "Skin 20 g" } }, 201)).basket;
-    for (const tablet of here) await poll(() => ((dye2List(tablet, "baskets") ?? []) as Record_[]).some((record) => record[GLOBAL_ID_KEY] === basket.id)).toBe(true);
+    const basket = (await api.send<{ basket: { id: string } }>("POST", "/baskets", { locationId: location.id, content: { name: "Skin 20 g" } }, 201)).basket;
+    for (const tablet of here) await expect.poll(() => ((dye2List(tablet, "baskets") ?? []) as Record_[]).some((record) => record[GLOBAL_ID_KEY] === basket.id)).toBe(true);
     expect(pushes()).toEqual(before);
     for (const tablet of here) expect(new Set(tablet.pushes("changed").map((push) => JSON.stringify(push)))).toEqual(new Set([JSON.stringify(PUSH)]));
     // No Recipe was ever at the cafe.

@@ -57,7 +57,7 @@ export class TooManyRequests extends HttpException {
 }
 
 /** Refuses a password check while this instance runs and holds as many as it allows. */
-export class PasswordChecksBusy extends TooManyRequests {
+class PasswordChecksBusy extends TooManyRequests {
   constructor() {
     super(1, "The server is busy checking other passwords. Try again in a moment.");
   }
