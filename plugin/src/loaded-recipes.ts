@@ -212,8 +212,7 @@ export class LoadedRecipes {
   /** Has DYE2's selection follow the Loaded Recipe a Workflow names (`Dye2Selection`). */
   private followWorkflow(workflow: Record<string, unknown>): void {
     const globalId = loadedRecipeOf(workflow);
-    const slotOf = (id: string) => this.slots.get(id) ?? null;
-    this.selection.follow({ globalId, slot: globalId === null ? null : slotOf(globalId), profile: dye2Fingerprint(workflow.profile) }, slotOf);
+    this.selection.follow({ globalId, slot: globalId === null ? null : (this.slots.get(globalId) ?? null), profile: dye2Fingerprint(workflow.profile) });
   }
 
   stop(): void {

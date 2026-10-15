@@ -360,18 +360,16 @@ from the Workflow deliveries.
   clearing its selection, as a yield set in Streamline does; but never
   while the tablet holds it in no slot, as another may be in the slot it
   left. It clears the selection as soon as the plugin unloads the Recipe,
-  on a change of grinder or Bean, which DYE2 keeps it through, and as soon
-  as the Recipe leaves the slot DYE2 has selected, as when it is taken out
-  of its slot or Archived, or the Machine joins another Location, before
-  the server's clear of it reaches the Workflow. One the server unloads
-  while the tablet still holds it in that slot, as on a Machine made
-  capture-only, whose recipes are written nothing, stays DYE2's selection,
-  so DYE2 goes on recording into it there. A clear is made only while DYE2
-  still has that slot selected, leaving a favourite or another slot the
-  barista selected since; DYE2 names a recipe by its slot alone, so a
-  selection of another recipe put in that slot since is cleared too. A
-  selection or clear Decaid fails is tried again at the next Workflow or
-  read of the recipes.
+  on a change of grinder or Bean, which DYE2 keeps it through; as the
+  server's clear of it reaches the Workflow (Unloads the server decides,
+  below); and as the plugin reads the recipes and finds the Recipe gone
+  from the slot DYE2 has selected, as when it is taken out of its slot or
+  Archived, if that comes first. A clear is made only while DYE2 still has
+  that slot selected, leaving a favourite or another slot the barista
+  selected since; DYE2 names a recipe by its slot alone, so a selection of
+  another recipe put in that slot since is cleared too. A selection or
+  clear Decaid fails is tried again at the next Workflow or read of the
+  recipes, unless overtaken by another.
   DYE2 v0.1.20 keeps a cleared selection in its plugin storage, as Decaid
   stores no null, and selects it again as it next loads
   (decentespresso/dye2#22): until that is fixed, a selection the plugin
@@ -525,12 +523,17 @@ maps the parts to the Recipe's content both ways.
   Workflow names; a Machine with no Loaded Recipe keeps its own hot water.
 - **Unloads the server decides.** A Workflow naming a Recipe that is not
   its Machine's Loaded Recipe, as one taken out of its slot or Archived, or
-  of a Location the Machine left, or on a Machine made capture-only, is due
-  the same `write`, clearing the Workflow's Loaded Recipe
-  (`LOADED_RECIPE_FIELD`, null) while it still names that Recipe. A Recipe
-  moved to another slot stays loaded. A Capture-only Machine's writer
-  writes this, and nothing else, whatever its reports. The Workflow the
-  plugin then sends names none, which unloads it on the server.
+  of a Location the Machine left, or the Recipe it had loaded as it was
+  made capture-only, is due the same `write`, clearing the Workflow's
+  Loaded Recipe (`LOADED_RECIPE_FIELD`, null) while it still names that
+  Recipe. A Recipe moved to another slot stays loaded. A Capture-only
+  Machine's writer writes this, and nothing else, whatever its reports. The
+  Workflow the plugin then sends names none, which unloads it on the
+  server. A recipe the plugin loads while its Machine is capture-only,
+  which nothing there shares, is left loaded in its Workflow, and in DYE2's
+  selection, which goes on recording into it there; once its sharing is
+  turned back on, it is the Machine's Loaded Recipe where it is one of its
+  Location's slotted Recipes, and cleared otherwise.
 
 Known limits: a stale copy and a set-back look alike, and are told apart
 only by who made the field's latest edit, until DYE2 and Streamline record

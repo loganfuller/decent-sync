@@ -111,7 +111,9 @@ export async function takeInLoadedRecipe(
       await tx.$executeRaw`INSERT INTO loaded_recipes (machine_id, recipe_id, loaded_at) VALUES (${tablet.machineId}::uuid, ${recipeId}::uuid, ${at})`;
     }
   }
-  await followMachine(tx, tablet, workflow, named, recipe, loadedBefore === recipeId && !joining, new Date(observedAt));
+  // Taking part nowhere, as capture-only, only the Recipe it had loaded as it stopped is cleared: one loaded since stays.
+  const clearsNowhere = entry !== null || loadedBefore === named;
+  await followMachine(tx, tablet, workflow, named, recipe, loadedBefore === recipeId && !joining, new Date(observedAt), clearsNowhere);
 }
 
 /** A Recipe a Machine has loaded, as its edits read it: its Location and content. */
@@ -175,7 +177,9 @@ async function saveHeld(
 
 /**
  * Takes in the parts of a Workflow the tablet reported that follow its
- * Loaded Recipe (ADR-0022). A Workflow naming none forgets the one it named.
+ * Loaded Recipe (ADR-0022). A Workflow naming none forgets the one it named,
+ * as does one naming a Recipe loaded while its Machine takes part nowhere
+ * (`clears` false), which is not cleared from it.
  * One naming the Recipe its Machine went on having loaded (`recipe`, its
  * Loaded Recipe, and `continued`, as before this Workflow, not as the tablet
  * joins its Location) is the tablet's edit of it in each part it changed
@@ -194,12 +198,19 @@ async function followMachine(
   recipe: FollowedRecipe | null,
   continued: boolean,
   observedAt: Date,
+  clears: boolean,
 ): Promise<void> {
   if (named === null) {
     await tx.$executeRaw`DELETE FROM tablet_loaded_recipes WHERE tablet_id = ${tablet.tabletId}::uuid`;
     return;
   }
   const known = await heldLoadedRecipe(tx, tablet.tabletId);
+  // A Recipe loaded on a Machine taking part nowhere, as capture-only, which nothing there shares, is left as it is: only
+  // the one it had loaded as it stopped is cleared, as it still is while the Workflow names it.
+  if (!clears && known?.recipeId !== named) {
+    await tx.$executeRaw`DELETE FROM tablet_loaded_recipes WHERE tablet_id = ${tablet.tabletId}::uuid`;
+    return;
+  }
   if (recipe !== null && continued && known?.recipeId === named) {
     // Its Grinder and Profile are no edit of it, so held as they were: the Profile is not looked up.
     await takeInParts(tx, tablet, recipe, known, workflowParts(workflow), observedAt, new Set());

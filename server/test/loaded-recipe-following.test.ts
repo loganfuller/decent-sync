@@ -448,17 +448,32 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await loads(machines.c, one);
   });
 
-  it("unloads the Recipe of a Machine made capture-only, and of no other, leaving DYE2's selection there, as nothing there is shared", async () => {
-    const { machines, a, c, one } = await lab("Capture-only", 48051, { dye2Selection: true });
+  it("unloads the Recipe of a Machine as it is made capture-only, and of no other, but leaves one loaded while it is, which it follows again once sharing", async () => {
+    const { machines, a, c, one, two } = await lab("Capture-only", 48051, { dye2Selection: true });
     expect(dye2Selection(a)).toEqual({ kind: "recipe", id: "1" });
     expect((await api.call("PUT", `/machines/${machines.a.machine.id}/sharing`, { sharing: false })).status).toBe(200);
     await expect.poll(() => named(a)).toBeNull();
     await loads(machines.a, null);
+    await expect.poll(() => dye2Selection(a)).toBeNull();
     await settle();
     expect(named(c)).toBe(one);
     await loads(machines.c, one);
-    // DYE2 goes on recording a barista's dial-in into the recipe applied there, which nothing takes in.
-    expect(dye2Selection(a)).toEqual({ kind: "recipe", id: "1" });
+
+    // Slot 2 applied while capture-only, which nothing there shares: it stays loaded, and DYE2's selection, which goes on
+    // recording a barista's dial-in there.
+    expect((await applyInDye2(a, "2")).status).toBe(200);
+    await expect.poll(() => named(a)).toBe(two);
+    await expect.poll(() => dye2Selection(a)).toEqual({ kind: "recipe", id: "2" });
+    await settle();
+    expect(named(a)).toBe(two);
+    expect(await loadedRecipe(machines.a)).toBeNull();
+    expect(dye2Selection(a)).toEqual({ kind: "recipe", id: "2" });
+
+    // Sharing again, the Recipe its Workflow names is its Loaded Recipe, which it follows.
+    expect((await api.call("PUT", `/machines/${machines.a.machine.id}/sharing`, { sharing: true })).status).toBe(200);
+    await loads(machines.a, two);
+    expect((await api.call("PATCH", `/recipes/${two}`, { content: { dose: 19.3 } })).status).toBe(200);
+    await expect.poll(() => context(a).targetDoseWeight).toBe(19.3);
   });
 
   it("clears the Recipe of a Machine made capture-only while offline, though a report of its Library lists is unavailable as it reconnects", async () => {
