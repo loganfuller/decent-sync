@@ -35,10 +35,11 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
    * The recording's tablet, holding slot 1 with its Recipe's id, Bean Batch
    * and hot water, its dial changed as `dial` says since the Workflow
    * embedded in it was written, as Streamline's strip then applies a stale
-   * one, its Workflow as given, the first read of the Recipe's Bean taking
-   * 300 ms, as `during` changes the Workflow.
+   * one, its Workflow as given, the first read of the Recipe's Bean, or
+   * whatever request `slowed` names, taking 300 ms, as `during` changes the
+   * Workflow.
    */
-  function load(serial: string, workflow: Record_, during: (tablet: SimulatedTablet) => Promise<unknown>, dial: Record_ = {}) {
+  function load(serial: string, workflow: Record_, during: (tablet: SimulatedTablet) => Promise<unknown>, dial: Record_ = {}, slowed = (method: string, path: string, slot1: Record_) => method === "GET" && path === `/beans/${String(slot1.beanId)}`) {
     const [slot1] = dye2Keys().recipes as [Record_];
     Object.assign(slot1.dashboardVariables as Record_, dial);
     const api: DecaidApi = {
@@ -54,7 +55,7 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
       settings: settingsFor({ token: `races-${serial}`, serverUrl: "http://127.0.0.1:9" }),
       api,
       apiDelayMs: (method, path) => {
-        if (changing || method !== "GET" || path !== `/beans/${String(slot1.beanId)}`) return 0;
+        if (changing || !slowed(method, path, slot1)) return 0;
         changing = during(tablet);
         return 300;
       },
@@ -107,5 +108,21 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     await settled();
     expect(context(tablet)).toMatchObject({ targetDoseWeight: 19.5, grinderSetting: "2.9", beanBatchId: nextBag.id });
     expect(tablet.workflow().hotWaterData).toEqual(HOT_WATER);
+  });
+
+  it("unloads a load whose grinder a barista changes as Decaid takes its write, which leaves the grinder", async () => {
+    // Slot 1's dial, applied before the plugin loaded: its write sets the Recipe's batch, hot water and id, not its grinder.
+    const workflow = structuredClone(applied.find(({ request }) => request.method === "PUT")!.response.body) as Record_;
+    const { tablet, changed } = load(
+      "47241",
+      workflow,
+      (tablet) => tablet.changeSettings({ context: { grinderId: "a-grinder-the-recipe-does-not-name", grinderModel: "Another grinder" } }),
+      {},
+      (method, path) => method === "PUT" && path === "/workflow",
+    );
+    await changed();
+    await settled();
+    expect(context(tablet)).toMatchObject({ grinderId: "a-grinder-the-recipe-does-not-name" });
+    expect(named(tablet)).toBeNull();
   });
 });

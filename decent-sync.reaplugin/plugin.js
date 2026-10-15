@@ -2012,6 +2012,7 @@ var __decentSync = (() => {
   var MAX_KEPT_RECIPES = 200;
   var FIRST_RETRY_MS = 5e3;
   var MAX_RETRY_MS = 5 * 6e4;
+  var REPORT_WAIT_MS = 2e3;
   var LoadedRecipes = class {
     constructor(changes, log) {
       __publicField(this, "changes", changes);
@@ -2024,6 +2025,13 @@ var __decentSync = (() => {
       __publicField(this, "decided");
       /** What the changes decided on so far leave to write into the Workflow. */
       __publicField(this, "pending", { kind: "none" });
+      /**
+       * The plugin's latest write Decaid took, until its echo is decided on: the
+       * Workflow Decaid answered with, and what was pending as it was written.
+       */
+      __publicField(this, "written");
+      /** Told of the next change Decaid reports, while the plugin waits for one (`waitForChange`). */
+      __publicField(this, "reported");
       __publicField(this, "running", false);
       /** Whether the Workflow's changes are held back while it decides (`observe`). */
       __publicField(this, "holding", false);
@@ -2057,6 +2065,7 @@ var __decentSync = (() => {
       if (this.stopped) return;
       this.latest = workflow;
       this.enqueue(workflow);
+      this.reported?.();
       if (this.queue.length === 0 && this.pending.kind === "none") return;
       if (!this.holding && (loadedRecipeOf(workflow) !== null || this.pending.kind !== "none" || this.mayLoad(workflowDial(workflow)))) {
         this.holding = true;
@@ -2124,6 +2133,7 @@ var __decentSync = (() => {
     stop() {
       this.stopped = true;
       if (this.retryTimer !== void 0) clearTimeout(this.retryTimer);
+      this.reported?.();
     }
     /**
      * Decides on each Workflow queued, in turn, then writes what they leave
@@ -2143,12 +2153,17 @@ var __decentSync = (() => {
           if (this.queue.length > 0) await this.decideQueued();
           if (this.pending.kind === "none" || this.stopped) continue;
           const written2 = await this.write(this.pending, this.decided);
-          if (written2.kind === "changed") {
-            this.enqueue(written2.workflow);
+          if (written2.kind === "nothing") {
+            this.pending = { kind: "none" };
             continue;
           }
-          this.pending = { kind: "none" };
-          if (written2.kind === "written") this.decided = written2.workflow;
+          if (written2.kind === "written") this.written = { workflow: written2.workflow, pending: this.pending };
+          if (this.queue.length > 0 || await this.waitForChange(REPORT_WAIT_MS) || this.stopped) continue;
+          if (this.written) {
+            if (this.pending === this.written.pending) this.pending = { kind: "none" };
+            this.decided = this.written.workflow;
+            this.written = void 0;
+          } else this.enqueue(written2.workflow);
         }
         this.retryMs = FIRST_RETRY_MS;
       } catch (error) {
@@ -2162,6 +2177,20 @@ var __decentSync = (() => {
         }
       }
     }
+    /** Resolves with true once Decaid reports a change, or false after `ms`. */
+    waitForChange(ms) {
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          this.reported = void 0;
+          resolve(false);
+        }, ms);
+        this.reported = () => {
+          clearTimeout(timer);
+          this.reported = void 0;
+          resolve(true);
+        };
+      });
+    }
     /** Tries what is still to be decided on or written again once the wait is over, unless a change tries it first. */
     retryLater() {
       if (this.retryTimer !== void 0 || this.stopped) return;
@@ -2174,14 +2203,23 @@ var __decentSync = (() => {
     }
     /**
      * Decides on each Workflow queued, in turn, from the one before it, with
-     * the tablet's recipes read now (`decideChange`). Each becomes the
-     * Workflow decided on once decided. Throws if Decaid fails what it needs,
-     * leaving the rest queued.
+     * the tablet's recipes read now (`decideChange`), as though at once. Each
+     * becomes the Workflow decided on once decided. The echo of the plugin's
+     * write (`written`) is no change: those before it were made before Decaid
+     * took the write, with what it writes still pending, and those after it
+     * after. Throws if Decaid fails what it needs, leaving the rest queued.
      */
     async decideQueued() {
       const held = await this.held(await this.readRecipes());
       while (this.queue.length > 0 && !this.stopped) {
         const workflow = this.queue[0];
+        if (this.written && changedParts(this.written.workflow, workflow).size === 0) {
+          if (this.pending === this.written.pending) this.pending = { kind: "none" };
+          this.written = void 0;
+          this.decided = workflow;
+          this.queue.shift();
+          continue;
+        }
         const before = this.decided;
         const picked = before !== void 0 && workflowBatch(before) !== workflowBatch(workflow);
         const setUp = async (of) => {
