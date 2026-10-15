@@ -18,7 +18,7 @@ const CAP = 64;
 const HEARTBEAT_SECONDS = 0.5;
 const WARNING = /Refusing sync connections while 64 have not had a hello accepted/g;
 
-describe("connections awaiting hello on one server instance", { timeout: 30_000 }, () => {
+describe("connections awaiting hello on one server instance", () => {
   runAsSteps();
   let server: TestServer;
   let api: AdminApi;

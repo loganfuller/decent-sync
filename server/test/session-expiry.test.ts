@@ -16,7 +16,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 const DAY_MS = 24 * 60 * 60_000;
 const LIFETIME_SECONDS = 30 * 24 * 60 * 60;
 
-describe("session expiry across server instances", { timeout: 30_000 }, () => {
+describe("session expiry across server instances", () => {
   let first: TestServer;
   let ahead: TestServer;
   let behind: TestServer;

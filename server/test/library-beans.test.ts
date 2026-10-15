@@ -32,7 +32,7 @@ type Record_ = Record<string, unknown>;
 
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
-describe("Beans in the Library", { timeout: 30_000 }, () => {
+describe("Beans in the Library", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;

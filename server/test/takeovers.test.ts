@@ -43,7 +43,7 @@ function unacknowledged(tablet: SimulatedTablet): string[] {
   return [...new Set(sent)].filter((id) => !acked.has(id));
 }
 
-describe("Takeovers", { timeout: 30_000 }, () => {
+describe("Takeovers", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;

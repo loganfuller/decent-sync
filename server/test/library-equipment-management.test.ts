@@ -73,7 +73,7 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
     const list = dye2List(tablet, key);
     return Array.isArray(list) ? (list as Record_[]).find((record) => record[GLOBAL_ID_KEY] === id) : undefined;
   };
-  const poll = <T>(read: () => T) => expect.poll(read, { timeout: 15_000 });
+  const poll = <T>(read: () => T) => expect.poll(read);
 
   it("writes a Basket created at a Location to that Location's tablets only, then each edit, and removes it from every tablet while Archived", async () => {
     const lab = await locationWith("Created basket lab", 43001, server);

@@ -16,7 +16,7 @@ type Record_ = Record<string, unknown>;
 const RECIPE = "0190a5a2-0000-7000-8000-000000000145";
 const HOT_WATER = { targetTemperature: 85, duration: 40, volume: 120, flow: 7.5 };
 
-describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_000 }, () => {
+describe("Deciding a Loaded Recipe while the Workflow changes", () => {
 
   const library = dye2Library();
   const batchOf = (bean: string) => (library["/bean-batches"] as Record_[]).find((batch) => batch.beanId === (library["/beans"] as Record_[]).find((record) => String(record.name).endsWith(bean))!.id)!.id as string;

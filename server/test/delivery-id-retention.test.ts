@@ -22,7 +22,7 @@ const DELETED = /Deleted (\d+) delivery ids recorded more than 90 days ago/;
 
 interface Delivery { id: string; [field: string]: unknown }
 
-describe("delivery id retention", { timeout: 30_000 }, () => {
+describe("delivery id retention", () => {
   let server: TestServer;
   let api: AdminApi;
   let database: pg.Client;

@@ -74,7 +74,6 @@ async function waitUntilExpired(database: pg.Client, table: "invites" | "passwor
       async () =>
         (await database.query<{ expired: boolean }>(`SELECT expires_at <= clock_timestamp() AS expired FROM ${table} WHERE ${where} = $1`, [id]))
           .rows[0]!.expired,
-      { timeout: 10_000 },
     )
     .toBe(true);
 }
@@ -531,7 +530,7 @@ describe("account management", () => {
 });
 
 // Its rounds each create two Admins, which costs two password hashes.
-describe("the last active Admin", { timeout: 30_000 }, () => {
+describe("the last active Admin", () => {
   let server: TestServer;
   let other: TestServer;
   let database: pg.Client;
@@ -624,7 +623,7 @@ describe("the last active Admin", { timeout: 30_000 }, () => {
   });
 });
 
-describe("password reset link expiry across server instances", { timeout: 30_000 }, () => {
+describe("password reset link expiry across server instances", () => {
   let first: TestServer;
   let ahead: TestServer;
   let behind: TestServer;

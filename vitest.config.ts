@@ -43,7 +43,7 @@ export default defineConfig({
     // after 10 s) fail on a busy CI runner well before a server and tablet
     // that are working have caught up. A test bounds its times from below,
     // and leaves the upper bound to these (docs/AI_BUILD_NOTES.md).
-    expect: { poll: { timeout: 10_000 } },
+    expect: { poll: { timeout: 15_000 } },
     testTimeout: 60_000,
     hookTimeout: 60_000,
     // Checks that no server's or simulated tablet's log holds a secret a test was given.

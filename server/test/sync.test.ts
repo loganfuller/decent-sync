@@ -169,7 +169,7 @@ describe("Machines and the sync connection", () => {
       } finally {
         await proxy.close();
       }
-    }, 15_000);
+    });
 
     it("heartbeats at the server's pace when sped up, so a slow path does not drop it", async () => {
       const far = await createMachine("Far away, sped up");
@@ -186,7 +186,7 @@ describe("Machines and the sync connection", () => {
       } finally {
         await proxy.close();
       }
-    }, 15_000);
+    });
 
     it("is accepted while no machine is connected to the tablet, without binding hardware", async () => {
       const belmont = await createMachine("Belmont");
@@ -232,7 +232,7 @@ describe("Machines and the sync connection", () => {
       } finally {
         await proxy.close();
       }
-    }, 15_000);
+    });
 
     it("stays within Decaid's transport limit while the server never answers, and connects once those attempts end", async () => {
       const lab = await createMachine("Behind a hung proxy");
@@ -255,7 +255,7 @@ describe("Machines and the sync connection", () => {
       } finally {
         await proxy.close();
       }
-    }, 15_000);
+    });
 
     it("connects when Decaid's API is slower than the connect deadline", async () => {
       const slow = await createMachine("Slow API");
@@ -273,7 +273,7 @@ describe("Machines and the sync connection", () => {
       await second.waitForLog(/^Disconnected: could not read Decaid's version from its API\./);
       expect(await machineNamed("API timing out")).toMatchObject({ online: false, lastSeenAt: null, lastRefusal: null });
       await second.unload();
-    }, 15_000);
+    });
 
     it("does not connect without a server URL and token, and says what is missing", async () => {
       const unset = loadTablet({});
@@ -334,7 +334,7 @@ describe("Machines and the sync connection", () => {
       }
       expect(raw.messages.filter((message) => (message as { type: string }).type === "error")).toEqual([]);
       await waitForMachine("Slow database", (machine) => machine.online);
-    }, 15_000);
+    });
 
     it("close a connection that sends no hello within the timeout with the protocol-error code", async () => {
       raw = await RawConnection.open(server.url);

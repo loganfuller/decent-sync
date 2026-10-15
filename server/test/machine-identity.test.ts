@@ -16,7 +16,7 @@ const HEARTBEAT_SECONDS = 0.5;
 const FIXTURE_CONNECTION_ID = "00:00:5E:00:53:01";
 const de1Pro = (serial: string) => ({ model: "DE1Pro", serial, firmware: "1333" });
 
-describe("Machine identity", { timeout: 20_000 }, () => {
+describe("Machine identity", () => {
   let server: TestServer;
   let api: AdminApi;
   const tablets = new LoadedTablets();

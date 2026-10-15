@@ -25,7 +25,7 @@ const env = { SYNC_HELLO_TIMEOUT_SECONDS: "1", SYNC_HEARTBEAT_SECONDS: String(HE
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const de1Pro = (serial: string) => ({ model: "DE1Pro", serial, firmware: "1333" });
 
-describe("Tablets", { timeout: 20_000 }, () => {
+describe("Tablets", () => {
   let server: TestServer;
   let other: TestServer;
   /** The Admin on the first instance, and on the second. */

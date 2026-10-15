@@ -196,7 +196,7 @@ describe("Library, settings and paired devices", () => {
     expect(resent.find((frame) => frame.name === "dye2Equipment")).toMatchObject({ available: true, value: [] });
     await allAcknowledged(tablet);
     expect((await collections(machine)).beans).toEqual({ available: true, value: served["/beans"] });
-  }, 30_000);
+  });
 
   it("reports a read that fails or has nothing to report as unavailable, keeping the value known", async () => {
     const machine = await api.createMachine("Unavailable");
@@ -237,7 +237,7 @@ describe("Library, settings and paired devices", () => {
     tablet.failNextApiReads("/grinders", 0);
     await expect.poll(async () => (await collection(machine, "grinders"))?.available).toBe(true);
     expect((await collections(machine)).grinders).toEqual(before.grinders);
-  }, 30_000);
+  });
 
   it("leaves devices only discovered nearby out of the paired devices, and does not resend them as such devices come and go", async () => {
     const machine = await api.createMachine("Discovered nearby");
@@ -274,7 +274,7 @@ describe("Library, settings and paired devices", () => {
     tablet.serve({ ...served, "/devices": inventory.map((entry) => (entry.id === "MockScale" ? { ...entry, connectionRole: "auxiliary" } : entry)) });
     await expect.poll(async () => (await pairedDevices(machine)).auxiliaryScale).toEqual(device("scale", "MockScale", "Mock Scale", "connected"));
     expect((await pairedDevices(machine)).scale).toBeNull();
-  }, 30_000);
+  });
 
   it("shows the scale Decaid prefers while it is off, as the test tablet's is", async () => {
     const machine = await api.createMachine("Scale off");
@@ -306,7 +306,7 @@ describe("Library, settings and paired devices", () => {
     expect((await collections(owner)).beans).toEqual({ available: true, value: simulatedLibrary()["/beans"] });
     expect((await pairedDevices(owner)).scale).toEqual(device("scale", "MockScale", "Mock Scale", "connected"));
     expect(await collections(traveller)).toEqual(own);
-  }, 30_000);
+  });
 
   it("holds a mismatched connection's collections for hardware without a Machine, and hands them to the machine entry created for it", async () => {
     const traveller = await api.createMachine("Before adoption");
@@ -330,7 +330,7 @@ describe("Library, settings and paired devices", () => {
     expect(handed.machineSettings).toEqual({ available: true, value: simulatedLibrary()["/machine/settings"] });
     expect((await pairedDevices(adopted)).sensors).toHaveLength(2);
     expect(await collections(traveller)).toEqual(own);
-  }, 30_000);
+  });
 
   it("merges what a Pending Machine holds into a Machine that binds its hardware: the latest report says whether each is available, and the latest value is kept", async () => {
     const machine = await api.createMachine("Binds later");
@@ -408,7 +408,7 @@ describe("Library, settings and paired devices", () => {
     const third = await connect(machine, server.url, hardware);
     await third.deliver(older);
     expect((await collection(machine, "machineSettings"))!.value).toEqual(newer.value);
-  }, 20_000);
+  });
 
   it("records when a value delivered again was reported and received, and stores a changed one", async () => {
     const machine = await api.createMachine("Reconnecting");
@@ -539,7 +539,7 @@ describe("Library, settings and paired devices", () => {
     expect(sent.length).toBeGreaterThanOrEqual(2);
     expect(sent.slice(1).every((frame) => JSON.stringify(frame.value) === JSON.stringify(newer))).toBe(true);
     expect((await collection(machine, "machineSettings"))!.value).toEqual(newer);
-  }, 40_000);
+  });
 
   it("keeps a value read while the outbox was busy ahead of a later read that found the collection unavailable", async () => {
     const machine = await api.createMachine("Busy outbox");
@@ -571,7 +571,7 @@ describe("Library, settings and paired devices", () => {
       machineSettings: { available: false, value: recalibrated },
       dye2Baskets: { available: true, value: baskets },
     });
-  }, 30_000);
+  });
 
   it("shows a connected scale's firmware and battery level, and sensors only Decaid's sensor list names, only while its tablet's inventory is current, and when the devices shown were read", async () => {
     const machine = await api.createMachine("Scale information");

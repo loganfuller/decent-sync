@@ -14,7 +14,7 @@ const HEARTBEAT_SECONDS = 0.5;
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "1", SYNC_HEARTBEAT_SECONDS: String(HEARTBEAT_SECONDS) };
 const de1Pro = (serial: string) => ({ model: "DE1Pro", serial, firmware: "1333" });
 
-describe("several server instances", { timeout: 30_000 }, () => {
+describe("several server instances", () => {
   let first: TestServer;
   let second: TestServer;
   /** The Admin on the first instance, and on the second. */

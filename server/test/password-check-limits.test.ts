@@ -20,7 +20,7 @@ const RUNNING = 2;
 const WAITING = 16;
 const BUSY = "The server is busy checking other passwords. Try again in a moment.";
 
-describe("password checks on one server instance", { timeout: 30_000 }, () => {
+describe("password checks on one server instance", () => {
   runAsSteps();
   let server: TestServer;
   let database: pg.Client;

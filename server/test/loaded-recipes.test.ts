@@ -74,7 +74,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     (await (await api.call("GET", `/machines/${machine.id}/loaded-recipes`)).json()) as { entries: LoadedView[]; total: number };
   /** Resolves once the server holds that Recipe as the Machine's Loaded Recipe, or none. */
   const loads = (machine: CreatedMachine, recipeId: string | null) =>
-    expect.poll(async () => (await loadedRecipe(machine))?.recipe.id ?? null, { timeout: 15_000 }).toBe(recipeId);
+    expect.poll(async () => (await loadedRecipe(machine))?.recipe.id ?? null).toBe(recipeId);
 
   /**
    * A Location with a Machine whose tablet is the recording's, on the
@@ -90,12 +90,12 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     await saveInDye2(tablet, recipes.saveSlot1);
     await saveInDye2(tablet, recipes.saveSlot2);
     await saveInDye2(tablet, recipes.editSlot1);
-    await expect.poll(() => ["1", "2"].map((slot) => dye2GlobalIdOf(inSlot(tablet, slot))), { timeout: 15_000 }).not.toContain(null);
+    await expect.poll(() => ["1", "2"].map((slot) => dye2GlobalIdOf(inSlot(tablet, slot)))).not.toContain(null);
     const listed = (await api.get<{ recipes: { id: string; slot: number | null }[] }>(`/locations/${here.id}/recipes`)).recipes;
     const [one, two] = [1, 2].map((slot) => listed.find((recipe) => recipe.slot === slot)!.id) as [string, string];
     const edit = async (recipeId: string, content: Record_) => expect((await api.call("PATCH", `/recipes/${recipeId}`, { content })).status).toBe(200);
     await edit(one, { hotWaterVolume: HOT_WATER.volume, hotWaterTemperature: HOT_WATER.targetTemperature, hotWaterDuration: HOT_WATER.duration, hotWaterFlow: HOT_WATER.flow });
-    await expect.poll(() => (inSlot(tablet, "1")?.[RECIPE_FIELD] as Record_ | undefined)?.hotWaterData, { timeout: 15_000 }).toEqual(HOT_WATER);
+    await expect.poll(() => (inSlot(tablet, "1")?.[RECIPE_FIELD] as Record_ | undefined)?.hotWaterData).toEqual(HOT_WATER);
     return { here, machine, tablet, one, two, edit };
   }
 
@@ -107,7 +107,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
 
     // DYE2's dashboard applying slot 1, as recorded: its profile, dose, yield, grinder and grind setting.
     for (const answer of await replayWrites(tablet, applies.applySlot1)) expect(answer.status).toBe(200);
-    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBe(one);
+    await expect.poll(() => named(tablet)).toBe(one);
     expect(context(tablet)).toMatchObject({ beanBatchId: batch, coffeeName: "Dashboard Fixture Ethiopia", coffeeRoaster: "Fixture Roasters" });
     expect(tablet.workflow().hotWaterData).toEqual(HOT_WATER);
     expect(extras(tablet)).toMatchObject({ basketId: (inSlot(tablet, "1")!.dashboardVariables as Record_).basketId });
@@ -121,7 +121,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     const streamline = await startStreamline(tablet, { "last-hot-water-volume": before.volume as number, "last-hot-water-temp": before.targetTemperature as number });
 
     expect((await applyInStreamline(tablet, "1")).status).toBe(200);
-    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBe(one);
+    await expect.poll(() => named(tablet)).toBe(one);
     expect(tablet.workflow().hotWaterData).toEqual(HOT_WATER);
     await loads(machine, one);
     await streamline.settled();
@@ -133,7 +133,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     // Once a Shot is stored, Streamline clears the batch, grinder, Basket and RPM: the Recipe stays loaded.
     const batch = context(tablet).beanBatchId;
     await streamline.shotStored();
-    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }, { timeout: 15_000 }).toMatchObject({
+    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }).toMatchObject({
       workflow: { workflow: { context: { extras: { rpm: null } } } },
     });
     expect(context(tablet).beanBatchId).toBeUndefined();
@@ -141,7 +141,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     expect((await loadedRecipe(machine))?.recipe.id).toBe(one);
     // Applied again, the Recipe's batch is written back, its Basket and RPM with it.
     expect((await applyInStreamline(tablet, "1")).status).toBe(200);
-    await expect.poll(() => context(tablet).beanBatchId, { timeout: 15_000 }).toBe(batch);
+    await expect.poll(() => context(tablet).beanBatchId).toBe(batch);
     expect(extras(tablet)).toMatchObject({ rpm: 900, basketId: (inSlot(tablet, "1")!.dashboardVariables as Record_).basketId });
     expect(named(tablet)).toBe(one);
   });
@@ -151,10 +151,10 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     // DYE2's dashboard reads its recipes once, as it opens.
     const copy = structuredClone(inSlot(tablet, "1")!);
     await edit(one, { dose: 19.5, grindSetting: 2.9 });
-    await expect.poll(() => (inSlot(tablet, "1")?.dashboardVariables as Record_ | undefined)?.dose, { timeout: 15_000 }).toBe(19.5);
+    await expect.poll(() => (inSlot(tablet, "1")?.dashboardVariables as Record_ | undefined)?.dose).toBe(19.5);
 
     expect((await applyInDye2(tablet, "1", copy)).status).toBe(200);
-    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBe(one);
+    await expect.poll(() => named(tablet)).toBe(one);
     expect(context(tablet)).toMatchObject({ targetDoseWeight: 19.5, grinderSetting: "2.9" });
     expect(tablet.workflow().hotWaterData).toEqual(HOT_WATER);
     await loads(machine, one);
@@ -168,20 +168,20 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     await loads(machine, one);
     // A tweak of the grind keeps it loaded.
     await tablet.changeSettings({ context: { grinderSetting: "2.8" } });
-    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }, { timeout: 15_000 }).toMatchObject({
+    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }).toMatchObject({
       workflow: { workflow: { context: { grinderSetting: "2.8" } } },
     });
     expect(named(tablet)).toBe(one);
     expect((await loadedRecipe(machine))?.recipe.id).toBe(one);
 
     await tablet.changeSettings({ profile: classic });
-    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
+    await expect.poll(() => named(tablet)).toBeNull();
     await loads(machine, null);
 
     expect((await applyInDye2(tablet, "1")).status).toBe(200);
     await loads(machine, one);
     await tablet.changeSettings({ context: { grinderId: "a-grinder-the-recipe-does-not-name", grinderModel: "Another grinder" } });
-    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
+    await expect.poll(() => named(tablet)).toBeNull();
     await loads(machine, null);
 
     const { entries, total } = await history(machine);
@@ -207,7 +207,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     // The next bag of the same Bean, picked with the dial as it is.
     const nextBag = await tablet.addBatch(beanOf("Ethiopia"), { roastDate: "2026-10-10", weight: 250 });
     await tablet.changeSettings({ context: { beanBatchId: nextBag.id } });
-    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }, { timeout: 15_000 }).toMatchObject({
+    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }).toMatchObject({
       workflow: { workflow: { context: { beanBatchId: nextBag.id } } },
     });
     expect(context(tablet).beanBatchId).toBe(nextBag.id);
@@ -217,7 +217,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
 
     // A batch of another Bean, with the dial as it is: unloaded, the batch kept.
     await tablet.changeSettings({ context: { beanBatchId: brazilBatch } });
-    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
+    await expect.poll(() => named(tablet)).toBeNull();
     expect(context(tablet).beanBatchId).toBe(brazilBatch);
     await loads(machine, null);
   });
@@ -244,7 +244,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     // Another grinder unloads it, with the next bag of its Bean picked; applied again, it is loaded, writing its own batch.
     const nextBag = await tablet.addBatch(beanNamed("Ethiopia"), { roastDate: "2026-10-10", weight: 250 });
     await tablet.changeSettings({ context: { beanBatchId: nextBag.id, grinderId: "a-grinder-the-recipe-does-not-name", grinderModel: "Another grinder" } });
-    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
+    await expect.poll(() => named(tablet)).toBeNull();
     await loads(machine, null);
 
     // Applied again, its load is being decided as a batch of another Bean is picked.
@@ -253,9 +253,9 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
       picked = tablet.changeSettings({ context: { beanBatchId: brazilBatch } });
     };
     expect((await applyInDye2(tablet, "1")).status).toBe(200);
-    await expect.poll(() => picked, { timeout: 15_000 }).toBeDefined();
+    await expect.poll(() => picked).toBeDefined();
     await picked;
-    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
+    await expect.poll(() => named(tablet)).toBeNull();
     expect(context(tablet)).toMatchObject({ beanBatchId: brazilBatch, grinderSetting: "2.7" });
     await loads(machine, null);
   });
@@ -270,7 +270,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     const nextBag = await tablet.addBatch(beanNamed("Ethiopia"), { roastDate: "2026-10-10", weight: 250 });
     // Unloaded by another grinder, with the next bag and other hot water: applied again, it is loaded, writing its batch and hot water.
     await tablet.changeSettings({ context: { beanBatchId: nextBag.id, grinderId: "a-grinder-the-recipe-does-not-name", grinderModel: "Another grinder" }, hotWaterData: { volume: 60 } });
-    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
+    await expect.poll(() => named(tablet)).toBeNull();
     await loads(machine, null);
     let picked: Promise<unknown> | undefined;
     // Decaid refuses the load's write with its hot water, as while no machine is connected, as a barista picks a batch of
@@ -283,9 +283,9 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
       return { status: 500, body: { error: "DeviceNotConnectedException" } };
     };
     expect((await applyInDye2(tablet, "1")).status).toBe(200);
-    await expect.poll(() => picked, { timeout: 15_000 }).toBeDefined();
+    await expect.poll(() => picked).toBeDefined();
     await picked;
-    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
+    await expect.poll(() => named(tablet)).toBeNull();
     expect(context(tablet).beanBatchId).toBe(brazilBatch);
     await loads(machine, null);
   });
@@ -309,13 +309,13 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
       restored = tablet.changeSettings({ context: { grinderId, targetDoseWeight: 19.25 } });
     };
     await tablet.changeSettings({ context: { grinderId: "another-grinder" } });
-    await expect.poll(() => restored, { timeout: 15_000 }).toBeDefined();
+    await expect.poll(() => restored).toBeDefined();
     await restored;
-    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as unknown, { timeout: 15_000 }).toMatchObject({
+    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as unknown).toMatchObject({
       workflow: { workflow: { context: { grinderId, targetDoseWeight: 19.25 } } },
     });
     // The grinder's change unloaded it; set back with another dose, the Workflow matches it no longer.
-    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
+    await expect.poll(() => named(tablet)).toBeNull();
     expect(context(tablet)).toMatchObject({ grinderId, targetDoseWeight: 19.25 });
     await loads(machine, null);
   });
@@ -330,13 +330,13 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     await tablet.changeSettings({ context: { grinderId: "a-grinder-the-recipe-does-not-name", grinderModel: "Another grinder" } });
     await tablet.waitForLog(/^Could not work out the Loaded Recipe, trying again in /);
     // Sent meanwhile as it is, still naming the Recipe.
-    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }, { timeout: 15_000 }).toMatchObject({
+    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }).toMatchObject({
       workflow: { workflow: { context: { grinderId: "a-grinder-the-recipe-does-not-name" } } },
     });
     expect(named(tablet)).toBe(one);
 
     tablet.failNextApiReads(`/store/${DYE2_NAMESPACE}/recipes`, 0);
-    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
+    await expect.poll(() => named(tablet)).toBeNull();
     await loads(machine, null);
   });
 
@@ -346,12 +346,12 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     await loads(machine, two);
     // The barista moves the grind to 3.1 in Streamline, which saves it into the recipe: every tablet is written it.
     expect(await autoSaveInStreamline(tablet, strip.autoSaveGrind)).toBeDefined();
-    await expect.poll(async () => ((await (await api.call("GET", `/recipes/${two}`)).json()) as { recipe: { content: Record_ } }).recipe.content.grindSetting, { timeout: 15_000 }).toBe(3.1);
-    await expect.poll(() => (((inSlot(tablet, "2")?.workflow as Record_ | undefined)?.context ?? {}) as Record_).grinderSetting, { timeout: 15_000 }).toBe("3.1");
+    await expect.poll(async () => ((await (await api.call("GET", `/recipes/${two}`)).json()) as { recipe: { content: Record_ } }).recipe.content.grindSetting).toBe(3.1);
+    await expect.poll(() => (((inSlot(tablet, "2")?.workflow as Record_ | undefined)?.context ?? {}) as Record_).grinderSetting).toBe("3.1");
 
     // Set back to 3, the recipe's dial before: the plugin writes nothing over it.
     await tablet.changeSettings({ context: { grinderSetting: "3" } });
-    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }, { timeout: 15_000 }).toMatchObject({
+    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }).toMatchObject({
       workflow: { workflow: { context: { grinderSetting: "3" } } },
     });
     await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -366,7 +366,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
 
     const appliedAt = Date.now();
     expect((await applyInDye2(tablet, "1")).status).toBe(200);
-    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBe(one);
+    await expect.poll(() => named(tablet)).toBe(one);
     expect(tablet.workflow().hotWaterData).toEqual(HOT_WATER);
     // Held well past the load before the tablet reconnects.
     await new Promise((resolve) => setTimeout(resolve, 1_500));

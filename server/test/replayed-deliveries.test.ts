@@ -127,7 +127,7 @@ describe("Deliveries sent again on one connection", () => {
     const elsewhere = await connect(machine, other.url);
     for (const delivery of Object.values(earliest)) await elsewhere.deliver(delivery);
     expect(await visible()).toEqual(before);
-  }, 30_000);
+  });
 
   it("answers a recent index sent again with the request it was answered with", async () => {
     const machine = await api.createMachine("Recent index");

@@ -253,7 +253,7 @@ describe("Telling skins of Recipes changed in the management interface", { timeo
   }
 
   const slots = (tablet: SimulatedTablet) => ((dye2List(tablet, "recipes") ?? []) as Record_[]).map((record) => `${String(record.id)}:${String(record.name)}`);
-  const poll = <T>(read: () => T) => expect.poll(read, { timeout: 15_000 });
+  const poll = <T>(read: () => T) => expect.poll(read);
 
   it("pushes on each tablet at the Location as a Recipe is created, edited, moved and taken out of its slot there, and not for a Basket", async () => {
     const location: LocationView = await api.createLocation("Skin lab", "America/Chicago");

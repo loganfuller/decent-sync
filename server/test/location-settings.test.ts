@@ -39,7 +39,7 @@ function workflowWith(parts: Parts = {}): Record_ {
   return workflow;
 }
 
-describe("Steam and rinse settings shared by a Location's Machines", { timeout: 60_000 }, () => {
+describe("Steam and rinse settings shared by a Location's Machines", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
@@ -49,7 +49,7 @@ describe("Steam and rinse settings shared by a Location's Machines", { timeout: 
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
     await other?.stop();
@@ -87,7 +87,7 @@ describe("Steam and rinse settings shared by a Location's Machines", { timeout: 
     ((await (await as.call("GET", `/locations/${location.id}/settings`)).json()) as { settings: SettingsView }).settings;
   /** Resolves with the Location's settings once they are set. */
   async function settingsOf(location: LocationView): Promise<SettingsView> {
-    await expect.poll(async () => (await settingsAt(location)).id, { timeout: 10_000 }).not.toBeNull();
+    await expect.poll(async () => (await settingsAt(location)).id).not.toBeNull();
     return settingsAt(location);
   }
   const versions = async (settings: SettingsView) =>
@@ -99,7 +99,7 @@ describe("Steam and rinse settings shared by a Location's Machines", { timeout: 
   }
   /** Resolves once the tablet's Workflow holds those settings. */
   async function holds(tablet: SimulatedTablet, values: Record<string, number>): Promise<void> {
-    await expect.poll(() => Object.fromEntries(Object.keys(values).map((field) => [field, setting(tablet, field)])), { timeout: 10_000 }).toEqual(values);
+    await expect.poll(() => Object.fromEntries(Object.keys(values).map((field) => [field, setting(tablet, field)]))).toEqual(values);
   }
   const workflowWrites = (tablet: SimulatedTablet) => tablet.writes.filter((write) => write === "PUT /workflow");
   /** Each value of a setting the Machine's Workflows the server stored held, the latest first. */
@@ -186,7 +186,7 @@ describe("Steam and rinse settings shared by a Location's Machines", { timeout: 
     await second.changeSettings({ rinseData: { duration: 8 } });
     await holds(first, { "rinseData.duration": 8 });
     // Each change is one version, from the tablet that made it: the plugin's own writes coming back are none.
-    await expect.poll(async () => (await versions(uptownSettings)).length, { timeout: 10_000 }).toBe(3);
+    await expect.poll(async () => (await versions(uptownSettings)).length).toBe(3);
     const [rinse, flow] = await versions(uptownSettings);
     expect(flow).toMatchObject({ fields: { "steamSettings.flow": 2.2 }, source: { machine: { id: machines.first.machine.id } } });
     expect(rinse).toMatchObject({ fields: { "rinseData.duration": 8 }, source: { machine: { id: machines.second.machine.id } } });
@@ -198,7 +198,7 @@ describe("Steam and rinse settings shared by a Location's Machines", { timeout: 
     const { uptown, machines, first, second, bengle, uptownSettings } = await cafes("Hot water", 19091);
     const writesBefore = workflowWrites(first).length;
     await second.changeSettings({ hotWaterData: { volume: 180, targetTemperature: 80, duration: 40, flow: 8 } });
-    await expect.poll(async () => (await storedSettings(machines.second, "hotWaterData", "volume"))[0], { timeout: 10_000 }).toBe(180);
+    await expect.poll(async () => (await storedSettings(machines.second, "hotWaterData", "volume"))[0]).toBe(180);
     // Anything the hot water change made due would be written ahead of the steam and rinse change after it.
     await second.changeSettings({ steamSettings: { flow: 2.1 }, rinseData: { duration: 9 } });
     await holds(first, { "steamSettings.flow": 2.1, "rinseData.duration": 9 });
@@ -279,7 +279,7 @@ describe("Steam and rinse settings shared by a Location's Machines", { timeout: 
     // Its own change stays on it, once the server has it, and the Location's changes do not reach it.
     const writesBefore = workflowWrites(bengle).length;
     await bengle.changeSettings({ rinseData: { duration: 11 } });
-    await expect.poll(async () => (await storedSettings(machines.bengle, "rinseData", "duration"))[0], { timeout: 10_000 }).toBe(11);
+    await expect.poll(async () => (await storedSettings(machines.bengle, "rinseData", "duration"))[0]).toBe(11);
     await first.changeSettings({ steamSettings: { flow: 2.6 } });
     await holds(second, { "steamSettings.flow": 2.6 });
     // A later change through the other instance has reached the others: anything due to the Bengle would have been written by now.
@@ -316,7 +316,7 @@ describe("Steam and rinse settings shared by a Location's Machines", { timeout: 
     expect((await switchBengle(true)).status).toBe(200);
     bengle.restoreNetwork();
     // Made while it kept its own, the change is not shared: the Bengle takes Uptown's.
-    await expect.poll(() => storedSettings(machines.bengle, "steamSettings", "flow"), { timeout: 10_000 }).toContain(0.8);
+    await expect.poll(() => storedSettings(machines.bengle, "steamSettings", "flow")).toContain(0.8);
     await holds(bengle, { "steamSettings.flow": 1.5 });
     expect((await settingsAt(uptown)).values["steamSettings.flow"]).toBe(1.5);
     expect(setting(first, "steamSettings.flow")).toBe(1.5);
@@ -336,7 +336,7 @@ describe("Steam and rinse settings shared by a Location's Machines", { timeout: 
     holding = false;
     bengle.resumeUpload();
     // Made while it kept its own, the change is not shared, and the Bengle is written Uptown's.
-    await expect.poll(() => storedSettings(machines.bengle, "steamSettings", "flow"), { timeout: 10_000 }).toContain(0.8);
+    await expect.poll(() => storedSettings(machines.bengle, "steamSettings", "flow")).toContain(0.8);
     await holds(bengle, { "steamSettings.flow": 1.5 });
     expect((await settingsAt(uptown)).values["steamSettings.flow"]).toBe(1.5);
   });
@@ -354,7 +354,7 @@ describe("Steam and rinse settings shared by a Location's Machines", { timeout: 
     await holds(second, { "rinseData.duration": 9 });
     const conflicts = async () =>
       ((await (await api.call("GET", `/location-settings/${uptownSettings.id}/conflicts`)).json()) as { conflicts: Record_[] }).conflicts;
-    await expect.poll(async () => (await conflicts()).length, { timeout: 10_000 }).toBe(1);
+    await expect.poll(async () => (await conflicts()).length).toBe(1);
     const [conflict] = (await conflicts()) as { id: string; current: { versionId: string } }[];
     expect(conflict).toMatchObject({
       item: { kind: "settings", id: uptownSettings.id, name: "Steam and rinse" },
@@ -373,7 +373,7 @@ describe("Steam and rinse settings shared by a Location's Machines", { timeout: 
     const { first, second } = await cafes("Disconnected", 19051);
     second.machineConnected = false;
     await first.changeSettings({ steamSettings: { flow: 1.9 } });
-    await expect.poll(() => second.sent.some((frame) => (frame as Record_).type === "writeRefused"), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => second.sent.some((frame) => (frame as Record_).type === "writeRefused")).toBe(true);
     expect(setting(second, "steamSettings.flow")).toBe(1.5);
     // A later change is not tried while the machine is away.
     await first.changeSettings({ rinseData: { duration: 6 } });

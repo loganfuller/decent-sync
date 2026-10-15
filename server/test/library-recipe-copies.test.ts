@@ -96,7 +96,7 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
   };
   /** The tablet's own id for its record of a Library item, by the global id the record carries. */
   const localId = (records: Record_[], id: string) => records.find((record) => globalIdOf(record) === id || record[GLOBAL_ID_KEY] === id)?.id;
-  const poll = <T>(read: () => T) => expect.poll(read, { timeout: 15_000 });
+  const poll = <T>(read: () => T) => expect.poll(read);
 
   it("copies a lab Recipe to a cafe's slot 1 with a cafe Grinder: the cafe's tablets hold it by their own ids, its batch added and its Profile, Basket and Tool shown there", async () => {
     const lab = await locationWith("Copied lab", 46001, [server]);
