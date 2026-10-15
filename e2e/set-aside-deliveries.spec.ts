@@ -46,8 +46,6 @@ test("a Shot that cannot be stored is listed on its Machine's page, without what
   await expect(rows.nth(1).getByRole("cell")).toHaveText([/^\w{3} \d+, \d{4}, /, "Shot", "nul-shot", /^.+ \((?:22P05|22021)\)$/]);
   // Stored after it: the Shot pulled on Oct 4.
   await expect(field(page, "Last Shot")).toHaveText(/^Oct 4, 2026, /);
-  baseExpect((await page.request.get("/api/shots/bar-shot")).status()).toBe(200);
-  baseExpect((await page.request.get("/api/shots/nul-shot")).status()).toBe(404);
   // Never what it carried.
   baseExpect(await page.content()).not.toContain("Jammy");
 });

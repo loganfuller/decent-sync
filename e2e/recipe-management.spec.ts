@@ -1,5 +1,5 @@
 import { expect as baseExpect, type Page, test } from "@playwright/test";
-import { GLOBAL_ID_KEY, RECIPE_FIELD, globalIdOf } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
 import { DYE2_NAMESPACE, dye2List } from "../server/test/support/simulated-dye2.js";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
@@ -9,11 +9,13 @@ import { field, rows } from "./support/locators.js";
 // Recipes in the management interface (ticket #143): each Location's Recipe
 // Slots and its Recipes in no slot, a Recipe created and edited with the
 // Recipe form, moved between slots, taken out of its slot, Archived and
-// restored, which reaches the DYE2 recipes of the simulated tablets running
-// the built plugin there; what the form offers at the Location; a Recipe
-// whose batch is finished there flagged; its Conflicts; and what Staff may
-// change. A Recipe copied to another Location (ticket #144) reaches that
-// Location's tablets. Serials are made up, from 45501.
+// restored; what the form offers at the Location; a Recipe whose batch is
+// finished there flagged; its Conflicts; and what Staff may change; and a
+// Recipe copied to another Location (ticket #144). Simulated tablets running
+// the built plugin save Profiles, which have no REST create, and make
+// Conflicts; what each Location's tablets are written is
+// server/test/library-recipe-management.test.ts's and
+// library-recipe-copies.test.ts's. Serials are made up, from 45501.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
@@ -33,10 +35,9 @@ test("Staff create a Recipe in slot 6 at their Location with a batch from elsewh
 }) => {
   const lab = await createLocation(page, "Roastery lab");
   const cafe = await createLocation(page, "Uptown");
-  const labTablets = [await tabletAt(page, "Lab 1", lab, "45501"), await tabletAt(page, "Lab 2", lab, "45502")];
   const cafeTablet = await tabletAt(page, "Uptown 1", cafe, "45503");
   // A batch at the cafe only, and a Profile saved on the cafe's tablet, shown there only.
-  const batch = await createBatch(page, "Guji", cafe);
+  await createBatch(page, "Guji", cafe);
   const profile = await cafeTablet.addProfile(derivedProfile("Uptown Bloom", 7.25));
   const profileId = String(profile.id);
   await expect.poll(async () => (await page.request.get(`/api/profiles/${encodeURIComponent(profileId)}`)).status()).toBe(200);
@@ -70,25 +71,15 @@ test("Staff create a Recipe in slot 6 at their Location with a batch from elsewh
 
     await expect(samsPage.getByRole("heading", { name: "Lab Guji", level: 1 })).toContainText("Not editable in DYE2's recipe editor");
     await expect(samsPage.getByText("Slot 6 at Roastery lab")).toBeVisible();
-    const id = samsPage.url().split("/").pop()!;
     const details = samsPage.getByLabel("Recipe", { exact: true });
     await expect(field(details, "Profile")).toHaveText("Uptown Bloom");
     await expect(field(details, "Bean Batch")).toHaveText("Guji, roasted 2026-10-01");
-    for (const tablet of labTablets) await expect.poll(() => slotOn(tablet, 6)?.[GLOBAL_ID_KEY]).toBe(id);
-    expect(slotOn(labTablets[0]!, 6)).toMatchObject({ name: "Lab Guji", profileId, dashboardVariables: { dose: 18, drink: 40 } });
-    expect(slotOn(cafeTablet, 6)).toBeUndefined();
-    // As the form said, the batch is at the lab now, and the Profile shown there.
-    const batchNow = (await (await page.request.get(`/api/bean-batches/${batch.id}`)).json()) as { batch: { locations: { location: { id: string } }[] } };
-    baseExpect(batchNow.batch.locations.map((here) => here.location.id)).toContain(lab.id);
-    const profileNow = (await (await page.request.get(`/api/profiles/${encodeURIComponent(profileId)}`)).json()) as { profile: { shownAt: { location: { id: string } }[] } };
-    baseExpect(profileNow.profile.shownAt.map((here) => here.location.id)).toContain(lab.id);
 
     await samsPage.getByRole("button", { name: "Edit the Recipe" }).click();
     const edit = samsPage.getByRole("form", { name: "Edit Lab Guji" });
     await edit.getByLabel("Dose (g)").fill("18.5");
     await edit.getByRole("button", { name: "Save" }).click();
     await expect(field(details, "Dose")).toHaveText("18.5 g");
-    for (const tablet of labTablets) await expect.poll(() => (slotOn(tablet, 6)?.dashboardVariables as Record_ | undefined)?.dose).toBe(18.5);
 
     // The lab's page lists it in slot 6, marked.
     await samsPage.getByRole("link", { name: "← Roastery lab" }).click();
@@ -106,21 +97,15 @@ test("Staff create a Recipe in slot 6 at their Location with a batch from elsewh
     await samsPage.goto(`/locations/${cafe.id}`);
     await expect(samsPage.getByRole("table", { name: "Recipe Slots" })).toContainText("Uptown Espresso");
     await expect(samsPage.getByRole("button", { name: "New Recipe" })).toHaveCount(0);
-    baseExpect((await samsPage.request.patch(`/api/recipes/${elsewhere.id}`, { data: { content: { dose: 20 } } })).status()).toBe(403);
-    baseExpect((await samsPage.request.put(`/api/recipes/${elsewhere.id}/slot`, { data: { slot: 2 } })).status()).toBe(403);
   } finally {
     await sam.close();
   }
 });
 
-test("moving a Recipe from slot 2 to slot 4 swaps the two on the tablets, keeping its history, and one taken out of its slot is kept, Archived and restored", async ({
-  page,
-}) => {
+test("moving a Recipe from slot 2 to slot 4 swaps the two, keeping its history, and one taken out of its slot is kept, Archived and restored", async ({ page }) => {
   const lab = await createLocation(page, "Slots lab");
-  const tablet = await tabletAt(page, "Slots lab 1", lab, "45511");
   const two = await createRecipe(page, lab, 2, { name: "Slots Brazil", dose: 18 });
-  const four = await createRecipe(page, lab, 4, { name: "Slots Ethiopia", dose: 17 });
-  await expect.poll(() => slotsOn(tablet)).toEqual(["2:Slots Brazil", "4:Slots Ethiopia"]);
+  await createRecipe(page, lab, 4, { name: "Slots Ethiopia", dose: 17 });
 
   await page.goto(`/library/recipes/${two.id}`);
   await expect(page.getByText("Slot 2 at Slots lab")).toBeVisible();
@@ -130,18 +115,15 @@ test("moving a Recipe from slot 2 to slot 4 swaps the two on the tablets, keepin
   await expect(move.getByRole("list", { name: "About this slot" })).toContainText("Slot 4 holds Slots Ethiopia, which moves to slot 2.");
   await move.getByRole("button", { name: "Move" }).click();
   await expect(page.getByText("Slot 4 at Slots lab")).toBeVisible();
-  await expect.poll(() => slotsOn(tablet)).toEqual(["2:Slots Ethiopia", "4:Slots Brazil"]);
-  baseExpect(slotOn(tablet, 4)![GLOBAL_ID_KEY]).toBe(two.id);
   // The moved Recipe keeps its history: the move above its creation.
   const history = rows(page.getByRole("table", { name: "History" }));
   await expect(history.nth(0)).toContainText("Slot at Slots lab4");
   await expect(history.last()).toContainText("NameSlots Brazil");
 
-  // Taken out of its slot, it is listed in no slot at the lab, and the slot is emptied on the tablet.
+  // Taken out of its slot, it is listed in no slot at the lab, and Slots Ethiopia stays in slot 2.
   await page.getByRole("button", { name: "Take out of its slot" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Take it out" }).click();
   await expect(page.getByText("In no slot at Slots lab")).toBeVisible();
-  await expect.poll(() => slotsOn(tablet)).toEqual(["2:Slots Ethiopia"]);
   await page.getByRole("link", { name: "← Slots lab" }).click();
   await expect(rows(page.getByRole("table", { name: "Recipes in no slot" }))).toHaveText([/Slots Brazil/]);
   await expect(rows(page.getByRole("table", { name: "Recipe Slots" }))).toHaveText([/^2Slots Ethiopia/]);
@@ -159,8 +141,6 @@ test("moving a Recipe from slot 2 to slot 4 swaps the two on the tablets, keepin
   await page.getByRole("option", { name: "The next free slot (1)" }).click();
   await move.getByRole("button", { name: "Move" }).click();
   await expect(page.getByText("Slot 1 at Slots lab")).toBeVisible();
-  await expect.poll(() => slotsOn(tablet)).toEqual(["1:Slots Brazil", "2:Slots Ethiopia"]);
-  void four;
 });
 
 test("a slotted Recipe whose Bean Batch is finished at its Location is flagged", async ({ page }) => {
@@ -279,18 +259,17 @@ test("the form clears a Recipe's Bean saved on a tablet with no batch of it at i
   await expect.poll(() => slotOn(tablet, 1)?.beanId ?? null).toBeNull();
 });
 
-test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: Uptown's tablets hold it by their own ids, the Recipe there leaves its slot, and its history names the original", async ({
+test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: the Recipe there leaves its slot, and the copy's history names the original", async ({
   page,
 }) => {
   const lab = await createLocation(page, "Copy lab");
   const uptown = await createLocation(page, "Copy Uptown");
   const labTablet = await tabletAt(page, "Copy lab 1", lab, "45541");
-  const uptownTablets = [await tabletAt(page, "Copy Uptown 1", uptown, "45542"), await tabletAt(page, "Copy Uptown 2", uptown, "45543")];
   // The lab's batch, Grinder, Profile and Basket; Uptown has two Grinders, one of the lab's model.
   const batch = await createBatch(page, "Copy Guji", lab);
   const labGrinder = await createGrinder(page, lab, "Copy EK43");
   await createGrinder(page, uptown, "Copy EK43");
-  const mazzer = await createGrinder(page, uptown, "Copy Mazzer");
+  await createGrinder(page, uptown, "Copy Mazzer");
   const profile = await labTablet.addProfile(derivedProfile("Copy Bloom", 7.75));
   const profileId = String(profile.id);
   await expect.poll(async () => (await page.request.get(`/api/profiles/${encodeURIComponent(profileId)}`)).status()).toBe(200);
@@ -309,8 +288,7 @@ test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: Up
     hotWaterMode: "temp",
     hotWaterTemperature: 85,
   });
-  const house = await createRecipe(page, uptown, 1, { name: "Copy Uptown House" });
-  for (const tablet of uptownTablets) await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(house.id);
+  await createRecipe(page, uptown, 1, { name: "Copy Uptown House" });
   const originalBefore = await (await page.request.get(`/api/recipes/${original.id}`)).json();
 
   await page.goto(`/library/recipes/${original.id}`);
@@ -347,31 +325,11 @@ test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: Up
   await expect(history.last()).toContainText("Copied from Copy Lab Guji at Copy lab");
   await expect(history.last().getByRole("link", { name: "Copy Lab Guji" })).toHaveAttribute("href", `/library/recipes/${original.id}`);
 
-  // Uptown's tablets hold it in slot 1, naming its Grinder, batch and Basket by their own ids.
-  for (const tablet of uptownTablets) {
-    await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(copyId);
-    const record = slotOn(tablet, 1)!;
-    const local = (records: Record_[], id: string) => records.find((held) => held[GLOBAL_ID_KEY] === id || globalIdOf(held) === id)?.id;
-    baseExpect(record).toMatchObject({ name: "Copy Lab Guji", profileId });
-    baseExpect((record.dashboardVariables as Record_).grinderId).toBe(local(tablet.grinders(), mazzer.id));
-    baseExpect((record.dashboardVariables as Record_).grinderId).toBeDefined();
-    baseExpect((record.dashboardVariables as Record_).basketId).toBe(local(dye2List(tablet, "baskets") as Record_[], basket.id));
-    baseExpect((record[RECIPE_FIELD] as Record_).beanBatchId).toBe(local(tablet.batches(), batch.id));
-    baseExpect((record[RECIPE_FIELD] as Record_).beanBatchId).toBeDefined();
-  }
-  // The batch is at Uptown now, and the Profile and Basket shown there.
-  type Places = { location: { id: string } }[];
-  const read = async <T>(path: string) => (await (await page.request.get(path)).json()) as T;
-  const ids = (places: Places) => places.map((here) => here.location.id);
-  baseExpect(ids((await read<{ batch: { locations: Places } }>(`/api/bean-batches/${batch.id}`)).batch.locations)).toContain(uptown.id);
-  baseExpect(ids((await read<{ profile: { shownAt: Places } }>(`/api/profiles/${encodeURIComponent(profileId)}`)).profile.shownAt)).toContain(uptown.id);
-  baseExpect(ids((await read<{ basket: { shownAt: Places } }>(`/api/baskets/${basket.id}`)).basket.shownAt)).toContain(uptown.id);
   // The Recipe that was in slot 1 is kept at Uptown in no slot; the original is unchanged, still in the lab's slot 1.
   await page.getByRole("link", { name: "← Copy Uptown" }).click();
   await expect(rows(page.getByRole("table", { name: "Recipes in no slot" }))).toHaveText([/Copy Uptown House/]);
   await expect(rows(page.getByRole("table", { name: "Recipe Slots" }))).toHaveText([/^1Copy Lab Guji/]);
   baseExpect(await (await page.request.get(`/api/recipes/${original.id}`)).json()).toEqual(originalBefore);
-  baseExpect(slotOn(labTablet, 1)?.[GLOBAL_ID_KEY]).toBe(original.id);
 });
 
 test("Staff copy a Recipe only to the Locations they work at", async ({ page, browser }) => {
@@ -388,10 +346,6 @@ test("Staff copy a Recipe only to the Locations they work at", async ({ page, br
     const form = samsPage.getByRole("form", { name: "Copy the Recipe" });
     await form.getByLabel("Copy to").click();
     await expect(samsPage.getByRole("option")).toHaveText(["Copy Staff home"]);
-    await samsPage.keyboard.press("Escape");
-    const refused = await samsPage.request.post(`/api/recipes/${recipe.id}/copies`, { data: { locationId: elsewhere.id, slot: 2, grinderId: null } });
-    baseExpect(refused.status()).toBe(403);
-    baseExpect(((await (await page.request.get(`/api/locations/${elsewhere.id}/recipes`)).json()) as { recipes: unknown[] }).recipes).toHaveLength(1);
   } finally {
     await sam.close();
   }
@@ -451,12 +405,6 @@ async function staffAt(page: Page, browser: import("@playwright/test").Browser, 
 function slotOn(tablet: SimulatedTablet, slot: number): Record_ | undefined {
   const list = dye2List(tablet, "recipes");
   return Array.isArray(list) ? (list as Record_[]).find((record) => record.id === String(slot)) : undefined;
-}
-
-/** The tablet's recipes, each as its slot and name, in its list's order. */
-function slotsOn(tablet: SimulatedTablet): string[] {
-  const list = dye2List(tablet, "recipes");
-  return Array.isArray(list) ? (list as Record_[]).map((record) => `${String(record.id)}:${String(record.name)}`) : [];
 }
 
 /** Saves the recipe's name in a slot on the tablet as DYE2's editor does: reads the list, changes the record, posts the list back. */

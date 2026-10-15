@@ -9,8 +9,9 @@ import { field, rows } from "./support/locators.js";
 // (ADR-0020). Two simulated tablets running the built plugin at a lab, and
 // one at a cafe, hold a Bean; the lab's two edit the same field while
 // offline, and the later edit wins everywhere, the earlier kept as a
-// Conflict. Using its value makes it current on every tablet that holds the
-// Bean; dismissing one changes nothing else.
+// Conflict. Using its value makes it current, and dismissing one changes
+// nothing else; what the tablets are written then is
+// server/test/library-conflicts.test.ts's.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
@@ -22,7 +23,7 @@ test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
 });
 
-test("a Conflict made through two tablets is listed and noted on its item, whose page shows its history, and using its value makes it current on every tablet", async ({
+test("a Conflict made through two tablets is listed and noted on its item, whose page shows its history, and using its value makes it current", async ({
   page,
 }) => {
   const { one, two, cafe, beanId } = await sharedBean(page, "Used", "16101");
@@ -57,7 +58,6 @@ test("a Conflict made through two tablets is listed and noted on its item, whose
   await expect(history).toHaveCount(4);
   await expect(history.nth(0)).toContainText("You, here");
   await expect(history.nth(0)).toContainText("NotesPeach and jasmine");
-  for (const tablet of [one, two, cafe]) await expect.poll(() => heldBean(tablet, beanId)?.notes).toBe("Peach and jasmine");
 
   await page.goto("/library/conflicts");
   await expect(page.getByText("No open Conflicts.")).toBeVisible();
@@ -77,9 +77,6 @@ test("dismissing a Conflict closes it and changes nothing else", async ({ page }
   await expect(field(page.getByLabel("Coffee", { exact: true }), "Country")).toHaveText("Kenya");
   await expect(page.getByRole("region", { name: "Open Conflicts" })).toBeHidden();
   await expect(rows(page.getByRole("table", { name: "History" }))).toHaveCount(3);
-  // Nothing is written: after many of the tablets' polls, each still holds the value now.
-  await page.waitForTimeout(1_000);
-  for (const tablet of [one, two, cafe]) baseExpect(heldBean(tablet, beanId)?.country).toBe("Kenya");
 });
 
 /** A lab with two tablets and a cafe with one, each holding the same Bean, entered at both. */

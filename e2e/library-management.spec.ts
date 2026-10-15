@@ -1,30 +1,20 @@
-import { expect as baseExpect, type Page, test } from "@playwright/test";
-import { globalIdOf } from "@decent-sync/protocol";
-import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { expect as baseExpect, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field } from "./support/locators.js";
 
 // Creating and editing the Library's Beans and Bean Batches in the
 // management interface, and adding and finishing batches at Locations
-// there (ticket #87). Simulated tablets running the built plugin, at several
-// Locations, are written what each Location offers.
-const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
+// there (ticket #87). What each Location's tablets are written of them is
+// server/test/library-management.test.ts's.
+useFreshServer();
 const expect = baseExpect.configure({ timeout: 15_000 });
-
-const tablets: SimulatedTablet[] = [];
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
-
-test("a batch created here at a Location is written, with its Bean, to that Location's tablets and no others", async ({ page }) => {
-  const uptown = await createLocation(page, "Uptown");
-  const downtown = await createLocation(page, "Downtown");
-  const uptownTablets = [await tabletAt(page, "Uptown 1", uptown, "16001"), await tabletAt(page, "Uptown 2", uptown, "16002")];
-  const downtownTablet = await tabletAt(page, "Downtown 1", downtown, "16003");
+test("a Bean and a batch of it at a Location are created here, and the Bean edited", async ({ page }) => {
+  await createLocation(page, "Uptown");
+  await createLocation(page, "Downtown");
 
   await page.goto("/library/beans");
   await page.getByRole("button", { name: "New Bean" }).click();
@@ -34,6 +24,8 @@ test("a batch created here at a Location is written, with its Bean, to that Loca
   await newBean.getByLabel("Country", { exact: true }).fill("Panama");
   await newBean.getByRole("button", { name: "Create" }).click();
   await expect(page.getByRole("heading", { name: "Uptown Gesha", level: 1 })).toBeVisible();
+  await expect(field(page.getByLabel("Coffee", { exact: true }), "Roaster")).toHaveText("Roux Bakehouse");
+  await expect(field(page.getByLabel("Coffee", { exact: true }), "Country")).toHaveText("Panama");
   await expect(field(page.getByLabel("In the Library", { exact: true }), "Offered at")).toHaveText("Nowhere");
 
   await page.getByRole("button", { name: "New batch" }).click();
@@ -44,36 +36,30 @@ test("a batch created here at a Location is written, with its Bean, to that Loca
   await newBatch.getByLabel("Remaining weight at Uptown (g)").fill("850");
   await newBatch.getByRole("button", { name: "Create" }).click();
   await expect(page.getByRole("heading", { name: "Uptown Gesha, roasted 2026-10-03", level: 1 })).toBeVisible();
-  const batchId = page.url().split("/").pop()!;
-
-  for (const tablet of uptownTablets) {
-    await expect.poll(() => tablet.beans().find((record) => record.name === "Uptown Gesha")).toMatchObject({ roaster: "Roux Bakehouse", country: "Panama" });
-    await expect.poll(() => tablet.batches().find((record) => globalIdOf(record) === batchId)).toMatchObject({ weight: 1000, weightRemaining: 850, archived: false });
-  }
-  expect(downtownTablet.beans()).toEqual([]);
-  expect(downtownTablet.batches()).toEqual([]);
   const where = page.getByRole("table", { name: "Locations" });
   await expect(where.getByRole("row", { name: /^Uptown 850 g/ })).toBeVisible();
   await expect(where.getByLabel("Remaining weight at Uptown (g)")).toHaveValue("850");
+  await expect(where.getByRole("row", { name: /^Downtown/ })).toHaveCount(0);
 
-  // Its Bean, edited here, is written to every tablet that holds it.
+  // Its Bean, edited here.
   await page.getByRole("link", { name: "Uptown Gesha" }).click();
   await page.getByRole("button", { name: "Edit the coffee" }).click();
   const coffee = page.getByRole("form", { name: "Edit the coffee" });
   await coffee.getByLabel("Notes", { exact: true }).fill("Jasmine, bergamot");
   await coffee.getByRole("button", { name: "Save" }).click();
   await expect(field(page.getByLabel("Coffee", { exact: true }), "Notes")).toHaveText("Jasmine, bergamot");
-  for (const tablet of uptownTablets) await expect.poll(() => tablet.beans().find((record) => record.name === "Uptown Gesha")?.notes).toBe("Jasmine, bergamot");
 });
 
-test("adding a lab batch at a cafe writes it, and its Bean, to the cafe's tablets, and finishing it there archives it on them", async ({ page }) => {
+test("a lab batch is added at a cafe, given a remaining weight there and finished there, staying at the lab", async ({ page }) => {
   const lab = await createLocation(page, "Roastery lab");
-  const belmont = await createLocation(page, "Belmont");
-  const labTablet = await tabletAt(page, "Lab group", lab, "16011");
-  const belmontTablets = [await tabletAt(page, "Belmont 1", belmont, "16012"), await tabletAt(page, "Belmont 2", belmont, "16013")];
-  const bean = await labTablet.addBean({ roaster: "Roux Bakehouse", name: "Lab Sidra" });
-  await labTablet.addBatch(bean.id, { roastDate: "2026-10-04", weight: 250 });
-  await expect.poll(async () => (await batchesOf(page, "Lab Sidra")).length).toBe(1);
+  await createLocation(page, "Belmont");
+  const createdBean = await page.request.post("/api/beans", { data: { content: { roaster: "Roux Bakehouse", name: "Lab Sidra" } } });
+  baseExpect(createdBean.status()).toBe(201);
+  const { bean } = (await createdBean.json()) as { bean: { id: string } };
+  const createdBatch = await page.request.post("/api/bean-batches", {
+    data: { beanId: bean.id, content: { roastDate: "2026-10-04", weight: 250 }, locations: [{ locationId: lab.id }] },
+  });
+  baseExpect(createdBatch.status()).toBe(201);
 
   await page.goto("/library/bean-batches");
   await page.getByRole("link", { name: "Lab Sidra, roasted 2026-10-04" }).click();
@@ -83,22 +69,16 @@ test("adding a lab batch at a cafe writes it, and its Bean, to the cafe's tablet
   await adding.getByRole("button", { name: "Add" }).click();
   const where = page.getByRole("table", { name: "Locations" });
   await expect(where.getByRole("row", { name: /^Belmont no weight entered/ })).toBeVisible();
-  const batchId = page.url().split("/").pop()!;
-  for (const tablet of belmontTablets) {
-    await expect.poll(() => tablet.beans().find((record) => record.name === "Lab Sidra")).toMatchObject({ archived: false });
-    await expect.poll(() => tablet.batches().find((record) => globalIdOf(record) === batchId)).toMatchObject({ archived: false });
-  }
 
   await where.getByLabel("Remaining weight at Belmont (g)").fill("200");
   await where.getByRole("button", { name: "Set the remaining weight at Belmont" }).click();
-  for (const tablet of belmontTablets) await expect.poll(() => tablet.batches().find((record) => globalIdOf(record) === batchId)?.weightRemaining).toBe(200);
+  await expect(where.getByRole("row", { name: /^Belmont 200 g/ })).toBeVisible();
 
   await where.getByRole("button", { name: "Finish it at Belmont" }).click();
   await expect(field(page.getByLabel("Finished", { exact: true }), "Belmont")).toContainText("with 200 g");
   await expect(where.getByRole("row", { name: /^Belmont/ })).toHaveCount(0);
-  for (const tablet of belmontTablets) await expect.poll(() => tablet.batches().find((record) => globalIdOf(record) === batchId)?.archived).toBe(true);
   // The lab still has it.
-  expect(labTablet.batches().find((record) => globalIdOf(record) === batchId)).toMatchObject({ archived: false });
+  await expect(where.getByRole("row", { name: /^Roastery lab/ })).toBeVisible();
 });
 
 test("creating a Bean whose roaster and name the Library has is refused, with a link to that Bean", async ({ page }) => {
@@ -114,8 +94,6 @@ test("creating a Bean whose roaster and name the Library has is refused, with a 
   await expect(newBean.getByRole("alert")).toContainText("The Library has this Bean already");
   await newBean.getByRole("link", { name: "Washed Heirloom" }).click();
   await expect(page.getByRole("heading", { name: "Washed Heirloom", level: 1 })).toBeVisible();
-  const { beans } = (await (await page.request.get("/api/beans")).json()) as { beans: { name: string }[] };
-  expect(beans.filter((bean) => bean.name.toLowerCase().includes("heirloom"))).toHaveLength(1);
 });
 
 test("a Bean's form saves an edit of one field while another holds a value the form cannot read", async ({ page }) => {
@@ -133,24 +111,3 @@ test("a Bean's form saves an edit of one field while another holds a value the f
   const { bean } = (await (await page.request.get(`/api/beans/${id}`)).json()) as { bean: { content: Record<string, unknown> } };
   baseExpect(bean.content).toMatchObject({ notes: "Salted caramel", altitude: [-5] });
 });
-
-/** A Machine at the Location, its tablet connected, polling every 5 s of its time, which runs 50 times faster here. */
-async function tabletAt(page: Page, name: string, location: { id: string }, serial: string): Promise<SimulatedTablet> {
-  const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
-  baseExpect(response.status()).toBe(201);
-  const { token } = (await response.json()) as { token: string };
-  const tablet = SimulatedTablet.load({
-    settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
-    api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] },
-    timeScale: 50,
-  });
-  tablets.push(tablet);
-  await tablet.waitForLog(/^Connected to /);
-  return tablet;
-}
-
-/** The Library's batches of the Bean of that name, through the REST API. */
-async function batchesOf(page: Page, bean: string): Promise<{ id: string }[]> {
-  const { batches } = (await (await page.request.get("/api/bean-batches")).json()) as { batches: { id: string; bean: { name: string } }[] };
-  return batches.filter((batch) => batch.bean.name === bean);
-}
