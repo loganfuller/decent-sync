@@ -176,6 +176,8 @@ describe("Streamline's remembered steam and rinse values", { timeout: 60_000 }, 
     const streamline = await streamlineOn(tablet);
     expect((await change(settings, { "steamSettings.flow": 2, "steamSettings.targetTemperature": 150 })).status).toBe(200);
     await holds(tablet, { "steamSettings.flow": 2, "steamSettings.targetTemperature": 150 });
+    // Once Decaid has taken the Workflow, the plugin sets the steam temperature Streamline remembers.
+    await expect.poll(() => tablet.storeWrites).toEqual([{ namespace: STREAMLINE_NAMESPACE, key: "last-steam-temp", value: 150 }]);
     // No shot-settings frame carries the flow, so Streamline still remembers its own.
     expect(streamline.remembered("last-steam-flow")).toBe(2.5);
     // As when the machine connects again: Streamline compares every value it remembers with the Workflow, and adopts the flow.
@@ -198,9 +200,10 @@ describe("Streamline's remembered steam and rinse values", { timeout: 60_000 }, 
     const [mine, theirs] = [await streamlineOn(first), await streamlineOn(second)];
     expect((await change(settings, { "steamSettings.targetTemperature": 150 })).status).toBe(200);
     for (const tablet of tablets) await holds(tablet, { "steamSettings.targetTemperature": 150 });
+    // Once Decaid has taken the Workflow, the plugin sets the steam temperature Streamline remembers.
     for (const [tablet, skin] of [[first, mine], [second, theirs]] as const) {
+      await expect.poll(() => tablet.storeWrites).toEqual([{ namespace: STREAMLINE_NAMESPACE, key: "last-steam-temp", value: 150 }]);
       expect(skin.remembered("last-steam-temp")).toBe(150);
-      expect(tablet.storeWrites).toEqual([{ namespace: STREAMLINE_NAMESPACE, key: "last-steam-temp", value: 150 }]);
     }
     // Streamline's steam time setter sends the steam temperature it remembers along with it (`steamHeaterFor`).
     await mine.set("last-steam-duration", 100);
