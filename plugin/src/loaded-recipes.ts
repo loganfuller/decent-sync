@@ -209,7 +209,7 @@ export class LoadedRecipes {
     const held = await this.held(records);
     const named = loadedRecipeOf(workflow);
     const chosen = before && sameDial(before.dial, dial) ? null : chooseLoad(dial, named, held);
-    if (chosen) await this.load(chosen, dial);
+    if (chosen) await this.load(chosen, { dial, batch });
     else if (named !== null && before) await this.unloadIfChanged(before, { dial, batch }, held, named);
     this.decided = { dial, batch };
   }
@@ -296,14 +296,15 @@ export class LoadedRecipes {
 
   /**
    * Records a load: writes the recipe's current values and global id into
-   * the Workflow (`loadWrite`), read again first, unless it changed since it
-   * was decided on, which is then decided on in turn. Decaid refuses to
+   * the Workflow (`loadWrite`), read again first, unless its dial or Bean
+   * Batch changed since it was decided on, as when a barista picked another
+   * batch meanwhile, which is then decided on in turn. Decaid refuses to
    * change the hot water settings while no machine is connected, so the rest
    * is then written without them.
    */
-  private async load(recipe: HeldRecipe, decided: Dial): Promise<void> {
+  private async load(recipe: HeldRecipe, decided: Decided): Promise<void> {
     const workflow = await this.workflowNow();
-    if (!sameDial(workflowDial(workflow), decided)) return;
+    if (!sameSetUp(decided, workflow)) return;
     const write = loadWrite(workflow, recipe.record, recipe.globalId, await this.loadContext(recipe.record));
     if (write === null) return;
     let answer = await request("PUT", "/workflow", write);

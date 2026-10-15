@@ -263,7 +263,8 @@ from the Workflow deliveries.
   (`MAX_EARLIER_DIALS`). Of several matches, the Recipe the Workflow names as
   loaded already wins, then the lowest slot.
 - **Recording a load.** The plugin reads the Workflow again, and unless its
-  dial changed since, writes into it in one `PUT /workflow`, which Decaid
+  dial or Bean Batch changed since, as when a barista picked another batch
+  meanwhile, which is then decided on in turn, writes into it in one `PUT /workflow`, which Decaid
   merges into it, what it holds otherwise of the recipe's current dose,
   yield, grind setting, grinder, RPM, Basket and Profile (the full Profile,
   only where its `profileKey` differs), as DYE2 applies them, its Bean Batch

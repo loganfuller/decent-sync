@@ -95,13 +95,14 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
    * written back with its Recipe's id, and slot 1's Recipe given all four
    * hot water settings (`HOT_WATER`) in the management interface.
    */
-  async function lab(scenario: string, serial: number, instance: TestServer = server) {
+  async function lab(scenario: string, serial: number, instance: TestServer = server, apiDelayMs?: (method: string, path: string) => number) {
     const here: LocationView = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machine = await api.createMachine(`${scenario} lab 1`, here.id);
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
       api: recordedDecaid(String(serial), scenario),
       timeScale: 50,
+      apiDelayMs,
     });
     tablets.push(tablet);
     await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
@@ -222,6 +223,31 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     await tablet.changeSettings({ context: { beanBatchId: brazilBatch } });
     await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
     expect(context(tablet).beanBatchId).toBe(brazilBatch);
+    await loads(machine, null);
+  });
+
+  it("keeps a batch of another Bean picked while a load of the Recipe is being decided, and unloads it", async () => {
+    let slow = false;
+    // While set, each read of DYE2's recipes takes 25 s of the tablet's time, half a second here.
+    const delay = (method: string, path: string) => (slow && method === "GET" && path === `/store/${DYE2_NAMESPACE}/recipes` ? 25_000 : 0);
+    const { machine, tablet, one } = await lab("Overlapped", 47071, server, delay);
+    const library = dye2Library();
+    const brazil = (library["/beans"] as Record_[]).find((bean) => String(bean.name).endsWith("Brazil"))!.id;
+    const brazilBatch = (library["/bean-batches"] as Record_[]).find((batch) => batch.beanId === brazil)!.id;
+    expect((await applyInDye2(tablet, "1")).status).toBe(200);
+    await loads(machine, one);
+    await tablet.changeSettings({ context: { grinderSetting: "2.8" } });
+    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }, { timeout: 15_000 }).toMatchObject({
+      workflow: { workflow: { context: { grinderSetting: "2.8" } } },
+    });
+
+    // Applied again, its load is being decided as a batch of another Bean is picked.
+    slow = true;
+    expect((await applyInDye2(tablet, "1")).status).toBe(200);
+    await tablet.changeSettings({ context: { beanBatchId: brazilBatch } });
+    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
+    slow = false;
+    expect(context(tablet)).toMatchObject({ beanBatchId: brazilBatch, grinderSetting: "2.7" });
     await loads(machine, null);
   });
 
