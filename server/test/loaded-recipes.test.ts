@@ -1,20 +1,21 @@
 import { LOADED_RECIPE_KEY, RECIPE_FIELD, dye2GlobalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
+import { LoadedTablets } from "./support/loaded-tablets.js";
 import {
   DYE2_NAMESPACE,
   applyInDye2,
   applyInStreamline,
   autoSaveInStreamline,
-  dye2Keys,
   dye2Library,
   dye2List,
   dye2Recording,
+  recordedDye2Tablet,
   replayWrites,
   saveInDye2,
 } from "./support/simulated-dye2.js";
 import { startStreamline } from "./support/simulated-streamline.js";
-import { type DecaidApi, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
+import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #145: each Machine's Loaded Recipe (ADR-0022). Applying
@@ -47,7 +48,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
+  const tablets = new LoadedTablets();
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -55,24 +56,10 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await tablets.unloadAll();
     await other?.stop();
     await server?.stop();
   });
-
-  /** The recording's tablet, its Workflow included, with DYE2's baskets and tools but no recipes; its beans named as the test's own. */
-  function recordedDecaid(serial: string, scenario: string): DecaidApi {
-    const library = dye2Library();
-    const keys = dye2Keys();
-    const decaidApi: DecaidApi = { ...derivedDe1Pro({ serial }), ...library };
-    delete decaidApi[`/store/${DYE2_NAMESPACE}/recipes`];
-    return {
-      ...decaidApi,
-      "/beans": (library["/beans"] as Record_[]).map((bean) => ({ ...bean, name: `${scenario} ${String(bean.name)}` })),
-      [`/store/${DYE2_NAMESPACE}/baskets`]: keys.baskets,
-      [`/store/${DYE2_NAMESPACE}/equipment`]: keys.equipment,
-    };
-  }
 
   const recipes = dye2Recording("recipes");
   const applies = dye2Recording("dye2-applies");
@@ -100,13 +87,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
   async function lab(scenario: string, serial: number, instance: TestServer = server, apiDelayMs?: (method: string, path: string) => number) {
     const here: LocationView = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machine = await api.createMachine(`${scenario} lab 1`, here.id);
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
-      api: recordedDecaid(String(serial), scenario),
-      timeScale: 50,
-      apiDelayMs,
-    });
-    tablets.push(tablet);
+    const tablet = tablets.syncing(machine, instance, { api: recordedDye2Tablet(String(serial), scenario), apiDelayMs });
     await api.waitForOnline(machine);
     await saveInDye2(tablet, recipes.saveSlot1);
     await saveInDye2(tablet, recipes.saveSlot2);

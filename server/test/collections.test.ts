@@ -2,17 +2,17 @@ import { randomUUID } from "node:crypto";
 import { COLLECTION_NAMES } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
+import { LoadedTablets } from "./support/loaded-tablets.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
 import {
   type DecaidApi,
   RawConnection,
-  SimulatedTablet,
+  type SimulatedTablet,
   type SimulatedTabletOptions,
   de1ProOnDecaid087,
   derivedDe1Pro,
   helloWith,
   manyProfiles,
-  settingsFor,
   simulatedDevices,
   simulatedDevicesSwitchedOff,
   simulatedLibrary,
@@ -48,7 +48,7 @@ describe("Library, settings and paired devices", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
+  const tablets = new LoadedTablets();
   const raws: RawConnection[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
@@ -58,8 +58,7 @@ describe("Library, settings and paired devices", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterEach(async () => {
-    const used = tablets.splice(0);
-    await Promise.all(used.map((tablet) => tablet.unload()));
+    const used = await tablets.unloadAll();
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
     // The plugin only reads Decaid's API, DYE2's storage included, for a Machine at no Location, as all of these are.
     for (const tablet of used) expect(tablet.writes).toEqual([]);
@@ -71,14 +70,7 @@ describe("Library, settings and paired devices", () => {
 
   /** A simulated tablet with the Machine's token, polling every 5 s (0.1 s here), its machine reporting hardware of its own unless given an API. */
   function load(machine: CreatedMachine, options: Omit<SimulatedTabletOptions, "settings"> = {}) {
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor(machine), PollSeconds: 5 },
-      api: derivedDe1Pro({ serial: machine.machine.id.replaceAll("-", "").slice(0, 12) }),
-      timeScale: 50,
-      ...options,
-    });
-    tablets.push(tablet);
-    return tablet;
+    return tablets.syncing(machine, server, { api: derivedDe1Pro({ serial: machine.machine.id.replaceAll("-", "").slice(0, 12) }), ...options });
   }
   const summaries = async (machine: CreatedMachine, at = api) =>
     (await at.get<{ collections: Summary[] }>(`/machines/${machine.machine.id}/collections`)).collections;

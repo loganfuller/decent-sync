@@ -2,7 +2,8 @@ import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { type Dye2Key, dye2List } from "./support/simulated-dye2.js";
-import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
+import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
+import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 and the REST API for ticket #139: Baskets and Tools created,
@@ -35,7 +36,7 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
+  const tablets = new LoadedTablets();
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -43,20 +44,14 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await tablets.unloadAll();
     await other?.stop();
     await server?.stop();
   });
 
   /** The built plugin on a tablet of the Machine, polling every 5 s (0.1 s here), its Library and DYE2's lists empty. */
   function load(machine: CreatedMachine, serial: string, instance: TestServer): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS },
-      timeScale: 50,
-    });
-    tablets.push(tablet);
-    return tablet;
+    return tablets.syncing(machine, instance, { api: emptyLibrary(serial) });
   }
 
   /** A Location with a Machine whose tablet is online through the instance. */

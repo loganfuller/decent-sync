@@ -3,7 +3,8 @@ import { ANOTHER_ITEMS_RECORD, GLOBAL_ID_KEY, RECORD_CHANGED, type ServerMessage
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { DYE2_NAMESPACE, dye2List } from "./support/simulated-dye2.js";
-import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
+import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
+import { type SimulatedTablet, settingsFor } from "./support/simulated-tablet.js";
 import { StandInServer } from "./support/stand-in-server.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -22,19 +23,13 @@ const RECIPES = `/store/${DYE2_NAMESPACE}/recipes`;
 const BASKETS = `/store/${DYE2_NAMESPACE}/baskets`;
 const PUSH = { what: "workflow" };
 
-const tablets: SimulatedTablet[] = [];
-afterAll(() => Promise.all(tablets.map((tablet) => tablet.unload())));
-
-/** A DE1Pro's Decaid with an empty library, and DYE2's lists empty. */
-function emptyDecaid(serial: number) {
-  return { ...derivedDe1Pro({ serial: String(serial) }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS };
-}
+const tablets = new LoadedTablets();
+afterAll(() => tablets.unloadAll());
 
 describe("The plugin's skin endpoint", () => {
   it("answers a GET of skin with no surfaces and its changed endpoint to listen on, and nothing else", async () => {
     // Without settings the plugin does not connect, and still answers: a skin asks every loaded plugin.
-    const tablet = SimulatedTablet.load({ settings: {} });
-    tablets.push(tablet);
+    const tablet = tablets.load({ settings: {} });
 
     const answer = await tablet.callEndpoint("skin");
     expect(answer.status).toBe(200);
@@ -55,8 +50,7 @@ describe("Telling skins of each write to DYE2's recipes", () => {
 
   beforeAll(async () => {
     server = await StandInServer.start();
-    tablet = SimulatedTablet.load({ settings: settingsFor({ token: "stand-in token 46001", serverUrl: server.url }), api: emptyDecaid(46001) });
-    tablets.push(tablet);
+    tablet = tablets.load({ settings: settingsFor({ token: "stand-in token 46001", serverUrl: server.url }), api: emptyLibrary(46001) });
     await server.welcomed();
   });
   afterAll(() => server?.stop());
@@ -255,13 +249,7 @@ describe("Telling skins of Recipes changed in the management interface", { timeo
   });
 
   function load(machine: CreatedMachine, serial: number, instance: TestServer): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
-      api: emptyDecaid(serial),
-      timeScale: 50,
-    });
-    tablets.push(tablet);
-    return tablet;
+    return tablets.syncing(machine, instance, { api: emptyLibrary(serial) });
   }
 
   const slots = (tablet: SimulatedTablet) => ((dye2List(tablet, "recipes") ?? []) as Record_[]).map((record) => `${String(record.id)}:${String(record.name)}`);
@@ -274,7 +262,7 @@ describe("Telling skins of Recipes changed in the management interface", { timeo
     const cafeMachine = await api.createMachine("Skin cafe 1", elsewhere.id);
     const here = [load(lab[0]!, 46002, server), load(lab[1]!, 46003, other)];
     const cafe = load(cafeMachine, 46004, server);
-    for (const { machine } of [...lab, cafeMachine]) await api.waitForMachine(machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(...lab, cafeMachine);
     const pushes = () => here.map((tablet) => tablet.pushes("changed").length);
 
     /** Waits until each tablet at the Location holds `expected`, and has pushed at least `count` times since `before`. */

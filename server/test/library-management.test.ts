@@ -2,7 +2,8 @@ import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { shotFixture, withShots } from "./support/shot-fixtures.js";
-import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
+import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
+import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 and the REST API for ticket #87: Beans, Bean Batches and Grinders
@@ -44,7 +45,7 @@ describe("Editing the Library in the management interface", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
+  const tablets = new LoadedTablets();
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -52,21 +53,14 @@ describe("Editing the Library in the management interface", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await tablets.unloadAll();
     await other?.stop();
     await server?.stop();
   });
 
   /** The built plugin on a tablet of the Machine, polling every 5 s (0.1 s here), its Decaid's Library empty. */
   function load(machine: CreatedMachine, serial: string, instance: TestServer = server, apiDelayMs?: (method: string, path: string) => number): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS },
-      timeScale: 50,
-      ...(apiDelayMs ? { apiDelayMs } : {}),
-    });
-    tablets.push(tablet);
-    return tablet;
+    return tablets.syncing(machine, instance, { api: emptyLibrary(serial), apiDelayMs });
   }
 
   /** A Location with a Machine, each tablet on one of the two instances in turn, every one online. */
@@ -388,13 +382,10 @@ describe("Editing the Library in the management interface", () => {
     const machine = await api.createMachine("Backfill cafe 1", location.id);
     // Forty Shots the server lacks, each slow to read, so the tablet has more still to send than a delete reads for a while.
     const shots = Array.from({ length: 40 }, (_, index) => shotNaming(`shot-backfilled-${index}`, "21101", {}));
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: server.url }), PollSeconds: 5 },
-      api: withShots({ ...derivedDe1Pro({ serial: "21101" }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS }, shots),
-      timeScale: 50,
+    const tablet = tablets.syncing(machine, server, {
+      api: withShots(emptyLibrary("21101"), shots),
       apiDelayMs: (method, path) => (method === "GET" && path.startsWith("/shots/") ? 400 : 0),
     });
-    tablets.push(tablet);
     await api.waitForOnline(machine);
     const bean = await createBean({ roaster: "Roux", name: "Backfill Bean" });
     const first = await createBatch(bean.id, [{ locationId: location.id }]);

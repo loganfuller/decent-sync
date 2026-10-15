@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type MachineView } from "./support/admin-api.js";
+import { LoadedTablets } from "./support/loaded-tablets.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
 import {
   PluginStorage,
   RawConnection,
-  SimulatedTablet,
-  type SimulatedTabletOptions,
+  type SimulatedTablet,
   derivedDe1Pro,
   helloWith,
   settingsFor,
@@ -31,14 +31,8 @@ describe("Tablets", { timeout: 20_000 }, () => {
   /** The Admin on the first instance, and on the second. */
   let api: AdminApi;
   let otherApi: AdminApi;
-  const tablets: SimulatedTablet[] = [];
+  const tablets = new LoadedTablets();
   const connections: RawConnection[] = [];
-
-  const loadTablet = (options: SimulatedTabletOptions) => {
-    const tablet = SimulatedTablet.load(options);
-    tablets.push(tablet);
-    return tablet;
-  };
 
   /** The tablet ids in the hellos the plugin sent, in order. */
   const helloTabletIds = (tablet: SimulatedTablet) =>
@@ -67,7 +61,7 @@ describe("Tablets", { timeout: 20_000 }, () => {
     await Promise.all(connections.splice(0).map((raw) => raw.terminate()));
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await tablets.unloadAll();
     await other?.stop();
     await server?.stop();
   });
@@ -87,7 +81,7 @@ describe("Tablets", { timeout: 20_000 }, () => {
     it("is made on the first load, kept in plugin storage and sent in the hello", async () => {
       lab = await api.createMachine("Lab");
       expect(storage.read("tabletId")).toBeNull();
-      const tablet = loadTablet({ settings: settingsFor(lab), storage, api: labApi() });
+      const tablet = tablets.load({ settings: settingsFor(lab), storage, api: labApi() });
       const online = await api.waitForMachine("Lab", (machine) => machine.online);
 
       first = storage.read("tabletId") as string;
@@ -102,7 +96,7 @@ describe("Tablets", { timeout: 20_000 }, () => {
     });
 
     it("is kept when the plugin loads again, and in a Decaid backup", async () => {
-      const tablet = loadTablet({ settings: settingsFor(lab), storage, api: labApi() });
+      const tablet = tablets.load({ settings: settingsFor(lab), storage, api: labApi() });
       await tablet.waitForLog(/^Connected to /);
       expect(helloTabletIds(tablet)).toEqual([first]);
       expect(tablet.logs.join("\n")).not.toContain("was given");
@@ -117,7 +111,7 @@ describe("Tablets", { timeout: 20_000 }, () => {
     });
 
     it("is kept when the plugin's settings change, which reloads it with them", async () => {
-      const tablet = loadTablet({ settings: { ...settingsFor(lab), PollSeconds: 10 }, storage, api: labApi() });
+      const tablet = tablets.load({ settings: { ...settingsFor(lab), PollSeconds: 10 }, storage, api: labApi() });
       await tablet.waitForLog(/^Connected to /);
       expect(helloTabletIds(tablet)).toEqual([first]);
       expect(tablet.logs.join("\n")).not.toContain("was given");
@@ -129,7 +123,7 @@ describe("Tablets", { timeout: 20_000 }, () => {
     it("is new once the tablet's Decaid data is reset, and the Machine lists a new tablet", async () => {
       backup = storage.save();
       storage.clear();
-      const tablet = loadTablet({ settings: settingsFor(lab), storage, api: labApi() });
+      const tablet = tablets.load({ settings: settingsFor(lab), storage, api: labApi() });
       await tablet.waitForLog(/^Connected to /);
 
       reset = storage.read("tabletId") as string;
@@ -145,7 +139,7 @@ describe("Tablets", { timeout: 20_000 }, () => {
 
     it("comes back when a Decaid backup holding it is restored", async () => {
       storage.restore(backup);
-      const tablet = loadTablet({ settings: settingsFor(lab), storage, api: labApi() });
+      const tablet = tablets.load({ settings: settingsFor(lab), storage, api: labApi() });
       await tablet.waitForLog(/^Connected to /);
 
       expect(helloTabletIds(tablet)).toEqual([first]);
@@ -159,7 +153,7 @@ describe("Tablets", { timeout: 20_000 }, () => {
     it("is read again, not made anew, when a read of plugin storage fails", async () => {
       storage.failNextReads(1, "tabletId");
       // 50 times faster: Decaid's unanswered read is given up on after 200 ms, and retried 20 ms later.
-      const tablet = loadTablet({ settings: settingsFor(lab), storage, api: labApi(), timeScale: 50 });
+      const tablet = tablets.load({ settings: settingsFor(lab), storage, api: labApi(), timeScale: 50 });
       await tablet.waitForLog(/^Connected to /);
 
       expect(tablet.logs.filter((log) => log.startsWith("Disconnected"))).toEqual([
@@ -174,7 +168,7 @@ describe("Tablets", { timeout: 20_000 }, () => {
 
     it("is replaced, and kept, when plugin storage holds something else under its key", async () => {
       storage.write("tabletId", "not a tablet id");
-      const tablet = loadTablet({ settings: settingsFor(lab), storage, api: labApi() });
+      const tablet = tablets.load({ settings: settingsFor(lab), storage, api: labApi() });
       await tablet.waitForLog(/^Connected to /);
 
       const replaced = storage.read("tabletId") as string;
@@ -193,7 +187,7 @@ describe("Tablets", { timeout: 20_000 }, () => {
     const created = await api.createMachine("Backed up");
     const storage = new PluginStorage();
     // 50 times faster: the plugin asks again 600 ms after each read that fails.
-    const tablet = loadTablet({ settings: settingsFor(created), storage, api: derivedDe1Pro({ serial: "13601" }), timeScale: 50 });
+    const tablet = tablets.load({ settings: settingsFor(created), storage, api: derivedDe1Pro({ serial: "13601" }), timeScale: 50 });
     tablet.failNextApiReads("/store/decent-sync.reaplugin", 2);
     await tablet.waitForLog(/^Connected to /);
 

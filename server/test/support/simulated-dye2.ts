@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import type { DecaidAnswer } from "./decaid-beans.js";
-import type { DecaidApi, SimulatedTablet } from "./simulated-tablet.js";
+import { type DecaidApi, type SimulatedTablet, derivedDe1Pro } from "./simulated-tablet.js";
 
 // DYE2 v0.1.19 and Streamline v0.2.13 on a simulated tablet, as far as they
 // write DYE2's recipes, baskets and tools and the Workflow: each helper
@@ -101,6 +101,35 @@ export function dye2Library(): DecaidApi {
     "/grinders": library.grinders,
     "/profiles": library.profiles,
     "/workflow": library.workflow,
+  };
+}
+
+/**
+ * Derived from derivedDe1Pro(): the tablet with this serial, its Decaid
+ * holding no beans, bean batches, grinders or profiles, and DYE2's keys never
+ * written, as on a tablet where DYE2 was never used.
+ */
+export function dye2NeverUsed(serial: string): DecaidApi {
+  const api: DecaidApi = { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] };
+  for (const key of ["recipes", "baskets", "equipment"] as const) delete api[`/store/${DYE2_NAMESPACE}/${key}`];
+  return api;
+}
+
+/**
+ * The recording's tablet, with this serial: its library and Workflow
+ * (dye2Library()), and DYE2's baskets and tools as the recording left them,
+ * but no recipes. Its beans' names start with `scenario`, as Beans are matched
+ * by roaster and name across a test file's tests.
+ */
+export function recordedDye2Tablet(serial: string, scenario: string): DecaidApi {
+  const library = dye2Library();
+  const keys = dye2Keys();
+  return {
+    ...dye2NeverUsed(serial),
+    ...library,
+    "/beans": (library["/beans"] as Record_[]).map((bean) => ({ ...bean, name: `${scenario} ${String(bean.name)}` })),
+    [`/store/${DYE2_NAMESPACE}/baskets`]: keys.baskets,
+    [`/store/${DYE2_NAMESPACE}/equipment`]: keys.equipment,
   };
 }
 

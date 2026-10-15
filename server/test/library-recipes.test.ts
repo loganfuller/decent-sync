@@ -1,20 +1,22 @@
 import { GLOBAL_ID_KEY, RECIPE_FIELD } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
+import { LoadedTablets } from "./support/loaded-tablets.js";
 import {
   DYE2_NAMESPACE,
   type Dye2Key,
   applyInDye2,
   applyInStreamline,
   autoSaveInStreamline,
-  dye2Keys,
   dye2Library,
   dye2List,
+  dye2NeverUsed,
   dye2Recording,
+  recordedDye2Tablet,
   replayWrites,
   saveInDye2,
 } from "./support/simulated-dye2.js";
-import { type DecaidApi, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
+import type { DecaidApi, SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #140: Recipes in their Recipe Slots, which DYE2 keeps in
@@ -65,7 +67,7 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
+  const tablets = new LoadedTablets();
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -73,62 +75,24 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await tablets.unloadAll();
     await other?.stop();
     await server?.stop();
   });
 
-  /** A DE1Pro's Decaid with an empty library, and DYE2's keys never written, as on a tablet where DYE2 was never used. */
-  function emptyDecaid(serial: string): DecaidApi {
-    const decaidApi: DecaidApi = { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] };
-    for (const key of ["recipes", "baskets", "equipment"] as const) delete decaidApi[`/store/${DYE2_NAMESPACE}/${key}`];
-    return decaidApi;
-  }
-
-  /**
-   * The recording's tablet: its beans, their batches, its grinder and the
-   * bundled profiles its recipes use, and DYE2's baskets and tools as the
-   * recording left them, but no recipes. The beans are named as the test's
-   * own, as Beans are matched by roaster and name across the file's tests.
-   */
-  function recordedDecaid(serial: string, scenario: string): DecaidApi {
-    const library = dye2Library();
-    const keys = dye2Keys();
-    const decaidApi: DecaidApi = {
-      ...emptyDecaid(serial),
-      ...library,
-      "/beans": (library["/beans"] as Record_[]).map((bean) => ({ ...bean, name: `${scenario} ${String(bean.name)}` })),
-      [`/store/${DYE2_NAMESPACE}/baskets`]: keys.baskets,
-      [`/store/${DYE2_NAMESPACE}/equipment`]: keys.equipment,
-    };
-    return decaidApi;
-  }
-
   /** The built plugin on a tablet of the Machine, connected to an instance, polling every 5 s (0.1 s here) unless `pollSeconds` says otherwise. */
   function load(machine: CreatedMachine, decaidApi: DecaidApi, instance: TestServer = server, pollSeconds = 5): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: pollSeconds },
-      api: decaidApi,
-      timeScale: 50,
-    });
-    tablets.push(tablet);
-    return tablet;
+    return tablets.syncing(machine, instance, { api: decaidApi, pollSeconds });
   }
 
-  /** A Location with two Machines, the first's tablet the recording's, on one instance, the second's empty, on the other, and a cafe with an empty tablet. */
+  /** A Location with two Machines, the first's tablet the recording's, on one instance, the second's empty, on the other. */
   async function lab(scenario: string, serials: number) {
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
-    const cafe = await api.createLocation(`${scenario} cafe`, "America/Chicago");
-    const machines = [
-      await api.createMachine(`${scenario} lab 1`, here.id),
-      await api.createMachine(`${scenario} lab 2`, here.id),
-      await api.createMachine(`${scenario} cafe 1`, cafe.id),
-    ] as const;
-    const one = load(machines[0], recordedDecaid(String(serials), scenario));
-    const two = load(machines[1], emptyDecaid(String(serials + 1)), other);
-    const cafeTablet = load(machines[2], emptyDecaid(String(serials + 2)));
+    const machines = [await api.createMachine(`${scenario} lab 1`, here.id), await api.createMachine(`${scenario} lab 2`, here.id)] as const;
+    const one = load(machines[0], recordedDye2Tablet(String(serials), scenario));
+    const two = load(machines[1], dye2NeverUsed(String(serials + 1)), other);
     await api.waitForOnline(...machines);
-    return { here, cafe, machines, one, two, cafeTablet };
+    return { here, machines, one, two };
   }
 
   const recipesAt = async (location: LocationView) =>
@@ -178,7 +142,11 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
   const streamline = dye2Recording("streamline");
 
   it("writes a recipe saved in DYE2 in slot 2 to slot 2 on the Location's other tablets, under their own ids, and to no other Location's", async () => {
-    const { here, cafe, one, two, cafeTablet } = await lab("Saved", 42001);
+    const { here, one, two } = await lab("Saved", 42001);
+    const cafe = await api.createLocation("Saved cafe", "America/Chicago");
+    const cafeMachine = await api.createMachine("Saved cafe 1", cafe.id);
+    const cafeTablet = load(cafeMachine, dye2NeverUsed("42003"));
+    await api.waitForOnline(cafeMachine);
 
     await saveInDye2(one, recipes.saveSlot2);
     await expect.poll(async () => (await recipesAt(here)).map(({ name, slot }) => [name, slot]), { timeout: 15_000 }).toEqual([["Fixture Brazil Espresso", 2]]);
@@ -389,8 +357,8 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     // test, as it connects: what its recipes hold reaches the server in its answers to writes.
     const posted = recipes.saveSlot1.find(({ request }) => request.method === "POST")!.request.body as Record_[];
     const slot1 = posted.find((record) => record.id === "1")!;
-    const one = load(machines[0], { ...recordedDecaid("42101", "Shared"), [`/store/${DYE2_NAMESPACE}/recipes`]: [slot1] }, server, 3600);
-    const two = load(machines[1], emptyDecaid("42102"), other);
+    const one = load(machines[0], { ...recordedDye2Tablet("42101", "Shared"), [`/store/${DYE2_NAMESPACE}/recipes`]: [slot1] }, server, 3600);
+    const two = load(machines[1], dye2NeverUsed("42102"), other);
     await api.waitForOnline(...machines);
     await expect.poll(() => inSlot(two, "1")?.[GLOBAL_ID_KEY], { timeout: 15_000 }).toEqual(expect.any(String));
     await expect.poll(() => inSlot(one, "1")?.[GLOBAL_ID_KEY], { timeout: 15_000 }).toEqual(expect.any(String));
@@ -528,9 +496,9 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
   it("writes nothing to a tablet's recipes whose ids are not slot numbers, and shows them in its sharing status", async () => {
     const here = await api.createLocation("Unrecognised lab", "America/Chicago");
     const machines = [await api.createMachine("Unrecognised lab 1", here.id), await api.createMachine("Unrecognised lab 2", here.id)] as const;
-    const one = load(machines[0], recordedDecaid("42071", "Unrecognised"));
+    const one = load(machines[0], recordedDye2Tablet("42071", "Unrecognised"));
     const odd = [{ id: "favourite-1", name: "Not a slot" }];
-    const two = load(machines[1], { ...emptyDecaid("42072"), [`/store/${DYE2_NAMESPACE}/recipes`]: odd }, other);
+    const two = load(machines[1], { ...dye2NeverUsed("42072"), [`/store/${DYE2_NAMESPACE}/recipes`]: odd }, other);
     await api.waitForOnline(...machines);
     const status = async () =>
       (await api.get<{ status: { unrecognisedLists: { list: string }[] } }>(`/machines/${machines[1].machine.id}/sharing-status`)).status;

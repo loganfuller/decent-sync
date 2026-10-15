@@ -4,7 +4,8 @@ import { CLOSE_CODES, MISSED_HEARTBEATS, PROTOCOL_VERSION } from "@decent-sync/p
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { AdminApi, type MachineView } from "./support/admin-api.js";
-import { RawConnection, SimulatedTablet, type SimulatedTabletOptions, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { LoadedTablets } from "./support/loaded-tablets.js";
+import { RawConnection, type SimulatedTablet, type SimulatedTabletOptions, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { runAsSteps } from "./support/steps.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -18,7 +19,7 @@ const HEARTBEAT_SECONDS = 0.5;
 describe("Machines and the sync connection", () => {
   let server: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
+  const tablets = new LoadedTablets();
 
   const call = (...args: Parameters<AdminApi["call"]>) => api.call(...args);
   const machineNamed = (name: string) => api.machineNamed(name);
@@ -26,11 +27,7 @@ describe("Machines and the sync connection", () => {
   const createMachine = (name: string) => api.createMachine(name);
   const disconnects = (tablet: SimulatedTablet) => tablet.logs.filter((log) => log.startsWith("Disconnected"));
 
-  const loadTablet = (settings: Record<string, unknown>, options: Omit<SimulatedTabletOptions, "settings"> = {}) => {
-    const tablet = SimulatedTablet.load({ settings, ...options });
-    tablets.push(tablet);
-    return tablet;
-  };
+  const loadTablet = (settings: Record<string, unknown>, options: Omit<SimulatedTabletOptions, "settings"> = {}) => tablets.load({ settings, ...options });
 
   beforeAll(async () => {
     server = await startTestServer({
@@ -39,7 +36,7 @@ describe("Machines and the sync connection", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await tablets.unloadAll();
     await server?.stop();
   });
 

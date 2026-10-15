@@ -3,7 +3,8 @@ import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
-import { NO_DYE2_LISTS, PluginStorage, RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { LoadedTablets } from "./support/loaded-tablets.js";
+import { NO_DYE2_LISTS, type PluginStorage, RawConnection, SimulatedTablet, derivedDe1Pro, helloWith } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #80: a Bean created on one tablet joins the Library and is
@@ -35,7 +36,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
+  const tablets = new LoadedTablets();
   const raws: RawConnection[] = [];
 
   beforeAll(async () => {
@@ -44,7 +45,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await tablets.unloadAll();
     await Promise.all(raws.map((raw) => raw.terminate()));
     await other?.stop();
     await server?.stop();
@@ -60,15 +61,12 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     serial: string,
     options: { instance?: TestServer; storage?: PluginStorage; beans?: Record_[]; pollSeconds?: number } = {},
   ): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
+    const { instance = server, beans = [], ...rest } = options;
+    return tablets.syncing(machine, instance, {
       // No profiles or grinders, so only Beans are written to it: library-profiles.test.ts and library-grinders.test.ts write those.
-      api: { ...derivedDe1Pro({ serial }), "/beans": options.beans ?? [], "/profiles": [], "/grinders": [], ...NO_DYE2_LISTS },
-      storage: options.storage,
-      timeScale: 50,
+      api: { ...derivedDe1Pro({ serial }), "/beans": beans, "/profiles": [], "/grinders": [], ...NO_DYE2_LISTS },
+      ...rest,
     });
-    tablets.push(tablet);
-    return tablet;
   }
 
   const libraryBeans = async () => (await api.get<{ beans: BeanSummary[] }>("/beans")).beans;

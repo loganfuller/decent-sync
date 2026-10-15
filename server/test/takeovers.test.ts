@@ -2,12 +2,12 @@ import { randomUUID } from "node:crypto";
 import { CLOSE_CODES } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type MachineView, type TakeoverView } from "./support/admin-api.js";
+import { LoadedTablets } from "./support/loaded-tablets.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
 import {
   PluginStorage,
   RawConnection,
-  SimulatedTablet,
-  type SimulatedTabletOptions,
+  type SimulatedTablet,
   derivedDe1Pro,
   helloWith,
   readBuiltPlugin,
@@ -47,14 +47,8 @@ describe("Takeovers", { timeout: 30_000 }, () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
+  const tablets = new LoadedTablets();
   const connections: RawConnection[] = [];
-
-  const loadTablet = (options: SimulatedTabletOptions) => {
-    const tablet = SimulatedTablet.load(options);
-    tablets.push(tablet);
-    return tablet;
-  };
 
   /** A raw connection to an instance, opened but sent nothing yet. */
   const opened = async (instance = server) => {
@@ -109,7 +103,7 @@ describe("Takeovers", { timeout: 30_000 }, () => {
     await Promise.all(connections.splice(0).map((raw) => raw.terminate()));
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await tablets.unloadAll();
     await other?.stop();
     await server?.stop();
   });
@@ -128,11 +122,11 @@ describe("Takeovers", { timeout: 30_000 }, () => {
     it("the second to connect takes the Machine over, which the Machine shows with both tablets' connections", async () => {
       lab = await api.createMachine("Lab");
       const options = { settings: settingsFor(lab), timeScale: TIME_SCALE };
-      first = loadTablet({ ...options, storage: firstStorage, api: derivedDe1Pro({ serial: "16001", connectionId: "00:00:5E:00:53:B1" }) });
+      first = tablets.load({ ...options, storage: firstStorage, api: derivedDe1Pro({ serial: "16001", connectionId: "00:00:5E:00:53:B1" }) });
       await first.waitForLog(/^Connected to /);
       firstId = String(firstStorage.read("tabletId"));
       // The second, an old tablet still holding the token, is switched on away from the machine and reaches the other instance.
-      second = loadTablet({
+      second = tablets.load({
         ...options,
         settings: settingsFor({ ...lab, serverUrl: other.url }),
         storage: secondStorage,
@@ -185,14 +179,14 @@ describe("Takeovers", { timeout: 30_000 }, () => {
 
   it("yields to the tablet that took over though its connection fails between the server's error and its close", async () => {
     const created = await api.createMachine("Cut off");
-    const first = loadTablet({ settings: settingsFor(created), timeScale: TIME_SCALE, api: derivedDe1Pro({ serial: "16301" }) });
+    const first = tablets.load({ settings: settingsFor(created), timeScale: TIME_SCALE, api: derivedDe1Pro({ serial: "16301" }) });
     await first.waitForLog(/^Connected to /);
     // Its network fails as the server tells it another tablet took over, before the close that follows arrives.
     first.cutConnectionAfter((frame) => {
       const { type, code } = frame as { type?: unknown; code?: unknown };
       return type === "error" && code === "replaced";
     });
-    const second = loadTablet({ settings: settingsFor(created), machineConnected: false });
+    const second = tablets.load({ settings: settingsFor(created), machineConnected: false });
     await second.waitForLog(/^Connected to /);
 
     await first.waitForLog(/^Another tablet connected with this Machine's token and took over\./);
@@ -207,7 +201,7 @@ describe("Takeovers", { timeout: 30_000 }, () => {
   it("yields to the tablet that took over though a send fails as its connection ends, before the server's error is handled", async () => {
     const created = await api.createMachine("Cut off sending");
     // Polling once an hour, its outbox is idle once what it sent on connecting is acknowledged.
-    const first = loadTablet({ settings: { ...settingsFor(created), PollSeconds: 3600 }, timeScale: TIME_SCALE, api: derivedDe1Pro({ serial: "16311" }) });
+    const first = tablets.load({ settings: { ...settingsFor(created), PollSeconds: 3600 }, timeScale: TIME_SCALE, api: derivedDe1Pro({ serial: "16311" }) });
     await first.waitForLog(/^Connected to /);
     await expect.poll(() => unacknowledged(first)).toEqual([]);
     // Its network fails as the server tells it another tablet took over, and before it handles that, the machine's
@@ -218,7 +212,7 @@ describe("Takeovers", { timeout: 30_000 }, () => {
       if (matches) queueMicrotask(() => first.reportState("espresso", "preinfusion"));
       return matches;
     });
-    const second = loadTablet({ settings: settingsFor(created), machineConnected: false });
+    const second = tablets.load({ settings: settingsFor(created), machineConnected: false });
     await second.waitForLog(/^Connected to /);
 
     await first.waitForLog(/^Another tablet connected with this Machine's token and took over\./);
@@ -272,7 +266,7 @@ describe("Takeovers", { timeout: 30_000 }, () => {
   it("records no takeover when a tablet whose network dropped reconnects while the server still holds its old connection", async () => {
     const created = await api.createMachine("Dropped");
     const storage = new PluginStorage();
-    const tablet = loadTablet({ settings: settingsFor(created), storage, api: derivedDe1Pro({ serial: "16101" }) });
+    const tablet = tablets.load({ settings: settingsFor(created), storage, api: derivedDe1Pro({ serial: "16101" }) });
     await tablet.waitForLog(/^Connected to /);
 
     tablet.dropConnectionsUnnoticed();
@@ -303,7 +297,7 @@ describe("Takeovers", { timeout: 30_000 }, () => {
       // The plugin gives up waiting for its welcome and connects again, through the other instance, its machine off
       // meanwhile: a hello without hardware takes no such lock, and is accepted.
       await abandoned.close();
-      tablet = loadTablet({ settings: settingsFor({ ...created, serverUrl: other.url }), storage, machineConnected: false });
+      tablet = tablets.load({ settings: settingsFor({ ...created, serverUrl: other.url }), storage, machineConnected: false });
       await tablet.waitForLog(/^Connected to /);
       await database.query("COMMIT");
     } finally {

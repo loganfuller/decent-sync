@@ -1,7 +1,9 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
+import { LoadedTablets, emptyLibrary, localTime } from "./support/loaded-tablets.js";
+import { type SimulatedTablet, derivedProfile } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 and the REST API for ticket #85: an open Conflict (ADR-0020) shows
@@ -50,7 +52,7 @@ describe("Resolving Conflicts", () => {
   let other: TestServer;
   let api: AdminApi;
   let adminId: string;
-  const tablets: SimulatedTablet[] = [];
+  const tablets = new LoadedTablets();
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -59,20 +61,14 @@ describe("Resolving Conflicts", () => {
     adminId = (await api.get<{ account: { id: string } }>("/session")).account.id;
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await tablets.unloadAll();
     await other?.stop();
     await server?.stop();
   });
 
   /** The built plugin on a tablet of the Machine, polling every 5 s (0.1 s here), its Decaid's Library empty. */
   function load(machine: CreatedMachine, serial: string, instance: TestServer = server): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS },
-      timeScale: 50,
-    });
-    tablets.push(tablet);
-    return tablet;
+    return tablets.syncing(machine, instance, { api: emptyLibrary(serial) });
   }
 
   /** The id of the Library's one Bean of that name, once there is one. */
@@ -107,7 +103,7 @@ describe("Resolving Conflicts", () => {
     const one = load(labMachine, String(serials + 1));
     const two = load(secondMachine, String(serials + 2), other);
     const cafe = load(cafeMachine, String(serials + 3));
-    for (const { machine } of [labMachine, secondMachine, cafeMachine]) await api.waitForMachine(machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(labMachine, secondMachine, cafeMachine);
     await one.addBean({ roaster: "Roux", name: `${name} Guji`, notes: "Peach" });
     const id = await libraryBean(`${name} Guji`);
     await holds(two, id, { notes: "Peach" });
@@ -227,7 +223,7 @@ describe("Resolving Conflicts", () => {
     const second = await api.createMachine("Weight lab 2", lab.id);
     const one = load(first, "20031");
     const two = load(second, "20032", other);
-    for (const { machine } of [first, second]) await api.waitForMachine(machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(first, second);
     const bean = await one.addBean({ roaster: "Roux", name: "Weight Guji" });
     const added = await one.addBatch(bean.id, { roastDate: "2026-10-01", weight: 250 });
     const heldBatch = (tablet: SimulatedTablet) => tablet.batches().find((record) => record.roastDate === added.roastDate);
@@ -295,7 +291,7 @@ describe("Resolving Conflicts", () => {
     const second = await api.createMachine("Grinder lab 2", lab.id);
     const one = load(first, "20041");
     const two = load(second, "20042", other);
-    for (const { machine } of [first, second]) await api.waitForMachine(machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(first, second);
     await one.addGrinder({ model: "Conflict EK43", burrs: "98mm" });
     const heldGrinder = (tablet: SimulatedTablet) => tablet.grinders().find((record) => record.model === "Conflict EK43");
     await expect.poll(() => globalIdOf(heldGrinder(two) ?? {})).toBeTruthy();
@@ -332,7 +328,7 @@ describe("Resolving Conflicts", () => {
     const second = await api.createMachine(`${name} lab 2`, location.id);
     const one = load(first, String(serials + 1));
     const two = load(second, String(serials + 2), other);
-    for (const { machine } of [first, second]) await api.waitForMachine(machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(first, second);
     return { location, one, two };
   }
 
@@ -441,12 +437,3 @@ describe("Resolving Conflicts", () => {
     return (await api.get<{ batch: { locations: { remainingWeight: number | null }[] } }>(`/bean-batches/${batchId}`)).batch.locations[0]?.remainingWeight;
   }
 });
-
-/** A time Decaid wrote in the tablet's local time without an offset, to the millisecond the plugin reads, as a UTC instant: the simulated tablet's zone is the process's. */
-function localTime(written: unknown): number {
-  return new Date(String(written).slice(0, 23)).getTime();
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}

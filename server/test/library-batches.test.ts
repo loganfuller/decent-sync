@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { NO_DYE2_LISTS, PluginStorage, RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { LoadedTablets } from "./support/loaded-tablets.js";
+import { NO_DYE2_LISTS, PluginStorage, RawConnection, type SimulatedTablet, derivedDe1Pro, helloWith } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #81: Bean Batches at Locations. A batch entered on a
@@ -50,7 +51,7 @@ describe("Bean Batches at Locations", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
+  const tablets = new LoadedTablets();
   const raws: RawConnection[] = [];
 
   beforeAll(async () => {
@@ -59,7 +60,7 @@ describe("Bean Batches at Locations", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await tablets.unloadAll();
     await Promise.all(raws.map((raw) => raw.terminate()));
     await other?.stop();
     await server?.stop();
@@ -85,18 +86,8 @@ describe("Bean Batches at Locations", () => {
       stallUpload?: (frame: unknown) => boolean;
     } = {},
   ): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      decaidClockOffsetMs: options.decaidClockOffsetMs,
-      stallUpload: options.stallUpload,
-      settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": options.beans ?? [], "/bean-batches": options.batches ?? [], "/grinders": [], ...NO_DYE2_LISTS },
-      storage: options.storage,
-      apiDelayMs: options.apiDelayMs,
-      answerOnArrival: options.answerOnArrival,
-      timeScale: 50,
-    });
-    tablets.push(tablet);
-    return tablet;
+    const { instance = server, beans = [], batches = [], ...rest } = options;
+    return tablets.syncing(machine, instance, { api: { ...derivedDe1Pro({ serial }), "/beans": beans, "/bean-batches": batches, "/grinders": [], ...NO_DYE2_LISTS }, ...rest });
   }
 
   const libraryBatches = async () => (await api.get<{ batches: BeanBatchSummary[] }>("/bean-batches")).batches;

@@ -1,7 +1,8 @@
 import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { NO_DYE2_LISTS, PluginStorage, SimulatedTablet, derivedDe1Pro, settingsFor, simulatedLibrary } from "./support/simulated-tablet.js";
+import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
+import { PluginStorage, type SimulatedTablet, derivedDe1Pro, simulatedLibrary } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #83: Grinders belong to a Location. A Grinder created on
@@ -35,7 +36,7 @@ describe("Grinders belonging to a Location", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
+  const tablets = new LoadedTablets();
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -43,7 +44,7 @@ describe("Grinders belonging to a Location", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await tablets.unloadAll();
     await other?.stop();
     await server?.stop();
   });
@@ -59,15 +60,8 @@ describe("Grinders belonging to a Location", () => {
     serial: string,
     options: { instance?: TestServer; storage?: PluginStorage; grinders?: Record_[]; apiDelayMs?: (method: string, path: string) => number } = {},
   ): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/profiles": [], "/grinders": options.grinders ?? [], ...NO_DYE2_LISTS },
-      storage: options.storage,
-      apiDelayMs: options.apiDelayMs,
-      timeScale: 50,
-    });
-    tablets.push(tablet);
-    return tablet;
+    const { instance = server, grinders = [], ...rest } = options;
+    return tablets.syncing(machine, instance, { api: { ...emptyLibrary(serial), "/grinders": grinders }, ...rest });
   }
 
   const libraryGrinders = async () => (await api.get<{ grinders: GrinderSummary[] }>("/grinders")).grinders;

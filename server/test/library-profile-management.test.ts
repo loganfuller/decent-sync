@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { shotFixture } from "./support/shot-fixtures.js";
-import { NO_DYE2_LISTS, SimulatedTablet, de1ProOnDecaid087, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
+import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
+import { type SimulatedTablet, de1ProOnDecaid087, derivedProfile } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 and the REST API for ticket #88: Profiles shown and hidden at
@@ -36,7 +37,7 @@ describe("Profiles in the management interface", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
+  const tablets = new LoadedTablets();
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -44,7 +45,7 @@ describe("Profiles in the management interface", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await tablets.unloadAll();
     await other?.stop();
     await server?.stop();
   });
@@ -60,15 +61,7 @@ describe("Profiles in the management interface", () => {
     options: { bundled?: boolean; apiDelayMs?: (method: string, path: string) => number; stallUpload?: (frame: unknown) => boolean } = {},
   ): SimulatedTablet {
     const profiles = options.bundled ? (de1ProOnDecaid087()["/profiles"] as Record_[]).filter((record) => record.isDefault === true) : [];
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": profiles, ...NO_DYE2_LISTS },
-      timeScale: 50,
-      ...(options.apiDelayMs ? { apiDelayMs: options.apiDelayMs } : {}),
-      ...(options.stallUpload ? { stallUpload: options.stallUpload } : {}),
-    });
-    tablets.push(tablet);
-    return tablet;
+    return tablets.syncing(machine, instance, { api: { ...emptyLibrary(serial), "/profiles": profiles }, apiDelayMs: options.apiDelayMs, stallUpload: options.stallUpload });
   }
 
   /** A Location with a Machine for each serial, each tablet on one of the two instances in turn, every one online. */

@@ -1,8 +1,9 @@
 import { CLOSE_CODES } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi } from "./support/admin-api.js";
+import { LoadedTablets } from "./support/loaded-tablets.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
-import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { RawConnection, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 with more than one server instance on one database, as a
@@ -20,7 +21,7 @@ describe("several server instances", { timeout: 30_000 }, () => {
   /** The Admin on the first instance, and on the second. */
   let api: AdminApi;
   let other: AdminApi;
-  const tablets: SimulatedTablet[] = [];
+  const tablets = new LoadedTablets();
   const connections: RawConnection[] = [];
 
   const connect = async (server: TestServer, hello: Record<string, unknown>) => {
@@ -41,15 +42,14 @@ describe("several server instances", { timeout: 30_000 }, () => {
     await Promise.all(connections.splice(0).map((raw) => raw.terminate()));
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await tablets.unloadAll();
     await second?.stop();
     await first?.stop();
   });
 
   it("lists a Machine connected to one instance as online on another", async () => {
     const created = await api.createMachine("Uptown");
-    const tablet = SimulatedTablet.load({ settings: settingsFor(created), api: derivedDe1Pro({ serial: "12001" }) });
-    tablets.push(tablet);
+    const tablet = tablets.load({ settings: settingsFor(created), api: derivedDe1Pro({ serial: "12001" }) });
     expect(await other.waitForMachine("Uptown", (machine) => machine.online)).toMatchObject({ identification: "identified", serial: "12001" });
 
     // Heartbeats on the first instance keep it online on the second.
@@ -73,8 +73,7 @@ describe("several server instances", { timeout: 30_000 }, () => {
 
   it("closes a connection to one instance when its token is reissued on another", async () => {
     const created = await api.createMachine("Lab");
-    const tablet = SimulatedTablet.load({ settings: settingsFor(created), api: derivedDe1Pro({ serial: "12201" }) });
-    tablets.push(tablet);
+    const tablet = tablets.load({ settings: settingsFor(created), api: derivedDe1Pro({ serial: "12201" }) });
     await api.waitForMachine("Lab", (machine) => machine.online);
 
     const response = await other.call("POST", `/machines/${created.machine.id}/token`);

@@ -1,17 +1,18 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
+import { LoadedTablets } from "./support/loaded-tablets.js";
 import {
   DYE2_NAMESPACE,
   applyInDye2,
   applyInStreamline,
   autoSaveInStreamline,
-  dye2Keys,
-  dye2Library,
   dye2List,
+  dye2NeverUsed,
   dye2Recording,
+  recordedDye2Tablet,
   saveInDye2,
 } from "./support/simulated-dye2.js";
-import { type DecaidApi, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
+import type { DecaidApi, SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #141: the steam and flush values inside DYE2's recipes
@@ -47,7 +48,7 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
+  const tablets = new LoadedTablets();
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -55,39 +56,13 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
+    await tablets.unloadAll();
     await other?.stop();
     await server?.stop();
   });
 
-  /** A DE1Pro's Decaid with an empty library, and DYE2's keys never written. */
-  function emptyDecaid(serial: string): DecaidApi {
-    const decaidApi: DecaidApi = { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] };
-    for (const key of ["recipes", "baskets", "equipment"] as const) delete decaidApi[`/store/${DYE2_NAMESPACE}/${key}`];
-    return decaidApi;
-  }
-
-  /** The recording's tablet, its Workflow included, with DYE2's baskets and tools but no recipes; its beans named as the test's own. */
-  function recordedDecaid(serial: string, scenario: string): DecaidApi {
-    const library = dye2Library();
-    const keys = dye2Keys();
-    return {
-      ...emptyDecaid(serial),
-      ...library,
-      "/beans": (library["/beans"] as Record_[]).map((bean) => ({ ...bean, name: `${scenario} ${String(bean.name)}` })),
-      [`/store/${DYE2_NAMESPACE}/baskets`]: keys.baskets,
-      [`/store/${DYE2_NAMESPACE}/equipment`]: keys.equipment,
-    };
-  }
-
   function load(machine: CreatedMachine, decaidApi: DecaidApi, instance: TestServer = server): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: instance.url }), PollSeconds: 5 },
-      api: decaidApi,
-      timeScale: 50,
-    });
-    tablets.push(tablet);
-    return tablet;
+    return tablets.syncing(machine, instance, { api: decaidApi });
   }
 
   const settingsAt = async (location: LocationView) => (await api.get<{ settings: SettingsView }>(`/locations/${location.id}/settings`)).settings;
@@ -150,9 +125,9 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
   async function lab(scenario: string, serials: number) {
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machines = [await api.createMachine(`${scenario} lab 1`, here.id), await api.createMachine(`${scenario} lab 2`, here.id)] as const;
-    const one = load(machines[0], recordedDecaid(String(serials), scenario));
-    const two = load(machines[1], emptyDecaid(String(serials + 1)), other);
-    for (const { machine } of machines) await api.waitForMachine(machine.name, (viewed) => viewed.online);
+    const one = load(machines[0], recordedDye2Tablet(String(serials), scenario));
+    const two = load(machines[1], dye2NeverUsed(String(serials + 1)), other);
+    await api.waitForOnline(...machines);
     await expect.poll(async () => (await settingsAt(here)).id, { timeout: 15_000 }).not.toBeNull();
     const settings = await settingsAt(here);
     expect((await api.call("PATCH", `/location-settings/${settings.id}`, { values: LOCATION })).status).toBe(200);
