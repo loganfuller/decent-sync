@@ -173,10 +173,14 @@ export type CaptureOnlyReason = "noLocation" | "sharingOff";
 /** A change the server makes to a tablet: a write of an item, the shared settings or the Workflow, a delete, a removal from one of DYE2's lists, or setting aside a record. */
 export interface TabletChange {
   change: "write" | "delete" | "remove" | "leaveOut";
-  /** A Library kind, `settings` (a Location's steam and rinse settings) or `workflow` (its Workflow's grinder and batch). */
-  kind: ItemKind | "workflow";
-  /** The item, named as Conflicts name it; null for a record set aside, which is none of the Library's, or an item deleted since. */
-  item: { kind: ItemKind | "workflow"; id: string; name: string | null } | null;
+  /**
+   * A Library kind, `settings` (a Location's steam and rinse settings),
+   * `workflow` (its Workflow's grinder and batch) or `loadedRecipe` (its
+   * Workflow's Loaded Recipe, named by the Recipe).
+   */
+  kind: ItemKind | "workflow" | "loadedRecipe";
+  /** The item, named as Conflicts name it, a Loaded Recipe as its Recipe; null for a record set aside, which is none of the Library's, or an item deleted since. */
+  item: { kind: ItemKind | "workflow" | "loadedRecipe"; id: string; name: string | null } | null;
   /** Decaid's id for the tablet's record; null for a create, the settings and the Workflow. */
   localId: string | null;
 }

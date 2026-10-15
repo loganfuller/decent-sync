@@ -312,6 +312,38 @@ var __decentSync = (() => {
     const id = isObject(extras) ? extras[LOADED_RECIPE_KEY] : void 0;
     return isGlobalId(id) ? id.toLowerCase() : null;
   }
+  var LOADED_RECIPE_KIND = "loadedRecipe";
+  var LOADED_RECIPE_PARTS = {
+    dose: ["context.targetDoseWeight"],
+    yield: ["context.targetYield"],
+    grind: ["context.grinderSetting"],
+    rpm: ["context.extras.rpm"],
+    basket: ["context.extras.basketId", "context.extras.basketName"],
+    batch: ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"],
+    targetTemperature: ["hotWaterData.targetTemperature"],
+    duration: ["hotWaterData.duration"],
+    volume: ["hotWaterData.volume"],
+    flow: ["hotWaterData.flow"]
+  };
+  var LOADED_RECIPE_FIELD = `context.extras.${LOADED_RECIPE_KEY}`;
+  function workflowValueAt(workflow, path) {
+    let value = workflow;
+    for (const name of path.split(".")) value = isObject(value) ? value[name] : void 0;
+    return value;
+  }
+  function workflowPatch(fields) {
+    const patch = {};
+    for (const [path, value] of Object.entries(fields)) {
+      const names = path.split(".");
+      let target = patch;
+      for (const name of names.slice(0, -1)) {
+        if (!isObject(target[name])) target[name] = {};
+        target = target[name];
+      }
+      target[names[names.length - 1]] = value;
+    }
+    return patch;
+  }
   function itemIdRule(kind) {
     return isLibraryKind(kind) ? LIBRARY_ITEM_KINDS[kind].id : GLOBAL_ITEM_ID;
   }
@@ -1151,7 +1183,8 @@ var __decentSync = (() => {
     tool: dye2Writer("equipment"),
     recipe: dye2Writer("recipes"),
     [SETTINGS_KIND]: { write: writeSettings, changesWorkflow: true },
-    [WORKFLOW_KIND]: { write: clearWorkflow, changesWorkflow: true }
+    [WORKFLOW_KIND]: { write: clearWorkflow, changesWorkflow: true },
+    [LOADED_RECIPE_KIND]: { write: writeLoadedRecipe, changesWorkflow: true }
   };
   function writerOf(kind) {
     return Object.prototype.hasOwnProperty.call(WRITERS, kind) ? WRITERS[kind] : void 0;
@@ -1204,11 +1237,11 @@ var __decentSync = (() => {
     }
   };
   var LibraryWrites = class {
-    constructor(library, outbox, workflow, machineMissing2, log, posted) {
+    constructor(library, outbox, workflow, machineMissing3, log, posted) {
       __publicField(this, "library", library);
       __publicField(this, "outbox", outbox);
       __publicField(this, "workflow", workflow);
-      __publicField(this, "machineMissing", machineMissing2);
+      __publicField(this, "machineMissing", machineMissing3);
       __publicField(this, "log", log);
       __publicField(this, "posted", posted);
       /**
@@ -1465,6 +1498,42 @@ var __decentSync = (() => {
     const updated = answer.ok ? parsed2(answer.text) : void 0;
     if (!isObject3(updated)) return refused(write, answer.status, answer.text);
     return written(write, workflowContext(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
+  }
+  async function writeLoadedRecipe(write) {
+    let hotWater = true;
+    for (; ; ) {
+      const current = await request("GET", "/workflow");
+      const workflow = current.ok ? parsed2(current.text) : void 0;
+      if (!isObject3(workflow)) return refused(write, current.status, current.text);
+      const fields = loadedRecipeFields(write, workflow, hotWater);
+      if (Object.keys(fields).length === 0) return written(write, loadedRecipeParts(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
+      const answer = await request("PUT", "/workflow", workflowPatch(fields));
+      const updated = answer.ok ? parsed2(answer.text) : void 0;
+      if (isObject3(updated)) return written(write, loadedRecipeParts(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
+      const ofHotWater = Object.keys(fields).filter((field) => field.startsWith("hotWaterData."));
+      if (ofHotWater.length === 0 || ofHotWater.length === Object.keys(fields).length || !machineMissing(answer)) return refused(write, answer.status, answer.text);
+      hotWater = false;
+    }
+  }
+  function loadedRecipeFields(write, workflow, hotWater) {
+    if (loadedRecipeOf(workflow) !== write.globalId.toLowerCase()) return {};
+    if (LOADED_RECIPE_FIELD in write.fields) return { [LOADED_RECIPE_FIELD]: null };
+    return Object.fromEntries(
+      Object.values(LOADED_RECIPE_PARTS).flatMap((part) => {
+        const [first] = part;
+        if (!(first in write.fields) || !hotWater && first.startsWith("hotWaterData.")) return [];
+        const held = workflowValueAt(workflow, first);
+        const expected = write.expected?.[first];
+        if (held !== void 0 && held !== null && expected !== void 0 && !sameValue(held, expected)) return [];
+        return part.filter((field) => field in write.fields).map((field) => [field, write.fields[field]]);
+      })
+    );
+  }
+  function loadedRecipeParts(workflow) {
+    return { context: isObject3(workflow.context) ? workflow.context : {}, hotWaterData: isObject3(workflow.hotWaterData) ? workflow.hotWaterData : {} };
+  }
+  function machineMissing(answer) {
+    return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");
   }
   function workflowContext(workflow) {
     return { context: isObject3(workflow.context) ? workflow.context : {} };
@@ -2297,7 +2366,7 @@ var __decentSync = (() => {
         return Object.keys(rest).length > 0 ? rest : null;
       };
       let done = await this.writeIfDecided(decided, build(true));
-      if (done.kind === "written" && !done.answer.ok && hotWater && machineMissing(done.answer)) done = await this.writeIfDecided(decided, build(false));
+      if (done.kind === "written" && !done.answer.ok && hotWater && machineMissing2(done.answer)) done = await this.writeIfDecided(decided, build(false));
       if (done.kind === "written" && !done.answer.ok) {
         throw new Error(`Decaid answered ${done.answer.status} recording the recipe in slot ${recipe.slot} as loaded: ${done.answer.text.slice(0, 200)}`);
       }
@@ -2396,7 +2465,7 @@ var __decentSync = (() => {
     const workflow = parsed3(done.answer.text);
     return isObject4(workflow) ? { kind: "written", workflow } : { kind: "nothing" };
   }
-  function machineMissing(answer) {
+  function machineMissing2(answer) {
     return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");
   }
   function parsed3(text) {

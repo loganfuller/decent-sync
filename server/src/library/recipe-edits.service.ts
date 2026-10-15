@@ -10,6 +10,7 @@ import { INTAKE_TRANSACTION } from "./intake.js";
 import type { SlotChoice } from "./item-input.js";
 import { editTime, staffElsewhere } from "./library-edits.service.js";
 import { isObject } from "./listed.js";
+import { NoDoseForRatio, ratioValues } from "./recipe-intake.js";
 import { type ShownKind, addBatchAt, lockLocation, offerBeanAt, showAt } from "./location-state.js";
 
 // Recipes created and edited in the management interface, moved between the
@@ -316,7 +317,12 @@ export async function recipeEditValues(
   const set = await setUses(tx, locationId, asked, current, source, at);
   // A Bean with no batch at the Location is still the Recipe's, as a tablet picking it makes it.
   if (beanAlone) set.beanId = values.beanId ?? null;
-  return { ...set, ...ratioValues(current, set) };
+  try {
+    return { ...set, ...ratioValues(current, set) };
+  } catch (error) {
+    if (error instanceof NoDoseForRatio) throw new ConflictException(error.message);
+    throw error;
+  }
 }
 
 /** The batch a Recipe naming the Bean uses: its batch now if it is of that Bean, or else the Bean's batch most recently added at the Location and still there, or none. */
@@ -420,31 +426,6 @@ async function setUses(
     if (Object.keys(kept).length !== Object.keys(current.toolAttributes).length) set.toolAttributes = kept;
   }
   return set;
-}
-
-/**
- * What else an edit setting `values` over a Recipe's content (`current`)
- * sets of its dose, yield and DYE2's ratio, which DYE2's editor keeps only
- * while the yield is the dose times it, to a tenth of a gram: a ratio set
- * without a yield, as a Conflict about it holds, sets the yield to the dose
- * times it, as picking a ratio in DYE2's editor does, and is refused with
- * 409 for a Recipe with no dose, which it cannot be applied to; and a ratio
- * the edit leaves otherwise than the yield is cleared. Nothing for an edit
- * setting none of them, or one keeping them so.
- */
-function ratioValues(current: Readonly<Record<string, unknown>>, values: Readonly<Record<string, unknown>>): Record<string, unknown> {
-  const has = (field: string) => Object.prototype.hasOwnProperty.call(values, field);
-  if (!has("dose") && !has("yield") && !has("ratio")) return {};
-  const ratio = has("ratio") ? values.ratio : current.ratio;
-  if (typeof ratio !== "number") return {};
-  const dose = has("dose") ? values.dose : current.dose;
-  const scaled = typeof dose === "number" ? Math.round(dose * ratio * 10) / 10 : null;
-  if (has("ratio") && !has("yield")) {
-    if (scaled === null) throw new ConflictException("This Recipe has no dose to apply a ratio to: set its dose first");
-    return { yield: scaled };
-  }
-  const drink = has("yield") ? values.yield : current.yield;
-  return scaled !== null && typeof drink === "number" && Math.abs(drink - scaled) < 0.05 ? {} : { ratio: null };
 }
 
 /**

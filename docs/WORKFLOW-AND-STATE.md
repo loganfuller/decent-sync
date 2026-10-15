@@ -256,9 +256,11 @@ from the Workflow deliveries.
     applies it, but its batch and Basket stay cleared. Nothing the Workflow
     holds is written over: a barista setting back a tweak of the Loaded
     Recipe, which Streamline's auto-save has made the recipe's dial, and a
-    stale copy of it applied, look alike, and the barista's set-back wins,
-    so the stale copy's dial stays until the Recipe follows the Machine's
-    changes (#146). A stale copy of another recipe is corrected as any load.
+    stale copy of it applied, look alike to the plugin, which writes over
+    neither: the server takes the set-back as the Machine's edit of the
+    Recipe, and writes the Recipe's value back over the stale copy's
+    (Following the Recipe, below). A stale copy of another recipe is
+    corrected as any load.
   - The first Workflow, as on every load of the plugin, is no change, and
     loads nothing, though a recipe matches it, as one leaving blank the
     grind the barista tweaked would, or the recipe the barista unloaded
@@ -342,7 +344,7 @@ from the Workflow deliveries.
   kept, as Decaid merges `extras` key by key. A tweak of
   the dose, yield or grind setting keeps it. Another recipe loaded replaces
   it. A Loaded Recipe the tablet no longer holds in a slot is left for the
-  server to unload (#146).
+  server, which has it cleared (Following the Recipe, below).
 - **Held back.** `MachineEvents` holds the Workflow's changes while any of
   the plugin's writes into it is under way, a count shared with the writes
   of the shared settings, and sends the latest once none is. So the server
@@ -355,8 +357,7 @@ from the Workflow deliveries.
   it is queued: an unload of the plugin while one is held loses it, and the
   Workflow Decaid sends as the plugin loads again brings the current one.
 
-Known limits: a stale copy of the Loaded Recipe applied on its Machine
-keeps its stale dial (above). Decaid has no conditional write, so a barista's change of
+Known limits: Decaid has no conditional write, so a barista's change of
 a field a load writes, made in the moments between the plugin's last read
 of the Workflow and its write, is written over, as for a settings write
 (ADR-0021); the plugin reads everything else it needs first, to keep that
@@ -372,9 +373,7 @@ Recipe stays, written nothing. DYE2's
 dashboard sends the whole Workflow it read as it opened when its Done is
 tapped, so a load the plugin writes while it is open is undone then, the
 same limit as a change between the plugin's read and its write, held open
-longer. The
-recipe the Workflow names, applied again after its batch was changed
-elsewhere, keeps the Workflow's batch until #146 follows the Recipe's edits.
+longer.
 The plugin judges nothing of what changed while it was not loaded: a
 Workflow naming a recipe with another Bean's batch or grinder keeps it
 loaded until a change of its profile, grinder or Bean, and a recipe applied
@@ -386,23 +385,103 @@ on the Workflow's next change of its dial.
 
 The Loaded Recipe a Workflow delivery names is taken into its Machine's
 state in the transaction storing it, from a connection that is not
-mismatched, for its token's Machine, after its Location's settings
+mismatched, for its token's Machine, after the tablet's lock and its
+Workflow's grinder and batch, before its Location's settings
 (`takeInLoadedRecipe` in `server/src/machine-events/loaded-recipes.ts`):
-one of the Recipes of the Machine's Location while it takes part in the
-Library there, and none otherwise, as on a Capture-only Machine, or one the
-Workflow names from a Location the Machine left. Each Machine's Loaded
+one of the Recipes in a slot of the Machine's Location while it takes part
+in the Library there, and none otherwise, as on a Capture-only Machine, or
+one the Workflow names that was taken out of its slot or Archived, or is of
+a Location the Machine left. Each Machine's Loaded
 Recipes are kept in `loaded_recipes`, the Recipe from when to when, its
 current one the entry not unloaded, at most one per Machine. A change of it
 unloads the current one and loads the new one at the time the plugin
 observed the Workflow, by the tablet's clock, which a delivery made offline
 keeps, but never before the Machine's latest entry. The Recipe's row is
-taken `FOR KEY SHARE` after the tablet's lock, and the Location's where
-taking in the Workflow's settings takes it, as when joining, which a hard
-delete of the Recipe takes before its row; the hard delete removes its
-entries. A Machine made capture-only shows no Loaded Recipe from its next
-Workflow delivery on; a change of Location asks for one at once. No `NOTIFY`
-is sent: nothing yet follows a Loaded Recipe across instances, which #146
-adds.
+locked after the Location's lock, which a Recipe's slots, its edits and its
+hard delete take before its row; the hard delete removes its entries. A
+Machine made capture-only shows no Loaded Recipe once its Workflow no longer
+names one, as the server has it cleared (below); a change of Location asks
+for one at once.
+
+### Following the Recipe
+
+Ticket [#146](https://github.com/loganfuller/decent-sync/issues/146) has a
+Machine follow its Loaded Recipe both ways (ADR-0022). The parts of a
+Workflow that follow it are its dose, yield, grind setting, RPM, Basket,
+Bean Batch and four hot water settings (`LOADED_RECIPE_PARTS` in
+`protocol/`). The server keeps, per tablet, the Recipe its Workflow last
+named and those parts as the Workflow held them, reported or as Decaid
+returned the plugin's write of them (`tablet_loaded_recipes`), as it keeps
+the shared settings (`tablet_settings`), so the plugin's own write is never
+read as the tablet's edit. The pure `server/src/library/loaded-recipe-intake.ts`
+maps the parts to the Recipe's content both ways.
+
+- **From the Machine.** A Workflow delivery naming the Recipe its Machine
+  went on having loaded, not as it joins its Location, is the tablet's edit
+  of the Recipe in each part it holds otherwise than it last did, timed when
+  the plugin observed it, merged with what the Workflow had seen of the
+  Recipe's edits (ADR-0020), from the Machine's tablet, whatever app made
+  it. A dose, yield, RPM or hot water setting is the Recipe's as it is, and
+  a grind setting as the number DYE2 keeps; DYE2's ratio is kept only while
+  the yield is the dose times it. A Basket, and a Bean Batch of the Recipe's
+  Bean, are read through the tablet's map, which moves the Recipe to that
+  batch; one the map does not hold yet, as a bag added and picked at once,
+  waits, and is taken in, timed when it was observed, as the report of the
+  tablet's batches or baskets maps it (`settlePendingParts`). A batch of
+  another Bean is none of the Recipe's, as the plugin unloads it then. A
+  part cleared is no edit, as Streamline clears the batch, Basket and RPM
+  once each Shot is stored, and the Recipe keeps them, so they stay cleared
+  until it is applied again or changes. A value the Recipe holds already is
+  no edit. Nor, as for a stale save (ADR-0005), is a value set back to the
+  one the tablet's record of the Recipe held just before the server's
+  latest write of it, which was the Recipe's before its current one, as a
+  DYE2 page or Streamline strip opened before another Machine's change
+  applies: the Recipe's value is written back.
+- **The same edit once.** Streamline saves into the recipe a change the
+  barista made in the Workflow (its auto-save): a field of the tablet's
+  record that sets the Recipe's value its own latest edit set already is no
+  edit (`withoutOwnEdits` in `recipe-intake.ts`), so the Workflow's change
+  and Streamline's save are one edit, whichever reaches the server first.
+- **To every Machine that has it loaded.** An edit of a Recipe from
+  anywhere, a tablet, the management interface or a Conflict's value used,
+  commits with a `NOTIFY` on `library_changes` naming its Location, and
+  each writer there plans, after the Recipe's record and the items it names
+  (`loadedRecipeDue`, last in `changesDue`), a `write` of the
+  `loadedRecipe` kind carrying the Recipe's fields its tablet's Workflow
+  holds otherwise, by the tablet's ids, with the names DYE2 copies beside a
+  Basket and a batch, each expecting the value the Workflow last held
+  (`partsWrite`). The plugin writes nothing unless the Workflow still names
+  the Recipe, and sets a part only while it holds the value expected or
+  none, so a barista's change since is kept, and reaches the server in the
+  answer, where it is the tablet's edit, timed when the plugin had Decaid's
+  answer; the Workflow change the write causes is sent after the answer,
+  which records what Decaid returned as the Workflow's
+  (`recordLoadedRecipeWritten`). Decaid refuses hot water while no machine
+  is connected: the rest is written, and the hot water once the machine is
+  back and the plugin reconnects. Streamline adopts a Workflow change made
+  elsewhere (ADR-0021), so nothing of its is set. A write is made to the
+  Workflow of a Machine only while its Loaded Recipe is the Recipe its
+  Workflow names; a Machine with no Loaded Recipe keeps its own hot water.
+- **Unloads the server decides.** A Workflow naming a Recipe that is not
+  its Machine's Loaded Recipe, as one taken out of its slot or Archived, or
+  of a Location the Machine left, or on a Machine made capture-only, is due
+  the same `write`, clearing the Workflow's Loaded Recipe
+  (`LOADED_RECIPE_FIELD`, null) while it still names that Recipe. A Recipe
+  moved to another slot stays loaded. A Capture-only Machine's writer
+  writes this, and nothing else, whatever its reports. The Workflow the
+  plugin then sends names none, which unloads it on the server.
+
+Known limits: a barista who sets a part back to exactly the value the
+tablet's record of the Recipe held before the server's latest write of it,
+which was the Recipe's before, has it written back as a stale copy's, as for
+a stale save (ADR-0005), and changes it in the management interface
+instead. Decaid has no conditional write, so a barista's change of a part
+made in the moments between the plugin's read of the Workflow and its write
+is written over, as for a settings write (ADR-0021). A Workflow naming a
+Recipe its Machine has loaded, delivered after a stale one, as from a
+tablet that was offline, is compared with what the tablet last held, so
+its changes are edits timed when they were observed, and lose to later
+edits it had not seen.
 
 ## REST API
 
@@ -436,6 +515,7 @@ Recipe each has loaded.
 `server/test/machine-events.test.ts` covers this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL,
 `server/test/loaded-recipes.test.ts` the Loaded Recipe, `server/test/loaded-recipe-races.test.ts` changes made while one is decided,
+`server/test/loaded-recipe-following.test.ts` Machines following it both ways, `server/test/loaded-recipe-intake.test.ts` its pure module,
 `plugin/test/recipe-matching.test.ts` its pure module,
 `server/test/durable-outbox.test.ts` the deliveries kept across unloads and
 their bound, and

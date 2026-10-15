@@ -72,6 +72,36 @@ test("a recipe applied in DYE2 shows as its Machine's Loaded Recipe on the Machi
   await expect(rows(machines).filter({ hasText: "Bar 1" })).toContainText("None");
 });
 
+test("a grind changed on one Machine reaches the Recipe's page, and the Workflow of the other Machine with it loaded, whose sharing status shows it", async ({ page }) => {
+  const location = await createLocation(page, "Belmont");
+  const recipes = dye2Recording("recipes");
+  const bar1 = await tabletAt(page, "Bar 1", location, {
+    ...derivedDe1Pro({ serial: "47511" }),
+    ...dye2Library(),
+    [`/store/${DYE2_NAMESPACE}/baskets`]: dye2Keys().baskets,
+    [`/store/${DYE2_NAMESPACE}/equipment`]: dye2Keys().equipment,
+    [`/store/${DYE2_NAMESPACE}/recipes`]: [],
+  });
+  const bar2 = await tabletAt(page, "Bar 2", location, { ...derivedDe1Pro({ serial: "47512" }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS });
+  await saveInDye2(bar1.tablet, recipes.saveSlot1);
+  await saveInDye2(bar1.tablet, recipes.editSlot1);
+  for (const { tablet } of [bar1, bar2]) {
+    await expect.poll(() => dye2GlobalIdOf(slotOn(tablet, "1"))).not.toBeNull();
+    await expect.poll(() => ((slotOn(tablet, "1")?.dashboardVariables ?? {}) as Record_).basketId ?? null).not.toBeNull();
+    expect((await applyInDye2(tablet, "1")).status).toBe(200);
+  }
+  await page.goto(`/machines/${bar2.id}`);
+  await expect(field(page.getByRole("region", { name: "Loaded Recipe" }).getByLabel("Loaded now"), "Recipe")).toHaveText("Fixture Ethiopia EspressoSlot 1");
+
+  await bar1.tablet.changeSettings({ context: { grinderSetting: "2.8" } });
+  await expect.poll(() => (bar2.tablet.workflow().context as Record_).grinderSetting).toBe("2.8");
+  const sharing = page.getByRole("region", { name: "Sharing" });
+  await expect(sharing.getByText("Its Workflow updated for the Recipe Fixture Ethiopia Espresso")).toBeVisible();
+  await sharing.getByRole("link", { name: "Fixture Ethiopia Espresso" }).click();
+  await expect(page.getByRole("heading", { name: "Fixture Ethiopia Espresso", level: 1 })).toBeVisible();
+  await expect(page.getByText("2.8", { exact: true }).first()).toBeVisible();
+});
+
 /** A Machine at the Location, its tablet connected with that API, polling every 5 s of its time, which runs 50 times faster here. */
 async function tabletAt(page: Page, name: string, location: { id: string }, api: Record<string, unknown>): Promise<{ id: string; tablet: SimulatedTablet }> {
   const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });

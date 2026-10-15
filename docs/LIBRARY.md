@@ -1183,7 +1183,12 @@ So a recipe saved in DYE2 in a slot on one tablet is written to that slot on
 every tablet at its Location, and to no other Location's; an edit on any
 tablet, in DYE2's editor or through Streamline's auto-save, reaches every
 tablet there; and a recipe gone from a tablet's list empties its slot on the
-others. Recipes are read through the REST API (below), and managed in the
+others. Streamline saves into the recipe the change a barista made in the
+Workflow of a Machine with it loaded, which the Workflow brings too, as the
+Machine's edit of its Loaded Recipe (ticket #146, `WORKFLOW-AND-STATE.md`,
+Following the Recipe): a field of a record that sets the Recipe's value its
+tablet's own latest edit set already is no edit (`withoutOwnEdits`), so the
+two are one edit, whichever reaches the server first. Recipes are read through the REST API (below), and managed in the
 management interface (Editing in the management interface, above).
 
 ## Writing to tablets
@@ -1230,6 +1235,13 @@ each update also writing the item's content where the record differs from it
    created there, or whose record differs from what it is to hold, written
    (Taking in a tablet's recipes, above). Recipes come last, as they name the
    items above by the tablet's ids.
+8. Its Workflow's Loaded Recipe (`loadedRecipeDue`, `WORKFLOW-AND-STATE.md`,
+   Following the Recipe): the Recipe's fields its Workflow holds otherwise,
+   as an edit made anywhere, once the Recipe's record and the Basket and
+   batch it names are written; or the Recipe cleared from the Workflow,
+   where it is not the Machine's Loaded Recipe, as one taken out of its
+   slot or Archived. The clear is written to a Capture-only Machine too,
+   which is written nothing else.
 
 Every record the tablet holds whose content differs from its item's, offered
 at the Location or not, is written the item's content, in the same update as

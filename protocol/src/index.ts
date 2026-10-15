@@ -711,21 +711,89 @@ export function loadedRecipeOf(workflow: unknown): string | null {
   return isGlobalId(id) ? id.toLowerCase() : null;
 }
 
+/**
+ * What the server writes into a tablet's Workflow for the Recipe it has
+ * loaded (ADR-0022): the Recipe's fields that differ from what the Workflow
+ * last held of them, as an edit of the Recipe made anywhere reaches every
+ * Machine that has it loaded, or the clearing of its Loaded Recipe, as the
+ * server unloads it. A `write` of this kind carries them, named by the
+ * Recipe's global id.
+ */
+export const LOADED_RECIPE_KIND = "loadedRecipe";
+
+/**
+ * The parts of a Workflow that follow its Loaded Recipe (ADR-0022): its
+ * dose, yield, grind setting, RPM, Basket, Bean Batch and four hot water
+ * settings, each with the fields of the Workflow that hold it, by their
+ * paths, its id or value first. A write of LOADED_RECIPE_KIND sets a part's
+ * fields together: a Basket with its name, and a Bean Batch with its Bean's
+ * name and roaster, as DYE2 and a load write them.
+ */
+export const LOADED_RECIPE_PARTS = {
+  dose: ["context.targetDoseWeight"],
+  yield: ["context.targetYield"],
+  grind: ["context.grinderSetting"],
+  rpm: ["context.extras.rpm"],
+  basket: ["context.extras.basketId", "context.extras.basketName"],
+  batch: ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"],
+  targetTemperature: ["hotWaterData.targetTemperature"],
+  duration: ["hotWaterData.duration"],
+  volume: ["hotWaterData.volume"],
+  flow: ["hotWaterData.flow"],
+} as const satisfies Record<string, readonly [string, ...string[]]>;
+
+/** A part of a Workflow that follows its Loaded Recipe (LOADED_RECIPE_PARTS). */
+export type LoadedRecipePart = keyof typeof LOADED_RECIPE_PARTS;
+
+/** The field of a Workflow naming its Loaded Recipe (LOADED_RECIPE_KEY), by its path, which a write of LOADED_RECIPE_KIND clears. */
+export const LOADED_RECIPE_FIELD = `context.extras.${LOADED_RECIPE_KEY}`;
+
+/** The value a Workflow holds at a path, such as `context.extras.rpm`; undefined where it holds none. */
+export function workflowValueAt(workflow: unknown, path: string): unknown {
+  let value: unknown = workflow;
+  for (const name of path.split(".")) value = isObject(value) ? value[name] : undefined;
+  return value;
+}
+
+/**
+ * The body of a `PUT /workflow` setting each field given by its path to its
+ * value, null clearing it: Decaid merges a Workflow's `context`, its
+ * `extras` and its `hotWaterData` key by key.
+ */
+export function workflowPatch(fields: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const [path, value] of Object.entries(fields)) {
+    const names = path.split(".");
+    let target = patch;
+    for (const name of names.slice(0, -1)) {
+      if (!isObject(target[name])) target[name] = {};
+      target = target[name] as Record<string, unknown>;
+    }
+    target[names[names.length - 1]!] = value;
+  }
+  return patch;
+}
+
 /** What has versions and Conflicts (ADR-0020): a Library item of one of LIBRARY_KINDS, or a Location's shared settings. */
 export type VersionedKind = LibraryKind | typeof SETTINGS_KIND;
 
-/** What a `write` writes: a Library item of one of LIBRARY_KINDS, the shared settings, or a Workflow's grinder and batch, cleared. */
-export type WrittenKind = LibraryKind | typeof SETTINGS_KIND | typeof WORKFLOW_KIND;
+/**
+ * What a `write` writes: a Library item of one of LIBRARY_KINDS, the shared
+ * settings, a Workflow's grinder and batch, cleared, or its Loaded Recipe's
+ * fields.
+ */
+export type WrittenKind = LibraryKind | typeof SETTINGS_KIND | typeof WORKFLOW_KIND | typeof LOADED_RECIPE_KIND;
 
 export function isWrittenKind(kind: string): kind is WrittenKind {
-  return kind === SETTINGS_KIND || kind === WORKFLOW_KIND || isLibraryKind(kind);
+  return kind === SETTINGS_KIND || kind === WORKFLOW_KIND || kind === LOADED_RECIPE_KIND || isLibraryKind(kind);
 }
 
 /**
  * What the id of an item of that kind is: what a Library kind declares
  * (`LIBRARY_ITEM_KINDS`); otherwise a UUID: the shared settings' is the id
- * the server gives a Location's settings, a Workflow's is the tablet's id,
- * and a kind this side does not know is taken to have global ids.
+ * the server gives a Location's settings, a Workflow's is the tablet's id, a
+ * Loaded Recipe's is its Recipe's global id, and a kind this side does not
+ * know is taken to have global ids.
  */
 export function itemIdRule(kind: string): ItemIdRule {
   return isLibraryKind(kind) ? LIBRARY_ITEM_KINDS[kind].id : GLOBAL_ITEM_ID;
@@ -900,14 +968,34 @@ export function settingsParts(fields: Readonly<Record<string, unknown>>): Record
  * `context` as Decaid returned it, timed as a settings write's is, and the
  * Workflow change it causes is sent after the answer, as a settings write's
  * is.
+ *
+ * A write of LOADED_RECIPE_KIND writes into the tablet's Workflow the
+ * fields of its Loaded Recipe that the Workflow is due (ADR-0022):
+ * `globalId` is the Recipe's global id, `localId` null, and `fields` names
+ * the fields of LOADED_RECIPE_PARTS to set, each part's fields together,
+ * with `expected` the value the Workflow held of each part's first field as
+ * the tablet last reported it, null for none; or it names
+ * LOADED_RECIPE_FIELD alone, null, to clear the Workflow's Loaded Recipe,
+ * as the server unloads it, expecting the Recipe's global id. The plugin
+ * reads the tablet's Workflow and writes nothing unless it still names that
+ * Recipe as loaded (`loadedRecipeOf`); otherwise it sets, through
+ * `PUT /workflow` (`workflowPatch`), each part whose first field still holds
+ * the value expected, or none, as Streamline clears the batch, Basket and
+ * RPM once each Shot is stored: a part a barista changed since is kept,
+ * which its Workflow change brings to the server. Decaid refuses to change
+ * the hot water settings while no machine is connected, so the rest is
+ * then written without them. Its answer's `record` is the Workflow's
+ * `context` and `hotWaterData` as Decaid returned them, timed as a settings
+ * write's is, and the Workflow change it causes is sent after the answer,
+ * as a settings write's is.
  */
 export interface LibraryWrite {
   type: "write";
   /** Names this write, which its answer repeats. */
   id: string;
-  /** One of LIBRARY_KINDS, SETTINGS_KIND or WORKFLOW_KIND. A plugin answers a kind it does not know with `writeRefused`. */
+  /** One of LIBRARY_KINDS, SETTINGS_KIND, WORKFLOW_KIND or LOADED_RECIPE_KIND. A plugin answers a kind it does not know with `writeRefused`. */
   kind: string;
-  /** The item's global id, a Profile's id, the settings' id, or the tablet's id for a Workflow (`itemIdRule`). */
+  /** The item's global id, a Profile's id, the settings' id, the tablet's id for a Workflow, or a Loaded Recipe's global id (`itemIdRule`). */
   globalId: string;
   /** The tablet's record to update, or null to create one. */
   localId: string | null;

@@ -2,6 +2,7 @@ import {
   LIBRARY_ITEM_KINDS,
   type LibraryKind,
   type LibraryList,
+  LOADED_RECIPE_KIND,
   SETTINGS_KIND,
   type VersionedKind,
   WORKFLOW_KIND,
@@ -41,6 +42,7 @@ import {
 } from "./holdings.js";
 import type { AnswerRecorded, AnsweringTablet, ReportingTablet, SeenDecision } from "./intake.js";
 import type { FieldType } from "./item-input.js";
+import { recordLoadedRecipeWritten } from "../machine-events/loaded-recipes.js";
 import { recordWorkflowCleared } from "./joining.js";
 import { isObject } from "./listed.js";
 import { recordSettingsWritten } from "./location-settings.js";
@@ -779,10 +781,23 @@ const WORKFLOW: WrittenKindDescription = {
   recordWritten: (prisma, tablet, answer) => recordWorkflowCleared(prisma, tablet, answer.globalId, answer.record),
 };
 
+/**
+ * A tablet's Workflow's Loaded Recipe (ADR-0022): the Recipe's fields written
+ * into it, or the Recipe cleared from it, named by the Recipe's id
+ * (machine-events/loaded-recipes.ts).
+ */
+const LOADED_RECIPE: WrittenKindDescription = {
+  name: "Loaded Recipe",
+  itemNames: (db, ids) => namesOf(KINDS.recipe, db, ids),
+  recordWritten: (prisma, tablet, answer) =>
+    recordLoadedRecipeWritten(prisma, tablet, answer.globalId, answer.written, answer.record, answer.updatedAt, answer.contentSeen),
+};
+
 const SETTINGS_NAME = "Steam and rinse";
 
 /** The description of a kind the server writes. */
 export function writtenKind(kind: WrittenKind): WrittenKindDescription {
+  if (kind === LOADED_RECIPE_KIND) return LOADED_RECIPE;
   return kind === SETTINGS_KIND ? SETTINGS : kind === WORKFLOW_KIND ? WORKFLOW : KINDS[kind];
 }
 

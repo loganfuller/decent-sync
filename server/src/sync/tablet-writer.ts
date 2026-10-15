@@ -313,8 +313,11 @@ export class TabletWriter {
         this.requestedFor = found.standing;
         this.requestCollections();
       }
-      // A report of the tablet's beans may have been taken in while this was read: what is due waits for its batches.
-      const planned = this.awaitingLists.size > 0 || workflowBehind ? null : (found?.writes ?? null);
+      // A report of the tablet's beans may have been taken in while this was read: what is due waits for its batches. A
+      // Machine taking part nowhere, as once made capture-only, is asked for no report, and is due only the clearing of a
+      // Loaded Recipe its Workflow named, which the plugin makes only while the Workflow still names it.
+      const nowhere = found !== null && found.standing === null;
+      const planned = this.awaitingLists.size > 0 || (workflowBehind && !nowhere) ? null : (found?.writes ?? null);
       if (planned) {
         // An item no longer due has not stayed due since it was written, nor is it still refused.
         const stillDue = new Set(planned.map(changeKey));
