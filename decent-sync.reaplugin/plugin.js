@@ -2112,6 +2112,21 @@ var __decentSync = (() => {
 
   // src/dye2-selection.ts
   var SELECTION = `/plugins/${DYE2_NAMESPACE}/selection`;
+  function dye2Fingerprint(profile) {
+    if (!isObject4(profile)) return null;
+    const steps = Array.isArray(profile.steps) ? profile.steps.map((step) => {
+      if (!isObject4(step)) return step;
+      const { temperature: _, ...rest } = step;
+      return rest;
+    }) : profile.steps;
+    return JSON.stringify({
+      title: profile.title,
+      target_weight: profile.target_weight,
+      target_volume: profile.target_volume,
+      tank_temperature: profile.tank_temperature,
+      steps
+    });
+  }
   var Dye2Selection = class {
     constructor(log) {
       __publicField(this, "log", log);
@@ -2320,8 +2335,12 @@ var __decentSync = (() => {
      */
     followSelection() {
       if (!this.latest || this.running || this.stopped) return;
-      const globalId = loadedRecipeOf(this.latest);
-      this.selection.follow({ globalId, slot: globalId === null ? null : this.slots.get(globalId) ?? null, profile: profileKey(this.latest.profile) });
+      this.followWorkflow(this.latest);
+    }
+    /** Has DYE2's selection follow the Loaded Recipe a Workflow names (`Dye2Selection`). */
+    followWorkflow(workflow) {
+      const globalId = loadedRecipeOf(workflow);
+      this.selection.follow({ globalId, slot: globalId === null ? null : this.slots.get(globalId) ?? null, profile: dye2Fingerprint(workflow.profile) });
     }
     stop() {
       this.stopped = true;
@@ -2350,7 +2369,10 @@ var __decentSync = (() => {
             this.pending = { kind: "none" };
             continue;
           }
-          if (written2.kind === "written") this.written = { workflow: written2.workflow, pending: this.pending };
+          if (written2.kind === "written") {
+            this.written = { workflow: written2.workflow, pending: this.pending };
+            if (this.pending.kind === "load") this.followWorkflow(written2.workflow);
+          }
           if (this.queue.length > 0 || await this.waitForChange(REPORT_WAIT_MS) || this.stopped) continue;
           if (this.written) {
             if (this.pending === this.written.pending) this.pending = { kind: "none" };

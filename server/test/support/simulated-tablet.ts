@@ -179,10 +179,10 @@ export function readBuiltPlugin(): { source: string; manifest: Record<string, un
  */
 export type DecaidApi = Record<string, unknown>;
 
-/** A response Decaid's API refuses with, such as 503 while no scale is connected. */
 /** DYE2's `selection` endpoint (DYE2 v0.1.20), as Decaid routes a plugin's HTTP endpoint. */
 export const DYE2_SELECTION_ROUTE = "/plugins/dye2.reaplugin/selection";
 
+/** A response Decaid's API refuses with, such as 503 while no scale is connected. */
 export class Refusal {
   constructor(
     readonly status: number,

@@ -1,6 +1,6 @@
 import { DYE2_NAMESPACE, LOADED_RECIPE_KEY, RECIPE_FIELD, dye2Records, loadedRecipeOf } from "@decent-sync/protocol";
 import { type Answer, request } from "./decaid.js";
-import { Dye2Selection } from "./dye2-selection.js";
+import { Dye2Selection, dye2Fingerprint } from "./dye2-selection.js";
 import type { WorkflowChanges } from "./machine-events.js";
 import {
   type ChangedSetUp,
@@ -206,8 +206,13 @@ export class LoadedRecipes {
    */
   private followSelection(): void {
     if (!this.latest || this.running || this.stopped) return;
-    const globalId = loadedRecipeOf(this.latest);
-    this.selection.follow({ globalId, slot: globalId === null ? null : (this.slots.get(globalId) ?? null), profile: profileKey(this.latest.profile) });
+    this.followWorkflow(this.latest);
+  }
+
+  /** Has DYE2's selection follow the Loaded Recipe a Workflow names (`Dye2Selection`). */
+  private followWorkflow(workflow: Record<string, unknown>): void {
+    const globalId = loadedRecipeOf(workflow);
+    this.selection.follow({ globalId, slot: globalId === null ? null : (this.slots.get(globalId) ?? null), profile: dye2Fingerprint(workflow.profile) });
   }
 
   stop(): void {
@@ -240,7 +245,11 @@ export class LoadedRecipes {
           continue;
         }
         // Written: its echo, the Workflow Decaid answered with, is no change, and makes the write done (`decideQueued`).
-        if (written.kind === "written") this.written = { workflow: written.workflow, pending: this.pending };
+        if (written.kind === "written") {
+          this.written = { workflow: written.workflow, pending: this.pending };
+          // DYE2 is told at once, inside its debounce of the write, so it records the write into no recipe it had selected before.
+          if (this.pending.kind === "load") this.followWorkflow(written.workflow);
+        }
         // Decaid reports each change in order, so the plugin waits for its report, deciding on the Workflow it read only
         // where none comes.
         if (this.queue.length > 0 || (await this.waitForChange(REPORT_WAIT_MS)) || this.stopped) continue;

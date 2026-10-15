@@ -353,8 +353,10 @@ from the Workflow deliveries.
   plugin's writes included. So the plugin keeps that selection in step with
   the Loaded Recipe, through the same endpoint, once nothing is left to
   decide or write (`plugin/src/dye2-selection.ts`): it selects the Loaded
-  Recipe's slot as it is loaded, again as it moves to another slot or its
-  profile changes, which clears DYE2's selection, and clears the selection
+  Recipe's slot as it is loaded, as soon as its load is written, inside
+  DYE2's 1.5 s wait before recording, again as it moves to another slot or
+  its profile changes as DYE2 tells one apart (`dye2Fingerprint`), which
+  clears DYE2's selection, as a yield set in Streamline does, and clears the selection
   as it is unloaded, by the plugin or the server, while DYE2 still has that
   recipe selected, leaving a favourite or another recipe the barista
   selected since. Otherwise DYE2 would go on recording into a recipe the

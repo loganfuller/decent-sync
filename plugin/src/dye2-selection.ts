@@ -20,12 +20,37 @@ import { request } from "./decaid.js";
 
 const SELECTION = `/plugins/${DYE2_NAMESPACE}/selection`;
 
-/** The Loaded Recipe as DYE2's selection follows it: its global id, its Recipe Slot, the slot's id in DYE2, and its profile's key. */
+/** The Loaded Recipe as DYE2's selection follows it: its global id, its Recipe Slot, and the Workflow's profile as DYE2 tells it apart. */
 export interface Followed {
   globalId: string | null;
   slot: number | null;
-  /** The Workflow's profile, as `profileKey` reads it: DYE2 clears its selection as the profile changes, so it is selected again. */
+  /** The Workflow's profile, as DYE2 fingerprints it (`dye2Fingerprint`): DYE2 clears its selection as that changes, so it is selected again. */
   profile: string | null;
+}
+
+/**
+ * A profile as DYE2 fingerprints one to tell a change of profile, which
+ * clears its selection (`profileFingerprint` in
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.20): its title,
+ * target weight and volume, tank temperature and steps, but each step's
+ * temperature. Null for none.
+ */
+export function dye2Fingerprint(profile: unknown): string | null {
+  if (!isObject(profile)) return null;
+  const steps = Array.isArray(profile.steps)
+    ? profile.steps.map((step: unknown) => {
+        if (!isObject(step)) return step;
+        const { temperature: _, ...rest } = step;
+        return rest;
+      })
+    : profile.steps;
+  return JSON.stringify({
+    title: profile.title,
+    target_weight: profile.target_weight,
+    target_volume: profile.target_volume,
+    tank_temperature: profile.tank_temperature,
+    steps,
+  });
 }
 
 export class Dye2Selection {
