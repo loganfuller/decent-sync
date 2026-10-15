@@ -2130,37 +2130,78 @@ var __decentSync = (() => {
   var Dye2Selection = class {
     constructor(log) {
       __publicField(this, "log", log);
-      /** What DYE2 was last told, or undefined before the first Workflow the plugin saw. */
+      /** What DYE2 was last told, or undefined before the first Workflow the plugin saw, or after a selection Decaid failed. */
       __publicField(this, "told");
+      /**
+       * A Recipe the server unloaded while the tablet still held it in the slot
+       * DYE2 has selected, as on a Machine made capture-only, whose recipes are
+       * written nothing and record as DYE2 records them: its selection is
+       * cleared only once the Recipe leaves that slot.
+       */
+      __publicField(this, "owed", null);
+      /** A slot whose clearing Decaid failed, cleared at the next Workflow or read of the recipes. */
+      __publicField(this, "failedClear", null);
       __publicField(this, "queue", Promise.resolve());
       /** Whether a failure was logged since the last success, so a Decaid failing every request logs once. */
       __publicField(this, "failing", false);
     }
     /**
-     * The Loaded Recipe the Workflow names once the plugin has decided on it:
-     * DYE2 selects it where it is in a slot the tablet holds, again as it
-     * moves to another slot, or as its profile changes, which clears DYE2's
-     * selection; and a recipe it no longer names is cleared from DYE2's
-     * selection while DYE2 still has it selected, in the slot it was last told
-     * of, though the tablet holds it in none by then. A recipe the tablet holds
-     * in no slot is never selected, as another may be in the slot it left. The
-     * first Workflow the plugin sees, as on every load of it, clears nothing:
-     * DYE2 may hold a selection a barista made since. DYE2 names a recipe by
-     * its slot alone, so a selection the barista made since of another recipe
-     * put in the slot the unloaded one left is cleared with it.
+     * The Loaded Recipe the Workflow names once the plugin has decided on it,
+     * with the slot the tablet holds each recipe in (`slotOf`): DYE2 selects
+     * it where it is in a slot, again as it moves to another slot, or as its
+     * profile changes, which clears DYE2's selection, but never while the
+     * tablet holds it in no slot, as another may be in the slot it left. A
+     * Loaded Recipe that leaves the slot DYE2 was told of is cleared from it
+     * at once, though the Workflow still names it until the server clears it.
+     * A Recipe the server unloads (`unloaded` tells of the plugin's own) is
+     * cleared only once it leaves that slot: one the tablet still holds there,
+     * as on a Machine made capture-only, stays DYE2's selection. A clear is
+     * made only while DYE2 still has that slot selected, leaving a favourite
+     * or another slot the barista selected since; DYE2 names a recipe by its
+     * slot alone, so a selection of another recipe put in that slot since is
+     * cleared too. The first Workflow the plugin sees, as on every load of it,
+     * clears nothing: DYE2 may hold a selection a barista made since.
      */
-    follow(followed) {
+    follow(followed, slotOf) {
       const told = this.told;
-      const slot = followed.slot ?? (told?.globalId === followed.globalId ? told.slot : null);
-      const next = { ...followed, slot };
-      if (told && told.globalId === next.globalId && told.slot === next.slot && (next.globalId === null || told.profile === next.profile)) return;
-      this.told = next;
-      if (followed.globalId !== null && followed.slot !== null) {
-        this.send(() => this.select(followed.slot));
-      } else if (told?.globalId && told.slot !== null && next.globalId === null) {
-        const slot2 = told.slot;
-        this.send(() => this.clear(slot2));
+      if (this.failedClear !== null) {
+        const slot = this.failedClear;
+        this.failedClear = null;
+        this.send(() => this.clear(slot), () => this.failedClear = slot);
       }
+      if (followed.globalId !== null && followed.slot !== null) {
+        if (!told || told.globalId !== followed.globalId || told.slot !== followed.slot || told.profile !== followed.profile) {
+          this.told = followed;
+          this.owed = null;
+          const slot = followed.slot;
+          this.send(() => this.select(slot), () => this.told = void 0);
+        }
+      } else if (followed.globalId !== null) {
+        if (told?.globalId === followed.globalId && told.slot !== null) this.clearSlot(told.slot);
+        this.told = followed;
+      } else {
+        if (told?.globalId && told.slot !== null) {
+          if (slotOf(told.globalId) === told.slot) this.owed = { globalId: told.globalId, slot: told.slot };
+          else this.clearSlot(told.slot);
+        }
+        this.told = followed;
+      }
+      if (this.owed && slotOf(this.owed.globalId) !== this.owed.slot) {
+        const slot = this.owed.slot;
+        this.owed = null;
+        this.clearSlot(slot);
+      }
+    }
+    /** The plugin unloaded the Recipe, as on a change of grinder or Bean, which DYE2 keeps its selection through: it is cleared at once. */
+    unloaded(globalId) {
+      const told = this.told;
+      if (told?.globalId !== globalId) return;
+      if (told.slot !== null) this.clearSlot(told.slot);
+      this.told = { globalId: null, slot: null, profile: told.profile };
+    }
+    /** Clears the slot from DYE2's selection, tried again at the next `follow` if Decaid fails it. */
+    clearSlot(slot) {
+      this.send(() => this.clear(slot), () => this.failedClear = slot);
     }
     /** Has DYE2 select the recipe in that slot, as its dashboard does as it applies one. */
     async select(slot) {
@@ -2179,11 +2220,12 @@ var __decentSync = (() => {
       const answer = await request("POST", SELECTION, body);
       if (!answer.ok && answer.status !== 404) throw new Error(`Decaid answered ${answer.status} setting DYE2's selection`);
     }
-    /** Runs each request in turn, logging a failure once until one succeeds. */
-    send(work) {
+    /** Runs each request in turn, logging a failure once until one succeeds, and marking it to be tried again (`failed`). */
+    send(work, failed) {
       this.queue = this.queue.then(work).then(() => {
         this.failing = false;
       }).catch((error) => {
+        failed();
         if (!this.failing) this.log(`Could not keep DYE2's selected recipe in step with the Loaded Recipe: ${error instanceof Error ? error.message : String(error)}`);
         this.failing = true;
       });
@@ -2346,7 +2388,8 @@ var __decentSync = (() => {
     /** Has DYE2's selection follow the Loaded Recipe a Workflow names (`Dye2Selection`). */
     followWorkflow(workflow) {
       const globalId = loadedRecipeOf(workflow);
-      this.selection.follow({ globalId, slot: globalId === null ? null : this.slots.get(globalId) ?? null, profile: dye2Fingerprint(workflow.profile) });
+      const slotOf = (id) => this.slots.get(id) ?? null;
+      this.selection.follow({ globalId, slot: globalId === null ? null : slotOf(globalId), profile: dye2Fingerprint(workflow.profile) }, slotOf);
     }
     stop() {
       this.stopped = true;
@@ -2370,6 +2413,7 @@ var __decentSync = (() => {
         while (!this.stopped && (this.queue.length > 0 || this.pending.kind !== "none")) {
           if (this.queue.length > 0) await this.decideQueued();
           if (this.pending.kind === "none" || this.stopped) continue;
+          const unloading = this.pending.kind === "unload" ? loadedRecipeOf(this.decided) : null;
           const written2 = await this.write(this.pending, this.decided);
           if (written2.kind === "nothing") {
             this.pending = { kind: "none" };
@@ -2378,6 +2422,7 @@ var __decentSync = (() => {
           if (written2.kind === "written") {
             this.written = { workflow: written2.workflow, pending: this.pending };
             if (this.pending.kind === "load") this.followWorkflow(written2.workflow);
+            else if (unloading !== null) this.selection.unloaded(unloading);
           }
           if (this.queue.length > 0 || await this.waitForChange(REPORT_WAIT_MS) || this.stopped) continue;
           if (this.written) {

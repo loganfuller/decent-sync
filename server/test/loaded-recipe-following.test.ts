@@ -325,9 +325,16 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
       { kind: "recipe", id: "1" },
       { kind: "recipe", id: "2" },
     ]);
-    // Moved to slot 5, it is selected there.
+    // Moved to slot 5, it is selected there, though Decaid fails A's first request, which is tried again.
+    let failedOnce = false;
+    a.refuseWrites = ({ route }) => {
+      if (failedOnce || route !== "/plugins/dye2.reaplugin/selection") return undefined;
+      failedOnce = true;
+      return { status: 500, body: { error: "Selection failed" } };
+    };
     expect((await api.call("PUT", `/recipes/${one}/slot`, { slot: 5 })).status).toBe(200);
     await expect.poll(() => [dye2Selection(a), dye2Selection(c)]).toEqual([{ kind: "recipe", id: "5" }, { kind: "recipe", id: "5" }]);
+    expect(failedOnce).toBe(true);
 
     // Another grinder unloads it on A, and clears it from DYE2's selection, which DYE2 itself keeps on a grinder change.
     await a.changeSettings({ context: { grinderId: "a-grinder-the-recipe-does-not-name", grinderModel: "Another grinder" } });
@@ -354,6 +361,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect((await api.call("PUT", `/recipes/${two}/archived`, { archived: true })).status).toBe(200);
     await expect.poll(() => refused).toBe(true);
     await expect.poll(() => inSlot(d, "2")).toBeUndefined();
+    // Gone from its slot, it is cleared from DYE2's selection at once, though its Workflow still names it.
+    await expect.poll(() => dye2Selection(d)).toBeNull();
     await settle();
     expect(named(d)).toBe(two);
     // A profile change meanwhile, as a yield set in Streamline makes, selects nothing in the slot the Recipe left.
@@ -439,14 +448,17 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await loads(machines.c, one);
   });
 
-  it("unloads the Recipe of a Machine made capture-only, and of no other", async () => {
-    const { machines, a, c, one } = await lab("Capture-only", 48051);
+  it("unloads the Recipe of a Machine made capture-only, and of no other, leaving DYE2's selection there, as nothing there is shared", async () => {
+    const { machines, a, c, one } = await lab("Capture-only", 48051, { dye2Selection: true });
+    expect(dye2Selection(a)).toEqual({ kind: "recipe", id: "1" });
     expect((await api.call("PUT", `/machines/${machines.a.machine.id}/sharing`, { sharing: false })).status).toBe(200);
     await expect.poll(() => named(a)).toBeNull();
     await loads(machines.a, null);
     await settle();
     expect(named(c)).toBe(one);
     await loads(machines.c, one);
+    // DYE2 goes on recording a barista's dial-in into the recipe applied there, which nothing takes in.
+    expect(dye2Selection(a)).toEqual({ kind: "recipe", id: "1" });
   });
 
   it("clears the Recipe of a Machine made capture-only while offline, though a report of its Library lists is unavailable as it reconnects", async () => {

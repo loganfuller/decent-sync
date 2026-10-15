@@ -54,8 +54,17 @@ export function dye2Fingerprint(profile: unknown): string | null {
 }
 
 export class Dye2Selection {
-  /** What DYE2 was last told, or undefined before the first Workflow the plugin saw. */
+  /** What DYE2 was last told, or undefined before the first Workflow the plugin saw, or after a selection Decaid failed. */
   private told: Followed | undefined;
+  /**
+   * A Recipe the server unloaded while the tablet still held it in the slot
+   * DYE2 has selected, as on a Machine made capture-only, whose recipes are
+   * written nothing and record as DYE2 records them: its selection is
+   * cleared only once the Recipe leaves that slot.
+   */
+  private owed: { globalId: string; slot: number } | null = null;
+  /** A slot whose clearing Decaid failed, cleared at the next Workflow or read of the recipes. */
+  private failedClear: number | null = null;
   private queue: Promise<void> = Promise.resolve();
   /** Whether a failure was logged since the last success, so a Decaid failing every request logs once. */
   private failing = false;
@@ -63,32 +72,66 @@ export class Dye2Selection {
   constructor(private readonly log: (message: string) => void) {}
 
   /**
-   * The Loaded Recipe the Workflow names once the plugin has decided on it:
-   * DYE2 selects it where it is in a slot the tablet holds, again as it
-   * moves to another slot, or as its profile changes, which clears DYE2's
-   * selection; and a recipe it no longer names is cleared from DYE2's
-   * selection while DYE2 still has it selected, in the slot it was last told
-   * of, though the tablet holds it in none by then. A recipe the tablet holds
-   * in no slot is never selected, as another may be in the slot it left. The
-   * first Workflow the plugin sees, as on every load of it, clears nothing:
-   * DYE2 may hold a selection a barista made since. DYE2 names a recipe by
-   * its slot alone, so a selection the barista made since of another recipe
-   * put in the slot the unloaded one left is cleared with it.
+   * The Loaded Recipe the Workflow names once the plugin has decided on it,
+   * with the slot the tablet holds each recipe in (`slotOf`): DYE2 selects
+   * it where it is in a slot, again as it moves to another slot, or as its
+   * profile changes, which clears DYE2's selection, but never while the
+   * tablet holds it in no slot, as another may be in the slot it left. A
+   * Loaded Recipe that leaves the slot DYE2 was told of is cleared from it
+   * at once, though the Workflow still names it until the server clears it.
+   * A Recipe the server unloads (`unloaded` tells of the plugin's own) is
+   * cleared only once it leaves that slot: one the tablet still holds there,
+   * as on a Machine made capture-only, stays DYE2's selection. A clear is
+   * made only while DYE2 still has that slot selected, leaving a favourite
+   * or another slot the barista selected since; DYE2 names a recipe by its
+   * slot alone, so a selection of another recipe put in that slot since is
+   * cleared too. The first Workflow the plugin sees, as on every load of it,
+   * clears nothing: DYE2 may hold a selection a barista made since.
    */
-  follow(followed: Followed): void {
+  follow(followed: Followed, slotOf: (globalId: string) => number | null): void {
     const told = this.told;
-    // A Loaded Recipe gone from the tablet's slots, as before the server clears it, keeps the slot DYE2 was told of, so
-    // it is cleared from there, but is never selected there again.
-    const slot = followed.slot ?? (told?.globalId === followed.globalId ? told.slot : null);
-    const next = { ...followed, slot };
-    if (told && told.globalId === next.globalId && told.slot === next.slot && (next.globalId === null || told.profile === next.profile)) return;
-    this.told = next;
-    if (followed.globalId !== null && followed.slot !== null) {
-      this.send(() => this.select(followed.slot!));
-    } else if (told?.globalId && told.slot !== null && next.globalId === null) {
-      const slot = told.slot;
-      this.send(() => this.clear(slot));
+    if (this.failedClear !== null) {
+      const slot = this.failedClear;
+      this.failedClear = null;
+      this.send(() => this.clear(slot), () => (this.failedClear = slot));
     }
+    if (followed.globalId !== null && followed.slot !== null) {
+      if (!told || told.globalId !== followed.globalId || told.slot !== followed.slot || told.profile !== followed.profile) {
+        this.told = followed;
+        this.owed = null;
+        const slot = followed.slot;
+        this.send(() => this.select(slot), () => (this.told = undefined));
+      }
+    } else if (followed.globalId !== null) {
+      // Gone from the tablet's slots while the Workflow names it, as before the server clears it: cleared from the slot it
+      // left, and never selected there again.
+      if (told?.globalId === followed.globalId && told.slot !== null) this.clearSlot(told.slot);
+      this.told = followed;
+    } else {
+      if (told?.globalId && told.slot !== null) {
+        if (slotOf(told.globalId) === told.slot) this.owed = { globalId: told.globalId, slot: told.slot };
+        else this.clearSlot(told.slot);
+      }
+      this.told = followed;
+    }
+    if (this.owed && slotOf(this.owed.globalId) !== this.owed.slot) {
+      const slot = this.owed.slot;
+      this.owed = null;
+      this.clearSlot(slot);
+    }
+  }
+
+  /** The plugin unloaded the Recipe, as on a change of grinder or Bean, which DYE2 keeps its selection through: it is cleared at once. */
+  unloaded(globalId: string): void {
+    const told = this.told;
+    if (told?.globalId !== globalId) return;
+    if (told.slot !== null) this.clearSlot(told.slot);
+    this.told = { globalId: null, slot: null, profile: told.profile };
+  }
+
+  /** Clears the slot from DYE2's selection, tried again at the next `follow` if Decaid fails it. */
+  private clearSlot(slot: number): void {
+    this.send(() => this.clear(slot), () => (this.failedClear = slot));
   }
 
   /** Has DYE2 select the recipe in that slot, as its dashboard does as it applies one. */
@@ -111,14 +154,15 @@ export class Dye2Selection {
     if (!answer.ok && answer.status !== 404) throw new Error(`Decaid answered ${answer.status} setting DYE2's selection`);
   }
 
-  /** Runs each request in turn, logging a failure once until one succeeds. */
-  private send(work: () => Promise<void>): void {
+  /** Runs each request in turn, logging a failure once until one succeeds, and marking it to be tried again (`failed`). */
+  private send(work: () => Promise<void>, failed: () => void): void {
     this.queue = this.queue
       .then(work)
       .then(() => {
         this.failing = false;
       })
       .catch((error: unknown) => {
+        failed();
         if (!this.failing) this.log(`Could not keep DYE2's selected recipe in step with the Loaded Recipe: ${error instanceof Error ? error.message : String(error)}`);
         this.failing = true;
       });

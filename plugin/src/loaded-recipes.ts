@@ -212,7 +212,8 @@ export class LoadedRecipes {
   /** Has DYE2's selection follow the Loaded Recipe a Workflow names (`Dye2Selection`). */
   private followWorkflow(workflow: Record<string, unknown>): void {
     const globalId = loadedRecipeOf(workflow);
-    this.selection.follow({ globalId, slot: globalId === null ? null : (this.slots.get(globalId) ?? null), profile: dye2Fingerprint(workflow.profile) });
+    const slotOf = (id: string) => this.slots.get(id) ?? null;
+    this.selection.follow({ globalId, slot: globalId === null ? null : slotOf(globalId), profile: dye2Fingerprint(workflow.profile) }, slotOf);
   }
 
   stop(): void {
@@ -239,6 +240,7 @@ export class LoadedRecipes {
       while (!this.stopped && (this.queue.length > 0 || this.pending.kind !== "none")) {
         if (this.queue.length > 0) await this.decideQueued();
         if (this.pending.kind === "none" || this.stopped) continue;
+        const unloading = this.pending.kind === "unload" ? loadedRecipeOf(this.decided!) : null;
         const written = await this.write(this.pending, this.decided!);
         if (written.kind === "nothing") {
           this.pending = { kind: "none" };
@@ -249,6 +251,8 @@ export class LoadedRecipes {
           this.written = { workflow: written.workflow, pending: this.pending };
           // DYE2 is told at once, inside its debounce of the write, so it records the write into no recipe it had selected before.
           if (this.pending.kind === "load") this.followWorkflow(written.workflow);
+          // An unload the plugin decided is cleared from DYE2's selection at once, which DYE2 keeps through a change of grinder or Bean.
+          else if (unloading !== null) this.selection.unloaded(unloading);
         }
         // Decaid reports each change in order, so the plugin waits for its report, deciding on the Workflow it read only
         // where none comes.

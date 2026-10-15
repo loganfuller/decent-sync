@@ -359,15 +359,24 @@ from the Workflow deliveries.
   changes as DYE2 fingerprints one (`dye2Fingerprint`), which DYE2 takes as
   clearing its selection, as a yield set in Streamline does; but never
   while the tablet holds it in no slot, as another may be in the slot it
-  left. It clears the selection as the plugin or the server unloads it,
-  while DYE2 still has its slot selected, leaving a favourite or another
-  slot the barista selected since; DYE2 names a recipe by its slot alone,
-  so a selection of another recipe put in that slot since is cleared too.
+  left. It clears the selection as soon as the plugin unloads the Recipe,
+  on a change of grinder or Bean, which DYE2 keeps it through, and as soon
+  as the Recipe leaves the slot DYE2 has selected, as when it is taken out
+  of its slot or Archived, or the Machine joins another Location, before
+  the server's clear of it reaches the Workflow. One the server unloads
+  while the tablet still holds it in that slot, as on a Machine made
+  capture-only, whose recipes are written nothing, stays DYE2's selection,
+  so DYE2 goes on recording into it there. A clear is made only while DYE2
+  still has that slot selected, leaving a favourite or another slot the
+  barista selected since; DYE2 names a recipe by its slot alone, so a
+  selection of another recipe put in that slot since is cleared too. A
+  selection or clear Decaid fails is tried again at the next Workflow or
+  read of the recipes.
   DYE2 v0.1.20 keeps a cleared selection in its plugin storage, as Decaid
   stores no null, and selects it again as it next loads
   (decentespresso/dye2#22): until that is fixed, a selection the plugin
   cleared returns after Decaid restarts, and lasts until the plugin next
-  loads or unloads a Recipe. Otherwise DYE2 would go on recording into a recipe the
+  loads a Recipe. Otherwise DYE2 would go on recording into a recipe the
   plugin unloaded on a change of grinder or Bean, which DYE2 does not clear
   on, or that was selected before the barista dialled in another by hand,
   and each change would reach every Machine with that Recipe loaded. A
