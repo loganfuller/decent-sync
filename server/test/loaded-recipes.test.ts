@@ -226,27 +226,42 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     await loads(machine, null);
   });
 
-  it("keeps a batch of another Bean picked while a load of the Recipe is being decided, and unloads it", async () => {
-    let slow = false;
-    // While set, each read of DYE2's recipes takes 25 s of the tablet's time, half a second here.
-    const delay = (method: string, path: string) => (slow && method === "GET" && path === `/store/${DYE2_NAMESPACE}/recipes` ? 25_000 : 0);
-    const { machine, tablet, one } = await lab("Overlapped", 47071, server, delay);
+  it.each([
+    { read: "DYE2's recipes", serial: 47071, slowed: (path: string) => path === `/store/${DYE2_NAMESPACE}/recipes` },
+    { read: "the Recipe's Bean", serial: 47081, slowed: (path: string) => path.startsWith("/beans/") },
+  ])("keeps a batch of another Bean picked while a load of the Recipe reads $read, and unloads it", async ({ read, serial, slowed }) => {
     const library = dye2Library();
-    const brazil = (library["/beans"] as Record_[]).find((bean) => String(bean.name).endsWith("Brazil"))!.id;
-    const brazilBatch = (library["/bean-batches"] as Record_[]).find((batch) => batch.beanId === brazil)!.id;
+    const beanNamed = (name: string) => (library["/beans"] as Record_[]).find((bean) => String(bean.name).endsWith(name))!.id;
+    const brazilBatch = (library["/bean-batches"] as Record_[]).find((batch) => batch.beanId === beanNamed("Brazil"))!.id;
+    let pick: (() => void) | undefined;
+    // Once set, the next such read takes 25 s of the tablet's time, half a second here, as a barista picks a batch of
+    // another Bean.
+    const delay = (method: string, path: string) => {
+      if (!pick || method !== "GET" || !slowed(path)) return 0;
+      pick();
+      pick = undefined;
+      return 25_000;
+    };
+    const { machine, tablet, one } = await lab(`Overlapped ${read}`, serial, server, delay);
     expect((await applyInDye2(tablet, "1")).status).toBe(200);
     await loads(machine, one);
-    await tablet.changeSettings({ context: { grinderSetting: "2.8" } });
+    // The next bag of its Bean, and a tweak of its grind, keep it loaded; applied again, it writes its own batch back.
+    const nextBag = await tablet.addBatch(beanNamed("Ethiopia"), { roastDate: "2026-10-10", weight: 250 });
+    await tablet.changeSettings({ context: { beanBatchId: nextBag.id, grinderSetting: "2.8" } });
     await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }, { timeout: 15_000 }).toMatchObject({
-      workflow: { workflow: { context: { grinderSetting: "2.8" } } },
+      workflow: { workflow: { context: { beanBatchId: nextBag.id, grinderSetting: "2.8" } } },
     });
+    expect(named(tablet)).toBe(one);
 
     // Applied again, its load is being decided as a batch of another Bean is picked.
-    slow = true;
+    let picked: Promise<unknown> | undefined;
+    pick = () => {
+      picked = tablet.changeSettings({ context: { beanBatchId: brazilBatch } });
+    };
     expect((await applyInDye2(tablet, "1")).status).toBe(200);
-    await tablet.changeSettings({ context: { beanBatchId: brazilBatch } });
+    await expect.poll(() => picked, { timeout: 15_000 }).toBeDefined();
+    await picked;
     await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
-    slow = false;
     expect(context(tablet)).toMatchObject({ beanBatchId: brazilBatch, grinderSetting: "2.7" });
     await loads(machine, null);
   });

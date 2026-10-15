@@ -296,7 +296,11 @@ from the Workflow deliveries.
   it is sent: an unload of the plugin while one is held loses it, and the
   Workflow Decaid sends as the plugin loads again brings the current one.
 
-Known limits: the dials a recipe held before are kept only in memory, so a
+Known limits: Decaid has no conditional write, so a barista's change of
+a field a load writes, made in the moments between the plugin's last read
+of the Workflow and its write, is written over, as for a settings write
+(ADR-0021); the plugin reads everything else it needs first, to keep that
+window to one request. The dials a recipe held before are kept only in memory, so a
 copy read before the plugin loaded, as a DYE2 page open across a reload of
 the plugin, is matched only where its dial is the recipe's now. A barista
 who dials in exactly a dial the Loaded Recipe held before, on its Machine,

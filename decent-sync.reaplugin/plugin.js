@@ -2195,16 +2195,19 @@ var __decentSync = (() => {
     }
     /**
      * Records a load: writes the recipe's current values and global id into
-     * the Workflow (`loadWrite`), read again first, unless its dial or Bean
-     * Batch changed since it was decided on, as when a barista picked another
-     * batch meanwhile, which is then decided on in turn. Decaid refuses to
+     * the Workflow (`loadWrite`), read again just before, unless its dial or
+     * Bean Batch changed since it was decided on, as when a barista picked
+     * another batch meanwhile, which is then decided on in turn. Decaid has no
+     * conditional write, so a change made between that read and the write is
+     * written over where the write sets the same field. Decaid refuses to
      * change the hot water settings while no machine is connected, so the rest
      * is then written without them.
      */
     async load(recipe, decided) {
+      const context = await this.loadContext(recipe.record);
       const workflow = await this.workflowNow();
       if (!sameSetUp(decided, workflow)) return;
-      const write = loadWrite(workflow, recipe.record, recipe.globalId, await this.loadContext(recipe.record));
+      const write = loadWrite(workflow, recipe.record, recipe.globalId, context);
       if (write === null) return;
       let answer = await request("PUT", "/workflow", write);
       if (!answer.ok && "hotWaterData" in write && machineMissing(answer)) {
