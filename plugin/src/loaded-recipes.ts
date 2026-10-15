@@ -1,6 +1,6 @@
 import { DYE2_NAMESPACE, LOADED_RECIPE_KEY, RECIPE_FIELD, dye2Records, loadedRecipeOf } from "@decent-sync/protocol";
 import { type Answer, request } from "./decaid.js";
-import type { WorkflowChanges } from "./library-writes.js";
+import type { WorkflowChanges } from "./machine-events.js";
 import {
   type ChangedSetUp,
   type Dial,

@@ -40,6 +40,7 @@ import {
 } from "@decent-sync/protocol";
 import { type Answer, readShot, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
+import type { WorkflowChanges } from "./machine-events.js";
 import type { Outbox } from "./outbox.js";
 import { stepsKey } from "./recipe-matching.js";
 import { keepStreamlineSteamTemperature } from "./streamline.js";
@@ -268,16 +269,6 @@ export class LibraryAccess {
   wrote(list: CollectionName): void {
     for (const listener of this.listeners) listener(list);
   }
-}
-
-/**
- * Holds back the changes of the tablet's Workflow the plugin sends while it
- * writes the shared settings into it, and sends the latest once released
- * (`MachineEvents`).
- */
-export interface WorkflowChanges {
-  hold(): void;
-  release(): void;
 }
 
 /**

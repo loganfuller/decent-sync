@@ -1,6 +1,22 @@
-import type { WorkflowDelivery } from "@decent-sync/protocol";
-import type { WorkflowChanges } from "./library-writes.js";
-import type { Outbox } from "./outbox.js";
+import type { MachineStateDelivery, WorkflowDelivery } from "@decent-sync/protocol";
+
+/**
+ * Holds back the changes of the tablet's Workflow the plugin sends while it
+ * writes into it, the shared settings (`LibraryWrites`) or a Loaded Recipe
+ * (`LoadedRecipes`), and sends the latest once released (`MachineEvents`).
+ */
+export interface WorkflowChanges {
+  hold(): void;
+  release(): void;
+}
+
+/** What MachineEvents needs of the plugin's one outbox (`Outbox`). */
+export interface EventOutbox {
+  nextId(): string;
+  enqueue(delivery: WorkflowDelivery | MachineStateDelivery): void;
+  /** Drops a delivery that is no longer needed, unless it was ever sent. */
+  supersede(id: string): void;
+}
 
 /**
  * Workflow changes and machine state transitions, sent through the outbox as
@@ -20,8 +36,15 @@ export class MachineEvents implements WorkflowChanges {
    * tablet's. A change Decaid reports meanwhile is sent once none is.
    */
   private holds = 0;
-  /** Set once a resend was asked for while held (`resend`): the Workflow `release` sends is that resend. */
+  /**
+   * Set once a resend was asked for while held (`resend`), and no change was
+   * reported while held: the Workflow `release` sends is then that resend
+   * alone, which the next welcome's replaces unless it was ever sent. One
+   * that holds a change too is no resend: replacing it would lose the change.
+   */
   private heldResend = false;
+  /** Set once a change was reported while held. */
+  private heldReport = false;
   /** A change reported while held, which `release` sends. */
   private heldChange = false;
   /** The delivery that sent it again on the latest welcome, which the next welcome's replaces unless it was ever sent. */
@@ -30,7 +53,7 @@ export class MachineEvents implements WorkflowChanges {
   private state: { state: string; substate: string } | undefined;
 
   constructor(
-    private readonly outbox: Outbox,
+    private readonly outbox: EventOutbox,
     /** Told of each Workflow Decaid reports before it is queued, so it may hold it back (`LoadedRecipes`). */
     private readonly observe: (workflow: Record<string, unknown>) => void = () => {},
   ) {}
@@ -41,8 +64,10 @@ export class MachineEvents implements WorkflowChanges {
     if (!workflow) return;
     this.workflow = workflow;
     this.observe(workflow);
-    if (this.holds > 0) this.heldChange = true;
-    else this.queueWorkflow(workflow);
+    if (this.holds > 0) {
+      this.heldChange = true;
+      this.heldReport = true;
+    } else this.queueWorkflow(workflow);
   }
 
   /** Holds back the Workflow's changes, as one of the plugin's writes into it begins. */
@@ -60,9 +85,9 @@ export class MachineEvents implements WorkflowChanges {
     if (this.holds > 0 || !this.heldChange || !this.workflow) return;
     this.heldChange = false;
     const id = this.queueWorkflow(this.workflow);
-    // A resend it holds, which the next welcome's replaces unless it was ever sent.
-    if (this.heldResend) this.resent = id;
+    if (this.heldResend && !this.heldReport) this.resent = id;
     this.heldResend = false;
+    this.heldReport = false;
   }
 
   /**

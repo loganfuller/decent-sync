@@ -2394,8 +2394,15 @@ var __decentSync = (() => {
        * tablet's. A change Decaid reports meanwhile is sent once none is.
        */
       __publicField(this, "holds", 0);
-      /** Set once a resend was asked for while held (`resend`): the Workflow `release` sends is that resend. */
+      /**
+       * Set once a resend was asked for while held (`resend`), and no change was
+       * reported while held: the Workflow `release` sends is then that resend
+       * alone, which the next welcome's replaces unless it was ever sent. One
+       * that holds a change too is no resend: replacing it would lose the change.
+       */
       __publicField(this, "heldResend", false);
+      /** Set once a change was reported while held. */
+      __publicField(this, "heldReport", false);
       /** A change reported while held, which `release` sends. */
       __publicField(this, "heldChange", false);
       /** The delivery that sent it again on the latest welcome, which the next welcome's replaces unless it was ever sent. */
@@ -2409,8 +2416,10 @@ var __decentSync = (() => {
       if (!workflow) return;
       this.workflow = workflow;
       this.observe(workflow);
-      if (this.holds > 0) this.heldChange = true;
-      else this.queueWorkflow(workflow);
+      if (this.holds > 0) {
+        this.heldChange = true;
+        this.heldReport = true;
+      } else this.queueWorkflow(workflow);
     }
     /** Holds back the Workflow's changes, as one of the plugin's writes into it begins. */
     hold() {
@@ -2426,8 +2435,9 @@ var __decentSync = (() => {
       if (this.holds > 0 || !this.heldChange || !this.workflow) return;
       this.heldChange = false;
       const id = this.queueWorkflow(this.workflow);
-      if (this.heldResend) this.resent = id;
+      if (this.heldResend && !this.heldReport) this.resent = id;
       this.heldResend = false;
+      this.heldReport = false;
     }
     /**
      * Decaid's `stateUpdate`, which arrives several times a second while a

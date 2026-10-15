@@ -322,8 +322,11 @@ from the Workflow deliveries.
   of the shared settings, and sends the latest once none is. So the server
   reads only the Workflow after the plugin's write, the Recipe's id in it,
   and never a Workflow naming a Loaded Recipe as a stale copy or another
-  recipe applied over it. A held change is kept in plugin storage only once
-  it is sent: an unload of the plugin while one is held loses it, and the
+  recipe applied over it. A welcome's resend of the Workflow asked for
+  while held is the Workflow released, which the next welcome replaces
+  unless it was ever sent, but where a change was held too: replacing that
+  would lose the change. A held change is kept in plugin storage only once
+  it is queued: an unload of the plugin while one is held loses it, and the
   Workflow Decaid sends as the plugin loads again brings the current one.
 
 Known limits: Decaid has no conditional write, so a barista's change of
