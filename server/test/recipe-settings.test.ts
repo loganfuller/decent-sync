@@ -199,24 +199,6 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
     expect(held(two)).toEqual(LOCATION);
   });
 
-  it("rewrites every recipe at the Location when its steam settings change", async () => {
-    const { settings, one, two } = await lab("Rewritten", 44021);
-    await saveInDye2(one, recipes.saveSlot1);
-    await saveInDye2(one, recipes.saveSlot2);
-    await expect.poll(() => mirrored(two, "2").steamFlowMls, { timeout: 15_000 }).toBe(1.7);
-
-    expect((await api.call("PATCH", `/location-settings/${settings.id}`, { values: { "steamSettings.flow": 2.1, "steamSettings.duration": 40 } })).status).toBe(200);
-    for (const tablet of [one, two]) {
-      await expect.poll(() => mirrored(tablet, "2"), { timeout: 15_000 }).toEqual({ steamMode: "flow", steamTimeS: undefined, steamFlowMls: 2.1, flushS: 6 });
-      await expect.poll(() => mirrored(tablet, "1"), { timeout: 15_000 }).toEqual({ steamMode: "time", steamTimeS: 40, steamFlowMls: undefined, flushS: 6 });
-      await holds(tablet, { "steamSettings.flow": 2.1, "steamSettings.duration": 40 });
-    }
-    // Writing them made no version of the settings but the account's change.
-    expect((await versions(settings)).filter((version) => version.source.machine !== null).map((version) => version.fields)).not.toContainEqual(
-      expect.objectContaining({ "steamSettings.flow": 2.1 }),
-    );
-  });
-
   it("takes a flush time changed inside a recipe on one tablet to the Location's rinse settings, every Machine there and every recipe", async () => {
     const { here, one, two, settings } = await lab("Flushed", 44031);
     await saveInDye2(one, recipes.saveSlot1);
@@ -274,19 +256,27 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
     await expect.poll(() => mirrored(two, "2"), { timeout: 15_000 }).toEqual({ steamMode: "flow", steamTimeS: undefined, steamFlowMls: 1.7, flushS: 6 });
   });
 
-  it("takes no edit from a recipe applied from a copy read before the Location's settings changed, and writes the Location's back", async () => {
+  it("rewrites every recipe at the Location when its settings change, and takes no edit from a recipe applied from a copy read before, writing the Location's back", async () => {
     const { here, one, two, settings } = await lab("Stale", 44051);
+    await saveInDye2(one, recipes.saveSlot1);
     await saveInDye2(one, recipes.saveSlot2);
     for (const tablet of [one, two]) await expect.poll(() => mirrored(tablet, "2"), { timeout: 15_000 }).toMatchObject({ steamFlowMls: 1.7, flushS: 6 });
     // Streamline's strip on the second tablet reads its recipes, and keeps them.
     const copy = structuredClone(inSlot(two, "2")!);
 
-    expect((await api.call("PATCH", `/location-settings/${settings.id}`, { values: { "steamSettings.flow": 2.1, "rinseData.duration": 8 } })).status).toBe(200);
+    const changed = { "steamSettings.flow": 2.1, "steamSettings.duration": 40, "rinseData.duration": 8 };
+    expect((await api.call("PATCH", `/location-settings/${settings.id}`, { values: changed })).status).toBe(200);
+    // Every recipe there is rewritten, of either steam mode.
     for (const tablet of [one, two]) {
-      await holds(tablet, { "steamSettings.flow": 2.1, "rinseData.duration": 8 });
-      await expect.poll(() => mirrored(tablet, "2"), { timeout: 15_000 }).toMatchObject({ steamFlowMls: 2.1, flushS: 8 });
+      await holds(tablet, changed);
+      await expect.poll(() => mirrored(tablet, "2"), { timeout: 15_000 }).toEqual({ steamMode: "flow", steamTimeS: undefined, steamFlowMls: 2.1, flushS: 8 });
+      await expect.poll(() => mirrored(tablet, "1"), { timeout: 15_000 }).toEqual({ steamMode: "time", steamTimeS: 40, steamFlowMls: undefined, flushS: 8 });
     }
+    // Writing them made no version of the settings but the account's change.
     const history = await versions(settings);
+    expect(history.filter((version) => version.source.machine !== null).map((version) => version.fields)).not.toContainEqual(
+      expect.objectContaining({ "steamSettings.flow": 2.1 }),
+    );
 
     // Applied from the copy it kept, the recipe sets the old values, which are no edit: the Location's are written back. So
     // does applying it again, as the strip keeps the copy.

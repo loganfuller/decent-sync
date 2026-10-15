@@ -124,26 +124,6 @@ describe("Resolving Conflicts", () => {
     return { labLocation, cafeLocation, labMachine, secondMachine, one, two, cafe, id, earlier, later, conflict: conflict! };
   }
 
-  it("shows an open Conflict with the value it lost to and where and when each came from, on its item too", async () => {
-    const { id, conflict, labMachine, secondMachine, earlier, later } = await notesConflict("Shown", 20000);
-    expect(conflict).toMatchObject({
-      item: { kind: "bean", id, name: "Roux Shown Guji" },
-      field: "notes",
-      value: "Earlier notes",
-      location: null,
-      source: { machine: { id: labMachine.machine.id }, account: null },
-      state: "open",
-      current: { value: "Later notes", source: { machine: { id: secondMachine.machine.id, name: "Shown lab 2" }, account: null } },
-      resolvable: true,
-    });
-    expect(Date.parse(conflict.editedAt)).toBe(localTime(earlier.updatedAt));
-    expect(Date.parse(conflict.current.editedAt!)).toBe(localTime(later.updatedAt));
-
-    expect(await api.get<{ conflicts: ConflictView[] }>(`/beans/${id}/conflicts`)).toEqual({ conflicts: [conflict] });
-    expect((await api.call("GET", "/beans/00000000-0000-4000-8000-000000000000/conflicts")).status).toBe(404);
-    expect((await api.call("GET", "/profiles/profile%3A00000000000000000000/conflicts")).status).toBe(404);
-  });
-
   it("makes a used value current on every tablet that holds the item, as an edit from the account, and closes the Conflict", async () => {
     const { id, conflict, one, two, cafe } = await notesConflict("Used", 20010);
     const before = await beanHistory(id);
@@ -198,8 +178,24 @@ describe("Resolving Conflicts", () => {
     expect(await conflictsOf(id)).toEqual([]);
   });
 
-  it("closes a dismissed Conflict and changes nothing else, and lets Staff resolve one about shared content anywhere", async () => {
-    const { id, conflict, one, two, cafe } = await notesConflict("Dismissed", 20020);
+  it("shows an open Conflict with the value it lost to and where and when each came from, on its item too, which Staff dismiss anywhere, changing nothing else", async () => {
+    const { id, conflict, labMachine, secondMachine, earlier, later, one, two, cafe } = await notesConflict("Dismissed", 20020);
+    expect(conflict).toMatchObject({
+      item: { kind: "bean", id, name: "Roux Dismissed Guji" },
+      field: "notes",
+      value: "Earlier notes",
+      location: null,
+      source: { machine: { id: labMachine.machine.id }, account: null },
+      state: "open",
+      current: { value: "Later notes", source: { machine: { id: secondMachine.machine.id, name: "Dismissed lab 2" }, account: null } },
+      resolvable: true,
+    });
+    expect(Date.parse(conflict.editedAt)).toBe(localTime(earlier.updatedAt));
+    expect(Date.parse(conflict.current.editedAt!)).toBe(localTime(later.updatedAt));
+    expect(await api.get<{ conflicts: ConflictView[] }>(`/beans/${id}/conflicts`)).toEqual({ conflicts: [conflict] });
+    expect((await api.call("GET", "/beans/00000000-0000-4000-8000-000000000000/conflicts")).status).toBe(404);
+    expect((await api.call("GET", "/profiles/profile%3A00000000000000000000/conflicts")).status).toBe(404);
+
     const before = await beanHistory(id);
     const elsewhere = await api.createLocation("Dismissed elsewhere", "America/Chicago");
     const staff = await api.staffAt("dismissing@example.com", elsewhere);

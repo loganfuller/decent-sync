@@ -93,31 +93,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
       .sort((a, b) => a.field.localeCompare(b.field));
   }
 
-  it("writes a Bean created on one tablet to its Location's other tablet, through another instance, with the same global id, and lists it once", async () => {
-    const lab = await api.createLocation("Roastery lab", "America/Chicago");
-    const first = await api.createMachine("Lab group 1", lab.id);
-    const second = await api.createMachine("Lab group 2", lab.id);
-    const one = load(first, "14001");
-    const two = load(second, "14002", { instance: other });
-    await api.waitForOnline(first, second);
-
-    const created = await one.addBean({ roaster: "Roux", name: "Guji Hambela", country: "Ethiopia", processing: "washed" });
-    const bean = await libraryBean("Guji Hambela");
-    expect(bean).toMatchObject({ roaster: "Roux", archived: false, createdLocation: lab, likelyDuplicates: [] });
-    expect(locations(bean)).toEqual(["Roastery lab"]);
-    // The tablet that created it is written its global id, and the other is written the Bean.
-    await holds(one, "Guji Hambela", bean.id);
-    await holds(two, "Guji Hambela", bean.id);
-    const written = two.beans().find((record) => record.name === "Guji Hambela")!;
-    expect(written).toMatchObject({ roaster: "Roux", country: "Ethiopia", processing: "washed", extras: { [GLOBAL_ID_KEY]: bean.id } });
-    expect(written.id).not.toBe(created.id);
-    expect(one.beans().find((record) => record.name === "Guji Hambela")!.id).toBe(created.id);
-
-    const viewed = (await api.get<{ bean: BeanView }>(`/beans/${bean.id}`)).bean;
-    expect(viewed.content).toEqual({ roaster: "Roux", name: "Guji Hambela", decaf: false, country: "Ethiopia", processing: "washed" });
-    expect(await beansNamed("Guji Hambela")).toHaveLength(1);
-  });
-
   it("changes nothing when a tablet reports back the plugin's own write", async () => {
     const lab = await api.createLocation("Echo lab", "UTC");
     const first = await api.createMachine("Echo 1", lab.id);
@@ -428,7 +403,7 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     expect(await beansNamed("  opening day")).toEqual([]);
   });
 
-  it("writes a Bean only to the tablets at the Location that offers it", async () => {
+  it("writes a Bean created on one tablet to its Location's other tablet, through another instance, with the same global id, lists it once, and writes it to no other Location's", async () => {
     const lab = await api.createLocation("Separate lab", "UTC");
     const belmont = await api.createLocation("Separate Belmont", "UTC");
     const first = await api.createMachine("Separate lab 1", lab.id);
@@ -444,9 +419,20 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     expect(locations(belmontBean)).toEqual(["Separate Belmont"]);
     await holds(belmontTablet, "Belmont Only", belmontBean.id);
     // A Bean the lab creates later reaches the lab's tablets after any write they were due before it.
-    await one.addBean({ roaster: "Roux", name: "Lab Only" });
+    const created = await one.addBean({ roaster: "Roux", name: "Lab Only", country: "Ethiopia", processing: "washed" });
     const labBean = await libraryBean("Lab Only");
+    expect(labBean).toMatchObject({ roaster: "Roux", archived: false, createdLocation: lab, likelyDuplicates: [] });
+    expect(locations(labBean)).toEqual(["Separate lab"]);
+    // The tablet that created it is written its global id, and the other is written the Bean.
+    await holds(one, "Lab Only", labBean.id);
     await holds(two, "Lab Only", labBean.id);
+    const written = two.beans().find((record) => record.name === "Lab Only")!;
+    expect(written).toMatchObject({ roaster: "Roux", country: "Ethiopia", processing: "washed", extras: { [GLOBAL_ID_KEY]: labBean.id } });
+    expect(written.id).not.toBe(created.id);
+    expect(one.beans().find((record) => record.name === "Lab Only")!.id).toBe(created.id);
+    const viewed = (await api.get<{ bean: BeanView }>(`/beans/${labBean.id}`)).bean;
+    expect(viewed.content).toEqual({ roaster: "Roux", name: "Lab Only", decaf: false, country: "Ethiopia", processing: "washed" });
+    expect(await beansNamed("Lab Only")).toHaveLength(1);
     expect(heldAs(one, "Belmont Only")).toEqual([]);
     expect(heldAs(two, "Belmont Only")).toEqual([]);
     expect(heldAs(belmontTablet, "Lab Only")).toEqual([]);

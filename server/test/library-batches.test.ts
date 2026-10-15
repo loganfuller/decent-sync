@@ -529,7 +529,7 @@ describe("Bean Batches at Locations", () => {
     return { ...setup, three, batch };
   }
 
-  it("makes a weightRemaining changed on one tablet its Location's remaining weight, reaching the Location's other tablets, while another Location's stays", async () => {
+  it("makes a weightRemaining changed on one tablet its Location's remaining weight, reaching the Location's other tablets, while another Location's stays, and finishes a Bean's batches at the Location of the tablet that deletes it, and only there", async () => {
     const { one, two, three, cafe, batch } = await atTwoLocations("Weighed", 16031);
     // The cafe counts its own, which reaches the moved tablet there.
     await cafe.editBatch(heldBatch(cafe, batch.id)[0]!.id, { weightRemaining: 200 });
@@ -541,25 +541,23 @@ describe("Bean Batches at Locations", () => {
     await holds(() => heldBatch(three, batch.id), { weightRemaining: 180.5 });
     expect(heldBatch(cafe, batch.id)[0]!.weightRemaining).toBe(200);
     expect(heldBatch(two, batch.id)[0]!.weightRemaining).toBe(200);
-  });
 
-  it("finishes a Bean's batches at the Location of the tablet that deletes it, and only there, where the Bean stops being offered", async () => {
-    const { one, two, three, cafe, batch } = await atTwoLocations("Removed", 16041);
+    // Deleted on a lab tablet, the Bean stops being offered there.
     const logged = [server.output().length, other.output().length] as const;
     const bean = await holds(() => heldBean(one, batch.bean.id), { archived: false });
     // As DYE2 deletes a bean: its batches first, since Decaid refuses to delete a bean that has any.
     await one.deleteBean(bean.id);
     expect(one.beans()).toEqual([]);
 
-    await expect.poll(() => whereAt(batch.id)).toEqual([["Removed cafe", null]]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([["Weighed cafe", 200]]);
     await holds(() => heldBatch(three, batch.id), { archived: true });
     await holds(() => heldBean(three, batch.bean.id), { archived: true });
-    expect(await offeredAt("Removed Blend")).toEqual(["Removed cafe"]);
+    expect(await offeredAt("Weighed Blend")).toEqual(["Weighed cafe"]);
     // The cafe's tablets keep them.
     expect(heldBatch(cafe, batch.id)).toMatchObject([{ archived: false }]);
     expect(heldBean(cafe, batch.bean.id)).toMatchObject([{ archived: false }]);
     expect(heldBean(two, batch.bean.id)).toMatchObject([{ archived: false }]);
-    expect((await libraryBean("Removed Blend"))!.archived).toBe(false);
+    expect((await libraryBean("Weighed Blend"))!.archived).toBe(false);
     // Its batches and the bean, gone in one poll, were taken in together before anything was written on their account.
     expect(server.output().slice(logged[0]) + other.output().slice(logged[1])).not.toContain("did not write");
   });

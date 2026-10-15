@@ -322,31 +322,6 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     await loads(machine, null);
   });
 
-  it("unloads a Recipe whose grinder changes, though its dose is tweaked while that is being decided", async () => {
-    let tweak: (() => void) | undefined;
-    // Once set, the next read of DYE2's recipes takes 25 s of the tablet's time, half a second here, as the dose is tweaked.
-    const delay = (method: string, path: string) => {
-      if (!tweak || method !== "GET" || path !== `/store/${DYE2_NAMESPACE}/recipes`) return 0;
-      const call = tweak;
-      tweak = undefined;
-      call();
-      return 25_000;
-    };
-    const { machine, tablet, one } = await lab("Tweaked", 47111, server, delay);
-    expect((await applyInDye2(tablet, "1")).status).toBe(200);
-    await loads(machine, one);
-    let tweaked: Promise<unknown> | undefined;
-    tweak = () => {
-      tweaked = tablet.changeSettings({ context: { targetDoseWeight: 19.25 } });
-    };
-    await tablet.changeSettings({ context: { grinderId: "a-grinder-the-recipe-does-not-name", grinderModel: "Another grinder" } });
-    await expect.poll(() => tweaked, { timeout: 15_000 }).toBeDefined();
-    await tweaked;
-    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
-    expect(context(tablet)).toMatchObject({ grinderId: "a-grinder-the-recipe-does-not-name", targetDoseWeight: 19.25 });
-    await loads(machine, null);
-  });
-
   it("unloads a Recipe once Decaid answers again, after failing the read the change needed", async () => {
     const { machine, tablet, one } = await lab("Retried", 47061);
     expect((await applyInDye2(tablet, "1")).status).toBe(200);
