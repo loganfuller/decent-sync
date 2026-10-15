@@ -66,8 +66,12 @@ describe("The durable outbox", () => {
   const transitions = async (machine: CreatedMachine) =>
     (await stateEvents(machine)).events.map((event) => [event.state, event.substate]).reverse();
 
-  /** Resolves once `done` holds, waiting as long as the tablet keeps sending (backlog.ts). */
-  const whileSending = (tablet: SimulatedTablet, done: () => boolean | Promise<boolean>) => whileProgressing(done, () => machineEventsSent(tablet).length);
+  /**
+   * Resolves once `done` holds, waiting as long as the tablet keeps sending deliveries it has not sent before
+   * (backlog.ts): the same ones sent again and again, as over a connection that keeps being dropped, are not progress.
+   */
+  const whileSending = (tablet: SimulatedTablet, done: () => boolean | Promise<boolean>) =>
+    whileProgressing(done, () => new Set(machineEventsSent(tablet).map((frame) => frame.id)).size);
 
   /** Resolves once the server has acknowledged every Workflow and machine state delivery the plugin sent. */
   async function acknowledged(tablet: SimulatedTablet) {

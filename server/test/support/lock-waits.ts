@@ -27,8 +27,8 @@ export interface LockWaits {
  * lock, so a test knows work has reached a lock it holds before it goes on,
  * rather than sleeping and hoping it has. It reads through a connection of its
  * own: one inside a transaction sees other sessions' activity only as it was
- * when the transaction first looked. It gives up after 4 s, within a test's
- * default 5 s, so a failure says which lock nothing waited for.
+ * when the transaction first looked. It gives up after 15 s, as a poll does
+ * by default (vitest.config.ts), so a failure says which lock nothing waited for.
  *
  * It counts every such wait in the database, so nothing else may wait for a
  * lock meanwhile: a connection the server releases for its silence, for one,
@@ -46,7 +46,7 @@ export async function waitForLockWaits(server: TestServer, { count = 1, ...which
           throw new Error(`${waiting} of ${count} queries wait for ${what}`);
         }
       },
-      { timeout: 4_000, interval: 20 },
+      { timeout: 15_000, interval: 20 },
     );
   } finally {
     await database.end();

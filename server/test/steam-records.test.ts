@@ -684,6 +684,8 @@ describe("Steam Record capture", () => {
     const database = await server.connectDatabase();
     try {
       await database.query("BEGIN");
+      // Held however long the list takes, past the database's idle-in-transaction timeout too.
+      await database.query("SET LOCAL idle_in_transaction_session_timeout = 0");
       await database.query("LOCK TABLE steam_measurements IN ACCESS EXCLUSIVE MODE");
       // Reading measurements would wait for the lock until it is released, so the list answering with no query waiting
       // for it shows it read none, however long the answer takes.

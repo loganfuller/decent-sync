@@ -1,6 +1,7 @@
 import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { signInAsAdmin } from "./support/seed.js";
 
 // The Library's Beans, Bean Batches, Grinders and Profiles in the
 // management interface. Simulated tablets running the built plugin, at two
@@ -12,14 +13,9 @@ import { useFreshServer } from "./support/fresh-server.js";
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const tablets: SimulatedTablet[] = [];
 
-test.beforeEach(async ({ page }) => {
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));

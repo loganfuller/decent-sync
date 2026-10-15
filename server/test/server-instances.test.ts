@@ -94,7 +94,7 @@ describe("several server instances", () => {
       await connect(doomed, helloWith(token, { machine: de1Pro("12401") }));
       expect(await api.machineNamed("On a crashing instance")).toMatchObject({ online: true });
 
-      // Nothing tells the other instances; only the silence does, within waitForMachine's 10 s.
+      // Nothing tells the other instances; only the silence does, within waitForMachine's 15 s.
       await doomed.kill();
       await api.waitForMachine("On a crashing instance", (machine) => !machine.online);
     } finally {

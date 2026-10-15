@@ -12,7 +12,7 @@ export const admin = { name: "Ada Admin", email: "ada@example.com", password: "c
  */
 export async function signInAsAdmin(page: Page): Promise<void> {
   const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
+  if (setup.status() === 409) expect((await page.request.post("/api/session", { data: admin })).status()).toBe(200);
   else expect(setup.status()).toBe(201);
 }
 

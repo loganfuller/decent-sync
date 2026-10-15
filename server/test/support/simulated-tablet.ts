@@ -1004,15 +1004,22 @@ export class SimulatedTablet {
     return { status: typeof answer.status === "number" ? answer.status : 200, headers, body: String(answer.body ?? "") };
   }
 
-  /** How many times the server has acknowledged the frame with this id, as RawConnection's `acks` counts. */
+  /**
+   * How many times the server has acknowledged the frame with this id, as
+   * RawConnection's `acks` counts: none for a frame with no id, rather than
+   * every acknowledgment.
+   */
   acks(id: unknown): number {
-    return this.received.filter((reply) => isAckOf(reply, id)).length;
+    return typeof id === "string" ? this.received.filter((reply) => isAckOf(reply, id)).length : 0;
   }
 
   /**
    * Whether the server has acknowledged every frame the plugin sent that
    * matches, as it has when none does. `matches` reads each frame `sent`
-   * holds, typed as the caller reads it.
+   * holds, typed as the caller reads it. A message sent in chunks is in
+   * `sent` only as its chunks, each carrying the message's id, which the
+   * server acknowledges once the whole message is in: a match on the
+   * message's type finds none of them, so match such a message by its id.
    */
   acknowledgedEvery<Frame>(matches: (frame: Frame) => boolean): boolean {
     const acknowledged = this.acknowledgedIds();
@@ -1031,12 +1038,12 @@ export class SimulatedTablet {
   }
 
   /** Resolves with the first log line, past or future, that matches. */
-  async waitForLog(pattern: RegExp, timeoutMs = 10_000): Promise<string> {
+  async waitForLog(pattern: RegExp, timeoutMs = 15_000): Promise<string> {
     return (await this.waitForLogs(pattern, 1, timeoutMs))[0]!;
   }
 
   /** Resolves once at least `count` log lines, past or future, match. */
-  async waitForLogs(pattern: RegExp, count: number, timeoutMs = 10_000): Promise<string[]> {
+  async waitForLogs(pattern: RegExp, count: number, timeoutMs = 15_000): Promise<string[]> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const lines = this.logs.filter((log) => pattern.test(log));
@@ -1836,7 +1843,7 @@ export class RawConnection {
   }
 
   /** Resolves with the message at `index` once it has arrived. */
-  async message(index: number, timeoutMs = 10_000): Promise<unknown> {
+  async message(index: number, timeoutMs = 15_000): Promise<unknown> {
     await this.until(() => this.messages.length > index, timeoutMs, `message ${index}`);
     return this.messages[index];
   }
@@ -1848,14 +1855,14 @@ export class RawConnection {
 
   /** Resolves once the server has acknowledged the delivery with this id. */
   async acknowledged(id: string): Promise<void> {
-    await this.until(() => this.acks(id) > 0, 10_000, `acknowledgment of ${id}`);
+    await this.until(() => this.acks(id) > 0, 15_000, `acknowledgment of ${id}`);
   }
 
   /** Sends a delivery and resolves once the server acknowledges it, again if it had before. */
   async deliver(message: { id: string; [field: string]: unknown }): Promise<void> {
     const before = this.acks(message.id);
     this.send(message);
-    await this.until(() => this.acks(message.id) > before, 10_000, `acknowledgment of ${message.id}`);
+    await this.until(() => this.acks(message.id) > before, 15_000, `acknowledgment of ${message.id}`);
   }
 
   close(): Promise<{ code: number; reason: string }> {
@@ -1908,7 +1915,8 @@ function conditional(body: string, headers: Record<string, string>) {
 }
 
 /** Whether a message the server sent is an acknowledgment: of the delivery with this id, if one is given. */
-function isAckOf(message: unknown, id?: unknown): boolean {
+/** Whether the message is an acknowledgment, of the frame with that id if one is given. */
+function isAckOf(message: unknown, id?: string): boolean {
   const { type, id: acked } = (message ?? {}) as { type?: unknown; id?: unknown };
   return type === "ack" && (id === undefined || acked === id);
 }

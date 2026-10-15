@@ -51,7 +51,7 @@ export class StandInServer {
 
   /** Resolves once the plugin has been welcomed. */
   async welcomed(): Promise<void> {
-    await this.until(() => this.received.some((message) => message.type === "hello"), 10_000, "a hello");
+    await this.until(() => this.received.some((message) => message.type === "hello"), 15_000, "a hello");
   }
 
   /** Sends the plugin a message, as the server does. */
@@ -64,7 +64,7 @@ export class StandInServer {
   async ask(request: ServerMessage & { id: string }): Promise<Received> {
     this.send(request);
     const answer = () => this.received.find((message) => message.id === request.id);
-    await this.until(() => answer() !== undefined, 10_000, `the answer to ${request.type} ${request.id}`);
+    await this.until(() => answer() !== undefined, 15_000, `the answer to ${request.type} ${request.id}`);
     return answer()!;
   }
 

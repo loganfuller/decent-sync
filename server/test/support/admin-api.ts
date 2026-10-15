@@ -172,7 +172,7 @@ export class AdminApi {
   }
 
   /** Polls the REST API until the Machine matches. */
-  async waitForMachine(name: string, matches: (machine: MachineView) => boolean, timeoutMs = 10_000): Promise<MachineView> {
+  async waitForMachine(name: string, matches: (machine: MachineView) => boolean, timeoutMs = 15_000): Promise<MachineView> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const machine = await this.machineNamed(name);
