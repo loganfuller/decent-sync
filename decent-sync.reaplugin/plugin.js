@@ -952,9 +952,8 @@ var __decentSync = (() => {
     const picked = before !== void 0 && before.batch !== after.batch;
     const loaded = pending.kind === "load" ? pending.globalId : pending.kind === "unload" ? null : after.named;
     if (dialChanged) {
-      const bean2 = picked || !before && after.named === null ? after.bean : null;
-      const candidates = !before && after.named !== null ? held.filter((recipe2) => recipe2.globalId === after.named) : held;
-      const chosen = chooseLoad(after.dial, loaded, candidates, bean2, before ? changed : void 0);
+      const candidates = before ? held : held.filter((recipe2) => recipe2.globalId === after.named);
+      const chosen = chooseLoad(after.dial, loaded, candidates, picked ? after.bean : null, before ? changed : void 0);
       if (chosen) {
         const kept2 = new Set(picked ? ["batch"] : []);
         const same = pending.kind === "load" && pending.globalId === chosen.globalId;
@@ -2251,7 +2250,7 @@ var __decentSync = (() => {
           continue;
         }
         const before = this.decided;
-        const picked = before !== void 0 ? workflowBatch(before) !== workflowBatch(workflow) : loadedRecipeOf(workflow) === null && held.length > 0;
+        const picked = before !== void 0 && workflowBatch(before) !== workflowBatch(workflow);
         const setUp = async (of) => {
           const batch = workflowBatch(of);
           return { dial: workflowDial(of), batch, bean: picked && batch !== null ? await this.beanOf(batch) : null, named: loadedRecipeOf(of) };

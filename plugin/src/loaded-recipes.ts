@@ -288,9 +288,8 @@ export class LoadedRecipes {
         continue;
       }
       const before = this.decided;
-      // A batch's Bean is read only as the batch changes, which alone changes the Bean, or for the first Workflow, which
-      // names no recipe, where one may load.
-      const picked = before !== undefined ? workflowBatch(before) !== workflowBatch(workflow) : loadedRecipeOf(workflow) === null && held.length > 0;
+      // A batch's Bean is read only as the batch changes, which alone changes the Bean.
+      const picked = before !== undefined && workflowBatch(before) !== workflowBatch(workflow);
       const setUp = async (of: Record<string, unknown>): Promise<ChangedSetUp> => {
         const batch = workflowBatch(of);
         return { dial: workflowDial(of), batch, bean: picked && batch !== null ? await this.beanOf(batch) : null, named: loadedRecipeOf(of) };

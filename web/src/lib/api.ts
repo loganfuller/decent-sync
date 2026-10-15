@@ -610,7 +610,6 @@ export interface LoadedRecipe {
  * A Recipe: DYE2's recipe, belonging to one Location, in one of its Recipe
  * Slots or none.
  */
-
 export interface Recipe {
   id: string;
   name: string | null;

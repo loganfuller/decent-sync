@@ -255,9 +255,9 @@ describe("deciding each change of the Workflow in turn", () => {
     expect(decided([tweaked, loaded])).toEqual({ kind: "load", globalId: ONE, kept: new Set(afterLoaded) });
   });
 
-  it("loads the first Workflow the plugin hears of where it matches, of its batch's Bean, writing one naming it already its dial alone, and unloads nothing then", () => {
-    expect(decided([slot1])).toEqual({ kind: "load", globalId: ONE, kept: new Set() });
-    expect(decided([derived(slot1, { beanBatchId: "batch-e" })], beans)).toEqual({ kind: "load", globalId: ONE, kept: new Set() });
+  it("loads nothing from the first Workflow the plugin hears of, which is no change, but writes the recipe it names and matches its dial alone, and unloads nothing then", () => {
+    expect(decided([slot1])).toEqual({ kind: "none" });
+    expect(decided([derived(slot1, { beanBatchId: "batch-e" })], beans)).toEqual({ kind: "none" });
     // Unloaded before the plugin last loaded, by a batch of another Bean: no change loads it again.
     expect(decided([derived(slot1, { beanBatchId: "batch-b" })], beans)).toEqual({ kind: "none" });
     expect(decided([loaded], beans)).toEqual({ kind: "load", globalId: ONE, kept: new Set(afterLoaded) });
@@ -279,7 +279,7 @@ describe("deciding each change of the Workflow in turn", () => {
 
   it("unloads a load still to be written on a batch of another Bean picked after it, or with it", () => {
     expect(decided([tweaked, loaded, derived(loaded, { beanBatchId: "batch-b" })], beans)).toEqual({ kind: "unload" });
-    expect(decided([slot1, derived(slot1, { beanBatchId: "batch-b" })], beans)).toEqual({ kind: "unload" });
+    expect(decided([derived(slot1, { targetDoseWeight: 17 }), slot1, derived(slot1, { beanBatchId: "batch-b" })], beans)).toEqual({ kind: "unload" });
     // Picked in the same change as the dial: no app applying a recipe picks a batch, so it is the barista's.
     expect(decided([tweaked, derived(loaded, { beanBatchId: "batch-b" })], beans)).toEqual({ kind: "unload" });
   });
@@ -384,8 +384,8 @@ describe("deciding each change of the Workflow in turn", () => {
   it("loads no other recipe from the first Workflow naming the Loaded Recipe, though a recipe leaving blank what it no longer matches matches it", () => {
     expect(decided([derived(loaded, { grinderSetting: "2.6" })], beans, [held(ONE, 1, recipe("1")), loose("grind")])).toEqual({ kind: "none" });
     expect(decided([shotStored(loaded)], beans, [held(ONE, 1, recipe("1")), loose("grinder")])).toEqual({ kind: "none" });
-    // Naming none, it may load one.
-    expect(decided([derived(withId(loaded, null), { grinderSetting: "2.6" })], beans, [held(ONE, 1, recipe("1")), loose("grind")])).toMatchObject({ kind: "load", globalId: THREE });
+    // Naming none, it loads none either.
+    expect(decided([derived(withId(loaded, null), { grinderSetting: "2.6" })], beans, [held(ONE, 1, recipe("1")), loose("grind")])).toEqual({ kind: "none" });
   });
 
   it("loads another recipe applied over a load still to be written", () => {

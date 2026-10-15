@@ -76,15 +76,16 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
   /** Resolves after the plugin has had time to decide on and write what the changes leave, of which it reports nothing. */
   const settled = () => new Promise((resolve) => setTimeout(resolve, 1_000));
 
-  it("keeps a batch of another Bean picked as the plugin decides the Workflow it loaded with, and loads nothing", async () => {
-    // Slot 1's dial, applied before the plugin loaded, with no batch.
-    const workflow = structuredClone(applied.find(({ request }) => request.method === "PUT")!.response.body) as Record_;
-    const { tablet, changed } = load("47201", workflow, (tablet) => tablet.changeSettings({ context: { beanBatchId: brazil } }));
+  it("keeps a batch of another Bean picked as a load of the Recipe is decided, and loads nothing", async () => {
+    const { tablet, changed } = load("47201", structuredClone(library["/workflow"]) as Record_, (tablet) => tablet.changeSettings({ context: { beanBatchId: brazil } }));
+    // DYE2's dashboard applying slot 1, as recorded, with no batch.
+    for (const answer of await replayWrites(tablet, applied)) expect(answer.status).toBe(200);
+    const before = tablet.workflow().hotWaterData;
     await changed();
     await settled();
     expect(context(tablet).beanBatchId).toBe(brazil);
     expect(named(tablet)).toBeNull();
-    expect(tablet.workflow().hotWaterData).toEqual(workflow.hotWaterData);
+    expect(tablet.workflow().hotWaterData).toEqual(before);
   });
 
   it("records a load whose dose is tweaked as it is decided, keeping the dose tweaked", async () => {
@@ -118,15 +119,16 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
   });
 
   it("unloads a load whose grinder a barista changes as Decaid takes its write, which leaves the grinder", async () => {
-    // Slot 1's dial, applied before the plugin loaded: its write sets the Recipe's batch, hot water and id, not its grinder.
-    const workflow = structuredClone(applied.find(({ request }) => request.method === "PUT")!.response.body) as Record_;
     const { tablet, changed } = load(
       "47241",
-      workflow,
+      structuredClone(library["/workflow"]) as Record_,
       (tablet) => tablet.changeSettings({ context: { grinderId: "a-grinder-the-recipe-does-not-name", grinderModel: "Another grinder" } }),
       {},
       (method, path) => method === "PUT" && path === "/workflow",
     );
+    // DYE2's dashboard applying slot 1, as recorded: the load's write sets the Recipe's batch, hot water and id, not its
+    // grinder, which the apply set.
+    for (const answer of await replayWrites(tablet, applied)) expect(answer.status).toBe(200);
     await changed();
     await settled();
     expect(context(tablet)).toMatchObject({ grinderId: "a-grinder-the-recipe-does-not-name" });

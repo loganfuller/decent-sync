@@ -232,8 +232,7 @@ from the Workflow deliveries.
   long the plugin's reads of Decaid take: what the changes decided on leave
   to write (a load, or clearing the Loaded Recipe) is written once none is
   left to decide on. The first Workflow after a load of the plugin is
-  decided on too, and may load a recipe it matches (below), but unloads
-  nothing.
+  decided on too, but loads and unloads nothing (below).
   - A change of the dial may load a recipe (A load, below), but only one it
     changed a field of that the recipe sets: a recipe leaving a field blank
     matches whatever the Workflow holds there, so a tweak of the Loaded
@@ -260,13 +259,11 @@ from the Workflow deliveries.
     barista's changes of the dial before such a match are no longer kept:
     the match sets it again. A part the barista cleared on purpose is
     written back as well, as a cleared part cannot tell who cleared it.
-  - The first Workflow, as on every load of the plugin, is no change. One
-    naming a recipe loads no other, though another matches it, as one
-    leaving blank the grind the barista tweaked would: where it matches the
-    recipe it names, that one is written its dial alone, and otherwise it
-    stays as it is. One naming none loads no recipe of another Bean than
-    its batch's, as when the barista unloaded it so before the plugin last
-    unloaded.
+  - The first Workflow, as on every load of the plugin, is no change, and
+    loads nothing, though a recipe matches it, as one leaving blank the
+    grind the barista tweaked would, or the recipe the barista unloaded
+    before the plugin last unloaded. Where it matches the recipe it names,
+    that one is written its dial alone; otherwise it stays as it is.
 - **Held or sent at once.** A change is held back (Held back, below) if the
   Workflow names a Loaded Recipe, which it may unload or replace, or matches
   a recipe as the tablet held it when last read, or a write is still to be
@@ -374,9 +371,9 @@ recipe the Workflow names, applied again after its batch was changed
 elsewhere, keeps the Workflow's batch until #146 follows the Recipe's edits.
 The plugin judges nothing of what changed while it was not loaded: a
 Workflow naming a recipe with another Bean's batch or grinder stays as it is
-until its next change, and one applied over another Bean's batch while the
-plugin reloaded, as after a change of its settings, is loaded only on the
-Workflow's next change of its dial.
+until its next change, and a recipe applied while the plugin was not
+loaded, as while it reloaded after a change of its settings, is loaded only
+on the Workflow's next change of its dial.
 
 ### Server
 
