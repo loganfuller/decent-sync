@@ -1,5 +1,5 @@
 ---
-status: accepted (amends ADR-0014; amended in place on 2026-10-12, while scoping milestone 3: it covers the hot water settings the plugin writes for a Loaded Recipe too, ADR-0022; amended in place on 2026-10-14: Streamline now follows the rule for skins for what it remembers but its steam temperature, the one value the plugin still sets, and not for each profile's saved steam time and flow; on 2026-10-15: v0.2.14 is the first Streamline release with the change, and a skin built for a Decent Sync deployment selects in DYE2 the recipe it applies, ADR-0022)
+status: accepted (interim in the steam temperature the plugin sets, until Streamline adopts one set elsewhere, decentespresso/streamline-js#143; amends ADR-0014; amended in place on 2026-10-12, while scoping milestone 3: it covers the hot water settings the plugin writes for a Loaded Recipe too, ADR-0022; amended in place on 2026-10-14: Streamline now follows the rule for skins for what it remembers but its steam temperature, the one value the plugin still sets, and not for each profile's saved steam time and flow; on 2026-10-15: v0.2.14 is the first Streamline release with the change, and a skin built for a Decent Sync deployment selects in DYE2 the recipe it applies, ADR-0022)
 ---
 
 # Skins take a Workflow change made elsewhere; the plugin sets only Streamline's steam temperature
