@@ -65,13 +65,7 @@ describe("Workflow changes and machine state transitions", () => {
 
   /** Resolves once the server has acknowledged every delivery of this type the plugin sent. */
   async function acknowledged(tablet: SimulatedTablet, type: string) {
-    await expect
-      .poll(() =>
-        tablet.sent
-          .filter((frame) => frameType(frame) === type)
-          .every((frame) => tablet.received.some((reply) => frameType(reply) === "ack" && (reply as Frame).id === (frame as Frame).id)),
-      )
-      .toBe(true);
+    await expect.poll(() => tablet.acknowledgedEvery((frame: Frame) => frame.type === type)).toBe(true);
   }
 
   /**
@@ -432,7 +426,7 @@ describe("Workflow changes and machine state transitions", () => {
       const moved = await connect(visitor, other.url, { model: "DE1Pro", serial: "20201" });
       const fromOwner = stateDelivery("espresso", "pouring", "2026-10-05T13:01:00.000Z");
       const fromVisitor = stateDelivery("espresso", "pouring", "2026-10-05T13:01:00.500Z");
-      const acked = (raw: RawConnection, id: string) => raw.messages.some((reply) => frameType(reply) === "ack" && (reply as Frame).id === id);
+      const acked = (raw: RawConnection, id: string) => raw.acks(id) > 0;
       const database = await server.connectDatabase();
       try {
         // Both are held as they start to be handled, at the owner's row, which each locks before it writes anything,

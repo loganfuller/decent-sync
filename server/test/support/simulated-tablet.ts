@@ -1004,6 +1004,32 @@ export class SimulatedTablet {
     return { status: typeof answer.status === "number" ? answer.status : 200, headers, body: String(answer.body ?? "") };
   }
 
+  /** How many times the server has acknowledged the frame with this id, as RawConnection's `acks` counts. */
+  acks(id: unknown): number {
+    return this.received.filter((reply) => isAckOf(reply, id)).length;
+  }
+
+  /**
+   * Whether the server has acknowledged every frame the plugin sent that
+   * matches, as it has when none does. `matches` reads each frame `sent`
+   * holds, typed as the caller reads it.
+   */
+  acknowledgedEvery<Frame>(matches: (frame: Frame) => boolean): boolean {
+    const acknowledged = this.acknowledgedIds();
+    return (this.sent as Frame[]).filter(matches).every((frame) => acknowledged.has((frame as { id?: unknown }).id));
+  }
+
+  /** Whether the server has acknowledged some frame the plugin sent that matches, as `acknowledgedEvery` reads them. */
+  acknowledgedSome<Frame>(matches: (frame: Frame) => boolean): boolean {
+    const acknowledged = this.acknowledgedIds();
+    return (this.sent as Frame[]).some((frame) => matches(frame) && acknowledged.has((frame as { id?: unknown }).id));
+  }
+
+  /** The ids of the frames the server has acknowledged so far. */
+  private acknowledgedIds(): Set<unknown> {
+    return new Set(this.received.flatMap((reply) => (isAckOf(reply) ? [(reply as { id?: unknown }).id] : [])));
+  }
+
   /** Resolves with the first log line, past or future, that matches. */
   async waitForLog(pattern: RegExp, timeoutMs = 10_000): Promise<string> {
     return (await this.waitForLogs(pattern, 1, timeoutMs))[0]!;
@@ -1817,10 +1843,7 @@ export class RawConnection {
 
   /** How many times the server has acknowledged the delivery with this id. */
   acks(id: string): number {
-    return this.messages.filter((message) => {
-      const { type, id: acked } = (message ?? {}) as { type?: unknown; id?: unknown };
-      return type === "ack" && acked === id;
-    }).length;
+    return this.messages.filter((message) => isAckOf(message, id)).length;
   }
 
   /** Resolves once the server has acknowledged the delivery with this id. */
@@ -1882,6 +1905,12 @@ function conditional(body: string, headers: Record<string, string>) {
   const etag = `"${createHash("sha256").update(body).digest("hex").slice(0, 16)}"`;
   const ifNoneMatch = Object.entries(headers).find(([name]) => name.toLowerCase() === "if-none-match")?.[1]?.trim();
   return ifNoneMatch === etag || ifNoneMatch === "*" ? response(304, "", { etag }) : response(200, body, { etag });
+}
+
+/** Whether a message the server sent is an acknowledgment: of the delivery with this id, if one is given. */
+function isAckOf(message: unknown, id?: unknown): boolean {
+  const { type, id: acked } = (message ?? {}) as { type?: unknown; id?: unknown };
+  return type === "ack" && (id === undefined || acked === id);
 }
 
 function delay(ms: number): Promise<void> {

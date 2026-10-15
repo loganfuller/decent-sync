@@ -331,8 +331,7 @@ describe("Edits of the Library", () => {
     await holds(two, bean.id, { notes: "v1" });
     // Its answer to that write acknowledged: held, it would hold up the next write to it.
     const answers = two.sent as Frame[];
-    const acknowledged = (answer: Frame) => (two.received as Frame[]).some((reply) => reply.type === "ack" && reply.id === answer.id);
-    await expect.poll(() => answers.filter((answer) => answer.type === "written" && answer.globalId === bean.id && acknowledged(answer)).length).toBe(1);
+    await expect.poll(() => answers.filter((answer) => answer.type === "written" && answer.globalId === bean.id && two.acks(answer.id) > 0).length).toBe(1);
 
     holding = true;
     await one.editBean(record.id, { notes: "v2 from one" });

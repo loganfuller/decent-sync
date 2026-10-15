@@ -164,10 +164,6 @@ describe("Steam Record capture", () => {
       releaseAlso();
     }
   }
-  /** The deliveries the server has acknowledged to the tablet so far. */
-  function acknowledged(tablet: SimulatedTablet): Set<string> {
-    return new Set((tablet.received as Sent[]).flatMap((message) => (message.type === "ack" ? [String(message.id)] : [])));
-  }
   function sent(tablet: SimulatedTablet, type: string): Sent[] {
     return (tablet.sent as Sent[]).filter((message) => message.type === type);
   }
@@ -229,7 +225,7 @@ describe("Steam Record capture", () => {
     const tablet = load(machine, history, { apiDelayMs: 500, stallUpload });
     await expect.poll(() => sent(tablet, "steamIndex").length).toBe(2);
     const [firstPage, cutOff] = sent(tablet, "steamIndex");
-    await expect.poll(() => acknowledged(tablet).has(firstPage!.id!)).toBe(true);
+    await expect.poll(() => tablet.acks(firstPage!.id) > 0).toBe(true);
     const sentBefore = tablet.sent.length;
     stalled = false;
     tablet.dropConnections();
@@ -463,7 +459,7 @@ describe("Steam Record capture", () => {
     await expect.poll(async () => (await api.at(other.url).call("GET", "/shots/indexed-before-a-reconnect")).status).toBe(200);
     const indexes = (frames: unknown[]) => (frames as Sent[]).filter((frame) => frame.type === "shotIndex" || frame.type === "steamIndex");
     expect(indexes(tablet.sent).map((page) => page.type).sort()).toEqual(["shotIndex", "steamIndex"]);
-    await expect.poll(() => indexes(tablet.sent).every((page) => acknowledged(tablet).has(page.id!))).toBe(true);
+    await expect.poll(() => tablet.acknowledgedEvery((frame: Sent) => frame.type === "shotIndex" || frame.type === "steamIndex")).toBe(true);
     const sentBefore = tablet.sent.length;
     const reads = idReads(tablet);
 
@@ -621,7 +617,7 @@ describe("Steam Record capture", () => {
 
     // The same delivery again, carrying other content, is acknowledged and changes nothing.
     raw.send({ type: "steam", id: delivery, steamId: record.id, steamedAt: "2026-10-06T00:00:00.000Z", steam: { ...record, futureField: true } });
-    await expect.poll(() => raw.messages.filter((message) => (message as Sent).type === "ack" && (message as Sent).id === delivery).length).toBe(2);
+    await expect.poll(() => raw.acks(delivery)).toBe(2);
     // So does the record in another delivery, through another instance, and through another Machine's tablet.
     const replacement = await connect(machine, other.url);
     await replacement.acknowledged(sendSteam(replacement, { ...record, futureField: true }, "2026-10-06T00:00:00.000Z"));
@@ -722,7 +718,7 @@ describe("Steam Record capture", () => {
     const { id, count } = chunks.at(-1)!;
     expect(count).toBeGreaterThan(4);
     expect(chunks.slice(-count).map((chunk) => chunk.index)).toEqual(Array.from({ length: count }, (_, index) => index));
-    await expect.poll(() => tablet.received.filter((message) => (message as Sent).type === "ack" && (message as Sent).id === id).length).toBe(1);
+    await expect.poll(() => tablet.acks(id)).toBe(1);
   });
 
   it("credits Steam Records from a mismatched connection to the reported hardware's Machine, or holds them for its Pending Machine until a machine entry takes them over", async () => {

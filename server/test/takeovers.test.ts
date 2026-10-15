@@ -35,12 +35,11 @@ const de1Pro = (serial: string) => ({ model: "DE1Pro", serial, firmware: "1333" 
 
 /** The ids of the deliveries the tablet sent that the server has not acknowledged. */
 function unacknowledged(tablet: SimulatedTablet): string[] {
-  const acked = new Set(tablet.received.flatMap((frame) => ((frame as { type?: unknown }).type === "ack" ? [(frame as { id: string }).id] : [])));
   const sent = tablet.sent.flatMap((frame) => {
     const { type, id } = frame as { type?: unknown; id?: unknown };
     return typeof id === "string" && type !== "hello" && type !== "heartbeat" ? [id] : [];
   });
-  return [...new Set(sent)].filter((id) => !acked.has(id));
+  return [...new Set(sent)].filter((id) => tablet.acks(id) === 0);
 }
 
 describe("Takeovers", () => {

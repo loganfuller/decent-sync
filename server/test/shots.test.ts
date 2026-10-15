@@ -123,7 +123,9 @@ describe("Shot capture and reconciliation", () => {
     const tablet = load(machine, history, { apiDelayMs: 500 });
     await expect.poll(async () => (await list(machine.machine.id)).total).toBeGreaterThan(0);
     expect((await list(machine.machine.id)).total).toBeLessThan(history.length);
-    const acknowledged = new Set(tablet.received.flatMap((message) => ((message as Frame).type === "ack" ? [(message as Frame).id] : [])));
+    const indexPages = (frames: unknown[]) => (frames as Frame[]).filter((frame) => frame.type === "shotIndex");
+    // The index pages acknowledged before the drop.
+    const acknowledged = new Set(indexPages(tablet.sent).flatMap((page) => (tablet.acks(page.id) > 0 ? [page.id] : [])));
     const sentBefore = tablet.sent.length;
     tablet.dropConnections();
     await tablet.waitForLogs(/^Connected to /, 2);
@@ -133,7 +135,6 @@ describe("Shot capture and reconciliation", () => {
     expect(tablet.requests).not.toContain("/shots/ids");
     // The scan's index went once, each Shot in one page under one delivery id: after the reconnect,
     // only a page cut off before its acknowledgment was sent again.
-    const indexPages = (frames: unknown[]) => (frames as Frame[]).filter((frame) => frame.type === "shotIndex");
     const indexed = new Map(indexPages(tablet.sent).map((page) => [page.id, page.shots!.map((shot) => shot.id)]));
     expect([...indexed.values()].flat().sort()).toEqual(history.map((shot) => String(shot.id)).sort());
     expect(indexPages(tablet.sent.slice(sentBefore)).filter((page) => acknowledged.has(page.id))).toEqual([]);
@@ -471,7 +472,7 @@ describe("Shot capture and reconciliation", () => {
     const record = shot("replay-shot");
     const id = await deliver(raw, record);
     raw.send({ type: "shotUpdated", id, shotId: record.id, shot: { ...record, updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 1 } } });
-    await expect.poll(() => raw.messages.filter((m) => (m as { type: string; id: string }).type === "ack" && (m as { id: string }).id === id).length).toBe(2);
+    await expect.poll(() => raw.acks(id)).toBe(2);
     expect((await detail(String(record.id))).enjoyment).toBeNull();
     await deliver(raw, { ...record, annotations: { enjoyment: 2 } });
     expect((await detail(String(record.id))).enjoyment).toBeNull();

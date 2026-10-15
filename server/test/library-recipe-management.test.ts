@@ -109,10 +109,8 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
   /** The tablet's own id for its record of a Library item, by the global id the record carries. */
   const localId = (records: Record_[], id: string) => records.find((record) => globalIdOf(record) === id || record[GLOBAL_ID_KEY] === id)?.id;
   /** Whether the server has acknowledged the tablet's answer to a write of the item, so the writer awaits it no more. */
-  const answered = (tablet: SimulatedTablet, id: string) => {
-    const frames = (list: unknown[]) => list as { type?: unknown; id?: unknown; globalId?: unknown }[];
-    return frames(tablet.sent).some((frame) => frame.type === "written" && frame.globalId === id && frames(tablet.received).some((reply) => reply.type === "ack" && reply.id === frame.id));
-  };
+  const answered = (tablet: SimulatedTablet, id: string) =>
+    tablet.acknowledgedSome((frame: { type?: unknown; globalId?: unknown }) => frame.type === "written" && frame.globalId === id);
 
 
   it("creates a Recipe in slot 6 using items not offered at its Location, offers them there, and writes it to that Location's tablets only", async () => {

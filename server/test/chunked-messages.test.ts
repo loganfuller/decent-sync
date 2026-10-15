@@ -72,9 +72,6 @@ describe("Chunked messages", () => {
   function chunksSent(tablet: SimulatedTablet): Chunk[] {
     return tablet.sent.filter((message): message is Chunk => (message as Received).type === "chunk");
   }
-  function acks(messages: unknown[], id: string): number {
-    return (messages as Received[]).filter((message) => message.type === "ack" && message.id === id).length;
-  }
   function receipts(messages: unknown[], id?: string): number[] {
     return (messages as Received[]).flatMap((message) =>
       message.type === "chunkReceived" && (id === undefined || message.id === id) ? [message.index!] : [],
@@ -94,11 +91,11 @@ describe("Chunked messages", () => {
     expect(chunks.length).toBeGreaterThan(4);
     expect(chunks.map(({ id, index, count }) => ({ id, index, count }))).toEqual(chunks.map((_, index) => ({ id, index, count: chunks.length })));
     for (const chunk of chunks) expect(Buffer.byteLength(JSON.stringify(chunk))).toBeLessThanOrEqual(MAX_FRAME_BYTES);
-    await expect.poll(() => acks(tablet.received, id)).toBe(1);
+    await expect.poll(() => tablet.acks(id)).toBe(1);
     expect(receipts(tablet.received, id)).toEqual(chunks.map((chunk) => chunk.index));
     // Nothing more arrives for it.
     await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(acks(tablet.received, id)).toBe(1);
+    expect(tablet.acks(id)).toBe(1);
     expect(chunksSent(tablet)).toHaveLength(chunks.length);
   });
 
@@ -123,7 +120,7 @@ describe("Chunked messages", () => {
     expect(chunks.every((chunk) => chunk.id === id)).toBe(true);
     expect(chunks.length).toBeGreaterThan(count);
     expect(chunks.slice(-count).map((chunk) => chunk.index)).toEqual(chunks.slice(-count).map((_, index) => index));
-    await expect.poll(() => acks(tablet.received, id)).toBe(1);
+    await expect.poll(() => tablet.acks(id)).toBe(1);
     const listed = await api.get<{ shots: { id: string }[] }>(`/shots?machineId=${machine.machine.id}`);
     expect(listed.shots.map((shot) => shot.id)).toEqual(["interrupted-long-shot"]);
   });
@@ -167,11 +164,11 @@ describe("Chunked messages", () => {
     // Last chunk first, and every other chunk twice.
     const order = [...chunks].reverse().flatMap((chunk, n) => (n % 2 === 0 ? [chunk, chunk] : [chunk]));
     for (const chunk of order) raw.send(chunk);
-    await expect.poll(() => acks(raw.messages, id)).toBe(1);
+    await expect.poll(() => raw.acks(id)).toBe(1);
     // A stray copy after the Shot is complete starts nothing that could complete again.
     raw.send(chunks[1]);
     await expect.poll(() => receipts(raw.messages, id).length).toBe(order.length + 1);
-    expect(acks(raw.messages, id)).toBe(1);
+    expect(raw.acks(id)).toBe(1);
     expect((await stored("raw-chunked-shot")).record).toEqual({ ...record, measurements: undefined });
     expect(await measurements("raw-chunked-shot")).toEqual(record.measurements);
   });
@@ -189,7 +186,7 @@ describe("Chunked messages", () => {
     for (const chunk of rest) raw.send(chunk);
     expect((await raw.closed).code).toBe(CLOSE_CODES.protocol_error);
     expect(raw.messages).toContainEqual({ type: "error", code: "protocol_error", message: "chunk.data differs from an earlier copy of the same chunk" });
-    expect(acks(raw.messages, id)).toBe(0);
+    expect(raw.acks(id)).toBe(0);
     await absent("contradicted-shot");
   });
 
@@ -206,7 +203,7 @@ describe("Chunked messages", () => {
       const raw = await connect(machine);
       for (const frame of frames(text(id), id)) raw.send(frame.text);
       expect((await raw.closed).code).toBe(CLOSE_CODES.protocol_error);
-      expect(acks(raw.messages, id)).toBe(0);
+      expect(raw.acks(id)).toBe(0);
     }
     await absent("invalid-chunked-shot");
   });
@@ -227,7 +224,7 @@ describe("Chunked messages", () => {
       const second = await connect(machine, url === server.url ? other.url : server.url);
       for (const chunk of chunks.slice(half)) second.send(chunk);
       await expect.poll(() => receipts(second.messages, id).length).toBe(chunks.length - half);
-      expect(acks(second.messages, id)).toBe(0);
+      expect(second.acks(id)).toBe(0);
       await absent("partial-chunked-shot");
       await second.terminate();
     }
@@ -235,7 +232,7 @@ describe("Chunked messages", () => {
     // Sent whole, from its first chunk, it is stored once.
     const whole = await connect(machine);
     for (const chunk of chunks) whole.send(chunk);
-    await expect.poll(() => acks(whole.messages, id)).toBe(1);
+    await expect.poll(() => whole.acks(id)).toBe(1);
     expect(await measurements("partial-chunked-shot")).toEqual(record.measurements);
   });
 

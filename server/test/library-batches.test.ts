@@ -335,10 +335,7 @@ describe("Bean Batches at Locations", () => {
     await adding.editBatch(added.id, { archived: false });
     await expect.poll(() => whereAt(second_.id)).toEqual([["Late Bean lab", 250]]);
     await holds(() => heldBatch(archiving, second_.id), { archived: false });
-    const acked = (id: unknown) => (archiving.received as { type?: unknown; id?: unknown }[]).some((reply) => reply.type === "ack" && reply.id === id);
-    await expect
-      .poll(() => (archiving.sent as { type?: unknown; id?: unknown }[]).filter((frame) => frame.type === "written").every((frame) => acked(frame.id)))
-      .toBe(true);
+    await expect.poll(() => archiving.acknowledgedEvery((frame: { type?: unknown }) => frame.type === "written")).toBe(true);
 
     // Reconnecting, it reports the Bean archived: the earlier edit takes the first batch, not the one added back since (ADR-0020).
     archiving.dropConnections();
@@ -367,12 +364,11 @@ describe("Bean Batches at Locations", () => {
     // Its reports since it was written the batch are taken in, so none of its beans awaits the report held below.
     type Delivery = { type?: unknown; name?: unknown; id?: unknown; value?: unknown };
     const deliveries = () => (steady.sent as Delivery[]).filter((frame) => frame.type === "collection");
-    const acked = (id: unknown) => (steady.received as Delivery[]).some((reply) => reply.type === "ack" && reply.id === id);
     await expect
       .poll(() => {
         const batches = deliveries().filter((frame) => frame.name === "beanBatches").at(-1)?.value;
         const reported = Array.isArray(batches) && batches.some((candidate: Record_) => globalIdOf(candidate) === batch.id);
-        return reported && deliveries().every((frame) => acked(frame.id));
+        return reported && steady.acknowledgedEvery((frame: Delivery) => frame.type === "collection");
       })
       .toBe(true);
 

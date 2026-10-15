@@ -70,13 +70,8 @@ describe("The durable outbox", () => {
   const whileSending = (tablet: SimulatedTablet, done: () => boolean | Promise<boolean>) => whileProgressing(done, () => machineEventsSent(tablet).length);
 
   /** Resolves once the server has acknowledged every Workflow and machine state delivery the plugin sent. */
-  async function acknowledged(tablet: SimulatedTablet, timeout = 10_000) {
-    await expect
-      .poll(
-        () => machineEventsSent(tablet).every((frame) => (tablet.received as Frame[]).some((reply) => reply.type === "ack" && reply.id === frame.id)),
-        { timeout },
-      )
-      .toBe(true);
+  async function acknowledged(tablet: SimulatedTablet) {
+    await expect.poll(() => tablet.acknowledgedEvery((frame: Frame) => MACHINE_EVENTS.has(frame.type))).toBe(true);
   }
 
   /**
@@ -174,7 +169,7 @@ describe("The durable outbox", () => {
     first.setWorkflow(later);
     stalled = false;
     first.resumeUpload();
-    await expect.poll(() => (first.received as Frame[]).some((reply) => reply.type === "ack" && reply.id === pouring.id)).toBe(true);
+    await expect.poll(() => first.acks(pouring.id) > 0).toBe(true);
     // Ends the connection, so the unload need not wait for the stalled frame.
     first.dropConnections();
     await first.unload();

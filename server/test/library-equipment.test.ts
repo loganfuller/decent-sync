@@ -119,7 +119,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     return () => {
       if (!posted) return false;
       const answer = frames(tablet.sent.slice(answerFrom)).find((frame) => frame.type === "written" || frame.type === "removed");
-      return answer !== undefined && frames(tablet.received).some((reply) => reply.type === "ack" && reply.id === answer.id);
+      return answer !== undefined && tablet.acks(answer.id) > 0;
     };
   };
 

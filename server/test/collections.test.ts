@@ -88,11 +88,8 @@ describe("Library, settings and paired devices", () => {
   /** How many of each collection the plugin has sent. */
   const sentCounts = (tablet: SimulatedTablet) =>
     Object.fromEntries(COLLECTION_NAMES.map((name) => [name, deliveries(tablet, name).length]));
-  const acked = (tablet: SimulatedTablet, id: string) =>
-    tablet.received.some((reply) => frameType(reply) === "ack" && (reply as Frame).id === id);
   /** Resolves once the server has acknowledged every collection delivery the plugin sent. */
-  const allAcknowledged = (tablet: SimulatedTablet) =>
-    expect.poll(() => deliveries(tablet).every((frame) => acked(tablet, frame.id!))).toBe(true);
+  const allAcknowledged = (tablet: SimulatedTablet) => expect.poll(() => tablet.acknowledgedEvery((frame) => frameType(frame) === "collection")).toBe(true);
   /** Resolves once the plugin has read `route` at least `count` more times: that many polls have run. */
   async function polls(tablet: SimulatedTablet, count: number, route = "/machine/settings") {
     const before = tablet.requests.filter((request) => request === route).length;

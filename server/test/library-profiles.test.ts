@@ -75,10 +75,7 @@ describe("Profiles shown per Location", () => {
    * written back as the Location has it.
    */
   async function reported(tablet: SimulatedTablet): Promise<void> {
-    const frames = (list: unknown[]) => list as { type?: unknown; name?: unknown; id?: unknown }[];
-    const acknowledged = () =>
-      frames(tablet.sent).some((frame) => frame.name === "profiles" && frames(tablet.received).some((reply) => reply.type === "ack" && reply.id === frame.id));
-    await expect.poll(acknowledged).toBe(true);
+    await expect.poll(() => tablet.acknowledgedSome((frame: { name?: unknown }) => frame.name === "profiles")).toBe(true);
   }
 
   const libraryProfiles = async () => (await api.get<{ profiles: ProfileSummary[] }>("/profiles")).profiles;
