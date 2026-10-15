@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   CLOSE_CODES,
   COLLECTION_NAMES,
-  DELETED_KINDS,
   type ErrorMessage,
   GLOBAL_ID_KEY,
   GLOBAL_ITEM_ID,
@@ -46,8 +45,8 @@ import {
   frames,
   globalIdOf,
   isCollectionName,
+  isDeletedKind,
   isGlobalId,
-  isItemId,
   isLibraryKind,
   isDye2List,
   isLibraryList,
@@ -551,7 +550,7 @@ describe("Library writes", () => {
       expect(decodeServerMessage(frame({ ...remove, localId })).ok).toBe(false);
       expect(decodePluginMessage(frame({ ...deleted, localId })).ok).toBe(false);
     }
-    expect(DELETED_KINDS).toEqual(["bean", "beanBatch", "grinder", "profile", "basket", "tool", "recipe"]);
+    expect(LIBRARY_KINDS.filter(isDeletedKind)).toEqual(["bean", "beanBatch", "grinder", "profile", "basket", "tool", "recipe"]);
     // A Profile's record is named by Decaid's id, which is its global id too.
     const profileId = "profile:bf1ca48b9c7389c7d146";
     const profile: LibraryDelete = { type: "delete", id: "delete-2", kind: "profile", globalId: profileId, localId: profileId };
@@ -597,11 +596,11 @@ describe("Library writes", () => {
     }
     // Another kind's is a global id, whatever a Profile's may be.
     expect(decodeServerMessage(frame({ ...create, globalId: profileId }))).toMatchObject({ ok: false, problem: "write.globalId must be a UUID" });
-    expect(isItemId("profile", profileId)).toBe(true);
-    expect(isItemId("bean", profileId)).toBe(false);
-    expect(isItemId("beanBatch", globalId)).toBe(true);
-    expect(isItemId("grinder", globalId)).toBe(true);
-    expect(isItemId("grinder", profileId)).toBe(false);
+    expect(itemIdRule("profile").test(profileId)).toBe(true);
+    expect(itemIdRule("bean").test(profileId)).toBe(false);
+    expect(itemIdRule("beanBatch").test(globalId)).toBe(true);
+    expect(itemIdRule("grinder").test(globalId)).toBe(true);
+    expect(itemIdRule("grinder").test(profileId)).toBe(false);
     expect(LIBRARY_KINDS.every(isLibraryKind)).toBe(true);
     expect(isLibraryKind("favourite")).toBe(false);
   });
@@ -613,14 +612,13 @@ describe("Library writes", () => {
       const rule = itemIdRule(kind);
       expect(rule).toBe(LIBRARY_ITEM_KINDS[kind].id);
       for (const id of [globalId, ...ids]) {
-        expect(isItemId(kind, id)).toBe(rule.test(id));
         const message = { ...create, kind, globalId: id };
         expect(decodeServerMessage(frame(message))).toEqual(rule.test(id) ? { ok: true, message } : { ok: false, error: "protocol_error", problem: `write.globalId ${rule.problem}` });
       }
     }
     // A Profile declares Decaid's ids, which any record id is; a bean declares global ids.
     for (const id of ids) {
-      expect(isItemId("profile", id)).toBe(true);
+      expect(itemIdRule("profile").test(id)).toBe(true);
       expect(decodePluginMessage(frame({ ...written, kind: "profile", globalId: id }))).toMatchObject({ ok: true });
       expect(decodePluginMessage(frame({ ...refused, kind: "profile", globalId: id }))).toMatchObject({ ok: true });
       expect(decodePluginMessage(frame({ ...refused, globalId: id }))).toMatchObject({ ok: false, problem: "writeRefused.globalId must be a UUID" });
@@ -628,7 +626,7 @@ describe("Library writes", () => {
     // The shared settings, a Workflow and a kind this side does not know are named by UUIDs.
     for (const kind of ["settings", "workflow", "favourite"]) {
       expect(itemIdRule(kind)).toBe(GLOBAL_ITEM_ID);
-      expect(isItemId(kind, ids[0])).toBe(false);
+      expect(itemIdRule(kind).test(ids[0])).toBe(false);
     }
   });
 

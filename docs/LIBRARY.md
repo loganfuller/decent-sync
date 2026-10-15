@@ -2167,7 +2167,7 @@ interface. A new kind, as milestone 3's Baskets, Tools and Recipes were, needs:
    records are made under on a tablet, if any (`under`), whose list is then
    reported before its own and taken in first, and whose records are
    deleted after its own (`REMOVAL_ORDER`). `LIBRARY_KINDS`,
-   `LIBRARY_LISTS` and `DELETED_KINDS` follow from it.
+   `LIBRARY_LISTS` and `isDeletedKind` follow from it.
 2. **The plugin** (`plugin/src/library-writes.ts`): an entry in `WRITERS`:
    where Decaid's API lists its records, which `CollectionCapture` reads and
    reports, and how a write, a delete and setting aside a record are carried
