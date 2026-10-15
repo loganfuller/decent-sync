@@ -270,12 +270,18 @@ async function libraryProfileOf(tx: Prisma.TransactionClient, workflow: unknown)
   return row?.id ?? null;
 }
 
-/** Whether the tablet's Workflow, as last held, holds every part of the Recipe as it is now, as the tablet names it. */
+/**
+ * Whether the tablet's Workflow, as last held, holds every part of the
+ * Recipe as it is now, as the tablet names it: but a part naming an item the
+ * tablet holds no record of, which no write carries, as a Basket Archived or
+ * hidden at the Location, so removed from DYE2's list, or one in a list the
+ * tablet holds in a shape not recognised, or not written yet.
+ */
 async function holdsWhole(tx: Prisma.TransactionClient, tabletId: string, recipeId: string): Promise<boolean> {
   const known = await heldLoadedRecipe(tx, tabletId);
   if (known === null) return false;
   const target = recipeParts(await recipeContent(tx, recipeId), await tabletLocals(tx, tabletId));
-  return PARTS.every((part) => target[part] === null || (target[part] !== undefined && samePart(part, known.held[part], target[part])));
+  return PARTS.every((part) => target[part] === null || target[part] === undefined || samePart(part, known.held[part], target[part]));
 }
 
 /** A Recipe's content now, read in the transaction. */

@@ -424,7 +424,12 @@ maps the parts to the Recipe's content both ways.
   of the Recipe in each part it holds otherwise than it last did, timed when
   the plugin observed it, merged with what the Workflow had seen of the
   Recipe's edits (ADR-0020), from the Machine's tablet, whatever app made
-  it. A dose, yield, RPM or hot water setting is the Recipe's as it is, and
+  it. What the Workflow has seen is, from a load, what the tablet's record
+  of the Recipe had seen, and from the answer to a write of it, the latest
+  edit of the Recipe the write carried, once the Workflow holds every part
+  of the Recipe the tablet can hold (`holdsWhole`): a part held back, or
+  refused for want of a machine, has not seen it. A dose, yield, RPM or hot
+  water setting is the Recipe's as it is, and
   a grind setting as the number DYE2 keeps; DYE2's ratio is kept only while
   the yield is the dose times it. A Basket, and a Bean Batch of the Recipe's
   Bean, are read through the tablet's map, which moves the Recipe to that

@@ -274,6 +274,23 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await loads(machines.c, one);
   });
 
+  it("keeps no Conflict for a tweak of a value its Workflow was written, though the Recipe names a Basket its tablets no longer hold", async () => {
+    const { a, c, one } = await lab("Archived basket", 48121);
+    const basket = (await recipe(one)).content.basketId as string;
+    expect((await api.call("PUT", `/baskets/${basket}/archived`, { archived: true })).status).toBe(200);
+    // DYE2 cannot hide a Basket: it leaves every tablet's list, and no write of the Recipe can carry it.
+    for (const tablet of [a, c]) await expect.poll(() => (dye2List(tablet, "baskets") as Record_[]).some((record) => record[GLOBAL_ID_KEY] === basket)).toBe(false);
+
+    await a.changeSettings({ context: { grinderSetting: "2.8" } });
+    await expect.poll(() => context(c).grinderSetting).toBe("2.8");
+    // C, written A's tweak, tweaks it again.
+    await c.changeSettings({ context: { grinderSetting: "2.9" } });
+    await expect.poll(async () => (await recipe(one)).content.grindSetting).toBe(2.9);
+    await expect.poll(() => context(a).grinderSetting).toBe("2.9");
+    await settle();
+    expect((await api.get<{ conflicts: unknown[] }>(`/recipes/${one}/conflicts`)).conflicts).toEqual([]);
+  });
+
   it("moves the Recipe to the next batch of its Bean picked on A, written into C's Workflow, and unloads it on a batch of another Bean, leaving the Recipe as it was", async () => {
     const { machines, a, c, one } = await lab("Rebagged", 48031);
     const library = dye2Library();
