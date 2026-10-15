@@ -12,7 +12,7 @@ import { type TestServer, type TestServerOptions, startTestServer } from "./supp
 const WARNING = "idle_in_transaction_session_timeout is off";
 const fix = (database: string) => `ALTER DATABASE ${database} SET idle_in_transaction_session_timeout = '30s';`;
 
-describe("the idle-in-transaction timeout", { timeout: 60_000 }, () => {
+describe("the idle-in-transaction timeout", () => {
   const servers: TestServer[] = [];
   const clients: pg.Client[] = [];
   const poolers: PoolerProxy[] = [];

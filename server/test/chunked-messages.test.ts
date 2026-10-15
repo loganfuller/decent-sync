@@ -34,7 +34,7 @@ describe("Chunked messages", () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
@@ -120,7 +120,7 @@ describe("Chunked messages", () => {
     let stalled = true;
     const stallUpload = (frame: unknown) => stalled && (frame as Received).type === "chunk" && (frame as Received).index === 2;
     const tablet = load(machine, [record], { stallUpload });
-    await expect.poll(() => receipts(tablet.received).length, { timeout: 10_000 }).toBe(2);
+    await expect.poll(() => receipts(tablet.received).length).toBe(2);
     await absent("interrupted-long-shot");
     stalled = false;
     tablet.dropConnections();
@@ -145,7 +145,7 @@ describe("Chunked messages", () => {
     const notes = "抽出はゆっくり、甘い余韻。\u{2615}\u{1f600}".repeat(25_000);
     const record = long("slow-upload-shot", { annotations: { ...(shotFixture().annotations as object), espressoNotes: notes } });
     const tablet = load(machine, [record], { uploadBytesPerSecond: 512 * 1024 });
-    await expect.poll(() => receipts(tablet.received).length, { timeout: 10_000 }).toBeGreaterThan(0);
+    await expect.poll(() => receipts(tablet.received).length).toBeGreaterThan(0);
     const heartbeatsBefore = tablet.sent.filter((message) => (message as Received).type === "heartbeat").length;
 
     // A Shot pulled while the long one is still on its way.
@@ -178,7 +178,7 @@ describe("Chunked messages", () => {
     // Last chunk first, and every other chunk twice.
     const order = [...chunks].reverse().flatMap((chunk, n) => (n % 2 === 0 ? [chunk, chunk] : [chunk]));
     for (const chunk of order) raw.send(chunk);
-    await expect.poll(() => acks(raw.messages, id), { timeout: 10_000 }).toBe(1);
+    await expect.poll(() => acks(raw.messages, id)).toBe(1);
     // A stray copy after the Shot is complete starts nothing that could complete again.
     raw.send(chunks[1]);
     await expect.poll(() => receipts(raw.messages, id).length).toBe(order.length + 1);
@@ -246,7 +246,7 @@ describe("Chunked messages", () => {
     // Sent whole, from its first chunk, it is stored once.
     const whole = await connect(machine);
     for (const chunk of chunks) whole.send(chunk);
-    await expect.poll(() => acks(whole.messages, id), { timeout: 10_000 }).toBe(1);
+    await expect.poll(() => acks(whole.messages, id)).toBe(1);
     expect(await measurements("partial-chunked-shot")).toEqual(record.measurements);
   });
 

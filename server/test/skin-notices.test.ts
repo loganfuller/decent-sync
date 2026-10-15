@@ -253,7 +253,6 @@ describe("Telling skins of Recipes changed in the management interface", { timeo
   }
 
   const slots = (tablet: SimulatedTablet) => ((dye2List(tablet, "recipes") ?? []) as Record_[]).map((record) => `${String(record.id)}:${String(record.name)}`);
-  const poll = <T>(read: () => T) => expect.poll(read);
 
   it("pushes on each tablet at the Location as a Recipe is created, edited, moved and taken out of its slot there, and not for a Basket", async () => {
     const location: LocationView = await api.createLocation("Skin lab", "America/Chicago");
@@ -267,8 +266,8 @@ describe("Telling skins of Recipes changed in the management interface", { timeo
 
     /** Waits until each tablet at the Location holds `expected`, and has pushed at least `count` times since `before`. */
     const pushedOnEach = async (before: number[], expected: string[], count = 1) => {
-      for (const tablet of here) await poll(() => slots(tablet)).toEqual(expected);
-      await poll(() => pushes().every((pushed, index) => pushed - before[index]! >= count)).toBe(true);
+      for (const tablet of here) await expect.poll(() => slots(tablet)).toEqual(expected);
+      await expect.poll(() => pushes().every((pushed, index) => pushed - before[index]! >= count)).toBe(true);
     };
 
     let before = pushes();
@@ -290,7 +289,7 @@ describe("Telling skins of Recipes changed in the management interface", { timeo
 
     before = pushes();
     const basket = (await api.send<{ basket: { id: string } }>("POST", "/baskets", { locationId: location.id, content: { name: "Skin 20 g" } }, 201)).basket;
-    for (const tablet of here) await poll(() => ((dye2List(tablet, "baskets") ?? []) as Record_[]).some((record) => record[GLOBAL_ID_KEY] === basket.id)).toBe(true);
+    for (const tablet of here) await expect.poll(() => ((dye2List(tablet, "baskets") ?? []) as Record_[]).some((record) => record[GLOBAL_ID_KEY] === basket.id)).toBe(true);
     expect(pushes()).toEqual(before);
     for (const tablet of here) expect(new Set(tablet.pushes("changed").map((push) => JSON.stringify(push)))).toEqual(new Set([JSON.stringify(PUSH)]));
     // No Recipe was ever at the cafe.

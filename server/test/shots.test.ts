@@ -37,7 +37,7 @@ describe("Shot capture and reconciliation", () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
@@ -123,7 +123,7 @@ describe("Shot capture and reconciliation", () => {
     await expect.poll(async () => {
       const response = await api.call("GET", `/shots/${encodeURIComponent(id)}`);
       return response.ok && matches(((await response.json()) as { shot: ShotView }).shot);
-    }, { timeout: 10_000 }).toBe(true);
+    }).toBe(true);
     return detail(id);
   }
 
@@ -135,7 +135,7 @@ describe("Shot capture and reconciliation", () => {
     const machine = await api.createMachine("History");
     const history = Array.from({ length: 205 }, (_, n) => shot(`history-${n}`, { timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, n)).toISOString() }));
     const tablet = load(machine, history, { apiDelayMs: 500 });
-    await expect.poll(async () => (await list(machine.machine.id)).total, { timeout: 10_000 }).toBeGreaterThan(0);
+    await expect.poll(async () => (await list(machine.machine.id)).total).toBeGreaterThan(0);
     expect((await list(machine.machine.id)).total).toBeLessThan(history.length);
     const acknowledged = new Set(tablet.received.flatMap((message) => ((message as Frame).type === "ack" ? [(message as Frame).id] : [])));
     const sentBefore = tablet.sent.length;
@@ -237,7 +237,7 @@ describe("Shot capture and reconciliation", () => {
       const message = frame as { type?: string; shots?: { id: string }[] };
       return message.type === "shotIndex" ? message.shots!.map((shot) => shot.id) : [];
     });
-    await expect.poll(indexed, { timeout: 10_000 }).toEqual(expect.arrayContaining(older.map((shot) => String(shot.id))));
+    await expect.poll(indexed).toEqual(expect.arrayContaining(older.map((shot) => String(shot.id))));
     await expect.poll(() => growing.shotPageRequests.length).toBe(9);
     expect(growing.shotPageRequests).toEqual(pages(0, 90, 180, 270, 0, 90, 180, 270, 360));
     expect(growing.logs.join("\n")).not.toMatch(/kept changing/);
@@ -271,7 +271,7 @@ describe("Shot capture and reconciliation", () => {
     // The first full record sent stays unwritten, so the rest of the history stays requested.
     let stalled = true;
     const tablet = load(machine, history, { stallUpload: (frame: unknown) => stalled && (frame as Frame).type === "shot" });
-    await expect.poll(() => fullRecordsSent(tablet).length, { timeout: 10_000 }).toBe(1);
+    await expect.poll(() => fullRecordsSent(tablet).length).toBe(1);
     // The history is backfilled newest first.
     expect(fullRecordsSent(tablet)).toEqual([newest]);
     tablet.loseNetwork();

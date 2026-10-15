@@ -46,7 +46,7 @@ const SKIN_SELECTED = "profile:98fa00c191551b435845";
 /** The bundled Profile the test tablet's Shot was pulled with, which streamline-js loaded into its Workflow. */
 const LONDONIUM = "profile:729d284747718d27c93a";
 
-describe("Shots linked to the Library", { timeout: 60_000 }, () => {
+describe("Shots linked to the Library", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
@@ -56,7 +56,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
     await other?.stop();
@@ -84,13 +84,12 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     expect(response.status, await response.clone().text()).toBe(status);
     return (await response.json()) as T;
   }
-  const poll = <T>(read: () => T) => expect.poll(read, { timeout: 10_000 });
   const held = (records: Record_[], id: string) => records.find((record) => globalIdOf(record) === id);
   const viewShot = async (id: string) => (await send<{ shot: ShotView }>("GET", `/shots/${id}`)).shot;
   /** Resolves with the id of the Library's Profile of that title, once it has one. */
   async function libraryProfileId(title: string): Promise<string> {
     const find = async () => (await send<{ profiles: { id: string; title: string }[] }>("GET", "/profiles")).profiles.find((p) => p.title === title)?.id;
-    await poll(find).toBeTruthy();
+    await expect.poll(find).toBeTruthy();
     return (await find())!;
   }
   /** The ids of the Shots a filtered list holds, in list order. */
@@ -136,14 +135,14 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
       (await send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: location.id, content: { model } }, 201)).grinder;
     const labGrinder = await grinder(lab, "Linked lab EK43");
     const cafeGrinder = await grinder(cafe, "Linked cafe EK43");
-    for (const tablet of [labTablet, cafeTablet]) await poll(() => held(tablet.batches(), batch.id)).toBeTruthy();
-    await poll(() => held(labTablet.grinders(), labGrinder.id)).toBeTruthy();
-    await poll(() => held(cafeTablet.grinders(), cafeGrinder.id)).toBeTruthy();
+    for (const tablet of [labTablet, cafeTablet]) await expect.poll(() => held(tablet.batches(), batch.id)).toBeTruthy();
+    await expect.poll(() => held(labTablet.grinders(), labGrinder.id)).toBeTruthy();
+    await expect.poll(() => held(cafeTablet.grinders(), cafeGrinder.id)).toBeTruthy();
 
     // A Profile a lab barista saved joins the Library; the Shot's Workflow holds it as Decaid holds it.
     const profile = (await labTablet.addProfile(derivedProfile("Linked bloom", 7.5))).profile as Record_;
     const libraryProfile = async () => (await send<{ profiles: { id: string; title: string }[] }>("GET", "/profiles")).profiles.find((p) => p.title === "Linked bloom");
-    await poll(libraryProfile).toBeTruthy();
+    await expect.poll(libraryProfile).toBeTruthy();
     const profileId = (await libraryProfile())!.id;
 
     // Each tablet names the batch and its Grinder by its own ids.
@@ -155,9 +154,9 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     labTablet.pullShot(shotWith("linked-yield-shot", "26001", labLocal, { ...profile, target_weight: 41.5 }));
     // The cafe Shot's Workflow holds a profile no tablet saved, while its skin's id names one the Library has.
     cafeTablet.pullShot(shotWith("linked-cafe-shot", "26002", cafeLocal, derivedProfile("Linked unsaved bloom", 7.6)));
-    await poll(async () => (await api.call("GET", "/shots/linked-cafe-shot")).status).toBe(200);
-    await poll(async () => (await api.call("GET", "/shots/linked-lab-shot")).status).toBe(200);
-    await poll(async () => (await api.call("GET", "/shots/linked-yield-shot")).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", "/shots/linked-cafe-shot")).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", "/shots/linked-lab-shot")).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", "/shots/linked-yield-shot")).status).toBe(200);
 
     expect(await viewShot("linked-lab-shot")).toMatchObject({
       machine: { id: labMachine.machine.id },
@@ -166,7 +165,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
       profile: { id: profileId, title: "Linked bloom" },
     });
     // The skin's selected id names a Profile the Library has, which the cafe Shot's Workflow's profile is not: it is linked to none.
-    await poll(async () => (await api.call("GET", `/profiles/${encodeURIComponent(SKIN_SELECTED)}`)).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", `/profiles/${encodeURIComponent(SKIN_SELECTED)}`)).status).toBe(200);
     expect(await viewShot("linked-cafe-shot")).toMatchObject({ machine: { id: cafeMachine.machine.id }, beanBatch: { id: batch.id }, grinder: { id: cafeGrinder.id }, profile: null });
 
     // The batch's Shots come from Machines at both Locations; each Grinder's from its own.
@@ -201,8 +200,8 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     const lighter = (await tablet.addProfile({ ...base, title: "Weighed bloom 36", target_weight: 36 })).profile as Record_;
     const heavier = (await tablet.addProfile({ ...base, title: "Weighed bloom 40", target_weight: 40 })).profile as Record_;
     const libraryId = async (title: string) => (await send<{ profiles: { id: string; title: string }[] }>("GET", "/profiles")).profiles.find((p) => p.title === title)?.id;
-    await poll(() => libraryId("Weighed bloom 40")).toBeTruthy();
-    await poll(() => libraryId("Weighed bloom 36")).toBeTruthy();
+    await expect.poll(() => libraryId("Weighed bloom 40")).toBeTruthy();
+    await expect.poll(() => libraryId("Weighed bloom 36")).toBeTruthy();
     const [lighterId, heavierId] = [(await libraryId("Weighed bloom 36"))!, (await libraryId("Weighed bloom 40"))!];
 
     tablet.pullShot(shotWith("weighed-36", "26041", {}, lighter));
@@ -211,7 +210,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     tablet.pullShot(shotWith("weighed-yield", "26041", {}, { ...lighter, target_weight: 37.5 }));
     // Under a title neither has, either could be it, so it is linked to neither.
     tablet.pullShot(shotWith("weighed-untitled", "26041", {}, { ...lighter, title: "Weighed bloom renamed", target_weight: 37.5 }));
-    for (const id of ["weighed-36", "weighed-40", "weighed-yield", "weighed-untitled"]) await poll(async () => (await api.call("GET", `/shots/${id}`)).status).toBe(200);
+    for (const id of ["weighed-36", "weighed-40", "weighed-yield", "weighed-untitled"]) await expect.poll(async () => (await api.call("GET", `/shots/${id}`)).status).toBe(200);
 
     expect((await viewShot("weighed-36")).profile).toEqual({ id: lighterId, title: "Weighed bloom 36" });
     expect((await viewShot("weighed-40")).profile).toEqual({ id: heavierId, title: "Weighed bloom 40" });
@@ -227,7 +226,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     const londonium = (derivedDe1Pro({})["/profiles"] as Record_[]).find((record) => record.id === LONDONIUM)!;
     const tablet = load(machine, "26051", { library: { "/profiles": [londonium] } });
     await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
-    await poll(async () => (await api.call("GET", `/profiles/${encodeURIComponent(LONDONIUM)}`)).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", `/profiles/${encodeURIComponent(LONDONIUM)}`)).status).toBe(200);
 
     // The Shot's Workflow's Londonium is not the record's: one step's limiter of value 0 is null, and its target weight is the yield.
     const recorded = (shotFixture().workflow as { profile: { steps: { limiter: unknown }[]; target_weight: number } }).profile;
@@ -237,7 +236,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     expect(recorded.target_weight).not.toBe(kept.target_weight);
 
     tablet.pullShot(shotWith("streamline-shot", "26051", {}));
-    await poll(async () => (await api.call("GET", "/shots/streamline-shot")).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", "/shots/streamline-shot")).status).toBe(200);
     expect((await viewShot("streamline-shot")).profile).toEqual({ id: LONDONIUM, title: "Londonium" });
     expect(await listed(`profileId=${encodeURIComponent(LONDONIUM)}&machineId=${machine.machine.id}`)).toEqual(["streamline-shot"]);
   });
@@ -258,7 +257,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     tablet.pullShot(shotWith("copied-copy", "26061", {}, copied));
     // A skin set the copy's target weight to the yield: the copy is still the only Profile with its steps as they are.
     tablet.pullShot(shotWith("copied-copy-yield", "26061", {}, { ...copied, target_weight: 37.5 }));
-    for (const id of ["copied-kept", "copied-copy", "copied-copy-yield"]) await poll(async () => (await api.call("GET", `/shots/${id}`)).status).toBe(200);
+    for (const id of ["copied-kept", "copied-copy", "copied-copy-yield"]) await expect.poll(async () => (await api.call("GET", `/shots/${id}`)).status).toBe(200);
 
     expect((await viewShot("copied-kept")).profile?.id).toBe(keptId);
     expect((await viewShot("copied-copy")).profile?.id).toBe(copiedId);
@@ -276,7 +275,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     const reweighedId = await libraryProfileId("Weighed copy bloom 40");
     tablet.pullShot(shotWith("copied-reweighed-yield", "26061", {}, { ...reweighed, target_weight: 36 }));
     tablet.pullShot(shotWith("copied-original-weight", "26061", {}, { ...reweighed, title: "Weighed copy bloom renamed", target_weight: 36 }));
-    for (const id of ["copied-reweighed-yield", "copied-original-weight"]) await poll(async () => (await api.call("GET", `/shots/${id}`)).status).toBe(200);
+    for (const id of ["copied-reweighed-yield", "copied-original-weight"]) await expect.poll(async () => (await api.call("GET", `/shots/${id}`)).status).toBe(200);
     expect((await viewShot("copied-reweighed-yield")).profile?.id).toBe(reweighedId);
     expect((await viewShot("copied-original-weight")).profile?.id).toBe(originalId);
   });
@@ -291,7 +290,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
 
     // streamline-js's side panel: 94 degrees written into every step, the yield as its target weight, the limiter as none.
     tablet.pullShot(shotWith("warmed-overridden", "26091", {}, { ...withTemperature(withLimiter(pulled, null), 94), target_weight: 41 }));
-    await poll(async () => (await api.call("GET", "/shots/warmed-overridden")).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", "/shots/warmed-overridden")).status).toBe(200);
     expect((await viewShot("warmed-overridden")).profile).toEqual({ id: pulledId, title: "Warmed bloom" });
 
     // A barista saves it at 94 degrees as a Profile of its own: a Shot pulled with that one is its, and the overridden
@@ -299,7 +298,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     const saved = (await tablet.addProfile({ ...withTemperature(pulled, 94), title: "Warmed bloom 94" })).profile as Record_;
     const savedId = await libraryProfileId("Warmed bloom 94");
     tablet.pullShot(shotWith("warmed-saved", "26091", {}, withLimiter(saved, null)));
-    await poll(async () => (await api.call("GET", "/shots/warmed-saved")).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", "/shots/warmed-saved")).status).toBe(200);
     expect((await viewShot("warmed-saved")).profile?.id).toBe(savedId);
     expect((await viewShot("warmed-overridden")).profile?.id).toBe(pulledId);
     expect(await listed(`profileId=${encodeURIComponent(pulledId)}`)).toEqual(["warmed-overridden"]);
@@ -318,7 +317,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
 
     // The server has the Shot, whose Workflow holds the profile with that limiter null and another temperature in every step.
     tablet.pullShot(shotWith("zeroed-sent", "26071", {}, withTemperature(withLimiter(sent, null), 95)));
-    await poll(async () => (await api.call("GET", "/shots/zeroed-sent")).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", "/shots/zeroed-sent")).status).toBe(200);
     const refused = await api.call("DELETE", `/profiles/${encodeURIComponent(sentId)}`);
     expect(refused.status).toBe(409);
     expect(await refused.text()).toMatch(/A Shot names this Profile/);
@@ -328,12 +327,12 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     const releaseShots = tablet.holdShotReads();
     tablet.pullShot(shotWith("zeroed-unsent", "26071", {}, withTemperature(withLimiter(unsent, null), 95)));
     expect((await api.call("DELETE", `/profiles/${encodeURIComponent(unsentId)}`)).status).toBe(204);
-    await poll(() => tablet.received.some((frame) => (frame as { type?: unknown }).type === "delete")).toBe(true);
+    await expect.poll(() => tablet.received.some((frame) => (frame as { type?: unknown }).type === "delete")).toBe(true);
     releaseShots();
     await expect
       .poll(() => server.output(), { timeout: 20_000 })
       .toMatch(/did not delete "profile" .*A Shot this plugin has queued or has yet to send names the record/);
-    await poll(async () => (await api.call("GET", "/shots/zeroed-unsent")).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", "/shots/zeroed-unsent")).status).toBe(200);
     expect(tablet.profiles().some((record) => record.id === unsentId)).toBe(true);
     expect(tablet.writes.filter((write) => write.startsWith("DELETE "))).toEqual([]);
   });
@@ -345,7 +344,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
 
     tablet.pullShot(shotWith("unlinked-shot", "26011", { beanBatchId: "batch-the-library-lacks", grinderId: "grinder-the-library-lacks" }));
-    await poll(async () => (await api.call("GET", "/shots/unlinked-shot")).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", "/shots/unlinked-shot")).status).toBe(200);
     expect(await viewShot("unlinked-shot")).toMatchObject({ beanBatch: null, grinder: null });
     expect(await listed(`machineId=${machine.machine.id}`)).toEqual(["unlinked-shot"]);
     expect(await listed(`machineId=${machine.machine.id}&beanBatchId=none&grinderId=none`)).toEqual(["unlinked-shot"]);
@@ -364,15 +363,15 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
 
     // The test tablet's Shot names one of its batches and grinders.
     tablet.pullShot(shotWith("before-shot", "26021", {}));
-    await poll(async () => (await api.call("GET", "/shots/before-shot")).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", "/shots/before-shot")).status).toBe(200);
     expect(await viewShot("before-shot")).toMatchObject({ beanBatch: null, grinder: null });
 
     // Moved to a Location offering no batches or Grinders yet, its tablet brings its own, which join the Library.
     const location = await api.createLocation("Before cafe", "America/Chicago");
     expect((await api.call("POST", `/machines/${machine.machine.id}/location-history`, { locationId: location.id })).status).toBe(201);
     // Its batches and grinders are reported, and so taken in, one list at a time.
-    await poll(async () => (await viewShot("before-shot")).beanBatch?.bean.name).toBe("Before Ethiopia Generic 100g Sample");
-    await poll(async () => (await viewShot("before-shot")).grinder?.model).toBe("DF64 v2");
+    await expect.poll(async () => (await viewShot("before-shot")).beanBatch?.bean.name).toBe("Before Ethiopia Generic 100g Sample");
+    await expect.poll(async () => (await viewShot("before-shot")).grinder?.model).toBe("DF64 v2");
     const linked = await viewShot("before-shot");
     expect(await listed(`beanBatchId=${linked.beanBatch!.id}`)).toEqual(["before-shot"]);
   });
@@ -390,9 +389,9 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     const tablet = load(machine, "26081", decaid);
     await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
     // The Location offered none, so the tablet's own batches and grinders join the Library, and the Shot it sent is linked.
-    await poll(async () => (await api.call("GET", "/shots/listed-shot")).status).toBe(200);
-    await poll(async () => (await viewShot("listed-shot")).beanBatch?.bean.name).toBe("Listed Ethiopia Generic 100g Sample");
-    await poll(async () => (await viewShot("listed-shot")).grinder?.model).toBe("DF64 v2");
+    await expect.poll(async () => (await api.call("GET", "/shots/listed-shot")).status).toBe(200);
+    await expect.poll(async () => (await viewShot("listed-shot")).beanBatch?.bean.name).toBe("Listed Ethiopia Generic 100g Sample");
+    await expect.poll(async () => (await viewShot("listed-shot")).grinder?.model).toBe("DF64 v2");
     const linked = await viewShot("listed-shot");
 
     // As stored before Shots kept the tablet that reported them.
@@ -407,7 +406,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
 
     // Loaded again, the plugin's index lists the Shot, which it holds, so its ids are that tablet's.
     load(machine, "26081", decaid);
-    await poll(async () => (await viewShot("listed-shot")).beanBatch?.id).toBe(linked.beanBatch!.id);
+    await expect.poll(async () => (await viewShot("listed-shot")).beanBatch?.id).toBe(linked.beanBatch!.id);
     expect((await viewShot("listed-shot")).grinder?.id).toBe(linked.grinder!.id);
   });
 
@@ -418,22 +417,22 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
     const bean = (await send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Kept Guji" } }, 201)).bean;
     const batch = (await send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: {}, locations: [{ locationId: location.id }] }, 201)).batch;
-    await poll(() => held(tablet.batches(), batch.id)).toBeTruthy();
+    await expect.poll(() => held(tablet.batches(), batch.id)).toBeTruthy();
     const localId = held(tablet.batches(), batch.id)!.id;
 
     const shot = shotWith("kept-shot", "26031", { beanBatchId: localId });
     tablet.pullShot(shot);
-    await poll(async () => (await api.call("GET", "/shots/kept-shot")).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", "/shots/kept-shot")).status).toBe(200);
     expect((await viewShot("kept-shot")).beanBatch?.id).toBe(batch.id);
 
     // Once the tablet has answered every write, so its record has seen the batch added there, a barista deletes the
     // batch on it, finishing it there, then rates the Shot.
-    await poll(async () => (await send<{ status: { waiting: number | null } }>("GET", `/machines/${machine.machine.id}/sharing-status`)).status.waiting).toBe(0);
+    await expect.poll(async () => (await send<{ status: { waiting: number | null } }>("GET", `/machines/${machine.machine.id}/sharing-status`)).status.waiting).toBe(0);
     expect((await tablet.callApi("DELETE", `/bean-batches/${String(localId)}`)).status).toBeLessThan(300);
-    await poll(async () => (await send<{ batch: { locations: unknown[] } }>("GET", `/bean-batches/${batch.id}`)).batch.locations).toEqual([]);
+    await expect.poll(async () => (await send<{ batch: { locations: unknown[] } }>("GET", `/bean-batches/${batch.id}`)).batch.locations).toEqual([]);
     const { measurements: _, ...metadata } = shot;
     tablet.fire("shotUpdated", { id: shot.id, shot: { ...metadata, updatedAt: "2026-11-01T12:01:00Z", annotations: { enjoyment: 80 } } });
-    await poll(async () => (await send<{ shot: { enjoyment: number | null } }>("GET", "/shots/kept-shot")).shot.enjoyment).toBe(80);
+    await expect.poll(async () => (await send<{ shot: { enjoyment: number | null } }>("GET", "/shots/kept-shot")).shot.enjoyment).toBe(80);
 
     expect((await viewShot("kept-shot")).beanBatch?.id).toBe(batch.id);
     for (const path of [`/bean-batches/${batch.id}`, `/beans/${bean.id}`]) {

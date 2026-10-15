@@ -48,7 +48,7 @@ const REMEMBERED: Partial<Record<StreamlineKey, number>> = {
   "last-flush-duration": 5,
 };
 
-describe("Streamline's remembered steam and rinse values", { timeout: 60_000 }, () => {
+describe("Streamline's remembered steam and rinse values", () => {
   let server: TestServer;
   let api: AdminApi;
   const tablets: SimulatedTablet[] = [];
@@ -57,7 +57,7 @@ describe("Streamline's remembered steam and rinse values", { timeout: 60_000 }, 
   beforeAll(async () => {
     server = await startTestServer({ env });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     for (const skin of skins) skin.stop();
     await Promise.all(tablets.map((tablet) => tablet.unload()));
@@ -102,7 +102,7 @@ describe("Streamline's remembered steam and rinse values", { timeout: 60_000 }, 
   const settingsAt = async (location: LocationView) =>
     ((await (await api.call("GET", `/locations/${location.id}/settings`)).json()) as { settings: SettingsView }).settings;
   async function settingsOf(location: LocationView): Promise<SettingsView> {
-    await expect.poll(async () => (await settingsAt(location)).id, { timeout: 10_000 }).not.toBeNull();
+    await expect.poll(async () => (await settingsAt(location)).id).not.toBeNull();
     return settingsAt(location);
   }
   const versions = async (settings: SettingsView) =>
@@ -113,7 +113,7 @@ describe("Streamline's remembered steam and rinse values", { timeout: 60_000 }, 
     return (tablet.workflow()[part] as Record_)[name];
   }
   async function holds(tablet: SimulatedTablet, values: Record<string, number>): Promise<void> {
-    await expect.poll(() => Object.fromEntries(Object.keys(values).map((field) => [field, setting(tablet, field)])), { timeout: 10_000 }).toEqual(values);
+    await expect.poll(() => Object.fromEntries(Object.keys(values).map((field) => [field, setting(tablet, field)]))).toEqual(values);
   }
   /** The versions of the settings a Machine made. */
   const versionsBy = async (settings: SettingsView, { machine }: CreatedMachine) =>
@@ -133,7 +133,7 @@ describe("Streamline's remembered steam and rinse values", { timeout: 60_000 }, 
     expect((await change(settings, { "steamSettings.duration": 90 })).status).toBe(200);
     await holds(tablet, { "steamSettings.duration": 90 });
     // The machine echoes the new value, which Streamline adopts, pushing nothing.
-    await expect.poll(() => streamline.adopted, { timeout: 10_000 }).toEqual([{ key: "last-steam-duration", value: 90 }]);
+    await expect.poll(() => streamline.adopted).toEqual([{ key: "last-steam-duration", value: 90 }]);
     await streamline.settled();
     expect(streamline.pushes).toEqual([]);
     expect(streamline.remembered("last-steam-duration")).toBe(90);
@@ -154,7 +154,7 @@ describe("Streamline's remembered steam and rinse values", { timeout: 60_000 }, 
     // The machine switched off, as for the night, while the tablet stays connected: Decaid refuses the Workflow.
     tablet.machineConnected = false;
     expect((await change(settings, { "steamSettings.duration": 90, "steamSettings.targetTemperature": 150 })).status).toBe(200);
-    await expect.poll(() => settingsAnswers(tablet).some((answer) => answer.type === "writeRefused"), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => settingsAnswers(tablet).some((answer) => answer.type === "writeRefused")).toBe(true);
     // The steam temperature is set only once Decaid has taken the Workflow.
     expect(tablet.storeWrites).toEqual([]);
     expect([streamline.remembered("last-steam-duration"), streamline.remembered("last-steam-temp")]).toEqual([120, 160]);
@@ -234,11 +234,11 @@ describe("Streamline's remembered steam and rinse values", { timeout: 60_000 }, 
     // Streamline keeps the value and marks it pending before Decaid refuses it.
     await expect(streamline.set("last-steam-duration", 100)).rejects.toThrow(/refused Streamline's change/);
     expect((await change(settings, { "steamSettings.duration": 90 })).status).toBe(200);
-    await expect.poll(() => settingsAnswers(tablet).some((answer) => answer.type === "writeRefused"), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => settingsAnswers(tablet).some((answer) => answer.type === "writeRefused")).toBe(true);
     tablet.connectMachine();
     // The server writes the Location's 90 again, and Streamline, on the machine's echo of it, pushes its pending 100, which becomes the Location's.
-    await expect.poll(() => streamline.pushes, { timeout: 10_000 }).toEqual([{ key: "last-steam-duration", value: 100 }]);
-    await expect.poll(async () => (await settingsAt(location)).values["steamSettings.duration"], { timeout: 10_000 }).toBe(100);
+    await expect.poll(() => streamline.pushes).toEqual([{ key: "last-steam-duration", value: 100 }]);
+    await expect.poll(async () => (await settingsAt(location)).values["steamSettings.duration"]).toBe(100);
     await holds(tablet, { "steamSettings.duration": 100 });
   });
 
@@ -250,7 +250,7 @@ describe("Streamline's remembered steam and rinse values", { timeout: 60_000 }, 
     const now = Date.now();
     streamline.clock = () => now;
     await streamline.set("last-steam-duration", 100);
-    await expect.poll(async () => (await settingsAt(location)).values["steamSettings.duration"], { timeout: 10_000 }).toBe(100);
+    await expect.poll(async () => (await settingsAt(location)).values["steamSettings.duration"]).toBe(100);
     expect((await change(settings, { "steamSettings.duration": 90 })).status).toBe(200);
     await holds(tablet, { "steamSettings.duration": 90 });
     await streamline.settled();
@@ -283,7 +283,7 @@ describe("Streamline's remembered steam and rinse values", { timeout: 60_000 }, 
     await expect.poll(async () => {
       const { events } = (await (await api.call("GET", `/machines/${machines[0]!.machine.id}/workflow-events?limit=10`)).json()) as { events: { workflow: Parts }[] };
       return events[0]?.workflow.steamSettings?.targetTemperature;
-    }, { timeout: 10_000 }).toBe(0);
+    }).toBe(0);
     expect((await change(settings, { "steamSettings.flow": 1.2, "steamSettings.duration": 90, "rinseData.duration": 6 })).status).toBe(200);
     await holds(tablet, { "rinseData.duration": 6 });
     expect([setting(tablet, "steamSettings.flow"), setting(tablet, "steamSettings.duration")]).toEqual([2.5, 120]);
@@ -318,7 +318,7 @@ describe("Streamline's remembered steam and rinse values", { timeout: 60_000 }, 
     await mine.set("last-hot-water-volume", 150);
     await mine.settled();
     await mine.set("last-hot-water-temp", 80);
-    await expect.poll(async () => (await latestWorkflow(machines[0]!))?.hotWaterData, { timeout: 10_000 }).toMatchObject({ volume: 150, targetTemperature: 80 });
+    await expect.poll(async () => (await latestWorkflow(machines[0]!))?.hotWaterData).toMatchObject({ volume: 150, targetTemperature: 80 });
     // A change of the Location's settings after it reaches both tablets, each keeping its own hot water.
     expect((await change(settings, { "steamSettings.duration": 100, "steamSettings.flow": 1.8, "rinseData.duration": 7 })).status).toBe(200);
     for (const tablet of tablets) await holds(tablet, { "steamSettings.duration": 100, "steamSettings.flow": 1.8, "rinseData.duration": 7 });

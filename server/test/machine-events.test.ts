@@ -41,7 +41,7 @@ describe("Workflow changes and machine state transitions", () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
@@ -312,7 +312,7 @@ describe("Workflow changes and machine state transitions", () => {
     moved.setWorkflow(dialledIn);
     // Acknowledged in order, so once the dialled-in Workflow is, the state is too.
     // Sent behind everything a welcome queues first, each acknowledged in turn.
-    await expect.poll(() => moved.sent.some((frame) => frameType(frame) === "workflow" && isEqual((frame as { workflow: unknown }).workflow, dialledIn)), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => moved.sent.some((frame) => frameType(frame) === "workflow" && isEqual((frame as { workflow: unknown }).workflow, dialledIn))).toBe(true);
     await acknowledged(moved, "workflow");
     expect(await stateEvents(machine)).toMatchObject({ total: 0 });
     expect((await workflowEvents(machine)).total).toBe(1);
@@ -429,7 +429,7 @@ describe("Workflow changes and machine state transitions", () => {
       await database.end();
     }
     await api.waitForMachine("Moved mid-delivery", (candidate) => candidate.online && candidate.identification === "mismatch");
-    await expect.poll(async () => (await currentWorkflow(destination))?.workflow, { timeout: 10_000 }).toEqual(dialledIn);
+    await expect.poll(async () => (await currentWorkflow(destination))?.workflow).toEqual(dialledIn);
     expect((await workflowEvents(machine)).events.map((event) => event.workflow)).toEqual([dialledIn, workflowFixture()]);
   });
 

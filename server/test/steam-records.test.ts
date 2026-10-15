@@ -68,7 +68,7 @@ describe("Steam Record capture", () => {
     api = await AdminApi.setUp(server.url);
     lab = await api.createLocation("Lab", "America/Denver");
     uptown = await api.createLocation("Uptown", "America/Chicago");
-  }, 60_000);
+  });
   afterEach(async () => {
     const used = tablets.splice(0);
     await Promise.all(used.map((tablet) => tablet.unload()));
@@ -131,12 +131,12 @@ describe("Steam Record capture", () => {
       release,
       async found(id) {
         try {
-          await expect.poll(() => tablet.requests.filter((request) => request === route).length, { timeout: 10_000 }).toBeGreaterThan(made);
+          await expect.poll(() => tablet.requests.filter((request) => request === route).length).toBeGreaterThan(made);
           const releaseLater = tablet.holdSteamReads(route);
           try {
             const from = tablet.requests.length;
             release();
-            await expect.poll(() => tablet.requests.slice(from).includes(`/steams/${encodeURIComponent(id)}`), { timeout: 10_000 }).toBe(true);
+            await expect.poll(() => tablet.requests.slice(from).includes(`/steams/${encodeURIComponent(id)}`)).toBe(true);
           } finally {
             releaseLater();
           }
@@ -237,7 +237,7 @@ describe("Steam Record capture", () => {
     let stalled = true;
     const stallUpload = (frame: unknown) => stalled && (frame as Sent).type === "steamIndex" && (frame as Sent).steams?.[0]?.id === "history-100";
     const tablet = load(machine, history, { apiDelayMs: 500, stallUpload });
-    await expect.poll(() => sent(tablet, "steamIndex").length, { timeout: 10_000 }).toBe(2);
+    await expect.poll(() => sent(tablet, "steamIndex").length).toBe(2);
     const [firstPage, cutOff] = sent(tablet, "steamIndex");
     await expect.poll(() => acknowledged(tablet).has(firstPage!.id!)).toBe(true);
     const sentBefore = tablet.sent.length;
@@ -313,7 +313,7 @@ describe("Steam Record capture", () => {
     );
     // Each read of Decaid's API takes 20 ms of real time, so the backfill takes seconds.
     const tablet = load(machine, history, { apiDelayMs: 1_000 });
-    await expect.poll(async () => (await list(machine.machine.id)).total, { timeout: 10_000 }).toBeGreaterThan(0);
+    await expect.poll(async () => (await list(machine.machine.id)).total).toBeGreaterThan(0);
     tablet.serve(tabletApi(machine, [...history, derivedSteam("new-during-backfill")]));
     await waitSteam("new-during-backfill");
     expect((await list(machine.machine.id)).total).toBeLessThan(history.length + 1);
@@ -346,7 +346,7 @@ describe("Steam Record capture", () => {
     // Every id is read once every ten poll intervals: at least nine reads of the newest come between
     // the next two reads of every id, made with nothing held.
     const from = tablet.requests.length;
-    await expect.poll(() => tablet.requests.slice(from).filter((route) => route === "/steams/ids").length, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+    await expect.poll(() => tablet.requests.slice(from).filter((route) => route === "/steams/ids").length).toBeGreaterThanOrEqual(2);
     const reads = tablet.requests.slice(from);
     const found = reads.indexOf("/steams/ids");
     expect(reads.slice(found, reads.indexOf("/steams/ids", found + 1)).filter((route) => route === "/steams/latest").length).toBeGreaterThanOrEqual(9);
@@ -374,7 +374,7 @@ describe("Steam Record capture", () => {
     // Once the connection holds, both are sent: the other because a read of every id found it.
     await waitSteam("flapping-earlier");
     await waitSteam("flapping-newest");
-  }, 60_000);
+  });
 
   it("goes on reading the newest Steam Record while a read of every id is slow to answer", async () => {
     const machine = await api.createMachine("Steam during a slow read");
@@ -386,7 +386,7 @@ describe("Steam Record capture", () => {
     const release = tablet.holdSteamReads("/steams/ids");
     try {
       // The next read of every id, up to ten poll intervals on, goes unanswered.
-      await expect.poll(() => idReads(tablet), { timeout: 10_000 }).toBeGreaterThan(read);
+      await expect.poll(() => idReads(tablet)).toBeGreaterThan(read);
       const from = tablet.requests.length;
       tablet.serve(tabletApi(machine, [before, derivedSteam("during-a-slow-read")]));
       await waitSteam("during-a-slow-read");
@@ -406,13 +406,13 @@ describe("Steam Record capture", () => {
     try {
       // The next read of every id, up to ten poll intervals on, goes unanswered for ten more, then
       // times out, as Decaid's fetch does after 30 s.
-      await expect.poll(() => idReads(tablet), { timeout: 10_000 }).toBeGreaterThan(read);
+      await expect.poll(() => idReads(tablet)).toBeGreaterThan(read);
       const held = tablet.requests.length;
-      await expect.poll(() => tablet.requests.slice(held).filter((route) => route === "/steams/latest").length, { timeout: 10_000 }).toBeGreaterThanOrEqual(10);
+      await expect.poll(() => tablet.requests.slice(held).filter((route) => route === "/steams/latest").length).toBeGreaterThanOrEqual(10);
       const failed = tablet.requests.length;
       release("timedOut");
       // Read again ten whole intervals after it failed, not at once, though ten had passed since it began.
-      await expect.poll(() => tablet.requests.slice(failed).includes("/steams/ids"), { timeout: 10_000 }).toBe(true);
+      await expect.poll(() => tablet.requests.slice(failed).includes("/steams/ids")).toBe(true);
       const reads = tablet.requests.slice(failed);
       expect(reads.slice(0, reads.indexOf("/steams/ids")).filter((route) => route === "/steams/latest").length).toBeGreaterThanOrEqual(9);
       expect(tablet.logs.filter((line) => IDS_UNREADABLE.test(line))).toEqual([
@@ -484,7 +484,7 @@ describe("Steam Record capture", () => {
     // A Steam Record recorded since is sent by the next poll, and every id is read again on schedule.
     tablet.serve(withShots(tabletApi(machine, [...steams, derivedSteam("after-a-reconnect")]), shots));
     await waitSteam("after-a-reconnect");
-    await expect.poll(() => idReads(tablet), { timeout: 10_000 }).toBeGreaterThan(reads);
+    await expect.poll(() => idReads(tablet)).toBeGreaterThan(reads);
     expect(indexes(tablet.sent.slice(sentBefore))).toEqual([]);
   });
 
@@ -720,7 +720,7 @@ describe("Steam Record capture", () => {
     let stalled = true;
     const stallUpload = (frame: unknown) => stalled && (frame as Sent).type === "chunk" && (frame as Sent).index === 2;
     const tablet = load(machine, [record], { stallUpload });
-    await expect.poll(() => tablet.received.filter((message) => (message as Sent).type === "chunkReceived").length, { timeout: 10_000 }).toBe(2);
+    await expect.poll(() => tablet.received.filter((message) => (message as Sent).type === "chunkReceived").length).toBe(2);
     await absent("long-steam");
     stalled = false;
     tablet.dropConnections();

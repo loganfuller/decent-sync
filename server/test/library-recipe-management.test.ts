@@ -50,7 +50,7 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
     await other?.stop();
@@ -122,7 +122,6 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
   };
   /** The tablet's own id for its record of a Library item, by the global id the record carries. */
   const localId = (records: Record_[], id: string) => records.find((record) => globalIdOf(record) === id || record[GLOBAL_ID_KEY] === id)?.id;
-  const poll = <T>(read: () => T) => expect.poll(read, { timeout: 15_000 });
   /** Whether the server has acknowledged the tablet's answer to a write of the item, so the writer awaits it no more. */
   const answered = (tablet: SimulatedTablet, id: string) => {
     const frames = (list: unknown[]) => list as { type?: unknown; id?: unknown; globalId?: unknown }[];
@@ -142,7 +141,7 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     const { bean, batch, grinder } = await library("Created", lab.location, [cafe.location]);
     const profile = await cafe.tablets[0]!.addProfile(derivedProfile("Created Bloom", 7.25));
     const profileId = String(profile.id);
-    await poll(async () => (await api.call("GET", `/profiles/${encodeURIComponent(profileId)}`)).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", `/profiles/${encodeURIComponent(profileId)}`)).status).toBe(200);
     const basket = (await send<{ basket: { id: string } }>("POST", "/baskets", { locationId: cafe.location.id, content: { name: "Created 20g" } }, api, 201)).basket;
     const tool = (await send<{ tool: { id: string } }>("POST", "/tools", { locationId: cafe.location.id, content: { name: "Created WDT", custom: [{ key: "Needles", value: "8" }] } }, api, 201)).tool;
 
@@ -193,7 +192,7 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
 
     // Each lab tablet holds it in slot 6, naming what it uses by its own ids; the cafe's holds nothing of it.
     for (const tablet of lab.tablets) {
-      await poll(() => slotOn(tablet, 6)?.[GLOBAL_ID_KEY]).toBe(created.id);
+      await expect.poll(() => slotOn(tablet, 6)?.[GLOBAL_ID_KEY]).toBe(created.id);
       const record = slotOn(tablet, 6)!;
       const baskets = dye2List(tablet, "baskets") as Record_[];
       const tools = dye2List(tablet, "equipment") as Record_[];
@@ -238,14 +237,14 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     const created = await create(lab.location, "next", { name: "Edited Espresso", dose: 18, yield: 36, toolIds: [tool.id], toolAttributes: { [tool.id]: [{ key: "Mesh", value: "150" }] } });
     expect(created.slot).toBe(1);
     // A ratio a tablet saved, kept while the yield is the dose times it.
-    await poll(() => slotOn(lab.tablets[0]!, 1)?.name).toBe("Edited Espresso");
+    await expect.poll(() => slotOn(lab.tablets[0]!, 1)?.name).toBe("Edited Espresso");
     expect((await edit(created.id, { name: "Edited Espresso 2" })).content).toMatchObject({ dose: 18, yield: 36 });
 
     const edited = await edit(created.id, { dose: 20, yield: null, toolIds: [] });
     expect(edited.content).not.toHaveProperty("yield");
     expect(edited.content).toMatchObject({ dose: 20, toolIds: [], toolAttributes: {} });
     for (const tablet of lab.tablets) {
-      await poll(() => (slotOn(tablet, 1)?.dashboardVariables as Record_ | undefined)?.dose).toBe(20);
+      await expect.poll(() => (slotOn(tablet, 1)?.dashboardVariables as Record_ | undefined)?.dose).toBe(20);
       expect(slotOn(tablet, 1)).toMatchObject({ name: "Edited Espresso 2", dashboardVariables: { equipmentIds: [], equipmentCustom: {} } });
     }
     expect((await versions(created.id))[0]!.fields).toEqual({ dose: 20, yield: null, toolIds: [], toolAttributes: {} });
@@ -280,9 +279,9 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     const kenya = await library("Conflicted Kenya", lab.location, [lab.location]);
     const created = await create(lab.location, 1, { name: "Conflicted Espresso", beanBatchId: start.batch.id });
     const [one, two] = lab.tablets as [SimulatedTablet, SimulatedTablet];
-    for (const tablet of [one, two]) await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(created.id);
-    await poll(() => localId(one.beans(), brazil.bean.id)).toBeDefined();
-    await poll(() => localId(two.beans(), kenya.bean.id)).toBeDefined();
+    for (const tablet of [one, two]) await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(created.id);
+    await expect.poll(() => localId(one.beans(), brazil.bean.id)).toBeDefined();
+    await expect.poll(() => localId(two.beans(), kenya.bean.id)).toBeDefined();
 
     // Offline, one tablet's DYE2 editor picks the Brazil and the other, later, the Kenya: the Kenya and its batch win, and
     // the Brazil and its batch, replaced without being seen, are kept as Conflicts.
@@ -296,19 +295,19 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     await pick(two, localId(two.beans(), kenya.bean.id));
     one.restoreNetwork();
-    await poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(brazil.batch.id);
+    await expect.poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(brazil.batch.id);
     two.restoreNetwork();
-    await poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(kenya.batch.id);
+    await expect.poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(kenya.batch.id);
     type Open = { id: string; field: string; value: unknown; current: { versionId: string | null } };
     const conflicts = async () => (await send<{ conflicts: Open[] }>("GET", `/recipes/${created.id}/conflicts`)).conflicts;
-    await poll(async () => (await conflicts()).map((conflict) => conflict.field).sort()).toEqual(["beanBatchId", "beanId"]);
+    await expect.poll(async () => (await conflicts()).map((conflict) => conflict.field).sort()).toEqual(["beanBatchId", "beanId"]);
 
     // Using the Brazil's batch makes the Brazil the Recipe's Bean too, rather than leaving the Kenya beside it.
     const batchConflict = (await conflicts()).find((conflict) => conflict.field === "beanBatchId")!;
     expect(batchConflict.value).toBe(brazil.batch.id);
     await send("POST", `/conflicts/${batchConflict.id}/use`, { seen: batchConflict.current.versionId });
     expect((await recipe(created.id)).content).toMatchObject({ beanId: brazil.bean.id, beanBatchId: brazil.batch.id });
-    for (const tablet of [one, two]) await poll(() => slotOn(tablet, 1)?.beanId).toBe(localId(tablet.beans(), brazil.bean.id));
+    for (const tablet of [one, two]) await expect.poll(() => slotOn(tablet, 1)?.beanId).toBe(localId(tablet.beans(), brazil.bean.id));
   });
 
   it("keeps a Bean used from a Conflict though it has no batch at the Location, and sets the yield from a ratio used", async () => {
@@ -318,9 +317,9 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     const kenya = await library("Bean-only Kenya", lab.location, [lab.location]);
     const created = await create(lab.location, 1, { name: "Bean-only Espresso", beanBatchId: start.batch.id, dose: 18, yield: 36 });
     const [one, two] = lab.tablets as [SimulatedTablet, SimulatedTablet];
-    for (const tablet of [one, two]) await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(created.id);
-    await poll(() => localId(one.beans(), brazil.bean.id)).toBeDefined();
-    await poll(() => localId(two.beans(), kenya.bean.id)).toBeDefined();
+    for (const tablet of [one, two]) await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(created.id);
+    await expect.poll(() => localId(one.beans(), brazil.bean.id)).toBeDefined();
+    await expect.poll(() => localId(two.beans(), kenya.bean.id)).toBeDefined();
 
     // Offline, one tablet's DYE2 editor picks the Brazil and a 1:3 ratio, the other, later, the Kenya and 1:2.5.
     const save = async (tablet: SimulatedTablet, beanId: unknown, ratio: number) => {
@@ -335,12 +334,12 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     await save(two, localId(two.beans(), kenya.bean.id), 2.5);
     one.restoreNetwork();
-    await poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(brazil.batch.id);
+    await expect.poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(brazil.batch.id);
     two.restoreNetwork();
-    await poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(kenya.batch.id);
+    await expect.poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(kenya.batch.id);
     type Open = { id: string; field: string; value: unknown; current: { versionId: string | null } };
     const conflicts = async () => (await send<{ conflicts: Open[] }>("GET", `/recipes/${created.id}/conflicts`)).conflicts;
-    await poll(async () => (await conflicts()).map((conflict) => conflict.field).sort()).toEqual(["beanBatchId", "beanId", "ratio"]);
+    await expect.poll(async () => (await conflicts()).map((conflict) => conflict.field).sort()).toEqual(["beanBatchId", "beanId", "ratio"]);
     const use = async (field: string) => {
       const conflict = (await conflicts()).find((open) => open.field === field)!;
       await send("POST", `/conflicts/${conflict.id}/use`, { seen: conflict.current.versionId });
@@ -355,7 +354,7 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     // The Brazil is offered at the lab again, with no batch there, so its tablets name it.
     expect((await send<{ bean: { offeredAt: { id: string }[] } }>("GET", `/beans/${brazil.bean.id}`)).bean.offeredAt.map((at) => at.id)).toContain(lab.location.id);
     for (const tablet of [one, two]) {
-      await poll(() => slotOn(tablet, 1)?.beanId ?? null).toBe(localId(tablet.beans(), brazil.bean.id) ?? "none");
+      await expect.poll(() => slotOn(tablet, 1)?.beanId ?? null).toBe(localId(tablet.beans(), brazil.bean.id) ?? "none");
     }
 
     // A ratio cannot be used on a Recipe with no dose: the Conflict stays open until one is set.
@@ -370,25 +369,25 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     // Using the 1:3 ratio sets the yield to the dose times it, as picking it in DYE2's editor does.
     await use("ratio");
     expect((await recipe(created.id)).content).toMatchObject({ dose: 18, yield: 54, ratio: 3 });
-    for (const tablet of [one, two]) await poll(() => (slotOn(tablet, 1)?.dashboardVariables as Record_ | undefined)?.drink).toBe(54);
+    for (const tablet of [one, two]) await expect.poll(() => (slotOn(tablet, 1)?.dashboardVariables as Record_ | undefined)?.drink).toBe(54);
   });
 
   it("clears DYE2's ratio when an edit leaves the yield other than the dose times it", async () => {
     const lab = await locationWith("Ratio lab", 45021, [server]);
     const created = await create(lab.location, 1, { name: "Ratio Espresso", dose: 18, yield: 36 });
-    await poll(() => slotOn(lab.tablets[0]!, 1)?.name).toBe("Ratio Espresso");
+    await expect.poll(() => slotOn(lab.tablets[0]!, 1)?.name).toBe("Ratio Espresso");
     // As DYE2's editor saves a ratio of 1:2 with its yield.
     const list = (dye2List(lab.tablets[0]!, "recipes") as Record_[]).map((record) =>
       record.id === "1" ? { ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), ratio: 2 } } : record,
     );
     expect((await lab.tablets[0]!.callApi("POST", "/store/dye2.reaplugin/recipes", list)).status).toBe(200);
-    await poll(async () => (await recipe(created.id)).content.ratio).toBe(2);
+    await expect.poll(async () => (await recipe(created.id)).content.ratio).toBe(2);
 
     expect((await edit(created.id, { dose: 20, yield: 40 })).content).toMatchObject({ dose: 20, yield: 40, ratio: 2 });
     const broken = await edit(created.id, { yield: 45 });
     expect(broken.content).toMatchObject({ dose: 20, yield: 45 });
     expect(broken.content).not.toHaveProperty("ratio");
-    await poll(() => (slotOn(lab.tablets[0]!, 1)?.dashboardVariables as Record_ | undefined)?.drink).toBe(45);
+    await expect.poll(() => (slotOn(lab.tablets[0]!, 1)?.dashboardVariables as Record_ | undefined)?.drink).toBe(45);
     expect(slotOn(lab.tablets[0]!, 1)!.dashboardVariables).not.toHaveProperty("ratio");
   });
 
@@ -396,11 +395,11 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     const lab = await locationWith("Moved recipe lab", 45031, [server, other]);
     const two = await create(lab.location, 2, { name: "Moved Two", dose: 18 });
     const four = await create(lab.location, 4, { name: "Moved Four", dose: 19 });
-    for (const tablet of lab.tablets) await poll(() => slotsOn(tablet)).toEqual(["2:Moved Two", "4:Moved Four"]);
+    for (const tablet of lab.tablets) await expect.poll(() => slotsOn(tablet)).toEqual(["2:Moved Two", "4:Moved Four"]);
 
     expect(await move(two.id, 4)).toMatchObject({ id: two.id, slot: 4 });
     expect((await recipe(four.id)).slot).toBe(2);
-    for (const tablet of lab.tablets) await poll(() => slotsOn(tablet)).toEqual(["2:Moved Four", "4:Moved Two"]);
+    for (const tablet of lab.tablets) await expect.poll(() => slotsOn(tablet)).toEqual(["2:Moved Four", "4:Moved Two"]);
     // Each keeps its id and its history, the move a version of its own.
     for (const tablet of lab.tablets) expect(slotOn(tablet, 4)![GLOBAL_ID_KEY]).toBe(two.id);
     expect((await versions(two.id)).map((version) => version.fields)).toEqual([{ slot: 4 }, { slot: 2 }, expect.objectContaining({ name: "Moved Two" })]);
@@ -408,14 +407,14 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
 
     // The next free slot is the lowest the Location leaves empty, which is never a Recipe's own.
     expect((await move(two.id, "next")).slot).toBe(1);
-    for (const tablet of lab.tablets) await poll(() => slotsOn(tablet)).toEqual(["1:Moved Two", "2:Moved Four"]);
+    for (const tablet of lab.tablets) await expect.poll(() => slotsOn(tablet)).toEqual(["1:Moved Two", "2:Moved Four"]);
     expect((await move(two.id, "next")).slot).toBe(3);
     expect((await move(two.id, 1)).slot).toBe(1);
-    for (const tablet of lab.tablets) await poll(() => slotsOn(tablet)).toEqual(["1:Moved Two", "2:Moved Four"]);
+    for (const tablet of lab.tablets) await expect.poll(() => slotsOn(tablet)).toEqual(["1:Moved Two", "2:Moved Four"]);
 
     // Taken out of its slot, it is kept at the Location, unslotted, and its slot is emptied on the tablets.
     expect((await move(four.id, null)).slot).toBeNull();
-    for (const tablet of lab.tablets) await poll(() => slotsOn(tablet)).toEqual(["1:Moved Two"]);
+    for (const tablet of lab.tablets) await expect.poll(() => slotsOn(tablet)).toEqual(["1:Moved Two"]);
     expect((await recipesAt(lab.location)).map((listed) => [listed.name, listed.slot])).toEqual([
       ["Moved Two", 1],
       ["Moved Four", null],
@@ -423,7 +422,7 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     // An unslotted Recipe moved into an occupied slot leaves the one there unslotted.
     expect((await move(four.id, 1)).slot).toBe(1);
     expect((await recipe(two.id)).slot).toBeNull();
-    for (const tablet of lab.tablets) await poll(() => slotsOn(tablet)).toEqual(["1:Moved Four"]);
+    for (const tablet of lab.tablets) await expect.poll(() => slotsOn(tablet)).toEqual(["1:Moved Four"]);
   });
 
   it("writes a Recipe moved to another slot and back again in the slot its record was removed from, however its answers lag", async () => {
@@ -434,27 +433,27 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     const tablet = load(machine, 45081, server, (frame) => held.has(String((frame as { type?: unknown }).type)));
     await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
     const four = await create(lab, 2, { name: "Back Four" });
-    await poll(() => slotsOn(tablet)).toEqual(["2:Back Four"]);
+    await expect.poll(() => slotsOn(tablet)).toEqual(["2:Back Four"]);
     // Its answer through, so the writer awaits none: one held from here would hold every write after it.
-    await poll(() => answered(tablet, four.id)).toBe(true);
+    await expect.poll(() => answered(tablet, four.id)).toBe(true);
 
     // Written in slot 1, its answer held; moved to slot 3, so its record in slot 1 is removed, that answer held in turn.
     held.add("written");
     const two = await create(lab, 1, { name: "Back Two" });
-    await poll(() => slotsOn(tablet)).toEqual(["1:Back Two", "2:Back Four"]);
+    await expect.poll(() => slotsOn(tablet)).toEqual(["1:Back Two", "2:Back Four"]);
     expect((await move(two.id, "next")).slot).toBe(3);
     held.add("removed");
     held.delete("written");
     tablet.resumeUpload();
-    await poll(() => slotsOn(tablet)).toEqual(["2:Back Four"]);
+    await expect.poll(() => slotsOn(tablet)).toEqual(["2:Back Four"]);
 
     // Moved back to slot 1 before the writer looks again: it is written there again, with the same fields as before.
     expect((await move(two.id, 1)).slot).toBe(1);
     held.clear();
     tablet.resumeUpload();
-    await poll(() => slotsOn(tablet)).toEqual(["1:Back Two", "2:Back Four"]);
+    await expect.poll(() => slotsOn(tablet)).toEqual(["1:Back Two", "2:Back Four"]);
     expect(await move(four.id, null)).toMatchObject({ slot: null });
-    await poll(() => slotsOn(tablet)).toEqual(["1:Back Two"]);
+    await expect.poll(() => slotsOn(tablet)).toEqual(["1:Back Two"]);
     expect(server.output()).not.toMatch(/is still due Recipe .* once written/);
   });
 
@@ -469,7 +468,7 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     // backup's might.
     held.add("written");
     const two = await create(lab, 1, { name: "Foreign Two" });
-    await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(two.id);
+    await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(two.id);
     const foreign = "00000000-0000-4000-8000-000000000143";
     const list = (dye2List(tablet, "recipes") as Record_[]).map((record) => (record.id === "1" ? { ...record, [GLOBAL_ID_KEY]: foreign } : record));
     expect((await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", list)).status).toBe(200);
@@ -481,13 +480,13 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     held.add("writeRefused");
     held.delete("written");
     tablet.resumeUpload();
-    await poll(refusals).toBeGreaterThan(before);
+    await expect.poll(refusals).toBeGreaterThan(before);
 
     // Moved back before the writer looks again: it is written in slot 1 again, over the other item's record.
     expect((await move(two.id, 1)).slot).toBe(1);
     held.clear();
     tablet.resumeUpload();
-    await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(two.id);
+    await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(two.id);
     expect(server.output()).not.toMatch(/is still due Recipe .* once written/);
   });
 
@@ -501,7 +500,7 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     // Written in slot 1, its answer held, and moved to the next free slot before the writer looks again.
     held.add("written");
     const two = await create(lab, 1, { name: "Lost Two" });
-    await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(two.id);
+    await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(two.id);
     expect((await move(two.id, "next")).slot).toBe(2);
 
     // Another app rewrites the list without it, which the plugin reads at its next poll (every 0.1 s here) and reports
@@ -515,16 +514,16 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     const refusals = () => tablet.sent.filter((frame) => (frame as { type?: unknown }).type === "writeRefused").length;
     held.clear();
     tablet.resumeUpload();
-    await poll(refusals).toBeGreaterThanOrEqual(1);
+    await expect.poll(refusals).toBeGreaterThanOrEqual(1);
     // Its write in slot 2 refused too, once the report forgot its record in slot 1.
     const refusedWrites = async () =>
       (await send<{ status: { refused: { change: string }[] } }>("GET", `/machines/${machine.machine.id}/sharing-status`)).status.refused.filter((refused) => refused.change === "write").length;
-    await poll(refusedWrites).toBeGreaterThan(0);
+    await expect.poll(refusedWrites).toBeGreaterThan(0);
     restore();
 
     // Moved back to slot 1: it is written there again, the map showing the tablet lacks it.
     expect((await move(two.id, 1)).slot).toBe(1);
-    await poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(two.id);
+    await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(two.id);
     expect(server.output()).not.toMatch(/is still due Recipe .* once written/);
   });
 
@@ -533,12 +532,12 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     const [offline, online] = lab.tablets as [SimulatedTablet, SimulatedTablet];
     const two = await create(lab.location, 2, { name: "Offline Two", dose: 18 });
     const four = await create(lab.location, 4, { name: "Offline Four", dose: 19 });
-    for (const tablet of lab.tablets) await poll(() => slotsOn(tablet)).toEqual(["2:Offline Two", "4:Offline Four"]);
+    for (const tablet of lab.tablets) await expect.poll(() => slotsOn(tablet)).toEqual(["2:Offline Two", "4:Offline Four"]);
 
     // Swapped while one tablet is offline, whose barista then saves a new dose for the recipe it still holds in slot 2.
     offline.loseNetwork();
     expect((await move(two.id, 4)).slot).toBe(4);
-    await poll(() => slotsOn(online)).toEqual(["2:Offline Four", "4:Offline Two"]);
+    await expect.poll(() => slotsOn(online)).toEqual(["2:Offline Four", "4:Offline Two"]);
     const list = (dye2List(offline, "recipes") as Record_[]).map((record) =>
       record.id === "2" ? { ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), dose: 21 } } : record,
     );
@@ -547,11 +546,11 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     offline.restoreNetwork();
 
     // The dose is the moved Recipe's, written to it in its new slot on every tablet; the other Recipe is untouched.
-    await poll(async () => (await recipe(two.id)).content.dose).toBe(21);
+    await expect.poll(async () => (await recipe(two.id)).content.dose).toBe(21);
     expect((await recipe(four.id)).content.dose).toBe(19);
     for (const tablet of lab.tablets) {
-      await poll(() => slotsOn(tablet)).toEqual(["2:Offline Four", "4:Offline Two"]);
-      await poll(() => (slotOn(tablet, 4)?.dashboardVariables as Record_ | undefined)?.dose).toBe(21);
+      await expect.poll(() => slotsOn(tablet)).toEqual(["2:Offline Four", "4:Offline Two"]);
+      await expect.poll(() => (slotOn(tablet, 4)?.dashboardVariables as Record_ | undefined)?.dose).toBe(21);
       expect((slotOn(tablet, 2)?.dashboardVariables as Record_ | undefined)?.dose).toBe(19);
     }
     expect((await send<{ conflicts: unknown[] }>("GET", `/recipes/${two.id}/conflicts`)).conflicts).toEqual([]);
@@ -565,8 +564,8 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
     const two = await create(lab, 2, { name: "Unreported Two", dose: 18 });
     const basket = (await send<{ basket: { id: string } }>("POST", "/baskets", { locationId: lab.id, content: { name: "Unreported 20g", notes: "v1" } }, api, 201)).basket;
-    await poll(() => slotsOn(tablet)).toEqual(["2:Unreported Two"]);
-    await poll(() => (dye2List(tablet, "baskets") as Record_[]).find((record) => record[GLOBAL_ID_KEY] === basket.id)?.notes).toBe("v1");
+    await expect.poll(() => slotsOn(tablet)).toEqual(["2:Unreported Two"]);
+    await expect.poll(() => (dye2List(tablet, "baskets") as Record_[]).find((record) => record[GLOBAL_ID_KEY] === basket.id)?.notes).toBe("v1");
 
     // A barista saves a new dose, then Staff move the Recipe before the plugin has read it: the removal from slot 2 is
     // refused as the record changed, its list read again, and the dose taken in before it is moved.
@@ -575,16 +574,16 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     );
     expect((await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", recipes)).status).toBe(200);
     expect((await move(two.id, 4)).slot).toBe(4);
-    await poll(async () => (await recipe(two.id)).content.dose).toBe(21);
-    await poll(() => slotsOn(tablet)).toEqual(["4:Unreported Two"]);
+    await expect.poll(async () => (await recipe(two.id)).content.dose).toBe(21);
+    await expect.poll(() => slotsOn(tablet)).toEqual(["4:Unreported Two"]);
     expect((slotOn(tablet, 4)!.dashboardVariables as Record_).dose).toBe(21);
 
     // The same for a Basket's notes changed just before it is hidden at the Location.
     const baskets = (dye2List(tablet, "baskets") as Record_[]).map((record) => (record[GLOBAL_ID_KEY] === basket.id ? { ...record, notes: "v2 on the tablet" } : record));
     expect((await tablet.callApi("POST", "/store/dye2.reaplugin/baskets", baskets)).status).toBe(200);
     expect((await api.call("PUT", `/baskets/${basket.id}/locations/${lab.id}`, { shown: false })).status).toBe(200);
-    await poll(async () => (await send<{ basket: { content: Record_ } }>("GET", `/baskets/${basket.id}`)).basket.content.notes).toBe("v2 on the tablet");
-    await poll(() => (dye2List(tablet, "baskets") as Record_[]).some((record) => record[GLOBAL_ID_KEY] === basket.id)).toBe(false);
+    await expect.poll(async () => (await send<{ basket: { content: Record_ } }>("GET", `/baskets/${basket.id}`)).basket.content.notes).toBe("v2 on the tablet");
+    await expect.poll(() => (dye2List(tablet, "baskets") as Record_[]).some((record) => record[GLOBAL_ID_KEY] === basket.id)).toBe(false);
   });
 
   it("keeps an edit a tablet has not reported yet on its Recipe, not on another Recipe Staff put in its slot since", async () => {
@@ -594,7 +593,7 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     const tablet = load(machine, 45131, server, undefined, 600);
     await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
     const old = await create(lab, 2, { name: "Old Espresso", dose: 18 });
-    await poll(() => slotsOn(tablet)).toEqual(["2:Old Espresso"]);
+    await expect.poll(() => slotsOn(tablet)).toEqual(["2:Old Espresso"]);
 
     // A barista saves a new dose for the recipe in slot 2, then Staff create another Recipe there, which leaves it unslotted.
     const recipes = (dye2List(tablet, "recipes") as Record_[]).map((record) =>
@@ -605,8 +604,8 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect((await recipe(old.id)).slot).toBeNull();
 
     // The dose is the edited Recipe's; the new one keeps what Staff entered, with no Conflict, and holds slot 2 on the tablet.
-    await poll(async () => (await recipe(old.id)).content.dose).toBe(21);
-    await poll(() => slotsOn(tablet)).toEqual(["2:New Filter"]);
+    await expect.poll(async () => (await recipe(old.id)).content.dose).toBe(21);
+    await expect.poll(() => slotsOn(tablet)).toEqual(["2:New Filter"]);
     expect(await recipe(fresh.id)).toMatchObject({ name: "New Filter", slot: 2, content: { dose: 15 } });
     expect((slotOn(tablet, 2)!.dashboardVariables as Record_).dose).toBe(15);
     expect((await send<{ conflicts: unknown[] }>("GET", `/recipes/${fresh.id}/conflicts`)).conflicts).toEqual([]);
@@ -619,18 +618,18 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
   it("Archives a Recipe, which leaves its slot, restores it unslotted, and refuses to slot it while Archived", async () => {
     const lab = await locationWith("Archived recipe lab", 45041, [server]);
     const created = await create(lab.location, 3, { name: "Archived Espresso" });
-    await poll(() => slotsOn(lab.tablets[0]!)).toEqual(["3:Archived Espresso"]);
+    await expect.poll(() => slotsOn(lab.tablets[0]!)).toEqual(["3:Archived Espresso"]);
 
     const archived = await send<{ recipe: RecipeView }>("PUT", `/recipes/${created.id}/archived`, { archived: true });
     expect(archived.recipe).toMatchObject({ archived: true, slot: null });
-    await poll(() => slotsOn(lab.tablets[0]!)).toEqual([]);
+    await expect.poll(() => slotsOn(lab.tablets[0]!)).toEqual([]);
     expect((await api.call("PUT", `/recipes/${created.id}/slot`, { slot: 3 })).status).toBe(409);
 
     const restored = await send<{ recipe: RecipeView }>("PUT", `/recipes/${created.id}/archived`, { archived: false });
     expect(restored.recipe).toMatchObject({ archived: false, slot: null });
     expect((await versions(created.id)).slice(0, 3).map((version) => version.fields)).toEqual([{ archived: false }, { archived: true }, { slot: null }]);
     expect((await move(created.id, 3)).slot).toBe(3);
-    await poll(() => slotsOn(lab.tablets[0]!)).toEqual(["3:Archived Espresso"]);
+    await expect.poll(() => slotsOn(lab.tablets[0]!)).toEqual(["3:Archived Espresso"]);
   });
 
   it("flags a slotted Recipe whose Bean Batch is finished at its Location", async () => {

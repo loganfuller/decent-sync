@@ -50,7 +50,7 @@ describe("The durable outbox", () => {
   beforeAll(async () => {
     server = await startTestServer({ env });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
   });

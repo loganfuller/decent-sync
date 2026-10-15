@@ -73,7 +73,6 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
     const list = dye2List(tablet, key);
     return Array.isArray(list) ? (list as Record_[]).find((record) => record[GLOBAL_ID_KEY] === id) : undefined;
   };
-  const poll = <T>(read: () => T) => expect.poll(read);
 
   it("writes a Basket created at a Location to that Location's tablets only, then each edit, and removes it from every tablet while Archived", async () => {
     const lab = await locationWith("Created basket lab", 43001, server);
@@ -89,16 +88,16 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
       locations: [{ location: { name: "Created basket lab" }, shown: true }],
     });
     // Written to the lab's tablet as DYE2 would save it, under an id of the tablet's own; not to the cafe's.
-    await poll(() => recordOf(lab.tablet, "baskets", basket.id)).toMatchObject({ name: "Lab 18g Precision", size: "double", diameterMm: 58.5, notes: "For the lab's tests" });
+    await expect.poll(() => recordOf(lab.tablet, "baskets", basket.id)).toMatchObject({ name: "Lab 18g Precision", size: "double", diameterMm: 58.5, notes: "For the lab's tests" });
     expect(recordOf(cafe.tablet, "baskets", basket.id)).toBeUndefined();
 
     // Shown at the cafe, then edited: a field cleared is left out of every record.
     expect((await api.call("PUT", `/baskets/${basket.id}/locations/${cafe.location.id}`, { shown: true })).status).toBe(200);
-    await poll(() => recordOf(cafe.tablet, "baskets", basket.id)?.name).toBe("Lab 18g Precision");
+    await expect.poll(() => recordOf(cafe.tablet, "baskets", basket.id)?.name).toBe("Lab 18g Precision");
     const edited = await edit("baskets", basket.id, { notes: null, diameterMm: 58 });
     expect(edited.content).toEqual({ name: "Lab 18g Precision", size: "double", diameterMm: 58 });
     for (const tablet of [lab.tablet, cafe.tablet]) {
-      await poll(() => recordOf(tablet, "baskets", basket.id)?.diameterMm).toBe(58);
+      await expect.poll(() => recordOf(tablet, "baskets", basket.id)?.diameterMm).toBe(58);
       expect(recordOf(tablet, "baskets", basket.id)).not.toHaveProperty("notes");
     }
     const history = await versions("baskets", basket.id);
@@ -107,12 +106,12 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
 
     // Archived, it is shown nowhere and removed from every list; restored, it is written again where it was shown.
     expect((await archive("baskets", basket.id, true)).status).toBe(200);
-    for (const tablet of [lab.tablet, cafe.tablet]) await poll(() => recordOf(tablet, "baskets", basket.id)).toBeUndefined();
+    for (const tablet of [lab.tablet, cafe.tablet]) await expect.poll(() => recordOf(tablet, "baskets", basket.id)).toBeUndefined();
     const archived = (await api.get<{ basket: EquipmentView }>(`/baskets/${basket.id}`)).basket;
     expect(archived).toMatchObject({ archived: true, shownAt: [] });
     expect(archived.locations.map((here) => here.shown)).toEqual([true, true]);
     expect((await archive("baskets", basket.id, false)).status).toBe(200);
-    for (const tablet of [lab.tablet, cafe.tablet]) await poll(() => recordOf(tablet, "baskets", basket.id)?.diameterMm).toBe(58);
+    for (const tablet of [lab.tablet, cafe.tablet]) await expect.poll(() => recordOf(tablet, "baskets", basket.id)?.diameterMm).toBe(58);
     expect((await versions("baskets", basket.id)).slice(0, 2).map((version) => version.fields)).toEqual([{ archived: false }, { archived: true }]);
   });
 
@@ -150,7 +149,7 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
       ],
     });
     expect(tool.content).toEqual({ name: "Attribute WDT Tool", custom: [{ key: "Needles", value: "8" }] });
-    await poll(() => recordOf(lab.tablet, "equipment", tool.id)?.custom).toEqual([{ key: "Needles", value: "8" }]);
+    await expect.poll(() => recordOf(lab.tablet, "equipment", tool.id)?.custom).toEqual([{ key: "Needles", value: "8" }]);
     // One created without attributes holds none, as DYE2's page saves one.
     const screen = await create("tools", lab.location, { name: "Attribute Puck Screen" });
     expect(screen.content).toEqual({ name: "Attribute Puck Screen", custom: [] });
@@ -160,7 +159,7 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
       { key: "Needle size", value: "0.3 mm" },
     ];
     expect((await edit("tools", tool.id, { custom: attributes })).content.custom).toEqual(attributes);
-    await poll(() => recordOf(lab.tablet, "equipment", tool.id)?.custom).toEqual(attributes);
+    await expect.poll(() => recordOf(lab.tablet, "equipment", tool.id)?.custom).toEqual(attributes);
     expect((await versions("tools", tool.id))[0]).toMatchObject({ fields: { custom: attributes }, source: { account: { id: expect.any(String) } } });
   });
 

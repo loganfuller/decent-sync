@@ -125,7 +125,7 @@ describe("Location History", () => {
     belmont = await api.createLocation("Belmont", "America/Chicago");
     cart = await api.createLocation("Cart", "America/Chicago");
     elsewhere = await api.createLocation("Elsewhere", "America/Chicago");
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
@@ -233,7 +233,7 @@ describe("Location History", () => {
     return ((await response.json()) as { shot: ShotView }).shot;
   }
   async function waitShot(id: string): Promise<ShotView> {
-    await expect.poll(async () => (await api.call("GET", `/shots/${encodeURIComponent(id)}`)).status, { timeout: 10_000 }).toBe(200);
+    await expect.poll(async () => (await api.call("GET", `/shots/${encodeURIComponent(id)}`)).status).toBe(200);
     return detail(id);
   }
   /** Each Shot's Location by name, null when unknown. */
@@ -767,7 +767,7 @@ describe("Location History", () => {
       expect(abandoned.messages).toEqual([]);
 
       // The hello still commits, and the Machine it gave the closed connection is released again.
-      await expect.poll(async () => (await machine(id)).identification, { timeout: 10_000 }).toBe("identified");
+      await expect.poll(async () => (await machine(id)).identification).toBe("identified");
       await expect.poll(async () => (await machine(id)).online).toBe(false);
       expect(await machine(id)).toMatchObject(hardware);
       const records = await credited(database, id);

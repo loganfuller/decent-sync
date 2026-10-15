@@ -39,7 +39,7 @@ const bundled = () => (de1ProOnDecaid087()["/profiles"] as Record_[]).filter((re
 const BUNDLED = "profile:990c28a4ecac8e5bf6ba";
 const BUNDLED_HIDDEN = "profile:729d284747718d27c93a";
 
-describe("Profiles shown per Location", { timeout: 60_000 }, () => {
+describe("Profiles shown per Location", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
@@ -50,7 +50,7 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
     await Promise.all(raws.map((raw) => raw.terminate()));
@@ -93,7 +93,7 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     const frames = (list: unknown[]) => list as { type?: unknown; name?: unknown; id?: unknown }[];
     const acknowledged = () =>
       frames(tablet.sent).some((frame) => frame.name === "profiles" && frames(tablet.received).some((reply) => reply.type === "ack" && reply.id === frame.id));
-    await expect.poll(acknowledged, { timeout: 10_000 }).toBe(true);
+    await expect.poll(acknowledged).toBe(true);
   }
 
   const libraryProfiles = async () => ((await (await api.call("GET", "/profiles")).json()) as { profiles: ProfileSummary[] }).profiles;
@@ -113,7 +113,7 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
   const visibilityOn = (tablet: SimulatedTablet, id: unknown) => tablet.profiles().find((record) => record.id === id)?.visibility;
   /** Resolves once the tablet holds the Profile with that visibility, or none if undefined. */
   async function holds(tablet: SimulatedTablet, id: unknown, visibility: string | undefined): Promise<void> {
-    await expect.poll(() => visibilityOn(tablet, id), { timeout: 10_000 }).toBe(visibility);
+    await expect.poll(() => visibilityOn(tablet, id)).toBe(visibility);
   }
   const profileWrites = (tablet: SimulatedTablet) => tablet.writes.filter((write) => write.includes("/profiles"));
 
@@ -133,7 +133,7 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     const cafeTwo = load(machines[3], String(serials + 3), { instance: other });
     await online(...machines);
     // Each Location shows Decaid's bundled Profiles, as its first tablet reported them, and every tablet's report is taken in.
-    await expect.poll(() => shownAt(name, BUNDLED), { timeout: 10_000 }).toEqual([`${name} cafe`, `${name} lab`]);
+    await expect.poll(() => shownAt(name, BUNDLED)).toEqual([`${name} cafe`, `${name} lab`]);
     for (const tablet of [one, two, cafe, cafeTwo]) await reported(tablet);
     return { labLocation, cafeLocation, machines, one, two, cafe, cafeTwo };
   }
@@ -159,7 +159,7 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
   /** Saves a profile on the tablet, as a barista does, and resolves with its record once the Library shows it at the scenario's Locations named. */
   async function save(scenario: string, tablet: SimulatedTablet, profile: Record_, at: string[]): Promise<Record_> {
     const record = await tablet.addProfile(profile);
-    await expect.poll(() => shownAt(scenario, record.id), { timeout: 10_000 }).toEqual(at.map((location) => `${scenario} ${location}`));
+    await expect.poll(() => shownAt(scenario, record.id)).toEqual(at.map((location) => `${scenario} ${location}`));
     return record;
   }
 
@@ -199,8 +199,8 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     // Streamline saves a profile whose steps changed as a new one, with the old as its parent, and hides the old.
     const changed = await one.addProfile(derivedProfile("Dial In", 6.25), { parentId: old.id });
     expect(changed.id).not.toBe(old.id);
-    await expect.poll(() => shownAt("Changed", changed.id), { timeout: 10_000 }).toEqual(["Changed lab"]);
-    await expect.poll(() => shownAt("Changed", old.id), { timeout: 10_000 }).toEqual(["Changed cafe"]);
+    await expect.poll(() => shownAt("Changed", changed.id)).toEqual(["Changed lab"]);
+    await expect.poll(() => shownAt("Changed", old.id)).toEqual(["Changed cafe"]);
     expect((await viewProfile(String(changed.id))).parent).toEqual({ id: old.id, title: "Dial In" });
 
     // The lab's other tablet holds the new one, under its parent, and the old one hidden, not deleted.
@@ -231,13 +231,13 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     expect((await cafe.callApi("DELETE", `/profiles/${encodeURIComponent(String(ids.purged))}/purge`)).status).toBe(200);
 
     for (const id of Object.values(ids)) {
-      await expect.poll(() => shownAt("Removed", id), { timeout: 10_000 }).toEqual(["Removed lab"]);
+      await expect.poll(() => shownAt("Removed", id)).toEqual(["Removed lab"]);
       await holds(cafeTwo, id, "hidden");
       expect(visibilityOn(one, id)).toBe("visible");
       expect(visibilityOn(two, id)).toBe("visible");
     }
     // The replacement is a new Profile, shown at the cafe only.
-    await expect.poll(() => shownAt("Removed", replacement.id), { timeout: 10_000 }).toEqual(["Removed cafe"]);
+    await expect.poll(() => shownAt("Removed", replacement.id)).toEqual(["Removed cafe"]);
     await holds(cafeTwo, replacement.id, "visible");
     // The tablet that removed them is not written them again, and nothing is deleted from the other.
     expect(visibilityOn(cafe, ids.deleted)).toBe("deleted");
@@ -249,7 +249,7 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
   it("hides a bundled Profile hidden on one tablet on the Location's other tablets only, and shows it there again once made visible", async () => {
     const { one, two, cafe, cafeTwo } = await lab("Bundled", 17041);
     await one.setProfileVisibility(BUNDLED, "hidden");
-    await expect.poll(() => shownAt("Bundled", BUNDLED), { timeout: 10_000 }).toEqual(["Bundled cafe"]);
+    await expect.poll(() => shownAt("Bundled", BUNDLED)).toEqual(["Bundled cafe"]);
     await holds(two, BUNDLED, "hidden");
     expect(visibilityOn(cafe, BUNDLED)).toBe("visible");
     expect(visibilityOn(cafeTwo, BUNDLED)).toBe("visible");
@@ -257,11 +257,11 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
 
     // Made visible on another tablet, it is shown again; deleted on one, Decaid hides a bundled one.
     await two.setProfileVisibility(BUNDLED, "visible");
-    await expect.poll(() => shownAt("Bundled", BUNDLED), { timeout: 10_000 }).toEqual(["Bundled cafe", "Bundled lab"]);
+    await expect.poll(() => shownAt("Bundled", BUNDLED)).toEqual(["Bundled cafe", "Bundled lab"]);
     await holds(one, BUNDLED, "visible");
     expect((await cafe.callApi("DELETE", `/profiles/${encodeURIComponent(BUNDLED)}`)).status).toBe(200);
     await holds(cafeTwo, BUNDLED, "hidden");
-    await expect.poll(() => shownAt("Bundled", BUNDLED), { timeout: 10_000 }).toEqual(["Bundled lab"]);
+    await expect.poll(() => shownAt("Bundled", BUNDLED)).toEqual(["Bundled lab"]);
   });
 
   it("shows a Profile its Location shows that a tablet holds hidden but has not reported, setting its visibility rather than creating it", async () => {
@@ -272,7 +272,7 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     // Polls once an hour (every 72 s here), so what is entered on it is not reported within the test.
     const slow = load(second, "17062", { pollSeconds: 3600 });
     await online(first, second);
-    await expect.poll(() => slow.sent.some((frame) => (frame as { name?: unknown }).name === "profiles"), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => slow.sent.some((frame) => (frame as { name?: unknown }).name === "profiles")).toBe(true);
     const entered = await slow.addProfile(derivedProfile("Held Bloom", 9.25));
     await slow.setProfileVisibility(entered.id, "hidden");
 
@@ -286,14 +286,14 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     const first = await save("Reverted", one, derivedProfile("Reverted Bloom", 3), ["lab"]);
     // Decaid's PUT with new steps replaces the record, then puts the old steps back under their old id.
     const changed = await one.editProfile(first.id, derivedProfile("Reverted Bloom", 3.25));
-    await expect.poll(() => shownAt("Reverted", first.id), { timeout: 10_000 }).toEqual([]);
-    await expect.poll(() => shownAt("Reverted", changed.id), { timeout: 10_000 }).toEqual(["Reverted lab"]);
+    await expect.poll(() => shownAt("Reverted", first.id)).toEqual([]);
+    await expect.poll(() => shownAt("Reverted", changed.id)).toEqual(["Reverted lab"]);
     await holds(two, first.id, "hidden");
 
     const back = await one.editProfile(changed.id, derivedProfile("Reverted Bloom", 3));
     expect(back.id).toBe(first.id);
-    await expect.poll(() => shownAt("Reverted", first.id), { timeout: 10_000 }).toEqual(["Reverted lab"]);
-    await expect.poll(() => shownAt("Reverted", changed.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => shownAt("Reverted", first.id)).toEqual(["Reverted lab"]);
+    await expect.poll(() => shownAt("Reverted", changed.id)).toEqual([]);
     await holds(two, first.id, "visible");
     await holds(two, changed.id, "hidden");
     expect(visibilityOn(one, first.id)).toBe("visible");
@@ -308,9 +308,9 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     await two.setProfileVisibility(record.id, "hidden");
     // Later, the lab's other tablet hides it and shows it again.
     await one.setProfileVisibility(record.id, "hidden");
-    await expect.poll(() => shownAt("Offline", record.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => shownAt("Offline", record.id)).toEqual([]);
     await one.setProfileVisibility(record.id, "visible");
-    await expect.poll(() => shownAt("Offline", record.id), { timeout: 10_000 }).toEqual(["Offline lab"]);
+    await expect.poll(() => shownAt("Offline", record.id)).toEqual(["Offline lab"]);
 
     // The earlier hide, made without seeing those, loses to them (ADR-0020), and the lab's state is written back.
     two.restoreNetwork();
@@ -330,19 +330,19 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     const record = await save("Fast", fast, derivedProfile("Fast Bloom", 2.5), ["lab"]);
     await holds(steady, record.id, "visible");
     await fast.setProfileVisibility(record.id, "hidden");
-    await expect.poll(() => shownAt("Fast", record.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => shownAt("Fast", record.id)).toEqual([]);
     await holds(steady, record.id, "hidden");
 
     // Written the hide, the other tablet's barista shows it again: an edit made after seeing that one, timed earlier.
     await steady.setProfileVisibility(record.id, "visible");
-    await expect.poll(() => shownAt("Fast", record.id), { timeout: 10_000 }).toEqual(["Fast lab"]);
+    await expect.poll(() => shownAt("Fast", record.id)).toEqual(["Fast lab"]);
     await holds(fast, record.id, "visible");
     expect(visibilityOn(steady, record.id)).toBe("visible");
 
     // Its steps changed there, it is hidden at the lab, and not written back to the tablet that replaced it.
     const replacement = await steady.editProfile(record.id, derivedProfile("Fast Bloom", 2.75));
-    await expect.poll(() => shownAt("Fast", record.id), { timeout: 10_000 }).toEqual([]);
-    await expect.poll(() => shownAt("Fast", replacement.id), { timeout: 10_000 }).toEqual(["Fast lab"]);
+    await expect.poll(() => shownAt("Fast", record.id)).toEqual([]);
+    await expect.poll(() => shownAt("Fast", replacement.id)).toEqual(["Fast lab"]);
     await holds(fast, record.id, "hidden");
     await holds(fast, replacement.id, "visible");
     expect(visibilityOn(steady, record.id)).toBeUndefined();
@@ -369,14 +369,14 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     const reportsBefore = resent.sent.length;
     await resent.setProfileVisibility(record.id, "hidden");
     await expect
-      .poll(() => resent.sent.slice(reportsBefore).some((frame) => (frame as { name?: unknown }).name === "profiles"), { timeout: 10_000 })
+      .poll(() => resent.sent.slice(reportsBefore).some((frame) => (frame as { name?: unknown }).name === "profiles"))
       .toBe(true);
     resent.loseNetwork();
     holdingReports = false;
     // Offline, its barista shows it again; later the lab's other tablet hides it.
     await resent.setProfileVisibility(record.id, "visible");
     await lab2.setProfileVisibility(record.id, "hidden");
-    await expect.poll(() => shownAt("Resent", record.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => shownAt("Resent", record.id)).toEqual([]);
 
     // Back online, the held report arrives first, then the tablet's earlier show: neither saw the later hide (ADR-0020).
     resent.restoreNetwork();
@@ -504,11 +504,11 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     const { machines, one } = await lab("Moved", 17091);
     const user = await save("Moved", one, derivedProfile("Moved Bloom", 3.75), ["lab"]);
     await one.setProfileVisibility(BUNDLED_HIDDEN, "hidden");
-    await expect.poll(() => shownAt("Moved", BUNDLED_HIDDEN), { timeout: 10_000 }).toEqual(["Moved cafe"]);
+    await expect.poll(() => shownAt("Moved", BUNDLED_HIDDEN)).toEqual(["Moved cafe"]);
 
     const elsewhere = await api.createLocation("Moved elsewhere", "America/Chicago");
     expect((await api.call("POST", `/machines/${machines[0].machine.id}/location-history`, { locationId: elsewhere.id })).status).toBe(201);
-    await expect.poll(() => shownAt("Moved", BUNDLED), { timeout: 10_000 }).toEqual(["Moved cafe", "Moved elsewhere", "Moved lab"]);
+    await expect.poll(() => shownAt("Moved", BUNDLED)).toEqual(["Moved cafe", "Moved elsewhere", "Moved lab"]);
     await holds(one, user.id, "hidden");
     expect(await shownAt("Moved", user.id)).toEqual(["Moved lab"]);
     expect(await shownAt("Moved", BUNDLED_HIDDEN)).toEqual(["Moved cafe"]);
@@ -521,7 +521,7 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     await one.setProfileVisibility(BUNDLED, "hidden");
     const old = await save("Joined", one, derivedProfile("Joined Bloom", 8), ["lab"]);
     const changed = await one.addProfile(derivedProfile("Joined Bloom", 8.25), { parentId: old.id });
-    await expect.poll(() => shownAt("Joined", old.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => shownAt("Joined", old.id)).toEqual([]);
     await holds(two, changed.id, "visible");
 
     // A third tablet joins the lab with Decaid's bundled Profiles, all visible.
