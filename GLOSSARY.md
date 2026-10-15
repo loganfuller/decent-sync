@@ -106,7 +106,7 @@ A numbered position for a recipe, shared by every machine at a location, like a 
 _Avoid_: Recipe number, index
 
 **Loaded Recipe**:
-The recipe a machine's workflow was last loaded from, while the machine still follows it. It is part of the machine's state: a change to the recipe reaches that machine's workflow at once.
+The recipe a barista last applied on a machine, while they are still dialling it in. It is part of the machine's state: a change to the recipe reaches that machine's workflow at once.
 _Avoid_: Active recipe, current recipe
 
 **Workflow**:

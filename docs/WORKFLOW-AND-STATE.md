@@ -379,7 +379,7 @@ from the Workflow deliveries.
   on, or that was selected before the barista dialled in another by hand,
   and each change would reach every Machine with that Recipe loaded. A
   tablet without DYE2 v0.1.20 answers 404, which changes nothing. Reading
-  DYE2's selection as the Loaded Recipe instead of matching is #150.
+  DYE2's selection as the Loaded Recipe instead of matching is #177.
 - **Held back.** `MachineEvents` holds the Workflow's changes while any of
   the plugin's writes into it is under way, a count shared with the writes
   of the shared settings, and sends the latest once none is. So the server
@@ -542,8 +542,8 @@ maps the parts to the Recipe's content both ways.
   out a Capture-only Machine's Shots, rather than by the id alone.
 
 Known limits: a stale copy and a set-back look alike, and are told apart
-only by who made the field's latest edit, until DYE2 and Streamline record
-the recipe they apply (#150). So a barista who deliberately sets back
+only by who made the field's latest edit, until DYE2's recording takes
+over the parts it records (#177). So a barista who deliberately sets back
 another Machine's, or the management interface's, change of a part to its
 value just before has it written back, as for a stale save (ADR-0005), and
 changes it through another value, or in the management interface; and a
