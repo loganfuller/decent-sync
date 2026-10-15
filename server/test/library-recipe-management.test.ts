@@ -123,6 +123,11 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
   /** The tablet's own id for its record of a Library item, by the global id the record carries. */
   const localId = (records: Record_[], id: string) => records.find((record) => globalIdOf(record) === id || record[GLOBAL_ID_KEY] === id)?.id;
   const poll = <T>(read: () => T) => expect.poll(read, { timeout: 15_000 });
+  /** Whether the server has acknowledged the tablet's answer to a write of the item, so the writer awaits it no more. */
+  const answered = (tablet: SimulatedTablet, id: string) => {
+    const frames = (list: unknown[]) => list as { type?: unknown; id?: unknown; globalId?: unknown }[];
+    return frames(tablet.sent).some((frame) => frame.type === "written" && frame.globalId === id && frames(tablet.received).some((reply) => reply.type === "ack" && reply.id === frame.id));
+  };
 
   /** Staff at the Locations, signed in. */
   async function staffAt(email: string, ...locations: LocationView[]): Promise<AdminApi> {
@@ -430,6 +435,8 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
     const four = await create(lab, 2, { name: "Back Four" });
     await poll(() => slotsOn(tablet)).toEqual(["2:Back Four"]);
+    // Its answer through, so the writer awaits none: one held from here would hold every write after it.
+    await poll(() => answered(tablet, four.id)).toBe(true);
 
     // Written in slot 1, its answer held; moved to slot 3, so its record in slot 1 is removed, that answer held in turn.
     held.add("written");
