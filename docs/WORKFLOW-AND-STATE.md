@@ -247,18 +247,18 @@ from the Workflow deliveries.
   - Any other change made after a load still to be written is the barista's,
     after it: the load leaves the parts it changed as they were changed,
     the dose of a tweak or a batch of the same Bean, say.
-  - A load of the recipe the Workflow names already, with nothing left to
-    write, its dial set back or applied again as it is now, writes its
-    current dial alone: its RPM, Basket, batch and hot water stay as the
-    barista left them, where the Workflow holds a value for them, so a
-    Recipe naming a grinder, applied again after Streamline cleared them,
-    has them written back. One naming no grinder is no change of its dial
-    when applied again then, so nothing is written: DYE2 sets its Basket and
-    RPM as it applies it, but its batch stays cleared. A stale copy of it, matching only a dial it held before, has all
-    but its batch corrected, as no app applying a recipe sets one. The
-    barista's changes of the dial before such a match are no longer kept:
-    the match sets it again. A part the barista cleared on purpose is
-    written back as well, as a cleared part cannot tell who cleared it.
+  - A match of the recipe the Workflow names already, with nothing left to
+    write, is written only what the Workflow holds no value for, as after
+    Streamline cleared its batch, grinder, Basket and RPM once a Shot was
+    stored, so a Recipe naming a grinder, applied again then, has them
+    written back. One naming no grinder is no change of its dial when
+    applied again then, so nothing is written: DYE2 sets its Basket and RPM
+    as it applies it, but its batch stays cleared. Nothing the Workflow
+    holds is written over: a barista setting back a tweak of the Loaded
+    Recipe, which Streamline's auto-save has made the recipe's dial, and a
+    stale copy of it applied, look alike, and the barista's set-back wins,
+    so the stale copy's dial stays until the Recipe follows the Machine's
+    changes (#146). A stale copy of another recipe is corrected as any load.
   - The first Workflow, as on every load of the plugin, is no change, and
     loads nothing, though a recipe matches it, as one leaving blank the
     grind the barista tweaked would, or the recipe the barista unloaded
@@ -354,15 +354,16 @@ from the Workflow deliveries.
   it is queued: an unload of the plugin while one is held loses it, and the
   Workflow Decaid sends as the plugin loads again brings the current one.
 
-Known limits: Decaid has no conditional write, so a barista's change of
+Known limits: a stale copy of the Loaded Recipe applied on its Machine
+keeps its stale dial (above). Decaid has no conditional write, so a barista's change of
 a field a load writes, made in the moments between the plugin's last read
 of the Workflow and its write, is written over, as for a settings write
 (ADR-0021); the plugin reads everything else it needs first, to keep that
 window to one request. The dials a recipe held before are kept only in memory, so a
 copy read before the plugin loaded, as a DYE2 page open across a reload of
 the plugin, is matched only where its dial is the recipe's now. A barista
-who dials in exactly a dial the Loaded Recipe held before, on its Machine,
-has the recipe's current one written back, as for a stale copy. DYE2's
+who dials in exactly a dial another recipe held before has that recipe
+loaded, its current dial written, as for a stale copy. DYE2's
 dashboard sends the whole Workflow it read as it opened when its Done is
 tapped, so a load the plugin writes while it is open is undone then, the
 same limit as a change between the plugin's read and its write, held open

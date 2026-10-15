@@ -947,6 +947,7 @@ var __decentSync = (() => {
     return changed;
   }
   var AFTER_LOADED = ["rpm", "basket", "batch", ...HOT_WATER];
+  var EVERY_PART = ["dose", "yield", "grind", "grinder", "profile", ...AFTER_LOADED];
   function decideChange(pending, before, after, changed, held) {
     const dialChanged = !before || !sameDial(before.dial, after.dial);
     const picked = before !== void 0 && before.batch !== after.batch;
@@ -961,8 +962,7 @@ var __decentSync = (() => {
           for (const part of pending.kept) if (AFTER_LOADED.includes(part)) kept2.add(part);
         }
         if (pending.kind === "none" && after.named === chosen.globalId || same && pending.alone !== void 0) {
-          const current = chosen.now.some((candidate) => matches(candidate, after.dial));
-          return { kind: "load", globalId: chosen.globalId, kept: kept2, alone: new Set(current ? AFTER_LOADED : ["batch"]) };
+          return { kind: "load", globalId: chosen.globalId, kept: kept2, alone: new Set(EVERY_PART) };
         }
         return { kind: "load", globalId: chosen.globalId, kept: kept2 };
       }

@@ -373,8 +373,9 @@ export type Pending =
       kept: ReadonlySet<WrittenPart>;
       /**
        * For a load of the recipe the Workflow names already, the parts it
-       * leaves as the Workflow holds them, where it holds a value for them,
-       * as the barista may have changed them since it was loaded.
+       * leaves as the Workflow holds them, where it holds a value for them:
+       * every part, so it writes only those cleared, as Streamline clears
+       * some once each Shot is stored.
        */
       alone?: ReadonlySet<WrittenPart>;
     }
@@ -394,12 +395,11 @@ export interface ChangedSetUp {
   named: string | null;
 }
 
-/**
- * The parts a load writes besides the dial, which a load of the recipe the
- * Workflow names already leaves as they are: the barista may have changed
- * them since it was loaded, as its hot water, or the next bag of its Bean.
- */
+/** The parts a load writes besides the dial: the barista's changes of them since a load still to be written stay as they made them. */
 const AFTER_LOADED: readonly WrittenPart[] = ["rpm", "basket", "batch", ...HOT_WATER];
+
+/** Every part a load writes. */
+const EVERY_PART: readonly WrittenPart[] = ["dose", "yield", "grind", "grinder", "profile", ...AFTER_LOADED];
 
 /**
  * What one change of the Workflow, from `before` (undefined for the first
@@ -409,11 +409,13 @@ const AFTER_LOADED: readonly WrittenPart[] = ["rpm", "basket", "batch", ...HOT_W
  * outcome is the same however fast the plugin decides. A change of the dial
  * that matches one of the tablet's recipes (`chooseLoad`) loads it, a batch
  * picked in the same change, which no app applying a recipe does, staying
- * as picked, and a recipe of another Bean is none it loads. A load of the
- * recipe the Workflow names already, with nothing left to write, writes its
- * dial alone, as it is now, or, from a stale copy, all but its batch. The first
- * Workflow, as on every load of the plugin, is no change, and loads nothing:
- * naming a recipe it matches, that one is written its dial alone. Otherwise a
+ * as picked, and a recipe of another Bean is none it loads. A match of the
+ * recipe the Workflow names already, with nothing left to write, writes it
+ * only the parts the Workflow holds no value for: a barista's set-back of a
+ * tweak of it, which Streamline's auto-save made its dial, and a stale copy
+ * of it alike, which the plugin cannot tell apart, stay as they are, until
+ * the Recipe follows the Machine's changes (#146). The first Workflow, as on
+ * every load of the plugin, is no change, and loads nothing. Otherwise a
  * change of the profile, grinder or Bean to one the Loaded Recipe does not
  * name unloads it (`unloads`); the first Workflow unloads nothing. Any other
  * change made after a load that is still to be written is the barista's,
@@ -439,13 +441,11 @@ export function decideChange(
       // The dial matches the recipe again: the barista's changes since its load still to be written stay, but their
       // changes of the dial, which it sets again.
       if (same) for (const part of pending.kept) if (AFTER_LOADED.includes(part)) kept.add(part);
-      // The recipe the Workflow names, with nothing else left to write: its dial set back, or applied again as it is
-      // now, is written its current dial alone, the rest staying as the barista left it, where the Workflow holds a
-      // value for it. A stale copy of it, matching only a dial it held before, has the rest corrected too, but its
-      // batch, which no app applying a recipe sets. Decided afresh at each such change, as each would be at once.
+      // The recipe the Workflow names, with nothing else left to write: matched again, as a barista sets a tweak back,
+      // applies it again, or a stale copy of it, it is written only what the Workflow holds no value for, as after
+      // Streamline cleared its batch, grinder, Basket and RPM once a Shot was stored.
       if ((pending.kind === "none" && after.named === chosen.globalId) || (same && pending.alone !== undefined)) {
-        const current = chosen.now.some((candidate) => matches(candidate, after.dial));
-        return { kind: "load", globalId: chosen.globalId, kept, alone: new Set<WrittenPart>(current ? AFTER_LOADED : ["batch"]) };
+        return { kind: "load", globalId: chosen.globalId, kept, alone: new Set<WrittenPart>(EVERY_PART) };
       }
       return { kind: "load", globalId: chosen.globalId, kept };
     }

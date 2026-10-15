@@ -5,6 +5,7 @@ import {
   DYE2_NAMESPACE,
   applyInDye2,
   applyInStreamline,
+  autoSaveInStreamline,
   dye2Keys,
   dye2Library,
   dye2List,
@@ -75,6 +76,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
 
   const recipes = dye2Recording("recipes");
   const applies = dye2Recording("dye2-applies");
+  const strip = dye2Recording("streamline");
 
   const inSlot = (tablet: SimulatedTablet, slot: string) => (Array.isArray(dye2List(tablet, "recipes")) ? (dye2List(tablet, "recipes") as Record_[]) : []).find((record) => record.id === slot);
   const context = (tablet: SimulatedTablet) => (tablet.workflow().context ?? {}) as Record_;
@@ -382,6 +384,25 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     tablet.failNextApiReads(`/store/${DYE2_NAMESPACE}/recipes`, 0);
     await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
     await loads(machine, null);
+  });
+
+  it("leaves a barista's set-back of a tweak of the Loaded Recipe as they set it, though Streamline's auto-save made the tweak its dial", async () => {
+    const { machine, tablet, two } = await lab("Set back saved", 47131);
+    expect((await applyInStreamline(tablet, "2")).status).toBe(200);
+    await loads(machine, two);
+    // The barista moves the grind to 3.1 in Streamline, which saves it into the recipe: every tablet is written it.
+    expect(await autoSaveInStreamline(tablet, strip.autoSaveGrind)).toBeDefined();
+    await expect.poll(async () => ((await (await api.call("GET", `/recipes/${two}`)).json()) as { recipe: { content: Record_ } }).recipe.content.grindSetting, { timeout: 15_000 }).toBe(3.1);
+    await expect.poll(() => (((inSlot(tablet, "2")?.workflow as Record_ | undefined)?.context ?? {}) as Record_).grinderSetting, { timeout: 15_000 }).toBe("3.1");
+
+    // Set back to 3, the recipe's dial before: the plugin writes nothing over it.
+    await tablet.changeSettings({ context: { grinderSetting: "3" } });
+    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }, { timeout: 15_000 }).toMatchObject({
+      workflow: { workflow: { context: { grinderSetting: "3" } } },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    expect(context(tablet).grinderSetting).toBe("3");
+    expect(named(tablet)).toBe(two);
   });
 
   it("records a load made while the tablet is offline in the Workflow, which reaches the server on reconnect, timed when it was made", async () => {

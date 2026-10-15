@@ -247,15 +247,15 @@ describe("deciding each change of the Workflow in turn", () => {
   const beans = { "batch-e": ethiopia, "batch-e2": ethiopia, "batch-b": brazil };
   const loaded = withId(derived(slot1, { beanBatchId: "batch-e" }), ONE);
   const tweaked = derived(loaded, { grinderSetting: "2.8" });
-  /** What a load of the recipe the Workflow names already leaves as the barista left it: all but its dial. */
-  const afterLoaded = ["rpm", "basket", "batch", "targetTemperature", "duration", "volume", "flow"];
+  /** What a match of the recipe the Workflow names already leaves as the Workflow holds it, where it holds a value: every part. */
+  const afterLoaded = ["dose", "yield", "grind", "grinder", "profile", "rpm", "basket", "batch", "targetTemperature", "duration", "volume", "flow"];
 
-  it("loads a recipe applied, and writes the recipe the Workflow names already its dial alone as it is set back", () => {
+  it("loads a recipe applied, and writes the recipe the Workflow names already only what it holds no value for as it is set back", () => {
     expect(decided([derived(slot1, { targetDoseWeight: 17 }), slot1])).toEqual({ kind: "load", globalId: ONE, kept: new Set() });
     expect(decided([tweaked, loaded])).toEqual({ kind: "load", globalId: ONE, kept: new Set(afterLoaded) });
   });
 
-  it("loads nothing from the first Workflow the plugin hears of, which is no change, but writes the recipe it names and matches its dial alone, and unloads nothing then", () => {
+  it("loads nothing from the first Workflow the plugin hears of, which is no change, but writes the recipe it names and matches only what it holds no value for, and unloads nothing then", () => {
     expect(decided([slot1])).toEqual({ kind: "none" });
     expect(decided([derived(slot1, { beanBatchId: "batch-e" })], beans)).toEqual({ kind: "none" });
     // Unloaded before the plugin last loaded, by a batch of another Bean: no change loads it again.
@@ -299,15 +299,15 @@ describe("deciding each change of the Workflow in turn", () => {
     expect(decided([tweaked, otherBean, setBack], beans)).toEqual(atOnce);
   });
 
-  it("corrects all but the batch of the Recipe the Workflow names as a stale copy of it is applied", () => {
+  it("leaves a stale copy of the Recipe the Workflow names as it is applied, as it cannot be told from a barista's set-back of a tweak of it", () => {
     const edited = recipe("1");
     Object.assign(edited.dashboardVariables as Record_, { dose: 19 });
     Object.assign((edited.workflow as Record_).context as Record_, { targetDoseWeight: 19 });
     const tablet = [held(ONE, 1, edited, [recipe("1")])];
     const current = derived(loaded, { targetDoseWeight: 19 });
     // Its grind tweaked on the machine, then a page read before its dose was edited applied.
-    expect(decided([derived(current, { grinderSetting: "2.8" }), loaded], beans, tablet)).toEqual({ kind: "load", globalId: ONE, kept: new Set(["batch"]) });
-    // As it is now, applied again: its dial alone.
+    expect(decided([derived(current, { grinderSetting: "2.8" }), loaded], beans, tablet)).toEqual({ kind: "load", globalId: ONE, kept: new Set(afterLoaded) });
+    // As it is now, applied again: the same.
     expect(decided([derived(current, { targetDoseWeight: 19.5 }), current], beans, tablet)).toEqual({ kind: "load", globalId: ONE, kept: new Set(afterLoaded) });
   });
 
@@ -339,14 +339,14 @@ describe("deciding each change of the Workflow in turn", () => {
     expect(write?.context).toMatchObject({ beanBatchId: "batch-e", extras: { rpm: 900, basketId: "5a792f42-b6ff-44e0-a58c-ed165741b789" } });
   });
 
-  it("corrects a stale copy of the Recipe the Workflow names though a set-back of a tweak of it is still to be written", () => {
+  it("decides a stale copy of the Recipe the Workflow names as at once though a set-back of a tweak of it is still to be written", () => {
     const edited = recipe("1");
     Object.assign(edited.dashboardVariables as Record_, { dose: 19 });
     Object.assign((edited.workflow as Record_).context as Record_, { targetDoseWeight: 19 });
     const tablet = [held(ONE, 1, edited, [recipe("1")])];
     const current = derived(loaded, { targetDoseWeight: 19 });
     const atOnce = decided([derived(current, { grinderSetting: "2.8" }), loaded], beans, tablet);
-    expect(atOnce).toEqual({ kind: "load", globalId: ONE, kept: new Set(["batch"]) });
+    expect(atOnce).toEqual({ kind: "load", globalId: ONE, kept: new Set(afterLoaded) });
     expect(decided([current, derived(current, { grinderSetting: "2.8" }), current, loaded], beans, tablet)).toEqual(atOnce);
   });
 
@@ -386,6 +386,24 @@ describe("deciding each change of the Workflow in turn", () => {
     expect(decided([shotStored(loaded)], beans, [held(ONE, 1, recipe("1")), loose("grinder")])).toEqual({ kind: "none" });
     // Naming none, it loads none either.
     expect(decided([derived(withId(loaded, null), { grinderSetting: "2.6" })], beans, [held(ONE, 1, recipe("1")), loose("grind")])).toEqual({ kind: "none" });
+  });
+
+  it("writes nothing over a barista's set-back of a tweak of the Recipe the Workflow names, which Streamline's auto-save made its dial", () => {
+    // Streamline saved the tweak of the grind to 2.8 into the recipe's dial, leaving its embedded Workflow at 2.7.
+    const saved = recipe("1");
+    Object.assign(saved.dashboardVariables as Record_, { grind: 2.8 });
+    const tablet = [held(ONE, 1, saved, [recipe("1")])];
+    const pending = decided([derived(loaded, { grinderSetting: "2.8" }), loaded], beans, tablet);
+    expect(pending).toEqual({ kind: "load", globalId: ONE, kept: new Set(afterLoaded) });
+    const raw = decideChange(
+      { kind: "none" },
+      { dial: workflowDial(derived(loaded, { grinderSetting: "2.8" })), batch: "batch-e", bean: null, named: ONE },
+      { dial: workflowDial(loaded), batch: "batch-e", bean: null, named: ONE },
+      new Set(["grind"]),
+      tablet,
+    );
+    const written = raw.kind === "load" ? loadWrite(loaded, { ...saved, [RECIPE_FIELD]: { beanBatchId: "batch-e", hotWaterData: {} } }, ONE, { profile: null, batch: null }, raw.kept, raw.alone) : undefined;
+    expect(written === null || !("grinderSetting" in ((written?.context ?? {}) as Record_))).toBe(true);
   });
 
   it("loads another recipe applied over a load still to be written", () => {
