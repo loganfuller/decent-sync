@@ -8,13 +8,13 @@ A Recipe is the day's dial for one roast, which baristas keep current through th
 
 ## DYE2's selection
 
-From v0.1.20, DYE2 keeps one selected recipe or favourite on each tablet (`dye2:dye2-plugin/src/utils/workflow-record.ts`). DYE2's dashboard and Streamline's DYE strip (from v0.2.14) select what they apply: they write the Workflow, then post the item to `POST /api/v1/plugins/dye2.reaplugin/selection`, which DYE2 answers from memory at `GET` on the same path. DYE2 clears the selection on a change of the Workflow's profile (by its own fingerprint, which counts the yield Streamline writes into the profile), on a recent favourite applied, and on `POST /selection {}`. It doesn't clear it when the selected recipe is removed from its list. It pushes `{"what":"workflow"}` on its `changed` socket when it selects an item and after it records, but not when the selection clears.
+From v0.1.20, DYE2 keeps one selected recipe or favourite on each tablet (`dye2:dye2-plugin/src/utils/workflow-record.ts`). DYE2's dashboard and Streamline's DYE strip (from v0.2.14) select what they apply: they write the Workflow, then post the item to `POST /api/v1/plugins/dye2.reaplugin/selection`, which DYE2 answers from memory at `GET` on the same path. DYE2 clears the selection on a change of the Workflow's profile (by its own fingerprint, which counts the yield Streamline writes into the profile), on a recent favourite applied, and on `POST /selection {}`. It doesn't clear it when the selected recipe is removed from its list. It keeps the selection in its plugin storage, and restores it as it loads; a cleared one is stored as `null`, which Decaid's store doesn't keep, so the selection cleared comes back. It pushes `{"what":"workflow"}` on its `changed` socket when it selects an item and after it records, but not when the selection clears.
 
 While a recipe is selected, DYE2 records into its record in `recipes`, on every change of the Workflow, whatever made it, the Workflow's value of each field the record holds that differs: the dose, yield, grind setting and brew temperature, and the steam, hot water and flush values of the recipe's active modes. It ignores its own apply's echo.
 
 ## The Loaded Recipe
 
-When a tablet's DYE2 selection names a recipe in a slot that holds one of its Location's Recipes, that Recipe is the Machine's Loaded Recipe. A favourite selected, or nothing, loads none. The plugin reads the selection from DYE2's endpoint (a 404, as when DYE2 is not loaded, is no selection) on each push from DYE2's `changed` socket, about 2 s after each change of the Workflow (past DYE2's 1.5 s wait before it records), to catch the clears DYE2 does not push, and on its poll.
+When a tablet's DYE2 selection names a recipe in a slot that holds one of its Location's Recipes, and was made on the profile the Workflow holds, that Recipe is the Machine's Loaded Recipe. The plugin compares the selection's `profileFingerprint` with DYE2's fingerprint of the Workflow's profile, DYE2's own test of a profile change. A selection made on another profile, as one DYE2 restored after the profile changed, loads nothing, and DYE2 clears it at the Workflow's next change. A favourite selected, or nothing, loads none. The plugin reads the selection from DYE2's endpoint (a 404, as when DYE2 is not loaded, is no selection) on each push from DYE2's `changed` socket, about 2 s after each change of the Workflow (past DYE2's 1.5 s wait before it records), to catch the clears DYE2 does not push, and on its poll.
 
 On a load, the plugin writes into the Workflow what applying a DYE2 recipe leaves out, or a stale copy got wrong: the Recipe's current dial, its brew temperature, its Bean Batch, grinder, Basket and RPM, all its hot water settings (ADR-0014), and the Recipe's id in the Workflow's context (`decentSyncRecipeId`), so Decaid copies it onto every Shot pulled with it. A brew temperature is written as Streamline's Brew tile writes one (`profileAtBrewTemp` in `streamline-js:src/modules/brew-temp.js`): the profile's first step goes to it, and every other step moves by the same amount. The plugin also keeps `decentSyncRecipeId` in the Workflow embedded in each recipe record, so a recipe applied from Streamline's strip carries it at once.
 
@@ -40,11 +40,12 @@ Each workaround here does on DYE2's or Streamline's behalf what an upstream ask 
 - **The brew temperature on a load** is written by the plugin until DYE2 and Streamline apply a recipe's own (decentespresso/dye2#26).
 - **The batch, grinder, Basket and RPM after a Shot** are written back until Streamline leaves the selected recipe's in place (decentespresso/streamline-js#149).
 - **Reading after each Workflow change** stands in for DYE2 pushing a cleared selection (decentespresso/dye2#24).
+- **A cleared selection kept cleared.** When the plugin sees DYE2's selection clear, or clears it itself, it writes `{}` to DYE2's store key `selection` (`POST /api/v1/store/dye2.reaplugin/selection`), which DYE2 restores as no selection, while DYE2's endpoint still answers none. Otherwise DYE2 would restore the cleared selection as it next loads, and the plugin would load the Recipe again, writing its batch and grinder back over a Bean switch (decentespresso/dye2#22).
 
 And these gaps are accepted until fixed upstream:
 
 - A yield set in Streamline clears DYE2's selection, and so unloads the Recipe (decentespresso/dye2#18).
-- A selection cleared comes back when DYE2 reloads, so the Recipe loads again (decentespresso/dye2#22).
+- A selection cleared while the plugin was not running comes back when DYE2 reloads, and loads the Recipe again if the Workflow still holds its profile (decentespresso/dye2#22).
 - When Streamline fails to post its selection, DYE2 records the applied recipe's dial into the one selected before, and Streamline saves later changes into the applied one itself (decentespresso/streamline-js#148).
 
 ## Rejected
