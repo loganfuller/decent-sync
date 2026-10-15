@@ -205,7 +205,9 @@ describe("several server instances", { timeout: 30_000 }, () => {
       expect(await revokedRaw.closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
       expect(quiet.output()).toMatch(/Not listening for access changes/);
       expect(keptRaw.messages).toEqual([expect.objectContaining({ type: "welcome" })]);
-      expect(await api.machineNamed("Kept while not listening")).toMatchObject({ online: true });
+      // Read through the quiet instance: an instance counts a connection unheard for three of its own heartbeat
+      // intervals as gone, and the first's is 0.5 s, which this test outlasts on a busy machine.
+      expect(await api.at(quiet.url).machineNamed("Kept while not listening")).toMatchObject({ online: true });
     } finally {
       await database.end();
       await quiet.stop();
