@@ -97,19 +97,11 @@ export interface PartLookups {
   beanOf(batchId: string): string | undefined;
 }
 
-/** What a Recipe's tablet's record held just before the server's latest write of its fields, and each of the Recipe's fields before its current value. */
-export interface StaleCheck {
-  /** The record's `before_write`, by its paths (recipe-intake.ts); null for none. */
-  beforeWrite: Readonly<Record<string, unknown>> | null;
-  /** The value each field of the Recipe held just before its current one, by field; absent where none is known. */
-  previous: Readonly<Record<string, unknown>>;
-}
-
 /** What a change of a Workflow's parts makes of its Loaded Recipe (`partEdits`). */
 export interface PartEdits {
   /** The fields of the Recipe's content the change sets, with their values: an edit of it, empty for none. */
   values: Record<string, unknown>;
-  /** The parts the Workflow is held to hold from now on, as it holds them now: those that are edits, or no change of the Recipe, or set back by a stale copy. */
+  /** The parts the Workflow is held to hold from now on, as it holds them now: those that are edits, or no change of the Recipe. */
   taken: LoadedRecipePart[];
   /** The parts naming a Basket or batch the tablet's map does not hold yet, which are taken in as it gains them. */
   unmapped: LoadedRecipePart[];
@@ -130,11 +122,9 @@ export interface PartEdits {
  *   Workflow is not held to hold it;
  * - a value the Recipe holds already is no edit, as when Streamline saves
  *   the change into the recipe too, and its report arrived first;
- * - a value set back to what the tablet's record of the Recipe held just
- *   before the server's latest write of it, which was the Recipe's before its
- *   current one (`stale`), is a recipe applied from a copy read before that
- *   write, as a DYE2 page or Streamline strip opened before it, no edit
- *   (ADR-0005): the Recipe's value is written back;
+ * - a value set back to one the Recipe held before is an edit, as a barista
+ *   setting back a tweak, which a stale copy of the Recipe applied looks
+ *   like and so is too (ADR-0022): the barista's set-back wins;
  * - DYE2's ratio is kept only while the yield is the dose times it
  *   (`ratioValues`), the Workflow's yield kept as the Recipe's where it held
  *   none, the yield worked out from the ratio.
@@ -144,7 +134,6 @@ export function partEdits(
   now: WorkflowParts,
   content: Readonly<Record<string, unknown>>,
   lookups: PartLookups,
-  stale: StaleCheck,
 ): PartEdits {
   const edits: PartEdits = { values: {}, taken: [], unmapped: [] };
   for (const part of parts) {
@@ -171,7 +160,7 @@ export function partEdits(
       value = held;
     }
     edits.taken.push(part);
-    if (sameValue(content[field] ?? null, value) || setBack(part, held, value, content[field], stale)) continue;
+    if (sameValue(content[field] ?? null, value)) continue;
     edits.values[field] = value;
   }
   if ("dose" in edits.values && typeof content.yield !== "number" && !("yield" in edits.values) && typeof now.yield === "number") {
@@ -180,54 +169,6 @@ export function partEdits(
   Object.assign(edits.values, ratioValues(content, edits.values));
   return edits;
 }
-
-/**
- * Whether a part's value (`held` as the Workflow holds it, `value` as the
- * Recipe would) sets it back to what the tablet's record of the Recipe held
- * just before the server's latest write of it, which was the Recipe's value
- * before its current one (`current`).
- */
-function setBack(part: LoadedRecipePart, held: PartValue, value: unknown, current: unknown, stale: StaleCheck): boolean {
-  if (stale.beforeWrite === null || !Object.prototype.hasOwnProperty.call(stale.previous, RECIPE_FIELDS[part])) return false;
-  if (!sameValue(stale.previous[RECIPE_FIELDS[part]], value) || sameValue(current ?? null, value)) return false;
-  return recordValues(part, stale.beforeWrite).some((before) => samePart(part, before, held));
-}
-
-/**
- * The values a recipe record's `before_write` keeps of a part: its own of
- * the record's `dashboardVariables`, and its Bean Batch and hot water in the
- * record's own field (RECIPE_FIELD), each only where the server wrote it.
- */
-function recordValues(part: LoadedRecipePart, beforeWrite: Readonly<Record<string, unknown>>): unknown[] {
-  const has = (path: string) => Object.prototype.hasOwnProperty.call(beforeWrite, path);
-  const values = DASHBOARD_PATHS[part].filter(has).map((path) => beforeWrite[path]);
-  if (has(RECIPE_FIELD)) {
-    const own = isObject(beforeWrite[RECIPE_FIELD]) ? beforeWrite[RECIPE_FIELD] : {};
-    const hotWater = isObject(own.hotWaterData) ? own.hotWaterData : {};
-    if (part === "batch") values.push(own.beanBatchId ?? null);
-    if (part in HOT_WATER_NAMES) values.push(hotWater[part] ?? null);
-  }
-  return values;
-}
-
-/** The paths of a recipe record's `dashboardVariables` holding each part, as DYE2 keeps one hot water value of its mode. */
-const DASHBOARD_PATHS: Readonly<Record<LoadedRecipePart, readonly string[]>> = {
-  profile: [],
-  grinder: [],
-  dose: ["dashboardVariables.dose"],
-  yield: ["dashboardVariables.drink"],
-  grind: ["dashboardVariables.grind"],
-  rpm: ["dashboardVariables.rpm"],
-  basket: ["dashboardVariables.basketId"],
-  batch: [],
-  targetTemperature: ["dashboardVariables.hotWaterTempC"],
-  duration: [],
-  volume: ["dashboardVariables.hotWaterMl"],
-  flow: [],
-};
-
-/** The hot water parts, as a recipe record's own field keeps all four. */
-const HOT_WATER_NAMES = { targetTemperature: true, duration: true, volume: true, flow: true } as const;
 
 /**
  * What the Workflow is to hold of each part of a Recipe with this content,

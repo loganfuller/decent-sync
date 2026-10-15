@@ -71,8 +71,6 @@ const WORKFLOW = {
 /** Its profile is the Library's `profile:adaptive`. */
 const HELD: WorkflowParts = workflowParts(WORKFLOW, "profile:adaptive");
 
-const NO_STALE = { beforeWrite: null, previous: {} };
-
 describe("A Workflow's parts that follow its Loaded Recipe", () => {
   it("are read as the Workflow holds them, the grind setting as text and the Basket and batch by the tablet's ids", () => {
     expect(HELD).toEqual({
@@ -107,7 +105,7 @@ describe("A Workflow's parts that follow its Loaded Recipe", () => {
 describe("A change of a Workflow's parts", () => {
   it("edits the Recipe's dose, grind setting as a number, RPM and hot water", () => {
     const now = { ...HELD, dose: 18.5, grind: "2.8", rpm: 950, flow: 6 };
-    expect(partEdits(["dose", "grind", "rpm", "flow"], now, CONTENT, LOOKUPS, NO_STALE)).toEqual({
+    expect(partEdits(["dose", "grind", "rpm", "flow"], now, CONTENT, LOOKUPS)).toEqual({
       // The ratio no longer gives the yield.
       values: { dose: 18.5, grindSetting: 2.8, rpm: 950, hotWaterFlow: 6, ratio: null },
       taken: ["dose", "grind", "rpm", "flow"],
@@ -117,18 +115,18 @@ describe("A change of a Workflow's parts", () => {
 
   it("keeps the Workflow's yield as the Recipe's where it held none, but its ratio, as the dose changes", () => {
     const { yield: _, ...ratioOnly } = CONTENT;
-    expect(partEdits(["dose"], { ...HELD, dose: 19 }, ratioOnly, LOOKUPS, NO_STALE).values).toEqual({ dose: 19, yield: 36, ratio: null });
+    expect(partEdits(["dose"], { ...HELD, dose: 19 }, ratioOnly, LOOKUPS).values).toEqual({ dose: 19, yield: 36, ratio: null });
   });
 
   it("moves the Recipe to another batch of its Bean, but not to one of another Bean, which the Workflow is not held to", () => {
-    expect(partEdits(["batch"], { ...HELD, batch: "b2" }, CONTENT, LOOKUPS, NO_STALE)).toEqual({ values: { beanBatchId: NEXT_BAG }, taken: ["batch"], unmapped: [] });
-    expect(partEdits(["batch"], { ...HELD, batch: "b3" }, CONTENT, LOOKUPS, NO_STALE)).toEqual({ values: {}, taken: [], unmapped: [] });
+    expect(partEdits(["batch"], { ...HELD, batch: "b2" }, CONTENT, LOOKUPS)).toEqual({ values: { beanBatchId: NEXT_BAG }, taken: ["batch"], unmapped: [] });
+    expect(partEdits(["batch"], { ...HELD, batch: "b3" }, CONTENT, LOOKUPS)).toEqual({ values: {}, taken: [], unmapped: [] });
     const { beanId: _, ...noBean } = CONTENT;
-    expect(partEdits(["batch"], { ...HELD, batch: "b2" }, noBean, LOOKUPS, NO_STALE).values).toEqual({});
+    expect(partEdits(["batch"], { ...HELD, batch: "b2" }, noBean, LOOKUPS).values).toEqual({});
   });
 
   it("waits for a Basket or batch the tablet's map does not hold yet", () => {
-    expect(partEdits(["batch", "basket", "dose"], { ...HELD, batch: "new", basket: "new", dose: 17 }, CONTENT, LOOKUPS, NO_STALE)).toEqual({
+    expect(partEdits(["batch", "basket", "dose"], { ...HELD, batch: "new", basket: "new", dose: 17 }, CONTENT, LOOKUPS)).toEqual({
       values: { dose: 17, ratio: null },
       taken: ["dose"],
       unmapped: ["batch", "basket"],
@@ -136,25 +134,15 @@ describe("A change of a Workflow's parts", () => {
   });
 
   it("is no edit where the Recipe holds the value already, as when Streamline's save into the recipe came first, or a grind setting is no number", () => {
-    expect(partEdits(["dose", "grind"], { ...HELD, dose: 18.5, grind: "2+3" }, { ...CONTENT, dose: 18.5 }, LOOKUPS, NO_STALE)).toEqual({
+    expect(partEdits(["dose", "grind"], { ...HELD, dose: 18.5, grind: "2+3" }, { ...CONTENT, dose: 18.5 }, LOOKUPS)).toEqual({
       values: {},
       taken: ["dose"],
       unmapped: [],
     });
   });
 
-  it("is no edit where a stale copy set it back to what the tablet's record held before the server's latest write, which was the Recipe's before", () => {
-    const now = { ...HELD, grind: "2.7", batch: "b1", volume: 120 };
-    const content = { ...CONTENT, grindSetting: 2.9, beanBatchId: NEXT_BAG, hotWaterVolume: 130 };
-    const stale = {
-      beforeWrite: { "dashboardVariables.grind": 2.7, [RECIPE_FIELD]: { beanBatchId: "b1", hotWaterData: { volume: 120 } } },
-      previous: { grindSetting: 2.7, beanBatchId: BATCH, hotWaterVolume: 120 },
-    };
-    expect(partEdits(["grind", "batch", "volume"], now, content, LOOKUPS, stale)).toEqual({ values: {}, taken: ["grind", "batch", "volume"], unmapped: [] });
-    // Another value than the Recipe's before, or one the server never wrote over, is an edit.
-    expect(partEdits(["grind"], { ...HELD, grind: "2.6" }, content, LOOKUPS, stale).values).toEqual({ grindSetting: 2.6 });
-    expect(partEdits(["grind"], now, content, LOOKUPS, { ...stale, previous: { grindSetting: 2.5 } }).values).toEqual({ grindSetting: 2.7 });
-    expect(partEdits(["grind"], now, content, LOOKUPS, { beforeWrite: {}, previous: stale.previous }).values).toEqual({ grindSetting: 2.7 });
+  it("is an edit where it sets back a value the Recipe held before, as a barista sets back a tweak, which a stale copy applied looks like", () => {
+    expect(partEdits(["grind"], { ...HELD, grind: "2.7" }, { ...CONTENT, grindSetting: 2.9 }, LOOKUPS).values).toEqual({ grindSetting: 2.7 });
   });
 });
 

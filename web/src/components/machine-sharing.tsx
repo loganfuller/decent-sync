@@ -244,10 +244,10 @@ function ChangeDescription({ change, location }: { change: TabletChange; locatio
   if (change.kind === "workflow") return <>Its Workflow's grinder and batch cleared</>;
   // Written the Recipe's fields as its Loaded Recipe, or cleared of it as the Recipe is no longer one.
   if (change.kind === "loadedRecipe") {
-    if (!change.item) return <>Its Workflow updated for a Recipe since deleted</>;
+    if (!change.item) return <>Its Workflow written, or cleared of, a Recipe since deleted</>;
     return (
       <>
-        Its Workflow updated for the Recipe{" "}
+        Its Workflow written, or cleared of, the Recipe{" "}
         <ItemLink path={itemPath("recipe", change.item.id, location)}>{change.item.name ?? "Unnamed Recipe"}</ItemLink>
       </>
     );

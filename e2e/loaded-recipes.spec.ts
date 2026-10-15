@@ -96,7 +96,7 @@ test("a grind changed on one Machine reaches the Recipe's page, and the Workflow
   await bar1.tablet.changeSettings({ context: { grinderSetting: "2.8" } });
   await expect.poll(() => (bar2.tablet.workflow().context as Record_).grinderSetting).toBe("2.8");
   const sharing = page.getByRole("region", { name: "Sharing" });
-  await expect(sharing.getByText("Its Workflow updated for the Recipe Fixture Ethiopia Espresso")).toBeVisible();
+  await expect(sharing.getByText("Its Workflow written, or cleared of, the Recipe Fixture Ethiopia Espresso")).toBeVisible();
   await sharing.getByRole("link", { name: "Fixture Ethiopia Espresso" }).click();
   await expect(page.getByRole("heading", { name: "Fixture Ethiopia Espresso", level: 1 })).toBeVisible();
   await expect(page.getByText("2.8", { exact: true }).first()).toBeVisible();

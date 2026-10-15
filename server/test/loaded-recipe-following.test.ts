@@ -371,30 +371,24 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(named(a)).toBe(one);
   });
 
-  it("writes the Recipe's dial back over a recipe applied from a copy read before another Machine changed it, which edits nothing", async () => {
-    const { machines, a, c, one } = await lab("Stale", 48061);
-    // C's DYE2 dashboard reads its recipes once, as it opens.
-    const copy = structuredClone(inSlot(c, "1")!);
-    await a.changeSettings({ context: { grinderSetting: "2.9" } });
-    await expect.poll(() => context(c).grinderSetting).toBe("2.9");
-    await expect.poll(() => variables(inSlot(c, "1")).grind).toBe(2.9);
+  it("takes a tweak set back on A as A's edit, which every Machine with the Recipe loaded follows", async () => {
+    const { machines, a, c, one } = await lab("Set back", 48061);
+    await a.changeSettings({ context: { grinderSetting: "2.8" } });
+    await expect.poll(async () => (await recipe(one)).content.grindSetting).toBe(2.8);
+    // Every tablet, A's included, is written the Recipe's record with the tweak.
+    for (const tablet of [a, c]) await expect.poll(() => variables(inSlot(tablet, "1")).grind).toBe(2.8);
+    await expect.poll(() => context(c).grinderSetting).toBe("2.8");
     const grinds = await editsOf(one, "grindSetting");
 
-    // The Workflows the server stored for C with the copy's grind: one as it loaded the Recipe so far.
-    const copied = async () =>
-      (
-        (await (await api.call("GET", `/machines/${machines.c.machine.id}/workflow-events?limit=100`)).json()) as { events: { workflow: { context?: Record_ } }[] }
-      ).events.filter((event) => event.workflow.context?.grinderSetting === "2.7").length;
-    const loadedSo = await copied();
-
-    expect((await applyInDye2(c, "1", copy)).status).toBe(200);
-    await expect.poll(copied).toBe(loadedSo + 1);
-    await expect.poll(() => context(c).grinderSetting).toBe("2.9");
-    await expect.poll(async () => ((await storedWorkflow(machines.c)).context as Record_ | undefined)?.grinderSetting).toBe("2.9");
-    expect(named(c)).toBe(one);
+    // Set back as the barista tastes it.
+    await a.changeSettings({ context: { grinderSetting: "2.7" } });
+    await expect.poll(async () => (await recipe(one)).content.grindSetting).toBe(2.7);
+    await expect.poll(() => context(c).grinderSetting).toBe("2.7");
     await settle();
-    expect((await recipe(one)).content.grindSetting).toBe(2.9);
-    expect(await editsOf(one, "grindSetting")).toBe(grinds);
-    expect(context(a).grinderSetting).toBe("2.9");
+    expect(context(a).grinderSetting).toBe("2.7");
+    expect(await editsOf(one, "grindSetting")).toBe(grinds + 1);
+    expect([named(a), named(c)]).toEqual([one, one]);
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
+
 });
