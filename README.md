@@ -349,6 +349,16 @@ changing a profile's steps hides it there. A Machine with no Location is only
 captured: its tablet is written nothing, and its library stays out of the
 Library. See [docs/LIBRARY.md](docs/LIBRARY.md).
 
+Recipes are shared through DYE2 and follow the recipe DYE2 has selected on each
+tablet ([ADR-0022](docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md)),
+so a Machine that follows Recipes needs DYE2 v0.1.20 or newer, and Streamline
+v0.2.14 or newer where Streamline is its skin. Don't set a wake profile in
+Streamline's settings on such a Machine: waking onto it sends that tablet's
+saved dose, yield, grind and brew temperature for the profile, which then
+become the Recipe's on every Machine at the Location
+(decentespresso/streamline-js#153). Tapping the button of the profile already
+loaded sends them too.
+
 | Setting | |
 |---|---|
 | Server URL | the server's `PUBLIC_URL`, such as `https://sync.example.com` |
