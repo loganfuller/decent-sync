@@ -543,7 +543,8 @@ maps the parts to the Recipe's content both ways.
 
 Known limits: a stale copy and a set-back look alike, and are told apart
 only by who made the field's latest edit, as they are for a stale save
-(ADR-0005), whichever records the part, DYE2 or the plugin (#177). So a barista who deliberately sets back
+(ADR-0005); #177 adds ADR-0022's rule for parts set back to what the
+plugin's own write replaced, where a second set-back stands. So a barista who deliberately sets back
 another Machine's, or the management interface's, change of a part to its
 value just before has it written back, as for a stale save (ADR-0005), and
 changes it through another value, or in the management interface; and a
