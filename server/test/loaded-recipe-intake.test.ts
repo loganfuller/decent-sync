@@ -207,18 +207,24 @@ describe("What a Workflow is written of its Loaded Recipe", () => {
   });
 });
 
-describe("The Profile, Grinder and batch written into a Workflow", () => {
-  const target = { ...HELD, profile: "profile:classic", grinder: "g2", batch: "b2", dose: 19 };
+describe("The dial and batch written into a Workflow", () => {
+  const target = { ...HELD, profile: "profile:classic", grinder: "g2", batch: "b2", dose: 19, yield: 38, grind: "3.1", rpm: 950 };
+  const current = { profileId: "profile:classic", dashboardVariables: { grinderId: "g2", dose: 19, ratio: 2, grind: 3.1 }, [RECIPE_FIELD]: { beanBatchId: "b2" } };
 
-  it("wait for the tablet's record of the Recipe to name them, as the plugin unloads the Recipe on one its record does not", () => {
-    expect(heldByRecord(target, { profileId: "profile:adaptive", dashboardVariables: { grinderId: "g1" }, [RECIPE_FIELD]: { beanBatchId: "b1" } })).toEqual({
+  it("wait for the tablet's record of the Recipe to hold them, as the plugin judges a change of the dial by its records, the rest going ahead", () => {
+    const stale = { profileId: "profile:adaptive", dashboardVariables: { grinderId: "g1", dose: 18, drink: 36, grind: 2.7 }, [RECIPE_FIELD]: { beanBatchId: "b1" } };
+    expect(heldByRecord(target, stale)).toEqual({
       ...target,
       profile: undefined,
       grinder: undefined,
+      dose: undefined,
+      yield: undefined,
+      grind: undefined,
       batch: undefined,
     });
-    expect(heldByRecord(target, { profileId: "profile:classic", dashboardVariables: { grinderId: "g2" }, [RECIPE_FIELD]: { beanBatchId: "b2" } })).toEqual(target);
-    expect(heldByRecord(target, null)).toMatchObject({ profile: undefined, grinder: undefined, batch: undefined, dose: 19 });
+    // A yield worked out from the ratio, and a grind setting as a number, are held.
+    expect(heldByRecord(target, current)).toEqual(target);
+    expect(heldByRecord(target, null)).toMatchObject({ profile: undefined, grinder: undefined, batch: undefined, dose: undefined, rpm: 950 });
   });
 });
 

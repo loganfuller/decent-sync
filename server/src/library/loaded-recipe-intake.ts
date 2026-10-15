@@ -253,13 +253,15 @@ export function recipeParts(content: Readonly<Record<string, unknown>>, local: (
 /**
  * The parts of a Recipe the Workflow is to hold (`target`, as `recipeParts`
  * reads it) that wait for the tablet's record of the Recipe (`record`, as
- * the server last knew it) to hold them too: its Profile, Grinder and Bean
- * Batch. The plugin judges a change of the Workflow's Profile, Grinder or
- * Bean against the tablet's record, and unloads the Recipe where the record
- * names another (recipe-matching.ts), so one written into the Workflow
- * before its record, as when the tablet refused the record's write, would
- * unload it. Each that waits is undefined, as one the tablet holds no record
- * of yet is.
+ * the server last knew it) to hold them too: its dial (Profile, Grinder,
+ * dose, yield and grind setting) and its Bean Batch. The plugin works out
+ * which recipe a change of the Workflow's dial loads, and whether a change
+ * of its Profile, Grinder or Bean unloads it, from the tablet's records
+ * (recipe-matching.ts), so one written into the Workflow before the record,
+ * as when the tablet refused the record's write, could unload the Recipe,
+ * or load another whose record it then matches. Each that waits is
+ * undefined, as one the tablet holds no record of yet is; the rest of the
+ * write goes ahead.
  */
 export function heldByRecord(
   target: Readonly<Record<LoadedRecipePart, PartValue | undefined>>,
@@ -267,14 +269,18 @@ export function heldByRecord(
 ): Record<LoadedRecipePart, PartValue | undefined> {
   const variables = isObject(record?.dashboardVariables) ? record.dashboardVariables : {};
   const own = isObject(record?.[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
+  const [dose, ratio] = [numberOf(variables.dose), numberOf(variables.ratio)];
   const holds: Partial<Record<LoadedRecipePart, unknown>> = {
     profile: record?.profileId ?? null,
     grinder: variables.grinderId ?? null,
+    dose,
+    yield: numberOf(variables.drink) ?? (dose !== null && ratio !== null ? Math.round(dose * ratio * 10) / 10 : null),
+    grind: variables.grind ?? null,
     batch: own.beanBatchId ?? null,
   };
   const parts = { ...target };
-  for (const part of ["profile", "grinder", "batch"] as const) {
-    if (parts[part] !== null && parts[part] !== undefined && !sameValue(holds[part], parts[part])) parts[part] = undefined;
+  for (const part of ["profile", "grinder", "dose", "yield", "grind", "batch"] as const) {
+    if (parts[part] !== null && parts[part] !== undefined && (record === null || !samePart(part, holds[part], parts[part]))) parts[part] = undefined;
   }
   return parts;
 }

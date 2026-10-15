@@ -230,17 +230,17 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 
-  it("writes the Recipe's Grinder into a Workflow only once its tablet holds the Recipe's record naming it, so a refused write of the record leaves it loaded", async () => {
+  it("writes the Recipe's Grinder and grind into a Workflow only once its tablet holds the Recipe's record, so a refused write of the record leaves it loaded", async () => {
     const { here, machines, c, one } = await lab("Refused record", 48101);
     const created = await api.call("POST", "/grinders", { locationId: here.id, content: { model: "Refused EK43" } });
     const grinder = ((await created.json()) as { grinder: { id: string } }).grinder.id;
     const before = context(c).grinderId;
     c.refuseWrites = ({ route }) => (route === "/store/dye2.reaplugin/recipes" ? { status: 500, body: { error: "Recipe write failed" } } : undefined);
-    expect((await api.call("PATCH", `/recipes/${one}`, { content: { grinderId: grinder, grindSetting: 4.1 } })).status).toBe(200);
-    // The grind is written, the Grinder waits for the record, and the Recipe stays loaded.
-    await expect.poll(() => context(c).grinderSetting).toBe("4.1");
+    expect((await api.call("PATCH", `/recipes/${one}`, { content: { grinderId: grinder, grindSetting: 4.1, hotWaterTemperature: 92 } })).status).toBe(200);
+    // The hot water is written; the Grinder and grind wait for the record, and the Recipe stays loaded.
+    await expect.poll(() => (c.workflow().hotWaterData as Record_).targetTemperature).toBe(92);
     await settle();
-    expect(context(c).grinderId).toBe(before);
+    expect([context(c).grinderId, context(c).grinderSetting]).toEqual([before, "2.7"]);
     expect(named(c)).toBe(one);
     await loads(machines.c, one);
     // Its record written once it reconnects, the Grinder follows, still loaded.
@@ -248,8 +248,28 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     c.dropConnections();
     await expect.poll(() => localId(c, "/grinders", grinder)).toEqual(expect.any(String));
     const onC = await localId(c, "/grinders", grinder);
-    await expect.poll(() => context(c).grinderId).toBe(onC);
+    await expect.poll(() => [context(c).grinderId, context(c).grinderSetting]).toEqual([onC, "4.1"]);
     await settle();
+    expect(named(c)).toBe(one);
+    await loads(machines.c, one);
+  });
+
+  it("writes the Recipe's grind into a Workflow only once its tablet holds the Recipe's record, so another Recipe it would match is not loaded", async () => {
+    const { machines, c, d, one, two } = await lab("Twin", 48111);
+    // Slot 2 made slot 1's twin, but for its grind setting.
+    const { profileId, grinderId, dose, yield: drink } = (await recipe(one)).content;
+    expect((await api.call("PATCH", `/recipes/${two}`, { content: { profileId, grinderId, dose, yield: drink, grindSetting: 4.1 } })).status).toBe(200);
+    await expect.poll(() => [variables(inSlot(c, "2")).dose, variables(inSlot(c, "2")).grind, inSlot(c, "2")?.profileId]).toEqual([dose, 4.1, profileId]);
+    // D, with slot 2 loaded, takes its new dial and keeps it loaded.
+    await expect.poll(() => context(d).grinderSetting).toBe("4.1");
+    expect(named(d)).toBe(two);
+
+    c.refuseWrites = ({ route }) => (route === "/store/dye2.reaplugin/recipes" ? { status: 500, body: { error: "Recipe write failed" } } : undefined);
+    expect((await api.call("PATCH", `/recipes/${one}`, { content: { grindSetting: 4.1, hotWaterTemperature: 91 } })).status).toBe(200);
+    // The hot water is written; the grind waits for slot 1's record, which would otherwise leave the Workflow matching slot 2.
+    await expect.poll(() => (c.workflow().hotWaterData as Record_).targetTemperature).toBe(91);
+    await settle();
+    expect(context(c).grinderSetting).toBe("2.7");
     expect(named(c)).toBe(one);
     await loads(machines.c, one);
   });

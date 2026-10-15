@@ -454,11 +454,14 @@ maps the parts to the Recipe's content both ways.
   holds otherwise, by the tablet's ids, with the names DYE2 copies beside a
   Grinder, a Basket and a batch, each expecting the value the Workflow last
   held, and its Profile whole, expecting nothing, as a skin overrides parts
-  of the one it loads (`partsWrite`). The plugin judges a change of the
-  Workflow's Profile, Grinder or Bean against the tablet's record of the
-  Recipe, so these, and the batch, wait until that record, written first,
-  names them (`heldByRecord`): one written before it, as when the tablet
-  refused the record's write, would unload the Recipe. The plugin writes nothing unless the Workflow still names
+  of the one it loads (`partsWrite`). The plugin works out which recipe a
+  change of the Workflow's dial loads, and whether a change of its Profile,
+  Grinder or Bean unloads it, from the tablet's records, so the dial
+  (Profile, Grinder, dose, yield and grind setting) and the batch wait until
+  the tablet's record of the Recipe, written first, holds them
+  (`heldByRecord`): one written before it, as when the tablet refused the
+  record's write, could unload the Recipe, or load another recipe whose
+  record the Workflow then matches. The rest of the write goes ahead. The plugin writes nothing unless the Workflow still names
   the Recipe, and sets a part only while it holds the value expected or
   none, so a barista's change since is kept, and reaches the server in the
   answer, where it is the tablet's edit, timed when the plugin had Decaid's
