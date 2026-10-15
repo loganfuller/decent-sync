@@ -517,7 +517,7 @@ describe("Joining a Location", () => {
     const labMachine = await api.createMachine("Mistaken lab 1", lab.id);
     const traveller = await api.createMachine("Mistaken traveller", lab.id);
     const belmontMachine = await api.createMachine("Mistaken Belmont 1", belmont.id);
-    const labTablet = load(labMachine, "23081", { fresh: true, parts: { steamSettings: { flow: 1.4 } } });
+    load(labMachine, "23081", { fresh: true, parts: { steamSettings: { flow: 1.4 } } });
     const belmontTablet = load(belmontMachine, "23083", { fresh: true });
     await online(labMachine, belmontMachine);
     await settingsOf(lab);

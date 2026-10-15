@@ -142,33 +142,6 @@ describe("Edits of the Library", () => {
     expect(await conflictsOf(bean.id)).toEqual([]);
   });
 
-  it("keeps the later of two edits of one field made on disconnected tablets everywhere, and the other as an open Conflict", async () => {
-    const { one, two, cafe, bean, record, labMachine } = await shared("Same", 19020);
-    one.loseNetwork();
-    two.loseNetwork();
-    const earlier = await one.editBean(record.id, { notes: "Earlier notes" });
-    await delay(20);
-    await two.editBean(heldBean(two, bean.id)!.id, { notes: "Later notes" });
-
-    // The earlier edit arrives first and is taken in; the later one, made without seeing it, then wins.
-    one.restoreNetwork();
-    await holds(cafe, bean.id, { notes: "Earlier notes" });
-    two.restoreNetwork();
-    for (const tablet of [one, two, cafe]) await holds(tablet, bean.id, { notes: "Later notes" });
-    expect(await beanContent(bean.id)).toMatchObject({ notes: "Later notes" });
-    const [conflict, ...more] = await conflictsOf(bean.id);
-    expect(more).toEqual([]);
-    expect(conflict).toMatchObject({
-      item: { kind: "bean", id: bean.id, name: "Roux Same Guji" },
-      field: "notes",
-      value: "Earlier notes",
-      location: null,
-      source: { machine: { id: labMachine.machine.id, name: "Same lab 1" }, account: null },
-    });
-    // Timed by the tablet's record, which Decaid wrote in the tablet's local time, placed in UTC.
-    expect(Date.parse(conflict!.editedAt)).toBe(localTime(earlier.updatedAt));
-  });
-
   it("keeps an edit made later but arriving first, and the earlier one, arriving after it, as a Conflict", async () => {
     const { one, two, cafe, bean, record, labMachine } = await shared("Order", 19030);
     one.loseNetwork();

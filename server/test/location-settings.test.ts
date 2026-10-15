@@ -135,8 +135,8 @@ describe("Steam and rinse settings shared by a Location's Machines", () => {
     return { uptown, belmont, machines, first, second, bengle, belmontDe1, uptownSettings };
   }
 
-  it("lets the first Machine at a Location set its settings, and takes them to every Machine joining after, whatever its model", async () => {
-    const { uptown, belmont, machines, second, bengle, belmontDe1, uptownSettings } = await cafes("First", 19001);
+  it("lets the first Machine at a Location set its settings, takes them to every Machine joining after, whatever its model, and takes a change on one to the Location's others, through another instance, but not to another Location's", async () => {
+    const { uptown, belmont, machines, first, second, bengle, belmontDe1, uptownSettings } = await cafes("First", 19001);
     expect(uptownSettings).toMatchObject({
       values: {
         "steamSettings.targetTemperature": 160,
@@ -173,10 +173,8 @@ describe("Steam and rinse settings shared by a Location's Machines", () => {
     expect(history).toHaveLength(1);
     expect(history[0]!.source.machine?.id).toBe(machines.first.machine.id);
     expect((await settingsAt(uptown)).values["steamSettings.flow"]).toBe(1.5);
-  });
 
-  it("takes a steam flow change on one Machine to the Location's others, its Bengle included, through another instance, but not to another Location's", async () => {
-    const { uptown, machines, first, second, bengle, belmontDe1, uptownSettings } = await cafes("Flow", 19011);
+    // A steam flow change on one Machine reaches the Location's others, its Bengle included, through another instance.
     await first.changeSettings({ steamSettings: { flow: 2.2 } });
     await holds(second, { "steamSettings.flow": 2.2 });
     await holds(bengle, { "steamSettings.flow": 2.2 });
@@ -213,8 +211,8 @@ describe("Steam and rinse settings shared by a Location's Machines", () => {
     expect(history.some((version) => Object.keys(version.fields).some((field) => field.startsWith("hotWaterData.")))).toBe(false);
   });
 
-  it("keeps steam turned off on one Machine to it, and writes the Location's current values to it once steam is turned on again", async () => {
-    const { uptown, first, second } = await cafes("Steam off", 19021);
+  it("keeps steam turned off on one Machine to it while a change on another or in the management interface reaches the rest, writes it the Location's current values once steam is on again, and lets only Staff there change them", async () => {
+    const { uptown, belmont, first, second, bengle, belmontDe1, uptownSettings } = await cafes("Steam off", 19021);
     await first.changeSettings({ steamSettings: { targetTemperature: 0 } });
     // Its rinse is still shared while its steam is off.
     await second.changeSettings({ steamSettings: { flow: 2.4, duration: 90 }, rinseData: { duration: 6 } });
@@ -224,15 +222,8 @@ describe("Steam and rinse settings shared by a Location's Machines", () => {
     expect(setting(second, "steamSettings.targetTemperature")).toBe(160);
     expect((await settingsAt(uptown)).values).toMatchObject({ "steamSettings.targetTemperature": 160, "steamSettings.flow": 2.4 });
 
-    // Turned on again as Decaid's own steam form does, at 135, it takes Uptown's steam settings.
-    await first.changeSettings({ steamSettings: { targetTemperature: 135 } });
-    await holds(first, { "steamSettings.targetTemperature": 160, "steamSettings.flow": 2.4, "steamSettings.duration": 90 });
-    expect((await settingsAt(uptown)).values["steamSettings.targetTemperature"]).toBe(160);
-  });
-
-  it("takes a rinse change made in the management interface to every Machine at the Location, and only Staff there may make it", async () => {
-    const { uptown, belmont, first, second, bengle, belmontDe1, uptownSettings } = await cafes("Managed", 19031);
-    await first.changeSettings({ steamSettings: { targetTemperature: 0 } });
+    // A rinse and steam change made in the management interface reaches every Machine at the Location, but for the steam
+    // of the one whose steam is off.
     const response = await api.call("PATCH", `/location-settings/${uptownSettings.id}`, { values: { "rinseData.targetTemperature": 85, "rinseData.flow": 4.5, "steamSettings.flow": 2 } });
     expect(response.status).toBe(200);
     expect(((await response.json()) as { settings: SettingsView }).settings.values).toMatchObject({ "rinseData.targetTemperature": 85, "rinseData.flow": 4.5 });
@@ -259,14 +250,15 @@ describe("Steam and rinse settings shared by a Location's Machines", () => {
     }
     expect((await settingsAt(uptown)).values["rinseData.flow"]).toBe(4.5);
 
-    const staffAt = async (email: string, location: LocationView) => {
-      const { link } = await api.invite(email, "staff", [location.id]);
-      return AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Staff", password: "staff password 1" }));
-    };
-    const elsewhere = await staffAt("settings-belmont@example.com", belmont);
+    // Turned on again as Decaid's own steam form does, at 135, it takes Uptown's steam settings as they are now.
+    await first.changeSettings({ steamSettings: { targetTemperature: 135 } });
+    await holds(first, { "steamSettings.targetTemperature": 160, "steamSettings.flow": 2, "steamSettings.duration": 90 });
+    expect((await settingsAt(uptown)).values["steamSettings.targetTemperature"]).toBe(160);
+
+    const elsewhere = await api.staffAt("settings-belmont@example.com", belmont);
     expect((await settingsAt(uptown, elsewhere)).editable).toBe(false);
     expect((await elsewhere.call("PATCH", `/location-settings/${uptownSettings.id}`, { values: { "rinseData.flow": 3 } })).status).toBe(403);
-    const here = await staffAt("settings-uptown@example.com", uptown);
+    const here = await api.staffAt("settings-uptown@example.com", uptown);
     expect((await here.call("PATCH", `/location-settings/${uptownSettings.id}`, { values: { "rinseData.flow": 3 } })).status).toBe(200);
     await holds(second, { "rinseData.flow": 3 });
   });

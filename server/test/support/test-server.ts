@@ -165,7 +165,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
       throw error;
     }
   }
-  const { url, child, output } = started;
+  const { url, output } = started;
   const connectDatabase = async () => {
     const client = new pg.Client({ connectionString: databaseUrl.href });
     await client.connect();

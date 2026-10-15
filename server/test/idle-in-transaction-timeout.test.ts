@@ -42,15 +42,11 @@ describe("the idle-in-transaction timeout", () => {
     await Promise.all(poolers.splice(0).map((pooler) => pooler.close()));
   });
 
-  it("is set on a fresh database, for connections that send no settings", async () => {
-    const server = await start();
-
-    expect(await timeoutOf(await connect(server))).toEqual({ timeout: "30s", source: "database" });
-    expect(server.output()).not.toContain(WARNING);
-  });
-
-  it("reaches the server's connections through a pooler, without a startup setting it would refuse", async () => {
+  it("is set on a fresh database, for connections that send no settings, and reaches the server's connections through a pooler, without a startup setting it would refuse", async () => {
     const direct = await start();
+    expect(await timeoutOf(await connect(direct))).toEqual({ timeout: "30s", source: "database" });
+    expect(direct.output()).not.toContain(WARNING);
+
     const pooler = await startPoolerProxy();
     poolers.push(pooler);
     // A refused connection pool leaves the server never healthy; say why.

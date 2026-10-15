@@ -612,11 +612,11 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
   });
 
   it("flags a slotted Recipe whose Bean Batch is finished at its Location", async () => {
-    const lab = await locationWith("Finished batch lab", 45051, [server]);
-    const { batch } = await library("Finished", lab.location, [lab.location]);
-    const created = await create(lab.location, 1, { name: "Finished Espresso", beanBatchId: batch.id });
+    const lab = await api.createLocation("Finished batch lab", "America/Chicago");
+    const { batch } = await library("Finished", lab, [lab]);
+    const created = await create(lab, 1, { name: "Finished Espresso", beanBatchId: batch.id });
     expect(created.batchFinished).toBe(false);
-    expect((await api.call("PUT", `/bean-batches/${batch.id}/locations/${lab.location.id}`, { atLocation: false })).status).toBe(200);
+    expect((await api.call("PUT", `/bean-batches/${batch.id}/locations/${lab.id}`, { atLocation: false })).status).toBe(200);
     expect(await recipe(created.id)).toMatchObject({ batchFinished: true, uses: { beanBatch: { id: batch.id, atLocation: false } } });
     // An unslotted Recipe is not flagged.
     expect((await move(created.id, null)).batchFinished).toBe(false);
