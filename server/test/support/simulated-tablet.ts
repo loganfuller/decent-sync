@@ -180,6 +180,9 @@ export function readBuiltPlugin(): { source: string; manifest: Record<string, un
 export type DecaidApi = Record<string, unknown>;
 
 /** A response Decaid's API refuses with, such as 503 while no scale is connected. */
+/** DYE2's `selection` endpoint (DYE2 v0.1.20), as Decaid routes a plugin's HTTP endpoint. */
+export const DYE2_SELECTION_ROUTE = "/plugins/dye2.reaplugin/selection";
+
 export class Refusal {
   constructor(
     readonly status: number,
@@ -1249,6 +1252,8 @@ export class SimulatedTablet {
     }
     const kept = this.answerStore(method, route, requestBody);
     if (kept) return response(kept.status, JSON.stringify(kept.body));
+    const selected = this.answerDye2Selection(method, route, requestBody);
+    if (selected) return response(selected.status, JSON.stringify(selected.body));
     const written = withDecaidClock(this.decaidClockOffsetMs, () => this.writeLibrary(method, route, new URL(url).searchParams, requestBody));
     if (written) {
       return written.etag && written.status === 200 ? conditional(JSON.stringify(written.body), headers) : response(written.status, JSON.stringify(written.body));
@@ -1310,6 +1315,33 @@ export class SimulatedTablet {
     if (!(served in this.api) && stored) return response(200, "null");
     if (!(served in this.api)) return response(404, "");
     return response(200, JSON.stringify(answer));
+  }
+
+  /**
+   * DYE2's `selection` endpoint, from v0.1.20, on a tablet whose API serves
+   * it (`withDye2Selection` in simulated-dye2.ts): `GET` answers the recipe
+   * or favourite selected, null for none, and `POST` selects the one its
+   * body names (`{ kind, id }`), or clears the selection for a body without
+   * `kind`, as `handleSelection` in dye2:dye2-plugin/src/plugin.ts does, the
+   * profile's fingerprint and brew temperature it keeps left out. Undefined
+   * for any other request, or a tablet without it.
+   */
+  private answerDye2Selection(method: string, route: string, body: unknown): DecaidAnswer | undefined {
+    if (route !== DYE2_SELECTION_ROUTE || !(route in this.api)) return undefined;
+    if (method === "GET") return { status: 200, body: this.api[route] ?? null };
+    const asked = (typeof body === "string" ? JSON.parse(body) : body) as { kind?: unknown; id?: unknown } | null;
+    const selected = asked?.kind === "recipe" || asked?.kind === "favourite" ? { kind: asked.kind, id: String(asked.id) } : null;
+    this.api[route] = selected;
+    this.dye2Selections.push(selected);
+    return { status: 200, body: selected };
+  }
+
+  /** Each selection DYE2's `selection` endpoint was asked for, in order, null for a clear. */
+  readonly dye2Selections: ({ kind: string; id: string } | null)[] = [];
+
+  /** DYE2's selected recipe or favourite, as its `selection` endpoint answers it: null for none, undefined on a tablet without it. */
+  dye2Selected(): unknown {
+    return this.api[DYE2_SELECTION_ROUTE];
   }
 
   /**

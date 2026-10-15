@@ -1183,12 +1183,13 @@ So a recipe saved in DYE2 in a slot on one tablet is written to that slot on
 every tablet at its Location, and to no other Location's; an edit on any
 tablet, in DYE2's editor or through Streamline's auto-save, reaches every
 tablet there; and a recipe gone from a tablet's list empties its slot on the
-others. Streamline saves into the recipe the change a barista made in the
-Workflow of a Machine with it loaded, which the Workflow brings too, as the
-Machine's edit of its Loaded Recipe (ticket #146, `WORKFLOW-AND-STATE.md`,
-Following the Recipe): a field of a record that sets the Recipe's value its
-tablet's own latest edit set already is no edit (`withoutOwnEdits`), so the
-two are one edit, whichever reaches the server first. Recipes are read through the REST API (below), and managed in the
+others. DYE2, from v0.1.20, and Streamline's auto-save with an earlier
+DYE2, save into the recipe the change a barista made in the Workflow of a
+Machine with it loaded, which the Workflow brings too, as the Machine's edit
+of its Loaded Recipe (ticket #146, `WORKFLOW-AND-STATE.md`, Following the
+Recipe): a field of a record that sets the Recipe's value its tablet's own
+latest edit set already is no edit (`withoutOwnEdits`), so the two are one
+edit, whichever reaches the server first. Recipes are read through the REST API (below), and managed in the
 management interface (Editing in the management interface, above).
 
 ## Writing to tablets

@@ -2077,11 +2077,11 @@ var __decentSync = (() => {
     return `${SEQUENCE_KEY}.${seq % MAX_KEPT}`;
   }
   function parseSequence(value) {
-    const parsed4 = parse(value);
-    const first = parsed4?.first;
-    const next = parsed4?.next;
+    const parsed5 = parse(value);
+    const first = parsed5?.first;
+    const next = parsed5?.next;
     if (!isCount(first) || !isCount(next) || first > next || next - first > MAX_KEPT) return { first: 0, next: 0 };
-    return { first, next, token: typeof parsed4?.token === "string" ? parsed4.token : "" };
+    return { first, next, token: typeof parsed5?.token === "string" ? parsed5.token : "" };
   }
   function tokenHash(token) {
     let hash = 2166136261;
@@ -2092,22 +2092,91 @@ var __decentSync = (() => {
     return hash.toString(16).padStart(8, "0");
   }
   function parseSlot(value, seq) {
-    const parsed4 = parse(value);
-    if (parsed4?.seq !== seq || parsed4.delivery === void 0) return void 0;
-    const decoded = decodeMachineEvent(JSON.stringify(parsed4.delivery));
+    const parsed5 = parse(value);
+    if (parsed5?.seq !== seq || parsed5.delivery === void 0) return void 0;
+    const decoded = decodeMachineEvent(JSON.stringify(parsed5.delivery));
     return decoded.ok ? decoded.message : void 0;
   }
   function parse(value) {
     if (typeof value !== "string") return void 0;
     try {
-      const parsed4 = JSON.parse(value);
-      return typeof parsed4 === "object" && parsed4 !== null && !Array.isArray(parsed4) ? parsed4 : void 0;
+      const parsed5 = JSON.parse(value);
+      return typeof parsed5 === "object" && parsed5 !== null && !Array.isArray(parsed5) ? parsed5 : void 0;
     } catch {
       return void 0;
     }
   }
   function isCount(value) {
     return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+  }
+
+  // src/dye2-selection.ts
+  var SELECTION = `/plugins/${DYE2_NAMESPACE}/selection`;
+  var Dye2Selection = class {
+    constructor(log) {
+      __publicField(this, "log", log);
+      /** What DYE2 was last told, or undefined before the first Workflow the plugin saw. */
+      __publicField(this, "told");
+      __publicField(this, "queue", Promise.resolve());
+      /** Whether a failure was logged since the last success, so a Decaid failing every request logs once. */
+      __publicField(this, "failing", false);
+    }
+    /**
+     * The Loaded Recipe the Workflow names once the plugin has decided on it:
+     * DYE2 selects it where it is in a slot the tablet holds, again as it
+     * moves to another slot, or as its profile changes, which clears DYE2's
+     * selection; and a recipe it no longer names is cleared from DYE2's
+     * selection while DYE2 still has it selected. The first Workflow the
+     * plugin sees, as on every load of it, clears nothing: DYE2 may hold a
+     * selection a barista made since.
+     */
+    follow(next) {
+      const told = this.told;
+      if (told && told.globalId === next.globalId && told.slot === next.slot && (next.globalId === null || told.profile === next.profile)) return;
+      this.told = next;
+      if (next.globalId !== null && next.slot !== null) {
+        this.send(() => this.select(next.slot));
+      } else if (told?.globalId && told.slot !== null && next.globalId === null) {
+        const slot = told.slot;
+        this.send(() => this.clear(slot));
+      }
+    }
+    /** Has DYE2 select the recipe in that slot, as its dashboard does as it applies one. */
+    async select(slot) {
+      await this.post({ kind: "recipe", id: String(slot) });
+    }
+    /** Clears DYE2's selection while it is still the recipe in that slot, leaving another the barista selected since. */
+    async clear(slot) {
+      const answer = await request("GET", SELECTION);
+      if (answer.status === 404) return;
+      if (!answer.ok) throw new Error(`Decaid answered ${answer.status} reading DYE2's selection`);
+      const selected2 = parsed3(answer.text);
+      if (!isObject4(selected2) || selected2.kind !== "recipe" || String(selected2.id) !== String(slot)) return;
+      await this.post({});
+    }
+    async post(body) {
+      const answer = await request("POST", SELECTION, body);
+      if (!answer.ok && answer.status !== 404) throw new Error(`Decaid answered ${answer.status} setting DYE2's selection`);
+    }
+    /** Runs each request in turn, logging a failure once until one succeeds. */
+    send(work) {
+      this.queue = this.queue.then(work).then(() => {
+        this.failing = false;
+      }).catch((error) => {
+        if (!this.failing) this.log(`Could not keep DYE2's selected recipe in step with the Loaded Recipe: ${error instanceof Error ? error.message : String(error)}`);
+        this.failing = true;
+      });
+    }
+  };
+  function parsed3(text) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return void 0;
+    }
+  }
+  function isObject4(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
   // src/loaded-recipes.ts
@@ -2118,9 +2187,10 @@ var __decentSync = (() => {
   var MAX_RETRY_MS = 5 * 6e4;
   var REPORT_WAIT_MS = 2e3;
   var LoadedRecipes = class {
-    constructor(changes, log) {
+    constructor(changes, log, selection = new Dye2Selection(log)) {
       __publicField(this, "changes", changes);
       __publicField(this, "log", log);
+      __publicField(this, "selection", selection);
       /** The latest Workflow Decaid reported. */
       __publicField(this, "latest");
       /** The Workflows reported, in order, still to be decided on. */
@@ -2151,6 +2221,8 @@ var __decentSync = (() => {
       __publicField(this, "profiles", /* @__PURE__ */ new Map());
       /** The Bean of each of the tablet's Bean Batches read, by their ids there, null for one it does not hold: a batch's Bean never changes. */
       __publicField(this, "beans", /* @__PURE__ */ new Map());
+      /** The Recipe Slot each recipe the tablet held as last read is in, by global id. */
+      __publicField(this, "slots", /* @__PURE__ */ new Map());
     }
     /**
      * Decaid's `workflowUpdated`, before the Workflow is queued. A change of
@@ -2170,7 +2242,10 @@ var __decentSync = (() => {
       this.latest = workflow;
       this.enqueue(workflow);
       this.reported?.();
-      if (this.queue.length === 0 && this.pending.kind === "none") return;
+      if (this.queue.length === 0 && this.pending.kind === "none") {
+        this.followSelection();
+        return;
+      }
       if (!this.holding && (loadedRecipeOf(workflow) !== null || this.pending.kind !== "none" || this.mayLoad(workflowDial(workflow)))) {
         this.holding = true;
         this.changes.hold();
@@ -2214,6 +2289,8 @@ var __decentSync = (() => {
     sawRecipes(value) {
       const records = value === null ? [] : dye2Records(value, "recipes");
       if (records === null) return;
+      this.slots.clear();
+      for (const { globalId, slot } of loadable(records)) this.slots.set(globalId, slot);
       for (const { globalId, record } of loadable(records)) {
         const dials = recipeDials(record);
         const before = this.seen.get(globalId);
@@ -2233,6 +2310,18 @@ var __decentSync = (() => {
       for (const map of [this.seen, this.earlier]) {
         for (const globalId of [...map.keys()].slice(0, Math.max(0, map.size - MAX_KEPT_RECIPES))) map.delete(globalId);
       }
+      this.followSelection();
+    }
+    /**
+     * Keeps DYE2's selected recipe in step with the Loaded Recipe the latest
+     * Workflow names, once nothing is left to decide or write
+     * (`Dye2Selection`), so DYE2 records a barista's changes into the Loaded
+     * Recipe, and into no other.
+     */
+    followSelection() {
+      if (!this.latest || this.running || this.stopped) return;
+      const globalId = loadedRecipeOf(this.latest);
+      this.selection.follow({ globalId, slot: globalId === null ? null : this.slots.get(globalId) ?? null, profile: profileKey(this.latest.profile) });
     }
     stop() {
       this.stopped = true;
@@ -2279,6 +2368,7 @@ var __decentSync = (() => {
           this.holding = false;
           this.changes.release();
         }
+        this.followSelection();
       }
     }
     /** Resolves with true once Decaid reports a change, or false after `ms`. */
@@ -2398,7 +2488,7 @@ var __decentSync = (() => {
      */
     async readRecipes() {
       const answer = await request("GET", RECIPES);
-      const value = answer.ok ? parsed3(answer.text) : void 0;
+      const value = answer.ok ? parsed4(answer.text) : void 0;
       if (value === void 0) throw new Error(`Decaid answered ${answer.status} reading DYE2's recipes`);
       this.sawRecipes(value);
       return value === null ? [] : dye2Records(value, "recipes") ?? [];
@@ -2425,7 +2515,7 @@ var __decentSync = (() => {
       const known = this.profiles.get(id);
       if (known) return known;
       const record = await this.readRecord(`/profiles/${encodeURIComponent(id)}`);
-      const profile = isObject4(record) && isObject4(record.profile) ? record.profile : null;
+      const profile = isObject5(record) && isObject5(record.profile) ? record.profile : null;
       if (profile) this.profiles.set(id, profile);
       return profile;
     }
@@ -2433,7 +2523,7 @@ var __decentSync = (() => {
     async beanOf(batchId) {
       if (this.beans.has(batchId)) return this.beans.get(batchId);
       const record = await this.readRecord(`/bean-batches/${encodeURIComponent(batchId)}`);
-      const bean = isObject4(record) && typeof record.beanId === "string" ? record.beanId : null;
+      const bean = isObject5(record) && typeof record.beanId === "string" ? record.beanId : null;
       this.beans.set(batchId, bean);
       return bean;
     }
@@ -2441,47 +2531,47 @@ var __decentSync = (() => {
     async readRecord(path) {
       const answer = await request("GET", path);
       if (answer.status === 404) return null;
-      const record = answer.ok ? parsed3(answer.text) : void 0;
+      const record = answer.ok ? parsed4(answer.text) : void 0;
       if (record === void 0) throw new Error(`Decaid answered ${answer.status} reading ${path}`);
       return record;
     }
     /** What a load of the recipe writes besides its record: its full Profile, as applying it loads one, and its Bean Batch as the tablet holds it. */
     async loadContext(record) {
       const snapshot = record.profileSnapshot;
-      const profile = isObject4(snapshot) && Array.isArray(snapshot.steps) ? snapshot : typeof record.profileId === "string" ? await this.profileOf(record.profileId) : null;
-      const kept = isObject4(record[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
+      const profile = isObject5(snapshot) && Array.isArray(snapshot.steps) ? snapshot : typeof record.profileId === "string" ? await this.profileOf(record.profileId) : null;
+      const kept = isObject5(record[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
       const batchId = typeof kept.beanBatchId === "string" ? kept.beanBatchId : null;
       if (batchId === null) return { profile, batch: null };
       const beanId = await this.beanOf(batchId);
       if (beanId === null) return { profile, batch: null };
       const bean = await this.readRecord(`/beans/${encodeURIComponent(beanId)}`);
-      const text = (field) => isObject4(bean) && typeof bean[field] === "string" ? bean[field] : null;
+      const text = (field) => isObject5(bean) && typeof bean[field] === "string" ? bean[field] : null;
       return { profile, batch: { id: batchId, coffeeName: text("name"), coffeeRoaster: text("roaster") } };
     }
     /** The Workflow as Decaid holds it now. Throws if Decaid does not answer with one. */
     async workflowNow() {
       const answer = await request("GET", "/workflow");
-      const workflow = answer.ok ? parsed3(answer.text) : void 0;
-      if (!isObject4(workflow)) throw new Error(`Decaid answered ${answer.status} reading the Workflow`);
+      const workflow = answer.ok ? parsed4(answer.text) : void 0;
+      if (!isObject5(workflow)) throw new Error(`Decaid answered ${answer.status} reading the Workflow`);
       return workflow;
     }
   };
   function outcome(done) {
     if (done.kind !== "written") return done;
-    const workflow = parsed3(done.answer.text);
-    return isObject4(workflow) ? { kind: "written", workflow } : { kind: "nothing" };
+    const workflow = parsed4(done.answer.text);
+    return isObject5(workflow) ? { kind: "written", workflow } : { kind: "nothing" };
   }
   function machineMissing2(answer) {
     return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");
   }
-  function parsed3(text) {
+  function parsed4(text) {
     try {
       return JSON.parse(text);
     } catch {
       return void 0;
     }
   }
-  function isObject4(value) {
+  function isObject5(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 

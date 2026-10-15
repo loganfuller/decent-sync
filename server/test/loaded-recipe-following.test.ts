@@ -10,10 +10,12 @@ import {
   dye2List,
   dye2NeverUsed,
   dye2Recording,
+  dye2Selection,
   recordedDye2Tablet,
   saveInDye2,
+  withDye2Selection,
 } from "./support/simulated-dye2.js";
-import { Refusal, type SimulatedTablet } from "./support/simulated-tablet.js";
+import { type DecaidApi, Refusal, type SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #146: a Machine follows its Loaded Recipe both ways
@@ -99,16 +101,18 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
    * there is written, and slot 1 is applied the DYE2 way on A and C, and
    * slot 2 on D, which each loads.
    */
-  async function lab(scenario: string, serial: number) {
+  async function lab(scenario: string, serial: number, options: { dye2Selection?: boolean } = {}) {
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machines = {
       a: await api.createMachine(`${scenario} lab A`, here.id),
       c: await api.createMachine(`${scenario} lab C`, here.id),
       d: await api.createMachine(`${scenario} lab D`, here.id),
     };
-    const a = syncingTablet(machines.a, server, { api: recordedDye2Tablet(String(serial), scenario) });
-    const c = syncingTablet(machines.c, other, { api: dye2NeverUsed(String(serial + 1)) });
-    const d = syncingTablet(machines.d, server, { api: dye2NeverUsed(String(serial + 2)) });
+    // DYE2 v0.1.20's selection endpoint, where asked for.
+    const dye2 = (decaidApi: DecaidApi) => (options.dye2Selection ? withDye2Selection(decaidApi) : decaidApi);
+    const a = syncingTablet(machines.a, server, { api: dye2(recordedDye2Tablet(String(serial), scenario)) });
+    const c = syncingTablet(machines.c, other, { api: dye2(dye2NeverUsed(String(serial + 1))) });
+    const d = syncingTablet(machines.d, server, { api: dye2(dye2NeverUsed(String(serial + 2))) });
     await api.waitForOnline(machines.a, machines.c, machines.d);
     await saveInDye2(a, recipes.saveSlot1);
     await saveInDye2(a, recipes.saveSlot2);
@@ -162,9 +166,9 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(named(a)).toBe(one);
   });
 
-  it("edits the Recipe once for a dose changed the DYE2 dashboard way, and once for one changed the Streamline way, which also saves it into the recipe", async () => {
+  it("edits the Recipe once for a dose changed in the Workflow alone, and once for one also saved into the recipe, as Streamline's auto-save does, and DYE2 from v0.1.20", async () => {
     const { machines, a, c, d, one, two, load } = await lab("Dose", 48011);
-    // The DYE2 dashboard way: the Workflow alone changes.
+    // The Workflow alone changes, as on DYE2's dashboard before v0.1.20.
     const dashboard = await editsOf(one, "dose");
     await a.changeSettings({ context: { targetDoseWeight: 18.7 } });
     await expect.poll(async () => (await recipe(one)).content.dose).toBe(18.7);
@@ -311,6 +315,37 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     ]);
     expect(named(c)).toBe(one);
     await loads(machines.c, one);
+  });
+
+  it("keeps DYE2's selected recipe in step with the Loaded Recipe, clearing only a selection of the recipe unloaded", async () => {
+    const { machines, a, c, d, one, two, load } = await lab("Selected", 48151, { dye2Selection: true });
+    // Each Machine's DYE2 has its Loaded Recipe's slot selected, so it records a barista's changes into that recipe.
+    expect([dye2Selection(a), dye2Selection(c), dye2Selection(d)]).toEqual([
+      { kind: "recipe", id: "1" },
+      { kind: "recipe", id: "1" },
+      { kind: "recipe", id: "2" },
+    ]);
+    // Moved to slot 5, it is selected there.
+    expect((await api.call("PUT", `/recipes/${one}/slot`, { slot: 5 })).status).toBe(200);
+    await expect.poll(() => [dye2Selection(a), dye2Selection(c)]).toEqual([{ kind: "recipe", id: "5" }, { kind: "recipe", id: "5" }]);
+
+    // Another grinder unloads it on A, and clears it from DYE2's selection, which DYE2 itself keeps on a grinder change.
+    await a.changeSettings({ context: { grinderId: "a-grinder-the-recipe-does-not-name", grinderModel: "Another grinder" } });
+    await expect.poll(() => named(a)).toBeNull();
+    await expect.poll(() => dye2Selection(a)).toBeNull();
+
+    // A favourite the barista selected since in DYE2 stays as C unloads the Recipe.
+    expect((await c.callApi("POST", "/plugins/dye2.reaplugin/selection", { kind: "favourite", id: "fav-1" })).status).toBe(200);
+    await c.changeSettings({ context: { grinderId: "a-grinder-the-recipe-does-not-name", grinderModel: "Another grinder" } });
+    await expect.poll(() => named(c)).toBeNull();
+    await loads(machines.c, null);
+    await settle();
+    expect(dye2Selection(c)).toEqual({ kind: "favourite", id: "fav-1" });
+
+    // An unload the server decides clears it too.
+    expect((await api.call("PUT", `/recipes/${two}/archived`, { archived: true })).status).toBe(200);
+    await expect.poll(() => named(d)).toBeNull();
+    await expect.poll(() => dye2Selection(d)).toBeNull();
   });
 
   it("moves the Recipe to the next batch of its Bean picked on A, written into C's Workflow, and unloads it on a batch of another Bean, leaving the Recipe as it was", async () => {

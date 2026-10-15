@@ -346,6 +346,23 @@ from the Workflow deliveries.
   the dose, yield or grind setting keeps it. Another recipe loaded replaces
   it. A Loaded Recipe the tablet no longer holds in a slot is left for the
   server, which has it cleared (Following the Recipe, below).
+- **DYE2's selection.** DYE2, from v0.1.20, keeps one selected recipe or
+  favourite, which its dashboard selects as it applies one and Streamline's
+  strip selects through DYE2's `selection` endpoint, and records each
+  change of the Workflow's dial into it, whichever app made it, the
+  plugin's writes included. So the plugin keeps that selection in step with
+  the Loaded Recipe, through the same endpoint, once nothing is left to
+  decide or write (`plugin/src/dye2-selection.ts`): it selects the Loaded
+  Recipe's slot as it is loaded, again as it moves to another slot or its
+  profile changes, which clears DYE2's selection, and clears the selection
+  as it is unloaded, by the plugin or the server, while DYE2 still has that
+  recipe selected, leaving a favourite or another recipe the barista
+  selected since. Otherwise DYE2 would go on recording into a recipe the
+  plugin unloaded on a change of grinder or Bean, which DYE2 does not clear
+  on, or that was selected before the barista dialled in another by hand,
+  and each change would reach every Machine with that Recipe loaded. A
+  tablet without DYE2 v0.1.20 answers 404, which changes nothing. Reading
+  DYE2's selection as the Loaded Recipe instead of matching is #150.
 - **Held back.** `MachineEvents` holds the Workflow's changes while any of
   the plugin's writes into it is under way, a count shared with the writes
   of the shared settings, and sends the latest once none is. So the server
@@ -452,11 +469,13 @@ maps the parts to the Recipe's content both ways.
   Done is tapped. The Recipe's value is written back. A value set back over
   the tablet's own latest edit of the field is an edit, as its barista
   undoing a tweak they tasted.
-- **The same edit once.** Streamline saves into the recipe a change the
-  barista made in the Workflow (its auto-save): a field of the tablet's
-  record that sets the Recipe's value its own latest edit set already is no
-  edit (`withoutOwnEdits` in `recipe-intake.ts`), so the Workflow's change
-  and Streamline's save are one edit, whichever reaches the server first.
+- **The same edit once.** DYE2, from v0.1.20, records a change of the
+  Workflow's dial into the recipe it has selected, whichever app made it,
+  as Streamline's auto-save does with an earlier DYE2: a field of the
+  tablet's record that sets the Recipe's value its own latest edit set
+  already is no edit (`withoutOwnEdits` in `recipe-intake.ts`), so the
+  Workflow's change and the save into the recipe are one edit, whichever
+  reaches the server first.
 - **To every Machine that has it loaded.** An edit of a Recipe from
   anywhere, a tablet, the management interface or a Conflict's value used,
   commits with a `NOTIFY` on `library_changes` naming its Location, and

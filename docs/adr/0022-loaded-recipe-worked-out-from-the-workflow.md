@@ -1,5 +1,5 @@
 ---
-status: accepted (interim in how a load is detected, until DYE2 and Streamline record the recipe they apply)
+status: accepted (interim in how a load is detected, until DYE2 and Streamline record the recipe they apply; amended in place on 2026-10-15, for ticket #146: the plugin keeps DYE2's selected recipe in step with the Loaded Recipe)
 ---
 
 # A Machine's Loaded Recipe is worked out from its Workflow, recorded in it, and followed both ways
@@ -20,3 +20,4 @@ We rejected sharing only the stored recipes, picked up the next time a barista l
 - **Matching can load a recipe nobody tapped.** A barista who dials in exactly a Recipe's profile, dose, yield, grinder and setting by hand loads it, which records what the Machine is doing anyway. Applying a DYE2 favourite while a Recipe is loaded is a change like any other: an edit of the Recipe, unless it changes the profile, grinder or Bean.
 - **The plugin writes more of the Workflow.** Beyond milestone 2's shared settings and the clearing on joining (ADR-0008), it writes a Loaded Recipe's values. A skin that remembers the hot water settings takes them as its own (ADR-0021).
 - **Shots name their Recipe.** Each Shot is linked to the Recipe loaded when it was pulled, so milestone 5 needs no inferred recipes.
+- **DYE2's selection follows the Loaded Recipe.** From v0.1.20, DYE2 records a change of the Workflow's dial, whichever app made it, into the recipe it has selected, which its dashboard and Streamline's strip select as they apply one, and which a change of grinder or Bean leaves selected. So the plugin selects the Loaded Recipe through DYE2's `selection` endpoint, and clears a recipe it unloads from that selection, following DYE2's model rather than working around it. Reading DYE2's selection as the Loaded Recipe, rather than matching, is the long-run aim (#150): it needs DYE2 and Streamline to record it in the Workflow, so Shots carry it, and to keep it through a change of the yield and clear it on a change of grinder or Bean.

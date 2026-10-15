@@ -1,5 +1,6 @@
 import { DYE2_NAMESPACE, LOADED_RECIPE_KEY, RECIPE_FIELD, dye2Records, loadedRecipeOf } from "@decent-sync/protocol";
 import { type Answer, request } from "./decaid.js";
+import { Dye2Selection } from "./dye2-selection.js";
 import type { WorkflowChanges } from "./machine-events.js";
 import {
   type ChangedSetUp,
@@ -93,11 +94,15 @@ export class LoadedRecipes {
   private readonly profiles = new Map<string, Record<string, unknown>>();
   /** The Bean of each of the tablet's Bean Batches read, by their ids there, null for one it does not hold: a batch's Bean never changes. */
   private readonly beans = new Map<string, string | null>();
+  /** The Recipe Slot each recipe the tablet held as last read is in, by global id. */
+  private readonly slots = new Map<string, number>();
 
   constructor(
     /** Holds back the Workflow's changes the plugin sends while it decides and writes. */
     private readonly changes: WorkflowChanges,
     private readonly log: (message: string) => void,
+    /** DYE2's selected recipe, kept in step with the Loaded Recipe the Workflow names once decided on. */
+    private readonly selection: Dye2Selection = new Dye2Selection(log),
   ) {}
 
   /**
@@ -118,7 +123,10 @@ export class LoadedRecipes {
     this.latest = workflow;
     this.enqueue(workflow);
     this.reported?.();
-    if (this.queue.length === 0 && this.pending.kind === "none") return;
+    if (this.queue.length === 0 && this.pending.kind === "none") {
+      this.followSelection();
+      return;
+    }
     if (!this.holding && (loadedRecipeOf(workflow) !== null || this.pending.kind !== "none" || this.mayLoad(workflowDial(workflow)))) {
       this.holding = true;
       this.changes.hold();
@@ -165,6 +173,8 @@ export class LoadedRecipes {
   sawRecipes(value: unknown): void {
     const records = value === null ? [] : dye2Records(value, "recipes");
     if (records === null) return;
+    this.slots.clear();
+    for (const { globalId, slot } of loadable(records)) this.slots.set(globalId, slot);
     for (const { globalId, record } of loadable(records)) {
       const dials = recipeDials(record);
       const before = this.seen.get(globalId);
@@ -184,6 +194,20 @@ export class LoadedRecipes {
     for (const map of [this.seen, this.earlier] as const) {
       for (const globalId of [...map.keys()].slice(0, Math.max(0, map.size - MAX_KEPT_RECIPES))) map.delete(globalId);
     }
+    // The Loaded Recipe may have moved to another slot.
+    this.followSelection();
+  }
+
+  /**
+   * Keeps DYE2's selected recipe in step with the Loaded Recipe the latest
+   * Workflow names, once nothing is left to decide or write
+   * (`Dye2Selection`), so DYE2 records a barista's changes into the Loaded
+   * Recipe, and into no other.
+   */
+  private followSelection(): void {
+    if (!this.latest || this.running || this.stopped) return;
+    const globalId = loadedRecipeOf(this.latest);
+    this.selection.follow({ globalId, slot: globalId === null ? null : (this.slots.get(globalId) ?? null), profile: profileKey(this.latest.profile) });
   }
 
   stop(): void {
@@ -236,6 +260,7 @@ export class LoadedRecipes {
         this.holding = false;
         this.changes.release();
       }
+      this.followSelection();
     }
   }
 
