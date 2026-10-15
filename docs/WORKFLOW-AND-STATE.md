@@ -275,14 +275,17 @@ from the Workflow deliveries.
   `context.extras` under LOADED_RECIPE_KEY (`loadWrite`). A value the
   recipe holds none of is left as the Workflow has it. Decaid refuses to
   change the hot water settings while no machine is connected, so the rest
-  is then written without them. Streamline adopts a Workflow change made
+  is then written without them, the Workflow read and checked again first. Streamline adopts a Workflow change made
   elsewhere (ADR-0021), so it takes the hot water as its own, and the plugin
   sets none of its values.
 - **Unloading.** A change of the Workflow's profile, grinder or Bean (its
   batch's Bean, read from the tablet's batch record) to one the Loaded
   Recipe, as the tablet holds it now, does not name unloads it
   (`unloads`): the plugin sets the key to null, as Decaid keeps a
-  Workflow's `extras` whole and merges a write into them key by key. One the
+  Workflow's `extras` whole and merges a write into them key by key, once
+  it has read the Workflow again and found it still naming that recipe and
+  holding the change decided on, so a change set back meanwhile, as a
+  grinder put back, unloads nothing. One the
   recipe names none of, or a batch cleared, unloads nothing, and a tweak of
   the dose, yield or grind setting keeps it. Another recipe loaded replaces
   it. A Loaded Recipe the tablet no longer holds in a slot is left for the

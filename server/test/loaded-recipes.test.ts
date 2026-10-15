@@ -266,6 +266,64 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     await loads(machine, null);
   });
 
+  it("keeps a batch of another Bean picked while Decaid refuses a load's hot water for want of a machine, and unloads it", async () => {
+    const { machine, tablet, one } = await lab("Refused", 47091);
+    expect((await applyInDye2(tablet, "1")).status).toBe(200);
+    await loads(machine, one);
+    const library = dye2Library();
+    const beanNamed = (name: string) => (library["/beans"] as Record_[]).find((bean) => String(bean.name).endsWith(name))!.id;
+    const brazilBatch = (library["/bean-batches"] as Record_[]).find((batch) => batch.beanId === beanNamed("Brazil"))!.id;
+    const nextBag = await tablet.addBatch(beanNamed("Ethiopia"), { roastDate: "2026-10-10", weight: 250 });
+    await tablet.changeSettings({ context: { beanBatchId: nextBag.id, grinderSetting: "2.8" }, hotWaterData: { volume: 60 } });
+    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as unknown, { timeout: 15_000 }).toMatchObject({
+      workflow: { workflow: { context: { beanBatchId: nextBag.id, grinderSetting: "2.8" } } },
+    });
+    let picked: Promise<unknown> | undefined;
+    // Decaid refuses the load's write with its hot water, as while no machine is connected, as a barista picks a batch of
+    // another Bean.
+    tablet.refuseWrites = ({ route, body }) => {
+      const write = body as Record_;
+      if (route !== "/workflow" || !write.hotWaterData || !(write.context as Record_ | undefined)?.beanBatchId) return;
+      tablet.refuseWrites = undefined;
+      picked = tablet.changeSettings({ context: { beanBatchId: brazilBatch } });
+      return { status: 500, body: { error: "DeviceNotConnectedException" } };
+    };
+    expect((await applyInDye2(tablet, "1")).status).toBe(200);
+    await expect.poll(() => picked, { timeout: 15_000 }).toBeDefined();
+    await picked;
+    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
+    expect(context(tablet).beanBatchId).toBe(brazilBatch);
+    await loads(machine, null);
+  });
+
+  it("keeps a Recipe loaded whose grinder is set back, with a dose tweak, while the change that unloads it is being decided", async () => {
+    let restore: (() => void) | undefined;
+    // Once set, the next read of DYE2's recipes takes 25 s of the tablet's time, half a second here, as the grinder is set back.
+    const delay = (method: string, path: string) => {
+      if (!restore || method !== "GET" || path !== `/store/${DYE2_NAMESPACE}/recipes`) return 0;
+      const call = restore;
+      restore = undefined;
+      call();
+      return 25_000;
+    };
+    const { machine, tablet, one } = await lab("Set back", 47101, server, delay);
+    expect((await applyInDye2(tablet, "1")).status).toBe(200);
+    await loads(machine, one);
+    const grinderId = context(tablet).grinderId;
+    let restored: Promise<unknown> | undefined;
+    restore = () => {
+      restored = tablet.changeSettings({ context: { grinderId, targetDoseWeight: 19.25 } });
+    };
+    await tablet.changeSettings({ context: { grinderId: "another-grinder" } });
+    await expect.poll(() => restored, { timeout: 15_000 }).toBeDefined();
+    await restored;
+    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as unknown, { timeout: 15_000 }).toMatchObject({
+      workflow: { workflow: { context: { grinderId, targetDoseWeight: 19.25 } } },
+    });
+    expect(named(tablet)).toBe(one);
+    expect((await loadedRecipe(machine))?.recipe.id).toBe(one);
+  });
+
   it("unloads a Recipe once Decaid answers again, after failing the read the change needed", async () => {
     const { machine, tablet, one } = await lab("Retried", 47061);
     expect((await applyInDye2(tablet, "1")).status).toBe(200);
