@@ -35,7 +35,7 @@ describe("delivery id retention", { timeout: 30_000 }, () => {
     server = await startTestServer({ env });
     api = await AdminApi.setUp(server.url);
     database = await server.connectDatabase();
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
     await Promise.all(instances.splice(0).map((instance) => instance.stop()));
@@ -56,7 +56,7 @@ describe("delivery id retention", { timeout: 30_000 }, () => {
   const expectNoFailedRun = (instance: TestServer) => expect(instance.output()).not.toContain("Could not delete delivery ids");
   /** How many delivery ids the instance's cleanup deleted, once it logs that it deleted some. */
   async function deletedBy(instance: TestServer): Promise<number> {
-    await expect.poll(() => deletedSoFar(instance), { timeout: 10_000 }).toBeGreaterThan(0);
+    await expect.poll(() => deletedSoFar(instance)).toBeGreaterThan(0);
     expectNoFailedRun(instance);
     return deletedSoFar(instance);
   }
@@ -70,21 +70,16 @@ describe("delivery id retention", { timeout: 30_000 }, () => {
     raws.push(raw);
     return raw;
   }
-  async function get<T>(path: string): Promise<T> {
-    const response = await api.call("GET", path);
-    expect(response.status).toBe(200);
-    return response.json() as Promise<T>;
-  }
   const transitions = async (machine: CreatedMachine) =>
-    (await get<{ events: { state: string; substate: string }[] }>(`/machines/${machine.machine.id}/machine-state-events?limit=100`)).events
+    (await api.get<{ events: { state: string; substate: string }[] }>(`/machines/${machine.machine.id}/machine-state-events?limit=100`)).events
       .map((event) => [event.state, event.substate])
       .reverse();
   const workflows = async (machine: CreatedMachine) =>
-    (await get<{ events: { workflow: unknown }[] }>(`/machines/${machine.machine.id}/workflow-events?limit=100`)).events
+    (await api.get<{ events: { workflow: unknown }[] }>(`/machines/${machine.machine.id}/workflow-events?limit=100`)).events
       .map((event) => event.workflow)
       .reverse();
   const grinders = async (machine: CreatedMachine) =>
-    (await get<{ collection: { value: unknown } | null }>(`/machines/${machine.machine.id}/collections/grinders`)).collection?.value;
+    (await api.get<{ collection: { value: unknown } | null }>(`/machines/${machine.machine.id}/collections/grinders`)).collection?.value;
   /** The delivery ids recorded for the Machine's token. */
   const recorded = async (machine: CreatedMachine) =>
     (await database.query<{ id: string }>("SELECT delivery_id AS id FROM machine_event_deliveries WHERE machine_id = $1", [machine.machine.id])).rows
@@ -159,7 +154,7 @@ describe("delivery id retention", { timeout: 30_000 }, () => {
     }
 
     // Together they delete every old id, though one may find none left. Stopping waits for a run in progress.
-    await expect.poll(() => deletedSoFar(ahead) + deletedSoFar(other), { timeout: 10_000 }).toBe(10_000);
+    await expect.poll(() => deletedSoFar(ahead) + deletedSoFar(other)).toBe(10_000);
     await Promise.all([ahead.stop(), other.stop()]);
     expectNoFailedRun(ahead);
     expectNoFailedRun(other);

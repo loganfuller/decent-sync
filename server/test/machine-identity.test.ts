@@ -60,7 +60,7 @@ describe("Machine identity", { timeout: 20_000 }, () => {
       env: { SYNC_HELLO_TIMEOUT_SECONDS: "1", SYNC_HEARTBEAT_SECONDS: String(HEARTBEAT_SECONDS) },
     });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(connections.splice(0).map((raw) => raw.terminate()));
   });

@@ -36,7 +36,7 @@ describe("several server instances", { timeout: 30_000 }, () => {
     second = await startTestServer({ env, sharing: first });
     api = await AdminApi.setUp(first.url);
     other = api.at(second.url);
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(connections.splice(0).map((raw) => raw.terminate()));
   });

@@ -51,7 +51,7 @@ describe("sign-in limits across server instances", { timeout: 30_000 }, () => {
 
     // The offset reaches the server's code.
     expect(await api.at(second.url).instanceClockOffsetMs(database)).toBeGreaterThan(ahead.clockOffsetMs - 60_000);
-  }, 60_000);
+  });
   afterAll(async () => {
     await database?.end();
     await second?.stop();

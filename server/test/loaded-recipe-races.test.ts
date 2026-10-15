@@ -68,7 +68,7 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
       },
     });
     tablets.push(tablet);
-    return { tablet, changed: () => expect.poll(() => changing, { timeout: 10_000 }).toBeDefined().then(() => changing) };
+    return { tablet, changed: () => expect.poll(() => changing).toBeDefined().then(() => changing) };
   }
 
   const context = (tablet: SimulatedTablet) => (tablet.workflow().context ?? {}) as Record_;
@@ -92,7 +92,7 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     const { tablet, changed } = load("47211", structuredClone(library["/workflow"]) as Record_, (tablet) => tablet.changeSettings({ context: { targetDoseWeight: 18.6 } }));
     for (const answer of await replayWrites(tablet, applied)) expect(answer.status).toBe(200);
     await changed();
-    await expect.poll(() => named(tablet), { timeout: 10_000 }).toBe(RECIPE);
+    await expect.poll(() => named(tablet)).toBe(RECIPE);
     await settled();
     expect(context(tablet)).toMatchObject({ targetDoseWeight: 18.6, beanBatchId: ethiopia, grinderSetting: "2.7" });
     expect(tablet.workflow().hotWaterData).toEqual(HOT_WATER);
@@ -102,7 +102,7 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     const { tablet, changed } = load("47221", structuredClone(library["/workflow"]) as Record_, (tablet) => tablet.changeSettings({ hotWaterData: { volume: 61 } }), { dose: 19.5, grind: 2.9 });
     for (const answer of await replayWrites(tablet, applied)) expect(answer.status).toBe(200);
     await changed();
-    await expect.poll(() => named(tablet), { timeout: 10_000 }).toBe(RECIPE);
+    await expect.poll(() => named(tablet)).toBe(RECIPE);
     await settled();
     expect(context(tablet)).toMatchObject({ targetDoseWeight: 19.5, grinderSetting: "2.9", beanBatchId: ethiopia });
     expect(tablet.workflow().hotWaterData).toEqual({ ...HOT_WATER, volume: 61 });
@@ -112,7 +112,7 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     const { tablet, changed } = load("47231", structuredClone(library["/workflow"]) as Record_, (tablet) => tablet.changeSettings({ context: { beanBatchId: nextBag.id } }), { dose: 19.5, grind: 2.9 });
     for (const answer of await replayWrites(tablet, applied)) expect(answer.status).toBe(200);
     await changed();
-    await expect.poll(() => named(tablet), { timeout: 10_000 }).toBe(RECIPE);
+    await expect.poll(() => named(tablet)).toBe(RECIPE);
     await settled();
     expect(context(tablet)).toMatchObject({ targetDoseWeight: 19.5, grinderSetting: "2.9", beanBatchId: nextBag.id });
     expect(tablet.workflow().hotWaterData).toEqual(HOT_WATER);

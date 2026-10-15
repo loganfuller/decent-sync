@@ -40,7 +40,7 @@ describe("Staff access", () => {
     spare = await api.createMachine("Spare");
     const { link } = await api.invite("sam@example.com", "staff", [uptown.id, belmont.id]);
     staff = AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Sam Staff", password: "staff password 1" }));
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
@@ -107,11 +107,11 @@ describe("Staff access", () => {
       timeScale: 50,
     });
     try {
-      await expect.poll(async () => (await read(api, `${lab1Path}/workflow`))[1], { timeout: 10_000 }).toMatchObject({ workflow: { id: expect.any(String) } });
+      await expect.poll(async () => (await read(api, `${lab1Path}/workflow`))[1]).toMatchObject({ workflow: { id: expect.any(String) } });
       tablet.reportState("espresso", "preinfusion");
-      await expect.poll(async () => (await read(api, `${lab1Path}/machine-state-events`))[1], { timeout: 10_000 }).toMatchObject({ total: 1 });
-      await expect.poll(async () => (await read(api, `${lab1Path}/collections/appSettings`))[1], { timeout: 10_000 }).toMatchObject({ collection: { available: true } });
-      await expect.poll(async () => (await read(api, `${lab1Path}/paired-devices`))[1], { timeout: 10_000 }).toMatchObject({ pairedDevices: { available: true } });
+      await expect.poll(async () => (await read(api, `${lab1Path}/machine-state-events`))[1]).toMatchObject({ total: 1 });
+      await expect.poll(async () => (await read(api, `${lab1Path}/collections/appSettings`))[1]).toMatchObject({ collection: { available: true } });
+      await expect.poll(async () => (await read(api, `${lab1Path}/paired-devices`))[1]).toMatchObject({ pairedDevices: { available: true } });
     } finally {
       // Its polls would otherwise change report times between the Admin's reads and Sam's.
       await tablet.unload();

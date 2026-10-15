@@ -141,7 +141,7 @@ describe("who may use each route", () => {
     }));
     // Signing out last, as it ends Sam's session.
     routes.sort((a, b) => Number(a.name === "DELETE /api/session") - Number(b.name === "DELETE /api/session"));
-  }, 60_000);
+  });
   afterAll(async () => {
     await server?.stop();
   });

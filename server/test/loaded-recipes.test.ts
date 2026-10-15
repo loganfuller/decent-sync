@@ -53,7 +53,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
     await other?.stop();
@@ -84,7 +84,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
   /** The Recipe id the tablet's Workflow names as loaded, or null. */
   const named = (tablet: SimulatedTablet) => extras(tablet)[LOADED_RECIPE_KEY] ?? null;
   const loadedRecipe = async ({ machine }: CreatedMachine) =>
-    ((await (await api.call("GET", `/machines/${machine.id}`)).json()) as { machine: { loadedRecipe: LoadedView | null } }).machine.loadedRecipe;
+    (await api.get<{ machine: { loadedRecipe: LoadedView | null } }>(`/machines/${machine.id}`)).machine.loadedRecipe;
   const history = async ({ machine }: CreatedMachine) =>
     (await (await api.call("GET", `/machines/${machine.id}/loaded-recipes`)).json()) as { entries: LoadedView[]; total: number };
   /** Resolves once the server holds that Recipe as the Machine's Loaded Recipe, or none. */
@@ -107,12 +107,12 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
       apiDelayMs,
     });
     tablets.push(tablet);
-    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(machine);
     await saveInDye2(tablet, recipes.saveSlot1);
     await saveInDye2(tablet, recipes.saveSlot2);
     await saveInDye2(tablet, recipes.editSlot1);
     await expect.poll(() => ["1", "2"].map((slot) => dye2GlobalIdOf(inSlot(tablet, slot))), { timeout: 15_000 }).not.toContain(null);
-    const listed = ((await (await api.call("GET", `/locations/${here.id}/recipes`)).json()) as { recipes: { id: string; slot: number | null }[] }).recipes;
+    const listed = (await api.get<{ recipes: { id: string; slot: number | null }[] }>(`/locations/${here.id}/recipes`)).recipes;
     const [one, two] = [1, 2].map((slot) => listed.find((recipe) => recipe.slot === slot)!.id) as [string, string];
     const edit = async (recipeId: string, content: Record_) => expect((await api.call("PATCH", `/recipes/${recipeId}`, { content })).status).toBe(200);
     await edit(one, { hotWaterVolume: HOT_WATER.volume, hotWaterTemperature: HOT_WATER.targetTemperature, hotWaterDuration: HOT_WATER.duration, hotWaterFlow: HOT_WATER.flow });

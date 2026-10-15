@@ -1,6 +1,6 @@
 import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
+import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { type Dye2Key, dye2List } from "./support/simulated-dye2.js";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
@@ -41,7 +41,7 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
     await other?.stop();
@@ -64,21 +64,16 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
     const location = await api.createLocation(name, "America/Chicago");
     const machine = await api.createMachine(`${name} 1`, location.id);
     const tablet = load(machine, String(serial), instance);
-    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(machine);
     return { location, tablet };
   }
 
-  async function send<T>(method: string, path: string, body?: unknown, as: AdminApi = api, status = 200): Promise<T> {
-    const response = await as.call(method, path, body);
-    expect(response.status, await response.clone().text()).toBe(status);
-    return (await response.json()) as T;
-  }
   const create = (kind: "baskets" | "tools", location: LocationView, content: Record_, as: AdminApi = api) =>
-    send<Record<string, EquipmentView>>("POST", `/${kind}`, { locationId: location.id, content }, as, 201).then((created) => created[kind === "baskets" ? "basket" : "tool"]!);
+    as.send<Record<string, EquipmentView>>("POST", `/${kind}`, { locationId: location.id, content }, 201).then((created) => created[kind === "baskets" ? "basket" : "tool"]!);
   const edit = (kind: "baskets" | "tools", id: string, content: Record_, as: AdminApi = api) =>
-    send<Record<string, EquipmentView>>("PATCH", `/${kind}/${id}`, { content }, as).then((edited) => edited[kind === "baskets" ? "basket" : "tool"]!);
+    as.send<Record<string, EquipmentView>>("PATCH", `/${kind}/${id}`, { content }).then((edited) => edited[kind === "baskets" ? "basket" : "tool"]!);
   const archive = (kind: "baskets" | "tools", id: string, archived: boolean, as: AdminApi = api) => as.call("PUT", `/${kind}/${id}/archived`, { archived });
-  const versions = async (kind: "baskets" | "tools", id: string) => (await send<{ versions: VersionView[] }>("GET", `/${kind}/${id}/history`)).versions;
+  const versions = async (kind: "baskets" | "tools", id: string) => (await api.get<{ versions: VersionView[] }>(`/${kind}/${id}/history`)).versions;
 
   /** The tablet's record of the item in DYE2's list, by the global id it carries, if it holds one. */
   const recordOf = (tablet: SimulatedTablet, key: Dye2Key, id: string): Record_ | undefined => {
@@ -86,12 +81,6 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
     return Array.isArray(list) ? (list as Record_[]).find((record) => record[GLOBAL_ID_KEY] === id) : undefined;
   };
   const poll = <T>(read: () => T) => expect.poll(read, { timeout: 15_000 });
-
-  /** Staff at the Locations, signed in. */
-  async function staffAt(email: string, ...locations: LocationView[]): Promise<AdminApi> {
-    const { link } = await api.invite(email, "staff", locations.map((location) => location.id));
-    return AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Staff", password: "staff password 1" }));
-  }
 
   it("writes a Basket created at a Location to that Location's tablets only, then each edit, and removes it from every tablet while Archived", async () => {
     const lab = await locationWith("Created basket lab", 43001, server);
@@ -126,7 +115,7 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
     // Archived, it is shown nowhere and removed from every list; restored, it is written again where it was shown.
     expect((await archive("baskets", basket.id, true)).status).toBe(200);
     for (const tablet of [lab.tablet, cafe.tablet]) await poll(() => recordOf(tablet, "baskets", basket.id)).toBeUndefined();
-    const archived = (await send<{ basket: EquipmentView }>("GET", `/baskets/${basket.id}`)).basket;
+    const archived = (await api.get<{ basket: EquipmentView }>(`/baskets/${basket.id}`)).basket;
     expect(archived).toMatchObject({ archived: true, shownAt: [] });
     expect(archived.locations.map((here) => here.shown)).toEqual([true, true]);
     expect((await archive("baskets", basket.id, false)).status).toBe(200);
@@ -200,13 +189,13 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
     await refused("PATCH", "/baskets/00000000-0000-4000-8000-000000000000", { content: { notes: "None" } }, 404);
     await refused("PUT", "/tools/00000000-0000-4000-8000-000000000000/archived", { archived: true }, 404);
     await refused("PUT", `/baskets/${basket.id}/archived`, { archived: "yes" });
-    expect((await send<{ basket: EquipmentView }>("GET", `/baskets/${basket.id}`)).basket.content).toEqual({ name: "Refused edits basket" });
+    expect((await api.get<{ basket: EquipmentView }>(`/baskets/${basket.id}`)).basket.content).toEqual({ name: "Refused edits basket" });
   });
 
   it("lets Staff create Baskets and Tools only at their own Locations, and edit, Archive and restore any", async () => {
     const theirs = await api.createLocation("Equipment staff home", "America/Chicago");
     const elsewhere = await api.createLocation("Equipment staff elsewhere", "America/Chicago");
-    const staff = await staffAt("staff-139@example.com", theirs);
+    const staff = await api.staffAt("staff-139@example.com", theirs);
 
     expect((await staff.call("POST", "/baskets", { locationId: elsewhere.id, content: { name: "Staff elsewhere basket" } })).status).toBe(403);
     expect((await staff.call("POST", "/tools", { locationId: elsewhere.id, content: { name: "Staff elsewhere tool" } })).status).toBe(403);
@@ -218,6 +207,6 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
     expect((await archive("baskets", basket.id, true, staff)).status).toBe(200);
     expect((await archive("baskets", basket.id, false, staff)).status).toBe(200);
     expect((await staff.call("PUT", `/baskets/${basket.id}/locations/${elsewhere.id}`, { shown: false })).status).toBe(403);
-    expect((await send<{ basket: EquipmentView }>("GET", `/baskets/${basket.id}`)).basket.shownAt.map((here) => here.location.name)).toEqual(["Equipment staff elsewhere"]);
+    expect((await api.get<{ basket: EquipmentView }>(`/baskets/${basket.id}`)).basket.shownAt.map((here) => here.location.name)).toEqual(["Equipment staff elsewhere"]);
   });
 });

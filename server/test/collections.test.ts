@@ -56,7 +56,7 @@ describe("Library, settings and paired devices", () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterEach(async () => {
     const used = tablets.splice(0);
     await Promise.all(used.map((tablet) => tablet.unload()));
@@ -80,17 +80,12 @@ describe("Library, settings and paired devices", () => {
     tablets.push(tablet);
     return tablet;
   }
-  async function get<T>(path: string, at = api): Promise<T> {
-    const response = await at.call("GET", path);
-    expect(response.status).toBe(200);
-    return response.json() as Promise<T>;
-  }
   const summaries = async (machine: CreatedMachine, at = api) =>
-    (await get<{ collections: Summary[] }>(`/machines/${machine.machine.id}/collections`, at)).collections;
+    (await at.get<{ collections: Summary[] }>(`/machines/${machine.machine.id}/collections`)).collections;
   const collection = async (machine: CreatedMachine, name: string, at = api) =>
-    (await get<{ collection: Collection | null }>(`/machines/${machine.machine.id}/collections/${name}`, at)).collection;
+    (await at.get<{ collection: Collection | null }>(`/machines/${machine.machine.id}/collections/${name}`)).collection;
   const pairedDevices = async (machine: CreatedMachine) =>
-    (await get<{ pairedDevices: PairedDevices }>(`/machines/${machine.machine.id}/paired-devices`)).pairedDevices;
+    (await api.get<{ pairedDevices: PairedDevices }>(`/machines/${machine.machine.id}/paired-devices`)).pairedDevices;
   /** Each collection's latest report and value, by name. */
   async function collections(machine: CreatedMachine, at = api): Promise<Record<string, Pick<Collection, "available" | "value">>> {
     const found = await Promise.all((await summaries(machine, at)).map((summary) => collection(machine, summary.name, at)));
@@ -108,11 +103,11 @@ describe("Library, settings and paired devices", () => {
     tablet.received.some((reply) => frameType(reply) === "ack" && (reply as Frame).id === id);
   /** Resolves once the server has acknowledged every collection delivery the plugin sent. */
   const allAcknowledged = (tablet: SimulatedTablet) =>
-    expect.poll(() => deliveries(tablet).every((frame) => acked(tablet, frame.id!)), { timeout: 10_000 }).toBe(true);
+    expect.poll(() => deliveries(tablet).every((frame) => acked(tablet, frame.id!))).toBe(true);
   /** Resolves once the plugin has read `route` at least `count` more times: that many polls have run. */
   async function polls(tablet: SimulatedTablet, count: number, route = "/machine/settings") {
     const before = tablet.requests.filter((request) => request === route).length;
-    await expect.poll(() => tablet.requests.filter((request) => request === route).length, { timeout: 10_000 }).toBeGreaterThanOrEqual(before + count);
+    await expect.poll(() => tablet.requests.filter((request) => request === route).length).toBeGreaterThanOrEqual(before + count);
   }
 
   async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
@@ -143,7 +138,7 @@ describe("Library, settings and paired devices", () => {
     const served: DecaidApi = { ...derivedDe1Pro({ serial: "30001" }), ...simulatedLibrary(), ...simulatedDevices() };
     const connectedAt = Date.now();
     load(machine, { api: served });
-    await expect.poll(() => allReported(machine), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => allReported(machine)).toBe(true);
 
     const reported = await collections(machine);
     const value = (route: string) => ({ available: true, value: served[route] });
@@ -183,7 +178,7 @@ describe("Library, settings and paired devices", () => {
     const machine = await api.createMachine("Polled");
     let served = de1ProOnDecaid087();
     const tablet = load(machine, { api: served });
-    await expect.poll(() => allReported(machine), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => allReported(machine)).toBe(true);
     await allAcknowledged(tablet);
     await polls(tablet, 3);
     const initial = sentCounts(tablet);
@@ -194,8 +189,8 @@ describe("Library, settings and paired devices", () => {
     const recipes = (served["/store/dye2.reaplugin/recipes"] as Record<string, unknown>[]).map((recipe) => ({ ...recipe, name: "Sep 26th Eth, coarser" }));
     served = { ...served, "/machine/settings": recalibrated, "/store/dye2.reaplugin/recipes": recipes };
     tablet.serve(served);
-    await expect.poll(async () => (await collection(machine, "machineSettings"))?.value, { timeout: 10_000 }).toEqual(recalibrated);
-    await expect.poll(async () => (await collection(machine, "dye2Recipes"))?.value, { timeout: 10_000 }).toEqual(recipes);
+    await expect.poll(async () => (await collection(machine, "machineSettings"))?.value).toEqual(recalibrated);
+    await expect.poll(async () => (await collection(machine, "dye2Recipes"))?.value).toEqual(recipes);
     await polls(tablet, 5);
     expect(sentCounts(tablet)).toEqual({ ...initial, machineSettings: 2, dye2Recipes: 2 });
     // The library's lists were read with their ETags, which Decaid answered 304.
@@ -206,7 +201,7 @@ describe("Library, settings and paired devices", () => {
     const sentBefore = tablet.sent.length;
     tablet.dropConnections();
     await tablet.waitForLogs(/^Connected to /, 2);
-    await expect.poll(() => sentCounts(tablet), { timeout: 10_000 }).toEqual(
+    await expect.poll(() => sentCounts(tablet)).toEqual(
       Object.fromEntries(COLLECTION_NAMES.map((name) => [name, initial[name]! + (name === "machineSettings" || name === "dye2Recipes" ? 2 : 1)])),
     );
     const resent = tablet.sent.slice(sentBefore).filter((frame): frame is Frame => frameType(frame) === "collection");
@@ -220,7 +215,7 @@ describe("Library, settings and paired devices", () => {
     const machine = await api.createMachine("Unavailable");
     const served: DecaidApi = { ...derivedDe1Pro({ serial: "30002" }), ...simulatedDevices() };
     const tablet = load(machine, { api: served });
-    await expect.poll(() => allReported(machine), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => allReported(machine)).toBe(true);
     const before = await collections(machine);
     expect(before.scaleInfo).toEqual({ available: true, value: {} });
     expect((await pairedDevices(machine)).scale).toEqual(device("scale", "MockScale", "Mock Scale", "connected"));
@@ -229,9 +224,9 @@ describe("Library, settings and paired devices", () => {
     tablet.machineConnected = false;
     tablet.serve({ ...served, ...simulatedDevicesSwitchedOff() });
     tablet.failNextApiReads("/grinders", 1_000);
-    await expect.poll(async () => (await collection(machine, "scaleInfo"))?.available, { timeout: 10_000 }).toBe(false);
-    await expect.poll(async () => (await collection(machine, "grinders"))?.available, { timeout: 10_000 }).toBe(false);
-    await expect.poll(async () => (await collection(machine, "machineSettings"))?.available, { timeout: 10_000 }).toBe(false);
+    await expect.poll(async () => (await collection(machine, "scaleInfo"))?.available).toBe(false);
+    await expect.poll(async () => (await collection(machine, "grinders"))?.available).toBe(false);
+    await expect.poll(async () => (await collection(machine, "machineSettings"))?.available).toBe(false);
     const after = await collections(machine);
     for (const name of ["scaleInfo", "grinders", "machineSettings", "advancedSettings"]) {
       expect(after[name]).toEqual({ available: false, value: before[name]!.value });
@@ -247,13 +242,13 @@ describe("Library, settings and paired devices", () => {
     expect(sentCounts(tablet)).toMatchObject({ scaleInfo: 2, grinders: 2, machineSettings: 2, advancedSettings: 2, dye2Equipment: 1 });
     // A DYE2 key whose read fails is unavailable, never taken as empty.
     tablet.failNextApiReads("/store/dye2.reaplugin/equipment", 1_000);
-    await expect.poll(async () => (await collection(machine, "dye2Equipment"))?.available, { timeout: 10_000 }).toBe(false);
+    await expect.poll(async () => (await collection(machine, "dye2Equipment"))?.available).toBe(false);
     expect(await collection(machine, "dye2Equipment")).toMatchObject({ value: [], items: 0 });
     tablet.failNextApiReads("/store/dye2.reaplugin/equipment", 0);
 
     // Readable again, the grinders are sent again, though unchanged.
     tablet.failNextApiReads("/grinders", 0);
-    await expect.poll(async () => (await collection(machine, "grinders"))?.available, { timeout: 10_000 }).toBe(true);
+    await expect.poll(async () => (await collection(machine, "grinders"))?.available).toBe(true);
     expect((await collections(machine)).grinders).toEqual(before.grinders);
   }, 30_000);
 
@@ -261,7 +256,7 @@ describe("Library, settings and paired devices", () => {
     const machine = await api.createMachine("Discovered nearby");
     const served: DecaidApi = { ...derivedDe1Pro({ serial: "30003" }), ...simulatedDevices() };
     const tablet = load(machine, { api: served });
-    await expect.poll(() => allReported(machine), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => allReported(machine)).toBe(true);
     const inventory = served["/devices"] as { id: string; state: string; name: string }[];
     expect(inventory.find((entry) => entry.id === "MockBengle")).toMatchObject({ state: "discovered" });
 
@@ -290,14 +285,14 @@ describe("Library, settings and paired devices", () => {
 
     // Derived: the scale connected as an auxiliary scale instead, with none weighing shots.
     tablet.serve({ ...served, "/devices": inventory.map((entry) => (entry.id === "MockScale" ? { ...entry, connectionRole: "auxiliary" } : entry)) });
-    await expect.poll(async () => (await pairedDevices(machine)).auxiliaryScale, { timeout: 10_000 }).toEqual(device("scale", "MockScale", "Mock Scale", "connected"));
+    await expect.poll(async () => (await pairedDevices(machine)).auxiliaryScale).toEqual(device("scale", "MockScale", "Mock Scale", "connected"));
     expect((await pairedDevices(machine)).scale).toBeNull();
   }, 30_000);
 
   it("shows the scale Decaid prefers while it is off, as the test tablet's is", async () => {
     const machine = await api.createMachine("Scale off");
     load(machine, { api: derivedDe1Pro({ serial: "30004" }) });
-    await expect.poll(() => allReported(machine), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => allReported(machine)).toBe(true);
     expect(await pairedDevices(machine)).toMatchObject({
       scale: device("scale", "00:00:5E:00:53:02", "Bookoo Mini Scale", "disconnected"),
       auxiliaryScale: null,
@@ -323,7 +318,7 @@ describe("Library, settings and paired devices", () => {
   it("gives a mismatched connection's collections to the Machine that has its hardware, leaving the token's Machine its own", async () => {
     const traveller = await api.createMachine("Traveller's own");
     const home = load(traveller, { api: derivedDe1Pro({ serial: "30101" }) });
-    await expect.poll(() => allReported(traveller), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => allReported(traveller)).toBe(true);
     await home.unload();
     const own = await collections(traveller);
 
@@ -332,7 +327,7 @@ describe("Library, settings and paired devices", () => {
     // The tablet moves onto Owner's machine, still with Traveller's token, and its library and devices differ.
     const moved = load(traveller, { api: { ...derivedDe1Pro({ serial: "30102" }), ...simulatedLibrary(), ...simulatedDevices() } });
     await api.waitForMachine("Traveller's own", (machine) => machine.online && machine.identification === "mismatch");
-    await expect.poll(() => allReported(owner), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => allReported(owner)).toBe(true);
     await allAcknowledged(moved);
     expect((await collections(owner)).beans).toEqual({ available: true, value: simulatedLibrary()["/beans"] });
     expect((await pairedDevices(owner)).scale).toEqual(device("scale", "MockScale", "Mock Scale", "connected"));
@@ -342,13 +337,13 @@ describe("Library, settings and paired devices", () => {
   it("holds a mismatched connection's collections for hardware without a Machine, and hands them to the machine entry created for it", async () => {
     const traveller = await api.createMachine("Before adoption");
     const home = load(traveller, { api: derivedDe1Pro({ serial: "30201" }) });
-    await expect.poll(() => allReported(traveller), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => allReported(traveller)).toBe(true);
     await home.unload();
     const own = await collections(traveller);
 
     const moved = load(traveller, { api: { ...derivedDe1Pro({ serial: "30202" }), ...simulatedLibrary(), ...simulatedDevices() } });
     await api.waitForMachine("Before adoption", (machine) => machine.online && machine.identification === "mismatch");
-    await expect.poll(() => deliveries(moved).length, { timeout: 10_000 }).toBeGreaterThanOrEqual(COLLECTION_NAMES.length);
+    await expect.poll(() => deliveries(moved).length).toBeGreaterThanOrEqual(COLLECTION_NAMES.length);
     await allAcknowledged(moved);
     expect(await collections(traveller)).toEqual(own);
     await moved.unload();
@@ -543,7 +538,7 @@ describe("Library, settings and paired devices", () => {
       apiDelayMs: 1_000,
       stallUpload: (frame) => stalled && frameType(frame) === "collection" && (frame as Frame).name === "machineSettings",
     });
-    await expect.poll(() => allReported(machine), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => allReported(machine)).toBe(true);
     await allAcknowledged(tablet);
 
     // Derived: the tablet's machine settings with two fan thresholds, one after the other.
@@ -552,7 +547,7 @@ describe("Library, settings and paired devices", () => {
     const newer = { ...settings, fan: 45 };
     stalled = true;
     tablet.serve({ ...served, "/machine/settings": older });
-    await expect.poll(() => deliveries(tablet, "machineSettings").length, { timeout: 10_000 }).toBe(2);
+    await expect.poll(() => deliveries(tablet, "machineSettings").length).toBe(2);
     const unacknowledged = deliveries(tablet, "machineSettings")[1]!;
     expect(unacknowledged.value).toEqual(older);
 
@@ -564,7 +559,7 @@ describe("Library, settings and paired devices", () => {
     tablet.dropConnections();
     stalled = false;
     await tablet.waitForLogs(/^Connected to /, 2, 20_000);
-    await expect.poll(async () => (await collection(machine, "machineSettings"))?.value, { timeout: 10_000 }).toEqual(newer);
+    await expect.poll(async () => (await collection(machine, "machineSettings"))?.value).toEqual(newer);
     await allAcknowledged(tablet);
     const sent = deliveries(tablet, "machineSettings").slice(2);
     expect(sent[0]).toEqual(unacknowledged);
@@ -581,14 +576,14 @@ describe("Library, settings and paired devices", () => {
       api: served,
       stallUpload: (frame) => stalled && frameType(frame) === "collection" && (frame as Frame).name === "dye2Baskets",
     });
-    await expect.poll(() => allReported(machine), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => allReported(machine)).toBe(true);
     await allAcknowledged(tablet);
 
     // Derived: DYE2's basket renamed, whose delivery then waits on the network, holding up the outbox.
     stalled = true;
     const baskets = (served["/store/dye2.reaplugin/baskets"] as Record<string, unknown>[]).map((basket) => ({ ...basket, name: "Decent 18g Ridged" }));
     tablet.serve({ ...served, "/store/dye2.reaplugin/baskets": baskets });
-    await expect.poll(() => deliveries(tablet, "dye2Baskets").length, { timeout: 10_000 }).toBe(2);
+    await expect.poll(() => deliveries(tablet, "dye2Baskets").length).toBe(2);
     // Derived: the machine recalibrated, read and queued behind it; then the machine is switched off.
     const recalibrated = { ...(served["/machine/settings"] as object), steamFlow: 1.5 };
     tablet.serve({ ...served, "/store/dye2.reaplugin/baskets": baskets, "/machine/settings": recalibrated });
@@ -597,7 +592,7 @@ describe("Library, settings and paired devices", () => {
     await polls(tablet, 1);
     stalled = false;
 
-    await expect.poll(async () => (await collection(machine, "machineSettings"))?.available, { timeout: 10_000 }).toBe(false);
+    await expect.poll(async () => (await collection(machine, "machineSettings"))?.available).toBe(false);
     await allAcknowledged(tablet);
     expect(await collections(machine)).toMatchObject({
       machineSettings: { available: false, value: recalibrated },

@@ -46,7 +46,7 @@ type Record_ = Record<string, unknown>;
 
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
-describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
+describe("Bean Batches at Locations", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
@@ -57,7 +57,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
     await Promise.all(raws.map((raw) => raw.terminate()));
@@ -99,20 +99,16 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     return tablet;
   }
 
-  async function online(...machines: CreatedMachine[]): Promise<void> {
-    for (const { machine } of machines) await api.waitForMachine(machine.name, (viewed) => viewed.online);
-  }
-
-  const libraryBatches = async () => ((await (await api.call("GET", "/bean-batches")).json()) as { batches: BeanBatchSummary[] }).batches;
+  const libraryBatches = async () => (await api.get<{ batches: BeanBatchSummary[] }>("/bean-batches")).batches;
   const batchesOf = async (bean: string) => (await libraryBatches()).filter((batch) => batch.bean.name === bean);
   /** Resolves with the Library's one batch of the Bean of that name, once there is one. */
   async function libraryBatch(bean: string): Promise<BeanBatchSummary> {
-    await expect.poll(async () => (await batchesOf(bean)).length, { timeout: 10_000 }).toBe(1);
+    await expect.poll(async () => (await batchesOf(bean)).length).toBe(1);
     return (await batchesOf(bean))[0]!;
   }
-  const viewBatch = async (id: string) => ((await (await api.call("GET", `/bean-batches/${id}`)).json()) as { batch: BeanBatchView }).batch;
+  const viewBatch = async (id: string) => (await api.get<{ batch: BeanBatchView }>(`/bean-batches/${id}`)).batch;
   const libraryBean = async (name: string) =>
-    ((await (await api.call("GET", "/beans")).json()) as { beans: BeanSummary[] }).beans.find((bean) => bean.name === name);
+    (await api.get<{ beans: BeanSummary[] }>("/beans")).beans.find((bean) => bean.name === name);
   /** Where the batch is, by Location name, with its remaining weight there. */
   const whereAt = async (id: string) => (await viewBatch(id)).locations.map((here) => [here.location.name, here.remainingWeight]);
   const offeredAt = async (name: string) => (await libraryBean(name))?.offeredAt.map((location) => location.name);
@@ -122,7 +118,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
   const heldBatch = (tablet: SimulatedTablet, id: string) => tablet.batches().filter((record) => globalIdOf(record) === id);
   /** Resolves once the tablet holds the item once, carrying its global id, with the fields given. */
   async function holds(records: () => Record_[], fields: Record_): Promise<Record_> {
-    await expect.poll(() => records().map((record) => ({ ...pick(record, Object.keys(fields)) })), { timeout: 10_000 }).toEqual([fields]);
+    await expect.poll(() => records().map((record) => ({ ...pick(record, Object.keys(fields)) }))).toEqual([fields]);
     return records()[0]!;
   }
 
@@ -138,7 +134,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     const one = load(machines[0], String(serials));
     const two = load(machines[1], String(serials + 1), { instance: other });
     const cafe = load(machines[2], String(serials + 2));
-    await online(...machines);
+    await api.waitForOnline(...machines);
     return { labLocation, cafeLocation, machines, one, two, cafe };
   }
 
@@ -175,7 +171,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
       await api.createMachine(`${name} lab 3`, location.id),
     ] as const;
     const adding = load(machines[0], String(serials));
-    await online(machines[0]);
+    await api.waitForOnline(machines[0]);
     const { batch } = await enterBatch(adding, `${name} Natural`);
     const bean = await holds(() => heldBean(adding, batch.bean.id), { archived: false });
     const record = await holds(() => heldBatch(adding, batch.id), { archived: false });
@@ -224,7 +220,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     await holds(() => heldBatch(two, batch.id), { archived: false });
 
     await one.editBatch(record.id, { archived: true });
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([]);
     expect((await viewBatch(batch.id)).finished.map((here) => here.location.name)).toEqual(["Archived lab"]);
     // Archived on the other tablet, never deleted, so its Shots still find it; the Bean, with no batch there, too.
     await holds(() => heldBatch(two, batch.id), { archived: true });
@@ -233,7 +229,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     expect((await libraryBean("Archived Natural"))!.archived).toBe(false);
 
     await one.editBatch(record.id, { archived: false });
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([["Archived lab", 250]]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([["Archived lab", 250]]);
     await holds(() => heldBatch(two, batch.id), { archived: false });
     await holds(() => heldBean(two, batch.bean.id), { archived: false });
     expect(await offeredAt("Archived Natural")).toEqual(["Archived lab"]);
@@ -248,7 +244,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     // which shows nothing of what it had seen at the lab.
     let holdingAnswers = true;
     const two = load(second, "16202", { instance: other, stallUpload: (frame) => holdingAnswers && (frame as { type?: unknown; kind?: unknown }).type === "written" && (frame as { kind?: unknown }).kind === "beanBatch" });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const { record, batch } = await enterBatch(one, "Offline Natural");
     const held = await holds(() => heldBatch(two, batch.id), { archived: false });
 
@@ -257,9 +253,9 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     await two.editBatch(held.id, { archived: true });
     // Later, the lab's other tablet finishes it there and adds it back.
     await one.editBatch(record.id, { archived: true });
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([]);
     await one.editBatch(record.id, { archived: false });
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([["Offline lab", 250]]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([["Offline lab", 250]]);
 
     // The earlier archiving, made without seeing those, loses to them (ADR-0020), and the lab's state is written back.
     two.restoreNetwork();
@@ -275,13 +271,13 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     // Its Decaid's clock runs 5 minutes fast, so the batch it adds is added at a time after the other tablet's edits.
     const fast = load(first, "16211", { decaidClockOffsetMs: 5 * 60_000 });
     const steady = load(second, "16212", { instance: other });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const { batch } = await enterBatch(fast, "Fast Natural");
     const held = await holds(() => heldBatch(steady, batch.id), { archived: false });
 
     // Written the batch, the other tablet's barista archives it: an edit made after seeing it added, timed earlier.
     await steady.editBatch(held.id, { archived: true });
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([]);
     await holds(() => heldBatch(fast, batch.id), { archived: true });
     expect(heldBatch(steady, batch.id)).toMatchObject([{ archived: true }]);
   });
@@ -292,7 +288,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     const second = await api.createMachine("Fast back 2", location.id);
     const fast = load(first, "16221", { decaidClockOffsetMs: 5 * 60_000 });
     const steady = load(second, "16222", { instance: other });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const { record, batch } = await enterBatch(fast, "Fast Back Natural");
     const held = await holds(() => heldBatch(steady, batch.id), { archived: false });
 
@@ -300,7 +296,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     await fast.editBatch(record.id, { archived: true });
     await holds(() => heldBatch(steady, batch.id), { archived: true });
     await steady.editBatch(held.id, { archived: false });
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([["Fast back lab", 250]]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([["Fast back lab", 250]]);
     await holds(() => heldBatch(fast, batch.id), { archived: false });
   });
 
@@ -310,7 +306,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     const second = await api.createMachine("Fast Bean 2", location.id);
     const fast = load(first, "16241", { decaidClockOffsetMs: 5 * 60_000 });
     const steady = load(second, "16242", { instance: other });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const { record, batch } = await enterBatch(fast, "Fast Bean Natural");
     await holds(() => heldBatch(steady, batch.id), { archived: false });
 
@@ -324,7 +320,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
 
     // Its barista archives the Bean: an edit made after seeing the batch added back, timed earlier.
     await steady.callApi("PUT", `/beans/${encodeURIComponent(String(bean.id))}`, { archived: true });
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([]);
     expect(await offeredAt("Fast Bean Natural")).toEqual([]);
     await holds(() => heldBatch(fast, batch.id), { archived: true });
   });
@@ -336,10 +332,10 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     const adding = load(first, "16251");
     // It reads its library only when it connects, and is written what the lab offers meanwhile.
     const archiving = load(second, "16252", { instance: other, pollSeconds: 3600 });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const { record: kept, batch: first_ } = await enterBatch(adding, "Late Bean Natural");
     const added = await adding.addBatch(kept.beanId, { roastDate: "2026-10-02", roastLevel: "medium", weight: 250 });
-    await expect.poll(async () => (await batchesOf("Late Bean Natural")).length, { timeout: 10_000 }).toBe(2);
+    await expect.poll(async () => (await batchesOf("Late Bean Natural")).length).toBe(2);
     const second_ = (await batchesOf("Late Bean Natural")).find((candidate) => candidate.roastDate?.startsWith("2026-10-02"))!;
     await adding.editBatch(added.id, { archived: true });
     await holds(() => heldBatch(archiving, second_.id), { archived: true });
@@ -351,16 +347,16 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     const archivedBy = Date.now();
     await expect.poll(() => Date.now()).toBeGreaterThan(archivedBy);
     await adding.editBatch(added.id, { archived: false });
-    await expect.poll(() => whereAt(second_.id), { timeout: 10_000 }).toEqual([["Late Bean lab", 250]]);
+    await expect.poll(() => whereAt(second_.id)).toEqual([["Late Bean lab", 250]]);
     await holds(() => heldBatch(archiving, second_.id), { archived: false });
     const acked = (id: unknown) => (archiving.received as { type?: unknown; id?: unknown }[]).some((reply) => reply.type === "ack" && reply.id === id);
     await expect
-      .poll(() => (archiving.sent as { type?: unknown; id?: unknown }[]).filter((frame) => frame.type === "written").every((frame) => acked(frame.id)), { timeout: 10_000 })
+      .poll(() => (archiving.sent as { type?: unknown; id?: unknown }[]).filter((frame) => frame.type === "written").every((frame) => acked(frame.id)))
       .toBe(true);
 
     // Reconnecting, it reports the Bean archived: the earlier edit takes the first batch, not the one added back since (ADR-0020).
     archiving.dropConnections();
-    await expect.poll(() => whereAt(first_.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => whereAt(first_.id)).toEqual([]);
     expect(await whereAt(second_.id)).toEqual([["Late Bean lab", 250]]);
     expect(await offeredAt("Late Bean Natural")).toEqual(["Late Bean lab"]);
     await holds(() => heldBean(archiving, first_.bean.id), { archived: false });
@@ -379,7 +375,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
       instance: other,
       stallUpload: (frame) => holdingReports && (frame as { type?: unknown; name?: unknown }).type === "collection" && (frame as { name?: unknown }).name === "beanBatches",
     });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const { record, batch } = await enterBatch(fast, "Crossed Natural");
     const held = await holds(() => heldBatch(steady, batch.id), { archived: false });
     // Its reports since it was written the batch are taken in, so none of its beans awaits the report held below.
@@ -391,7 +387,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
         const batches = deliveries().filter((frame) => frame.name === "beanBatches").at(-1)?.value;
         const reported = Array.isArray(batches) && batches.some((candidate: Record_) => globalIdOf(candidate) === batch.id);
         return reported && deliveries().every((frame) => acked(frame.id));
-      }, { timeout: 10_000 })
+      })
       .toBe(true);
 
     // Written the batch, the other tablet's barista archives it; its report is sent but held.
@@ -399,18 +395,18 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     const reportsBefore = steady.sent.length;
     await steady.editBatch(held.id, { archived: true });
     await expect
-      .poll(() => steady.sent.slice(reportsBefore).some((frame) => (frame as { name?: unknown }).name === "beanBatches"), { timeout: 10_000 })
+      .poll(() => steady.sent.slice(reportsBefore).some((frame) => (frame as { name?: unknown }).name === "beanBatches"))
       .toBe(true);
     // Meanwhile the fast tablet enters a remaining weight, which is written to the other tablet, its answer queued behind that report.
     await fast.editBatch(record.id, { weightRemaining: 200 });
     await holds(() => heldBatch(steady, batch.id), { archived: true, weightRemaining: 200 });
     holdingReports = false;
     steady.resumeUpload();
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([]);
 
     // The barista adds it back: an edit made after seeing every decision there, timed before the fast tablet's add.
     await steady.editBatch(held.id, { archived: false });
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([["Crossed lab", 200]]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([["Crossed lab", 200]]);
     await holds(() => heldBatch(fast, batch.id), { archived: false });
     expect(heldBatch(steady, batch.id)).toMatchObject([{ archived: false }]);
     // All on one connection: an answer arriving after a reconnect would say nothing of what the tablet had seen.
@@ -422,7 +418,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     const first = await api.createMachine("Rearchived lab 1", location.id);
     const second = await api.createMachine("Rearchived lab 2", location.id);
     const adding = load(first, "16261");
-    await online(first);
+    await api.waitForOnline(first);
     const { record: kept, batch: first_ } = await enterBatch(adding, "Rearchived Natural");
     const bean = await holds(() => heldBean(adding, first_.bean.id), { archived: false });
     const batch = await holds(() => heldBatch(adding, first_.id), { archived: false });
@@ -453,9 +449,9 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     const archivedAt = new Date();
     await expect.poll(() => Date.now()).toBeGreaterThan(archivedAt.getTime() + 2);
     const added = await adding.addBatch(kept.beanId, { roastDate: "2026-10-02", roastLevel: "medium", weight: 250 });
-    await expect.poll(async () => (await batchesOf("Rearchived Natural")).length, { timeout: 10_000 }).toBe(2);
+    await expect.poll(async () => (await batchesOf("Rearchived Natural")).length).toBe(2);
     const second_ = (await batchesOf("Rearchived Natural")).find((candidate) => candidate.roastDate?.startsWith("2026-10-02"))!;
-    await expect.poll(() => whereAt(second_.id), { timeout: 10_000 }).toEqual([["Rearchived lab", 250]]);
+    await expect.poll(() => whereAt(second_.id)).toEqual([["Rearchived lab", 250]]);
 
     // Its reports come after: the first archiving takes the first batch, and neither it nor the second, made
     // before the batch was added, takes that (ADR-0020).
@@ -527,7 +523,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     const { one, two, cafe, machines, cafeLocation } = setup;
     const third = await api.createMachine(`${name} lab 3`, setup.labLocation.id);
     const three = load(third, String(serials + 3));
-    await online(third);
+    await api.waitForOnline(third);
     const { batch } = await enterBatch(one, `${name} Blend`);
     await holds(() => heldBatch(two, batch.id), { archived: false });
     await holds(() => heldBatch(three, batch.id), { archived: false });
@@ -536,7 +532,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     expect((await api.call("POST", `/machines/${machines[1].machine.id}/location-history`, { locationId: cafeLocation.id })).status).toBe(201);
     const moved = await holds(() => heldBatch(two, batch.id), { archived: true });
     await two.editBatch(moved.id, { archived: false });
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([[`${name} cafe`, null], [`${name} lab`, 250]]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([[`${name} cafe`, null], [`${name} lab`, 250]]);
     await holds(() => heldBatch(cafe, batch.id), { archived: false });
     await holds(() => heldBean(two, batch.bean.id), { archived: false });
     return { ...setup, three, batch };
@@ -546,11 +542,11 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     const { one, two, three, cafe, batch } = await atTwoLocations("Weighed", 16031);
     // The cafe counts its own, which reaches the moved tablet there.
     await cafe.editBatch(heldBatch(cafe, batch.id)[0]!.id, { weightRemaining: 200 });
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([["Weighed cafe", 200], ["Weighed lab", 250]]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([["Weighed cafe", 200], ["Weighed lab", 250]]);
     await holds(() => heldBatch(two, batch.id), { weightRemaining: 200 });
 
     await one.editBatch(heldBatch(one, batch.id)[0]!.id, { weightRemaining: 180.5 });
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([["Weighed cafe", 200], ["Weighed lab", 180.5]]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([["Weighed cafe", 200], ["Weighed lab", 180.5]]);
     await holds(() => heldBatch(three, batch.id), { weightRemaining: 180.5 });
     expect(heldBatch(cafe, batch.id)[0]!.weightRemaining).toBe(200);
     expect(heldBatch(two, batch.id)[0]!.weightRemaining).toBe(200);
@@ -564,7 +560,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     await one.deleteBean(bean.id);
     expect(one.beans()).toEqual([]);
 
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([["Removed cafe", null]]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([["Removed cafe", null]]);
     await holds(() => heldBatch(three, batch.id), { archived: true });
     await holds(() => heldBean(three, batch.bean.id), { archived: true });
     expect(await offeredAt("Removed Blend")).toEqual(["Removed cafe"]);
@@ -605,18 +601,18 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
       },
     });
     const two = load(second, "16132");
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const { record, batch } = await enterBatch(one, "Gone Typica");
     await holds(() => heldBatch(two, batch.id), { archived: false });
     await holds(() => heldBean(one, batch.bean.id), { extras: { [GLOBAL_ID_KEY]: batch.bean.id } });
     const logged = server.output().length;
     deleting = { bean: String(record.beanId), batch: String(record.id) };
 
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([]);
     await holds(() => heldBean(two, batch.bean.id), { archived: true });
     expect(one.beans()).toEqual([]);
     // The server archived the Bean on the tablet that had deleted it, which Decaid answered with 404: no refusal.
-    await expect.poll(() => server.output().slice(logged), { timeout: 10_000 }).toContain(`no longer holds "bean" ${batch.bean.id}`);
+    await expect.poll(() => server.output().slice(logged)).toContain(`no longer holds "bean" ${batch.bean.id}`);
     expect(server.output().slice(logged)).not.toContain("did not write");
   });
 
@@ -628,14 +624,14 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     const bean = await holds(() => heldBean(one, batch.bean.id), { archived: false });
     expect((await one.callApi("PUT", `/beans/${String(bean.id)}`, { archived: true })).status).toBe(200);
 
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([]);
     await holds(() => heldBean(two, batch.bean.id), { archived: true });
     await holds(() => heldBatch(two, batch.id), { archived: true });
     // The tablet that archived the Bean has its batch archived too.
     await holds(() => heldBatch(one, batch.id), { archived: true });
 
     expect((await one.callApi("PUT", `/beans/${String(bean.id)}`, { archived: false })).status).toBe(200);
-    await expect.poll(() => offeredAt("Shelved Honey"), { timeout: 10_000 }).toEqual(["Shelved lab"]);
+    await expect.poll(() => offeredAt("Shelved Honey")).toEqual(["Shelved lab"]);
     await holds(() => heldBean(two, batch.bean.id), { archived: false });
     expect(await whereAt(batch.id)).toEqual([]);
     expect(heldBatch(two, batch.id)).toMatchObject([{ archived: true }]);
@@ -657,13 +653,13 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
       },
     });
     const two = load(second, "16102");
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const { batch } = await enterBatch(one, "Kept Natural");
 
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([]);
     expect(archived).toBe(true);
     await holds(() => heldBatch(one, batch.id), { archived: true, extras: { [GLOBAL_ID_KEY]: batch.id } });
-    await expect.poll(() => heldBatch(two, batch.id).filter((record) => record.archived !== true), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => heldBatch(two, batch.id).filter((record) => record.archived !== true)).toEqual([]);
     expect(await whereAt(batch.id)).toEqual([]);
     expect(heldBatch(one, batch.id)).toMatchObject([{ archived: true }]);
   });
@@ -673,10 +669,10 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     const first = await api.createMachine("Retried lab 1", lab_.id);
     const second = await api.createMachine("Retried lab 2", lab_.id);
     const one = load(first, "16111");
-    await online(first);
+    await api.waitForOnline(first);
     const { record, batch } = await enterBatch(one, "Retried Gesha");
     await one.editBatch(record.id, { weightRemaining: 120 });
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([["Retried lab", 120]]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([["Retried lab", 120]]);
 
     // The other tablet's first update of a batch, the one after its create, times out. It polls once an hour (every
     // 72 s here), so no report of its own comes between the writes.
@@ -715,7 +711,7 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     await holds(() => heldBatch(one, batch.id), { id: record.id, archived: false });
     // While it is away, the batch is finished at the lab again.
     await two.editBatch(own.id, { archived: true });
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([]);
 
     // Back, its outbox sends the answer, then its reports, which hold the batch as the server wrote it: no change.
     one.restoreNetwork();
@@ -730,10 +726,10 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     const one = load(first, "16061");
     const storage = new PluginStorage();
     const two = load(second, "16062", { storage });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const { record, batch } = await enterBatch(one, "Reset Bourbon");
     await one.editBatch(record.id, { weightRemaining: 120 });
-    await expect.poll(() => whereAt(batch.id), { timeout: 10_000 }).toEqual([["Reset lab", 120]]);
+    await expect.poll(() => whereAt(batch.id)).toEqual([["Reset lab", 120]]);
     await holds(() => heldBatch(two, batch.id), { weightRemaining: 120 });
     const tabletsBefore = (await api.machineNamed(second.machine.name))!;
 
@@ -757,26 +753,26 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     const cafe = await api.createLocation("Resend cafe", "UTC");
     const machine = await api.createMachine("Resend cafe 1", cafe.id);
     const tablet = load(machine, "16071");
-    await online(machine);
+    await api.waitForOnline(machine);
     const reports = (name: string) => tablet.sent.filter((frame) => (frame as { type?: unknown; name?: unknown }).type === "collection" && (frame as { name?: unknown }).name === name).length;
-    await expect.poll(() => reports("beanBatches"), { timeout: 10_000 }).toBeGreaterThan(0);
+    await expect.poll(() => reports("beanBatches")).toBeGreaterThan(0);
     const batchesBefore = reports("beanBatches");
     await tablet.addBean({ roaster: "Roux", name: "Resend Only Bean" });
-    await expect.poll(async () => offeredAt("Resend Only Bean"), { timeout: 10_000 }).toEqual(["Resend cafe"]);
+    await expect.poll(async () => offeredAt("Resend Only Bean")).toEqual(["Resend cafe"]);
     expect(reports("beanBatches")).toBeGreaterThan(batchesBefore);
   });
 
   it("neither writes to a Machine with no Location nor takes its batches into the Library", async () => {
     const home = await api.createMachine("Batch home machine");
     const tablet = load(home, "16081");
-    await online(home);
+    await api.waitForOnline(home);
     const bean = await tablet.addBean({ roaster: "Roux", name: "Home Batch Bean" });
     await tablet.addBatch(bean.id, { weight: 340 });
     await expect
       .poll(async () => {
         const reported = (await (await api.call("GET", `/machines/${home.machine.id}/collections/beanBatches`)).json()) as { collection: { value: Record_[] } | null };
         return reported.collection?.value.length;
-      }, { timeout: 10_000 })
+      })
       .toBe(1);
     expect(await batchesOf("Home Batch Bean")).toEqual([]);
     expect(tablet.writes).toEqual([]);
@@ -791,14 +787,14 @@ describe("Bean Batches at Locations", { timeout: 60_000 }, () => {
     // and its other answers none, so a read of the list begun just before a write's record was made would arrive
     // after the write's answer, were reads and writes not kept apart.
     const two = load(second, "16092", { apiDelayMs: (method, path) => (method === "GET" && path.startsWith("/bean-batches?") ? 3_000 : 0), answerOnArrival: true });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const bean = await one.addBean({ roaster: "Roux", name: "Slow Blend" });
     for (const weight of [100, 200, 300, 400, 500]) await one.addBatch(bean.id, { weight });
-    await expect.poll(async () => (await batchesOf("Slow Blend")).length, { timeout: 10_000 }).toBe(5);
+    await expect.poll(async () => (await batchesOf("Slow Blend")).length).toBe(5);
     const ids = (await batchesOf("Slow Blend")).map((batch) => batch.id);
     await expect.poll(() => ids.filter((id) => heldBatch(two, id).length === 1).length, { timeout: 20_000 }).toBe(5);
     // Its next reports hold every batch written: none was finished on its account.
-    await expect.poll(async () => (await batchesOf("Slow Blend")).filter((batch) => batch.locations.length === 1).length, { timeout: 10_000 }).toBe(5);
+    await expect.poll(async () => (await batchesOf("Slow Blend")).filter((batch) => batch.locations.length === 1).length).toBe(5);
     expect(two.batches().every((record) => record.archived === false)).toBe(true);
   });
 });

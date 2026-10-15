@@ -48,7 +48,7 @@ describe("The plugin's skin endpoint", () => {
   });
 });
 
-describe("Telling skins of each write to DYE2's recipes", { timeout: 60_000 }, () => {
+describe("Telling skins of each write to DYE2's recipes", () => {
   let server: StandInServer;
   let tablet: SimulatedTablet;
   let asked = 0;
@@ -248,7 +248,7 @@ describe("Telling skins of Recipes changed in the management interface", { timeo
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await other?.stop();
     await server?.stop();
@@ -264,11 +264,6 @@ describe("Telling skins of Recipes changed in the management interface", { timeo
     return tablet;
   }
 
-  async function send<T>(method: string, path: string, body?: unknown, status = 200): Promise<T> {
-    const response = await api.call(method, path, body);
-    expect(response.status, await response.clone().text()).toBe(status);
-    return (await response.json()) as T;
-  }
   const slots = (tablet: SimulatedTablet) => ((dye2List(tablet, "recipes") ?? []) as Record_[]).map((record) => `${String(record.id)}:${String(record.name)}`);
   const poll = <T>(read: () => T) => expect.poll(read, { timeout: 15_000 });
 
@@ -289,24 +284,24 @@ describe("Telling skins of Recipes changed in the management interface", { timeo
     };
 
     let before = pushes();
-    const created = (await send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: location.id, slot: 1, content: { name: "Skin espresso" } }, 201)).recipe;
+    const created = (await api.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: location.id, slot: 1, content: { name: "Skin espresso" } }, 201)).recipe;
     await pushedOnEach(before, ["1:Skin espresso"]);
 
     before = pushes();
-    await send("PATCH", `/recipes/${created.id}`, { content: { name: "Skin ristretto" } });
+    await api.send("PATCH", `/recipes/${created.id}`, { content: { name: "Skin ristretto" } });
     await pushedOnEach(before, ["1:Skin ristretto"]);
 
     before = pushes();
     // Removed from slot 1, then written in slot 3, each pushed.
-    await send("PUT", `/recipes/${created.id}/slot`, { slot: 3 });
+    await api.send("PUT", `/recipes/${created.id}/slot`, { slot: 3 });
     await pushedOnEach(before, ["3:Skin ristretto"], 2);
 
     before = pushes();
-    await send("PUT", `/recipes/${created.id}/slot`, { slot: null });
+    await api.send("PUT", `/recipes/${created.id}/slot`, { slot: null });
     await pushedOnEach(before, []);
 
     before = pushes();
-    const basket = (await send<{ basket: { id: string } }>("POST", "/baskets", { locationId: location.id, content: { name: "Skin 20 g" } }, 201)).basket;
+    const basket = (await api.send<{ basket: { id: string } }>("POST", "/baskets", { locationId: location.id, content: { name: "Skin 20 g" } }, 201)).basket;
     for (const tablet of here) await poll(() => ((dye2List(tablet, "baskets") ?? []) as Record_[]).some((record) => record[GLOBAL_ID_KEY] === basket.id)).toBe(true);
     expect(pushes()).toEqual(before);
     for (const tablet of here) expect(new Set(tablet.pushes("changed").map((push) => JSON.stringify(push)))).toEqual(new Set([JSON.stringify(PUSH)]));

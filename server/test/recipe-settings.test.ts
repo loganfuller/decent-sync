@@ -53,7 +53,7 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
     await other?.stop();
@@ -90,12 +90,12 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
     return tablet;
   }
 
-  const settingsAt = async (location: LocationView) => ((await (await api.call("GET", `/locations/${location.id}/settings`)).json()) as { settings: SettingsView }).settings;
+  const settingsAt = async (location: LocationView) => (await api.get<{ settings: SettingsView }>(`/locations/${location.id}/settings`)).settings;
   const versions = async (settings: SettingsView) =>
-    ((await (await api.call("GET", `/location-settings/${settings.id}/history`)).json()) as { versions: { fields: Record_; source: { machine: { name: string } | null } }[] })
+    (await api.get<{ versions: { fields: Record_; source: { machine: { name: string } | null } }[] }>(`/location-settings/${settings.id}/history`))
       .versions;
   const conflicts = async (settings: SettingsView) =>
-    ((await (await api.call("GET", "/conflicts")).json()) as { conflicts: { item: { id: string } }[] }).conflicts.filter((conflict) => conflict.item.id === settings.id);
+    (await api.get<{ conflicts: { item: { id: string } }[] }>("/conflicts")).conflicts.filter((conflict) => conflict.item.id === settings.id);
   /** The tablet's Workflow's settings, by their names, such as `steamSettings.flow`. */
   const held = (tablet: SimulatedTablet, fields: readonly string[] = Object.keys(LOCATION)) =>
     Object.fromEntries(

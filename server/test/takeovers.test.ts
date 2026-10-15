@@ -71,7 +71,7 @@ describe("Takeovers", { timeout: 30_000 }, () => {
   };
 
   const machine = async (id: string): Promise<MachineView> =>
-    ((await (await api.call("GET", `/machines/${id}`)).json()) as { machine: MachineView }).machine;
+    (await api.get<{ machine: MachineView }>(`/machines/${id}`)).machine;
 
   const expectRefusal = async (raw: RawConnection, code: keyof typeof CLOSE_CODES) => {
     expect(await raw.closed).toEqual({ code: CLOSE_CODES[code], reason: code });
@@ -104,7 +104,7 @@ describe("Takeovers", { timeout: 30_000 }, () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(connections.splice(0).map((raw) => raw.terminate()));
   });
@@ -209,7 +209,7 @@ describe("Takeovers", { timeout: 30_000 }, () => {
     // Polling once an hour, its outbox is idle once what it sent on connecting is acknowledged.
     const first = loadTablet({ settings: { ...settingsFor(created), PollSeconds: 3600 }, timeScale: TIME_SCALE, api: derivedDe1Pro({ serial: "16311" }) });
     await first.waitForLog(/^Connected to /);
-    await expect.poll(() => unacknowledged(first), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(() => unacknowledged(first)).toEqual([]);
     // Its network fails as the server tells it another tablet took over, and before it handles that, the machine's
     // state changes, which it sends at once, on the transport that has just ended.
     first.cutConnectionAfter((frame) => {

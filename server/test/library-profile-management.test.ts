@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
+import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { shotFixture } from "./support/shot-fixtures.js";
 import { NO_DYE2_LISTS, SimulatedTablet, de1ProOnDecaid087, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
@@ -32,7 +32,7 @@ const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 /** One of Decaid's bundled Profiles, which every tablet on Decaid v0.8.7 has. */
 const BUNDLED = "profile:990c28a4ecac8e5bf6ba";
 
-describe("Profiles in the management interface", { timeout: 60_000 }, () => {
+describe("Profiles in the management interface", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
@@ -42,7 +42,7 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
     await other?.stop();
@@ -78,36 +78,24 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     for (const [index, serial] of serials.entries()) {
       const machine = await api.createMachine(`${name} ${index + 1}`, location.id);
       loaded.push(load(machine, String(serial), index % 2 === 0 ? server : other, options));
-      await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+      await api.waitForOnline(machine);
     }
     return { location, tablets: loaded };
   }
 
-  async function send<T>(method: string, path: string, body?: unknown, as: AdminApi = api, status = 200): Promise<T> {
-    const response = await as.call(method, path, body);
-    expect(response.status, await response.clone().text()).toBe(status);
-    return (status === 204 ? undefined : await response.json()) as T;
-  }
   const profilePath = (id: string) => `/profiles/${encodeURIComponent(id)}`;
-  const viewProfile = async (id: string) => (await send<{ profile: ProfileView }>("GET", profilePath(id))).profile;
+  const viewProfile = async (id: string) => (await api.get<{ profile: ProfileView }>(profilePath(id))).profile;
   const show = (id: string, location: LocationView, shown: boolean, as: AdminApi = api) => as.call("PUT", `${profilePath(id)}/locations/${location.id}`, { shown });
   const archive = (id: string, archived: boolean, as: AdminApi = api) => as.call("PUT", `${profilePath(id)}/archived`, { archived });
 
   /** The tablet's record of the Profile's visibility, or undefined if it holds none. */
   const visibilityOn = (tablet: SimulatedTablet, id: unknown) => tablet.profiles().find((record) => record.id === id)?.visibility;
-  const poll = <T>(read: () => T) => expect.poll(read, { timeout: 10_000 });
 
   /** Saves a Profile on a lab tablet, as a barista does, and resolves once the Library has it, shown at the lab only. */
   async function labProfile(tablet: SimulatedTablet, title: string, pressure: number): Promise<Record_> {
     const record = await tablet.addProfile(derivedProfile(title, pressure));
-    await poll(async () => (await api.call("GET", profilePath(String(record.id)))).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", profilePath(String(record.id)))).status).toBe(200);
     return record;
-  }
-
-  /** Staff at the Locations, signed in. */
-  async function staffAt(email: string, ...locations: LocationView[]): Promise<AdminApi> {
-    const { link } = await api.invite(email, "staff", locations.map((location) => location.id));
-    return AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Staff", password: "staff password 1" }));
   }
 
   /** A Shot pulled on the tablet with that serial, with a profile it executed, and the profile id a skin recorded, if any. */
@@ -135,13 +123,13 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     const shown = await show(id, uptown.location, true);
     expect(shown.status, await shown.clone().text()).toBe(200);
     expect(((await shown.json()) as { profile: ProfileView }).profile.shownAt.map((here) => here.location.name)).toEqual(["Lab", "Uptown"]);
-    for (const tablet of uptown.tablets) await poll(() => tablet.profiles().find((held) => held.id === id)).toMatchObject({ visibility: "visible", profile: { title: "Lab Bloom" } });
-    await send("PUT", `${profilePath(id)}/locations/${belmont.location.id}`, { shown: true });
-    await poll(() => visibilityOn(belmont.tablets[0]!, id)).toBe("visible");
+    for (const tablet of uptown.tablets) await expect.poll(() => tablet.profiles().find((held) => held.id === id)).toMatchObject({ visibility: "visible", profile: { title: "Lab Bloom" } });
+    await api.send("PUT", `${profilePath(id)}/locations/${belmont.location.id}`, { shown: true });
+    await expect.poll(() => visibilityOn(belmont.tablets[0]!, id)).toBe("visible");
 
     const hidden = await show(id, uptown.location, false);
     expect(hidden.status).toBe(200);
-    for (const tablet of uptown.tablets) await poll(() => visibilityOn(tablet, id)).toBe("hidden");
+    for (const tablet of uptown.tablets) await expect.poll(() => visibilityOn(tablet, id)).toBe("hidden");
     // Nowhere else: Belmont and the lab still show it.
     expect(visibilityOn(belmont.tablets[0]!, id)).toBe("visible");
     expect(visibilityOn(lab.tablets[0]!, id)).toBe("visible");
@@ -153,7 +141,7 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
       ["Uptown", false],
     ]);
     // Each is a version of Uptown's state of it from the account.
-    const { versions } = await send<{ versions: VersionView[] }>("GET", `${profilePath(id)}/history`);
+    const { versions } = await api.get<{ versions: VersionView[] }>(`${profilePath(id)}/history`);
     const uptownVersions = versions.filter((version) => version.location?.id === uptown.location.id);
     expect(uptownVersions.map((version) => version.fields)).toEqual([{ shown: false }, { shown: true }]);
     expect(uptownVersions.every((version) => version.source.account !== null && version.source.tabletId === null)).toBe(true);
@@ -167,15 +155,15 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     const id = String(record.id);
     expect((await show(id, cafe.location, true)).status).toBe(200);
     expect((await show(id, elsewhere.location, true)).status).toBe(200);
-    await poll(() => visibilityOn(elsewhere.tablets[0]!, id)).toBe("visible");
+    await expect.poll(() => visibilityOn(elsewhere.tablets[0]!, id)).toBe("visible");
     expect((await show(id, elsewhere.location, false)).status).toBe(200);
-    for (const tablet of cafe.tablets) await poll(() => visibilityOn(tablet, id)).toBe("visible");
-    await poll(() => visibilityOn(elsewhere.tablets[0]!, id)).toBe("hidden");
+    for (const tablet of cafe.tablets) await expect.poll(() => visibilityOn(tablet, id)).toBe("visible");
+    await expect.poll(() => visibilityOn(elsewhere.tablets[0]!, id)).toBe("hidden");
 
     const archived = await archive(id, true);
     expect(archived.status, await archived.clone().text()).toBe(200);
     expect(((await archived.json()) as { profile: ProfileView }).profile).toMatchObject({ archived: true, shownAt: [] });
-    for (const tablet of [...lab.tablets, ...cafe.tablets, ...elsewhere.tablets]) await poll(() => visibilityOn(tablet, id)).toBe("hidden");
+    for (const tablet of [...lab.tablets, ...cafe.tablets, ...elsewhere.tablets]) await expect.poll(() => visibilityOn(tablet, id)).toBe("hidden");
     // Each Location's state of it is kept, and Archiving it again changes nothing.
     expect((await viewProfile(id)).locations.map((here) => [here.location.name, here.shown])).toEqual([
       ["Archive cafe", true],
@@ -186,10 +174,10 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
 
     const restored = await archive(id, false);
     expect(restored.status).toBe(200);
-    for (const tablet of [...lab.tablets, ...cafe.tablets]) await poll(() => visibilityOn(tablet, id)).toBe("visible");
+    for (const tablet of [...lab.tablets, ...cafe.tablets]) await expect.poll(() => visibilityOn(tablet, id)).toBe("visible");
     expect(visibilityOn(elsewhere.tablets[0]!, id)).toBe("hidden");
     expect((await viewProfile(id)).shownAt.map((here) => here.location.name)).toEqual(["Archive cafe", "Archive lab"]);
-    const { versions } = await send<{ versions: VersionView[] }>("GET", `${profilePath(id)}/history`);
+    const { versions } = await api.get<{ versions: VersionView[] }>(`${profilePath(id)}/history`);
     expect(versions.filter((version) => version.location === null && "archived" in version.fields).map((version) => version.fields)).toEqual([
       { archived: false },
       { archived: true },
@@ -204,15 +192,15 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     const used = await labProfile(lab.tablets[0]!, "Used Bloom", 3.5);
     const [mistakenId, usedId] = [String(mistaken.id), String(used.id)];
     for (const id of [mistakenId, usedId]) expect((await show(id, cafe.location, true)).status).toBe(200);
-    for (const tablet of cafe.tablets) await poll(() => visibilityOn(tablet, mistakenId)).toBe("visible");
+    for (const tablet of cafe.tablets) await expect.poll(() => visibilityOn(tablet, mistakenId)).toBe("visible");
     // A barista hides it on one tablet there, which hides it at the cafe.
     await online.setProfileVisibility(mistakenId, "deleted");
-    await poll(() => visibilityOn(offline, mistakenId)).toBe("hidden");
+    await expect.poll(() => visibilityOn(offline, mistakenId)).toBe("hidden");
 
     // A Shot pulled at the lab with the other names it by its steps, though a skin set its target weight to the Shot's yield.
     const shot = shotWith("shot-used-bloom", "22021", { ...(used.profile as Record_), target_weight: 38 });
     lab.tablets[0]!.pullShot(shot);
-    await poll(async () => (await api.call("GET", `/shots/${shot.id}`)).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", `/shots/${shot.id}`)).status).toBe(200);
     const refused = await api.call("DELETE", profilePath(usedId));
     expect(refused.status).toBe(409);
     expect(await refused.text()).toMatch(/A Shot names this Profile/);
@@ -220,31 +208,31 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     const skinned = await labProfile(lab.tablets[0]!, "Skinned Bloom", 3.75);
     const skinShot = shotWith("shot-skinned-bloom", "22021", derivedProfile("Unsaved Bloom", 9.75), String(skinned.id));
     lab.tablets[0]!.pullShot(skinShot);
-    await poll(async () => (await api.call("GET", `/shots/${skinShot.id}`)).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", `/shots/${skinShot.id}`)).status).toBe(200);
     expect((await api.call("DELETE", profilePath(String(skinned.id)))).status).toBe(409);
     const bundled = await api.call("DELETE", profilePath(BUNDLED));
     expect(bundled.status).toBe(409);
     expect(await bundled.text()).toMatch(/bundled/);
 
     offline.loseNetwork();
-    await send("DELETE", profilePath(mistakenId), undefined, api, 204);
+    await api.send("DELETE", profilePath(mistakenId), undefined, 204);
     expect((await api.call("GET", profilePath(mistakenId))).status).toBe(404);
-    for (const tablet of [lab.tablets[0]!, online]) await poll(() => visibilityOn(tablet, mistakenId)).toBeUndefined();
+    for (const tablet of [lab.tablets[0]!, online]) await expect.poll(() => visibilityOn(tablet, mistakenId)).toBeUndefined();
     expect(online.writes).toContain(`DELETE /profiles/${encodeURIComponent(mistakenId)}/purge`);
     expect(offline.profiles().some((record) => record.id === mistakenId)).toBe(true);
     offline.restoreNetwork();
-    await poll(() => visibilityOn(offline, mistakenId)).toBeUndefined();
+    await expect.poll(() => visibilityOn(offline, mistakenId)).toBeUndefined();
     // Nothing took it in again meanwhile.
     expect((await api.call("GET", profilePath(mistakenId))).status).toBe(404);
     for (const tablet of [lab.tablets[0]!, ...cafe.tablets]) {
-      await poll(() => visibilityOn(tablet, usedId)).toBe("visible");
-      await poll(() => visibilityOn(tablet, BUNDLED)).toBe("visible");
+      await expect.poll(() => visibilityOn(tablet, usedId)).toBe("visible");
+      await expect.poll(() => visibilityOn(tablet, BUNDLED)).toBe("visible");
     }
 
     // A barista saving the same profile again later makes it anew, shown where it was saved.
     const again = await lab.tablets[0]!.addProfile(derivedProfile("Mistaken Bloom", 3.25));
     expect(again.id).toBe(mistakenId);
-    await poll(async () => (await api.call("GET", profilePath(mistakenId))).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", profilePath(mistakenId))).status).toBe(200);
     expect((await viewProfile(mistakenId)).shownAt.map((here) => here.location.name)).toEqual(["Delete lab"]);
     expect(visibilityOn(lab.tablets[0]!, mistakenId)).toBe("visible");
   });
@@ -254,7 +242,7 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     const machine = await api.createMachine("Unsent lab 1", location.id);
     // Decaid is slow to read a Shot, so the plugin usually reads it only as it checks the delete.
     const tablet = load(machine, "22031", server, { apiDelayMs: (method, path) => (method === "GET" && path.startsWith("/shots/") ? 3_000 : 0) });
-    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(machine);
     const record = await labProfile(tablet, "Unsent Bloom", 4.25);
     const id = String(record.id);
 
@@ -263,9 +251,9 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     tablet.loseNetwork();
     const shot = shotWith("shot-with-unsent-bloom", "22031", record.profile);
     tablet.pullShot(shot);
-    await send("DELETE", profilePath(id), undefined, api, 204);
+    await api.send("DELETE", profilePath(id), undefined, 204);
     tablet.restoreNetwork();
-    await poll(async () => (await api.call("GET", `/shots/${shot.id}`)).status).toBe(200);
+    await expect.poll(async () => (await api.call("GET", `/shots/${shot.id}`)).status).toBe(200);
     // Kept on the tablet, out of the Library, as its Shot used it.
     expect(visibilityOn(tablet, id)).toBe("visible");
     expect(tablet.writes.filter((write) => write.startsWith("DELETE "))).toEqual([]);
@@ -274,15 +262,15 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     // Saved again on another tablet there, it joins the Library again, and the record kept is that Profile's once more.
     const second = await api.createMachine("Unsent lab 2", location.id);
     const otherTablet = load(second, "22032", other);
-    await api.waitForMachine(second.machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(second);
     const requested = tablet.requests.length;
     await labProfile(otherTablet, "Unsent Bloom", 4.25);
     // Written the Profile again, which the plugin finds it holds, and which maps its record: until then, a barista's change to
     // the record is not taken as an edit.
-    await poll(() => tablet.requests.slice(requested).includes(`/profiles/${encodeURIComponent(id)}`)).toBe(true);
+    await expect.poll(() => tablet.requests.slice(requested).includes(`/profiles/${encodeURIComponent(id)}`)).toBe(true);
     await tablet.setProfileVisibility(id, "hidden");
-    await poll(async () => (await viewProfile(id)).locations.find((here) => here.location.id === location.id)?.shown).toBe(false);
-    await poll(() => visibilityOn(otherTablet, id)).toBe("hidden");
+    await expect.poll(async () => (await viewProfile(id)).locations.find((here) => here.location.id === location.id)?.shown).toBe(false);
+    await expect.poll(() => visibilityOn(otherTablet, id)).toBe("hidden");
     expect(tablet.writes.filter((write) => write.startsWith("DELETE "))).toEqual([]);
   });
 
@@ -295,19 +283,19 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
     const late = load(machine, "22052", other, {
       stallUpload: (frame) => holdingAnswers && (frame as { type?: unknown; kind?: unknown }).type === "written" && (frame as { kind?: unknown }).kind === "profile",
     });
-    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(machine);
     const record = await labProfile(lab.tablets[0]!, "Late Bloom", 6.25);
     const id = String(record.id);
     expect((await show(id, location, true)).status).toBe(200);
-    await poll(() => visibilityOn(late, id)).toBe("visible");
+    await expect.poll(() => visibilityOn(late, id)).toBe("visible");
 
     late.loseNetwork();
     holdingAnswers = false;
-    await send("DELETE", profilePath(id), undefined, api, 204);
-    await poll(() => visibilityOn(lab.tablets[0]!, id)).toBeUndefined();
+    await api.send("DELETE", profilePath(id), undefined, 204);
+    await expect.poll(() => visibilityOn(lab.tablets[0]!, id)).toBeUndefined();
     late.restoreNetwork();
     // The answer is not recorded, as the Library no longer has the Profile, and the record it made is purged.
-    await poll(() => visibilityOn(late, id)).toBeUndefined();
+    await expect.poll(() => visibilityOn(late, id)).toBeUndefined();
     expect(late.writes).toContain(`DELETE /profiles/${encodeURIComponent(id)}/purge`);
     expect((await api.call("GET", profilePath(id))).status).toBe(404);
   });
@@ -315,7 +303,7 @@ describe("Profiles in the management interface", { timeout: 60_000 }, () => {
   it("lets Staff show and hide Profiles only at their own Locations, Archive and restore them anywhere, and never hard-delete", async () => {
     const theirs = await api.createLocation("Profile staff home", "America/Chicago");
     const elsewhere = await locationWith("Profile staff elsewhere", [22041]);
-    const staff = await staffAt("staff-88@example.com", theirs);
+    const staff = await api.staffAt("staff-88@example.com", theirs);
     const record = await labProfile(elsewhere.tablets[0]!, "Staff Bloom", 5.75);
     const id = String(record.id);
 

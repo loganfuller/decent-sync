@@ -29,7 +29,7 @@ describe("Locations", () => {
     server = await startTestServer();
     const setup = await call("POST", "/setup", admin, {});
     cookie = setup.headers.getSetCookie()[0]!.split(";")[0]!;
-  }, 60_000);
+  });
   afterAll(() => server?.stop());
 
   it("starts with no Locations", async () => {

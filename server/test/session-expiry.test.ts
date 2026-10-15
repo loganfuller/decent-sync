@@ -72,7 +72,7 @@ describe("session expiry across server instances", { timeout: 30_000 }, () => {
     // The offsets reach the servers' code.
     expect(await api.at(ahead.url).instanceClockOffsetMs(database)).toBeGreaterThan(2 * DAY_MS - 60_000);
     expect(await api.at(behind.url).instanceClockOffsetMs(database)).toBeLessThan(-2 * DAY_MS + 60_000);
-  }, 60_000);
+  });
   afterAll(async () => {
     await database?.end();
     await Promise.all([ahead?.stop(), behind?.stop()]);

@@ -32,7 +32,7 @@ describe("Deliveries sent again on one connection", () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
@@ -55,12 +55,6 @@ describe("Deliveries sent again on one connection", () => {
     expect(requests).toHaveLength(before + 1);
     return requests.at(-1);
   }
-  async function get(path: string): Promise<unknown> {
-    const response = await api.call("GET", path);
-    expect(response.status).toBe(200);
-    return response.json();
-  }
-
   /** A real Shot naming no hardware, so it is credited to the Machine whose tablet sends it. */
   function shot(id: string, changes: Record<string, unknown> = {}) {
     const { machine, ...workflow } = shotFixture().workflow as Record<string, unknown>;
@@ -110,19 +104,19 @@ describe("Deliveries sent again on one connection", () => {
     }
 
     const visible = async () => ({
-      shots: await get(`/shots?limit=100&machineId=${machine.machine.id}`),
-      shot: await get("/shots/replayed-shot"),
-      measurements: await get("/shots/replayed-shot/measurements"),
-      steamRecords: await get(`/steam-records?limit=100&machineId=${machine.machine.id}`),
-      steam: await get("/steam-records/replayed-steam"),
-      workflowEvents: await get(`/machines/${machine.machine.id}/workflow-events?limit=100`),
-      stateEvents: await get(`/machines/${machine.machine.id}/machine-state-events?limit=100`),
-      collection: await get(`/machines/${machine.machine.id}/collections/machineSettings`),
+      shots: await api.get(`/shots?limit=100&machineId=${machine.machine.id}`),
+      shot: await api.get("/shots/replayed-shot"),
+      measurements: await api.get("/shots/replayed-shot/measurements"),
+      steamRecords: await api.get(`/steam-records?limit=100&machineId=${machine.machine.id}`),
+      steam: await api.get("/steam-records/replayed-steam"),
+      workflowEvents: await api.get(`/machines/${machine.machine.id}/workflow-events?limit=100`),
+      stateEvents: await api.get(`/machines/${machine.machine.id}/machine-state-events?limit=100`),
+      collection: await api.get(`/machines/${machine.machine.id}/collections/machineSettings`),
     });
     const before = await visible();
     expect(before.shot).toMatchObject({ shot: { enjoyment: 2 } });
-    expect(await get(`/machines/${machine.machine.id}/workflow-events?limit=1`)).toMatchObject({ total: 2, events: [{ workflow: dialledIn }] });
-    expect(await get(`/machines/${machine.machine.id}/machine-state-events?limit=1`)).toMatchObject({
+    expect(await api.get(`/machines/${machine.machine.id}/workflow-events?limit=1`)).toMatchObject({ total: 2, events: [{ workflow: dialledIn }] });
+    expect(await api.get(`/machines/${machine.machine.id}/machine-state-events?limit=1`)).toMatchObject({
       total: transitions + 1,
       events: [{ state: "espresso", substate: "pouring" }],
     });
@@ -156,7 +150,7 @@ describe("Deliveries sent again on one connection", () => {
     const ack = (raw.messages as Received[]).map((message) => message.type === "ack" && message.id === index.id).lastIndexOf(true);
     expect(raw.messages[ack - 1]).toEqual(request);
     expect(await requestFor(raw, steamIndex, "requestSteams")).toEqual({ type: "requestSteams", steamIds: ["recent-steam"] });
-    expect(await get(`/shots?limit=100&machineId=${machine.machine.id}`)).toMatchObject({ total: 1 });
+    expect(await api.get(`/shots?limit=100&machineId=${machine.machine.id}`)).toMatchObject({ total: 1 });
   });
 
   it("forgets earlier deliveries sooner while indexes were answered with many long ids", async () => {
@@ -211,7 +205,7 @@ describe("Deliveries sent again on one connection", () => {
       await refused(states, "machineState.id");
 
       expect((await api.call("GET", "/shots/long-id-shot")).status).toBe(404);
-      expect(await get(`/machines/${machine.machine.id}/machine-state-events`)).toMatchObject({ total: 0 });
+      expect(await api.get(`/machines/${machine.machine.id}/machine-state-events`)).toMatchObject({ total: 0 });
     });
 
     it("is refused on a chunk, before anything of its message is held", async () => {

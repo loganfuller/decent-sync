@@ -52,7 +52,7 @@ describe("Tablets", { timeout: 20_000 }, () => {
   };
 
   const machine = async (id: string): Promise<MachineView> =>
-    ((await (await api.call("GET", `/machines/${id}`)).json()) as { machine: MachineView }).machine;
+    (await api.get<{ machine: MachineView }>(`/machines/${id}`)).machine;
 
   /** The ids of a Machine's current tablet and its earlier ones. */
   const tabletIds = (viewed: MachineView) => ({ current: viewed.tablet?.id ?? null, earlier: viewed.earlierTablets.map((tablet) => tablet.id) });
@@ -62,7 +62,7 @@ describe("Tablets", { timeout: 20_000 }, () => {
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
     otherApi = api.at(other.url);
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(connections.splice(0).map((raw) => raw.terminate()));
   });
@@ -199,7 +199,7 @@ describe("Tablets", { timeout: 20_000 }, () => {
 
     const tabletId = storage.read("tabletId");
     expect(tabletId).toMatch(UUID);
-    await expect.poll(() => storage.save().get("tabletId"), { timeout: 10_000 }).toBe(tabletId);
+    await expect.poll(() => storage.save().get("tabletId")).toBe(tabletId);
     // Two reads failed, and the third, answered, was the last.
     expect(tablet.requests.filter((route) => route === "/store/decent-sync.reaplugin")).toHaveLength(3);
   });

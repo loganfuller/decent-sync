@@ -89,7 +89,7 @@ describe("password checks on one server instance", { timeout: 30_000 }, () => {
     database = await server.connectDatabase();
     // The first unknown email also hashes the dummy password it is checked against; done here, each later check hashes once.
     expect((await signIn("first@example.com")).status).toBe(401);
-  }, 60_000);
+  });
   afterAll(async () => {
     fs.rmSync(gateDir, { recursive: true, force: true });
     await database?.end();

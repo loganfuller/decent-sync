@@ -27,7 +27,7 @@ describe("accounts and sessions", () => {
 
   beforeAll(async () => {
     server = await startTestServer();
-  }, 60_000);
+  });
   afterAll(() => server?.stop());
 
   it("requires first-run setup on a server with no accounts", async () => {
@@ -180,7 +180,7 @@ describe("accounts behind https", () => {
 
   beforeAll(async () => {
     server = await startTestServer({ publicUrl: "https://sync.example.com" });
-  }, 60_000);
+  });
   afterAll(() => server?.stop());
 
   it("refuses setup from a page that reached the server under another domain name (DNS rebinding)", async () => {

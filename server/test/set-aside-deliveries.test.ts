@@ -57,7 +57,7 @@ describe("Deliveries that cannot be stored", () => {
     other = await startTestServer({ env, sharing: server, databaseHost: pooler.host });
     api = await AdminApi.setUp(server.url);
     database = await server.connectDatabase();
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
@@ -82,13 +82,8 @@ describe("Deliveries that cannot be stored", () => {
     expect(requests).toHaveLength(before + 1);
     return requests.at(-1);
   }
-  async function get(path: string): Promise<unknown> {
-    const response = await api.call("GET", path);
-    expect(response.status).toBe(200);
-    return response.json();
-  }
   async function setAside(machine: CreatedMachine): Promise<{ deliveries: SetAsideView[]; total: number }> {
-    return (await get(`/machines/${machine.machine.id}/set-aside-deliveries?limit=100`)) as { deliveries: SetAsideView[]; total: number };
+    return (await api.get(`/machines/${machine.machine.id}/set-aside-deliveries?limit=100`)) as { deliveries: SetAsideView[]; total: number };
   }
   /** The messages kept for a Machine's deliveries set aside, by delivery id. */
   async function keptMessages(machine: CreatedMachine): Promise<Record<string, string>> {
@@ -173,10 +168,10 @@ describe("Deliveries that cannot be stored", () => {
 
       expect(await status("/steam-records/after-nul-steam")).toBe(200);
       expect(await status("/steam-records/nul-steam")).toBe(404);
-      expect(await get(`/machines/${machine.machine.id}/collections/machineSettings`)).toMatchObject({ collection: { value: settings } });
-      expect(await get(`/machines/${machine.machine.id}/workflow-events`)).toMatchObject({ total: 0 });
-      expect(await get(`/machines/${machine.machine.id}/machine-state-events`)).toMatchObject({ total: 0 });
-      expect(await get("/shots/after-nul-shot")).toMatchObject({ shot: { record: { annotations: shot("after-nul-shot").annotations } } });
+      expect(await api.get(`/machines/${machine.machine.id}/collections/machineSettings`)).toMatchObject({ collection: { value: settings } });
+      expect(await api.get(`/machines/${machine.machine.id}/workflow-events`)).toMatchObject({ total: 0 });
+      expect(await api.get(`/machines/${machine.machine.id}/machine-state-events`)).toMatchObject({ total: 0 });
+      expect(await api.get("/shots/after-nul-shot")).toMatchObject({ shot: { record: { annotations: shot("after-nul-shot").annotations } } });
 
       const listed = await setAside(machine);
       expect(listed.total).toBe(6);
@@ -254,8 +249,8 @@ describe("Deliveries that cannot be stored", () => {
     }
     await raw.deliver(shotDelivery(shot("y".repeat(MAX_RECORD_ID_LENGTH))));
 
-    expect(await get(`/shots?machineId=${machine.machine.id}`)).toMatchObject({ total: 1, shots: [{ id: "y".repeat(MAX_RECORD_ID_LENGTH) }] });
-    expect(await get(`/steam-records?machineId=${machine.machine.id}`)).toMatchObject({ total: 0 });
+    expect(await api.get(`/shots?machineId=${machine.machine.id}`)).toMatchObject({ total: 1, shots: [{ id: "y".repeat(MAX_RECORD_ID_LENGTH) }] });
+    expect(await api.get(`/steam-records?machineId=${machine.machine.id}`)).toMatchObject({ total: 0 });
     expect(await setAside(machine)).toMatchObject({ total: 0 });
     expect(await requestFor(raw, shotIndex(longId, nulId, "missing-shot"), "requestShots")).toEqual({ type: "requestShots", shotIds: ["missing-shot"] });
     expect(await requestFor(raw, steamIndex(longId, nulId), "requestSteams")).toEqual({ type: "requestSteams", steamIds: [] });

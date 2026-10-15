@@ -67,7 +67,7 @@ describe("times stored by an instance whose clock is two days ahead", { timeout:
     database = await server.connectDatabase();
     // The offset reaches the server's code.
     expect(await api.instanceClockOffsetMs(database)).toBeGreaterThan(2 * DAY_MS - 60_000);
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(connections.splice(0).map((raw) => raw.terminate()));
   });

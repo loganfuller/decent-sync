@@ -31,7 +31,7 @@ type Record_ = Record<string, unknown>;
 
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
-describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
+describe("Grinders belonging to a Location", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
@@ -41,7 +41,7 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
     await other?.stop();
@@ -70,29 +70,25 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
     return tablet;
   }
 
-  async function online(...machines: CreatedMachine[]): Promise<void> {
-    for (const { machine } of machines) await api.waitForMachine(machine.name, (viewed) => viewed.online);
-  }
-
-  const libraryGrinders = async () => ((await (await api.call("GET", "/grinders")).json()) as { grinders: GrinderSummary[] }).grinders;
-  const viewGrinder = async (id: string) => ((await (await api.call("GET", `/grinders/${id}`)).json()) as { grinder: GrinderView }).grinder;
+  const libraryGrinders = async () => (await api.get<{ grinders: GrinderSummary[] }>("/grinders")).grinders;
+  const viewGrinder = async (id: string) => (await api.get<{ grinder: GrinderView }>(`/grinders/${id}`)).grinder;
   const grindersOf = async (model: string) => (await libraryGrinders()).filter((grinder) => grinder.model === model);
   /** Resolves with the Library's one Grinder of that model, once there is one. */
   async function libraryGrinder(model: string): Promise<GrinderSummary> {
-    await expect.poll(async () => (await grindersOf(model)).length, { timeout: 10_000 }).toBe(1);
+    await expect.poll(async () => (await grindersOf(model)).length).toBe(1);
     return (await grindersOf(model))[0]!;
   }
   /** The tablet's records of the Grinder, by the global id they carry. */
   const heldGrinder = (tablet: SimulatedTablet, id: string) => tablet.grinders().filter((record) => globalIdOf(record) === id);
   /** Resolves with the tablet's one record of the Grinder once it holds it so. */
   async function holds(tablet: SimulatedTablet, id: string, fields: Record_): Promise<Record_> {
-    await expect.poll(() => heldGrinder(tablet, id), { timeout: 10_000 }).toEqual([expect.objectContaining(fields)]);
+    await expect.poll(() => heldGrinder(tablet, id)).toEqual([expect.objectContaining(fields)]);
     return heldGrinder(tablet, id)[0]!;
   }
   const grinderWrites = (tablet: SimulatedTablet) => tablet.writes.filter((write) => write.includes("/grinders"));
   /** The grinders the Machine's tablet last reported. */
   const reportedGrinders = async ({ machine }: CreatedMachine) =>
-    ((await (await api.call("GET", `/machines/${machine.id}/collections/grinders`)).json()) as { collection: { value: unknown } }).collection.value;
+    (await api.get<{ collection: { value: unknown } }>(`/machines/${machine.id}/collections/grinders`)).collection.value;
 
   /** A lab with two tablets, the second on the other instance, and a cafe with one. */
   async function lab(name: string, serials: number) {
@@ -106,7 +102,7 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
     const one = load(machines[0], String(serials));
     const two = load(machines[1], String(serials + 1), { instance: other });
     const cafe = load(machines[2], String(serials + 2));
-    await online(...machines);
+    await api.waitForOnline(...machines);
     return { labLocation, cafeLocation, machines, one, two, cafe };
   }
 
@@ -141,7 +137,7 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
     const { record, grinder } = await enterGrinder(one, two, "Deleted Niche");
 
     await one.deleteGrinder(record.id);
-    await expect.poll(async () => (await libraryGrinder("Deleted Niche")).archived, { timeout: 10_000 }).toBe(true);
+    await expect.poll(async () => (await libraryGrinder("Deleted Niche")).archived).toBe(true);
     const archived = await holds(two, grinder.id, { archived: true });
     expect(two.writes.some((write) => write.startsWith("DELETE"))).toBe(false);
     // The tablet that deleted it holds it no more, and is not written it again.
@@ -150,7 +146,7 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
 
     // Un-archived on the other tablet, it is restored: offered at the lab again, it is written again to the tablet that deleted it.
     await two.editGrinder(archived.id, { archived: false });
-    await expect.poll(async () => (await libraryGrinder("Deleted Niche")).archived, { timeout: 10_000 }).toBe(false);
+    await expect.poll(async () => (await libraryGrinder("Deleted Niche")).archived).toBe(false);
     await holds(one, grinder.id, { archived: false });
   });
 
@@ -159,10 +155,10 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
     const { record, grinder } = await enterGrinder(one, two, "Archived EK43");
 
     await one.editGrinder(record.id, { archived: true });
-    await expect.poll(async () => (await libraryGrinder("Archived EK43")).archived, { timeout: 10_000 }).toBe(true);
+    await expect.poll(async () => (await libraryGrinder("Archived EK43")).archived).toBe(true);
     await holds(two, grinder.id, { archived: true });
     await one.editGrinder(record.id, { archived: false });
-    await expect.poll(async () => (await libraryGrinder("Archived EK43")).archived, { timeout: 10_000 }).toBe(false);
+    await expect.poll(async () => (await libraryGrinder("Archived EK43")).archived).toBe(false);
     await holds(two, grinder.id, { archived: false });
   });
 
@@ -182,12 +178,12 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
       },
     });
     const two = load(second, "18072", { instance: other });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const record = await one.addGrinder({ model: "Kept Mythos", burrs: "Mythos 75mm" });
     const grinder = await libraryGrinder("Kept Mythos");
 
     // The answer showed it archived, which the write did not set: the Grinder is Archived, and archived on the other tablet.
-    await expect.poll(async () => (await libraryGrinder("Kept Mythos")).archived, { timeout: 10_000 }).toBe(true);
+    await expect.poll(async () => (await libraryGrinder("Kept Mythos")).archived).toBe(true);
     expect(archived).toBe(true);
     await holds(one, grinder.id, { id: record.id, archived: true, extras: { [GLOBAL_ID_KEY]: grinder.id } });
     await holds(two, grinder.id, { archived: true });
@@ -199,7 +195,7 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
     const { labLocation, cafeLocation, one, two, cafe } = await lab("Same", 18031);
     await one.addGrinder({ model: "Same ZP6", burrType: "conical" });
     await cafe.addGrinder({ model: "Same ZP6", burrType: "conical" });
-    await expect.poll(async () => (await grindersOf("Same ZP6")).map((grinder) => grinder.location?.name), { timeout: 10_000 }).toEqual([cafeLocation.name, labLocation.name]);
+    await expect.poll(async () => (await grindersOf("Same ZP6")).map((grinder) => grinder.location?.name)).toEqual([cafeLocation.name, labLocation.name]);
     const [atCafe, atLab] = await grindersOf("Same ZP6");
     expect(atCafe!.id).not.toBe(atLab!.id);
     await holds(one, atLab!.id, { archived: false });
@@ -219,7 +215,7 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
     const [archived] = simulatedLibrary()["/grinders"] as Record_[];
     const one = load(first, "18041", { grinders: [...own, archived!] });
     const two = load(second, "18042", { instance: other });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     for (const record of own) {
       const grinder = await libraryGrinder(String(record.model));
       expect(grinder.location).toEqual(location);
@@ -240,7 +236,7 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
     const one = load(first, "18051");
     const storage = new PluginStorage();
     const two = load(second, "18052", { storage });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const { grinder } = await enterGrinder(one, two, "Reset Mazzer");
 
     // Its Decaid data reset, the tablet has a new tablet id, and no grinders: none was deleted there.
@@ -262,21 +258,21 @@ describe("Grinders belonging to a Location", { timeout: 60_000 }, () => {
     const moved = await holds(two, grinder.id, { archived: true });
     expect((await libraryGrinder("Moved Kafatek")).archived).toBe(false);
     await one.editGrinder(record.id, { archived: true });
-    await expect.poll(async () => (await libraryGrinder("Moved Kafatek")).archived, { timeout: 10_000 }).toBe(true);
+    await expect.poll(async () => (await libraryGrinder("Moved Kafatek")).archived).toBe(true);
 
     // Un-archived at the cafe, it is not restored: it belongs to the lab, so the tablet is written it archived again.
     const writes = grinderWrites(two).length;
     await two.editGrinder(moved.id, { archived: false });
-    await expect.poll(() => grinderWrites(two).length, { timeout: 10_000 }).toBeGreaterThan(writes);
+    await expect.poll(() => grinderWrites(two).length).toBeGreaterThan(writes);
     await holds(two, grinder.id, { archived: true });
     expect((await libraryGrinder("Moved Kafatek")).archived).toBe(true);
 
     // Restored at the lab, it stays archived at the cafe, and deleting it there, where it was held archived, Archives nothing.
     await one.editGrinder(record.id, { archived: false });
-    await expect.poll(async () => (await libraryGrinder("Moved Kafatek")).archived, { timeout: 10_000 }).toBe(false);
+    await expect.poll(async () => (await libraryGrinder("Moved Kafatek")).archived).toBe(false);
     await two.deleteGrinder(moved.id);
     // Its report without it is taken in as it is stored.
-    await expect.poll(async () => reportedGrinders(machines[1]), { timeout: 10_000 }).toEqual([]);
+    await expect.poll(async () => reportedGrinders(machines[1])).toEqual([]);
     expect(await libraryGrinder("Moved Kafatek")).toMatchObject({ archived: false, location: { name: "Moved lab" } });
     expect(heldGrinder(one, grinder.id)).toEqual([expect.objectContaining({ archived: false })]);
     expect(two.grinders()).toEqual([]);

@@ -35,7 +35,7 @@ describe("Deliveries while a Machine's hardware is bound", () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterEach(async () => {
     await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
@@ -44,11 +44,6 @@ describe("Deliveries while a Machine's hardware is bound", () => {
     await server?.stop();
   });
 
-  async function get<T>(path: string): Promise<T> {
-    const response = await api.call("GET", path);
-    expect(response.status).toBe(200);
-    return response.json() as Promise<T>;
-  }
   /** Welcomed on the first instance, sending heartbeats every `heartbeatMs`. */
   async function connect(machine: CreatedMachine, hello: Record<string, unknown>, heartbeatMs?: number) {
     const raw = await RawConnection.welcomed(server.url, helloWith(machine.token, hello), heartbeatMs);
@@ -83,14 +78,14 @@ describe("Deliveries while a Machine's hardware is bound", () => {
       kind: "Workflow",
       delivery: () => ({ type: "workflow", id: randomUUID(), observedAt: OBSERVED_AT, workflow: workflowFixture() }),
       stored: async (machine: CreatedMachine) =>
-        (await get<{ events: { workflow: unknown }[] }>(`/machines/${machine.machine.id}/workflow-events`)).events.map((event) => event.workflow),
+        (await api.get<{ events: { workflow: unknown }[] }>(`/machines/${machine.machine.id}/workflow-events`)).events.map((event) => event.workflow),
       expected: [workflowFixture()] as unknown[],
     },
     {
       kind: "machine state",
       delivery: () => ({ type: "machineState", id: randomUUID(), observedAt: OBSERVED_AT, state: "idle", substate: "idle" }),
       stored: async (machine: CreatedMachine) =>
-        (await get<{ events: { state: string; substate: string }[] }>(`/machines/${machine.machine.id}/machine-state-events`)).events.map(
+        (await api.get<{ events: { state: string; substate: string }[] }>(`/machines/${machine.machine.id}/machine-state-events`)).events.map(
           (event) => [event.state, event.substate],
         ),
       expected: [["idle", "idle"]] as unknown[],
@@ -99,7 +94,7 @@ describe("Deliveries while a Machine's hardware is bound", () => {
       kind: "collection",
       delivery: () => ({ type: "collection", id: randomUUID(), name: "machineSettings", available: true, value: settings }),
       stored: async (machine: CreatedMachine) => {
-        const { collection } = await get<{ collection: { value: unknown } | null }>(`/machines/${machine.machine.id}/collections/machineSettings`);
+        const { collection } = await api.get<{ collection: { value: unknown } | null }>(`/machines/${machine.machine.id}/collections/machineSettings`);
         return collection ? [collection.value] : [];
       },
       expected: [settings] as unknown[],
@@ -173,7 +168,7 @@ describe("Deliveries while a Machine's hardware is bound", () => {
         await delivering.acknowledged(sent.id);
       }
       // Superseded, the connection may close before the delivery, which waited for the Machine's row, commits.
-      await expect.poll(() => stored(machine), { timeout: 10_000 }).toEqual(expected);
+      await expect.poll(() => stored(machine)).toEqual(expected);
       expect(await api.waitForMachine(name, (viewed) => viewed.online)).toMatchObject({ ...hardware, identification: "identified" });
     },
   );

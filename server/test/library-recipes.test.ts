@@ -71,7 +71,7 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  }, 60_000);
+  });
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
     await other?.stop();
@@ -115,10 +115,6 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     return tablet;
   }
 
-  async function online(...machines: CreatedMachine[]): Promise<void> {
-    for (const { machine } of machines) await api.waitForMachine(machine.name, (viewed) => viewed.online);
-  }
-
   /** A Location with two Machines, the first's tablet the recording's, on one instance, the second's empty, on the other, and a cafe with an empty tablet. */
   async function lab(scenario: string, serials: number) {
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
@@ -131,13 +127,13 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     const one = load(machines[0], recordedDecaid(String(serials), scenario));
     const two = load(machines[1], emptyDecaid(String(serials + 1)), other);
     const cafeTablet = load(machines[2], emptyDecaid(String(serials + 2)));
-    await online(...machines);
+    await api.waitForOnline(...machines);
     return { here, cafe, machines, one, two, cafeTablet };
   }
 
   const recipesAt = async (location: LocationView) =>
-    ((await (await api.call("GET", `/locations/${location.id}/recipes`)).json()) as { recipes: RecipeView[] }).recipes;
-  const recipe = async (id: string) => ((await (await api.call("GET", `/recipes/${id}`)).json()) as { recipe: RecipeView }).recipe;
+    (await api.get<{ recipes: RecipeView[] }>(`/locations/${location.id}/recipes`)).recipes;
+  const recipe = async (id: string) => (await api.get<{ recipe: RecipeView }>(`/recipes/${id}`)).recipe;
   /** The tablet's records in DYE2's list, as its store holds them; none for a key never written. */
   const records = (tablet: SimulatedTablet, key: Dye2Key): Record_[] => {
     const value = dye2List(tablet, key);
@@ -174,7 +170,7 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
 
   /** The ids of the records the tablet's latest report of its recipes listed, as the server stored it. */
   const reportedSlots = async (machine: CreatedMachine) =>
-    (((await (await api.call("GET", `/machines/${machine.machine.id}/collections/dye2Recipes`)).json()) as { collection: { value: Record_[] } | null }).collection?.value ?? []).map(
+    ((await api.get<{ collection: { value: Record_[] } | null }>(`/machines/${machine.machine.id}/collections/dye2Recipes`)).collection?.value ?? []).map(
       (record) => record.id,
     );
 
@@ -304,10 +300,10 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     // Back online, its edit, made and read after the other's, wins, and the other's value is kept as a Conflict.
     two.restoreNetwork();
     for (const tablet of [one, two]) await expect.poll(() => variables(inSlot(tablet, "1")).dose, { timeout: 15_000 }).toBe(18.6);
-    const conflicts = ((await (await api.call("GET", `/recipes/${saved!.id}/conflicts`)).json()) as { conflicts: { field: string; value: unknown; item: Record_ }[] }).conflicts;
+    const conflicts = (await api.get<{ conflicts: { field: string; value: unknown; item: Record_ }[] }>(`/recipes/${saved!.id}/conflicts`)).conflicts;
     expect(conflicts).toEqual([expect.objectContaining({ field: "dose", value: 18.4, item: { kind: "recipe", id: saved!.id, name: "Fixture Ethiopia Espresso" } })]);
     // Its history holds each accepted edit, the first its joining the Library from the tablet that saved it.
-    const versions = ((await (await api.call("GET", `/recipes/${saved!.id}/history`)).json()) as { versions: { fields: Record_; source: { machine: { name: string } | null } }[] }).versions;
+    const versions = (await api.get<{ versions: { fields: Record_; source: { machine: { name: string } | null } }[] }>(`/recipes/${saved!.id}/history`)).versions;
     expect(versions.at(-1)).toMatchObject({ fields: { name: "Fixture Ethiopia Espresso", dose: 18 }, source: { machine: { name: "Edited lab 1" } } });
   });
 
@@ -335,7 +331,7 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
       await expect.poll(() => [variables(inSlot(tablet, "1")).dose, variables(inSlot(tablet, "1")).grind], { timeout: 15_000 }).toEqual([18.5, 2.6]);
     }
     expect((await recipe(saved!.id)).content).toMatchObject({ dose: 18.5, grindSetting: 2.6, hotWaterTemperature: 85 });
-    expect(((await (await api.call("GET", `/recipes/${saved!.id}/conflicts`)).json()) as { conflicts: unknown[] }).conflicts).toEqual([]);
+    expect((await api.get<{ conflicts: unknown[] }>(`/recipes/${saved!.id}/conflicts`)).conflicts).toEqual([]);
 
     // The second tablet changes the grind setting again, to 2.7, so the first held 2.6 just before the server's latest write
     // of it. Saved again from that page with 2.8, another value than that, it is an edit as usual.
@@ -381,7 +377,7 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
         3.3,
       ]);
     }
-    expect(((await (await api.call("GET", `/recipes/${replacing.id}/conflicts`)).json()) as { conflicts: unknown[] }).conflicts).toEqual([]);
+    expect((await api.get<{ conflicts: unknown[] }>(`/recipes/${replacing.id}/conflicts`)).conflicts).toEqual([]);
     // The earlier recipe, out of its slot, is as it was.
     expect((await recipe(earlier!.id)).content).toMatchObject({ name: "Fixture Ethiopia Espresso", dose: 18, grindSetting: 2.5 });
   });
@@ -395,7 +391,7 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     const slot1 = posted.find((record) => record.id === "1")!;
     const one = load(machines[0], { ...recordedDecaid("42101", "Shared"), [`/store/${DYE2_NAMESPACE}/recipes`]: [slot1] }, server, 3600);
     const two = load(machines[1], emptyDecaid("42102"), other);
-    await online(...machines);
+    await api.waitForOnline(...machines);
     await expect.poll(() => inSlot(two, "1")?.[GLOBAL_ID_KEY], { timeout: 15_000 }).toEqual(expect.any(String));
     await expect.poll(() => inSlot(one, "1")?.[GLOBAL_ID_KEY], { timeout: 15_000 }).toEqual(expect.any(String));
 
@@ -494,7 +490,7 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     // The lab hides the Recipe's Profile: the second tablet, which never had it, holds none.
     expect((await api.call("PUT", `/profiles/${encodeURIComponent(ADAPTIVE)}/locations/${here.id}`, { shown: false })).status).toBe(200);
     expect(asList((await two.callApi("GET", "/profiles?includeHidden=true")).body).map((profile) => profile.id)).not.toContain(ADAPTIVE);
-    const library = ((await (await api.call("GET", `/profiles/${encodeURIComponent(ADAPTIVE)}`)).json()) as { profile: { content: { profile: Record_ } } }).profile.content.profile;
+    const library = (await api.get<{ profile: { content: { profile: Record_ } } }>(`/profiles/${encodeURIComponent(ADAPTIVE)}`)).profile.content.profile;
     expect(inSlot(two, "1")!.profileSnapshot).toEqual(library);
     expect((inSlot(two, "1")!.workflow as Record_).profile).toEqual(library);
 
@@ -525,7 +521,7 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     expect(await recipesAt(here)).toEqual([expect.objectContaining({ id: saved!.id, slot: null, archived: false })]);
     await expect.poll(() => inSlot(one, "2"), { timeout: 15_000 }).toBeUndefined();
     expect(inSlot(two, "2")).toBeUndefined();
-    const versions = ((await (await api.call("GET", `/recipes/${saved!.id}/history`)).json()) as { versions: { fields: Record_; location: LocationView | null }[] }).versions;
+    const versions = (await api.get<{ versions: { fields: Record_; location: LocationView | null }[] }>(`/recipes/${saved!.id}/history`)).versions;
     expect(versions[0]).toMatchObject({ fields: { slot: null }, location: { name: "Removed lab" } });
   });
 
@@ -535,9 +531,9 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     const one = load(machines[0], recordedDecaid("42071", "Unrecognised"));
     const odd = [{ id: "favourite-1", name: "Not a slot" }];
     const two = load(machines[1], { ...emptyDecaid("42072"), [`/store/${DYE2_NAMESPACE}/recipes`]: odd }, other);
-    await online(...machines);
+    await api.waitForOnline(...machines);
     const status = async () =>
-      ((await (await api.call("GET", `/machines/${machines[1].machine.id}/sharing-status`)).json()) as { status: { unrecognisedLists: { list: string }[] } }).status;
+      (await api.get<{ status: { unrecognisedLists: { list: string }[] } }>(`/machines/${machines[1].machine.id}/sharing-status`)).status;
     await expect.poll(async () => (await status()).unrecognisedLists.map(({ list }) => list), { timeout: 15_000 }).toEqual(["dye2Recipes"]);
 
     await saveInDye2(one, recipes.saveSlot1);
@@ -565,7 +561,7 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     await expect
       .poll(
         async () => {
-          const beans = ((await (await api.call("GET", `/${kind}`)).json()) as { beans: { id: string; name: string; offeredAt: LocationView[] }[] }).beans;
+          const beans = (await api.get<{ beans: { id: string; name: string; offeredAt: LocationView[] }[] }>(`/${kind}`)).beans;
           id = beans.find((bean) => bean.name === name && bean.offeredAt.some((offered) => offered.id === location.id))?.id;
           return id;
         },
