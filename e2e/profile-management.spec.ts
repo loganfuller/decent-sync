@@ -1,6 +1,7 @@
 import { expect as baseExpect, type Page, test } from "@playwright/test";
 import { SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { createLocation, signInAsAdmin } from "./support/seed.js";
 
 // Showing and hiding Profiles at Locations in the management interface,
 // which is how a lab Profile is promoted to a cafe, and Archiving and
@@ -9,14 +10,9 @@ import { useFreshServer } from "./support/fresh-server.js";
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const tablets: SimulatedTablet[] = [];
 
-test.beforeEach(async ({ page }) => {
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
@@ -89,12 +85,6 @@ test("Archiving a Profile hides it on every tablet, restoring it shows it again 
   for (const tablet of [labTablet, cafeTablet]) await expect.poll(() => visibilityOn(tablet, id)).toBeUndefined();
   baseExpect((await page.request.get(`/api/profiles/${encodeURIComponent(id)}`)).status()).toBe(404);
 });
-
-async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {
-  const response = await page.request.post("/api/locations", { data: { name, timeZone: "America/Chicago" } });
-  baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { location: { id: string; name: string } }).location;
-}
 
 /** A Machine at the Location, its tablet connected, polling every 5 s of its time, which runs 50 times faster here. */
 async function tabletAt(page: Page, name: string, location: { id: string }, serial: string): Promise<SimulatedTablet> {

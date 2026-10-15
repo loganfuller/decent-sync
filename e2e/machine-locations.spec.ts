@@ -1,6 +1,8 @@
 import { expect as baseExpect, type Page, test } from "@playwright/test";
 import { RawConnection, helloWith } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { createLocation, signInAsAdmin } from "./support/seed.js";
+import { field, machineRow } from "./support/locators.js";
 
 // Machines at Locations, as an Admin whose browser is in Tokyo while the
 // Locations are in the US: Location History times are shown and entered in
@@ -10,14 +12,7 @@ test.use({ timezoneId: "Asia/Tokyo" });
 // Machine pages poll the server every few seconds.
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
-
-test.beforeEach(async ({ page }) => {
-  // The first test sets the server up; later ones sign in. Both sign the page's context in.
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test("a machine entry created at a Location shows it in the Machines list and on its page", async ({ page }) => {
   await createLocation(page, "Lab", "America/Denver");
@@ -193,25 +188,12 @@ test("a machine entry created for a Pending Machine starts at the Location chose
   await expect(locationCell(page, "Lab 2")).toHaveText("Lab");
 });
 
-async function createLocation(page: Page, name: string, timeZone: string): Promise<{ id: string }> {
-  const response = await page.request.post("/api/locations", { data: { name, timeZone } });
-  baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { location: { id: string } }).location;
-}
-
 /** A Machine's Location History as the REST API stores it: Location names and times. */
 async function storedHistory(page: Page, id: string) {
   const { machine } = (await (await page.request.get(`/api/machines/${id}`)).json()) as {
     machine: { locationHistory: { location: { name: string }; effectiveFrom: string }[] };
   };
   return machine.locationHistory.map((entry) => [entry.location.name, entry.effectiveFrom]);
-}
-
-function machineRow(page: Page, name: string) {
-  return page
-    .getByRole("table", { name: "Machines" })
-    .getByRole("row")
-    .filter({ has: page.getByRole("link", { name, exact: true }) });
 }
 
 /** A Machine's Location in the Machines list, the third column. */
@@ -221,11 +203,6 @@ function locationCell(page: Page, name: string) {
 
 function history(page: Page) {
   return page.getByRole("list", { name: "Location History" });
-}
-
-/** The value of a field on a Machine page, by its term. */
-function field(page: Page, term: string) {
-  return page.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
 }
 
 test("a time the clocks repeat keeps its moment when only the Location is corrected, and one they skip is refused", async ({ page }) => {

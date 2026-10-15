@@ -2,6 +2,8 @@ import { expect as baseExpect, type Locator, type Page, test } from "@playwright
 import { derivedShot, shotFixture, withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { createLocation, signInAsAdmin } from "./support/seed.js";
+import { field } from "./support/locators.js";
 
 // Shots in the management interface, as an Admin whose browser is in Tokyo
 // while the Locations are in the US: times are shown and filtered in each
@@ -13,7 +15,6 @@ const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 test.use({ timezoneId: "Asia/Tokyo" });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const sam = { name: "Sam Staff", email: "sam@example.com", password: "staff password 1" };
 const tablets: SimulatedTablet[] = [];
 
@@ -26,12 +27,7 @@ interface Recorded {
   grinderSetting?: string;
 }
 
-test.beforeEach(async ({ page }) => {
-  // The first test sets the server up; later ones sign in. Both sign the page's context in.
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
@@ -367,12 +363,6 @@ async function adopt(page: Page, name: string, hardware: { model: string; serial
     .toBe(true);
 }
 
-async function createLocation(page: Page, name: string, timeZone: string): Promise<{ id: string }> {
-  const response = await page.request.post("/api/locations", { data: { name, timeZone } });
-  baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { location: { id: string } }).location;
-}
-
 async function machineId(page: Page, name: string): Promise<string> {
   const { machines } = (await (await page.request.get("/api/machines")).json()) as { machines: { id: string; name: string }[] };
   return machines.find((machine) => machine.name === name)!.id;
@@ -405,9 +395,4 @@ async function chooseDate(page: Page, filter: string, year: number, month: strin
   await calendar.getByRole("combobox", { name: "Choose the Month" }).selectOption({ label: month });
   await calendar.getByRole("button", { name: new RegExp(`, \\w+ ${day}(st|nd|rd|th), ${year}`) }).click();
   await expect(calendar).toHaveCount(0);
-}
-
-/** The value of a field, by its term. */
-function field(scope: Locator, term: string): Locator {
-  return scope.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
 }

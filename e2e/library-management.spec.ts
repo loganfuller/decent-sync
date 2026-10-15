@@ -2,6 +2,8 @@ import { expect as baseExpect, type Page, test } from "@playwright/test";
 import { globalIdOf } from "@decent-sync/protocol";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { createLocation, signInAsAdmin } from "./support/seed.js";
+import { field } from "./support/locators.js";
 
 // Creating and editing the Library's Beans and Bean Batches in the
 // management interface, and adding and finishing batches at Locations
@@ -10,14 +12,9 @@ import { useFreshServer } from "./support/fresh-server.js";
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const tablets: SimulatedTablet[] = [];
 
-test.beforeEach(async ({ page }) => {
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
@@ -137,12 +134,6 @@ test("a Bean's form saves an edit of one field while another holds a value the f
   baseExpect(bean.content).toMatchObject({ notes: "Salted caramel", altitude: [-5] });
 });
 
-async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {
-  const response = await page.request.post("/api/locations", { data: { name, timeZone: "America/Chicago" } });
-  baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { location: { id: string; name: string } }).location;
-}
-
 /** A Machine at the Location, its tablet connected, polling every 5 s of its time, which runs 50 times faster here. */
 async function tabletAt(page: Page, name: string, location: { id: string }, serial: string): Promise<SimulatedTablet> {
   const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
@@ -162,8 +153,4 @@ async function tabletAt(page: Page, name: string, location: { id: string }, seri
 async function batchesOf(page: Page, bean: string): Promise<{ id: string }[]> {
   const { batches } = (await (await page.request.get("/api/bean-batches")).json()) as { batches: { id: string; bean: { name: string } }[] };
   return batches.filter((batch) => batch.bean.name === bean);
-}
-
-function field(within: ReturnType<Page["getByLabel"]>, term: string) {
-  return within.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
 }

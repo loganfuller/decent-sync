@@ -1,7 +1,9 @@
-import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
+import { expect as baseExpect, type Page, test } from "@playwright/test";
 import { globalIdOf } from "@decent-sync/protocol";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { createLocation, signInAsAdmin } from "./support/seed.js";
+import { field, rows } from "./support/locators.js";
 
 // Conflicts and each Library item's history in the management interface
 // (ADR-0020). Two simulated tablets running the built plugin at a lab, and
@@ -12,14 +14,9 @@ import { useFreshServer } from "./support/fresh-server.js";
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const tablets: SimulatedTablet[] = [];
 
-test.beforeEach(async ({ page }) => {
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
@@ -123,12 +120,6 @@ function heldBean(tablet: SimulatedTablet, id: string): Record<string, unknown> 
   return tablet.beans().find((record) => globalIdOf(record) === id);
 }
 
-async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {
-  const response = await page.request.post("/api/locations", { data: { name, timeZone: "America/Chicago" } });
-  baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { location: { id: string; name: string } }).location;
-}
-
 /** A Machine at the Location, its tablet connected, polling every 5 s of its time, which runs 50 times faster here. */
 async function tabletAt(page: Page, name: string, location: { id: string }, serial: string): Promise<SimulatedTablet> {
   const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
@@ -142,13 +133,4 @@ async function tabletAt(page: Page, name: string, location: { id: string }, seri
   tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
   return tablet;
-}
-
-/** A table's rows below its header. */
-function rows(table: Locator) {
-  return table.getByRole("row").filter({ hasNot: table.page().getByRole("columnheader") });
-}
-
-function field(within: Locator, term: string) {
-  return within.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
 }

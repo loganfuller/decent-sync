@@ -2,6 +2,7 @@ import { expect as baseExpect, type Browser, type Page, test } from "@playwright
 import { recordAlerts } from "./support/alerts.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { nextRefusedPoll } from "./support/polling.js";
+import { admin, createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 
 // Managing accounts: an Admin changes a Staff member's role and Locations,
 // which their open session follows; resets their password with a one-time
@@ -13,24 +14,18 @@ const server = useFreshServer();
 // Machine pages poll the server every few seconds.
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const sam = { name: "Sam Staff", email: "sam@example.com", password: "staff password 1" };
 const newPassword = "Sam's new password";
 /** A Machine at Uptown, whose page Sam keeps open, once the first test has created it. */
 let uptown1: { id: string };
 
-test.beforeEach(async ({ page }) => {
-  // The first test sets the server up; later ones sign in. Both sign the page's context in.
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test("an Admin changes a Staff member's Locations and role, which their open session follows", async ({ page, browser }) => {
   const uptown = await createLocation(page, "Uptown", "America/Chicago");
   await createLocation(page, "Belmont", "America/Chicago");
   await createLocation(page, "Lab", "America/Denver");
-  uptown1 = await createMachine(page, "Uptown 1", uptown.id);
+  ({ machine: uptown1 } = await createMachine(page, "Uptown 1", uptown.id));
   const link = await invite(page, { email: sam.email, role: "staff", locationIds: [uptown.id] });
 
   // Sam accepts in their own browser, and keeps it open.
@@ -367,18 +362,6 @@ test("the last active Admin cannot deactivate themselves", async ({ page }) => {
   await page.reload();
   await expect(page.getByRole("heading", { name: "Accounts", level: 1 })).toBeVisible();
 });
-
-async function createLocation(page: Page, name: string, timeZone: string): Promise<{ id: string }> {
-  const response = await page.request.post("/api/locations", { data: { name, timeZone } });
-  baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { location: { id: string } }).location;
-}
-
-async function createMachine(page: Page, name: string, locationId: string): Promise<{ id: string }> {
-  const response = await page.request.post("/api/machines", { data: { name, locationId } });
-  baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { machine: { id: string } }).machine;
-}
 
 async function locationId(page: Page, name: string): Promise<string> {
   const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };

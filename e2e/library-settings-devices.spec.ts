@@ -1,5 +1,5 @@
 import { COLLECTION_NAMES } from "@decent-sync/protocol";
-import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
+import { expect as baseExpect, type Locator, test } from "@playwright/test";
 import {
   SimulatedTablet,
   de1ProOnDecaid087,
@@ -10,6 +10,8 @@ import {
 } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { afterDetailsPolls } from "./support/polling.js";
+import { createMachine, signInAsAdmin } from "./support/seed.js";
+import { field } from "./support/locators.js";
 
 // A Machine's paired devices, settings and library in the management
 // interface. A simulated tablet running the built plugin serves the test
@@ -21,22 +23,16 @@ test.use({ timezoneId: "America/New_York" });
 // Machine pages poll the server every few seconds.
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const tablets: SimulatedTablet[] = [];
 
-test.beforeEach(async ({ page }) => {
-  // The first test sets the server up; later ones sign in. Both sign the page's context in.
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
 });
 
 test("the Machine page shows paired devices, settings and the library, and follows a machine and scale switched off", async ({ page }) => {
-  const { id, token } = await createMachine(page, "Bar 2");
+  const { machine: { id }, token } = await createMachine(page, "Bar 2");
   const served = { ...de1ProOnDecaid087(), ...simulatedLibrary(), ...simulatedDevices() };
   // Polls every 5 s of the tablet's time, which runs five times faster here.
   const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api: served, timeScale: 5 });
@@ -110,19 +106,7 @@ test("a Machine whose tablet has reported nothing says so", async ({ page }) => 
   await expect(rows(page.getByRole("region", { name: "Library" })).first()).toHaveText("BeansNoneNot reported yet");
 });
 
-/** Creates a machine entry through the REST API, returning its id and token. */
-async function createMachine(page: Page, name: string): Promise<{ id: string; token: string }> {
-  const response = await page.request.post("/api/machines", { data: { name } });
-  baseExpect(response.status()).toBe(201);
-  const { machine, token } = (await response.json()) as { machine: { id: string }; token: string };
-  return { id: machine.id, token };
-}
-
 /** A table's rows below its header. */
 function rows(within: Locator) {
   return within.getByRole("table").getByRole("row").filter({ hasNot: within.page().getByRole("columnheader") });
-}
-
-function field(within: Locator, term: string) {
-  return within.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
 }

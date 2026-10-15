@@ -1,19 +1,13 @@
 import { expect, type Page, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
+import { signInAsAdmin } from "./support/seed.js";
 
 // Creating and editing Locations, as an Admin whose browser is in Chicago
 // while the server runs in UTC.
 useFreshServer();
 test.use({ timezoneId: "America/Chicago" });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
-
-test.beforeEach(async ({ page }) => {
-  // The first test sets the server up; later ones sign in. Both sign the page's context in.
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else expect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test("creating a Location defaults its time zone to the browser's", async ({ page }) => {
   await page.goto("/");

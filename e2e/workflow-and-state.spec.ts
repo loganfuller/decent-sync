@@ -1,8 +1,10 @@
-import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
+import { expect as baseExpect, test } from "@playwright/test";
 import { derivedShot, withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, de1ProOnDecaid087, derivedWorkflow, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { DETAILS_POLL_MS, POLL_MS, afterDetailsPolls } from "./support/polling.js";
+import { createMachine, signInAsAdmin } from "./support/seed.js";
+import { field, machineRow } from "./support/locators.js";
 
 // What a Machine is set up to do and what it is doing, in the management
 // interface, as an Admin in New York. A simulated tablet running the built
@@ -14,22 +16,16 @@ test.use({ timezoneId: "America/New_York" });
 // Machine pages poll the server every few seconds.
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const tablets: SimulatedTablet[] = [];
 
-test.beforeEach(async ({ page }) => {
-  // The first test sets the server up; later ones sign in. Both sign the page's context in.
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
 });
 
 test("the Machines list and Machine page show the machine state, last Shot and current Workflow, and follow changes", async ({ page }) => {
-  const token = await createMachine(page, "Bar 1");
+  const { token } = await createMachine(page, "Bar 1");
   const tablet = SimulatedTablet.load({
     settings: settingsFor({ serverUrl: server.url(), token }),
     api: withShots(de1ProOnDecaid087(), [derivedShot("bar-shot")]),
@@ -123,21 +119,3 @@ test("the Machine page asks for its status every 5 s, and for the rest every 30 
   await page.clock.fastForward(DETAILS_POLL_MS);
   await expect.poll(restTimes).toEqual(rest.map(() => 2));
 });
-
-/** Creates a machine entry through the REST API, returning its token. */
-async function createMachine(page: Page, name: string): Promise<string> {
-  const response = await page.request.post("/api/machines", { data: { name } });
-  baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { token: string }).token;
-}
-
-function machineRow(page: Page, name: string) {
-  return page
-    .getByRole("table", { name: "Machines" })
-    .getByRole("row")
-    .filter({ has: page.getByRole("link", { name, exact: true }) });
-}
-
-function field(within: Page | Locator, term: string) {
-  return within.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
-}

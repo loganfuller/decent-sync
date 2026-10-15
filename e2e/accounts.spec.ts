@@ -2,13 +2,12 @@ import { type Browser, type BrowserContext, expect, type Page, test } from "@pla
 import { recordAlerts } from "./support/alerts.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { nextRefusedPoll } from "./support/polling.js";
+import { admin } from "./support/seed.js";
 
 // First-run setup and signing in and out, on one server from first visit on.
 // A session that ends while a page is open sends it to sign-in, and back to
 // that page after signing in.
 const server = useFreshServer();
-
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 
 test("first-run setup creates the first Admin and signs them in", async ({ page }) => {
   await page.goto("/");

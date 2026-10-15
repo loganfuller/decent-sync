@@ -1,8 +1,10 @@
-import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
+import { expect as baseExpect, type Page, test } from "@playwright/test";
 import { GLOBAL_ID_KEY, RECIPE_FIELD, globalIdOf } from "@decent-sync/protocol";
 import { DYE2_NAMESPACE, dye2List } from "../server/test/support/simulated-dye2.js";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { createLocation, signInAsAdmin } from "./support/seed.js";
+import { field, rows } from "./support/locators.js";
 
 // Recipes in the management interface (ticket #143): each Location's Recipe
 // Slots and its Recipes in no slot, a Recipe created and edited with the
@@ -15,16 +17,11 @@ import { useFreshServer } from "./support/fresh-server.js";
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
 const tablets: SimulatedTablet[] = [];
 
 type Record_ = Record<string, unknown>;
 
-test.beforeEach(async ({ page }) => {
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else baseExpect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
@@ -400,12 +397,6 @@ test("Staff copy a Recipe only to the Locations they work at", async ({ page, br
   }
 });
 
-async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {
-  const response = await page.request.post("/api/locations", { data: { name, timeZone: "America/Chicago" } });
-  baseExpect(response.status()).toBe(201);
-  return ((await response.json()) as { location: { id: string; name: string } }).location;
-}
-
 /** A batch, roasted on 2026-10-01, of a Bean of that name, at the Location. */
 async function createBatch(page: Page, name: string, at: { id: string }): Promise<{ id: string }> {
   const bean = await page.request.post("/api/beans", { data: { content: { roaster: "Roux", name } } });
@@ -476,13 +467,4 @@ async function saveName(tablet: SimulatedTablet, slot: string, name: string): Pr
 
 async function view(page: Page, id: string): Promise<{ name: string | null }> {
   return ((await (await page.request.get(`/api/recipes/${id}`)).json()) as { recipe: { name: string | null } }).recipe;
-}
-
-/** A table's rows below its header. */
-function rows(table: Locator) {
-  return table.getByRole("row").filter({ hasNot: table.page().getByRole("columnheader") });
-}
-
-function field(within: Locator, term: string) {
-  return within.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
 }
