@@ -236,7 +236,12 @@ from the Workflow deliveries.
   load the plugin then finds, of a recipe saved since it last read them, is
   sent after it. A change of the dial may load a recipe; a change of the
   Bean Batch alone loads none, and only a batch of another Bean unloads the
-  Loaded Recipe, so the batch a barista picks stays. A decision Decaid fails
+  Loaded Recipe, so the batch a barista picks stays. A batch picked in
+  the same change as the dial, which no app applying a recipe does, stays
+  too, and a recipe of another Bean is none it loads. Where the Workflow
+  changed again before the plugin's write, nothing is written and the
+  Workflow decided on stays as it was, so the latest is judged as one
+  change from it, as the changes between were. A decision Decaid fails
   (a read or write it refuses or leaves unanswered) leaves the Workflow
   decided on as it was, so the change is judged against it, and is tried
   again after 5 s, doubling to 5 minutes, as no change may come to try it;

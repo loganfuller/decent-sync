@@ -212,10 +212,16 @@ export function matches(recipe: Dial, workflow: Dial): boolean {
  * The recipe a Workflow's dial loads, of the tablet's (`held`), or null: one
  * any of whose dials, now or before, it matches. Of several, the one the
  * Workflow names as loaded already (`named`) wins, then the one in the
- * lowest Recipe Slot (ADR-0022).
+ * lowest Recipe Slot (ADR-0022). Where the same change picked a batch of a
+ * Bean (`picked`, by the tablet's id for it), as a barista does, but no app
+ * applying a recipe, a recipe naming another Bean is none it loads.
  */
-export function chooseLoad(dial: Dial, named: string | null, held: readonly HeldRecipe[]): HeldRecipe | null {
-  const matching = held.filter((recipe) => recipe.dials.some((candidate) => matches(candidate, dial)));
+export function chooseLoad(dial: Dial, named: string | null, held: readonly HeldRecipe[], picked: string | null = null): HeldRecipe | null {
+  const matching = held.filter((recipe) => {
+    const bean = recipe.record.beanId;
+    if (picked !== null && typeof bean === "string" && bean !== "" && bean !== picked) return false;
+    return recipe.dials.some((candidate) => matches(candidate, dial));
+  });
   return matching.find((recipe) => recipe.globalId === named) ?? [...matching].sort((a, b) => a.slot - b.slot)[0] ?? null;
 }
 

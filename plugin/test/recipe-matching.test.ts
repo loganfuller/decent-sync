@@ -123,6 +123,13 @@ describe("choosing between matches", () => {
     expect(chooseLoad(workflow, "0190a5a2-0000-7000-8000-000000000009", recipes)?.globalId).toBe(ONE);
   });
 
+  it("loads no recipe of another Bean than the batch picked in the same change", () => {
+    const recipes = [held(ONE, 1, record)];
+    expect(chooseLoad(workflow, null, recipes, "6b16db38-425e-48ec-93b7-e03e1d8707cd")).toBeNull();
+    expect(chooseLoad(workflow, null, recipes, String(record.beanId))?.globalId).toBe(ONE);
+    expect(chooseLoad(workflow, null, [held(ONE, 1, { ...record, beanId: null })], "6b16db38-425e-48ec-93b7-e03e1d8707cd")?.globalId).toBe(ONE);
+  });
+
   it("matches a dial a recipe held before, as a stale page applies, and none it never held", () => {
     // Edited since, and its embedded Workflow written again with it, as the server writes it.
     const edited = recipe("1");
