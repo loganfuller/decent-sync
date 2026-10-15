@@ -724,12 +724,16 @@ export const LOADED_RECIPE_KIND = "loadedRecipe";
 /**
  * The parts of a Workflow that follow its Loaded Recipe (ADR-0022): its
  * dose, yield, grind setting, RPM, Basket, Bean Batch and four hot water
- * settings, each with the fields of the Workflow that hold it, by their
- * paths, its id or value first. A write of LOADED_RECIPE_KIND sets a part's
- * fields together: a Basket with its name, and a Bean Batch with its Bean's
- * name and roaster, as DYE2 and a load write them.
+ * settings, which a change on its Machine edits too, and its Grinder and
+ * Profile, a change of which there unloads it instead; each with the fields
+ * of the Workflow that hold it, by their paths, its id or value first. A
+ * write of LOADED_RECIPE_KIND sets a part's fields together: a Grinder with
+ * its model, a Basket with its name, and a Bean Batch with its Bean's name
+ * and roaster, as DYE2 and a load write them, and a Profile whole.
  */
 export const LOADED_RECIPE_PARTS = {
+  profile: ["profile"],
+  grinder: ["context.grinderId", "context.grinderModel"],
   dose: ["context.targetDoseWeight"],
   yield: ["context.targetYield"],
   grind: ["context.grinderSetting"],
@@ -974,18 +978,20 @@ export function settingsParts(fields: Readonly<Record<string, unknown>>): Record
  * `globalId` is the Recipe's global id, `localId` null, and `fields` names
  * the fields of LOADED_RECIPE_PARTS to set, each part's fields together,
  * with `expected` the value the Workflow held of each part's first field as
- * the tablet last reported it, null for none; or it names
+ * the tablet last reported it, null for none, but for a Profile, which
+ * carries none, as a skin overrides parts of the one it loads; or it names
  * LOADED_RECIPE_FIELD alone, null, to clear the Workflow's Loaded Recipe,
  * as the server unloads it, expecting the Recipe's global id. The plugin
  * reads the tablet's Workflow and writes nothing unless it still names that
  * Recipe as loaded (`loadedRecipeOf`); otherwise it sets, through
  * `PUT /workflow` (`workflowPatch`), each part whose first field still holds
  * the value expected, or none, as Streamline clears the batch, Basket and
- * RPM once each Shot is stored: a part a barista changed since is kept,
- * which its Workflow change brings to the server. Decaid refuses to change
- * the hot water settings while no machine is connected, so the rest is
- * then written without them. Its answer's `record` is the Workflow's
- * `context` and `hotWaterData` as Decaid returned them, timed as a settings
+ * RPM once each Shot is stored, or that expects none: a part a barista
+ * changed since is kept, which its Workflow change brings to the server.
+ * Decaid refuses to change the hot water settings while no machine is
+ * connected, so the rest is then written without them. Its answer's
+ * `record` is the Workflow's `context`, `hotWaterData` and `profile` as
+ * Decaid returned them, timed as a settings
  * write's is, and the Workflow change it causes is sent after the answer,
  * as a settings write's is.
  */

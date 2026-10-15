@@ -695,8 +695,8 @@ async function clearWorkflow(write: LibraryWrite): Promise<WriteAnswer> {
  * (`loadedRecipeFields`). Decaid refuses to change the hot water settings
  * while no machine is connected, so the rest is then written without them,
  * the Workflow read again first, and a write of only them is refused. Answers
- * with the Workflow's `context` and `hotWaterData`, timed now, as a Workflow
- * carries no time.
+ * with the Workflow's `context`, `hotWaterData` and `profile`, timed now, as
+ * a Workflow carries no time.
  */
 async function writeLoadedRecipe(write: LibraryWrite): Promise<WriteAnswer> {
   let hotWater = true;
@@ -721,8 +721,8 @@ async function writeLoadedRecipe(write: LibraryWrite): Promise<WriteAnswer> {
  * unless it names the write's Recipe as loaded; the clearing of that, where
  * the write clears it; and otherwise each part of LOADED_RECIPE_PARTS the
  * write names, all its fields together, while the Workflow holds the value
- * expected of its first field, or none, and its hot water settings only
- * where `hotWater` says.
+ * expected of its first field, or none, or the write expects none, as of a
+ * Profile, and its hot water settings only where `hotWater` says.
  */
 function loadedRecipeFields(write: LibraryWrite, workflow: Record<string, unknown>, hotWater: boolean): Record<string, unknown> {
   if (loadedRecipeOf(workflow) !== write.globalId.toLowerCase()) return {};
@@ -739,9 +739,13 @@ function loadedRecipeFields(write: LibraryWrite, workflow: Record<string, unknow
   );
 }
 
-/** A Workflow's `context` and `hotWaterData`, as Decaid holds them, which hold the parts that follow its Loaded Recipe. */
+/** A Workflow's `context`, `hotWaterData` and `profile`, as Decaid holds them, which hold the parts that follow its Loaded Recipe. */
 function loadedRecipeParts(workflow: Record<string, unknown>): Record<string, unknown> {
-  return { context: isObject(workflow.context) ? workflow.context : {}, hotWaterData: isObject(workflow.hotWaterData) ? workflow.hotWaterData : {} };
+  return {
+    context: isObject(workflow.context) ? workflow.context : {},
+    hotWaterData: isObject(workflow.hotWaterData) ? workflow.hotWaterData : {},
+    ...(isObject(workflow.profile) ? { profile: workflow.profile } : {}),
+  };
 }
 
 /** Whether Decaid refused a Workflow change as no machine is connected, which it needs to change the hot water settings. */

@@ -4,18 +4,27 @@ import { ratioValues } from "./recipe-intake.js";
 
 // How the parts of a Workflow that follow its Loaded Recipe (ADR-0022,
 // LOADED_RECIPE_PARTS) map to the Recipe's content, both ways: a change of
-// one on the Recipe's Machine is an edit of the Recipe, and a field of the
-// Recipe's that the Workflow holds otherwise is written into it. A Workflow
-// names its Basket and Bean Batch by the tablet's ids, and keeps its grind
-// setting as text, as Decaid does; a Recipe names them by their global ids,
-// and keeps the grind setting DYE2 saves, a number. Pure, so module tests
-// can drive it; machine-events/loaded-recipes.ts reads what it needs and
-// carries it out.
+// one on the Recipe's Machine is an edit of the Recipe, but of its Grinder
+// or Profile, which unloads it instead (the plugin's recipe-matching.ts),
+// and a field of the Recipe's that the Workflow holds otherwise is written
+// into it. A Workflow names its Grinder, Basket and Bean Batch by the
+// tablet's ids, holds its Profile whole, and keeps its grind setting as
+// text, as Decaid does; a Recipe names them by their global ids, its Profile
+// by Decaid's, and keeps the grind setting DYE2 saves, a number. Pure, so
+// module tests can drive it; machine-events/loaded-recipes.ts reads what it
+// needs and carries it out.
 
 /** Each part, in the order LOADED_RECIPE_PARTS lists them. */
 export const PARTS = Object.keys(LOADED_RECIPE_PARTS) as LoadedRecipePart[];
 
-/** A part's value as a Workflow holds it: a number, a grind setting's text, or the tablet's id for a Basket or Bean Batch; null for none. */
+/** The parts a change on the Machine edits the Recipe in: all but its Grinder and Profile, a change of which unloads it. */
+export const EDITED_PARTS: readonly LoadedRecipePart[] = PARTS.filter((part) => part !== "grinder" && part !== "profile");
+
+/**
+ * A part's value as a Workflow holds it: a number, a grind setting's text,
+ * the tablet's id for a Grinder, Basket or Bean Batch, or the id of the
+ * Library Profile its profile is; null for none.
+ */
 export type PartValue = number | string | null;
 
 /** The parts a Workflow holds, by name. */
@@ -23,6 +32,8 @@ export type WorkflowParts = Record<LoadedRecipePart, PartValue>;
 
 /** The field of a Recipe's content each part follows. */
 export const RECIPE_FIELDS: Readonly<Record<LoadedRecipePart, string>> = {
+  profile: "profileId",
+  grinder: "grinderId",
   dose: "dose",
   yield: "yield",
   grind: "grindSetting",
@@ -36,14 +47,15 @@ export const RECIPE_FIELDS: Readonly<Record<LoadedRecipePart, string>> = {
 };
 
 /** The parts naming a Library item, each with its kind, by the tablet's id for it. */
-const ITEM_PARTS: Partial<Readonly<Record<LoadedRecipePart, ItemKind>>> = { basket: "basket", batch: "beanBatch" };
+const ITEM_PARTS: Partial<Readonly<Record<LoadedRecipePart, ItemKind>>> = { grinder: "grinder", basket: "basket", batch: "beanBatch" };
 
-/** The kinds of item a part names. */
-export type ItemKind = "basket" | "beanBatch";
+/** The kinds of item a part names by the tablet's id for it. */
+export type ItemKind = "grinder" | "basket" | "beanBatch";
 
-/** The parts a Workflow holds. */
-export function workflowParts(workflow: unknown): WorkflowParts {
-  return Object.fromEntries(PARTS.map((part) => [part, partValue(part, workflowValueAt(workflow, LOADED_RECIPE_PARTS[part][0]))])) as WorkflowParts;
+/** The parts a Workflow holds, its profile as the Library Profile it is (`profile`), found as a Shot's is, or none. */
+export function workflowParts(workflow: unknown, profile: string | null = null): WorkflowParts {
+  const parts = Object.fromEntries(PARTS.map((part) => [part, partValue(part, workflowValueAt(workflow, LOADED_RECIPE_PARTS[part][0]))])) as WorkflowParts;
+  return { ...parts, profile };
 }
 
 /** Parts as stored (`tablet_loaded_recipes.held`): a part missing, or of no value, is none. */
@@ -55,7 +67,7 @@ export function readParts(value: unknown): WorkflowParts {
 /** A value as a part holds it: text for a grind setting, a Basket or a batch, a number for the rest; null for none. */
 function partValue(part: LoadedRecipePart, value: unknown): PartValue {
   if (part === "grind") return typeof value === "number" ? (Number.isFinite(value) ? String(value) : null) : textOf(value);
-  return ITEM_PARTS[part] !== undefined ? textOf(value) : numberOf(value);
+  return ITEM_PARTS[part] !== undefined || part === "profile" ? textOf(value) : numberOf(value);
 }
 
 /** Whether two values of a part are the same: grind settings as numbers where both read as one, as Decaid keeps DYE2's 3 as "3". */
@@ -74,13 +86,13 @@ export function samePart(part: LoadedRecipePart, a: unknown, b: unknown): boolea
  * the next one, and the Recipe keeps them.
  */
 export function changedParts(held: WorkflowParts, now: WorkflowParts): LoadedRecipePart[] {
-  return PARTS.filter((part) => now[part] !== null && !samePart(part, held[part], now[part]));
+  return EDITED_PARTS.filter((part) => now[part] !== null && !samePart(part, held[part], now[part]));
 }
 
 /** What reading a Workflow's parts into its Loaded Recipe looks up. */
 export interface PartLookups {
   /** The Library item the tablet's record with that id is, by its map; undefined where the map holds none. */
-  item(kind: ItemKind, localId: string): string | undefined;
+  item(kind: "basket" | "beanBatch", localId: string): string | undefined;
   /** The Bean of a Bean Batch, by its global id; undefined where the Library has none. */
   beanOf(batchId: string): string | undefined;
 }
@@ -140,6 +152,8 @@ export function partEdits(
     if (held === null) continue;
     const field = RECIPE_FIELDS[part];
     const kind = ITEM_PARTS[part];
+    // A Grinder or Profile changed unloads the Recipe rather than edits it.
+    if (kind === "grinder" || part === "profile") continue;
     let value: unknown;
     if (kind !== undefined) {
       value = lookups.item(kind, String(held));
@@ -198,6 +212,8 @@ function recordValues(part: LoadedRecipePart, beforeWrite: Readonly<Record<strin
 
 /** The paths of a recipe record's `dashboardVariables` holding each part, as DYE2 keeps one hot water value of its mode. */
 const DASHBOARD_PATHS: Readonly<Record<LoadedRecipePart, readonly string[]>> = {
+  profile: [],
+  grinder: [],
   dose: ["dashboardVariables.dose"],
   yield: ["dashboardVariables.drink"],
   grind: ["dashboardVariables.grind"],
@@ -216,8 +232,9 @@ const HOT_WATER_NAMES = { targetTemperature: true, duration: true, volume: true,
 /**
  * What the Workflow is to hold of each part of a Recipe with this content,
  * as its tablet names it (`local`, the tablet's id for an item by its map):
- * null where the Recipe holds none, and undefined for a Basket or batch the
- * tablet holds no record of yet, which is written first. Its yield is its
+ * null where the Recipe holds none, and undefined for a Grinder, Basket or
+ * batch the tablet holds no record of yet, which is written first; its
+ * Profile by Decaid's id, the same on every tablet. Its yield is its
  * dose times its ratio where it holds none, as DYE2 applies one.
  */
 export function recipeParts(content: Readonly<Record<string, unknown>>, local: (kind: ItemKind, itemId: string) => string | undefined): Record<LoadedRecipePart, PartValue | undefined> {
@@ -226,14 +243,21 @@ export function recipeParts(content: Readonly<Record<string, unknown>>, local: (
     const value = content[RECIPE_FIELDS[part]];
     const kind = ITEM_PARTS[part];
     parts[part] = kind !== undefined ? (typeof value === "string" ? local(kind, value) : null) : partValue(part, value);
+    if (part === "profile") parts[part] = textOf(value);
   }
   const [dose, ratio] = [numberOf(content.dose), numberOf(content.ratio)];
   if (parts.yield === null && dose !== null && ratio !== null) parts.yield = Math.round(dose * ratio * 10) / 10;
   return parts;
 }
 
-/** What DYE2 copies into the Workflow beside a Basket and a Bean Batch: the Basket's name, and the batch's Bean's name and roaster. */
+/**
+ * What a write puts in the Workflow beside a part's id: the Grinder's model,
+ * the Basket's name, and the batch's Bean's name and roaster, as DYE2
+ * copies them, and the Profile whole, as Decaid keeps it.
+ */
 export interface PartNames {
+  profile: Record<string, unknown> | null;
+  grinderModel: string | null;
   basketName: string | null;
   coffeeName: string | null;
   coffeeRoaster: string | null;
@@ -244,8 +268,10 @@ export interface PartNames {
  * it last held its parts (`held`), to its Loaded Recipe's (`target`, as
  * `recipeParts` reads it), and the value it expects of each part's first
  * field: each part the Recipe holds a value of that the Workflow holds
- * otherwise, with the names DYE2 copies beside a Basket and a batch, where
- * known. One the tablet holds no record of yet waits. Null if none differs.
+ * otherwise, with the names DYE2 copies beside a Grinder, a Basket and a
+ * batch, where known. One the tablet holds no record of yet waits. A Profile
+ * is written whole, expecting nothing, as a skin overrides parts of the one
+ * it loads, and only where the Library holds it. Null if none differs.
  */
 export function partsWrite(
   target: Readonly<Record<LoadedRecipePart, PartValue | undefined>>,
@@ -258,9 +284,14 @@ export function partsWrite(
     const value = target[part];
     if (value === null || value === undefined || samePart(part, held[part], value)) continue;
     const [first, ...rest] = LOADED_RECIPE_PARTS[part] as readonly [string, ...string[]];
+    if (part === "profile") {
+      if (names.profile !== null) fields[first] = names.profile;
+      continue;
+    }
     fields[first] = value;
     expected[first] = held[part];
     const copied: Record<string, string | null> = {
+      "context.grinderModel": names.grinderModel,
       "context.extras.basketName": names.basketName,
       "context.coffeeName": names.coffeeName,
       "context.coffeeRoaster": names.coffeeRoaster,

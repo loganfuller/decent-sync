@@ -24,6 +24,8 @@ const OTHER_BEANS_BATCH = "33333333-3333-4333-8333-333333333333";
 const BEAN = "44444444-4444-4444-8444-444444444444";
 const OTHER_BEAN = "55555555-5555-4555-8555-555555555555";
 const BASKET = "66666666-6666-4666-8666-666666666666";
+const GRINDER = "77777777-7777-4777-8777-777777777777";
+const OTHER_GRINDER = "88888888-8888-4888-8888-888888888888";
 
 /** The tablet's map: its batch, the next bag of the same Bean and a batch of another, and a Basket. */
 const MAPPED: Record<string, string> = { "beanBatch:b1": BATCH, "beanBatch:b2": NEXT_BAG, "beanBatch:b3": OTHER_BEANS_BATCH, "basket:k1": BASKET };
@@ -34,6 +36,8 @@ const LOOKUPS: PartLookups = {
 
 /** A Recipe, in the Library's terms. */
 const CONTENT = {
+  profileId: "profile:adaptive",
+  grinderId: GRINDER,
   dose: 18,
   yield: 36,
   ratio: 2,
@@ -50,17 +54,40 @@ const CONTENT = {
 
 /** A Workflow holding that Recipe, as Decaid keeps one, naming the tablet's records. */
 const WORKFLOW = {
-  context: { targetDoseWeight: 18, targetYield: 36, grinderSetting: "2.7", beanBatchId: "b1", extras: { rpm: 900, basketId: "k1", basketName: "18g" } },
+  profile: { title: "Adaptive v3", steps: [] },
+  context: {
+    targetDoseWeight: 18,
+    targetYield: 36,
+    grinderId: "g1",
+    grinderModel: "Niche",
+    grinderSetting: "2.7",
+    beanBatchId: "b1",
+    extras: { rpm: 900, basketId: "k1", basketName: "18g" },
+  },
   hotWaterData: { targetTemperature: 88, duration: 40, volume: 120, flow: 7.5 },
 };
 
-const HELD: WorkflowParts = workflowParts(WORKFLOW);
+/** Its profile is the Library's `profile:adaptive`. */
+const HELD: WorkflowParts = workflowParts(WORKFLOW, "profile:adaptive");
 
 const NO_STALE = { beforeWrite: null, previous: {} };
 
 describe("A Workflow's parts that follow its Loaded Recipe", () => {
   it("are read as the Workflow holds them, the grind setting as text and the Basket and batch by the tablet's ids", () => {
-    expect(HELD).toEqual({ dose: 18, yield: 36, grind: "2.7", rpm: 900, basket: "k1", batch: "b1", targetTemperature: 88, duration: 40, volume: 120, flow: 7.5 });
+    expect(HELD).toEqual({
+      profile: "profile:adaptive",
+      grinder: "g1",
+      dose: 18,
+      yield: 36,
+      grind: "2.7",
+      rpm: 900,
+      basket: "k1",
+      batch: "b1",
+      targetTemperature: 88,
+      duration: 40,
+      volume: 120,
+      flow: 7.5,
+    });
     expect(readParts(JSON.parse(JSON.stringify(HELD)))).toEqual(HELD);
     expect(workflowParts({ context: { grinderSetting: 3 } })).toMatchObject({ grind: "3", dose: null, batch: null });
   });
@@ -69,6 +96,10 @@ describe("A Workflow's parts that follow its Loaded Recipe", () => {
     expect(changedParts(HELD, { ...HELD, grind: "2.70" })).toEqual([]);
     expect(changedParts(HELD, { ...HELD, grind: "2.8", volume: 140 })).toEqual(["grind", "volume"]);
     expect(changedParts(HELD, { ...HELD, batch: null, basket: null, rpm: null })).toEqual([]);
+  });
+
+  it("change no Grinder or Profile, a change of which unloads the Recipe rather than edits it", () => {
+    expect(changedParts(HELD, { ...HELD, grinder: "g2", profile: "profile:classic" })).toEqual([]);
   });
 });
 
@@ -127,9 +158,25 @@ describe("A change of a Workflow's parts", () => {
 });
 
 describe("What a Workflow is written of its Loaded Recipe", () => {
-  const locals: Record<string, string> = { [`beanBatch:${NEXT_BAG}`]: "b2", [`beanBatch:${BATCH}`]: "b1", [`basket:${BASKET}`]: "k1" };
+  const locals: Record<string, string> = {
+    [`beanBatch:${NEXT_BAG}`]: "b2",
+    [`beanBatch:${BATCH}`]: "b1",
+    [`basket:${BASKET}`]: "k1",
+    [`grinder:${GRINDER}`]: "g1",
+    [`grinder:${OTHER_GRINDER}`]: "g2",
+  };
   const local = (kind: string, itemId: string) => locals[`${kind}:${itemId}`];
-  const names = { basketName: "18g", coffeeName: "Ethiopia", coffeeRoaster: "Fixture Roasters" };
+  const CLASSIC = { title: "Classic Italian espresso", steps: [{ name: "pour" }] };
+  const names = { profile: CLASSIC, grinderModel: "EK43", basketName: "18g", coffeeName: "Ethiopia", coffeeRoaster: "Fixture Roasters" };
+
+  it("is its Grinder, with its model, and its Profile whole, expecting nothing of the Profile", () => {
+    expect(partsWrite(recipeParts({ ...CONTENT, grinderId: OTHER_GRINDER, profileId: "profile:classic" }, local), HELD, names)).toEqual({
+      fields: { profile: CLASSIC, "context.grinderId": "g2", "context.grinderModel": "EK43" },
+      expected: { "context.grinderId": "g1" },
+    });
+    // A Profile the Library does not hold whole is not written.
+    expect(partsWrite(recipeParts({ ...CONTENT, profileId: "profile:classic" }, local), HELD, { ...names, profile: null })).toBeNull();
+  });
 
   it("is each field of the Recipe's it holds otherwise, by the tablet's ids, expecting what it held, with the names DYE2 copies", () => {
     const target = recipeParts({ ...CONTENT, dose: 18.5, grindSetting: 2.8, beanBatchId: NEXT_BAG, hotWaterVolume: 140 }, local);

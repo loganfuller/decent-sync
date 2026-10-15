@@ -314,6 +314,8 @@ var __decentSync = (() => {
   }
   var LOADED_RECIPE_KIND = "loadedRecipe";
   var LOADED_RECIPE_PARTS = {
+    profile: ["profile"],
+    grinder: ["context.grinderId", "context.grinderModel"],
     dose: ["context.targetDoseWeight"],
     yield: ["context.targetYield"],
     grind: ["context.grinderSetting"],
@@ -1530,7 +1532,11 @@ var __decentSync = (() => {
     );
   }
   function loadedRecipeParts(workflow) {
-    return { context: isObject3(workflow.context) ? workflow.context : {}, hotWaterData: isObject3(workflow.hotWaterData) ? workflow.hotWaterData : {} };
+    return {
+      context: isObject3(workflow.context) ? workflow.context : {},
+      hotWaterData: isObject3(workflow.hotWaterData) ? workflow.hotWaterData : {},
+      ...isObject3(workflow.profile) ? { profile: workflow.profile } : {}
+    };
   }
   function machineMissing(answer) {
     return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");

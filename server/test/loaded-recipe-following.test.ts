@@ -13,7 +13,7 @@ import {
   recordedDye2Tablet,
   saveInDye2,
 } from "./support/simulated-dye2.js";
-import type { SimulatedTablet } from "./support/simulated-tablet.js";
+import { Refusal, type SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #146: a Machine follows its Loaded Recipe both ways
@@ -208,6 +208,28 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect((await versions(one)).filter((version) => "dose" in version.fields)[0]!.source.machine).toBeNull();
   });
 
+  it("writes the Recipe's Grinder and Profile, changed in the management interface, into the Workflow of each Machine with it loaded, which keeps it loaded", async () => {
+    const { here, machines, a, c, one, two } = await lab("Regrind", 48081);
+    const created = await api.call("POST", "/grinders", { locationId: here.id, content: { model: "Regrind EK43" } });
+    expect(created.status).toBe(201);
+    const grinder = ((await created.json()) as { grinder: { id: string } }).grinder.id;
+    const profileId = (await recipe(two)).content.profileId as string;
+    expect(profileId).not.toBe((await recipe(one)).content.profileId);
+    const title = ((await api.get<{ profile: { content: { profile: { title: string } } } }>(`/profiles/${encodeURIComponent(profileId)}`)).profile.content.profile).title;
+
+    expect((await api.call("PATCH", `/recipes/${one}`, { content: { grinderId: grinder, profileId, grindSetting: 4.3 } })).status).toBe(200);
+    for (const tablet of [a, c]) {
+      await expect.poll(() => localId(tablet, "/grinders", grinder)).toEqual(expect.any(String));
+      const onTablet = await localId(tablet, "/grinders", grinder);
+      await expect.poll(() => [context(tablet).grinderId, context(tablet).grinderModel, context(tablet).grinderSetting]).toEqual([onTablet, "Regrind EK43", "4.3"]);
+      await expect.poll(() => (tablet.workflow().profile as Record_ | undefined)?.title).toBe(title);
+    }
+    // Still the Recipe the plugin and the server have loaded on both.
+    await settle();
+    expect([named(a), named(c)]).toEqual([one, one]);
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
   it("moves the Recipe to the next batch of its Bean picked on A, written into C's Workflow, and unloads it on a batch of another Bean, leaving the Recipe as it was", async () => {
     const { machines, a, c, one } = await lab("Rebagged", 48031);
     const library = dye2Library();
@@ -289,6 +311,20 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await settle();
     expect(named(c)).toBe(one);
     await loads(machines.c, one);
+  });
+
+  it("clears the Recipe of a Machine made capture-only while offline, though a report of its Library lists is unavailable as it reconnects", async () => {
+    const { machines, a, c, one } = await lab("Offline capture-only", 48091);
+    c.loseNetwork();
+    await api.waitForMachine(machines.c.machine.name, (viewed) => !viewed.online, 15_000);
+    c.refuseFor("/beans", new Refusal(500, { error: "Read failed" }));
+    expect((await api.call("PUT", `/machines/${machines.c.machine.id}/sharing`, { sharing: false })).status).toBe(200);
+    const sent = c.sent.length;
+    c.restoreNetwork();
+    await expect.poll(() => c.sent.slice(sent).some((frame) => (frame as Record_).type === "collection" && (frame as Record_).name === "beans" && (frame as Record_).available === false)).toBe(true);
+    await expect.poll(() => named(c)).toBeNull();
+    await loads(machines.c, null);
+    expect(named(a)).toBe(one);
   });
 
   it("writes the Recipe's dial back over a recipe applied from a copy read before another Machine changed it, which edits nothing", async () => {

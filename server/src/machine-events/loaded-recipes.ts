@@ -24,6 +24,7 @@ import { lockLocation, transactionTime } from "../library/location-state.js";
 import { latestDecision, readFieldEdits } from "../library/merge.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
+import { profileOfSql } from "../shots/links.js";
 
 // Each Machine's Loaded Recipe (ADR-0022): the plugin works out which Recipe
 // its Workflow has loaded and records the Recipe's global id in it
@@ -195,12 +196,13 @@ async function followMachine(
     await tx.$executeRaw`DELETE FROM tablet_loaded_recipes WHERE tablet_id = ${tablet.tabletId}::uuid`;
     return;
   }
-  const now = workflowParts(workflow);
   const known = await heldLoadedRecipe(tx, tablet.tabletId);
   if (recipe !== null && continued && known?.recipeId === named) {
-    await takeInParts(tx, tablet, recipe, known, now, observedAt, new Set());
+    // Its Grinder and Profile are no edit of it, so held as they were: the Profile is not looked up.
+    await takeInParts(tx, tablet, recipe, known, workflowParts(workflow), observedAt, new Set());
     return;
   }
+  const now = workflowParts(workflow, await libraryProfileOf(tx, workflow));
   const [record] =
     recipe === null
       ? []
@@ -262,6 +264,14 @@ async function takeInParts(
   // part was set back or lost.
   if (writesDue) await notify(tx, "library_changes", followed.locationId);
   return lost;
+}
+
+/** The Library Profile a Workflow's profile is, found as a Shot's is (`profileOfSql`), or null. */
+async function libraryProfileOf(tx: Prisma.TransactionClient, workflow: unknown): Promise<string | null> {
+  const profile = isObject(workflow) ? workflow.profile : undefined;
+  if (!isObject(profile)) return null;
+  const [row] = await tx.$queryRaw<{ id: string | null }[]>`SELECT ${profileOfSql(Prisma.sql`${JSON.stringify(profile)}::jsonb`)} AS id`;
+  return row?.id ?? null;
 }
 
 /** A Recipe's content now, read in the transaction. */
@@ -355,17 +365,26 @@ export async function loadedRecipeDue(tx: Prisma.TransactionClient, tablet: { ma
   const content = isObject(recipe.content) ? recipe.content : {};
   const rows = await tx.$queryRaw<{ kind: ItemKind; itemId: string; localId: string }[]>`
     SELECT 'basket' AS kind, basket_id::text AS "itemId", local_id AS "localId" FROM tablet_baskets WHERE tablet_id = ${tablet.tabletId}::uuid
-    UNION ALL SELECT 'beanBatch', batch_id::text, local_id FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid`;
+    UNION ALL SELECT 'beanBatch', batch_id::text, local_id FROM tablet_bean_batches WHERE tablet_id = ${tablet.tabletId}::uuid
+    UNION ALL SELECT 'grinder', grinder_id::text, local_id FROM tablet_grinders WHERE tablet_id = ${tablet.tabletId}::uuid`;
   const locals = new Map(rows.map((row) => [`${row.kind}:${row.itemId}`, row.localId]));
   const target = recipeParts(content, (kind, itemId) => locals.get(`${kind}:${itemId.toLowerCase()}`));
-  const [names] = await tx.$queryRaw<{ basketName: unknown; coffeeName: unknown; coffeeRoaster: unknown }[]>`
-    SELECT (SELECT content -> 'name' FROM baskets WHERE id::text = lower(${String(content.basketId ?? "")})) AS "basketName",
+  const [names] = await tx.$queryRaw<{ profile: unknown; grinderModel: unknown; basketName: unknown; coffeeName: unknown; coffeeRoaster: unknown }[]>`
+    SELECT (SELECT content -> 'profile' FROM profiles WHERE id = ${String(content.profileId ?? "")}) AS profile,
+      (SELECT content -> 'model' FROM grinders WHERE id::text = lower(${String(content.grinderId ?? "")})) AS "grinderModel",
+      (SELECT content -> 'name' FROM baskets WHERE id::text = lower(${String(content.basketId ?? "")})) AS "basketName",
       bean.content -> 'name' AS "coffeeName", bean.content -> 'roaster' AS "coffeeRoaster"
     FROM (SELECT 1) AS one
     LEFT JOIN bean_batches AS batch ON batch.id::text = lower(${String(content.beanBatchId ?? "")})
     LEFT JOIN beans AS bean ON bean.id = batch.bean_id`;
   const text = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
-  const due = partsWrite(target, known.held, { basketName: text(names?.basketName), coffeeName: text(names?.coffeeName), coffeeRoaster: text(names?.coffeeRoaster) });
+  const due = partsWrite(target, known.held, {
+    profile: isObject(names?.profile) ? names.profile : null,
+    grinderModel: text(names?.grinderModel),
+    basketName: text(names?.basketName),
+    coffeeName: text(names?.coffeeName),
+    coffeeRoaster: text(names?.coffeeRoaster),
+  });
   if (due === null) return null;
   return { ...base, ...due, contentDecidedAt: latestDecision(readFieldEdits(recipe.fieldEdits)) };
 }
@@ -399,7 +418,7 @@ export async function recordLoadedRecipeWritten(
     const known = await heldLoadedRecipe(tx, tablet.tabletId);
     if (known === null || known.recipeId !== recipeId.toLowerCase()) return "recorded";
     const named = loadedRecipeOf(record);
-    const now = workflowParts(record);
+    const now = workflowParts(record, await libraryProfileOf(tx, record));
     // Cleared, or another loaded since: held as the Workflow holds it, as the one the plugin sends after it is.
     if (named === null) await tx.$executeRaw`DELETE FROM tablet_loaded_recipes WHERE tablet_id = ${tablet.tabletId}::uuid`;
     else if (named !== known.recipeId) await saveHeld(tx, tablet.tabletId, named, now, {}, null);

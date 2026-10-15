@@ -73,7 +73,9 @@ export type TakenInList = LibraryList;
  * since they were, and where its latest Workflow was taken in too, once it
  * sent one (`workflowAt`). A bean the tablet already holds, entered there or
  * before it joined, is then linked to the Library's Bean rather than written
- * to it again. Nothing is written while the Machine is capture-only. When it finds
+ * to it again. Nothing is written while the Machine is capture-only, or at no
+ * Location, but the clearing of a Loaded Recipe its Workflow still names
+ * (ADR-0022), whatever its reports, as it is asked for none. When it finds
  * the Machine taking part elsewhere, as once it has moved, or had sharing
  * turned off and on again, it asks the plugin for its collections afresh
  * (`requestCollections`), once for each place it finds, and writes once
@@ -297,15 +299,25 @@ export class TabletWriter {
   private async run(): Promise<void> {
     for (;;) {
       this.again = false;
-      // Until the connection's first reports are taken in, which its welcome brings, nothing is due.
+      // Until the connection's first reports are taken in, which its welcome brings, nothing is due but a clear (below).
       const reports = LIBRARY_LISTS.map((list) => this.reportedAt.get(list));
       /** Where all were taken in, or undefined while they were not, or were in different places, as across a move. */
       const reportedAt = reports.every((at) => at === reports[0]) ? reports[0] : undefined;
       const now = Date.now();
       for (const [key, until] of this.deferred) if (until <= now) this.deferred.delete(key);
-      const found =
-        reports.includes(undefined) || this.awaitingLists.size > 0 ? null : await tabletDue(this.prisma, this.tablet, reportedAt ?? null, new Set(this.deferred.keys()));
+      const ready = !reports.includes(undefined) && this.awaitingLists.size === 0;
+      // Until then, read only where the Machine takes part, and so what one taking part nowhere is due: no Location's
+      // reports were taken in at null.
+      let found = await tabletDue(this.prisma, this.tablet, ready ? (reportedAt ?? null) : null, new Set(this.deferred.keys()));
       if (this.stopped) return;
+      /**
+       * Whether the Machine takes part nowhere, as once made capture-only: it is asked for no report, and is due only the
+       * clearing of a Loaded Recipe its Workflow named, which the plugin makes only while the Workflow still names it, so
+       * it is written whatever its reports, one unavailable included.
+       */
+      const nowhere = found !== null && found.standing === null;
+      // Until the connection's reports are taken in, nothing else is due.
+      if (!ready && !nowhere) found = null;
       /** Whether the connection's latest Workflow was taken in elsewhere than where the Machine takes part now. */
       const workflowBehind = found !== null && this.workflowAt !== undefined && this.workflowAt !== found.standing;
       if (found && found.standing === reportedAt && !workflowBehind) this.requestedFor = undefined;
@@ -313,11 +325,8 @@ export class TabletWriter {
         this.requestedFor = found.standing;
         this.requestCollections();
       }
-      // A report of the tablet's beans may have been taken in while this was read: what is due waits for its batches. A
-      // Machine taking part nowhere, as once made capture-only, is asked for no report, and is due only the clearing of a
-      // Loaded Recipe its Workflow named, which the plugin makes only while the Workflow still names it.
-      const nowhere = found !== null && found.standing === null;
-      const planned = this.awaitingLists.size > 0 || (workflowBehind && !nowhere) ? null : (found?.writes ?? null);
+      // A report of the tablet's beans may have been taken in while this was read: what is due waits for its batches.
+      const planned = nowhere ? found!.writes : this.awaitingLists.size > 0 || workflowBehind ? null : (found?.writes ?? null);
       if (planned) {
         // An item no longer due has not stayed due since it was written, nor is it still refused.
         const stillDue = new Set(planned.map(changeKey));

@@ -407,9 +407,12 @@ for one at once.
 
 Ticket [#146](https://github.com/loganfuller/decent-sync/issues/146) has a
 Machine follow its Loaded Recipe both ways (ADR-0022). The parts of a
-Workflow that follow it are its dose, yield, grind setting, RPM, Basket,
-Bean Batch and four hot water settings (`LOADED_RECIPE_PARTS` in
-`protocol/`). The server keeps, per tablet, the Recipe its Workflow last
+Workflow that follow it are its Profile, Grinder, dose, yield, grind
+setting, RPM, Basket, Bean Batch and four hot water settings
+(`LOADED_RECIPE_PARTS` in `protocol/`); a change of all but the Profile and
+Grinder on the Machine edits the Recipe, and of those unloads it. The
+Workflow's Profile is held as the Library Profile it is, found as a Shot's
+is (`profileOfSql`). The server keeps, per tablet, the Recipe its Workflow last
 named and those parts as the Workflow held them, reported or as Decaid
 returned the plugin's write of them (`tablet_loaded_recipes`), as it keeps
 the shared settings (`tablet_settings`), so the plugin's own write is never
@@ -449,8 +452,11 @@ maps the parts to the Recipe's content both ways.
   (`loadedRecipeDue`, last in `changesDue`), a `write` of the
   `loadedRecipe` kind carrying the Recipe's fields its tablet's Workflow
   holds otherwise, by the tablet's ids, with the names DYE2 copies beside a
-  Basket and a batch, each expecting the value the Workflow last held
-  (`partsWrite`). The plugin writes nothing unless the Workflow still names
+  Grinder, a Basket and a batch, each expecting the value the Workflow last
+  held, and its Profile whole, expecting nothing, as a skin overrides parts
+  of the one it loads (`partsWrite`). The plugin, its Recipe's record
+  written first, matches the new Profile or Grinder to it, so keeps it
+  loaded. The plugin writes nothing unless the Workflow still names
   the Recipe, and sets a part only while it holds the value expected or
   none, so a barista's change since is kept, and reaches the server in the
   answer, where it is the tablet's edit, timed when the plugin had Decaid's
