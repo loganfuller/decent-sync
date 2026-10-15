@@ -20,8 +20,9 @@ export function useFreshServer(options: TestServerOptions = {}): {
 
   test.describe.configure({ mode: "serial" });
   // Started by the first test that needs it: Playwright resolves baseURL
-  // before beforeAll hooks run.
-  test.use({ baseURL: async ({}, use) => use((await (server ??= startTestServer(options))).url) });
+  // before beforeAll hooks run. Its start, migrations included, has a timeout
+  // of its own, so on a loaded machine it does not use up that test's.
+  test.use({ baseURL: [async ({}, use) => use((await (server ??= startTestServer(options))).url), { scope: "test", timeout: 60_000 }] });
   test.afterAll(async () => {
     await (await server)?.stop();
     // No token, link secret or session cookie the server handed out may reach its or a tablet's log.
