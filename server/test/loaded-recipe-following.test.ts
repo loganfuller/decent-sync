@@ -356,6 +356,11 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(() => inSlot(d, "2")).toBeUndefined();
     await settle();
     expect(named(d)).toBe(two);
+    // A profile change meanwhile, as a yield set in Streamline makes, selects nothing in the slot the Recipe left.
+    const selections = d.dye2Selections.length;
+    await d.changeSettings({ profile: { ...(d.workflow().profile as Record_), target_weight: 41 } });
+    await settle();
+    expect(d.dye2Selections.slice(selections)).toEqual([]);
     d.dropConnections();
     await expect.poll(() => named(d)).toBeNull();
     await expect.poll(() => dye2Selection(d)).toBeNull();

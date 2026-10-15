@@ -2142,9 +2142,12 @@ var __decentSync = (() => {
      * moves to another slot, or as its profile changes, which clears DYE2's
      * selection; and a recipe it no longer names is cleared from DYE2's
      * selection while DYE2 still has it selected, in the slot it was last told
-     * of, though the tablet holds it in none by then. The first Workflow the
-     * plugin sees, as on every load of it, clears nothing: DYE2 may hold a
-     * selection a barista made since.
+     * of, though the tablet holds it in none by then. A recipe the tablet holds
+     * in no slot is never selected, as another may be in the slot it left. The
+     * first Workflow the plugin sees, as on every load of it, clears nothing:
+     * DYE2 may hold a selection a barista made since. DYE2 names a recipe by
+     * its slot alone, so a selection the barista made since of another recipe
+     * put in the slot the unloaded one left is cleared with it.
      */
     follow(followed) {
       const told = this.told;
@@ -2152,8 +2155,8 @@ var __decentSync = (() => {
       const next = { ...followed, slot };
       if (told && told.globalId === next.globalId && told.slot === next.slot && (next.globalId === null || told.profile === next.profile)) return;
       this.told = next;
-      if (next.globalId !== null && next.slot !== null) {
-        this.send(() => this.select(next.slot));
+      if (followed.globalId !== null && followed.slot !== null) {
+        this.send(() => this.select(followed.slot));
       } else if (told?.globalId && told.slot !== null && next.globalId === null) {
         const slot2 = told.slot;
         this.send(() => this.clear(slot2));

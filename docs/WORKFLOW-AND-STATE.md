@@ -351,15 +351,23 @@ from the Workflow deliveries.
   strip selects through DYE2's `selection` endpoint, and records each
   change of the Workflow's dial into it, whichever app made it, the
   plugin's writes included. So the plugin keeps that selection in step with
-  the Loaded Recipe, through the same endpoint, once nothing is left to
-  decide or write (`plugin/src/dye2-selection.ts`): it selects the Loaded
-  Recipe's slot as it is loaded, as soon as its load is written, inside
-  DYE2's 1.5 s wait before recording, again as it moves to another slot or
-  its profile changes as DYE2 tells one apart (`dye2Fingerprint`), which
-  clears DYE2's selection, as a yield set in Streamline does, and clears the selection
-  as it is unloaded, by the plugin or the server, while DYE2 still has that
-  recipe selected, leaving a favourite or another recipe the barista
-  selected since. Otherwise DYE2 would go on recording into a recipe the
+  the Loaded Recipe, through the same endpoint
+  (`plugin/src/dye2-selection.ts`), after each load the plugin writes and
+  once nothing is left to decide. It selects the Loaded Recipe's slot as
+  soon as its load is written, inside DYE2's 1.5 s wait before recording.
+  It selects it again as it moves to another slot, and as its profile
+  changes as DYE2 fingerprints one (`dye2Fingerprint`), which DYE2 takes as
+  clearing its selection, as a yield set in Streamline does; but never
+  while the tablet holds it in no slot, as another may be in the slot it
+  left. It clears the selection as the plugin or the server unloads it,
+  while DYE2 still has its slot selected, leaving a favourite or another
+  slot the barista selected since; DYE2 names a recipe by its slot alone,
+  so a selection of another recipe put in that slot since is cleared too.
+  DYE2 v0.1.20 keeps a cleared selection in its plugin storage, as Decaid
+  stores no null, and selects it again as it next loads
+  (decentespresso/dye2#22): until that is fixed, a selection the plugin
+  cleared returns after Decaid restarts, and lasts until the plugin next
+  loads or unloads a Recipe. Otherwise DYE2 would go on recording into a recipe the
   plugin unloaded on a change of grinder or Bean, which DYE2 does not clear
   on, or that was selected before the barista dialled in another by hand,
   and each change would reach every Machine with that Recipe loaded. A
