@@ -103,18 +103,37 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     records(tablet, key).find((record) => String(record.name).trim().toLowerCase() === name.trim().toLowerCase());
   const show = (kind: "baskets" | "tools", id: string, location: LocationView, shown: boolean) => api.call("PUT", `/${kind}/${id}/locations/${location.id}`, { shown });
 
-  /** Has DYE2, which read the list just before, post it back just after the plugin's next write of the key, losing that write. */
+  /**
+   * Has DYE2, which read the list just before, post it back just after the
+   * plugin's next write of the key, losing that write. Returns whether DYE2's
+   * post has landed and the server has acknowledged the plugin's answer to
+   * the write: until then, the list may still show the write, and the
+   * server, still awaiting the answer, plans from the tablet's record as it
+   * was before the write, so a sharing status of nothing waiting says
+   * nothing of it.
+   */
   const loseNextWrite = (tablet: SimulatedTablet, key: Dye2Key) => {
     const before = structuredClone(dye2List(tablet, key) ?? []);
-    let lost = false;
+    /** Where in what the plugin sent its answer to the write lost comes, the next answer it sends, as it writes one item at a time. */
+    let answerFrom: number | undefined;
+    let posted = false;
     tablet.refuseWrites = ({ method, route }) => {
-      if (!lost && method === "POST" && route === `/store/${DYE2_NAMESPACE}/${key}`) {
-        lost = true;
-        setImmediate(() => void tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/${key}`, before));
+      if (answerFrom === undefined && method === "POST" && route === `/store/${DYE2_NAMESPACE}/${key}`) {
+        answerFrom = tablet.sent.length;
+        setImmediate(() => {
+          void tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/${key}`, before).then(() => {
+            posted = true;
+          });
+        });
       }
       return undefined;
     };
-    return () => lost;
+    const frames = (list: unknown[]) => list as { type?: unknown; id?: unknown }[];
+    return () => {
+      if (!posted) return false;
+      const answer = frames(tablet.sent.slice(answerFrom)).find((frame) => frame.type === "written" || frame.type === "removed");
+      return answer !== undefined && frames(tablet.received).some((reply) => reply.type === "ack" && reply.id === answer.id);
+    };
   };
 
   const baskets = dye2Recording("baskets");
