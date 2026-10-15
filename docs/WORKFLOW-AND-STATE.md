@@ -542,8 +542,8 @@ maps the parts to the Recipe's content both ways.
   out a Capture-only Machine's Shots, rather than by the id alone.
 
 Known limits: a stale copy and a set-back look alike, and are told apart
-only by who made the field's latest edit, until DYE2's recording takes
-over the parts it records (#177). So a barista who deliberately sets back
+only by who made the field's latest edit, as they are for a stale save
+(ADR-0005), whichever records the part, DYE2 or the plugin (#177). So a barista who deliberately sets back
 another Machine's, or the management interface's, change of a part to its
 value just before has it written back, as for a stale save (ADR-0005), and
 changes it through another value, or in the management interface; and a
