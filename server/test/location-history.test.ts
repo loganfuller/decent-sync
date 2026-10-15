@@ -690,7 +690,7 @@ describe("Location History", () => {
     }
     expect(entries(await moved(await correcting!))).toEqual([["Lab", "2026-01-01T00:00:00.000Z"]]);
     expect(await detail("slow-correction")).toMatchObject({ location: lab });
-  }, 20_000);
+  });
 
   it.each([
     {
@@ -789,5 +789,5 @@ describe("Location History", () => {
       await database.end();
     }
     expect((await api.pendingMachines()).filter((pending) => pending.serial === hardware.serial)).toEqual([]);
-  }, 30_000);
+  });
 });

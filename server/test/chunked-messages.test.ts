@@ -167,7 +167,7 @@ describe("Chunked messages", () => {
     // Heartbeats kept going alongside, and the connection never dropped.
     expect(tablet.sent.filter((message) => (message as Received).type === "heartbeat").length).toBeGreaterThan(heartbeatsBefore);
     expect(tablet.logs.filter((line) => line.startsWith("Disconnected"))).toEqual([]);
-  }, 30_000);
+  });
 
   it("puts duplicate and out-of-order chunks back together without corrupting the stored Shot", async () => {
     const machine = await api.createMachine("Raw chunks");
