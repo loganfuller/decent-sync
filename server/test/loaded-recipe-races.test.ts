@@ -145,14 +145,6 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     return workflow;
   };
 
-  it("leaves a Workflow the plugin loads with naming the Recipe as it is, its hot water and the next bag of its Bean as the barista set them", async () => {
-    const { tablet } = load("47251", appliedWith(nextBag.id, true, 61));
-    await settled();
-    expect(named(tablet)).toBe(RECIPE);
-    expect(context(tablet).beanBatchId).toBe(nextBag.id);
-    expect(tablet.workflow().hotWaterData).toEqual({ ...HOT_WATER, volume: 61 });
-  });
-
   it("loads nothing as the plugin loads with a Workflow holding the Recipe's dial and a batch of another Bean, as when the barista unloaded it so", async () => {
     const { tablet } = load("47261", appliedWith(brazil, false));
     await settled();
@@ -160,9 +152,13 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     expect(context(tablet).beanBatchId).toBe(brazil);
   });
 
-  it("writes the Recipe the Workflow names nothing as a tweak of it is set back, leaving the next bag and hot water the barista set", async () => {
+  it("leaves a Workflow the plugin loads with naming the Recipe as it is, then writes the Recipe nothing as a tweak of it is set back, leaving the next bag and hot water the barista set", async () => {
     const { tablet } = load("47271", appliedWith(nextBag.id, true, 61));
     await settled();
+    // The plugin loads with the Workflow naming the Recipe, and leaves it as it is.
+    expect(named(tablet)).toBe(RECIPE);
+    expect(context(tablet).beanBatchId).toBe(nextBag.id);
+    expect(tablet.workflow().hotWaterData).toEqual({ ...HOT_WATER, volume: 61 });
     await tablet.changeSettings({ context: { targetDoseWeight: 19 } });
     await settled();
     await tablet.changeSettings({ context: { targetDoseWeight: 18.5 } });

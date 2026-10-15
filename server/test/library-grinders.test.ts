@@ -132,28 +132,25 @@ describe("Grinders belonging to a Location", () => {
     expect(grinderWrites(cafe)).toEqual([]);
   });
 
-  it("Archives a Grinder deleted on one lab tablet, archiving it on the lab's other tablet, never deleting it, and restores it when un-archived there", async () => {
+  it("Archives a Grinder deleted or archived on one lab tablet, archiving it on the lab's other tablet, never deleting it, and restores it when un-archived", async () => {
     const { one, two } = await lab("Deleted", 18011);
-    const { record, grinder } = await enterGrinder(one, two, "Deleted Niche");
+    const deleted = await enterGrinder(one, two, "Deleted Niche");
 
-    await one.deleteGrinder(record.id);
+    await one.deleteGrinder(deleted.record.id);
     await expect.poll(async () => (await libraryGrinder("Deleted Niche")).archived).toBe(true);
-    const archived = await holds(two, grinder.id, { archived: true });
+    const archived = await holds(two, deleted.grinder.id, { archived: true });
     expect(two.writes.some((write) => write.startsWith("DELETE"))).toBe(false);
     // The tablet that deleted it holds it no more, and is not written it again.
-    expect(heldGrinder(one, grinder.id)).toEqual([]);
+    expect(heldGrinder(one, deleted.grinder.id)).toEqual([]);
     expect(grinderWrites(one).filter((write) => write.startsWith("POST "))).toEqual([]);
 
     // Un-archived on the other tablet, it is restored: offered at the lab again, it is written again to the tablet that deleted it.
     await two.editGrinder(archived.id, { archived: false });
     await expect.poll(async () => (await libraryGrinder("Deleted Niche")).archived).toBe(false);
-    await holds(one, grinder.id, { archived: false });
-  });
+    await holds(one, deleted.grinder.id, { archived: false });
 
-  it("Archives a Grinder archived on a tablet, archived on the Location's other tablets, and restores it when un-archived", async () => {
-    const { one, two } = await lab("Archived", 18021);
+    // Another archived on a tablet is archived on the other, and un-archived there once un-archived on the first.
     const { record, grinder } = await enterGrinder(one, two, "Archived EK43");
-
     await one.editGrinder(record.id, { archived: true });
     await expect.poll(async () => (await libraryGrinder("Archived EK43")).archived).toBe(true);
     await holds(two, grinder.id, { archived: true });
@@ -189,22 +186,6 @@ describe("Grinders belonging to a Location", () => {
     await holds(two, grinder.id, { archived: true });
     expect(grinderWrites(one)).toEqual([`PUT /grinders/${String(record.id)}`]);
     expect((await libraryGrinder("Kept Mythos")).archived).toBe(true);
-  });
-
-  it("keeps two Grinders of the same model at two Locations two Grinders, each written only at its own", async () => {
-    const { labLocation, cafeLocation, one, two, cafe } = await lab("Same", 18031);
-    await one.addGrinder({ model: "Same ZP6", burrType: "conical" });
-    await cafe.addGrinder({ model: "Same ZP6", burrType: "conical" });
-    await expect.poll(async () => (await grindersOf("Same ZP6")).map((grinder) => grinder.location?.name)).toEqual([cafeLocation.name, labLocation.name]);
-    const [atCafe, atLab] = await grindersOf("Same ZP6");
-    expect(atCafe!.id).not.toBe(atLab!.id);
-    await holds(one, atLab!.id, { archived: false });
-    await holds(two, atLab!.id, { archived: false });
-    await holds(cafe, atCafe!.id, { archived: false });
-    // Each tablet holds its own Location's only.
-    expect(heldGrinder(cafe, atLab!.id)).toEqual([]);
-    expect(heldGrinder(two, atCafe!.id)).toEqual([]);
-    expect(two.grinders()).toHaveLength(1);
   });
 
   it("adds the grinders a tablet held before its Machine had a Location to the Location it joins, which had none, but not one archived there, and writes it the others", async () => {

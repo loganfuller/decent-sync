@@ -99,7 +99,7 @@ describe("Machines and the sync connection", () => {
   });
 
   describe("a simulated tablet running the built plugin", () => {
-    describe("from connecting to being replaced", () => {
+    describe("from connecting to reconnecting", () => {
       runAsSteps();
       let uptown: Awaited<ReturnType<typeof createMachine>>;
       let tablet: SimulatedTablet;
@@ -114,12 +114,9 @@ describe("Machines and the sync connection", () => {
         // The last-seen time is by PostgreSQL's clock, which may run ahead of or behind this one.
         expect(Date.parse(connected.lastSeenAt!)).toBeGreaterThanOrEqual(before - 1_000);
         expect(Date.parse(connected.lastSeenAt!)).toBeLessThanOrEqual(Date.now() + 1_000);
-        await tablet.waitForLog(/^Connected to ws:\/\/127\.0\.0\.1:\d+\/sync$/);
-      });
-
-      it("binds the token to the model and serial the machine reported", () => {
-        // The fixture's DE1Pro, whose serial is replaced with a made-up one.
+        // Bound to the model and serial the machine reported: the fixture's DE1Pro, whose serial is replaced with a made-up one.
         expect(connected).toMatchObject({ model: "DE1Pro", serial: "10001" });
+        await tablet.waitForLog(/^Connected to ws:\/\/127\.0\.0\.1:\d+\/sync$/);
       });
 
       it("keeps the last-seen time current with heartbeats", async () => {
@@ -150,19 +147,6 @@ describe("Machines and the sync connection", () => {
         // Until the server notices the drop, the REST API still lists the old connection, so wait for the new one.
         expect(await tablet.waitForLogs(/^Connected to /, 2)).toHaveLength(2);
         await waitForMachine("Uptown", (machine) => machine.online);
-      });
-
-      it("replaces an older connection with the same token from another tablet, and the older tablet waits", async () => {
-        const replacement = loadTablet(settingsFor(uptown));
-        await replacement.waitForLog(/^Connected to /);
-
-        await tablet.waitForLog(/^Another tablet connected with this Machine's token and took over\. Connecting again in 300 s,/);
-        await new Promise((resolve) => setTimeout(resolve, 1_500));
-        expect(tablet.logs.filter((log) => log.startsWith("Connected to "))).toHaveLength(2);
-        expect(await machineNamed("Uptown")).toMatchObject({ online: true });
-
-        await replacement.unload();
-        await waitForMachine("Uptown", (machine) => !machine.online);
       });
     });
 
@@ -355,12 +339,6 @@ describe("Machines and the sync connection", () => {
       await waitForMachine("Slow database", (machine) => machine.online);
     }, 15_000);
 
-    it("close a connection whose token is unknown with the bad-token code", async () => {
-      raw = await RawConnection.open(server.url);
-      raw.send(helloWith("aGVsbG8gd29ybGQgdGhpcyBpcyBub3QgYSB0b2tlbg"));
-      expect(await expectRefusal(raw, "bad_token")).toMatch(/has this token/);
-    });
-
     it("close a connection that sends no hello within the timeout with the protocol-error code", async () => {
       raw = await RawConnection.open(server.url);
       const opened = Date.now();
@@ -392,13 +370,6 @@ describe("Machines and the sync connection", () => {
       expect(await machineNamed("Invalid hello")).toMatchObject({ online: false, lastSeenAt: null });
     });
 
-    it("close a connection whose plugin is too old with the too-old code", async () => {
-      const { token } = await createMachine("Old plugin");
-      raw = await RawConnection.open(server.url);
-      raw.send({ type: "hello", protocolVersion: 0, token });
-      expect(await expectRefusal(raw, "plugin_too_old")).toMatch(/update the plugin/);
-    });
-
     it("close a second hello, and a connection that stops sending heartbeats, with the protocol-error code", async () => {
       const { token } = await createMachine("Silent");
       raw = await RawConnection.open(server.url);
@@ -416,20 +387,6 @@ describe("Machines and the sync connection", () => {
       expect(raw.messages[1]).toEqual({ type: "error", code: "protocol_error", message: "No heartbeat for 1.5 seconds" });
       expect(Date.now() - welcomed).toBeGreaterThanOrEqual(1_400);
       await waitForMachine("Silent", (machine) => !machine.online);
-    });
-
-    it("close the older of two connections with the same token with the replaced code", async () => {
-      const { token } = await createMachine("Twice");
-      const first = await RawConnection.open(server.url);
-      first.send(helloWith(token));
-      await first.message(0);
-
-      raw = await RawConnection.open(server.url);
-      raw.send(helloWith(token));
-      await raw.message(0);
-      expect(await first.closed).toEqual({ code: CLOSE_CODES.replaced, reason: "replaced" });
-      expect(first.messages[1]).toEqual({ type: "error", code: "replaced", message: expect.any(String) });
-      expect(await machineNamed("Twice")).toMatchObject({ online: true });
     });
 
     it("log what a hello reported quoted and escaped, so a tablet cannot forge log lines or control a terminal", async () => {

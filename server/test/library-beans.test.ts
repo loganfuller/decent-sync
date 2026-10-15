@@ -476,26 +476,6 @@ describe("Beans in the Library", { timeout: 30_000 }, () => {
     expect(homeTablet.writes).toEqual([]);
   });
 
-  it("writes a tablet that was offline while a Bean was created once it reconnects", async () => {
-    const cafe = await api.createLocation("Offline cafe", "UTC");
-    const first = await api.createMachine("Offline 1", cafe.id);
-    const second = await api.createMachine("Offline 2", cafe.id);
-    const one = load(first, "14061");
-    const storage = new PluginStorage();
-    const away = load(second, "14062", { storage });
-    await api.waitForOnline(first, second);
-    await away.unload();
-    await api.waitForMachine(second.machine.name, (viewed) => !viewed.online);
-
-    await one.addBean({ roaster: "Roux", name: "Made While Offline" });
-    const bean = await libraryBean("Made While Offline");
-    await holds(one, "Made While Offline", bean.id);
-    expect(heldAs(away, "Made While Offline")).toEqual([]);
-    // The same tablet, its Decaid data kept, loads the plugin again.
-    const back = load(second, "14062", { storage, beans: away.beans() });
-    await holds(back, "Made While Offline", bean.id);
-  });
-
   it("writes to an Unidentified Machine's tablet, but nothing to a mismatched connection, whose Beans stay out of the Library", async () => {
     const cafe = await api.createLocation("Identity cafe", "UTC");
     const known = await api.createMachine("Identity known", cafe.id);

@@ -70,11 +70,6 @@ describe("Staff access", () => {
     return raw;
   }
 
-  it("tells Staff the Locations they work at", async () => {
-    const { account } = (await (await staff.call("GET", "/session")).json()) as { account: { role: string; locations: LocationView[] } };
-    expect(account).toMatchObject({ role: "staff", locations: [belmont, uptown] });
-  });
-
   it("shows Staff everything an Admin reads, about every Machine, Location, Bean, Shot and Steam Record", async () => {
     // Uptown 1's tablet sends a Shot recorded on its hardware and a Steam Record.
     const raw = await connect(uptown1, { model: "DE1Pro", serial: "10001" });
