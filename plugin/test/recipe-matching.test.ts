@@ -2,10 +2,14 @@ import fs from "node:fs";
 import { LOADED_RECIPE_KEY, RECIPE_FIELD } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import {
+  type ChangedSetUp,
   type Dial,
   type HeldRecipe,
+  type Pending,
   type WorkflowSetUp,
+  changedParts,
   chooseLoad,
+  decideChange,
   loadWrite,
   matches,
   profileKey,
@@ -50,6 +54,7 @@ const held = (globalId: string, slot: number, record: Record_, earlier: Record_[
   slot,
   record,
   dials: [record, ...earlier].flatMap(dialsOf),
+  now: dialsOf(record),
 });
 
 const ONE = "0190a5a2-0000-7000-8000-000000000001";
@@ -207,5 +212,69 @@ describe("when the plugin unloads a recipe", () => {
   it("keeps it through a change of what the recipe names none of", () => {
     const loose: Dial[] = [{ profile: null, dose: 18.5, yield: 36, grinder: null, grind: "2.7" }];
     expect(unloads(loaded, changed({ profile: "another", grinder: "another-grinder" }, "another-bean"), loose, null)).toBe(false);
+  });
+});
+
+describe("deciding each change of the Workflow in turn", () => {
+  const ethiopia = String(recipe("1").beanId);
+  const brazil = String(recipe("2").beanId);
+  const recipes = [held(ONE, 1, recipe("1")), held(TWO, 2, recipe("2"))];
+  const slot1 = applied("dye2-applies", "applySlot1");
+  const slot2 = applied("streamline", "applySlot2");
+  /** A Workflow derived from slot 1's as applied, its context changed as given. */
+  const derived = (from: Record_, context: Record_) => ({ ...from, context: { ...(from.context as Record_), ...context } });
+  const withId = (from: Record_, id: string | null) => derived(from, { extras: { ...((from.context as Record_).extras as Record_), [LOADED_RECIPE_KEY]: id } });
+  /** Decides each Workflow in turn from the one before it, each batch's Bean as `beans` says, from nothing pending. */
+  function decided(workflows: Record_[], beans: Record<string, string> = {}): Pending {
+    let pending: Pending = { kind: "none" };
+    let before: Record_ | undefined;
+    for (const workflow of workflows) {
+      const picked = before !== undefined && (before.context as Record_).beanBatchId !== (workflow.context as Record_).beanBatchId;
+      const setUp = (of: Record_): ChangedSetUp => {
+        const batch = ((of.context as Record_).beanBatchId as string | undefined) ?? null;
+        return { dial: workflowDial(of), batch, bean: picked && batch !== null ? (beans[batch] ?? null) : null, named: ((((of.context as Record_).extras ?? {}) as Record_)[LOADED_RECIPE_KEY] as string | undefined) ?? null };
+      };
+      pending = decideChange(pending, before && setUp(before), setUp(workflow), before ? changedParts(before, workflow) : new Set(), recipes);
+      before = workflow;
+    }
+    return pending;
+  }
+  const beans = { "batch-e": ethiopia, "batch-e2": ethiopia, "batch-b": brazil };
+  const loaded = withId(derived(slot1, { beanBatchId: "batch-e" }), ONE);
+  const tweaked = derived(loaded, { grinderSetting: "2.8" });
+
+  it("loads a recipe applied, and loads it again from a tweak, writing what the tweak changed back", () => {
+    expect(decided([derived(slot1, { targetDoseWeight: 17 }), slot1])).toEqual({ kind: "load", globalId: ONE, kept: new Set() });
+    expect(decided([tweaked, loaded])).toEqual({ kind: "load", globalId: ONE, kept: new Set() });
+  });
+
+  it("loads the first Workflow the plugin hears of where it matches, but unloads nothing then", () => {
+    expect(decided([slot1])).toEqual({ kind: "load", globalId: ONE, kept: new Set() });
+    expect(decided([withId(derived(slot1, { targetDoseWeight: 17 }), ONE)])).toEqual({ kind: "none" });
+  });
+
+  it("keeps the parts a barista changes after a load still to be written, and the load", () => {
+    expect(decided([derived(slot1, { targetDoseWeight: 17 }), slot1, derived(slot1, { targetDoseWeight: 18.6 })])).toEqual({ kind: "load", globalId: ONE, kept: new Set(["dose"]) });
+    const hotWater = { ...slot1, hotWaterData: { ...(slot1.hotWaterData as Record_), volume: 60 } };
+    expect(decided([derived(slot1, { targetDoseWeight: 17 }), slot1, hotWater])).toEqual({ kind: "load", globalId: ONE, kept: new Set(["volume"]) });
+    expect(decided([tweaked, loaded, derived(loaded, { beanBatchId: "batch-e2" })], beans)).toEqual({ kind: "load", globalId: ONE, kept: new Set(["batch"]) });
+  });
+
+  it("unloads a load still to be written on a batch of another Bean picked after it, or with it", () => {
+    expect(decided([tweaked, loaded, derived(loaded, { beanBatchId: "batch-b" })], beans)).toEqual({ kind: "unload" });
+    expect(decided([slot1, derived(slot1, { beanBatchId: "batch-b" })], beans)).toEqual({ kind: "unload" });
+    // Picked in the same change as the dial: no app applying a recipe picks a batch, so it is the barista's.
+    expect(decided([tweaked, derived(loaded, { beanBatchId: "batch-b" })], beans)).toEqual({ kind: "unload" });
+  });
+
+  it("keeps an unload through the changes after it, as had each been decided at once", () => {
+    const another = derived(loaded, { grinderId: "another-grinder" });
+    expect(decided([loaded, another])).toEqual({ kind: "unload" });
+    expect(decided([loaded, another, derived(another, { targetDoseWeight: 19.25 })])).toEqual({ kind: "unload" });
+    expect(decided([loaded, another, derived(loaded, { targetDoseWeight: 19.25 })])).toEqual({ kind: "unload" });
+  });
+
+  it("loads another recipe applied over a load still to be written", () => {
+    expect(decided([derived(slot1, { targetDoseWeight: 17 }), slot1, slot2])).toEqual({ kind: "load", globalId: TWO, kept: new Set() });
   });
 });

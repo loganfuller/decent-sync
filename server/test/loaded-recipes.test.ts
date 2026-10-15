@@ -296,7 +296,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     await loads(machine, null);
   });
 
-  it("keeps a Recipe loaded whose grinder is set back, with a dose tweak, while the change that unloads it is being decided", async () => {
+  it("unloads a Recipe whose grinder changes, though it is set back with a dose tweak while that is being decided, as had each change been decided at once", async () => {
     let restore: (() => void) | undefined;
     // Once set, the next read of DYE2's recipes takes 25 s of the tablet's time, half a second here, as the grinder is set back.
     const delay = (method: string, path: string) => {
@@ -320,8 +320,10 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as unknown, { timeout: 15_000 }).toMatchObject({
       workflow: { workflow: { context: { grinderId, targetDoseWeight: 19.25 } } },
     });
-    expect(named(tablet)).toBe(one);
-    expect((await loadedRecipe(machine))?.recipe.id).toBe(one);
+    // The grinder's change unloaded it; set back with another dose, the Workflow matches it no longer.
+    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
+    expect(context(tablet)).toMatchObject({ grinderId, targetDoseWeight: 19.25 });
+    await loads(machine, null);
   });
 
   it("unloads a Recipe whose grinder changes, though its dose is tweaked while that is being decided", async () => {

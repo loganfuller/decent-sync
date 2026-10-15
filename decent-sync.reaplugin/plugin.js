@@ -864,28 +864,29 @@ var __decentSync = (() => {
       return globalId !== null && isSlotId(record.id) ? [{ globalId, slot: Number(record.id), record }] : [];
     });
   }
-  function loadWrite(workflow, record, globalId, load) {
+  function loadWrite(workflow, record, globalId, load, kept = /* @__PURE__ */ new Set()) {
     const context = isObject2(workflow.context) ? workflow.context : {};
     const extras = isObject2(context.extras) ? context.extras : {};
     const variables = isObject2(record.dashboardVariables) ? record.dashboardVariables : {};
     const [dial] = recipeDials(record);
     const contextWrite = {};
     const extrasWrite = {};
-    if (dial.dose !== null && !sameNumber(dial.dose, numberOf(context.targetDoseWeight))) contextWrite.targetDoseWeight = dial.dose;
-    if (dial.yield !== null && !sameNumber(dial.yield, numberOf(context.targetYield))) contextWrite.targetYield = dial.yield;
-    if (dial.grind !== null && !sameGrind(dial.grind, grindOf(context.grinderSetting))) contextWrite.grinderSetting = dial.grind;
-    if (dial.grinder !== null && dial.grinder !== textOf(context.grinderId)) {
+    const writes = (part) => !kept.has(part);
+    if (writes("dose") && dial.dose !== null && !sameNumber(dial.dose, numberOf(context.targetDoseWeight))) contextWrite.targetDoseWeight = dial.dose;
+    if (writes("yield") && dial.yield !== null && !sameNumber(dial.yield, numberOf(context.targetYield))) contextWrite.targetYield = dial.yield;
+    if (writes("grind") && dial.grind !== null && !sameGrind(dial.grind, grindOf(context.grinderSetting))) contextWrite.grinderSetting = dial.grind;
+    if (writes("grinder") && dial.grinder !== null && dial.grinder !== textOf(context.grinderId)) {
       contextWrite.grinderId = dial.grinder;
       if (textOf(variables.grinderModel) !== null) contextWrite.grinderModel = variables.grinderModel;
     }
     const rpm = numberOf(variables.rpm);
-    if (rpm !== null && !sameNumber(rpm, numberOf(extras.rpm))) extrasWrite.rpm = rpm;
+    if (writes("rpm") && rpm !== null && !sameNumber(rpm, numberOf(extras.rpm))) extrasWrite.rpm = rpm;
     const basket = textOf(variables.basketId);
-    if (basket !== null && basket !== textOf(extras.basketId)) {
+    if (writes("basket") && basket !== null && basket !== textOf(extras.basketId)) {
       extrasWrite.basketId = basket;
       if (textOf(variables.basketName) !== null) extrasWrite.basketName = variables.basketName;
     }
-    if (load.batch !== null && load.batch.id !== textOf(context.beanBatchId)) {
+    if (writes("batch") && load.batch !== null && load.batch.id !== textOf(context.beanBatchId)) {
       contextWrite.beanBatchId = load.batch.id;
       if (load.batch.coffeeName !== null) contextWrite.coffeeName = load.batch.coffeeName;
       if (load.batch.coffeeRoaster !== null) contextWrite.coffeeRoaster = load.batch.coffeeRoaster;
@@ -895,20 +896,58 @@ var __decentSync = (() => {
     const write = {};
     if (Object.keys(contextWrite).length > 0) write.context = contextWrite;
     const key = profileKey(load.profile);
-    if (key !== null && key !== profileKey(workflow.profile)) write.profile = load.profile;
-    const kept = isObject2(record[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
-    const hotWater = isObject2(kept.hotWaterData) ? kept.hotWaterData : {};
+    if (writes("profile") && key !== null && key !== profileKey(workflow.profile)) write.profile = load.profile;
+    const own = isObject2(record[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
+    const hotWater = isObject2(own.hotWaterData) ? own.hotWaterData : {};
     const held = isObject2(workflow.hotWaterData) ? workflow.hotWaterData : {};
     const hotWaterWrite = Object.fromEntries(
       HOT_WATER.flatMap((field) => {
         const value = numberOf(hotWater[field]);
-        return value !== null && !sameNumber(value, numberOf(held[field])) ? [[field, value]] : [];
+        return writes(field) && value !== null && !sameNumber(value, numberOf(held[field])) ? [[field, value]] : [];
       })
     );
     if (Object.keys(hotWaterWrite).length > 0) write.hotWaterData = hotWaterWrite;
     return Object.keys(write).length > 0 ? write : null;
   }
   var HOT_WATER = ["targetTemperature", "duration", "volume", "flow"];
+  function changedParts(a, b) {
+    const [x, y] = [workflowDial(a), workflowDial(b)];
+    const part = (workflow, name) => isObject2(workflow[name]) ? workflow[name] : {};
+    const extra = (workflow, name) => {
+      const extras = part(workflow, "context").extras;
+      return isObject2(extras) ? extras[name] : void 0;
+    };
+    const changed = /* @__PURE__ */ new Set();
+    if (!sameNumber(x.dose, y.dose)) changed.add("dose");
+    if (!sameNumber(x.yield, y.yield)) changed.add("yield");
+    if (!sameGrind(x.grind, y.grind)) changed.add("grind");
+    if (x.grinder !== y.grinder) changed.add("grinder");
+    if (x.profile !== y.profile) changed.add("profile");
+    if (!sameNumber(numberOf(extra(a, "rpm")), numberOf(extra(b, "rpm")))) changed.add("rpm");
+    if (textOf(extra(a, "basketId")) !== textOf(extra(b, "basketId"))) changed.add("basket");
+    if (workflowBatch(a) !== workflowBatch(b)) changed.add("batch");
+    for (const field of HOT_WATER) if (!sameNumber(numberOf(part(a, "hotWaterData")[field]), numberOf(part(b, "hotWaterData")[field]))) changed.add(field);
+    if (loadedRecipeOf(a) !== loadedRecipeOf(b)) changed.add("recipe");
+    return changed;
+  }
+  function decideChange(pending, before, after, changed, held) {
+    const dialChanged = !before || !sameDial(before.dial, after.dial);
+    const picked = before !== void 0 && before.batch !== after.batch;
+    const loaded = pending.kind === "load" ? pending.globalId : pending.kind === "unload" ? null : after.named;
+    if (dialChanged) {
+      const chosen = chooseLoad(after.dial, loaded, held, picked ? after.bean : null);
+      if (chosen) return { kind: "load", globalId: chosen.globalId, kept: new Set(picked ? ["batch"] : []) };
+    }
+    if (loaded === null || !before) return pending;
+    const recipe = held.find((candidate) => candidate.globalId === loaded);
+    if (!recipe) return pending;
+    const bean = typeof recipe.record.beanId === "string" && recipe.record.beanId !== "" ? recipe.record.beanId : null;
+    if (unloads({ dial: before.dial, bean: picked ? before.bean : null }, { dial: after.dial, bean: picked ? after.bean : null }, recipe.now, bean)) return { kind: "unload" };
+    if (pending.kind !== "load") return pending;
+    const kept = new Set(pending.kept);
+    for (const part of changed) if (part !== "recipe") kept.add(part);
+    return { ...pending, kept };
+  }
   function unloads(before, after, dials, bean) {
     const named = (read) => dials.map(read).filter((value) => value !== null);
     const profiles = named((dial) => dial.profile);
@@ -1979,12 +2018,15 @@ var __decentSync = (() => {
       __publicField(this, "log", log);
       /** The latest Workflow Decaid reported. */
       __publicField(this, "latest");
-      /** The dial and Bean Batch of the latest Workflow decided on, which a change is judged against. */
+      /** The Workflows reported, in order, still to be decided on. */
+      __publicField(this, "queue", []);
+      /** The latest Workflow decided on, which the next change is judged from. */
       __publicField(this, "decided");
+      /** What the changes decided on so far leave to write into the Workflow. */
+      __publicField(this, "pending", { kind: "none" });
       __publicField(this, "running", false);
       /** Whether the Workflow's changes are held back while it decides (`observe`). */
       __publicField(this, "holding", false);
-      __publicField(this, "again", false);
       __publicField(this, "stopped", false);
       /** Set while a decision Decaid failed waits to be tried again, with how long the next failure waits. */
       __publicField(this, "retryTimer");
@@ -1999,14 +2041,14 @@ var __decentSync = (() => {
       __publicField(this, "beans", /* @__PURE__ */ new Map());
     }
     /**
-     * Decaid's `workflowUpdated`, before the Workflow is queued: on a change of
-     * its dial or Bean Batch, the plugin decides whether it loads or unloads a
-     * recipe and writes what that needs, as it does for any change Decaid
-     * reports meanwhile. The change is held back until then, so the server
-     * never reads a Workflow as a stale copy applied it, if it names a Loaded
-     * Recipe, which the change may unload or replace, or matches a recipe as
-     * the tablet held it when last read. Any other is sent at once, as it is
-     * kept in Decaid's plugin storage as it is queued, so an unload of the
+     * Decaid's `workflowUpdated`, before the Workflow is queued. A change of
+     * its dial or Bean Batch is decided on (`run`), as is any change of what a
+     * load writes while one is under way. The change is held back until it is
+     * decided on and written, so the server never reads a Workflow as a stale
+     * copy applied it, if it names a Loaded Recipe, which the change may
+     * unload or replace, or matches a recipe as the tablet held it when last
+     * read, or a write is still to be made. Any other is sent at once, as it
+     * is kept in Decaid's plugin storage as it is queued, so an unload of the
      * plugin meanwhile loses none: it names no Recipe the server could take it
      * for, and a load the plugin then finds, of a recipe saved since it last
      * read them, is sent after it.
@@ -2014,17 +2056,33 @@ var __decentSync = (() => {
     observe(workflow) {
       if (this.stopped) return;
       this.latest = workflow;
-      if (this.running) {
-        this.again = true;
-      } else {
-        if (this.decided && sameSetUp(this.decided, workflow)) return;
-        this.running = true;
-        void this.run();
-      }
-      if (!this.holding && (loadedRecipeOf(workflow) !== null || this.mayLoad(workflowDial(workflow)))) {
+      this.enqueue(workflow);
+      if (this.queue.length === 0 && this.pending.kind === "none") return;
+      if (!this.holding && (loadedRecipeOf(workflow) !== null || this.pending.kind !== "none" || this.mayLoad(workflowDial(workflow)))) {
         this.holding = true;
         this.changes.hold();
       }
+      if (!this.running) {
+        this.running = true;
+        void this.run();
+      }
+    }
+    /**
+     * Queues a Workflow to be decided on: one that changes what a load writes
+     * from the last queued or decided on, while a decision is under way or a
+     * write still to be made, and otherwise only one that changes its dial or
+     * Bean Batch, which alone can load or unload a recipe.
+     */
+    enqueue(workflow) {
+      const last = this.queue[this.queue.length - 1] ?? this.decided;
+      if (!last) {
+        this.queue.push(workflow);
+        return;
+      }
+      const changed = changedParts(last, workflow);
+      const busy = this.running || this.pending.kind !== "none";
+      const setUp = ["dose", "yield", "grind", "grinder", "profile", "batch"].some((part) => changed.has(part));
+      if (busy ? changed.size > 0 : setUp) this.queue.push(workflow);
     }
     /**
      * Whether a dial matches any dial of a recipe the tablet held as last
@@ -2068,26 +2126,30 @@ var __decentSync = (() => {
       if (this.retryTimer !== void 0) clearTimeout(this.retryTimer);
     }
     /**
-     * Decides on the latest Workflow, again while Decaid reports changes
-     * meanwhile, then sends the latest if it held any. A decision Decaid fails
-     * is judged against the Workflow decided on before it, and tried again
-     * later, as no change may come to try it: the Workflow is sent meanwhile,
-     * still naming the Loaded Recipe it named.
+     * Decides on each Workflow queued, in turn, then writes what they leave
+     * to write (`pending`), until none is queued and nothing is left, then
+     * sends the latest if it held any. A write finds the Workflow as Decaid
+     * holds it first, and where that is not the one last decided on, which
+     * Decaid then reports, it is decided on as the next change instead, and
+     * the write made after. Where Decaid fails what a decision or a write
+     * needs, the Workflows still to be decided on and the write still to be
+     * made wait, and are tried again later, as no change may come to try them:
+     * the Workflow is sent meanwhile, as it is.
      */
     async run() {
       await Promise.resolve();
       try {
-        do {
-          this.again = false;
-          const workflow = this.latest;
-          try {
-            await this.decide(workflow);
-            this.retryMs = FIRST_RETRY_MS;
-          } catch (error) {
-            this.log(`Could not work out the Loaded Recipe, trying again in ${this.retryMs / 1e3} s: ${error instanceof Error ? error.message : String(error)}`);
-            this.retryLater();
-          }
-        } while (this.again && !this.stopped);
+        while (!this.stopped && (this.queue.length > 0 || this.pending.kind !== "none")) {
+          if (this.queue.length > 0) await this.decideQueued();
+          if (this.pending.kind === "none" || this.stopped) continue;
+          const written2 = await this.write(this.pending, this.decided);
+          if (written2 === true) this.pending = { kind: "none" };
+          else this.enqueue(written2);
+        }
+        this.retryMs = FIRST_RETRY_MS;
+      } catch (error) {
+        this.log(`Could not work out the Loaded Recipe, trying again in ${this.retryMs / 1e3} s: ${error instanceof Error ? error.message : String(error)}`);
+        this.retryLater();
       } finally {
         this.running = false;
         if (this.holding) {
@@ -2096,7 +2158,7 @@ var __decentSync = (() => {
         }
       }
     }
-    /** Tries the latest Workflow again once the wait is over, unless a change tries it first. */
+    /** Tries what is still to be decided on or written again once the wait is over, unless a change tries it first. */
     retryLater() {
       if (this.retryTimer !== void 0 || this.stopped) return;
       const wait = this.retryMs;
@@ -2107,52 +2169,81 @@ var __decentSync = (() => {
       }, wait);
     }
     /**
-     * Whether the Workflow's change from the one decided on loads one of the
-     * tablet's recipes or unloads its Loaded Recipe, and records that in it;
-     * it then becomes the Workflow decided on. A change of its dial may load
-     * one; a change of its Bean Batch alone loads none, and only another Bean
-     * unloads it. A batch picked in the same change, which no app applying a
-     * recipe does, stays, and a recipe of another Bean is none it loads. Where
-     * the Workflow changed again before the write, nothing is written, and the
-     * Workflow decided on stays as it was, so the latest is judged as one
-     * change from it, as the changes between were. Throws if Decaid fails what
-     * it needs, leaving the Workflow decided on as it was.
+     * Decides on each Workflow queued, in turn, from the one before it, with
+     * the tablet's recipes read now (`decideChange`). Each becomes the
+     * Workflow decided on once decided. Throws if Decaid fails what it needs,
+     * leaving the rest queued.
      */
-    async decide(workflow) {
-      const before = this.decided;
-      const dial = workflowDial(workflow);
-      const batch = workflowBatch(workflow);
-      if (before && sameDial(before.dial, dial) && before.batch === batch) return;
-      const records = await this.readRecipes();
-      const held = await this.held(records);
-      const named = loadedRecipeOf(workflow);
-      const picked = before !== void 0 && batch !== before.batch;
-      const pickedBean = picked && batch !== null ? await this.beanOf(batch) : null;
-      const chosen = before && sameDial(before.dial, dial) ? null : chooseLoad(dial, named, held, pickedBean);
-      const after = { dial, batch };
-      let stillHeld = true;
-      if (chosen) stillHeld = await this.load(chosen, after, picked);
-      else if (named !== null && before) stillHeld = await this.unloadIfChanged(before, after, held, named);
-      if (stillHeld) this.decided = after;
+    async decideQueued() {
+      const held = await this.held(await this.readRecipes());
+      while (this.queue.length > 0 && !this.stopped) {
+        const workflow = this.queue[0];
+        const before = this.decided;
+        const picked = before !== void 0 && workflowBatch(before) !== workflowBatch(workflow);
+        const setUp = async (of) => {
+          const batch = workflowBatch(of);
+          return { dial: workflowDial(of), batch, bean: picked && batch !== null ? await this.beanOf(batch) : null, named: loadedRecipeOf(of) };
+        };
+        const changed = before ? changedParts(before, workflow) : /* @__PURE__ */ new Set();
+        this.pending = decideChange(this.pending, before && await setUp(before), await setUp(workflow), changed, held);
+        this.decided = workflow;
+        this.queue.shift();
+      }
     }
     /**
-     * Unloads the Workflow's Loaded Recipe if its change from `before` to
-     * `after` does (`unloads`). The Workflow the plugin first heard of, as on
-     * every load, unloads nothing: it is no change. Resolves with whether the
-     * Workflow still held `after` when it was to be written.
+     * Writes what is pending into the Workflow, as Decaid holds it now, while
+     * that is the one last decided on (`decided`): resolves with true once
+     * written, or nothing was left to write, and otherwise with the Workflow
+     * Decaid holds, to be decided on first. A load writes the recipe's current
+     * values and global id (`loadWrite`) but the parts changed since it was
+     * loaded; Decaid refuses to change the hot water settings while no machine
+     * is connected, so the rest is then written without them, the Workflow
+     * read and checked again. An unload clears the global id the Workflow
+     * names. Decaid has no conditional write, so a change made between the
+     * plugin's read and its write is written over where the write sets the
+     * same part. Throws if Decaid fails it.
      */
-    async unloadIfChanged(before, after, held, named) {
-      const { batch, dial } = after;
-      const loaded = held.find((recipe) => recipe.globalId === named);
-      if (!loaded) return true;
-      const current = await this.resolved(recipeDials(loaded.record));
-      const changed = batch !== before.batch;
-      const bean = async (batchId) => changed && batchId !== null ? this.beanOf(batchId) : null;
-      const setUps = [
-        { dial: before.dial, bean: await bean(before.batch) },
-        { dial, bean: await bean(batch) }
-      ];
-      return unloads(...setUps, current, beanOfRecord(loaded.record)) ? this.unload(named, after) : true;
+    async write(pending, decided) {
+      if (pending.kind === "unload") {
+        const done2 = await this.writeIfDecided(decided, (workflow) => loadedRecipeOf(workflow) === null ? null : { context: { extras: { [LOADED_RECIPE_KEY]: null } } });
+        if (done2.kind === "changed") return done2.workflow;
+        if (done2.kind === "written" && !done2.answer.ok) throw new Error(`Decaid answered ${done2.answer.status} recording the Loaded Recipe as unloaded: ${done2.answer.text.slice(0, 200)}`);
+        return true;
+      }
+      if (pending.kind !== "load") return true;
+      const records = await this.readRecipes();
+      const recipe = loadable(records).find((candidate) => candidate.globalId === pending.globalId);
+      if (!recipe) return true;
+      const context = pending.kept.has("batch") ? { ...await this.loadContext(recipe.record), batch: null } : await this.loadContext(recipe.record);
+      let hotWater = false;
+      const build = (withHotWater) => (workflow) => {
+        const all = loadWrite(workflow, recipe.record, recipe.globalId, context, pending.kept);
+        if (all === null || withHotWater) {
+          hotWater = all !== null && "hotWaterData" in all;
+          return all;
+        }
+        const { hotWaterData: _, ...rest } = all;
+        return Object.keys(rest).length > 0 ? rest : null;
+      };
+      let done = await this.writeIfDecided(decided, build(true));
+      if (done.kind === "written" && !done.answer.ok && hotWater && machineMissing(done.answer)) done = await this.writeIfDecided(decided, build(false));
+      if (done.kind === "changed") return done.workflow;
+      if (done.kind === "written" && !done.answer.ok) {
+        throw new Error(`Decaid answered ${done.answer.status} recording the recipe in slot ${recipe.slot} as loaded: ${done.answer.text.slice(0, 200)}`);
+      }
+      return true;
+    }
+    /**
+     * Writes into the Workflow what `build` makes of it, read again just
+     * before, while it holds all a load writes as the Workflow decided on
+     * does (`changedParts`): Decaid's answer, nothing where there was nothing
+     * to write, or the Workflow Decaid holds where it differs.
+     */
+    async writeIfDecided(decided, build) {
+      const workflow = await this.workflowNow();
+      if (changedParts(decided, workflow).size > 0) return { kind: "changed", workflow };
+      const write = build(workflow);
+      return write === null ? { kind: "nothing" } : { kind: "written", answer: await request("PUT", "/workflow", write) };
     }
     /**
      * The tablet's recipes, read now: none from a key never written, or a list
@@ -2173,7 +2264,8 @@ var __decentSync = (() => {
           globalId,
           slot,
           record,
-          dials: await this.resolved([...recipeDials(record), ...this.earlier.get(globalId) ?? []])
+          dials: await this.resolved([...recipeDials(record), ...this.earlier.get(globalId) ?? []]),
+          now: await this.resolved(recipeDials(record))
         }))
       );
     }
@@ -2207,49 +2299,6 @@ var __decentSync = (() => {
       if (record === void 0) throw new Error(`Decaid answered ${answer.status} reading ${path}`);
       return record;
     }
-    /**
-     * Records a load: writes the recipe's current values and global id into
-     * the Workflow (`loadWrite`, `writeIfDecided`), but its Bean Batch where a
-     * batch was picked in the same change (`picked`). Decaid refuses to change
-     * the hot water settings while no machine is connected, so the rest is
-     * then written without them, the Workflow read and checked again.
-     * Resolves with whether the Workflow still held `decided` when written.
-     */
-    async load(recipe, decided, picked) {
-      const read = await this.loadContext(recipe.record);
-      const context = picked ? { ...read, batch: null } : read;
-      let hotWater = false;
-      const write = (withHotWater) => (workflow) => {
-        const all = loadWrite(workflow, recipe.record, recipe.globalId, context);
-        if (all === null || withHotWater) {
-          hotWater = all !== null && "hotWaterData" in all;
-          return all;
-        }
-        const { hotWaterData: _, ...rest } = all;
-        return Object.keys(rest).length > 0 ? rest : null;
-      };
-      let answer = await this.writeIfDecided(decided, write(true));
-      if (answer !== "changed" && answer && !answer.ok && hotWater && machineMissing(answer)) answer = await this.writeIfDecided(decided, write(false));
-      if (answer === "changed") return false;
-      if (answer && !answer.ok) throw new Error(`Decaid answered ${answer.status} recording the recipe in slot ${recipe.slot} as loaded: ${answer.text.slice(0, 200)}`);
-      return true;
-    }
-    /**
-     * Writes into the Workflow what `build` makes of it, read again just
-     * before, unless its dial or Bean Batch is no longer the one decided on,
-     * as when a barista picked another batch or set the grinder back
-     * meanwhile, which is then decided on in turn. Resolves with Decaid's
-     * answer, null where there was nothing to write, or `changed` where the
-     * Workflow no longer held what was decided on. Decaid has no conditional
-     * write, so a change made between that read and the write is written over
-     * where the write sets the same field.
-     */
-    async writeIfDecided(decided, build) {
-      const workflow = await this.workflowNow();
-      if (!sameSetUp(decided, workflow)) return "changed";
-      const write = build(workflow);
-      return write === null ? null : request("PUT", "/workflow", write);
-    }
     /** What a load of the recipe writes besides its record: its full Profile, as applying it loads one, and its Bean Batch as the tablet holds it. */
     async loadContext(record) {
       const snapshot = record.profileSnapshot;
@@ -2263,18 +2312,6 @@ var __decentSync = (() => {
       const text = (field) => isObject4(bean) && typeof bean[field] === "string" ? bean[field] : null;
       return { profile, batch: { id: batchId, coffeeName: text("name"), coffeeRoaster: text("roaster") } };
     }
-    /**
-     * Records an unload: clears the recipe's global id from the Workflow
-     * (`writeIfDecided`), while it still names that recipe and holds the
-     * change decided to unload it (`decided`). Resolves with whether it still
-     * held that change.
-     */
-    async unload(globalId, decided) {
-      const answer = await this.writeIfDecided(decided, (workflow) => loadedRecipeOf(workflow) === globalId ? { context: { extras: { [LOADED_RECIPE_KEY]: null } } } : null);
-      if (answer === "changed") return false;
-      if (answer && !answer.ok) throw new Error(`Decaid answered ${answer.status} recording the Loaded Recipe as unloaded: ${answer.text.slice(0, 200)}`);
-      return true;
-    }
     /** The Workflow as Decaid holds it now. Throws if Decaid does not answer with one. */
     async workflowNow() {
       const answer = await request("GET", "/workflow");
@@ -2283,12 +2320,6 @@ var __decentSync = (() => {
       return workflow;
     }
   };
-  function sameSetUp(decided, workflow) {
-    return sameDial(decided.dial, workflowDial(workflow)) && decided.batch === workflowBatch(workflow);
-  }
-  function beanOfRecord(record) {
-    return typeof record.beanId === "string" && record.beanId !== "" ? record.beanId : null;
-  }
   function machineMissing(answer) {
     return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");
   }

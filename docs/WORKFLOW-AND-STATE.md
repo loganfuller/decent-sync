@@ -222,30 +222,40 @@ from the Workflow deliveries.
 `plugin/src/loaded-recipes.ts` carries out what the pure
 `plugin/src/recipe-matching.ts` decides:
 
-- **When it looks.** `MachineEvents` tells it of each Workflow Decaid
-  reports before queueing it. On a change of the Workflow's dial (its
-  profile, dose, yield, grinder and grind setting) or of its Bean Batch, from
-  the one last decided on, the plugin reads DYE2's recipes and decides. The
-  first Workflow after a load of the plugin is decided on too, and changes
-  Decaid reports meanwhile in turn. A change is held back meanwhile (Held
-  back, below) if the Workflow names a Loaded Recipe, which it may unload or
-  replace, or matches a recipe as the tablet held it when last read. Any
-  other is sent at once, kept in Decaid's plugin storage as it is queued, so
-  an unload of the plugin meanwhile loses none (Kept across unloads, above):
-  it names no Recipe the server could take it for, and the Workflow after a
-  load the plugin then finds, of a recipe saved since it last read them, is
-  sent after it. A change of the dial may load a recipe; a change of the
-  Bean Batch alone loads none, and only a batch of another Bean unloads the
-  Loaded Recipe, so the batch a barista picks stays. A batch picked in
-  the same change as the dial, which no app applying a recipe does, stays
-  too, and a recipe of another Bean is none it loads. Where the Workflow
-  changed again before the plugin's write, nothing is written and the
-  Workflow decided on stays as it was, so the latest is judged as one
-  change from it, as the changes between were. A decision Decaid fails
-  (a read or write it refuses or leaves unanswered) leaves the Workflow
-  decided on as it was, so the change is judged against it, and is tried
-  again after 5 s, doubling to 5 minutes, as no change may come to try it;
-  the Workflow is sent meanwhile, still naming the Loaded Recipe it named.
+- **Each change in turn.** `MachineEvents` tells it of each Workflow Decaid
+  reports before queueing it. A change of the Workflow's dial (its profile,
+  dose, yield, grinder and grind setting) or of its Bean Batch, and while
+  the plugin is deciding or has a write to make, any change of what a load
+  writes, is queued, and the plugin decides on each in turn, from the one
+  before it, with DYE2's recipes as it reads them then (`decideChange`).
+  Each is decided as though at once, so the outcome is the same however
+  long the plugin's reads of Decaid take: what the changes decided on leave
+  to write (a load, or clearing the Loaded Recipe) is written once none is
+  left to decide on. The first Workflow after a load of the plugin is
+  decided on too, and loads a recipe it matches, but unloads nothing.
+  - A change of the dial may load a recipe (A load, below). A batch picked
+    in the same change, which no app applying a recipe does, stays as
+    picked, and a recipe of another Bean is none it loads.
+  - Otherwise a change of the profile, grinder or Bean to one the Loaded
+    Recipe does not name unloads it (Unloading, below). A change of the Bean
+    Batch alone loads nothing, and only a batch of another Bean unloads, so
+    the batch a barista picks stays.
+  - Any other change made after a load still to be written is the barista's,
+    after it: the load leaves the parts it changed as they were changed,
+    the dose of a tweak or a batch of the same Bean, say.
+- **Held or sent at once.** A change is held back (Held back, below) if the
+  Workflow names a Loaded Recipe, which it may unload or replace, or matches
+  a recipe as the tablet held it when last read, or a write is still to be
+  made. Any other is sent at once, kept in Decaid's plugin storage as it is
+  queued, so an unload of the plugin meanwhile loses none (Kept across
+  unloads, above): it names no Recipe the server could take it for, and the
+  Workflow after a load the plugin then finds, of a recipe saved since it
+  last read them, is sent after it.
+- **When Decaid fails.** A decision or write Decaid fails (a read or write
+  it refuses or leaves unanswered) leaves the changes still to decide on
+  and the write still to make as they were, tried again after 5 s, doubling
+  to 5 minutes, as no change may come to try them; the Workflow is sent
+  meanwhile, as it is.
 - **A load.** The Workflow matches one of the tablet's recipes in a Recipe
   Slot carrying its Recipe's global id (`chooseLoad`): every field of the
   five the recipe sets, the Workflow holds, and it sets at least one. A
@@ -267,10 +277,12 @@ from the Workflow deliveries.
   DYE2's recipes, its own and `CollectionCapture`'s, at most 20 per Recipe
   (`MAX_EARLIER_DIALS`). Of several matches, the Recipe the Workflow names as
   loaded already wins, then the lowest slot.
-- **Recording a load.** The plugin reads the Workflow again, and unless its
-  dial or Bean Batch changed since, as when a barista picked another batch
-  meanwhile, which is then decided on in turn, writes into it in one `PUT /workflow`, which Decaid
-  merges into it, what it holds otherwise of the recipe's current dose,
+- **Recording a load.** The plugin reads the Workflow again, and while it
+  holds all a load writes as the Workflow last decided on does
+  (`changedParts`), writes into it in one `PUT /workflow`, which Decaid
+  merges into it; where Decaid holds a later change, that is decided on
+  first, as the next change, and the write made after. It writes what the
+  Workflow holds otherwise of the recipe's current dose,
   yield, grind setting, grinder, RPM, Basket and Profile (the full Profile,
   only where its `profileKey` differs), as DYE2 applies them, its Bean Batch
   (`context.beanBatchId`, with its Bean's name and roaster as
@@ -280,18 +292,19 @@ from the Workflow deliveries.
   `context.extras` under LOADED_RECIPE_KEY (`loadWrite`). A value the
   recipe holds none of is left as the Workflow has it. Decaid refuses to
   change the hot water settings while no machine is connected, so the rest
-  is then written without them, the Workflow read and checked again first. Streamline adopts a Workflow change made
-  elsewhere (ADR-0021), so it takes the hot water as its own, and the plugin
-  sets none of its values.
+  is then written without them, the Workflow read and checked again first.
+  A part changed after the load was decided on is not written. Streamline
+  adopts a Workflow change made elsewhere (ADR-0021), so it takes the hot
+  water as its own, and the plugin sets none of its values.
 - **Unloading.** A change of the Workflow's profile, grinder or Bean (its
   batch's Bean, read from the tablet's batch record) to one the Loaded
   Recipe, as the tablet holds it now, does not name unloads it
   (`unloads`): the plugin sets the key to null, as Decaid keeps a
-  Workflow's `extras` whole and merges a write into them key by key, once
-  it has read the Workflow again and found it still naming that recipe and
-  holding the change decided on, so a change set back meanwhile, as a
-  grinder put back, unloads nothing. One the
-  recipe names none of, or a batch cleared, unloads nothing, and a tweak of
+  Workflow's `extras` whole and merges a write into them key by key, read
+  and checked first as a load is. A grinder changed and set back again
+  unloads it all the same, as it would had each change been decided at
+  once; the Workflow set back loads it again only where it matches it. One
+  the recipe names none of, or a batch cleared, unloads nothing, and a tweak of
   the dose, yield or grind setting keeps it. Another recipe loaded replaces
   it. A Loaded Recipe the tablet no longer holds in a slot is left for the
   server to unload (#146).
@@ -363,7 +376,7 @@ Recipe each has loaded.
 
 `server/test/machine-events.test.ts` covers this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL,
-`server/test/loaded-recipes.test.ts` the Loaded Recipe,
+`server/test/loaded-recipes.test.ts` the Loaded Recipe, `server/test/loaded-recipe-races.test.ts` changes made while one is decided,
 `plugin/test/recipe-matching.test.ts` its pure module,
 `server/test/durable-outbox.test.ts` the deliveries kept across unloads and
 their bound, and

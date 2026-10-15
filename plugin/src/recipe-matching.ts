@@ -49,8 +49,10 @@ export interface HeldRecipe {
   slot: number;
   /** Its record as the tablet holds it now. */
   record: Record<string, unknown>;
-  /** The dials it holds now, and those it held before (`RecipeVersions`), each resolved. */
+  /** The dials it holds now, and those it held before, each resolved: what a load is matched on. */
   dials: Dial[];
+  /** The dials it holds now, resolved: what an unload is judged by. */
+  now: Dial[];
 }
 
 /**
@@ -249,28 +251,35 @@ export interface LoadContext {
  * id (LOADED_RECIPE_KEY). A value the recipe holds none of is left as the
  * Workflow has it. Null if the Workflow holds all of it already.
  */
-export function loadWrite(workflow: Record<string, unknown>, record: Record<string, unknown>, globalId: string, load: LoadContext): Record<string, unknown> | null {
+export function loadWrite(
+  workflow: Record<string, unknown>,
+  record: Record<string, unknown>,
+  globalId: string,
+  load: LoadContext,
+  kept: ReadonlySet<WrittenPart> = new Set(),
+): Record<string, unknown> | null {
   const context = isObject(workflow.context) ? workflow.context : {};
   const extras = isObject(context.extras) ? context.extras : {};
   const variables = isObject(record.dashboardVariables) ? record.dashboardVariables : {};
   const [dial] = recipeDials(record) as [RecipeDial];
   const contextWrite: Record<string, unknown> = {};
   const extrasWrite: Record<string, unknown> = {};
-  if (dial.dose !== null && !sameNumber(dial.dose, numberOf(context.targetDoseWeight))) contextWrite.targetDoseWeight = dial.dose;
-  if (dial.yield !== null && !sameNumber(dial.yield, numberOf(context.targetYield))) contextWrite.targetYield = dial.yield;
-  if (dial.grind !== null && !sameGrind(dial.grind, grindOf(context.grinderSetting))) contextWrite.grinderSetting = dial.grind;
-  if (dial.grinder !== null && dial.grinder !== textOf(context.grinderId)) {
+  const writes = (part: WrittenPart) => !kept.has(part);
+  if (writes("dose") && dial.dose !== null && !sameNumber(dial.dose, numberOf(context.targetDoseWeight))) contextWrite.targetDoseWeight = dial.dose;
+  if (writes("yield") && dial.yield !== null && !sameNumber(dial.yield, numberOf(context.targetYield))) contextWrite.targetYield = dial.yield;
+  if (writes("grind") && dial.grind !== null && !sameGrind(dial.grind, grindOf(context.grinderSetting))) contextWrite.grinderSetting = dial.grind;
+  if (writes("grinder") && dial.grinder !== null && dial.grinder !== textOf(context.grinderId)) {
     contextWrite.grinderId = dial.grinder;
     if (textOf(variables.grinderModel) !== null) contextWrite.grinderModel = variables.grinderModel;
   }
   const rpm = numberOf(variables.rpm);
-  if (rpm !== null && !sameNumber(rpm, numberOf(extras.rpm))) extrasWrite.rpm = rpm;
+  if (writes("rpm") && rpm !== null && !sameNumber(rpm, numberOf(extras.rpm))) extrasWrite.rpm = rpm;
   const basket = textOf(variables.basketId);
-  if (basket !== null && basket !== textOf(extras.basketId)) {
+  if (writes("basket") && basket !== null && basket !== textOf(extras.basketId)) {
     extrasWrite.basketId = basket;
     if (textOf(variables.basketName) !== null) extrasWrite.basketName = variables.basketName;
   }
-  if (load.batch !== null && load.batch.id !== textOf(context.beanBatchId)) {
+  if (writes("batch") && load.batch !== null && load.batch.id !== textOf(context.beanBatchId)) {
     contextWrite.beanBatchId = load.batch.id;
     if (load.batch.coffeeName !== null) contextWrite.coffeeName = load.batch.coffeeName;
     if (load.batch.coffeeRoaster !== null) contextWrite.coffeeRoaster = load.batch.coffeeRoaster;
@@ -281,14 +290,14 @@ export function loadWrite(workflow: Record<string, unknown>, record: Record<stri
   const write: Record<string, unknown> = {};
   if (Object.keys(contextWrite).length > 0) write.context = contextWrite;
   const key = profileKey(load.profile);
-  if (key !== null && key !== profileKey(workflow.profile)) write.profile = load.profile;
-  const kept = isObject(record[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
-  const hotWater = isObject(kept.hotWaterData) ? kept.hotWaterData : {};
+  if (writes("profile") && key !== null && key !== profileKey(workflow.profile)) write.profile = load.profile;
+  const own = isObject(record[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
+  const hotWater = isObject(own.hotWaterData) ? own.hotWaterData : {};
   const held = isObject(workflow.hotWaterData) ? workflow.hotWaterData : {};
   const hotWaterWrite = Object.fromEntries(
     HOT_WATER.flatMap((field) => {
       const value = numberOf(hotWater[field]);
-      return value !== null && !sameNumber(value, numberOf(held[field])) ? [[field, value]] : [];
+      return writes(field) && value !== null && !sameNumber(value, numberOf(held[field])) ? [[field, value]] : [];
     }),
   );
   if (Object.keys(hotWaterWrite).length > 0) write.hotWaterData = hotWaterWrite;
@@ -297,6 +306,92 @@ export function loadWrite(workflow: Record<string, unknown>, record: Record<stri
 
 /** A Workflow's hot water settings, as Decaid names them in its `hotWaterData`, which a Recipe holds all of. */
 export const HOT_WATER = ["targetTemperature", "duration", "volume", "flow"] as const;
+
+/** A part of a Workflow a load writes (`loadWrite`): its dial, RPM, Basket, Bean Batch, and each of its hot water settings. */
+export type WrittenPart = "dose" | "yield" | "grind" | "grinder" | "profile" | "rpm" | "basket" | "batch" | (typeof HOT_WATER)[number];
+
+/**
+ * The parts of a Workflow a load writes that differ between two, and
+ * `recipe` where they name another Loaded Recipe: none if a change between
+ * them can neither load nor unload a recipe, nor be written over by a load.
+ */
+export function changedParts(a: Record<string, unknown>, b: Record<string, unknown>): Set<WrittenPart | "recipe"> {
+  const [x, y] = [workflowDial(a), workflowDial(b)];
+  const part = (workflow: Record<string, unknown>, name: string) => (isObject(workflow[name]) ? (workflow[name] as Record<string, unknown>) : {});
+  const extra = (workflow: Record<string, unknown>, name: string) => {
+    const extras = part(workflow, "context").extras;
+    return isObject(extras) ? extras[name] : undefined;
+  };
+  const changed = new Set<WrittenPart | "recipe">();
+  if (!sameNumber(x.dose, y.dose)) changed.add("dose");
+  if (!sameNumber(x.yield, y.yield)) changed.add("yield");
+  if (!sameGrind(x.grind, y.grind)) changed.add("grind");
+  if (x.grinder !== y.grinder) changed.add("grinder");
+  if (x.profile !== y.profile) changed.add("profile");
+  if (!sameNumber(numberOf(extra(a, "rpm")), numberOf(extra(b, "rpm")))) changed.add("rpm");
+  if (textOf(extra(a, "basketId")) !== textOf(extra(b, "basketId"))) changed.add("basket");
+  if (workflowBatch(a) !== workflowBatch(b)) changed.add("batch");
+  for (const field of HOT_WATER) if (!sameNumber(numberOf(part(a, "hotWaterData")[field]), numberOf(part(b, "hotWaterData")[field]))) changed.add(field);
+  if (loadedRecipeOf(a) !== loadedRecipeOf(b)) changed.add("recipe");
+  return changed;
+}
+
+/**
+ * What the changes of the Workflow decided on so far leave to write into it:
+ * nothing; a load of a recipe, but for the parts changed since it was
+ * loaded (`kept`), which stay as they were changed; or clearing its Loaded
+ * Recipe.
+ */
+export type Pending = { kind: "none" } | { kind: "load"; globalId: string; kept: ReadonlySet<WrittenPart> } | { kind: "unload" };
+
+/** A Workflow as a change is decided on: its dial, its Bean Batch, that batch's Bean where it matters, and the Loaded Recipe it names. */
+export interface ChangedSetUp {
+  dial: Dial;
+  batch: string | null;
+  /** The Bean of its batch, by the tablet's id for it, where the change picked another batch; null otherwise. */
+  bean: string | null;
+  named: string | null;
+}
+
+/**
+ * What one change of the Workflow, from `before` (undefined for the first
+ * the plugin heard of, as on every load) to `after`, leaves to write, given
+ * what the changes before it left (`pending`), and which of the parts a
+ * load writes it changed (`changed`), decided as though at once, so the
+ * outcome is the same however fast the plugin decides. A change of the dial
+ * that matches one of the tablet's recipes (`chooseLoad`) loads it, a batch
+ * picked in the same change, which no app applying a recipe does, staying
+ * as picked, and a recipe of another Bean is none it loads. Otherwise a
+ * change of the profile, grinder or Bean to one the Loaded Recipe does not
+ * name unloads it (`unloads`); the first Workflow unloads nothing. Any other
+ * change made after a load that is still to be written is the barista's,
+ * after it, and the load leaves those parts as they were changed.
+ */
+export function decideChange(
+  pending: Pending,
+  before: ChangedSetUp | undefined,
+  after: ChangedSetUp,
+  changed: ReadonlySet<WrittenPart | "recipe">,
+  held: readonly HeldRecipe[],
+): Pending {
+  const dialChanged = !before || !sameDial(before.dial, after.dial);
+  const picked = before !== undefined && before.batch !== after.batch;
+  const loaded = pending.kind === "load" ? pending.globalId : pending.kind === "unload" ? null : after.named;
+  if (dialChanged) {
+    const chosen = chooseLoad(after.dial, loaded, held, picked ? after.bean : null);
+    if (chosen) return { kind: "load", globalId: chosen.globalId, kept: new Set<WrittenPart>(picked ? ["batch"] : []) };
+  }
+  if (loaded === null || !before) return pending;
+  const recipe = held.find((candidate) => candidate.globalId === loaded);
+  // A Loaded Recipe the tablet no longer holds in a slot stays: the server unloads it.
+  if (!recipe) return pending;
+  const bean = typeof recipe.record.beanId === "string" && recipe.record.beanId !== "" ? recipe.record.beanId : null;
+  if (unloads({ dial: before.dial, bean: picked ? before.bean : null }, { dial: after.dial, bean: picked ? after.bean : null }, recipe.now, bean)) return { kind: "unload" };
+  if (pending.kind !== "load") return pending;
+  const kept = new Set<WrittenPart>(pending.kept);
+  for (const part of changed) if (part !== "recipe") kept.add(part);
+  return { ...pending, kept };
+}
 
 /** A Workflow's dial, and the Bean of its Bean Batch, by the tablet's id for it, or null where it names none or its batch is not the tablet's. */
 export interface WorkflowSetUp {
