@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
+import { whileProgressing } from "./support/backlog.js";
 import {
   type DecaidApi,
   PluginStorage,
@@ -76,18 +77,8 @@ describe("The durable outbox", () => {
   const transitions = async (machine: CreatedMachine) =>
     (await stateEvents(machine)).events.map((event) => [event.state, event.substate]).reverse();
 
-  /**
-   * Resolves once `done` holds, waiting as long as the tablet keeps sending: a backlog of some 2,000 deliveries, sent
-   * one at a time, each stored before the next, takes over a minute on a busy machine, but one that stops moving fails
-   * within a poll's timeout.
-   */
-  async function whileSending(tablet: SimulatedTablet, done: () => boolean | Promise<boolean>) {
-    let sent = machineEventsSent(tablet).length;
-    while (!(await done())) {
-      const before = sent;
-      await expect.poll(async () => (await done()) || (sent = machineEventsSent(tablet).length) > before).toBe(true);
-    }
-  }
+  /** Resolves once `done` holds, waiting as long as the tablet keeps sending (backlog.ts). */
+  const whileSending = (tablet: SimulatedTablet, done: () => boolean | Promise<boolean>) => whileProgressing(done, () => machineEventsSent(tablet).length);
 
   /** Resolves once the server has acknowledged every Workflow and machine state delivery the plugin sent. */
   async function acknowledged(tablet: SimulatedTablet, timeout = 10_000) {
