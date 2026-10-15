@@ -36,6 +36,7 @@ test("a Bean and a batch of it at a Location are created here, and the Bean edit
   await newBatch.getByLabel("Remaining weight at Uptown (g)").fill("850");
   await newBatch.getByRole("button", { name: "Create" }).click();
   await expect(page.getByRole("heading", { name: "Uptown Gesha, roasted 2026-10-03", level: 1 })).toBeVisible();
+  await expect(field(page.getByLabel("Roast", { exact: true }), "Weight")).toHaveText("1000 g");
   const where = page.getByRole("table", { name: "Locations" });
   await expect(where.getByRole("row", { name: /^Uptown 850 g/ })).toBeVisible();
   await expect(where.getByLabel("Remaining weight at Uptown (g)")).toHaveValue("850");

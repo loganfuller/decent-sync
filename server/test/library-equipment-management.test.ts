@@ -94,14 +94,15 @@ describe("Baskets and Tools in the management interface", { timeout: 90_000 }, (
     // Shown at the cafe, then edited: a field cleared is left out of every record.
     expect((await api.call("PUT", `/baskets/${basket.id}/locations/${cafe.location.id}`, { shown: true })).status).toBe(200);
     await expect.poll(() => recordOf(cafe.tablet, "baskets", basket.id)?.name).toBe("Lab 18g Precision");
-    const edited = await edit("baskets", basket.id, { notes: null, diameterMm: 58 });
-    expect(edited.content).toEqual({ name: "Lab 18g Precision", size: "double", diameterMm: 58 });
+    const edited = await edit("baskets", basket.id, { notes: null, size: null, diameterMm: 58 });
+    expect(edited.content).toEqual({ name: "Lab 18g Precision", diameterMm: 58 });
     for (const tablet of [lab.tablet, cafe.tablet]) {
       await expect.poll(() => recordOf(tablet, "baskets", basket.id)?.diameterMm).toBe(58);
       expect(recordOf(tablet, "baskets", basket.id)).not.toHaveProperty("notes");
+      expect(recordOf(tablet, "baskets", basket.id)).not.toHaveProperty("size");
     }
     const history = await versions("baskets", basket.id);
-    expect(history[0]).toMatchObject({ fields: { notes: null, diameterMm: 58 }, location: null, source: { machine: null, account: { id: expect.any(String) } } });
+    expect(history[0]).toMatchObject({ fields: { notes: null, size: null, diameterMm: 58 }, location: null, source: { machine: null, account: { id: expect.any(String) } } });
     expect(history.at(-1)).toMatchObject({ fields: { name: "Lab 18g Precision", size: "double" }, location: null });
 
     // Archived, it is shown nowhere and removed from every list; restored, it is written again where it was shown.

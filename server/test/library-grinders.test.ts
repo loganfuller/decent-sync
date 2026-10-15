@@ -180,6 +180,22 @@ describe("Grinders belonging to a Location", () => {
     expect((await libraryGrinder("Kept Mythos")).archived).toBe(true);
   });
 
+  it("keeps two Grinders of the same model at two Locations two Grinders, each written only at its own", async () => {
+    const { labLocation, cafeLocation, one, two, cafe } = await lab("Same", 18031);
+    await one.addGrinder({ model: "Same ZP6", burrType: "conical" });
+    await cafe.addGrinder({ model: "Same ZP6", burrType: "conical" });
+    await expect.poll(async () => (await grindersOf("Same ZP6")).map((grinder) => grinder.location?.name)).toEqual([cafeLocation.name, labLocation.name]);
+    const [atCafe, atLab] = await grindersOf("Same ZP6");
+    expect(atCafe!.id).not.toBe(atLab!.id);
+    await holds(one, atLab!.id, { archived: false });
+    await holds(two, atLab!.id, { archived: false });
+    await holds(cafe, atCafe!.id, { archived: false });
+    // Each tablet holds its own Location's only.
+    expect(heldGrinder(cafe, atLab!.id)).toEqual([]);
+    expect(heldGrinder(two, atCafe!.id)).toEqual([]);
+    expect(two.grinders()).toHaveLength(1);
+  });
+
   it("adds the grinders a tablet held before its Machine had a Location to the Location it joins, which had none, but not one archived there, and writes it the others", async () => {
     const location = await api.createLocation("Joined lab", "UTC");
     const first = await api.createMachine("Joined lab 1", location.id);

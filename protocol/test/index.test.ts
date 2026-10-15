@@ -551,6 +551,7 @@ describe("Library writes", () => {
       expect(decodePluginMessage(frame({ ...deleted, localId })).ok).toBe(false);
     }
     expect(LIBRARY_KINDS.filter(isDeletedKind)).toEqual(["bean", "beanBatch", "grinder", "profile", "basket", "tool", "recipe"]);
+    for (const kind of ["workflow", "settings", "shot", ""]) expect(isDeletedKind(kind)).toBe(false);
     // A Profile's record is named by Decaid's id, which is its global id too.
     const profileId = "profile:bf1ca48b9c7389c7d146";
     const profile: LibraryDelete = { type: "delete", id: "delete-2", kind: "profile", globalId: profileId, localId: profileId };

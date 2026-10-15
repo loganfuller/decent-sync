@@ -12,6 +12,7 @@ import {
   de1ProOnDecaid087,
   derivedDe1Pro,
   helloWith,
+  manyProfiles,
   simulatedDevices,
   simulatedDevicesSwitchedOff,
   simulatedLibrary,
@@ -284,6 +285,19 @@ describe("Library, settings and paired devices", () => {
       others: [device("machine", "00:00:5E:00:53:01", "DE1", "connected")],
     });
     expect(await collection(machine, "scaleInfo")).toMatchObject({ available: false, value: null });
+  });
+
+  it("sends a profiles collection larger than 1 MiB in chunks within Decaid's limit, and stores it intact", async () => {
+    const machine = await api.createMachine("Many profiles");
+    const profiles = manyProfiles();
+    expect(Buffer.byteLength(JSON.stringify(profiles))).toBeGreaterThan(1024 * 1024);
+    const tablet = load(machine, { api: { ...derivedDe1Pro({ serial: "30005" }), "/profiles": profiles } });
+    await expect.poll(async () => (await collection(machine, "profiles"))?.items).toBe(profiles.length);
+    // As Decaid lists them: the most recently updated first.
+    expect((await collection(machine, "profiles"))!.value).toEqual(tablet.profiles());
+    expect(tablet.sent.some((frame) => frameType(frame) === "chunk")).toBe(true);
+    expect(tablet.peakPendingOutboundBytes).toBeLessThanOrEqual(1024 * 1024);
+    expect(tablet.refusedSends).toBe(0);
   });
 
   it("gives a mismatched connection's collections to the Machine that has its hardware, leaving the token's Machine its own", async () => {

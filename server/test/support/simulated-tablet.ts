@@ -264,6 +264,19 @@ export function simulatedLibrary(): DecaidApi {
 }
 
 /**
+ * Derived: the test tablet's profiles, repeated with their ids changed (each
+ * repeat's suffixed `-copy-N`) until their JSON is larger than `minBytes`,
+ * as a tablet with many profiles would answer.
+ */
+export function manyProfiles(minBytes = 1.25 * 1024 * 1024): Record<string, unknown>[] {
+  const profiles = readFixture<Record<string, unknown>[]>("profiles.json");
+  const copies = Math.ceil(minBytes / Buffer.byteLength(JSON.stringify(profiles))) + 1;
+  return Array.from({ length: copies }, (_, copy) =>
+    profiles.map((profile) => (copy === 0 ? profile : { ...profile, id: `${String(profile.id)}-copy-${copy}` })),
+  ).flat();
+}
+
+/**
  * Derived from the first profile posted in profile-writes-v0.8.7: the same
  * profile, to post as a barista saves one, under another title and with its
  * pouring step's pressure changed. Decaid derives a profile's id from its

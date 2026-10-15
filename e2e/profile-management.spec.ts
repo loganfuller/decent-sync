@@ -76,6 +76,8 @@ test("a Profile is Archived, keeping where it was shown, restored, and deleted b
   await page.getByRole("button", { name: "Delete" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
   await expect(page.getByRole("heading", { name: "Profiles", level: 1 })).toBeVisible();
+  // The heading shows before the list has loaded, so wait for the list, or for its saying there are none.
+  await expect(page.getByRole("table", { name: "Profiles" }).or(page.getByText(/^No Profiles yet\./))).toBeVisible();
   await expect(page.getByRole("link", { name: "Retired Bloom", exact: true })).toHaveCount(0);
 });
 
