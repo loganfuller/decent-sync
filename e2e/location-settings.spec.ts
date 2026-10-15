@@ -30,6 +30,8 @@ test("a Location's page shows its settings and Machines, changes them on every M
   const uptown = await createLocation(page, "Uptown");
   const belmont = await createLocation(page, "Belmont");
   const de1 = await tabletAt(page, "Uptown 1", uptown, { serial: "17101" });
+  // Connected is not yet taken in: the DE1Pro's Workflow sets Uptown's settings before the Bengle connects.
+  await expect.poll(async () => ((await (await page.request.get(`/api/locations/${uptown.id}/settings`)).json()) as { settings: { id: string | null } }).settings.id).not.toBeNull();
   const bengle = await tabletAt(page, "Uptown Bengle", uptown, { serial: "17102", model: "Bengle" }, { steamSettings: { flow: 1.2 } });
   // The Bengle takes the settings the DE1Pro, connected first, set.
   await expect.poll(() => setting(bengle, "steamSettings", "flow")).toBeCloseTo(2.5);
@@ -71,15 +73,15 @@ test("a Location's page shows its settings and Machines, changes them on every M
     await expect.poll(() => setting(tablet, "rinseData", "targetTemperature")).toBe(88);
   }
 
-  // A change on a tablet shows here.
+  // A change on a tablet shows here, and reaches the other tablet.
   await de1.changeSettings({ rinseData: { duration: 9 } });
   await expect(value(values, "Rinse time")).toHaveText("9 s");
+  await expect.poll(() => setting(bengle, "rinseData", "duration")).toBe(9);
 
   // With sharing turned off, the Bengle keeps its own; turned back on, it takes Uptown's.
   const bengleSwitch = machines.getByRole("switch", { name: "Uptown Bengle shares steam and rinse" });
   await bengleSwitch.click();
   await expect(bengleSwitch).not.toBeChecked();
-  await expect.poll(() => setting(bengle, "rinseData", "duration")).toBe(9);
   await bengle.changeSettings({ rinseData: { duration: 4 } });
   await de1.changeSettings({ steamSettings: { duration: 90 } });
   await expect(value(values, "Steam time")).toHaveText("90 s");

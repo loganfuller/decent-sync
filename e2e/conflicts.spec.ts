@@ -90,7 +90,8 @@ async function sharedBean(page: Page, name: string, serial: string) {
   await expect.poll(() => two.beans().find((record) => record.name === `${name} Guji` && globalIdOf(record))).toBeTruthy();
   const beanId = globalIdOf(two.beans().find((record) => record.name === `${name} Guji`)!)!;
   await cafe.addBean({ roaster: "Roux", name: `${name} Guji` });
-  await expect.poll(() => globalIdOf(cafe.beans().find((record) => record.name === `${name} Guji`) ?? {})).toBe(beanId);
+  // Each tablet's record carries the Bean's global id, the first tablet's by a write of its own, before it is edited by it.
+  for (const tablet of [one, cafe]) await expect.poll(() => heldBean(tablet, beanId)).toBeDefined();
   return { one, two, cafe, beanId };
 }
 
