@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView } from "./support/admin-api.js";
-import { waitForLockWaits } from "./support/lock-waits.js";
+import { whileProgressing } from "./support/backlog.js";
+import { waitForLockWaits, withoutLockWaits } from "./support/lock-waits.js";
 import { derivedShot, shotFixture, withShots } from "./support/shot-fixtures.js";
 import { derivedSteam, longSteam, milkProbeSteamFixture, steamFixture, withSteams } from "./support/steam-fixtures.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor, type HeldSteamRead } from "./support/simulated-tablet.js";
@@ -243,7 +244,8 @@ describe("Steam Record capture", () => {
     stalled = false;
     tablet.dropConnections();
     await tablet.waitForLogs(/^Connected to /, 2);
-    await expect.poll(async () => (await list(machine.machine.id, api.at(other.url))).total, { timeout: 20_000 }).toBe(205);
+    const total = async () => (await list(machine.machine.id, api.at(other.url))).total;
+    await whileProgressing(async () => (await total()) === 205, total);
 
     // Every id went once, in pages of at most 100, each under one delivery id. The reconnect sent the
     // page cut off before its acknowledgment again, with its id, then the last; the first never again.
@@ -264,7 +266,7 @@ describe("Steam Record capture", () => {
     };
     expect(lastPage.steamRecords.map((steam) => steam.id)).toEqual(["history-004", "history-003", "history-002", "history-001", "history-000"]);
     expect(new Set(first.steamRecords.map((steam) => steam.id)).size).toBe(100);
-  }, 40_000);
+  }, 300_000);
 
   it("sends a new Steam Record by the next poll, reading only the newest, with its measurements and milk temperature, credited to the reporting Machine", async () => {
     const machine = await api.createMachine("Live steam");
@@ -302,7 +304,7 @@ describe("Steam Record capture", () => {
     expect((record.measurements as { milkTemperature: number | null }[]).filter((sample) => sample.milkTemperature !== null)).toHaveLength(20);
     // Captured without reconnecting.
     expect(tablet.logs.filter((line) => line.startsWith("Connected to "))).toHaveLength(1);
-  }, 30_000);
+  });
 
   it("sends a Steam Record new on the tablet ahead of the history still being backfilled", async () => {
     const machine = await api.createMachine("Steam during backfill");
@@ -315,8 +317,9 @@ describe("Steam Record capture", () => {
     tablet.serve(tabletApi(machine, [...history, derivedSteam("new-during-backfill")]));
     await waitSteam("new-during-backfill");
     expect((await list(machine.machine.id)).total).toBeLessThan(history.length + 1);
-    await expect.poll(async () => (await list(machine.machine.id)).total, { timeout: 20_000 }).toBe(history.length + 1);
-  }, 40_000);
+    const total = async () => (await list(machine.machine.id)).total;
+    await whileProgressing(async () => (await total()) === history.length + 1, total);
+  }, 300_000);
 
   it("sends both of two Steam Records recorded in one poll interval: the newest by the next poll, the other by the next read of every id", async () => {
     const machine = await api.createMachine("Two steams in an interval");
@@ -347,7 +350,7 @@ describe("Steam Record capture", () => {
     const reads = tablet.requests.slice(from);
     const found = reads.indexOf("/steams/ids");
     expect(reads.slice(found, reads.indexOf("/steams/ids", found + 1)).filter((route) => route === "/steams/latest").length).toBeGreaterThanOrEqual(9);
-  }, 30_000);
+  });
 
   it("reads every id on schedule though the connection drops more often than it polls", async () => {
     const machine = await api.createMachine("Steam on a flapping connection");
@@ -391,7 +394,7 @@ describe("Steam Record capture", () => {
     } finally {
       release();
     }
-  }, 20_000);
+  });
 
   it("waits as long to read every id again after a read that failed slowly as after one refused at once", async () => {
     const machine = await api.createMachine("Steam after a slow failure");
@@ -418,7 +421,7 @@ describe("Steam Record capture", () => {
     } finally {
       release();
     }
-  }, 30_000);
+  });
 
   it("reads no Steam Records while the server is unreachable, and sends those recorded meanwhile once it is reachable again", async () => {
     const machine = await api.createMachine("Steam while unreachable");
@@ -515,7 +518,7 @@ describe("Steam Record capture", () => {
     ]);
     // History waits until every id can be read.
     await absent("past-limit-older");
-  }, 30_000);
+  });
 
   it("places each Steam Record's local time in UTC by the tablet's time zone, on both sides of a daylight-saving change", async () => {
     const machine = await api.createMachine("Chicago tablet");
@@ -698,21 +701,16 @@ describe("Steam Record capture", () => {
     try {
       await database.query("BEGIN");
       await database.query("LOCK TABLE steam_measurements IN ACCESS EXCLUSIVE MODE");
-      // Reading measurements would wait for the lock until it is released, so any answer at all shows the list read none.
-      const response = await Promise.race([
-        api.call("GET", "/steam-records"),
-        new Promise<never>((_, reject) => {
-          const timer = setTimeout(() => reject(new Error("The Steam Records list waited on measurements")), 5_000);
-          timer.unref();
-        }),
-      ]);
+      // Reading measurements would wait for the lock until it is released, so the list answering with no query waiting
+      // for it shows it read none, however long the answer takes.
+      const response = await withoutLockWaits(server, api.call("GET", "/steam-records"), { relation: "steam_measurements" });
       expect(response.status).toBe(200);
       expect(((await response.json()) as { total: number }).total).toBeGreaterThan(0);
     } finally {
       await database.query("ROLLBACK");
       await database.end();
     }
-  }, 10_000);
+  });
 
   it("delivers a Steam Record larger than 1 MiB intact, in chunks, and stores it once after a reconnect partway through", async () => {
     const machine = await api.createMachine("Long steam");
