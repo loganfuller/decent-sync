@@ -414,7 +414,8 @@ const EVERY_PART: readonly WrittenPart[] = ["dose", "yield", "grind", "grinder",
  * only the parts the Workflow holds no value for: a barista's set-back of a
  * tweak of it, which Streamline's auto-save made its dial, and a stale copy
  * of it alike, which the plugin cannot tell apart, stay as they are: the
- * server takes either as the Machine's edit of the Recipe. The first Workflow, as on
+ * server tells them apart by who made the field's latest edit, and writes
+ * the Recipe's value back over a stale copy's. The first Workflow, as on
  * every load of the plugin, is no change, and loads nothing. Otherwise a
  * change of the profile, grinder or Bean to one the Loaded Recipe does not
  * name unloads it (`unloads`); the first Workflow unloads nothing. Any other

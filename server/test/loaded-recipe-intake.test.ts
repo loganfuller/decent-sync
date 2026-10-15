@@ -141,8 +141,24 @@ describe("A change of a Workflow's parts", () => {
     });
   });
 
-  it("is an edit where it sets back a value the Recipe held before, as a barista sets back a tweak, which a stale copy applied looks like", () => {
-    expect(partEdits(["grind"], { ...HELD, grind: "2.7" }, { ...CONTENT, grindSetting: 2.9 }, LOOKUPS).values).toEqual({ grindSetting: 2.7 });
+  it("is no edit where a stale copy set it back to what the tablet's record held before the server's latest write, which was the Recipe's before, set by another", () => {
+    const now = { ...HELD, grind: "2.7", batch: "b1", volume: 120 };
+    const content = { ...CONTENT, grindSetting: 2.9, beanBatchId: NEXT_BAG, hotWaterVolume: 130 };
+    const stale = {
+      beforeWrite: { "dashboardVariables.grind": 2.7, [RECIPE_FIELD]: { beanBatchId: "b1", hotWaterData: { volume: 120 } } },
+      previous: { grindSetting: 2.7, beanBatchId: BATCH, hotWaterVolume: 120 },
+      own: new Set<string>(),
+    };
+    expect(partEdits(["grind", "batch", "volume"], now, content, LOOKUPS, stale)).toEqual({ values: {}, taken: ["grind", "batch", "volume"], unmapped: [] });
+    // Another value than the Recipe's before, or one the server never wrote over, is an edit.
+    expect(partEdits(["grind"], { ...HELD, grind: "2.6" }, content, LOOKUPS, stale).values).toEqual({ grindSetting: 2.6 });
+    expect(partEdits(["grind"], now, content, LOOKUPS, { ...stale, previous: { grindSetting: 2.5 } }).values).toEqual({ grindSetting: 2.7 });
+    expect(partEdits(["grind"], now, content, LOOKUPS, { ...stale, beforeWrite: {} }).values).toEqual({ grindSetting: 2.7 });
+  });
+
+  it("is an edit where it sets back the tablet's own latest edit, as a barista undoes a tweak", () => {
+    const stale = { beforeWrite: { "dashboardVariables.grind": 2.7 }, previous: { grindSetting: 2.7 }, own: new Set(["grindSetting"]) };
+    expect(partEdits(["grind"], { ...HELD, grind: "2.7" }, { ...CONTENT, grindSetting: 2.8 }, LOOKUPS, stale).values).toEqual({ grindSetting: 2.7 });
   });
 });
 

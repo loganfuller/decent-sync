@@ -257,10 +257,11 @@ from the Workflow deliveries.
     holds is written over: a barista setting back a tweak of the Loaded
     Recipe, which Streamline's auto-save has made the recipe's dial, and a
     stale copy of it applied, look alike, and the plugin writes over
-    neither: the server takes either as the Machine's edit of the Recipe,
-    which every Machine with it loaded then follows (Following the Recipe,
-    below), so the barista's set-back wins. A stale copy of another recipe
-    is corrected as any load.
+    neither: the server tells them apart by who made the field's latest
+    edit, taking a set-back of the tablet's own as its edit, and one of
+    another's as a stale copy, whose value it writes back (Following the
+    Recipe, below). A stale copy of another recipe is corrected as any
+    load.
   - The first Workflow, as on every load of the plugin, is no change, and
     loads nothing, though a recipe matches it, as one leaving blank the
     grind the barista tweaked would, or the recipe the barista unloaded
@@ -427,8 +428,10 @@ maps the parts to the Recipe's content both ways.
   it. What the Workflow has seen is, from a load, what the tablet's record
   of the Recipe had seen, and from the answer to a write of it, the latest
   edit of the Recipe the write carried, once the Workflow holds every part
-  of the Recipe the tablet can hold (`holdsWhole`): a part held back, or
-  refused for want of a machine, has not seen it. A dose, yield, RPM or hot
+  of the Recipe but one naming an item its Location no longer offers the
+  tablet, as a Basket Archived there (`holdsWhole`): a part held back,
+  refused for want of a machine, or naming an item whose write the tablet
+  refused, has not seen it. A dose, yield, RPM or hot
   water setting is the Recipe's as it is, and
   a grind setting as the number DYE2 keeps; DYE2's ratio is kept only while
   the yield is the dose times it. A Basket, and a Bean Batch of the Recipe's
@@ -440,8 +443,15 @@ maps the parts to the Recipe's content both ways.
   part cleared is no edit, as Streamline clears the batch, Basket and RPM
   once each Shot is stored, and the Recipe keeps them, so they stay cleared
   until it is applied again or changes. A value the Recipe holds already is
-  no edit. A value set back to one the Recipe held before is an edit, as a
-  barista sets back a tweak they tasted.
+  no edit. Nor, as for a stale save (ADR-0005), is a value set back to the
+  one the tablet's record of the Recipe held just before the server's
+  latest write of it, which was the Recipe's before its current one, made
+  by another tablet or in the management interface: a recipe applied from
+  a DYE2 page or Streamline strip opened before that change, or DYE2's
+  dashboard sending back the whole Workflow it read as it opened when its
+  Done is tapped. The Recipe's value is written back. A value set back over
+  the tablet's own latest edit of the field is an edit, as its barista
+  undoing a tweak they tasted.
 - **The same edit once.** Streamline saves into the recipe a change the
   barista made in the Workflow (its auto-save): a field of the tablet's
   record that sets the Recipe's value its own latest edit set already is no
@@ -484,13 +494,14 @@ maps the parts to the Recipe's content both ways.
   writes this, and nothing else, whatever its reports. The Workflow the
   plugin then sends names none, which unloads it on the server.
 
-Known limits: a stale copy of the Loaded Recipe applied on its Machine, as
-from a DYE2 page or Streamline strip opened before another Machine's change,
-or DYE2's dashboard sending the whole Workflow it read as it opened when its
-Done is tapped, looks like a barista setting a tweak back, and is that
-Machine's edit of the Recipe, which every Machine with it loaded then
-follows. Telling the two apart needs DYE2 and Streamline to record the
-recipe they apply (#150). Decaid has no conditional write, so a barista's change of a part
+Known limits: a stale copy and a set-back look alike, and are told apart
+only by who made the field's latest edit, until DYE2 and Streamline record
+the recipe they apply (#150). So a barista who deliberately sets back
+another Machine's, or the management interface's, change of a part to its
+value just before has it written back, as for a stale save (ADR-0005), and
+changes it through another value, or in the management interface; and a
+stale copy applied over the tablet's own latest edit, as a DYE2 page opened
+before its own tweak, is its edit. Decaid has no conditional write, so a barista's change of a part
 made in the moments between the plugin's read of the Workflow and its write
 is written over, as for a settings write (ADR-0021). A Workflow naming a
 Recipe its Machine has loaded, delivered after a stale one, as from a

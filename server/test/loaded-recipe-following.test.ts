@@ -291,6 +291,28 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect((await api.get<{ conflicts: unknown[] }>(`/recipes/${one}/conflicts`)).conflicts).toEqual([]);
   });
 
+  it("keeps a Conflict for a Basket edit a Workflow never held, as its tablet refused the Basket's write, that a change on its Machine replaces", async () => {
+    const { here, machines, c, one, two } = await lab("Refused basket", 48141);
+    c.refuseWrites = ({ route }) => (route === "/store/dye2.reaplugin/baskets" ? { status: 500, body: { error: "Basket write failed" } } : undefined);
+    const created = await api.call("POST", "/baskets", { locationId: here.id, content: { name: "Refused 21g" } });
+    expect(created.status).toBe(201);
+    const basket = ((await created.json()) as { basket: { id: string } }).basket.id;
+    expect((await api.call("PATCH", `/recipes/${one}`, { content: { basketId: basket, grindSetting: 3.1 } })).status).toBe(200);
+    // C takes the grind, but not the Basket it holds no record of.
+    await expect.poll(() => context(c).grinderSetting).toBe("3.1");
+    await settle();
+
+    // C's barista picks slot 2's Basket, never having seen the one the Admin set.
+    const other = variables(inSlot(c, "2")).basketId as string;
+    await c.changeSettings({ context: { extras: { basketId: other } } });
+    await expect.poll(async () => (await recipe(one)).content.basketId).toBe((await recipe(two)).content.basketId);
+    await expect.poll(async () => (await api.get<{ conflicts: { field: string; value: unknown }[] }>(`/recipes/${one}/conflicts`)).conflicts).toEqual([
+      expect.objectContaining({ field: "basketId", value: basket }),
+    ]);
+    expect(named(c)).toBe(one);
+    await loads(machines.c, one);
+  });
+
   it("moves the Recipe to the next batch of its Bean picked on A, written into C's Workflow, and unloads it on a batch of another Bean, leaving the Recipe as it was", async () => {
     const { machines, a, c, one } = await lab("Rebagged", 48031);
     const library = dye2Library();
@@ -386,6 +408,38 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(() => named(c)).toBeNull();
     await loads(machines.c, null);
     expect(named(a)).toBe(one);
+  });
+
+  it("writes the Recipe's dial back over a stale recipe pill, or a stale DYE2 dashboard's Done, on another Machine, which edits nothing", async () => {
+    const { machines, a, c, one } = await lab("Stale", 48131);
+    // C's DYE2 dashboard reads its recipes and the Workflow once, as it opens.
+    const copy = structuredClone(inSlot(c, "1")!);
+    const opened = structuredClone(c.workflow());
+    await a.changeSettings({ context: { grinderSetting: "2.9" } });
+    await expect.poll(() => context(c).grinderSetting).toBe("2.9");
+    await expect.poll(() => variables(inSlot(c, "1")).grind).toBe(2.9);
+    const grinds = await editsOf(one, "grindSetting");
+    // The Workflows the server stored for C with the old grind: one as it loaded the Recipe so far.
+    const old = async () =>
+      (
+        (await (await api.call("GET", `/machines/${machines.c.machine.id}/workflow-events?limit=100`)).json()) as { events: { workflow: { context?: Record_ } }[] }
+      ).events.filter((event) => event.workflow.context?.grinderSetting === "2.7").length;
+
+    for (const [stale, apply] of [
+      ["pill", () => applyInDye2(c, "1", copy)],
+      ["Done", () => c.callApi("PUT", "/workflow", opened)],
+    ] as const) {
+      const before = await old();
+      expect((await apply()).status, stale).toBe(200);
+      await expect.poll(old).toBe(before + 1);
+      await expect.poll(() => context(c).grinderSetting).toBe("2.9");
+      await expect.poll(async () => ((await storedWorkflow(machines.c)).context as Record_ | undefined)?.grinderSetting).toBe("2.9");
+    }
+    await settle();
+    expect(named(c)).toBe(one);
+    expect((await recipe(one)).content.grindSetting).toBe(2.9);
+    expect(await editsOf(one, "grindSetting")).toBe(grinds);
+    expect(context(a).grinderSetting).toBe("2.9");
   });
 
   it("takes a tweak set back on A as A's edit, which every Machine with the Recipe loaded follows", async () => {
