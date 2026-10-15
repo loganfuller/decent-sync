@@ -89,16 +89,6 @@ export function dye2Keys(): Record<Dye2Key, Record_[]> {
 }
 
 /**
- * The Shot pulled on the recording's simulated machine after a basket was
- * picked on DYE2's dashboard (its Workflow context's extras name the basket),
- * as Decaid stored it, or as it was after DYE2's Edit Shot page gave it a
- * basket and tools in its annotation's extras. Its measurements are trimmed.
- */
-export function dye2Shot(which: "pulled" | "edited"): Record_ {
-  return (readFixture<Record<string, Dye2Exchange>>("shot")[which]!.response.body) as Record_;
-}
-
-/**
  * The library and Workflow of the recording's tablet when DYE2 started:
  * two beans, a batch of each and a grinder, the two bundled profiles its
  * recipes use, and Decaid's default Workflow. Merge it into a tablet's API.

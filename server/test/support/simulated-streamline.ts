@@ -49,10 +49,10 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 export const STREAMLINE_NAMESPACE = "streamline-app";
 
 /** How long Streamline waits before pushing a value it pushed on a shot-settings frame again (app.js). */
-export const RESYNC_COOLDOWN_MS = 30_000;
+const RESYNC_COOLDOWN_MS = 30_000;
 
 /** How long after its own push Streamline ignores a differing value as a stale echo (resync-policy.js). */
-export const ECHO_WINDOW_MS = 10_000;
+const ECHO_WINDOW_MS = 10_000;
 
 /** The keys Streamline keeps the shared settings under (api.js). */
 export type StreamlineKey =

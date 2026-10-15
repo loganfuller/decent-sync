@@ -264,12 +264,12 @@ export function simulatedLibrary(): DecaidApi {
 
 /**
  * Derived: the test tablet's profiles, repeated with their ids changed (each
- * repeat's suffixed `-copy-N`) until their JSON is larger than `minBytes`,
- * as a tablet with many profiles would answer.
+ * repeat's suffixed `-copy-N`) until their JSON is larger than 1.25 MiB, as
+ * a tablet with many profiles would answer.
  */
-export function manyProfiles(minBytes = 1.25 * 1024 * 1024): Record<string, unknown>[] {
+export function manyProfiles(): Record<string, unknown>[] {
   const profiles = readFixture<Record<string, unknown>[]>("profiles.json");
-  const copies = Math.ceil(minBytes / Buffer.byteLength(JSON.stringify(profiles))) + 1;
+  const copies = Math.ceil((1.25 * 1024 * 1024) / Buffer.byteLength(JSON.stringify(profiles))) + 1;
   return Array.from({ length: copies }, (_, copy) =>
     profiles.map((profile) => (copy === 0 ? profile : { ...profile, id: `${String(profile.id)}-copy-${copy}` })),
   ).flat();
@@ -324,7 +324,7 @@ export function derivedWorkflow(context: Record<string, unknown>): Record<string
  * `stateUpdate` carries it, in another of Decaid's states and substates
  * (MachineState and MachineSubstate in decaid:lib/src/models/device/machine.dart).
  */
-export function machineSnapshot(state: string, substate: string): Record<string, unknown> {
+function machineSnapshot(state: string, substate: string): Record<string, unknown> {
   return { ...readFixture("machine-state.json"), state: { state, substate } };
 }
 
@@ -970,7 +970,7 @@ export class SimulatedTablet {
    * the plugin's handler throws or rejects; otherwise its answer, status 200
    * if it gives none.
    */
-  async callEndpoint(endpoint: string, options: { method?: string; query?: Record<string, string>; body?: unknown } = {}): Promise<EndpointAnswer> {
+  async callEndpoint(endpoint: string, options: { method?: string; body?: unknown } = {}): Promise<EndpointAnswer> {
     const json = (status: number, body: unknown): EndpointAnswer => ({ status, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const declared = this.endpoints.find((candidate) => candidate.id === endpoint);
     if (this.unloaded) return json(404, { error: `plugin with ${this.pluginId} not loaded` });
@@ -985,7 +985,7 @@ export class SimulatedTablet {
       method: options.method ?? "GET",
       headers: {},
       body: options.body === undefined ? null : JSON.parse(JSON.stringify(options.body)),
-      query: options.query ?? {},
+      query: {},
     };
     let answer: Record<string, unknown>;
     try {
@@ -1816,15 +1816,15 @@ export class RawConnection {
   }
 
   /** Resolves once the server has acknowledged the delivery with this id. */
-  async acknowledged(id: string, timeoutMs = 10_000): Promise<void> {
-    await this.until(() => this.acks(id) > 0, timeoutMs, `acknowledgment of ${id}`);
+  async acknowledged(id: string): Promise<void> {
+    await this.until(() => this.acks(id) > 0, 10_000, `acknowledgment of ${id}`);
   }
 
   /** Sends a delivery and resolves once the server acknowledges it, again if it had before. */
-  async deliver(message: { id: string; [field: string]: unknown }, timeoutMs = 10_000): Promise<void> {
+  async deliver(message: { id: string; [field: string]: unknown }): Promise<void> {
     const before = this.acks(message.id);
     this.send(message);
-    await this.until(() => this.acks(message.id) > before, timeoutMs, `acknowledgment of ${message.id}`);
+    await this.until(() => this.acks(message.id) > before, 10_000, `acknowledgment of ${message.id}`);
   }
 
   close(): Promise<{ code: number; reason: string }> {

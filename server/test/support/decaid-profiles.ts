@@ -163,7 +163,7 @@ export function purgeProfile(profiles: readonly ProfileRecord[], id: string): { 
 }
 
 /** The id Decaid gives a profile: `profile:` and the start of the hash of what the machine executes (ProfileHash.calculateProfileHash). */
-export function profileId(profile: Record<string, unknown>): string {
+function profileId(profile: Record<string, unknown>): string {
   const executed = {
     version: profile.version,
     beverage_type: profile.beverage_type,
