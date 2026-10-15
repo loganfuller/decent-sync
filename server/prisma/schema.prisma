@@ -377,6 +377,7 @@ model Tablet {
   deletions    TabletDeletion[]
   reports      TabletReport[]
   workflow     WorkflowClear?
+  loaded       TabletLoadedRecipe?
   leftOut      TabletLeftOut[]
   refusals     TabletRefusal[]
   lastApplied  TabletLastApplied?
@@ -1274,6 +1275,37 @@ model LoadedRecipe {
   @@index([machineId, id])
   @@index([recipeId])
   @@map("loaded_recipes")
+}
+
+/// The Loaded Recipe each tablet's Workflow last named (ADR-0022, ticket
+/// #146), with the parts of it that follow the Recipe as the Workflow held
+/// them, reported or as Decaid returned the plugin's write of them, so the
+/// plugin's own write is never read as the tablet's edit, as
+/// `TabletSettings` keeps the settings. A change of a part from these, while
+/// the Workflow still names the Recipe its Machine has loaded, is an edit of
+/// the Recipe; a Recipe's field that differs from them is written into the
+/// Workflow; and a Recipe named that is not its Machine's Loaded Recipe, as
+/// one taken out of its slot, is cleared from the Workflow.
+model TabletLoadedRecipe {
+  tabletId      String    @id @map("tablet_id") @db.Uuid
+  tablet        Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
+  /// The Recipe's global id, as the Workflow names it, whether or not the
+  /// Library has it, so a clear stays due for one deleted.
+  recipeId      String    @map("recipe_id") @db.Uuid
+  /// Each part, by its name in LOADED_RECIPE_PARTS (`protocol/`), as the
+  /// Workflow held it: a number, the grind setting's text, or the tablet's id
+  /// for its Basket or Bean Batch; null for none.
+  held          Json      @db.JsonB
+  /// The parts naming a Basket or Bean Batch the tablet's map did not hold
+  /// yet, by part, with the tablet's id for it and when the plugin observed
+  /// the Workflow naming it: each is taken in as the map gains it.
+  pending       Json?     @db.JsonB
+  /// The latest edit of the Recipe the Workflow has seen, as
+  /// `TabletSettings.contentSeenAt` (ADR-0020); null if none.
+  contentSeenAt DateTime? @map("content_seen_at") @db.Timestamptz(3)
+
+  @@index([recipeId])
+  @@map("tablet_loaded_recipes")
 }
 
 /// Each tablet's map of its records in DYE2's `recipes` list (ADR-0006), as

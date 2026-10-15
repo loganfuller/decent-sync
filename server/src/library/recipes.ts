@@ -16,7 +16,7 @@ import { leaveOut, offersAny, screenLeftOut } from "./left-out.js";
 import { isObject, listedIds } from "./listed.js";
 import { editSettingsInRecipe, mirroredSettings } from "./location-settings.js";
 import { deletedAt, lockLocation, transactionTime } from "./location-state.js";
-import { latestDecision, readFieldEdits } from "./merge.js";
+import { type FieldEdits, latestDecision, readFieldEdits } from "./merge.js";
 import {
   EDITED_PATHS,
   type IntakeContext,
@@ -38,6 +38,7 @@ import {
   recipeView,
   settingsValues,
   tabletIds,
+  withoutOwnEdits,
 } from "./recipe-intake.js";
 
 // The Library's Recipes and the tablets that hold them (ADR-0005, ADR-0006,
@@ -185,12 +186,17 @@ async function snapshotProfile(tx: Prisma.TransactionClient, view: RecipeView): 
   return row?.id ?? null;
 }
 
-/** Each Recipe's content and Location, by id, read in the transaction. */
-async function readRecipes(tx: Prisma.TransactionClient, ids: readonly string[]): Promise<Map<string, { content: Record<string, unknown>; locationId: string | null }>> {
+/** Each Recipe's content, its fields' latest edits and its Location, by id, read in the transaction. */
+async function readRecipes(
+  tx: Prisma.TransactionClient,
+  ids: readonly string[],
+): Promise<Map<string, { content: Record<string, unknown>; fieldEdits: FieldEdits; locationId: string | null }>> {
   if (ids.length === 0) return new Map();
-  const rows = await tx.$queryRaw<{ id: string; content: unknown; locationId: string | null }[]>`
-    SELECT id::text AS id, content, location_id::text AS "locationId" FROM recipes WHERE id = ANY(${[...new Set(ids)]}::uuid[])`;
-  return new Map(rows.map((row) => [row.id, { content: isObject(row.content) ? row.content : {}, locationId: row.locationId }]));
+  const rows = await tx.$queryRaw<{ id: string; content: unknown; fieldEdits: unknown; locationId: string | null }[]>`
+    SELECT id::text AS id, content, field_edits AS "fieldEdits", location_id::text AS "locationId" FROM recipes WHERE id = ANY(${[...new Set(ids)]}::uuid[])`;
+  return new Map(
+    rows.map((row) => [row.id, { content: isObject(row.content) ? row.content : {}, fieldEdits: readFieldEdits(row.fieldEdits), locationId: row.locationId }]),
+  );
 }
 
 /**
@@ -322,7 +328,7 @@ export async function takeInRecipes(
         const edits = editedContent(knownView, view, known.beforeWrite);
         const paths = editedPaths(edits);
         if (paths.length > 0) {
-          const values = libraryValues(view, paths, recipe.content, await context(view));
+          const values = withoutOwnEdits(libraryValues(view, paths, recipe.content, await context(view)), recipe.content, recipe.fieldEdits, tablet.tabletId);
           await editContent(tx, { kind: "recipe", id: itemId }, { values, at: record.updatedAt, seenAt: known.contentSeenAt }, source);
         }
         // A steam or flush value changed is an edit of the settings the record mirrors, not of the Recipe.
@@ -397,8 +403,8 @@ export async function recordRecipeWritten(
     if (!(await lockHeldMachine(tx, tablet))) return "released";
     await lockTablet(tx, tablet.tabletId);
     // Its row locked, as an edit of it would, for its content before this answer.
-    const [item] = await tx.$queryRaw<{ content: unknown; locationId: string | null }[]>`
-      SELECT content, location_id::text AS "locationId" FROM recipes WHERE id = ${itemId}::uuid FOR NO KEY UPDATE`;
+    const [item] = await tx.$queryRaw<{ content: unknown; fieldEdits: unknown; locationId: string | null }[]>`
+      SELECT content, field_edits AS "fieldEdits", location_id::text AS "locationId" FROM recipes WHERE id = ${itemId}::uuid FOR NO KEY UPDATE`;
     if (!item) return "notTheItem";
     const [other] = await tx.$queryRaw<{ itemId: string }[]>`
       SELECT recipe_id::text AS "itemId" FROM tablet_recipes WHERE tablet_id = ${tablet.tabletId}::uuid AND local_id = ${localId}`;
@@ -427,7 +433,7 @@ export async function recordRecipeWritten(
       const answered = answeredEquipment(recipeView(known.record), view, written, known.beforeWrite, await recordFor(tx, tablet, locationId, ids, content, localId));
       const paths = editedPaths(answered.values);
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
-      const values = paths.length === 0 || !here ? {} : libraryValues(view, paths, content, await context(view));
+      const values = paths.length === 0 || !here ? {} : withoutOwnEdits(libraryValues(view, paths, content, await context(view)), content, readFieldEdits(item.fieldEdits), tablet.tabletId);
       edited = await editContent(tx, ref, { values, at, seenAt: known.contentSeenAt }, source);
       if (here) await editSettingsInRecipe(tx, tablet, locationId!, settingsValues(view, Object.keys(answered.values), recipeView(known.record)), at);
       const now = await recordFor(tx, tablet, locationId, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, localId);

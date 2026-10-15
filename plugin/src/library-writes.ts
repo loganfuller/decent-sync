@@ -4,6 +4,9 @@ import {
   type CollectionName,
   DYE2_NAMESPACE,
   LIBRARY_ITEM_KINDS,
+  LOADED_RECIPE_FIELD,
+  LOADED_RECIPE_KIND,
+  LOADED_RECIPE_PARTS,
   SHOTS_STILL_TO_READ,
   GLOBAL_ID_KEY,
   type ItemDeleted,
@@ -34,9 +37,12 @@ import {
   globalIdOf,
   isLibraryKind,
   isSlotId,
+  loadedRecipeOf,
   sameValue,
   settingsParts,
   steamIsOn,
+  workflowPatch,
+  workflowValueAt,
 } from "@decent-sync/protocol";
 import { type Answer, readShot, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
@@ -175,8 +181,8 @@ const ROUTES = {
 
 /**
  * Each kind the server writes, described once: the Library's kinds
- * (`LIBRARY_ITEM_KINDS`), a Location's shared settings, and the clearing of
- * a Workflow's grinder and batch.
+ * (`LIBRARY_ITEM_KINDS`), a Location's shared settings, the clearing of a
+ * Workflow's grinder and batch, and a Workflow's Loaded Recipe.
  */
 const WRITERS: { readonly [K in WrittenKind]: K extends LibraryKind ? LibraryKindWriter : KindWriter } = {
   bean: recordWriter("bean", ROUTES.bean),
@@ -193,6 +199,7 @@ const WRITERS: { readonly [K in WrittenKind]: K extends LibraryKind ? LibraryKin
   recipe: dye2Writer("recipes"),
   [SETTINGS_KIND]: { write: writeSettings, changesWorkflow: true },
   [WORKFLOW_KIND]: { write: clearWorkflow, changesWorkflow: true },
+  [LOADED_RECIPE_KIND]: { write: writeLoadedRecipe, changesWorkflow: true },
 };
 
 /** How the plugin carries out the server's changes of a kind, or undefined for a kind it does not know. */
@@ -677,6 +684,73 @@ async function clearWorkflow(write: LibraryWrite): Promise<WriteAnswer> {
   const updated = answer.ok ? parsed(answer.text) : undefined;
   if (!isObject(updated)) return refused(write, answer.status, answer.text);
   return written(write, workflowContext(updated), Object.keys(fields), new Date().toISOString());
+}
+
+/**
+ * Writes the fields of its Loaded Recipe that the server says the tablet's
+ * Workflow is due (`LOADED_RECIPE_KIND`), or clears its Loaded Recipe,
+ * through `PUT /workflow`, which Decaid merges into the Workflow: nothing
+ * unless the Workflow still names that Recipe as loaded, and of the rest
+ * each part whose first field still holds the value expected, or none
+ * (`loadedRecipeFields`). Decaid refuses to change the hot water settings
+ * while no machine is connected, so the rest is then written without them,
+ * the Workflow read again first, and a write of only them is refused. Answers
+ * with the Workflow's `context`, `hotWaterData` and `profile`, timed now, as
+ * a Workflow carries no time.
+ */
+async function writeLoadedRecipe(write: LibraryWrite): Promise<WriteAnswer> {
+  let hotWater = true;
+  for (;;) {
+    const current = await request("GET", "/workflow");
+    const workflow = current.ok ? parsed(current.text) : undefined;
+    if (!isObject(workflow)) return refused(write, current.status, current.text);
+    const fields = loadedRecipeFields(write, workflow, hotWater);
+    if (Object.keys(fields).length === 0) return written(write, loadedRecipeParts(workflow), [], new Date().toISOString());
+    const answer = await request("PUT", "/workflow", workflowPatch(fields));
+    const updated = answer.ok ? parsed(answer.text) : undefined;
+    if (isObject(updated)) return written(write, loadedRecipeParts(updated), Object.keys(fields), new Date().toISOString());
+    const ofHotWater = Object.keys(fields).filter((field) => field.startsWith("hotWaterData."));
+    // Hot water alone is refused, as a settings write is, so the plugin writes it once the machine is back.
+    if (ofHotWater.length === 0 || ofHotWater.length === Object.keys(fields).length || !machineMissing(answer)) return refused(write, answer.status, answer.text);
+    hotWater = false;
+  }
+}
+
+/**
+ * The fields of a write of LOADED_RECIPE_KIND to set in the Workflow: none
+ * unless it names the write's Recipe as loaded; the clearing of that, where
+ * the write clears it; and otherwise each part of LOADED_RECIPE_PARTS the
+ * write names, all its fields together, while the Workflow holds the value
+ * expected of its first field, or none, or the write expects none, as of a
+ * Profile, and its hot water settings only where `hotWater` says.
+ */
+function loadedRecipeFields(write: LibraryWrite, workflow: Record<string, unknown>, hotWater: boolean): Record<string, unknown> {
+  if (loadedRecipeOf(workflow) !== write.globalId.toLowerCase()) return {};
+  if (LOADED_RECIPE_FIELD in write.fields) return { [LOADED_RECIPE_FIELD]: null };
+  return Object.fromEntries(
+    Object.values(LOADED_RECIPE_PARTS).flatMap((part: readonly string[]) => {
+      const [first] = part as [string];
+      if (!(first in write.fields) || (!hotWater && first.startsWith("hotWaterData."))) return [];
+      const held = workflowValueAt(workflow, first);
+      const expected = write.expected?.[first];
+      if (held !== undefined && held !== null && expected !== undefined && !sameValue(held, expected)) return [];
+      return part.filter((field) => field in write.fields).map((field) => [field, write.fields[field]]);
+    }),
+  );
+}
+
+/** A Workflow's `context`, `hotWaterData` and `profile`, as Decaid holds them, which hold the parts that follow its Loaded Recipe. */
+function loadedRecipeParts(workflow: Record<string, unknown>): Record<string, unknown> {
+  return {
+    context: isObject(workflow.context) ? workflow.context : {},
+    hotWaterData: isObject(workflow.hotWaterData) ? workflow.hotWaterData : {},
+    ...(isObject(workflow.profile) ? { profile: workflow.profile } : {}),
+  };
+}
+
+/** Whether Decaid refused a Workflow change as no machine is connected, which it needs to change the hot water settings. */
+function machineMissing(answer: Answer): boolean {
+  return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");
 }
 
 /** A Workflow's `context`, as Decaid holds it: none is an empty one. */

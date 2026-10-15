@@ -27,9 +27,10 @@ const REASONS: Record<CaptureOnlyReason, string> = {
   sharingOff: "An Admin turned its sharing off.",
 };
 
-/** What a change's kind is called: a Library kind's name (`LIBRARY_KINDS`), the shared settings, or the Workflow. */
+/** What a change's kind is called: a Library kind's name (`LIBRARY_KINDS`), the shared settings, the Workflow, or its Loaded Recipe. */
 function kindName(kind: TabletChange["kind"]): string {
   if (kind === "settings") return "Steam and rinse settings";
+  if (kind === "loadedRecipe") return "Loaded Recipe";
   return kind === "workflow" ? "Workflow" : LIBRARY_KINDS[kind].name;
 }
 
@@ -241,6 +242,16 @@ function ChangeDescription({ change, location }: { change: TabletChange; locatio
   );
   if (change.change === "leaveOut") return <>{record} set aside, as the Library leaves it out</>;
   if (change.kind === "workflow") return <>Its Workflow's grinder and batch cleared</>;
+  // Written the Recipe's fields as its Loaded Recipe, or cleared of it as the Recipe is no longer one.
+  if (change.kind === "loadedRecipe") {
+    if (!change.item) return <>Its Workflow written, or cleared of, a Recipe since deleted</>;
+    return (
+      <>
+        Its Workflow written, or cleared of, the Recipe{" "}
+        <ItemLink path={itemPath("recipe", change.item.id, location)}>{change.item.name ?? "Unnamed Recipe"}</ItemLink>
+      </>
+    );
+  }
   let item: ReactNode;
   if (change.item) {
     const { item: named } = change;

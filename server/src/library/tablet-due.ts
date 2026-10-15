@@ -16,6 +16,7 @@ import { standing } from "./join-plan.js";
 import { workflowClearDue } from "./joining.js";
 import { KINDS } from "./kinds.js";
 import { leaveOutsDue } from "./left-out.js";
+import { loadedRecipeDue } from "../machine-events/loaded-recipes.js";
 import { settingsDue } from "./location-settings.js";
 
 // What a connection's tablet is due: the next write that brings it to what
@@ -23,7 +24,8 @@ import { settingsDue } from "./location-settings.js";
 // content (holdings.ts), its Workflow to the Location's steam and rinse
 // settings (location-settings.ts), its Workflow's grinder and
 // batch cleared as it joined a Location that does not offer them
-// (joining.ts), the deletes of its records
+// (joining.ts), its Workflow to its Loaded Recipe, or that Recipe cleared
+// from it (machine-events/loaded-recipes.ts), the deletes of its records
 // of items an Admin hard-deleted (hard-deletes.ts), and the setting aside of
 // its records the Library leaves out as it joined (left-out.ts), read from the database
 // each time, so it reflects changes made through any instance. Nothing is
@@ -51,7 +53,8 @@ export interface TabletDue {
  * Where the connection's Machine takes part now, and the writes its tablet
  * is due, leaving out the changes in `skipped` (`changeKey`), as the deletes
  * its writer deferred. None is due while
- * it is capture-only, at no Location or with sharing turned off, nor while
+ * it is capture-only, at no Location or with sharing turned off, but the
+ * clearing of a Loaded Recipe its Workflow still names (ADR-0022), nor while
  * it does not take part where its tablet's latest reports of its beans, bean
  * batches, grinders and profiles were all taken in (`reportedAt`, a
  * `standing`), as before sharing was turned off and on again, so a
@@ -77,7 +80,11 @@ export async function tabletDue(
         WHERE machines.id = ${tablet.machineId}::uuid AND machines.connected_session_id = ${tablet.sessionId}::uuid`;
       if (!holder) return null;
       const { id, locationId, sharingSince } = holder;
-      if (!holder.sharing || id === null || locationId === null) return { locationId: null, standing: null, writes: null };
+      if (!holder.sharing || id === null || locationId === null) {
+        // Nothing is written to a Machine taking part nowhere, but the clearing of a Loaded Recipe it no longer follows.
+        const cleared = await loadedRecipeDue(tx, tablet, null);
+        return { locationId: null, standing: null, writes: cleared === null || skipped.has(writeKey(cleared.kind, cleared.globalId)) ? null : [cleared] };
+      }
       const where = standing({ id, locationId, sharingSince });
       if (where !== reportedAt) return { locationId, standing: where, writes: null };
       return { locationId, standing: where, writes: (await changesDue(tx, tablet, locationId, skipped)).changes };
@@ -121,12 +128,15 @@ export async function changesDue(
   // Nothing is written to one of DYE2's lists the tablet holds in a shape that is not recognised (ADR-0005).
   const unrecognised = await unrecognisedLists(tx, tablet.tabletId);
   const writable = (change: { kind: WrittenKind }) => !isLibraryKind(change.kind) || !unrecognised.has(LIBRARY_ITEM_KINDS[change.kind].list);
+  // The Loaded Recipe's fields last, once the Recipe's record, and the Basket and batch they name, are written.
+  const loaded = await loadedRecipeDue(tx, tablet, locationId);
   return {
     changes: [
       ...writes,
       ...(await deletesDue(tx, tablet.tabletId, skipped)),
       ...(await leaveOutsDue(tx, tablet.tabletId, skipped)),
       ...plannedWrites(offer as LocationOffer, held as TabletHoldings, skipped),
+      ...(loaded === null || skipped.has(writeKey(loaded.kind, loaded.globalId)) ? [] : [loaded]),
     ].filter(writable),
     batchesAwaitingBeans: batchesAwaitingBeans(offer as LocationOffer, held as TabletHoldings),
   };

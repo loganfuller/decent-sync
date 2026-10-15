@@ -1,6 +1,6 @@
 import { RECIPE_FIELD, type SharedSetting, dye2GlobalIdOf, dye2Records, isSlotId, sameValue } from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
-import { changedFields } from "./merge.js";
+import { type FieldEdits, changedFields } from "./merge.js";
 import type { LocationValues } from "./settings-intake.js";
 
 // How a DYE2 recipe record on a tablet maps to a Recipe, both ways
@@ -277,6 +277,28 @@ export function libraryValues(view: Readonly<RecipeView>, fields: Iterable<strin
   return values;
 }
 
+/**
+ * The values of an edit of a Recipe read from the tablet's record of it
+ * (`values`, as `libraryValues` reads them), but each the Recipe holds
+ * already (`content`) by that tablet's own latest edit of it (`fieldEdits`):
+ * the same edit reaching the server twice, as when Streamline saves into the
+ * recipe a change the barista made in the Workflow of a Machine that has it
+ * loaded, which the Workflow brought first (ADR-0022).
+ */
+export function withoutOwnEdits(
+  values: Readonly<Record<string, unknown>>,
+  content: Readonly<Record<string, unknown>>,
+  fieldEdits: FieldEdits,
+  tabletId: string,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(values).filter(([field, value]) => {
+      const latest = Object.prototype.hasOwnProperty.call(fieldEdits, field) ? fieldEdits[field] : undefined;
+      return !(latest?.tabletId === tabletId && sameValue(content[field] ?? null, value));
+    }),
+  );
+}
+
 /** A new Recipe's content from a tablet's record: every field a barista edits, a field it holds no value for left out. */
 export function recipeContent(view: Readonly<RecipeView>, context: IntakeContext): Record<string, unknown> {
   const values = libraryValues(view, EDITED_PATHS, {}, context);
@@ -372,6 +394,38 @@ export function staleApplied(
     if (beforeWrites.some((before) => Object.prototype.hasOwnProperty.call(before, path) && sameValue(before[path], value))) stale.push(setting);
   }
   return stale;
+}
+
+/**
+ * What else an edit setting `values` over a Recipe's content (`current`)
+ * sets of its dose, yield and DYE2's ratio, which DYE2's editor keeps only
+ * while the yield is the dose times it, to a tenth of a gram: a ratio set
+ * without a yield, as a Conflict about it holds, sets the yield to the dose
+ * times it, as picking a ratio in DYE2's editor does, and is refused
+ * (`NoDoseForRatio`) for a Recipe with no dose, which it cannot be applied
+ * to; and a ratio the edit leaves otherwise than the yield is cleared.
+ * Nothing for an edit setting none of them, or one keeping them so.
+ */
+export function ratioValues(current: Readonly<Record<string, unknown>>, values: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const has = (field: string) => Object.prototype.hasOwnProperty.call(values, field);
+  if (!has("dose") && !has("yield") && !has("ratio")) return {};
+  const ratio = has("ratio") ? values.ratio : current.ratio;
+  if (typeof ratio !== "number") return {};
+  const dose = has("dose") ? values.dose : current.dose;
+  const scaled = typeof dose === "number" ? Math.round(dose * ratio * 10) / 10 : null;
+  if (has("ratio") && !has("yield")) {
+    if (scaled === null) throw new NoDoseForRatio();
+    return { yield: scaled };
+  }
+  const drink = has("yield") ? values.yield : current.yield;
+  return scaled !== null && typeof drink === "number" && Math.abs(drink - scaled) < 0.05 ? {} : { ratio: null };
+}
+
+/** A ratio set on a Recipe with no dose to apply it to (`ratioValues`). */
+export class NoDoseForRatio extends Error {
+  constructor() {
+    super("This Recipe has no dose to apply a ratio to: set its dose first");
+  }
 }
 
 /** What writing a Recipe to a tablet reads besides it: the tablet's ids for what it names, and what DYE2 copies of each. */
