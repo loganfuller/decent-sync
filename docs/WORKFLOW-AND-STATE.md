@@ -232,7 +232,8 @@ from the Workflow deliveries.
   long the plugin's reads of Decaid take: what the changes decided on leave
   to write (a load, or clearing the Loaded Recipe) is written once none is
   left to decide on. The first Workflow after a load of the plugin is
-  decided on too, and loads a recipe it matches, but unloads nothing.
+  decided on too, and may load a recipe it matches (below), but unloads
+  nothing.
   - A change of the dial may load a recipe (A load, below). A batch picked
     in the same change, which no app applying a recipe does, stays as
     picked, and a recipe of another Bean is none it loads.
@@ -243,6 +244,13 @@ from the Workflow deliveries.
   - Any other change made after a load still to be written is the barista's,
     after it: the load leaves the parts it changed as they were changed,
     the dose of a tweak or a batch of the same Bean, say.
+  - A load of the recipe the Workflow names already, its dial set back or
+    applied again, writes its current dial alone: its RPM, Basket, batch and
+    hot water stay as the barista left them.
+  - The first Workflow, as on every load of the plugin, is no change. One
+    naming a recipe it matches is written that recipe's dial alone, and one
+    naming none loads no recipe of another Bean than its batch's, as when
+    the barista unloaded it so before the plugin last unloaded.
 - **Held or sent at once.** A change is held back (Held back, below) if the
   Workflow names a Loaded Recipe, which it may unload or replace, or matches
   a recipe as the tablet held it when last read, or a write is still to be
@@ -353,9 +361,13 @@ current one the entry not unloaded, at most one per Machine. A change of it
 unloads the current one and loads the new one at the time the plugin
 observed the Workflow, by the tablet's clock, which a delivery made offline
 keeps, but never before the Machine's latest entry. The Recipe's row is
-taken `FOR KEY SHARE` after the tablet's and the Location's locks, which a
-hard delete of the Recipe takes before its row; the hard delete removes its
-entries.
+taken `FOR KEY SHARE` after the tablet's lock, and the Location's where
+taking in the Workflow's settings takes it, as when joining, which a hard
+delete of the Recipe takes before its row; the hard delete removes its
+entries. A Machine made capture-only shows no Loaded Recipe from its next
+Workflow delivery on; a change of Location asks for one at once. No `NOTIFY`
+is sent: nothing yet follows a Loaded Recipe across instances, which #146
+adds.
 
 ## REST API
 

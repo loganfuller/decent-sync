@@ -229,10 +229,12 @@ describe("deciding each change of the Workflow in turn", () => {
     let pending: Pending = { kind: "none" };
     let before: Record_ | undefined;
     for (const workflow of workflows) {
-      const picked = before !== undefined && (before.context as Record_).beanBatchId !== (workflow.context as Record_).beanBatchId;
+      const named = (of: Record_) => ((((of.context as Record_).extras ?? {}) as Record_)[LOADED_RECIPE_KEY] as string | undefined) ?? null;
+      // As the plugin reads a batch's Bean: as the batch changes, or for the first Workflow naming no recipe.
+      const picked = before !== undefined ? (before.context as Record_).beanBatchId !== (workflow.context as Record_).beanBatchId : named(workflow) === null;
       const setUp = (of: Record_): ChangedSetUp => {
         const batch = ((of.context as Record_).beanBatchId as string | undefined) ?? null;
-        return { dial: workflowDial(of), batch, bean: picked && batch !== null ? (beans[batch] ?? null) : null, named: ((((of.context as Record_).extras ?? {}) as Record_)[LOADED_RECIPE_KEY] as string | undefined) ?? null };
+        return { dial: workflowDial(of), batch, bean: picked && batch !== null ? (beans[batch] ?? null) : null, named: named(of) };
       };
       pending = decideChange(pending, before && setUp(before), setUp(workflow), before ? changedParts(before, workflow) : new Set(), recipes);
       before = workflow;
@@ -242,14 +244,20 @@ describe("deciding each change of the Workflow in turn", () => {
   const beans = { "batch-e": ethiopia, "batch-e2": ethiopia, "batch-b": brazil };
   const loaded = withId(derived(slot1, { beanBatchId: "batch-e" }), ONE);
   const tweaked = derived(loaded, { grinderSetting: "2.8" });
+  /** What a load of the recipe the Workflow names already leaves as the barista left it: all but its dial. */
+  const afterLoaded = ["rpm", "basket", "batch", "targetTemperature", "duration", "volume", "flow"];
 
-  it("loads a recipe applied, and loads it again from a tweak, writing what the tweak changed back", () => {
+  it("loads a recipe applied, and writes the recipe the Workflow names already its dial alone as it is set back", () => {
     expect(decided([derived(slot1, { targetDoseWeight: 17 }), slot1])).toEqual({ kind: "load", globalId: ONE, kept: new Set() });
-    expect(decided([tweaked, loaded])).toEqual({ kind: "load", globalId: ONE, kept: new Set() });
+    expect(decided([tweaked, loaded])).toEqual({ kind: "load", globalId: ONE, kept: new Set(afterLoaded) });
   });
 
-  it("loads the first Workflow the plugin hears of where it matches, but unloads nothing then", () => {
+  it("loads the first Workflow the plugin hears of where it matches, of its batch's Bean, writing one naming it already its dial alone, and unloads nothing then", () => {
     expect(decided([slot1])).toEqual({ kind: "load", globalId: ONE, kept: new Set() });
+    expect(decided([derived(slot1, { beanBatchId: "batch-e" })], beans)).toEqual({ kind: "load", globalId: ONE, kept: new Set() });
+    // Unloaded before the plugin last loaded, by a batch of another Bean: no change loads it again.
+    expect(decided([derived(slot1, { beanBatchId: "batch-b" })], beans)).toEqual({ kind: "none" });
+    expect(decided([loaded], beans)).toEqual({ kind: "load", globalId: ONE, kept: new Set(afterLoaded) });
     expect(decided([withId(derived(slot1, { targetDoseWeight: 17 }), ONE)])).toEqual({ kind: "none" });
   });
 
@@ -257,7 +265,13 @@ describe("deciding each change of the Workflow in turn", () => {
     expect(decided([derived(slot1, { targetDoseWeight: 17 }), slot1, derived(slot1, { targetDoseWeight: 18.6 })])).toEqual({ kind: "load", globalId: ONE, kept: new Set(["dose"]) });
     const hotWater = { ...slot1, hotWaterData: { ...(slot1.hotWaterData as Record_), volume: 60 } };
     expect(decided([derived(slot1, { targetDoseWeight: 17 }), slot1, hotWater])).toEqual({ kind: "load", globalId: ONE, kept: new Set(["volume"]) });
-    expect(decided([tweaked, loaded, derived(loaded, { beanBatchId: "batch-e2" })], beans)).toEqual({ kind: "load", globalId: ONE, kept: new Set(["batch"]) });
+    expect(decided([tweaked, loaded, derived(loaded, { beanBatchId: "batch-e2" })], beans)).toEqual({ kind: "load", globalId: ONE, kept: new Set(afterLoaded) });
+    const nextBag = derived(slot1, { beanBatchId: "batch-e2", targetDoseWeight: 17 });
+    expect(decided([nextBag, derived(nextBag, { targetDoseWeight: 18.5 }), derived(nextBag, { targetDoseWeight: 18.5, grinderSetting: "2.8" })], beans)).toEqual({
+      kind: "load",
+      globalId: ONE,
+      kept: new Set(["grind"]),
+    });
   });
 
   it("unloads a load still to be written on a batch of another Bean picked after it, or with it", () => {

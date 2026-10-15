@@ -597,10 +597,6 @@ export interface Equipment extends EquipmentSummary {
   locations: { location: Location; shown: boolean; since: string }[];
 }
 
-/**
- * A Recipe: DYE2's recipe, belonging to one Location, in one of its Recipe
- * Slots or none.
- */
 /** A Recipe a Machine has loaded, or had loaded: since when, and until when, null while it still has it. */
 export interface LoadedRecipe {
   id: string;
@@ -609,6 +605,11 @@ export interface LoadedRecipe {
   loadedAt: string;
   unloadedAt: string | null;
 }
+
+/**
+ * A Recipe: DYE2's recipe, belonging to one Location, in one of its Recipe
+ * Slots or none.
+ */
 
 export interface Recipe {
   id: string;

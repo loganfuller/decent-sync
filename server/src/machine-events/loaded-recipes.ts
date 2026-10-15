@@ -30,8 +30,9 @@ export interface LoadedRecipeView {
 /**
  * Takes the Loaded Recipe a Workflow names into its Machine's state, in the
  * transaction storing the delivery from the Machine's own tablet, under its
- * row lock, after the Location's lock and the tablet's, as a hard delete of
- * the Recipe takes them before the Recipe's row: one of the Recipes of the
+ * row lock, after the tablet's lock, and the Location's where taking in the
+ * Workflow's settings takes it, as a hard delete of the Recipe takes them
+ * before the Recipe's row: one of the Recipes of the
  * Machine's Location, while it takes part in the Library there, and none
  * otherwise, as on a Capture-only Machine, or one a Workflow names from the
  * Location the Machine left. A Machine's Loaded Recipe that differs from it

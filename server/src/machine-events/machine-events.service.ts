@@ -77,7 +77,7 @@ export class MachineEventsService {
       // A mismatched connection's tablet is not its token's Machine's, so it takes no part in the Library (ADR-0004).
       if (reporter.identity.kind !== "mismatch" && credit.machineId === reporter.machineId) {
         const standing = await takeInWorkflow(tx, { machineId: reporter.machineId, tabletId: reporter.tabletId }, message.workflow, message.observedAt);
-        // After the tablet's and the Location's locks, which a hard delete of the Recipe takes before its row.
+        // After the tablet's lock, and the Location's where that takes it, which a hard delete of the Recipe takes before its row.
         await takeInLoadedRecipe(tx, reporter.machineId, message.workflow, message.observedAt);
         return standing;
       }

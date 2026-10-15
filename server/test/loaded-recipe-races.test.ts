@@ -39,7 +39,7 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
    * whatever request `slowed` names, taking 300 ms, as `during` changes the
    * Workflow.
    */
-  function load(serial: string, workflow: Record_, during: (tablet: SimulatedTablet) => Promise<unknown>, dial: Record_ = {}, slowed = (method: string, path: string, slot1: Record_) => method === "GET" && path === `/beans/${String(slot1.beanId)}`) {
+  function load(serial: string, workflow: Record_, during?: (tablet: SimulatedTablet) => Promise<unknown>, dial: Record_ = {}, slowed = (method: string, path: string, slot1: Record_) => method === "GET" && path === `/beans/${String(slot1.beanId)}`) {
     const [slot1] = dye2Keys().recipes as [Record_];
     Object.assign(slot1.dashboardVariables as Record_, dial);
     const api: DecaidApi = {
@@ -55,7 +55,7 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
       settings: settingsFor({ token: `races-${serial}`, serverUrl: "http://127.0.0.1:9" }),
       api,
       apiDelayMs: (method, path) => {
-        if (changing || !slowed(method, path, slot1)) return 0;
+        if (!during || changing || !slowed(method, path, slot1)) return 0;
         changing = during(tablet);
         return 300;
       },
@@ -124,5 +124,42 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     await settled();
     expect(context(tablet)).toMatchObject({ grinderId: "a-grinder-the-recipe-does-not-name" });
     expect(named(tablet)).toBeNull();
+  });
+
+  /** Slot 1's dial as DYE2 applied it, with that batch, the Recipe's id where loaded, and that hot water volume. */
+  const appliedWith = (batch: string, loaded: boolean, volume?: number): Record_ => {
+    const workflow = structuredClone(applied.find(({ request }) => request.method === "PUT")!.response.body) as Record_;
+    const context = workflow.context as Record_;
+    context.beanBatchId = batch;
+    if (loaded) context.extras = { ...(context.extras as Record_), [LOADED_RECIPE_KEY]: RECIPE };
+    if (volume !== undefined) workflow.hotWaterData = { ...HOT_WATER, volume };
+    return workflow;
+  };
+
+  it("leaves a Workflow the plugin loads with naming the Recipe as it is, its hot water and the next bag of its Bean as the barista set them", async () => {
+    const { tablet } = load("47251", appliedWith(nextBag.id, true, 61));
+    await settled();
+    expect(named(tablet)).toBe(RECIPE);
+    expect(context(tablet).beanBatchId).toBe(nextBag.id);
+    expect(tablet.workflow().hotWaterData).toEqual({ ...HOT_WATER, volume: 61 });
+  });
+
+  it("loads nothing as the plugin loads with a Workflow holding the Recipe's dial and a batch of another Bean, as when the barista unloaded it so", async () => {
+    const { tablet } = load("47261", appliedWith(brazil, false));
+    await settled();
+    expect(named(tablet)).toBeNull();
+    expect(context(tablet).beanBatchId).toBe(brazil);
+  });
+
+  it("writes the Recipe the Workflow names its dial alone as a tweak of it is set back, leaving the next bag and hot water the barista set", async () => {
+    const { tablet } = load("47271", appliedWith(nextBag.id, true, 61));
+    await settled();
+    await tablet.changeSettings({ context: { targetDoseWeight: 19 } });
+    await settled();
+    await tablet.changeSettings({ context: { targetDoseWeight: 18.5 } });
+    await settled();
+    expect(named(tablet)).toBe(RECIPE);
+    expect(context(tablet)).toMatchObject({ targetDoseWeight: 18.5, beanBatchId: nextBag.id });
+    expect(tablet.workflow().hotWaterData).toEqual({ ...HOT_WATER, volume: 61 });
   });
 });

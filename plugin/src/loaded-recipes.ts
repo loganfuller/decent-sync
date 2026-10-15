@@ -288,8 +288,9 @@ export class LoadedRecipes {
         continue;
       }
       const before = this.decided;
-      // A batch's Bean is read only as the batch changes, which alone changes the Bean.
-      const picked = before !== undefined && workflowBatch(before) !== workflowBatch(workflow);
+      // A batch's Bean is read only as the batch changes, which alone changes the Bean, or for the first Workflow, which
+      // names no recipe, where one may load.
+      const picked = before !== undefined ? workflowBatch(before) !== workflowBatch(workflow) : loadedRecipeOf(workflow) === null && held.length > 0;
       const setUp = async (of: Record<string, unknown>): Promise<ChangedSetUp> => {
         const batch = workflowBatch(of);
         return { dial: workflowDial(of), batch, bean: picked && batch !== null ? await this.beanOf(batch) : null, named: loadedRecipeOf(of) };
@@ -356,7 +357,9 @@ export class LoadedRecipes {
     const workflow = await this.workflowNow();
     if (changedParts(decided, workflow).size > 0) return { kind: "changed", workflow };
     const write = build(workflow);
-    return write === null ? { kind: "nothing" } : { kind: "written", answer: await request("PUT", "/workflow", write) };
+    // Unloaded meanwhile, as when its settings changed: the plugin loaded next decides afresh.
+    if (write === null || this.stopped) return { kind: "nothing" };
+    return { kind: "written", answer: await request("PUT", "/workflow", write) };
   }
 
   /**

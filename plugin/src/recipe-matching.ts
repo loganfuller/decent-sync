@@ -348,10 +348,21 @@ export type Pending = { kind: "none" } | { kind: "load"; globalId: string; kept:
 export interface ChangedSetUp {
   dial: Dial;
   batch: string | null;
-  /** The Bean of its batch, by the tablet's id for it, where the change picked another batch; null otherwise. */
+  /**
+   * The Bean of its batch, by the tablet's id for it, where the change picked
+   * another batch, or it is the first Workflow decided on and names no
+   * Loaded Recipe; null otherwise.
+   */
   bean: string | null;
   named: string | null;
 }
+
+/**
+ * The parts a load writes besides the dial, which a load of the recipe the
+ * Workflow names already leaves as they are: the barista may have changed
+ * them since it was loaded, as its hot water, or the next bag of its Bean.
+ */
+const AFTER_LOADED: readonly WrittenPart[] = ["rpm", "basket", "batch", ...HOT_WATER];
 
 /**
  * What one change of the Workflow, from `before` (undefined for the first
@@ -361,7 +372,11 @@ export interface ChangedSetUp {
  * outcome is the same however fast the plugin decides. A change of the dial
  * that matches one of the tablet's recipes (`chooseLoad`) loads it, a batch
  * picked in the same change, which no app applying a recipe does, staying
- * as picked, and a recipe of another Bean is none it loads. Otherwise a
+ * as picked, and a recipe of another Bean is none it loads. A load of the
+ * recipe the Workflow names already writes its dial alone. The first
+ * Workflow, as on every load of the plugin, is no change: naming a recipe it
+ * matches, it is written that recipe's dial alone, and naming none, it loads
+ * no recipe of another Bean than its batch's. Otherwise a
  * change of the profile, grinder or Bean to one the Loaded Recipe does not
  * name unloads it (`unloads`); the first Workflow unloads nothing. Any other
  * change made after a load that is still to be written is the barista's,
@@ -378,8 +393,17 @@ export function decideChange(
   const picked = before !== undefined && before.batch !== after.batch;
   const loaded = pending.kind === "load" ? pending.globalId : pending.kind === "unload" ? null : after.named;
   if (dialChanged) {
-    const chosen = chooseLoad(after.dial, loaded, held, picked ? after.bean : null);
-    if (chosen) return { kind: "load", globalId: chosen.globalId, kept: new Set<WrittenPart>(picked ? ["batch"] : []) };
+    // The first Workflow is no change: one naming no recipe is the barista's as it stands, its batch's Bean included.
+    const bean = picked || (!before && after.named === null) ? after.bean : null;
+    const chosen = chooseLoad(after.dial, loaded, held, bean);
+    if (chosen) {
+      const kept = new Set<WrittenPart>(picked ? ["batch"] : []);
+      if (pending.kind === "load" && pending.globalId === chosen.globalId) for (const part of pending.kept) kept.add(part);
+      // The recipe the Workflow names already, its load written: its dial set back, or applied again, is written its
+      // current dial alone, the rest staying as the barista left it.
+      if (after.named === chosen.globalId) for (const part of AFTER_LOADED) kept.add(part);
+      return { kind: "load", globalId: chosen.globalId, kept };
+    }
   }
   if (loaded === null || !before) return pending;
   const recipe = held.find((candidate) => candidate.globalId === loaded);

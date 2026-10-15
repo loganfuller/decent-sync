@@ -930,13 +930,20 @@ var __decentSync = (() => {
     if (loadedRecipeOf(a) !== loadedRecipeOf(b)) changed.add("recipe");
     return changed;
   }
+  var AFTER_LOADED = ["rpm", "basket", "batch", ...HOT_WATER];
   function decideChange(pending, before, after, changed, held) {
     const dialChanged = !before || !sameDial(before.dial, after.dial);
     const picked = before !== void 0 && before.batch !== after.batch;
     const loaded = pending.kind === "load" ? pending.globalId : pending.kind === "unload" ? null : after.named;
     if (dialChanged) {
-      const chosen = chooseLoad(after.dial, loaded, held, picked ? after.bean : null);
-      if (chosen) return { kind: "load", globalId: chosen.globalId, kept: new Set(picked ? ["batch"] : []) };
+      const bean2 = picked || !before && after.named === null ? after.bean : null;
+      const chosen = chooseLoad(after.dial, loaded, held, bean2);
+      if (chosen) {
+        const kept2 = new Set(picked ? ["batch"] : []);
+        if (pending.kind === "load" && pending.globalId === chosen.globalId) for (const part of pending.kept) kept2.add(part);
+        if (after.named === chosen.globalId) for (const part of AFTER_LOADED) kept2.add(part);
+        return { kind: "load", globalId: chosen.globalId, kept: kept2 };
+      }
     }
     if (loaded === null || !before) return pending;
     const recipe = held.find((candidate) => candidate.globalId === loaded);
@@ -2221,7 +2228,7 @@ var __decentSync = (() => {
           continue;
         }
         const before = this.decided;
-        const picked = before !== void 0 && workflowBatch(before) !== workflowBatch(workflow);
+        const picked = before !== void 0 ? workflowBatch(before) !== workflowBatch(workflow) : loadedRecipeOf(workflow) === null && held.length > 0;
         const setUp = async (of) => {
           const batch = workflowBatch(of);
           return { dial: workflowDial(of), batch, bean: picked && batch !== null ? await this.beanOf(batch) : null, named: loadedRecipeOf(of) };
@@ -2283,7 +2290,8 @@ var __decentSync = (() => {
       const workflow = await this.workflowNow();
       if (changedParts(decided, workflow).size > 0) return { kind: "changed", workflow };
       const write = build(workflow);
-      return write === null ? { kind: "nothing" } : { kind: "written", answer: await request("PUT", "/workflow", write) };
+      if (write === null || this.stopped) return { kind: "nothing" };
+      return { kind: "written", answer: await request("PUT", "/workflow", write) };
     }
     /**
      * The tablet's recipes, read now: none from a key never written, or a list

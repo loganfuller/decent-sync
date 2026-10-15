@@ -245,13 +245,11 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     const { machine, tablet, one } = await lab(`Overlapped ${read}`, serial, server, delay);
     expect((await applyInDye2(tablet, "1")).status).toBe(200);
     await loads(machine, one);
-    // The next bag of its Bean, and a tweak of its grind, keep it loaded; applied again, it writes its own batch back.
+    // Another grinder unloads it, with the next bag of its Bean picked; applied again, it is loaded, writing its own batch.
     const nextBag = await tablet.addBatch(beanNamed("Ethiopia"), { roastDate: "2026-10-10", weight: 250 });
-    await tablet.changeSettings({ context: { beanBatchId: nextBag.id, grinderSetting: "2.8" } });
-    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }, { timeout: 15_000 }).toMatchObject({
-      workflow: { workflow: { context: { beanBatchId: nextBag.id, grinderSetting: "2.8" } } },
-    });
-    expect(named(tablet)).toBe(one);
+    await tablet.changeSettings({ context: { beanBatchId: nextBag.id, grinderId: "a-grinder-the-recipe-does-not-name", grinderModel: "Another grinder" } });
+    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
+    await loads(machine, null);
 
     // Applied again, its load is being decided as a batch of another Bean is picked.
     let picked: Promise<unknown> | undefined;
@@ -274,10 +272,10 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     const beanNamed = (name: string) => (library["/beans"] as Record_[]).find((bean) => String(bean.name).endsWith(name))!.id;
     const brazilBatch = (library["/bean-batches"] as Record_[]).find((batch) => batch.beanId === beanNamed("Brazil"))!.id;
     const nextBag = await tablet.addBatch(beanNamed("Ethiopia"), { roastDate: "2026-10-10", weight: 250 });
-    await tablet.changeSettings({ context: { beanBatchId: nextBag.id, grinderSetting: "2.8" }, hotWaterData: { volume: 60 } });
-    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as unknown, { timeout: 15_000 }).toMatchObject({
-      workflow: { workflow: { context: { beanBatchId: nextBag.id, grinderSetting: "2.8" } } },
-    });
+    // Unloaded by another grinder, with the next bag and other hot water: applied again, it is loaded, writing its batch and hot water.
+    await tablet.changeSettings({ context: { beanBatchId: nextBag.id, grinderId: "a-grinder-the-recipe-does-not-name", grinderModel: "Another grinder" }, hotWaterData: { volume: 60 } });
+    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
+    await loads(machine, null);
     let picked: Promise<unknown> | undefined;
     // Decaid refuses the load's write with its hot water, as while no machine is connected, as a barista picks a batch of
     // another Bean.
