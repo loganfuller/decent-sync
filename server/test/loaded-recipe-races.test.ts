@@ -160,7 +160,7 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     expect(context(tablet).beanBatchId).toBe(brazil);
   });
 
-  it("writes the Recipe the Workflow names its dial alone as a tweak of it is set back, leaving the next bag and hot water the barista set", async () => {
+  it("writes the Recipe the Workflow names nothing as a tweak of it is set back, leaving the next bag and hot water the barista set", async () => {
     const { tablet } = load("47271", appliedWith(nextBag.id, true, 61));
     await settled();
     await tablet.changeSettings({ context: { targetDoseWeight: 19 } });

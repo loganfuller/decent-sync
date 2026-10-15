@@ -252,8 +252,8 @@ from the Workflow deliveries.
     Streamline cleared its batch, grinder, Basket and RPM once a Shot was
     stored, so a Recipe naming a grinder, applied again then, has them
     written back. One naming no grinder is no change of its dial when
-    applied again then, so nothing is written: DYE2 sets its Basket and RPM
-    as it applies it, but its batch stays cleared. Nothing the Workflow
+    applied again then, so nothing is written: DYE2 sets its RPM as it
+    applies it, but its batch and Basket stay cleared. Nothing the Workflow
     holds is written over: a barista setting back a tweak of the Loaded
     Recipe, which Streamline's auto-save has made the recipe's dial, and a
     stale copy of it applied, look alike, and the barista's set-back wins,
@@ -263,7 +263,8 @@ from the Workflow deliveries.
     loads nothing, though a recipe matches it, as one leaving blank the
     grind the barista tweaked would, or the recipe the barista unloaded
     before the plugin last unloaded. Where it matches the recipe it names,
-    that one is written its dial alone; otherwise it stays as it is.
+    that one is written only what the Workflow holds no value for;
+    otherwise it stays as it is.
 - **Held or sent at once.** A change is held back (Held back, below) if the
   Workflow names a Loaded Recipe, which it may unload or replace, or matches
   a recipe as the tablet held it when last read, or a write is still to be
@@ -363,7 +364,11 @@ window to one request. The dials a recipe held before are kept only in memory, s
 copy read before the plugin loaded, as a DYE2 page open across a reload of
 the plugin, is matched only where its dial is the recipe's now. A barista
 who dials in exactly a dial another recipe held before has that recipe
-loaded, its current dial written, as for a stale copy. DYE2's
+loaded, its current dial written, as for a stale copy. And as the recipe
+already loaded wins a match, another recipe applied whose dial is one the
+Loaded Recipe held before, as a twin recipe for another Bean holding its
+dial before Streamline's auto-save moved it, loads nothing: the Loaded
+Recipe stays, written nothing. DYE2's
 dashboard sends the whole Workflow it read as it opened when its Done is
 tapped, so a load the plugin writes while it is open is undone then, the
 same limit as a change between the plugin's read and its write, held open
@@ -371,8 +376,9 @@ longer. The
 recipe the Workflow names, applied again after its batch was changed
 elsewhere, keeps the Workflow's batch until #146 follows the Recipe's edits.
 The plugin judges nothing of what changed while it was not loaded: a
-Workflow naming a recipe with another Bean's batch or grinder stays as it is
-until its next change, and a recipe applied while the plugin was not
+Workflow naming a recipe with another Bean's batch or grinder keeps it
+loaded until a change of its profile, grinder or Bean, and a recipe applied
+while the plugin was not
 loaded, as while it reloaded after a change of its settings, is loaded only
 on the Workflow's next change of its dial.
 

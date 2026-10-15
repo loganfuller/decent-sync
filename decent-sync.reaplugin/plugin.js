@@ -2267,8 +2267,8 @@ var __decentSync = (() => {
      * Decaid answered the write with, or that nothing was left to write, or
      * otherwise with the Workflow Decaid holds, to be decided on first. A load writes the recipe's current
      * values and global id (`loadWrite`) but the parts changed since it was
-     * loaded, and, for the recipe the Workflow names already, those it holds a
-     * value for but its dial (`alone`); Decaid refuses to change the hot water settings while no machine
+     * loaded, and, for the recipe the Workflow names already, every part it
+     * holds a value for (`alone`); Decaid refuses to change the hot water settings while no machine
      * is connected, so the rest is then written without them, the Workflow
      * read and checked again. An unload clears the global id the Workflow
      * names. Decaid has no conditional write, so a change made between the

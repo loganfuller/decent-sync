@@ -232,8 +232,8 @@ describe("deciding each change of the Workflow in turn", () => {
     let before: Record_ | undefined;
     for (const workflow of workflows) {
       const named = (of: Record_) => ((((of.context as Record_).extras ?? {}) as Record_)[LOADED_RECIPE_KEY] as string | undefined) ?? null;
-      // As the plugin reads a batch's Bean: as the batch changes, or for the first Workflow naming no recipe.
-      const picked = before !== undefined ? (before.context as Record_).beanBatchId !== (workflow.context as Record_).beanBatchId : named(workflow) === null;
+      // As the plugin reads a batch's Bean: as the batch changes.
+      const picked = before !== undefined && (before.context as Record_).beanBatchId !== (workflow.context as Record_).beanBatchId;
       const setUp = (of: Record_): ChangedSetUp => {
         const batch = ((of.context as Record_).beanBatchId as string | undefined) ?? null;
         return { dial: workflowDial(of), batch, bean: picked && batch !== null ? (beans[batch] ?? null) : null, named: named(of) };
