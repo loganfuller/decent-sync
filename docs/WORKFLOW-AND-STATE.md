@@ -434,9 +434,9 @@ observed the Workflow, by the tablet's clock, which a delivery made offline
 keeps, but never before the Machine's latest entry. The Recipe's row is
 locked after the Location's lock, which a Recipe's slots, its edits and its
 hard delete take before its row; the hard delete removes its entries. A
-Machine made capture-only shows no Loaded Recipe once its Workflow no longer
-names one, as the server has it cleared (below); a change of Location asks
-for one at once.
+Machine made capture-only shows no Loaded Recipe from its first Workflow
+delivery after the switch, though its Workflow may still name one (below);
+a change of Location asks for one at once.
 
 ### Following the Recipe
 
@@ -523,17 +523,23 @@ maps the parts to the Recipe's content both ways.
   Workflow names; a Machine with no Loaded Recipe keeps its own hot water.
 - **Unloads the server decides.** A Workflow naming a Recipe that is not
   its Machine's Loaded Recipe, as one taken out of its slot or Archived, or
-  of a Location the Machine left, or the Recipe it had loaded as it was
-  made capture-only, is due the same `write`, clearing the Workflow's
-  Loaded Recipe (`LOADED_RECIPE_FIELD`, null) while it still names that
-  Recipe. A Recipe moved to another slot stays loaded. A Capture-only
-  Machine's writer writes this, and nothing else, whatever its reports. The
-  Workflow the plugin then sends names none, which unloads it on the
-  server. A recipe the plugin loads while its Machine is capture-only,
+  of a Location the Machine left, or the one the server last had as its
+  Loaded Recipe as it was made capture-only, is due the same `write`,
+  clearing the Workflow's Loaded Recipe (`LOADED_RECIPE_FIELD`, null) while
+  it still names that Recipe. A Recipe moved to another slot stays loaded.
+  A Capture-only Machine's writer writes this, and nothing else, whatever
+  its reports. The Workflow the plugin then sends names none, which
+  unloads it on the server. A recipe the plugin loads while its Machine is capture-only,
   which nothing there shares, is left loaded in its Workflow, and in DYE2's
-  selection, which goes on recording into it there; once its sharing is
-  turned back on, it is the Machine's Loaded Recipe where it is one of its
-  Location's slotted Recipes, and cleared otherwise.
+  selection, which goes on recording into it there, as is one loaded on
+  the tablet before the switch that the server had not heard of yet, as
+  while offline; once its sharing is turned back on, it is the Machine's
+  Loaded Recipe where it is one of its Location's slotted Recipes, and
+  cleared otherwise. Decaid copies the Workflow's context onto each Shot,
+  so Shots pulled on a Capture-only Machine name such a Recipe, which was
+  never that Machine's Loaded Recipe: linking Shots to Recipes (milestone
+  5) is to go by the Machine's Loaded Recipes (`loaded_recipes`), or leave
+  out a Capture-only Machine's Shots, rather than by the id alone.
 
 Known limits: a stale copy and a set-back look alike, and are told apart
 only by who made the field's latest edit, until DYE2 and Streamline record

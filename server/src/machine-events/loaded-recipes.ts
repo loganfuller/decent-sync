@@ -41,8 +41,9 @@ import { profileOfSql } from "../shots/links.js";
 // `tablet_loaded_recipes`, as `tablet_settings` keeps the settings, so the
 // plugin's own write is never read as the tablet's edit (loaded-recipe-intake.ts).
 // A Workflow naming a Recipe its Machine does not have loaded, as one taken
-// out of its slot or Archived, or of a Location it left, or on a Machine
-// made capture-only, has it cleared.
+// out of its slot or Archived, or of a Location it left, or the one the
+// server last had as its Loaded Recipe as it was made capture-only, has it
+// cleared; one loaded on a Machine taking part nowhere stays.
 
 /** A Recipe as a Machine's Loaded Recipe names it. */
 export interface LoadedRecipeItemView {
@@ -111,7 +112,8 @@ export async function takeInLoadedRecipe(
       await tx.$executeRaw`INSERT INTO loaded_recipes (machine_id, recipe_id, loaded_at) VALUES (${tablet.machineId}::uuid, ${recipeId}::uuid, ${at})`;
     }
   }
-  // Taking part nowhere, as capture-only, only the Recipe it had loaded as it stopped is cleared: one loaded since stays.
+  // Taking part nowhere, as capture-only, only the Recipe the server last had as its Loaded Recipe is cleared: one loaded
+  // since stays, as does one loaded on the tablet before it stopped that the server had not heard of yet, as while offline.
   const clearsNowhere = entry !== null || loadedBefore === named;
   await followMachine(tx, tablet, workflow, named, recipe, loadedBefore === recipeId && !joining, new Date(observedAt), clearsNowhere);
 }

@@ -1241,8 +1241,9 @@ each update also writing the item's content where the record differs from it
    as an edit made anywhere, once the Recipe's record and the Basket and
    batch it names are written; or the Recipe cleared from the Workflow,
    where it is not the Machine's Loaded Recipe, as one taken out of its
-   slot or Archived. The clear is written to a Capture-only Machine too,
-   which is written nothing else.
+   slot or Archived. The clear of the Recipe a Machine had loaded as it
+   was made capture-only is written to it too, which is written nothing
+   else; one loaded while it is capture-only stays.
 
 Every record the tablet holds whose content differs from its item's, offered
 at the Location or not, is written the item's content, in the same update as
