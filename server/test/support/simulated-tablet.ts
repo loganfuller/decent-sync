@@ -1928,7 +1928,6 @@ function conditional(body: string, headers: Record<string, string>) {
 }
 
 /** Whether a message the server sent is an acknowledgment: of the delivery with this id, if one is given. */
-/** Whether the message is an acknowledgment, of the frame with that id if one is given. */
 function isAckOf(message: unknown, id?: string): boolean {
   const { type, id: acked } = (message ?? {}) as { type?: unknown; id?: unknown };
   return type === "ack" && (id === undefined || acked === id);
