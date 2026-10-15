@@ -137,7 +137,7 @@ describe("recording a load", () => {
   const batch = { id: "b850e4f2-89cf-400f-9d43-ec1080ad595b", coffeeName: "Fixture Ethiopia", coffeeRoaster: "Fixture Roasters" };
   const hotWater = { targetTemperature: 85, duration: 40, volume: 120, flow: 7.5 };
   /** Slot 1 as the server writes it: its Bean Batch and all four hot water settings in its own field. */
-  const written = () => ({ ...recipe("1"), [RECIPE_FIELD]: { beanBatchId: batch.id, hotWaterData: hotWater } });
+  const written = (): Record_ => ({ ...recipe("1"), [RECIPE_FIELD]: { beanBatchId: batch.id, hotWaterData: hotWater } });
   const profile = library.profiles[0]!.profile;
 
   it("writes what the Workflow lacks of the recipe's current values, its batch, its hot water and its id", () => {

@@ -198,6 +198,53 @@ describe("Each Machine's Loaded Recipe", { timeout: 90_000 }, () => {
     expect(Date.parse(entries[0]!.loadedAt)).toBeGreaterThanOrEqual(Date.parse(entries[1]!.unloadedAt!));
   });
 
+  it("keeps a Recipe loaded through another batch of its Bean, and unloads it on a batch of another Bean, keeping the batch picked", async () => {
+    const { machine, tablet, one } = await lab("Rebagged", 47051);
+    const library = dye2Library();
+    const beanOf = (name: string) => (library["/beans"] as Record_[]).find((bean) => String(bean.name).endsWith(name))!.id;
+    const brazilBatch = (library["/bean-batches"] as Record_[]).find((batch) => batch.beanId === beanOf("Brazil"))!.id;
+    expect((await applyInDye2(tablet, "1")).status).toBe(200);
+    await loads(machine, one);
+    const loadedBatch = context(tablet).beanBatchId;
+
+    // The next bag of the same Bean, picked with the dial as it is.
+    const nextBag = await tablet.addBatch(beanOf("Ethiopia"), { roastDate: "2026-10-10", weight: 250 });
+    await tablet.changeSettings({ context: { beanBatchId: nextBag.id } });
+    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }, { timeout: 15_000 }).toMatchObject({
+      workflow: { workflow: { context: { beanBatchId: nextBag.id } } },
+    });
+    expect(context(tablet).beanBatchId).toBe(nextBag.id);
+    expect(named(tablet)).toBe(one);
+    expect((await loadedRecipe(machine))?.recipe.id).toBe(one);
+    expect(nextBag.id).not.toBe(loadedBatch);
+
+    // A batch of another Bean, with the dial as it is: unloaded, the batch kept.
+    await tablet.changeSettings({ context: { beanBatchId: brazilBatch } });
+    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
+    expect(context(tablet).beanBatchId).toBe(brazilBatch);
+    await loads(machine, null);
+  });
+
+  it("unloads a Recipe once Decaid answers again, after failing the read the change needed", async () => {
+    const { machine, tablet, one } = await lab("Retried", 47061);
+    expect((await applyInDye2(tablet, "1")).status).toBe(200);
+    await loads(machine, one);
+
+    // Decaid fails every read of DYE2's recipes for a while, as the grinder changes.
+    tablet.failNextApiReads(`/store/${DYE2_NAMESPACE}/recipes`, 1_000_000);
+    await tablet.changeSettings({ context: { grinderId: "a-grinder-the-recipe-does-not-name", grinderModel: "Another grinder" } });
+    await tablet.waitForLog(/^Could not work out the Loaded Recipe, trying again in /);
+    // Sent meanwhile as it is, still naming the Recipe.
+    await expect.poll(async () => (await (await api.call("GET", `/machines/${machine.machine.id}/workflow`)).json()) as { workflow: { workflow: Record_ } }, { timeout: 15_000 }).toMatchObject({
+      workflow: { workflow: { context: { grinderId: "a-grinder-the-recipe-does-not-name" } } },
+    });
+    expect(named(tablet)).toBe(one);
+
+    tablet.failNextApiReads(`/store/${DYE2_NAMESPACE}/recipes`, 0);
+    await expect.poll(() => named(tablet), { timeout: 15_000 }).toBeNull();
+    await loads(machine, null);
+  });
+
   it("records a load made while the tablet is offline in the Workflow, which reaches the server on reconnect, timed when it was made", async () => {
     const { machine, tablet, one } = await lab("Offline", 47041);
     tablet.loseNetwork();

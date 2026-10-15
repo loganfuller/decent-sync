@@ -234,7 +234,13 @@ from the Workflow deliveries.
   an unload of the plugin meanwhile loses none (Kept across unloads, above):
   it names no Recipe the server could take it for, and the Workflow after a
   load the plugin then finds, of a recipe saved since it last read them, is
-  sent after it.
+  sent after it. A change of the dial may load a recipe; a change of the
+  Bean Batch alone loads none, and only a batch of another Bean unloads the
+  Loaded Recipe, so the batch a barista picks stays. A decision Decaid fails
+  (a read or write it refuses or leaves unanswered) leaves the Workflow
+  decided on as it was, so the change is judged against it, and is tried
+  again after 5 s, doubling to 5 minutes, as no change may come to try it;
+  the Workflow is sent meanwhile, still naming the Loaded Recipe it named.
 - **A load.** The Workflow matches one of the tablet's recipes in a Recipe
   Slot carrying its Recipe's global id (`chooseLoad`): every field of the
   five the recipe sets, the Workflow holds, and it sets at least one. A

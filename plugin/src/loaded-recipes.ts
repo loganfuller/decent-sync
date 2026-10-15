@@ -46,16 +46,23 @@ export const MAX_EARLIER_DIALS = 20;
 /** The most recipes whose earlier dials are kept, those seen least recently dropped first. */
 const MAX_KEPT_RECIPES = 200;
 
+/** How long after a decision Decaid failed the plugin tries it again, doubling up to MAX_RETRY_MS. */
+const FIRST_RETRY_MS = 5_000;
+const MAX_RETRY_MS = 5 * 60_000;
+
 export class LoadedRecipes {
   /** The latest Workflow Decaid reported. */
   private latest: Record<string, unknown> | undefined;
   /** The dial and Bean Batch of the latest Workflow decided on, which a change is judged against. */
-  private decided: { dial: Dial; batch: string | null } | undefined;
+  private decided: Decided | undefined;
   private running = false;
   /** Whether the Workflow's changes are held back while it decides (`observe`). */
   private holding = false;
   private again = false;
   private stopped = false;
+  /** Set while a decision Decaid failed waits to be tried again, with how long the next failure waits. */
+  private retryTimer: number | undefined;
+  private retryMs = FIRST_RETRY_MS;
   /** The dials each recipe the tablet held holds, by global id, as last read, in the order last seen. */
   private readonly seen = new Map<string, RecipeDial[]>();
   /** The dials each recipe the tablet held before, by global id, oldest first: what a stale DYE2 page or Streamline strip applies. */
@@ -141,9 +148,16 @@ export class LoadedRecipes {
 
   stop(): void {
     this.stopped = true;
+    if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
   }
 
-  /** Decides on the latest Workflow, again while Decaid reports changes meanwhile, then sends the latest if it held any. */
+  /**
+   * Decides on the latest Workflow, again while Decaid reports changes
+   * meanwhile, then sends the latest if it held any. A decision Decaid fails
+   * is judged against the Workflow decided on before it, and tried again
+   * later, as no change may come to try it: the Workflow is sent meanwhile,
+   * still naming the Loaded Recipe it named.
+   */
   private async run(): Promise<void> {
     // Decided from the next turn on, once `observe` has decided whether to hold the change back.
     await Promise.resolve();
@@ -153,8 +167,10 @@ export class LoadedRecipes {
         const workflow = this.latest!;
         try {
           await this.decide(workflow);
+          this.retryMs = FIRST_RETRY_MS;
         } catch (error) {
-          this.log(`Could not work out the Loaded Recipe: ${error instanceof Error ? error.message : String(error)}`);
+          this.log(`Could not work out the Loaded Recipe, trying again in ${this.retryMs / 1000} s: ${error instanceof Error ? error.message : String(error)}`);
+          this.retryLater();
         }
       } while (this.again && !this.stopped);
     } finally {
@@ -166,21 +182,45 @@ export class LoadedRecipes {
     }
   }
 
-  /** Whether the Workflow loads one of the tablet's recipes or unloads its Loaded Recipe, and records that in it. */
+  /** Tries the latest Workflow again once the wait is over, unless a change tries it first. */
+  private retryLater(): void {
+    if (this.retryTimer !== undefined || this.stopped) return;
+    const wait = this.retryMs;
+    this.retryMs = Math.min(this.retryMs * 2, MAX_RETRY_MS);
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      if (this.latest) this.observe(this.latest);
+    }, wait);
+  }
+
+  /**
+   * Whether the Workflow loads one of the tablet's recipes or unloads its
+   * Loaded Recipe, and records that in it; it then becomes the Workflow
+   * decided on. A change of its dial may load one; a change of its Bean
+   * Batch alone loads none, and only another Bean unloads it. Throws if
+   * Decaid fails what it needs, leaving the Workflow decided on as it was.
+   */
   private async decide(workflow: Record<string, unknown>): Promise<void> {
     const before = this.decided;
     const dial = workflowDial(workflow);
     const batch = workflowBatch(workflow);
     if (before && sameDial(before.dial, dial) && before.batch === batch) return;
-    this.decided = { dial, batch };
     const records = await this.readRecipes();
-    if (records === null) return;
     const held = await this.held(records);
     const named = loadedRecipeOf(workflow);
-    const chosen = chooseLoad(dial, named, held);
-    if (chosen) return this.load(chosen, dial);
-    // The Workflow the plugin first heard of, as on every load, unloads nothing: it is no change.
-    if (named === null || !before) return;
+    const chosen = before && sameDial(before.dial, dial) ? null : chooseLoad(dial, named, held);
+    if (chosen) await this.load(chosen, dial);
+    else if (named !== null && before) await this.unloadIfChanged(before, { dial, batch }, held, named);
+    this.decided = { dial, batch };
+  }
+
+  /**
+   * Unloads the Workflow's Loaded Recipe if its change from `before` to
+   * `after` does (`unloads`). The Workflow the plugin first heard of, as on
+   * every load, unloads nothing: it is no change.
+   */
+  private async unloadIfChanged(before: Decided, after: Decided, held: readonly HeldRecipe[], named: string): Promise<void> {
+    const { batch, dial } = after;
     const loaded = held.find((recipe) => recipe.globalId === named);
     // A Loaded Recipe the tablet no longer holds in a slot stays: the server unloads it.
     if (!loaded) return;
@@ -196,19 +236,16 @@ export class LoadedRecipes {
   }
 
   /**
-   * The tablet's recipes, read now, or null if Decaid does not answer, or
-   * holds them in a shape not recognised (`dye2Records`). A key never
-   * written holds none.
+   * The tablet's recipes, read now: none from a key never written, or a list
+   * in a shape not recognised (`dye2Records`), which loads nothing. Throws if
+   * Decaid does not answer with them.
    */
-  private async readRecipes(): Promise<Record<string, unknown>[] | null> {
+  private async readRecipes(): Promise<Record<string, unknown>[]> {
     const answer = await request("GET", RECIPES);
     const value = answer.ok ? parsed(answer.text) : undefined;
-    if (value === undefined) {
-      this.log(`Could not read DYE2's recipes to work out the Loaded Recipe: Decaid answered ${answer.status}`);
-      return null;
-    }
+    if (value === undefined) throw new Error(`Decaid answered ${answer.status} reading DYE2's recipes`);
     this.sawRecipes(value);
-    return value === null ? [] : dye2Records(value, "recipes");
+    return value === null ? [] : (dye2Records(value, "recipes") ?? []);
   }
 
   /** The recipes a Workflow can load, each with every dial it holds and held before, their profiles looked up. */
@@ -229,25 +266,32 @@ export class LoadedRecipes {
     return dials.map((dial) => resolveDial(dial, (id) => profileKey(this.profiles.get(id))));
   }
 
-  /** The tablet's profile with that id, hidden ones included, or null if it holds none or Decaid does not answer. */
+  /** The tablet's profile with that id, hidden ones included, or null if it holds none. Throws if Decaid does not answer with it. */
   private async profileOf(id: string): Promise<Record<string, unknown> | null> {
     const known = this.profiles.get(id);
     if (known) return known;
-    const answer = await request("GET", `/profiles/${encodeURIComponent(id)}`).catch(() => undefined);
-    const record = answer?.ok ? parsed(answer.text) : undefined;
+    const record = await this.readRecord(`/profiles/${encodeURIComponent(id)}`);
     const profile = isObject(record) && isObject(record.profile) ? record.profile : null;
     if (profile) this.profiles.set(id, profile);
     return profile;
   }
 
-  /** The Bean of the tablet's Bean Batch with that id, or null if it holds none or Decaid does not answer. */
+  /** The Bean of the tablet's Bean Batch with that id, or null if it holds none. Throws if Decaid does not answer with it. */
   private async beanOf(batchId: string): Promise<string | null> {
     if (this.beans.has(batchId)) return this.beans.get(batchId)!;
-    const answer = await request("GET", `/bean-batches/${encodeURIComponent(batchId)}`).catch(() => undefined);
-    const record = answer?.ok ? parsed(answer.text) : undefined;
+    const record = await this.readRecord(`/bean-batches/${encodeURIComponent(batchId)}`);
     const bean = isObject(record) && typeof record.beanId === "string" ? record.beanId : null;
-    if (answer?.ok || answer?.status === 404) this.beans.set(batchId, bean);
+    this.beans.set(batchId, bean);
     return bean;
+  }
+
+  /** The record at that path of Decaid's API, or null if it holds none (404). Throws if Decaid answers otherwise. */
+  private async readRecord(path: string): Promise<unknown> {
+    const answer = await request("GET", path);
+    if (answer.status === 404) return null;
+    const record = answer.ok ? parsed(answer.text) : undefined;
+    if (record === undefined) throw new Error(`Decaid answered ${answer.status} reading ${path}`);
+    return record;
   }
 
   /**
@@ -259,7 +303,7 @@ export class LoadedRecipes {
    */
   private async load(recipe: HeldRecipe, decided: Dial): Promise<void> {
     const workflow = await this.workflowNow();
-    if (!workflow || !sameDial(workflowDial(workflow), decided)) return;
+    if (!sameDial(workflowDial(workflow), decided)) return;
     const write = loadWrite(workflow, recipe.record, recipe.globalId, await this.loadContext(recipe.record));
     if (write === null) return;
     let answer = await request("PUT", "/workflow", write);
@@ -267,7 +311,7 @@ export class LoadedRecipes {
       const { hotWaterData: _, ...rest } = write;
       answer = await request("PUT", "/workflow", rest);
     }
-    if (!answer.ok) this.log(`Could not record the recipe in slot ${recipe.slot} as loaded: Decaid answered ${answer.status}: ${answer.text.slice(0, 200)}`);
+    if (!answer.ok) throw new Error(`Decaid answered ${answer.status} recording the recipe in slot ${recipe.slot} as loaded: ${answer.text.slice(0, 200)}`);
   }
 
   /** What a load of the recipe writes besides its record: its full Profile, as applying it loads one, and its Bean Batch as the tablet holds it. */
@@ -279,8 +323,7 @@ export class LoadedRecipes {
     if (batchId === null) return { profile, batch: null };
     const beanId = await this.beanOf(batchId);
     if (beanId === null) return { profile, batch: null };
-    const answer = await request("GET", `/beans/${encodeURIComponent(beanId)}`).catch(() => undefined);
-    const bean = answer?.ok ? parsed(answer.text) : undefined;
+    const bean = await this.readRecord(`/beans/${encodeURIComponent(beanId)}`);
     const text = (field: string) => (isObject(bean) && typeof bean[field] === "string" ? (bean[field] as string) : null);
     return { profile, batch: { id: batchId, coffeeName: text("name"), coffeeRoaster: text("roaster") } };
   }
@@ -288,26 +331,29 @@ export class LoadedRecipes {
   /** Records an unload: clears the recipe's global id from the Workflow, read again first, while it still names that recipe. */
   private async unload(globalId: string): Promise<void> {
     const workflow = await this.workflowNow();
-    if (!workflow || loadedRecipeOf(workflow) !== globalId) return;
+    if (loadedRecipeOf(workflow) !== globalId) return;
     // Decaid merges the Workflow's `extras` key by key, so the key is cleared by setting it to null.
     const answer = await request("PUT", "/workflow", { context: { extras: { [LOADED_RECIPE_KEY]: null } } });
-    if (!answer.ok) this.log(`Could not record the Loaded Recipe as unloaded: Decaid answered ${answer.status}: ${answer.text.slice(0, 200)}`);
+    if (!answer.ok) throw new Error(`Decaid answered ${answer.status} recording the Loaded Recipe as unloaded: ${answer.text.slice(0, 200)}`);
   }
 
-  /** The Workflow as Decaid holds it now, or undefined if it does not answer with one. */
-  private async workflowNow(): Promise<Record<string, unknown> | undefined> {
+  /** The Workflow as Decaid holds it now. Throws if Decaid does not answer with one. */
+  private async workflowNow(): Promise<Record<string, unknown>> {
     const answer = await request("GET", "/workflow");
     const workflow = answer.ok ? parsed(answer.text) : undefined;
-    if (!isObject(workflow)) {
-      this.log(`Could not read the Workflow to record the Loaded Recipe: Decaid answered ${answer.status}`);
-      return undefined;
-    }
+    if (!isObject(workflow)) throw new Error(`Decaid answered ${answer.status} reading the Workflow`);
     return workflow;
   }
 }
 
+/** A Workflow's dial and Bean Batch, as decided on. */
+interface Decided {
+  dial: Dial;
+  batch: string | null;
+}
+
 /** Whether a Workflow holds the dial and Bean Batch decided on: if so, it neither loads nor unloads anything. */
-function sameSetUp(decided: { dial: Dial; batch: string | null }, workflow: Record<string, unknown>): boolean {
+function sameSetUp(decided: Decided, workflow: Record<string, unknown>): boolean {
   return sameDial(decided.dial, workflowDial(workflow)) && decided.batch === workflowBatch(workflow);
 }
 
