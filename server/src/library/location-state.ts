@@ -380,7 +380,7 @@ export function decideProfileAt(
 }
 
 /** Decides whether an item of a kind shown per Location is shown at the Location where nothing has decided it there yet, as `decideProfileAt` does a Profile. */
-export async function decideAt(
+async function decideAt(
   tx: Prisma.TransactionClient,
   kind: ShownKind,
   itemId: string,

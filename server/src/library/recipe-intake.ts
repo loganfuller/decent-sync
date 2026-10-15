@@ -28,7 +28,7 @@ import type { LocationValues } from "./settings-intake.js";
 const DV = "dashboardVariables";
 
 /** The paths of a recipe record the server writes, in a record's own field or its `dashboardVariables`. */
-export const RECIPE_PATHS = [
+const RECIPE_PATHS = [
   "name",
   "beverage",
   "barista",
@@ -142,7 +142,7 @@ export function readReportedRecipes(value: unknown, updatedAt: readonly (string 
 }
 
 /** The value at a path of a record: a field of its own, or of its `dashboardVariables`; undefined for none. */
-export function valueAt(record: Readonly<Record<string, unknown>>, path: string): unknown {
+function valueAt(record: Readonly<Record<string, unknown>>, path: string): unknown {
   if (!path.startsWith(`${DV}.`)) return record[path];
   const variables = record[DV];
   return isObject(variables) ? variables[path.slice(DV.length + 1)] : undefined;

@@ -25,7 +25,7 @@ export class StartupError extends Error {
   override name = "StartupError";
 }
 
-export class ConfigError extends StartupError {
+class ConfigError extends StartupError {
   override name = "ConfigError";
 
   constructor(public readonly problems: string[]) {

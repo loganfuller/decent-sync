@@ -233,7 +233,7 @@ export function setupClosed(): ConflictException {
 }
 
 /** Refuses a sign-in while its email is rate-limited. */
-export class TooManySignInAttempts extends TooManyRequests {
+class TooManySignInAttempts extends TooManyRequests {
   constructor(retryAfterSeconds: number) {
     const minutes = Math.ceil(retryAfterSeconds / 60);
     super(retryAfterSeconds, `Too many sign-in attempts for this email. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`);

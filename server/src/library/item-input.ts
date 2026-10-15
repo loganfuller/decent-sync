@@ -193,7 +193,7 @@ function isDay(text: string): boolean {
 }
 
 /** A remaining weight in grams from a request, null to clear it: a number of 0 or more. */
-export function readWeight(value: unknown): number | null {
+function readWeight(value: unknown): number | null {
   if (value === null) return null;
   if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value;
   throw new BadRequestException("remainingWeight must be a number of grams, 0 or more, or null");
@@ -252,7 +252,7 @@ export function readGrinderLocation(body: unknown): string {
 export type SlotChoice = number | "next" | null;
 
 /** The highest Recipe Slot, the largest whole number PostgreSQL's `integer` holds. */
-export const MAX_SLOT = 2_147_483_647;
+const MAX_SLOT = 2_147_483_647;
 
 /** A Recipe Slot from a request's `slot`: a whole number from 1, `next`, or null for none. */
 export function readSlot(body: unknown): SlotChoice {

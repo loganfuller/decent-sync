@@ -19,7 +19,7 @@ import type { PluginHost, StorageCommand } from "./host.js";
 // their turn.
 
 /** How long Decaid may take to answer a storage command before it counts as failed. */
-export const STORAGE_TIMEOUT_MS = 10_000;
+const STORAGE_TIMEOUT_MS = 10_000;
 
 interface Command {
   command: StorageCommand;

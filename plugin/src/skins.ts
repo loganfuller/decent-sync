@@ -16,16 +16,16 @@ import type { ListPosted } from "./library-writes.js";
 // without the plugin.
 
 /** The plugin's HTTP endpoint a skin asks what to show (manifest.json). */
-export const SKIN_ENDPOINT = "skin";
+const SKIN_ENDPOINT = "skin";
 
 /** The plugin's WebSocket endpoint a skin listens on for changes (manifest.json). */
-export const CHANGED_ENDPOINT = "changed";
+const CHANGED_ENDPOINT = "changed";
 
 /** What the plugin answers `skin` with: no surfaces, and where to listen for changes. */
-export const SKIN_ANSWER = { version: 1, surfaces: [], live: { endpoint: CHANGED_ENDPOINT } } as const;
+const SKIN_ANSWER = { version: 1, surfaces: [], live: { endpoint: CHANGED_ENDPOINT } } as const;
 
 /** The push that has a skin read the Workflow and DYE2's recipes again; `{"what":"skin"}` would have it read only `skin`. */
-export const RECIPES_CHANGED = { what: "workflow" } as const;
+const RECIPES_CHANGED = { what: "workflow" } as const;
 
 /** Answers a request to one of the plugin's HTTP endpoints: `skin` to a GET, and nothing else. */
 export function answerHttp(request: HttpRequest): HttpAnswer {
