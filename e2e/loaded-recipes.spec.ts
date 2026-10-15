@@ -75,14 +75,14 @@ test("a recipe applied in DYE2 shows as its Machine's Loaded Recipe on the Machi
 test("a grind changed on one Machine reaches the Recipe's page, and the Workflow of the other Machine with it loaded, whose sharing status shows it", async ({ page }) => {
   const location = await createLocation(page, "Belmont");
   const recipes = dye2Recording("recipes");
-  const bar1 = await tabletAt(page, "Bar 1", location, {
+  const bar1 = await tabletAt(page, "Belmont 1", location, {
     ...derivedDe1Pro({ serial: "47511" }),
     ...dye2Library(),
     [`/store/${DYE2_NAMESPACE}/baskets`]: dye2Keys().baskets,
     [`/store/${DYE2_NAMESPACE}/equipment`]: dye2Keys().equipment,
     [`/store/${DYE2_NAMESPACE}/recipes`]: [],
   });
-  const bar2 = await tabletAt(page, "Bar 2", location, { ...derivedDe1Pro({ serial: "47512" }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS });
+  const bar2 = await tabletAt(page, "Belmont 2", location, { ...derivedDe1Pro({ serial: "47512" }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS });
   await saveInDye2(bar1.tablet, recipes.saveSlot1);
   await saveInDye2(bar1.tablet, recipes.editSlot1);
   for (const { tablet } of [bar1, bar2]) {
