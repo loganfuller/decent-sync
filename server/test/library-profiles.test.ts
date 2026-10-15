@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { NO_DYE2_LISTS, RawConnection, SimulatedTablet, de1ProOnDecaid087, derivedDe1Pro, derivedProfile, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
+import { RawConnection, type SimulatedTablet, type SimulatedTabletOptions, de1ProOnDecaid087, derivedProfile, helloWith } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #82: Profiles shown per Location. A Profile keeps
@@ -43,8 +44,6 @@ describe("Profiles shown per Location", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
-  const raws: RawConnection[] = [];
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -52,8 +51,6 @@ describe("Profiles shown per Location", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
-    await Promise.all(raws.map((raw) => raw.terminate()));
     await other?.stop();
     await server?.stop();
   });
@@ -66,21 +63,9 @@ describe("Profiles shown per Location", () => {
   function load(
     machine: CreatedMachine,
     serial: string,
-    options: { instance?: TestServer; pollSeconds?: number; decaidClockOffsetMs?: number; stallUpload?: (frame: unknown) => boolean } = {},
+    { instance = server, ...options }: { instance?: TestServer; pollSeconds?: number } & Pick<SimulatedTabletOptions, "decaidClockOffsetMs" | "stallUpload"> = {},
   ): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      decaidClockOffsetMs: options.decaidClockOffsetMs,
-      stallUpload: options.stallUpload,
-      settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": bundled(), ...NO_DYE2_LISTS },
-      timeScale: 50,
-    });
-    tablets.push(tablet);
-    return tablet;
-  }
-
-  async function online(...machines: CreatedMachine[]): Promise<void> {
-    for (const { machine } of machines) await api.waitForMachine(machine.name, (viewed) => viewed.online);
+    return syncingTablet(machine, instance, { api: { ...emptyLibrary(serial), "/profiles": bundled() }, ...options });
   }
 
   /**
@@ -96,8 +81,8 @@ describe("Profiles shown per Location", () => {
     await expect.poll(acknowledged).toBe(true);
   }
 
-  const libraryProfiles = async () => ((await (await api.call("GET", "/profiles")).json()) as { profiles: ProfileSummary[] }).profiles;
-  const viewProfile = async (id: string) => ((await (await api.call("GET", `/profiles/${encodeURIComponent(id)}`)).json()) as { profile: ProfileView }).profile;
+  const libraryProfiles = async () => (await api.get<{ profiles: ProfileSummary[] }>("/profiles")).profiles;
+  const viewProfile = async (id: string) => (await api.get<{ profile: ProfileView }>(`/profiles/${encodeURIComponent(id)}`)).profile;
   /**
    * The Locations of a scenario showing the Profile, by name, once the
    * Library has it. Decaid's bundled Profiles are the same Library Profiles
@@ -131,7 +116,7 @@ describe("Profiles shown per Location", () => {
     const two = load(machines[1], String(serials + 1), { instance: other });
     const cafe = load(machines[2], String(serials + 2));
     const cafeTwo = load(machines[3], String(serials + 3), { instance: other });
-    await online(...machines);
+    await api.waitForOnline(...machines);
     // Each Location shows Decaid's bundled Profiles, as its first tablet reported them, and every tablet's report is taken in.
     await expect.poll(() => shownAt(name, BUNDLED)).toEqual([`${name} cafe`, `${name} lab`]);
     for (const tablet of [one, two, cafe, cafeTwo]) await reported(tablet);
@@ -146,7 +131,6 @@ describe("Profiles shown per Location", () => {
    */
   async function rawTablet(machine: CreatedMachine, serial: string, instance = server) {
     const raw = await RawConnection.welcomed(instance.url, helloWith(machine.token, { machine: { model: "DE1Pro", serial } }));
-    raws.push(raw);
     return {
       report: (id: string, state: boolean | "deleted" | "gone", at: Date) => {
         const visibility = state === "deleted" ? "deleted" : state ? "visible" : "hidden";
@@ -271,7 +255,7 @@ describe("Profiles shown per Location", () => {
     const one = load(first, "17061");
     // Polls once an hour (every 72 s here), so what is entered on it is not reported within the test.
     const slow = load(second, "17062", { pollSeconds: 3600 });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     await expect.poll(() => slow.sent.some((frame) => (frame as { name?: unknown }).name === "profiles")).toBe(true);
     const entered = await slow.addProfile(derivedProfile("Held Bloom", 9.25));
     await slow.setProfileVisibility(entered.id, "hidden");
@@ -326,7 +310,7 @@ describe("Profiles shown per Location", () => {
     // Its Decaid's clock runs 5 minutes fast, so every edit it makes is timed after the other tablet's.
     const fast = load(first, "17101", { decaidClockOffsetMs: 5 * 60_000 });
     const steady = load(second, "17102", { instance: other });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const record = await save("Fast", fast, derivedProfile("Fast Bloom", 2.5), ["lab"]);
     await holds(steady, record.id, "visible");
     await fast.setProfileVisibility(record.id, "hidden");
@@ -360,7 +344,7 @@ describe("Profiles shown per Location", () => {
     });
     // Its clock runs a second ahead, so its hide is timed after the other tablet's show, which come within a millisecond here.
     const lab2 = load(second, "17112", { instance: other, decaidClockOffsetMs: 1000 });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const record = await save("Resent", resent, derivedProfile("Resent Bloom", 2.25), ["lab"]);
     await holds(lab2, record.id, "visible");
 
@@ -527,7 +511,7 @@ describe("Profiles shown per Location", () => {
     // A third tablet joins the lab with Decaid's bundled Profiles, all visible.
     const third = await api.createMachine("Joined lab 3", labLocation.id);
     const three = load(third, "17055");
-    await online(third);
+    await api.waitForOnline(third);
     await holds(three, BUNDLED, "hidden");
     await holds(three, changed.id, "visible");
     // It lacks the Profile the new one was saved from, which the lab hides, so Decaid is not asked for that parent.

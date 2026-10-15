@@ -1,8 +1,9 @@
 import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
+import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
 import { shotFixture, withShots } from "./support/shot-fixtures.js";
-import { NO_DYE2_LISTS, PluginStorage, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
+import { PluginStorage, type SimulatedTablet, derivedDe1Pro, derivedProfile } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #92: each Shot is linked to the Library's Bean Batch and
@@ -50,7 +51,6 @@ describe("Shots linked to the Library", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -58,7 +58,6 @@ describe("Shots linked to the Library", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
     await other?.stop();
     await server?.stop();
   });
@@ -67,33 +66,21 @@ describe("Shots linked to the Library", () => {
   function load(
     machine: CreatedMachine,
     serial: string,
-    options: { instance?: TestServer; library?: Record_; storage?: PluginStorage } = {},
+    { instance = server, library, storage }: { instance?: TestServer; library?: Record_; storage?: PluginStorage } = {},
   ): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS, ...options.library },
-      storage: options.storage,
-      timeScale: 50,
-    });
-    tablets.push(tablet);
-    return tablet;
+    return syncingTablet(machine, instance, { api: { ...emptyLibrary(serial), ...library }, storage });
   }
 
-  async function send<T>(method: string, path: string, body?: unknown, status = 200): Promise<T> {
-    const response = await api.call(method, path, body);
-    expect(response.status, await response.clone().text()).toBe(status);
-    return (await response.json()) as T;
-  }
   const held = (records: Record_[], id: string) => records.find((record) => globalIdOf(record) === id);
-  const viewShot = async (id: string) => (await send<{ shot: ShotView }>("GET", `/shots/${id}`)).shot;
+  const viewShot = async (id: string) => (await api.get<{ shot: ShotView }>(`/shots/${id}`)).shot;
   /** Resolves with the id of the Library's Profile of that title, once it has one. */
   async function libraryProfileId(title: string): Promise<string> {
-    const find = async () => (await send<{ profiles: { id: string; title: string }[] }>("GET", "/profiles")).profiles.find((p) => p.title === title)?.id;
+    const find = async () => (await api.get<{ profiles: { id: string; title: string }[] }>("/profiles")).profiles.find((p) => p.title === title)?.id;
     await expect.poll(find).toBeTruthy();
     return (await find())!;
   }
   /** The ids of the Shots a filtered list holds, in list order. */
-  const listed = async (query: string) => (await send<{ shots: ShotView[] }>("GET", `/shots?${query}`)).shots.map((shot) => shot.id);
+  const listed = async (query: string) => (await api.get<{ shots: ShotView[] }>(`/shots?${query}`)).shots.map((shot) => shot.id);
 
   /**
    * A Shot pulled on the Machine of that serial, derived from the test
@@ -125,14 +112,14 @@ describe("Shots linked to the Library", () => {
     const selected = (derivedDe1Pro({})["/profiles"] as Record_[]).find((record) => record.id === SKIN_SELECTED)!;
     const labTablet = load(labMachine, "26001", { library: { "/profiles": [selected] } });
     const cafeTablet = load(cafeMachine, "26002", { instance: other });
-    for (const { machine } of [labMachine, cafeMachine]) await api.waitForMachine(machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(labMachine, cafeMachine);
 
-    const bean = (await send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Linked Guji" } }, 201)).bean;
+    const bean = (await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Linked Guji" } }, 201)).bean;
     const batch = (
-      await send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { roastDate: "2026-10-01" }, locations: [{ locationId: lab.id }, { locationId: cafe.id }] }, 201)
+      await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: { roastDate: "2026-10-01" }, locations: [{ locationId: lab.id }, { locationId: cafe.id }] }, 201)
     ).batch;
     const grinder = async (location: LocationView, model: string) =>
-      (await send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: location.id, content: { model } }, 201)).grinder;
+      (await api.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: location.id, content: { model } }, 201)).grinder;
     const labGrinder = await grinder(lab, "Linked lab EK43");
     const cafeGrinder = await grinder(cafe, "Linked cafe EK43");
     for (const tablet of [labTablet, cafeTablet]) await expect.poll(() => held(tablet.batches(), batch.id)).toBeTruthy();
@@ -141,7 +128,7 @@ describe("Shots linked to the Library", () => {
 
     // A Profile a lab barista saved joins the Library; the Shot's Workflow holds it as Decaid holds it.
     const profile = (await labTablet.addProfile(derivedProfile("Linked bloom", 7.5))).profile as Record_;
-    const libraryProfile = async () => (await send<{ profiles: { id: string; title: string }[] }>("GET", "/profiles")).profiles.find((p) => p.title === "Linked bloom");
+    const libraryProfile = async () => (await api.get<{ profiles: { id: string; title: string }[] }>("/profiles")).profiles.find((p) => p.title === "Linked bloom");
     await expect.poll(libraryProfile).toBeTruthy();
     const profileId = (await libraryProfile())!.id;
 
@@ -177,7 +164,7 @@ describe("Shots linked to the Library", () => {
     expect(await listed(`grinderId=${cafeGrinder.id}&machineId=${labMachine.machine.id}`)).toEqual([]);
     expect(await listed(`profileId=${encodeURIComponent(SKIN_SELECTED)}`)).toEqual([]);
 
-    const options = await send<FilterOptions>("GET", "/shots/filters");
+    const options = await api.get<FilterOptions>("/shots/filters");
     expect(options.beanBatches).toContainEqual(expect.objectContaining({ id: batch.id }));
     expect(options.grinders).toEqual(
       expect.arrayContaining([
@@ -195,11 +182,11 @@ describe("Shots linked to the Library", () => {
     const location = await api.createLocation("Weighed cafe", "America/Chicago");
     const machine = await api.createMachine("Weighed cafe 1", location.id);
     const tablet = load(machine, "26041");
-    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(machine);
     const base = derivedProfile("Weighed bloom", 6.5);
     const lighter = (await tablet.addProfile({ ...base, title: "Weighed bloom 36", target_weight: 36 })).profile as Record_;
     const heavier = (await tablet.addProfile({ ...base, title: "Weighed bloom 40", target_weight: 40 })).profile as Record_;
-    const libraryId = async (title: string) => (await send<{ profiles: { id: string; title: string }[] }>("GET", "/profiles")).profiles.find((p) => p.title === title)?.id;
+    const libraryId = async (title: string) => (await api.get<{ profiles: { id: string; title: string }[] }>("/profiles")).profiles.find((p) => p.title === title)?.id;
     await expect.poll(() => libraryId("Weighed bloom 40")).toBeTruthy();
     await expect.poll(() => libraryId("Weighed bloom 36")).toBeTruthy();
     const [lighterId, heavierId] = [(await libraryId("Weighed bloom 36"))!, (await libraryId("Weighed bloom 40"))!];
@@ -225,7 +212,7 @@ describe("Shots linked to the Library", () => {
     const machine = await api.createMachine("Streamline cafe 1", location.id);
     const londonium = (derivedDe1Pro({})["/profiles"] as Record_[]).find((record) => record.id === LONDONIUM)!;
     const tablet = load(machine, "26051", { library: { "/profiles": [londonium] } });
-    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(machine);
     await expect.poll(async () => (await api.call("GET", `/profiles/${encodeURIComponent(LONDONIUM)}`)).status).toBe(200);
 
     // The Shot's Workflow's Londonium is not the record's: one step's limiter of value 0 is null, and its target weight is the yield.
@@ -245,7 +232,7 @@ describe("Shots linked to the Library", () => {
     const location = await api.createLocation("Copied cafe", "America/Chicago");
     const machine = await api.createMachine("Copied cafe 1", location.id);
     const tablet = load(machine, "26061");
-    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(machine);
     // A profile with a limiter of value 0, and the copy a barista saved of it as streamline-js loaded it, with that limiter null.
     const kept = (await tablet.addProfile(withLimiter(derivedProfile("Copied bloom", 4.15), { value: 0, range: 0.6 }))).profile as Record_;
     const copied = (await tablet.addProfile({ ...withLimiter(kept, null), title: "Copied bloom copy" })).profile as Record_;
@@ -284,7 +271,7 @@ describe("Shots linked to the Library", () => {
     const location = await api.createLocation("Warmed cafe", "America/Chicago");
     const machine = await api.createMachine("Warmed cafe 1", location.id);
     const tablet = load(machine, "26091");
-    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(machine);
     const pulled = (await tablet.addProfile(withLimiter(derivedProfile("Warmed bloom", 4.55), { value: 0, range: 0.6 }))).profile as Record_;
     const pulledId = await libraryProfileId("Warmed bloom");
 
@@ -309,7 +296,7 @@ describe("Shots linked to the Library", () => {
     const location = await api.createLocation("Zeroed cafe", "America/Chicago");
     const machine = await api.createMachine("Zeroed cafe 1", location.id);
     const tablet = load(machine, "26071");
-    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(machine);
     const sent = (await tablet.addProfile(withLimiter(derivedProfile("Zeroed bloom", 4.25), { value: 0, range: 0.6 }))).profile as Record_;
     const unsent = (await tablet.addProfile(withLimiter(derivedProfile("Zeroed unsent bloom", 4.35), { value: 0, range: 0.6 }))).profile as Record_;
     const sentId = await libraryProfileId("Zeroed bloom");
@@ -341,14 +328,14 @@ describe("Shots linked to the Library", () => {
     const location = await api.createLocation("Unlinked cafe", "America/Chicago");
     const machine = await api.createMachine("Unlinked cafe 1", location.id);
     const tablet = load(machine, "26011");
-    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(machine);
 
     tablet.pullShot(shotWith("unlinked-shot", "26011", { beanBatchId: "batch-the-library-lacks", grinderId: "grinder-the-library-lacks" }));
     await expect.poll(async () => (await api.call("GET", "/shots/unlinked-shot")).status).toBe(200);
     expect(await viewShot("unlinked-shot")).toMatchObject({ beanBatch: null, grinder: null });
     expect(await listed(`machineId=${machine.machine.id}`)).toEqual(["unlinked-shot"]);
     expect(await listed(`machineId=${machine.machine.id}&beanBatchId=none&grinderId=none`)).toEqual(["unlinked-shot"]);
-    const options = await send<FilterOptions>("GET", "/shots/filters");
+    const options = await api.get<FilterOptions>("/shots/filters");
     expect(options.beanBatches).toContain(null);
     expect(options.grinders).toContain(null);
   });
@@ -359,7 +346,7 @@ describe("Shots linked to the Library", () => {
     const library = derivedDe1Pro({});
     const beans = (library["/beans"] as Record_[]).map((bean) => ({ ...bean, name: `Before ${String(bean.name)}` }));
     const tablet = load(machine, "26021", { library: { "/beans": beans, "/bean-batches": library["/bean-batches"], "/grinders": library["/grinders"] } });
-    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(machine);
 
     // The test tablet's Shot names one of its batches and grinders.
     tablet.pullShot(shotWith("before-shot", "26021", {}));
@@ -387,7 +374,7 @@ describe("Shots linked to the Library", () => {
       instance: other,
     };
     const tablet = load(machine, "26081", decaid);
-    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+    await api.waitForOnline(machine);
     // The Location offered none, so the tablet's own batches and grinders join the Library, and the Shot it sent is linked.
     await expect.poll(async () => (await api.call("GET", "/shots/listed-shot")).status).toBe(200);
     await expect.poll(async () => (await viewShot("listed-shot")).beanBatch?.bean.name).toBe("Listed Ethiopia Generic 100g Sample");
@@ -414,9 +401,9 @@ describe("Shots linked to the Library", () => {
     const location = await api.createLocation("Kept cafe", "America/Chicago");
     const machine = await api.createMachine("Kept cafe 1", location.id);
     const tablet = load(machine, "26031", { instance: other });
-    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
-    const bean = (await send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Kept Guji" } }, 201)).bean;
-    const batch = (await send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: {}, locations: [{ locationId: location.id }] }, 201)).batch;
+    await api.waitForOnline(machine);
+    const bean = (await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Kept Guji" } }, 201)).bean;
+    const batch = (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: {}, locations: [{ locationId: location.id }] }, 201)).batch;
     await expect.poll(() => held(tablet.batches(), batch.id)).toBeTruthy();
     const localId = held(tablet.batches(), batch.id)!.id;
 
@@ -427,12 +414,12 @@ describe("Shots linked to the Library", () => {
 
     // Once the tablet has answered every write, so its record has seen the batch added there, a barista deletes the
     // batch on it, finishing it there, then rates the Shot.
-    await expect.poll(async () => (await send<{ status: { waiting: number | null } }>("GET", `/machines/${machine.machine.id}/sharing-status`)).status.waiting).toBe(0);
+    await expect.poll(async () => (await api.get<{ status: { waiting: number | null } }>(`/machines/${machine.machine.id}/sharing-status`)).status.waiting).toBe(0);
     expect((await tablet.callApi("DELETE", `/bean-batches/${String(localId)}`)).status).toBeLessThan(300);
-    await expect.poll(async () => (await send<{ batch: { locations: unknown[] } }>("GET", `/bean-batches/${batch.id}`)).batch.locations).toEqual([]);
+    await expect.poll(async () => (await api.get<{ batch: { locations: unknown[] } }>(`/bean-batches/${batch.id}`)).batch.locations).toEqual([]);
     const { measurements: _, ...metadata } = shot;
     tablet.fire("shotUpdated", { id: shot.id, shot: { ...metadata, updatedAt: "2026-11-01T12:01:00Z", annotations: { enjoyment: 80 } } });
-    await expect.poll(async () => (await send<{ shot: { enjoyment: number | null } }>("GET", "/shots/kept-shot")).shot.enjoyment).toBe(80);
+    await expect.poll(async () => (await api.get<{ shot: { enjoyment: number | null } }>("/shots/kept-shot")).shot.enjoyment).toBe(80);
 
     expect((await viewShot("kept-shot")).beanBatch?.id).toBe(batch.id);
     for (const path of [`/bean-batches/${batch.id}`, `/beans/${bean.id}`]) {

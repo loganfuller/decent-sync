@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { STREAMLINE_NAMESPACE, type SimulatedStreamline, type StreamlineKey, startStreamline } from "./support/simulated-streamline.js";
-import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
+import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
+import { type SimulatedTablet, workflowFixture } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for tickets #130 and #137: Streamline remembers what the barista
@@ -51,7 +52,6 @@ const REMEMBERED: Partial<Record<StreamlineKey, number>> = {
 describe("Streamline's remembered steam and rinse values", () => {
   let server: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
   const skins: SimulatedStreamline[] = [];
 
   beforeAll(async () => {
@@ -60,7 +60,6 @@ describe("Streamline's remembered steam and rinse values", () => {
   });
   afterAll(async () => {
     for (const skin of skins) skin.stop();
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
     await server?.stop();
   });
 
@@ -68,13 +67,7 @@ describe("Streamline's remembered steam and rinse values", () => {
   function load(machine: CreatedMachine, serial: number): SimulatedTablet {
     const workflow = workflowFixture();
     for (const [part, values] of Object.entries(SETTINGS)) workflow[part] = { ...(workflow[part] as Record_), ...values };
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: server.url }), PollSeconds: 5 },
-      api: { ...derivedDe1Pro({ serial: String(serial) }), "/beans": [], "/bean-batches": [], "/profiles": [], "/grinders": [], "/workflow": workflow, ...NO_DYE2_LISTS },
-      timeScale: 50,
-    });
-    tablets.push(tablet);
-    return tablet;
+    return syncingTablet(machine, server, { api: { ...emptyLibrary(serial), "/workflow": workflow } });
   }
 
   /** Streamline on the tablet, remembering the values given, REMEMBERED by default. */
@@ -93,20 +86,18 @@ describe("Streamline's remembered steam and rinse values", () => {
       const machine = await api.createMachine(`${name} ${index + 1}`, location.id);
       machines.push(machine);
       loaded.push(load(machine, serial));
-      await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
+      await api.waitForOnline(machine);
     }
     const settings = await settingsOf(location);
     return { location, machines, tablets: loaded, settings };
   }
 
-  const settingsAt = async (location: LocationView) =>
-    ((await (await api.call("GET", `/locations/${location.id}/settings`)).json()) as { settings: SettingsView }).settings;
+  const settingsAt = async (location: LocationView) => (await api.get<{ settings: SettingsView }>(`/locations/${location.id}/settings`)).settings;
   async function settingsOf(location: LocationView): Promise<SettingsView> {
     await expect.poll(async () => (await settingsAt(location)).id).not.toBeNull();
     return settingsAt(location);
   }
-  const versions = async (settings: SettingsView) =>
-    ((await (await api.call("GET", `/location-settings/${settings.id}/history`)).json()) as { versions: VersionView[] }).versions;
+  const versions = async (settings: SettingsView) => (await api.get<{ versions: VersionView[] }>(`/location-settings/${settings.id}/history`)).versions;
   const change = (settings: SettingsView, values: Record<string, number>) => api.call("PATCH", `/location-settings/${settings.id}`, { values });
   function setting(tablet: SimulatedTablet, field: string): unknown {
     const [part, name] = field.split(".") as [string, string];
@@ -120,7 +111,7 @@ describe("Streamline's remembered steam and rinse values", () => {
     (await versions(settings)).filter((version) => version.source.machine?.id === machine.id);
   /** The latest Workflow the server stored for the Machine. */
   const latestWorkflow = async ({ machine }: CreatedMachine) => {
-    const { events } = (await (await api.call("GET", `/machines/${machine.id}/workflow-events?limit=1`)).json()) as { events: { workflow: Parts }[] };
+    const { events } = await api.get<{ events: { workflow: Parts }[] }>(`/machines/${machine.id}/workflow-events?limit=1`);
     return events[0]?.workflow;
   };
   /** The answers to settings writes the tablet's plugin sent. */
@@ -281,7 +272,7 @@ describe("Streamline's remembered steam and rinse values", () => {
     // Steam turned off on the tablet, which the server has once it has the Workflow.
     await tablet.changeSettings({ steamSettings: { targetTemperature: 0 } });
     await expect.poll(async () => {
-      const { events } = (await (await api.call("GET", `/machines/${machines[0]!.machine.id}/workflow-events?limit=10`)).json()) as { events: { workflow: Parts }[] };
+      const { events } = await api.get<{ events: { workflow: Parts }[] }>(`/machines/${machines[0]!.machine.id}/workflow-events?limit=10`);
       return events[0]?.workflow.steamSettings?.targetTemperature;
     }).toBe(0);
     expect((await change(settings, { "steamSettings.flow": 1.2, "steamSettings.duration": 90, "rinseData.duration": 6 })).status).toBe(200);

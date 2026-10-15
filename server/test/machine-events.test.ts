@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { CLOSE_CODES } from "@decent-sync/protocol";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
 import {
@@ -33,18 +33,12 @@ describe("Workflow changes and machine state transitions", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
-  const raws: RawConnection[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  });
-  afterEach(async () => {
-    await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
-    await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
   afterAll(async () => {
     await other?.stop();
@@ -53,26 +47,19 @@ describe("Workflow changes and machine state transitions", () => {
 
   /** A simulated tablet with the Machine's token, its machine reporting hardware of its own unless given an API. */
   function load(machine: CreatedMachine, options: Omit<SimulatedTabletOptions, "settings"> = {}) {
-    const tablet = SimulatedTablet.load({
+    return SimulatedTablet.load({
       settings: settingsFor(machine),
       api: derivedDe1Pro({ serial: machine.machine.id.replaceAll("-", "") }),
       timeScale: 50,
       ...options,
     });
-    tablets.push(tablet);
-    return tablet;
-  }
-  async function get<T>(path: string, at = api): Promise<T> {
-    const response = await at.call("GET", path);
-    expect(response.status).toBe(200);
-    return response.json() as Promise<T>;
   }
   const workflowEvents = (machine: CreatedMachine, at = api) =>
-    get<EventPage<WorkflowEvent>>(`/machines/${machine.machine.id}/workflow-events?limit=100`, at);
+    at.get<EventPage<WorkflowEvent>>(`/machines/${machine.machine.id}/workflow-events?limit=100`);
   const stateEvents = (machine: CreatedMachine, at = api) =>
-    get<EventPage<StateEvent>>(`/machines/${machine.machine.id}/machine-state-events?limit=100`, at);
+    at.get<EventPage<StateEvent>>(`/machines/${machine.machine.id}/machine-state-events?limit=100`);
   const currentWorkflow = async (machine: CreatedMachine) =>
-    (await get<{ workflow: WorkflowEvent | null }>(`/machines/${machine.machine.id}/workflow`)).workflow;
+    (await api.get<{ workflow: WorkflowEvent | null }>(`/machines/${machine.machine.id}/workflow`)).workflow;
   const transitions = async (machine: CreatedMachine) =>
     (await stateEvents(machine)).events.map((event) => [event.state, event.substate]).reverse();
 
@@ -98,9 +85,7 @@ describe("Workflow changes and machine state transitions", () => {
 
   /** Welcomed, sending heartbeats every `heartbeatMs`: SILENT for none while the test holds its Machine's row. */
   async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }, heartbeatMs?: number) {
-    const raw = await RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}), heartbeatMs);
-    raws.push(raw);
-    return raw;
+    return RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}), heartbeatMs);
   }
   // Longer than any test. A heartbeat records its Machine as seen, so while the test holds that Machine's row it
   // would wait there, ahead of the deliveries sent after it.
@@ -377,7 +362,7 @@ describe("Workflow changes and machine state transitions", () => {
     ]);
 
     // Pages, latest first.
-    const page = await get<EventPage<StateEvent>>(`/machines/${machine.machine.id}/machine-state-events?limit=2&offset=1`);
+    const page = await api.get<EventPage<StateEvent>>(`/machines/${machine.machine.id}/machine-state-events?limit=2&offset=1`);
     expect(page).toMatchObject({ total: 3, limit: 2, offset: 1 });
     expect(page.events.map((event) => event.observedAt)).toEqual(["2026-10-05T12:01:00.000Z", "2026-10-05T12:00:00.000Z"]);
   });

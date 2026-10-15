@@ -1,8 +1,9 @@
 import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
-import { type Dye2Key, DYE2_NAMESPACE, dye2List, dye2Recording, saveInDye2 } from "./support/simulated-dye2.js";
-import { type DecaidApi, SimulatedTablet, derivedDe1Pro, settingsFor } from "./support/simulated-tablet.js";
+import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
+import { syncingTablet } from "./support/loaded-tablets.js";
+import { type Dye2Key, DYE2_NAMESPACE, dye2List, dye2NeverUsed, dye2Recording, saveInDye2 } from "./support/simulated-dye2.js";
+import type { DecaidApi, SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #138: Baskets and Tools, which DYE2 keeps in lists in
@@ -37,7 +38,6 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -45,7 +45,6 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
     await other?.stop();
     await server?.stop();
   });
@@ -56,8 +55,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
    * gives them values.
    */
   function decaid(serial: string, store: Partial<Record<Dye2Key, unknown>> = {}): DecaidApi {
-    const api: DecaidApi = { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] };
-    for (const key of ["recipes", "baskets", "equipment"] as const) delete api[`/store/${DYE2_NAMESPACE}/${key}`];
+    const api = dye2NeverUsed(serial);
     for (const [key, value] of Object.entries(store)) api[`/store/${DYE2_NAMESPACE}/${key}`] = value;
     return api;
   }
@@ -66,25 +64,14 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
   function load(
     machine: CreatedMachine,
     decaidApi: DecaidApi,
-    options: { instance?: TestServer; storage?: SimulatedTablet["storage"]; pollSeconds?: number } = {},
+    { instance = server, ...options }: { instance?: TestServer; storage?: SimulatedTablet["storage"]; pollSeconds?: number } = {},
   ): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
-      api: decaidApi,
-      storage: options.storage,
-      timeScale: 50,
-    });
-    tablets.push(tablet);
-    return tablet;
+    return syncingTablet(machine, instance, { api: decaidApi, ...options });
   }
 
-  async function online(...machines: CreatedMachine[]): Promise<void> {
-    for (const { machine } of machines) await api.waitForMachine(machine.name, (viewed) => viewed.online);
-  }
-
-  const list = async (kind: "baskets" | "tools") => ((await (await api.call("GET", `/${kind}`)).json()) as Record<string, EquipmentView[]>)[kind]!;
+  const list = async (kind: "baskets" | "tools") => (await api.get<Record<string, EquipmentView[]>>(`/${kind}`))[kind]!;
   const view = async (kind: "baskets" | "tools", id: string) =>
-    ((await (await api.call("GET", `/${kind}/${id}`)).json()) as Record<string, EquipmentView>)[kind === "baskets" ? "basket" : "tool"]!;
+    (await api.get<Record<string, EquipmentView>>(`/${kind}/${id}`))[kind === "baskets" ? "basket" : "tool"]!;
   /** The Library's items of the kind with that name, ignoring case and spaces at either end. */
   const named = async (kind: "baskets" | "tools", name: string) =>
     (await list(kind)).filter((item) => item.name?.trim().toLowerCase() === name.trim().toLowerCase());
@@ -148,7 +135,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     const one = load(machines[0], decaid("41001"));
     const two = load(machines[1], decaid("41002"), { instance: other });
     const cafeTablet = load(machines[2], decaid("41003"));
-    await online(...machines);
+    await api.waitForOnline(...machines);
 
     await saveInDye2(one, baskets.create18gBasket);
     await expect.poll(() => shownAt("baskets", "Fixture 18g Precision")).toEqual(["Created lab"]);
@@ -191,7 +178,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     const labTablet = load(machines[0], decaid("41011"));
     const cafeTablet = load(machines[1], decaid("41012"), { instance: other });
     const roasteryTablet = load(machines[2], decaid("41013"));
-    await online(...machines);
+    await api.waitForOnline(...machines);
 
     await saveInDye2(labTablet, baskets.create20gBasket);
     await expect.poll(() => shownAt("baskets", "Fixture 20g High-flow")).toEqual(["Matched lab"]);
@@ -217,7 +204,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     const one = load(machines[0], decaid("41021"));
     const two = load(machines[1], decaid("41022"), { instance: other });
     const cafeTablet = load(machines[2], decaid("41023"));
-    await online(...machines);
+    await api.waitForOnline(...machines);
 
     // The other tablets' equipment keys were never written: each gets the Tool all the same.
     for (const tablet of [two, cafeTablet]) expect(dye2List(tablet, "equipment")).toBeNull();
@@ -252,7 +239,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     // Back online, the cafe's edit, made and read after the lab's, wins, and the lab's value is kept as a Conflict.
     cafeTablet.restoreNetwork();
     for (const tablet of [one, two]) await expect.poll(() => needles(tablet)).toBe("12");
-    const conflicts = ((await (await api.call("GET", `/tools/${tool!.id}/conflicts`)).json()) as { conflicts: { field: string; value: unknown }[] }).conflicts;
+    const conflicts = (await api.get<{ conflicts: { field: string; value: unknown }[] }>(`/tools/${tool!.id}/conflicts`)).conflicts;
     expect(conflicts).toEqual([
       expect.objectContaining({
         field: "custom",
@@ -271,7 +258,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     const one = load(machines[0], decaid("41031"));
     const two = load(machines[1], decaid("41032"), { instance: other });
     const cafeTablet = load(machines[2], decaid("41033"));
-    await online(...machines);
+    await api.waitForOnline(...machines);
 
     await saveInDye2(one, tools.createSpareTamper, ownNames("Deleted"));
     await expect.poll(() => shownAt("tools", "Deleted Fixture Spare Tamper")).toEqual(["Deleted lab"]);
@@ -283,7 +270,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     // one gone before that was lost to another app's rewrite, and is written again.
     const localId = recordNamed(two, "equipment", "Deleted Fixture Spare Tamper")!.id;
     const reported = async () =>
-      ((await (await api.call("GET", `/machines/${machines[1].machine.id}/collections/dye2Equipment`)).json()) as { collection: { value: Record_[] } | null }).collection?.value ?? [];
+      (await api.get<{ collection: { value: Record_[] } | null }>(`/machines/${machines[1].machine.id}/collections/dye2Equipment`)).collection?.value ?? [];
     await expect.poll(async () => (await reported()).map((record) => record.id)).toContain(localId);
     await saveInDye2(two, tools.deleteSpareTamper, (item) => ({ ...ownNames("Deleted")(item), id: localId }));
     await expect.poll(() => shownAt("tools", "Deleted Fixture Spare Tamper")).toEqual(["Deleted cafe"]);
@@ -306,7 +293,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     expect(await shownAt("tools", "Deleted Fixture Spare Tamper")).toEqual([]);
     // The tablet's answer, which its sharing status shows, follows its removal from the list.
     const lastApplied = async () =>
-      ((await (await api.call("GET", `/machines/${machines[2].machine.id}/sharing-status`)).json()) as { status: { lastApplied: Record_ } }).status.lastApplied;
+      (await api.get<{ status: { lastApplied: Record_ } }>(`/machines/${machines[2].machine.id}/sharing-status`)).status.lastApplied;
     await expect
       .poll(lastApplied)
       .toMatchObject({ change: "remove", kind: "tool", item: { kind: "tool", id: tool!.id, name: "Deleted Fixture Spare Tamper" } });
@@ -318,9 +305,9 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     const one = load(machines[0], decaid("41041"));
     const broken = { baskets: { "1": { name: "A basket in a shape DYE2 never saved" } } };
     const two = load(machines[1], decaid("41042", { baskets: broken }), { instance: other });
-    await online(...machines);
+    await api.waitForOnline(...machines);
     const status = async () =>
-      ((await (await api.call("GET", `/machines/${machines[1].machine.id}/sharing-status`)).json()) as { status: { unrecognisedLists: { list: string }[] } }).status;
+      (await api.get<{ status: { unrecognisedLists: { list: string }[] } }>(`/machines/${machines[1].machine.id}/sharing-status`)).status;
     await expect.poll(async () => (await status()).unrecognisedLists.map(({ list }) => list)).toEqual(["dye2Baskets"]);
 
     await saveInDye2(one, baskets.create18gBasket, ownNames("Unrecognised"));
@@ -345,9 +332,9 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     const one = load(machines[0], decaid("41081"));
     // The second tablet reads its lists once an hour (72 s here), so it reports them once in this test, as it connects.
     const two = load(machines[1], decaid("41082", { baskets: [], equipment: [] }), { instance: other, pollSeconds: 3600 });
-    await online(...machines);
+    await api.waitForOnline(...machines);
     const reported = async () =>
-      ((await (await api.call("GET", `/machines/${machines[1].machine.id}/collections/dye2Baskets`)).json()) as { collection: { value: unknown } | null }).collection;
+      (await api.get<{ collection: { value: unknown } | null }>(`/machines/${machines[1].machine.id}/collections/dye2Baskets`)).collection;
     await expect.poll(async () => (await reported())?.value).toEqual([]);
     // Another app then saves its baskets in a shape DYE2 never saves, unread by the plugin until it writes there.
     const broken = { baskets: [] };
@@ -356,7 +343,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     await saveInDye2(one, baskets.create18gBasket, ownNames("Unrecognised late"));
     await saveInDye2(one, tools.createPuckScreen, ownNames("Unrecognised late"));
     const status = async () =>
-      ((await (await api.call("GET", `/machines/${machines[1].machine.id}/sharing-status`)).json()) as { status: { unrecognisedLists: { list: string }[] } }).status;
+      (await api.get<{ status: { unrecognisedLists: { list: string }[] } }>(`/machines/${machines[1].machine.id}/sharing-status`)).status;
     await expect.poll(async () => (await status()).unrecognisedLists.map(({ list }) => list)).toEqual(["dye2Baskets"]);
     // Its tools are written; its baskets are left as they were, and its report of them is as it was.
     await expect.poll(() => recordNamed(two, "equipment", "Unrecognised late Fixture Puck Screen")).toBeDefined();
@@ -370,12 +357,11 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     const elsewhere = await api.createLocation("Equipment staff elsewhere", "America/Chicago");
     const machine = await api.createMachine("Equipment staff elsewhere 1", elsewhere.id);
     const tablet = load(machine, decaid("41091"));
-    await online(machine);
+    await api.waitForOnline(machine);
     await saveInDye2(tablet, tools.createSpareTamper, ownNames("Equipment staff"));
     await expect.poll(() => shownAt("tools", "Equipment staff Fixture Spare Tamper")).toEqual(["Equipment staff elsewhere"]);
     const [tool] = await named("tools", "Equipment staff Fixture Spare Tamper");
-    const { link } = await api.invite("staff-138@example.com", "staff", [home.id]);
-    const staff = AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Staff", password: "staff password 1" }));
+    const staff = await api.staffAt("staff-138@example.com", home);
     const showAs = (who: AdminApi, kind: "baskets" | "tools", id: string, location: string, shown: boolean) =>
       who.call("PUT", `/${kind}/${id}/locations/${location}`, { shown });
 
@@ -396,7 +382,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     const machines = [await api.createMachine("Lost lab 1", lab.id), await api.createMachine("Lost lab 2", lab.id)] as const;
     const one = load(machines[0], decaid("41051"));
     const two = load(machines[1], decaid("41052"), { instance: other });
-    await online(...machines);
+    await api.waitForOnline(...machines);
     // A create lost.
     const createLost = loseNextWrite(two, "baskets");
     await saveInDye2(one, baskets.create18gBasket, ownNames("Lost"));
@@ -438,7 +424,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     const machines = [await api.createMachine("Stale lab 1", lab.id), await api.createMachine("Stale lab 2", lab.id)] as const;
     const one = load(machines[0], decaid("41111"));
     const two = load(machines[1], decaid("41112"), { instance: other });
-    await online(...machines);
+    await api.waitForOnline(...machines);
     // The first tablet's baskets and equipment pages open on them as created: the values the recorded edits were made from.
     await saveInDye2(one, baskets.create18gBasket, ownNames("Stale"));
     await saveInDye2(one, tools.createWdtTool, ownNames("Stale"));
@@ -481,7 +467,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Fixture notes, edited", diameterMm: 58.7 });
     expect((await view("tools", tool!.id)).content).toMatchObject({ name: "Stale Fixture WDT", custom: needles });
     for (const [kind, id] of [["baskets", basket!.id], ["tools", tool!.id]] as const) {
-      expect(((await (await api.call("GET", `/${kind}/${id}/conflicts`)).json()) as { conflicts: unknown[] }).conflicts).toEqual([]);
+      expect((await api.get<{ conflicts: unknown[] }>(`/${kind}/${id}/conflicts`)).conflicts).toEqual([]);
     }
 
     // The second tablet changes the diameter again, to 58.9 mm, so the first held 58.7 just before the server's latest write
@@ -499,7 +485,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     const one = load(machines[0], decaid("41101"));
     // The second tablet reads its lists once an hour (72 s here): no report comes between the two writes.
     const two = load(machines[1], decaid("41102"), { instance: other, pollSeconds: 3600 });
-    await online(...machines);
+    await api.waitForOnline(...machines);
     await saveInDye2(one, baskets.create18gBasket, ownNames("Lost twice"));
     const name = "Lost twice Fixture 18g Precision";
     await expect.poll(() => recordNamed(two, "baskets", name)?.[GLOBAL_ID_KEY]).toBeDefined();
@@ -529,13 +515,13 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     await expect.poll(lostAgain).toBe(true);
     await set(one, "notes", "Edited on one");
     await expect.poll(async () => (await view("baskets", basket!.id)).content.notes).toBe("Edited on one");
-    const waiting = async () => ((await (await api.call("GET", `/machines/${machines[1].machine.id}/sharing-status`)).json()) as { status: { waiting: number } }).status.waiting;
+    const waiting = async () => (await api.get<{ status: { waiting: number } }>(`/machines/${machines[1].machine.id}/sharing-status`)).status.waiting;
     await expect.poll(waiting).toBe(0);
     await set(two, "notes", "Edited on two");
     await set(one, "diameterMm", 58.9);
     await expect.poll(() => recordNamed(one, "baskets", name)?.notes).toBe("Edited on two");
     expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Edited on two", diameterMm: 58.9 });
-    expect(((await (await api.call("GET", `/baskets/${basket!.id}/conflicts`)).json()) as { conflicts: unknown[] }).conflicts).toEqual([]);
+    expect((await api.get<{ conflicts: unknown[] }>(`/baskets/${basket!.id}/conflicts`)).conflicts).toEqual([]);
   });
 
   it("keeps a restored tablet's Baskets and Tools linked by its tablet id, writing back a global id its record lost", async () => {
@@ -543,7 +529,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     const machines = [await api.createMachine("Restored lab 1", lab.id), await api.createMachine("Restored lab 2", lab.id)] as const;
     const one = load(machines[0], decaid("41061"));
     const two = load(machines[1], decaid("41062"), { instance: other });
-    await online(...machines);
+    await api.waitForOnline(...machines);
     await saveInDye2(one, baskets.create18gBasket, ownNames("Restored"));
     await saveInDye2(one, tools.createWdtTool, ownNames("Restored"));
     await expect.poll(() => recordNamed(two, "baskets", "Restored Fixture 18g Precision")?.[GLOBAL_ID_KEY]).toBeDefined();
@@ -573,7 +559,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     const one = load(machines[0], decaid("41071"));
     const unplaced = load(machines[1], decaid("41072"));
     const off = load(sharingOff, decaid("41073"), { instance: other });
-    await online(...machines, sharingOff);
+    await api.waitForOnline(...machines, sharingOff);
 
     await saveInDye2(unplaced, baskets.create20gBasket, ownNames("Capture-only"));
     await saveInDye2(off, tools.createSpareTamper, ownNames("Capture-only"));
@@ -583,7 +569,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     await saveInDye2(one, tools.createPuckScreen, ownNames("Capture-only"));
     await expect.poll(() => shownAt("tools", "Capture-only Fixture Puck Screen")).toEqual(["Capture-only lab"]);
     const collection = async (machine: CreatedMachine) =>
-      ((await (await api.call("GET", `/machines/${machine.machine.id}/collections/dye2Equipment`)).json()) as { collection: { items: number } | null }).collection;
+      (await api.get<{ collection: { items: number } | null }>(`/machines/${machine.machine.id}/collections/dye2Equipment`)).collection;
     await expect.poll(async () => (await collection(sharingOff))?.items).toBe(1);
     expect(await named("baskets", "Capture-only Fixture 20g High-flow")).toEqual([]);
     expect(await named("tools", "Capture-only Fixture Spare Tamper")).toEqual([]);

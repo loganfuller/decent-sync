@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { whileProgressing } from "./support/backlog.js";
 import {
@@ -44,15 +44,11 @@ function keepsNone(storage: PluginStorage): boolean {
 describe("The durable outbox", () => {
   let server: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
     server = await startTestServer({ env });
     api = await AdminApi.setUp(server.url);
-  });
-  afterEach(async () => {
-    await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
   });
   afterAll(async () => {
     await server?.stop();
@@ -60,20 +56,13 @@ describe("The durable outbox", () => {
 
   /** Loads the plugin on the tablet whose plugin storage this is, with the Machine's token and Decaid's API. */
   function load(machine: CreatedMachine, storage: PluginStorage, decaid: DecaidApi, options: Pick<SimulatedTabletOptions, "stallUpload"> = {}) {
-    const tablet = SimulatedTablet.load({ settings: settingsFor(machine), storage, api: decaid, timeScale: 50, ...options });
-    tablets.push(tablet);
-    return tablet;
-  }
-  async function get<T>(path: string): Promise<T> {
-    const response = await api.call("GET", path);
-    expect(response.status).toBe(200);
-    return response.json() as Promise<T>;
+    return SimulatedTablet.load({ settings: settingsFor(machine), storage, api: decaid, timeScale: 50, ...options });
   }
   /** The Machine's Workflow events, or state events, oldest first: at most 100, from `offset` from the latest. */
   const workflowEvents = async (machine: CreatedMachine, offset = 0) =>
-    get<EventPage<WorkflowEvent>>(`/machines/${machine.machine.id}/workflow-events?limit=100&offset=${offset}`);
+    api.get<EventPage<WorkflowEvent>>(`/machines/${machine.machine.id}/workflow-events?limit=100&offset=${offset}`);
   const stateEvents = async (machine: CreatedMachine, offset = 0) =>
-    get<EventPage<StateEvent>>(`/machines/${machine.machine.id}/machine-state-events?limit=100&offset=${offset}`);
+    api.get<EventPage<StateEvent>>(`/machines/${machine.machine.id}/machine-state-events?limit=100&offset=${offset}`);
   const transitions = async (machine: CreatedMachine) =>
     (await stateEvents(machine)).events.map((event) => [event.state, event.substate]).reverse();
 

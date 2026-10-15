@@ -54,8 +54,8 @@ describe("Steam Record capture", () => {
   let lab: LocationView;
   let uptown: LocationView;
   let timeZone: string | undefined;
+  /** The tablets the running test loaded, which Vitest's setup unloads once it has run. */
   const tablets: SimulatedTablet[] = [];
-  const raws: RawConnection[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
@@ -69,12 +69,9 @@ describe("Steam Record capture", () => {
     lab = await api.createLocation("Lab", "America/Denver");
     uptown = await api.createLocation("Uptown", "America/Chicago");
   });
-  afterEach(async () => {
-    const used = tablets.splice(0);
-    await Promise.all(used.map((tablet) => tablet.unload()));
-    await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
+  afterEach(() => {
     // Never the unpaginated list, which holds every Steam Record with its workflow.
-    for (const tablet of used) expect(tablet.requests).not.toContain("/steams");
+    for (const tablet of tablets.splice(0)) expect(tablet.requests).not.toContain("/steams");
   });
   afterAll(async () => {
     await other?.stop();
@@ -174,38 +171,31 @@ describe("Steam Record capture", () => {
   function sent(tablet: SimulatedTablet, type: string): Sent[] {
     return (tablet.sent as Sent[]).filter((message) => message.type === type);
   }
-  async function list(machineId?: string, at = api): Promise<{ steamRecords: SteamRecordView[]; total: number }> {
-    const response = await at.call("GET", `/steam-records?limit=100${machineId ? `&machineId=${machineId}` : ""}`);
-    expect(response.status).toBe(200);
-    return response.json() as Promise<{ steamRecords: SteamRecordView[]; total: number }>;
+  function list(machineId?: string, at = api): Promise<{ steamRecords: SteamRecordView[]; total: number }> {
+    return at.get(`/steam-records?limit=100${machineId ? `&machineId=${machineId}` : ""}`);
   }
   async function detail(id: string, at = api): Promise<SteamRecordView> {
-    const response = await at.call("GET", `/steam-records/${encodeURIComponent(id)}`);
-    expect(response.status).toBe(200);
-    return ((await response.json()) as { steamRecord: SteamRecordView }).steamRecord;
+    return (await at.get<{ steamRecord: SteamRecordView }>(`/steam-records/${encodeURIComponent(id)}`)).steamRecord;
   }
   async function measurements(id: string) {
-    const response = await api.call("GET", `/steam-records/${encodeURIComponent(id)}/measurements`);
-    expect(response.status).toBe(200);
-    return ((await response.json()) as { measurements: unknown }).measurements;
+    return (await api.get<{ measurements: unknown }>(`/steam-records/${encodeURIComponent(id)}/measurements`)).measurements;
   }
   async function absent(id: string) {
     for (const path of [`/steam-records/${encodeURIComponent(id)}`, `/steam-records/${encodeURIComponent(id)}/measurements`]) {
       expect((await api.call("GET", path)).status).toBe(404);
     }
   }
-  async function waitSteam(id: string, timeout = 10_000): Promise<SteamRecordView> {
-    await expect.poll(async () => (await api.call("GET", `/steam-records/${encodeURIComponent(id)}`)).status, { timeout }).toBe(200);
+  /** Resolves with the Steam Record once it is stored, waiting `timeout` ms if given, or a poll's default. */
+  async function waitSteam(id: string, timeout?: number): Promise<SteamRecordView> {
+    await expect.poll(async () => (await api.call("GET", `/steam-records/${encodeURIComponent(id)}`)).status, timeout === undefined ? {} : { timeout }).toBe(200);
     return detail(id);
   }
   /** Each Steam Record's Location by name, null when unknown. */
   async function locations(ids: string[]): Promise<Record<string, string | null>> {
     return Object.fromEntries(await Promise.all(ids.map(async (id) => [id, (await detail(id)).location?.name ?? null])));
   }
-  async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
-    const raw = await RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
-    raws.push(raw);
-    return raw;
+  function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
+    return RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
   }
   function sendSteam(raw: RawConnection, record: Record<string, unknown>, steamedAt: string, id = randomUUID()) {
     raw.send({ type: "steam", id, steamId: String(record.id), steamedAt, steam: record });
@@ -261,9 +251,7 @@ describe("Steam Record capture", () => {
     // Newest first, each once, credited to the Machine whose tablet sent it.
     const first = await list(machine.machine.id);
     expect(first.steamRecords[0]).toMatchObject({ id: "history-204", steamedAt: "2026-01-01T17:24:00.000Z", machineId: machine.machine.id });
-    const lastPage = (await (await api.call("GET", `/steam-records?limit=100&offset=200&machineId=${machine.machine.id}`)).json()) as {
-      steamRecords: SteamRecordView[];
-    };
+    const lastPage = await api.get<{ steamRecords: SteamRecordView[] }>(`/steam-records?limit=100&offset=200&machineId=${machine.machine.id}`);
     expect(lastPage.steamRecords.map((steam) => steam.id)).toEqual(["history-004", "history-003", "history-002", "history-001", "history-000"]);
     expect(new Set(first.steamRecords.map((steam) => steam.id)).size).toBe(100);
   }, 300_000);

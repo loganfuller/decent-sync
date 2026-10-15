@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { MAX_HARDWARE_LENGTH } from "@decent-sync/protocol";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { whileProgressing } from "./support/backlog.js";
 import { waitForLockWaits, withoutLockWaits } from "./support/lock-waits.js";
@@ -29,18 +29,12 @@ describe("Shot capture and reconciliation", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
-  const raws: RawConnection[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
     server = await startTestServer({ env });
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
-  });
-  afterEach(async () => {
-    await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
-    await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
   afterAll(async () => { await other?.stop(); await server?.stop(); });
 
@@ -51,9 +45,7 @@ describe("Shot capture and reconciliation", () => {
   }
   function tabletApi(machine: CreatedMachine) { return derivedDe1Pro({ serial: machine.machine.id.replaceAll("-", "") }); }
   function load(machine: CreatedMachine, shots: Record<string, unknown>[], options = {}) {
-    const tablet = SimulatedTablet.load({ settings: settingsFor(machine), api: withShots(tabletApi(machine), shots), timeScale: 50, ...options });
-    tablets.push(tablet);
-    return tablet;
+    return SimulatedTablet.load({ settings: settingsFor(machine), api: withShots(tabletApi(machine), shots), timeScale: 50, ...options });
   }
   /** Shots one second apart, oldest first, ids suffixed with their position. */
   function timeline(prefix: string, count: number) {
@@ -92,28 +84,22 @@ describe("Shot capture and reconciliation", () => {
   async function storedIds(machineId: string): Promise<string[]> {
     const ids: string[] = [];
     for (let offset = 0; ; offset += 100) {
-      const page = (await (await api.call("GET", `/shots?limit=100&offset=${offset}&machineId=${machineId}`)).json()) as { shots: ShotView[] };
+      const page = await api.get<{ shots: ShotView[] }>(`/shots?limit=100&offset=${offset}&machineId=${machineId}`);
       ids.push(...page.shots.map((shot) => shot.id));
       if (page.shots.length < 100) return ids;
     }
   }
-  async function list(machineId?: string, at = api): Promise<{ shots: ShotView[]; total: number }> {
-    const response = await at.call("GET", `/shots?limit=100${machineId ? `&machineId=${machineId}` : ""}`);
-    expect(response.status).toBe(200);
-    return response.json() as Promise<{ shots: ShotView[]; total: number }>;
+  function list(machineId?: string, at = api): Promise<{ shots: ShotView[]; total: number }> {
+    return at.get(`/shots?limit=100${machineId ? `&machineId=${machineId}` : ""}`);
   }
   async function detail(id: string, at = api): Promise<ShotView> {
-    const response = await at.call("GET", `/shots/${encodeURIComponent(id)}`);
-    expect(response.status).toBe(200);
-    return ((await response.json()) as { shot: ShotView }).shot;
+    return (await at.get<{ shot: ShotView }>(`/shots/${encodeURIComponent(id)}`)).shot;
   }
   async function measurements(id: string) {
-    return ((await (await api.call("GET", `/shots/${encodeURIComponent(id)}/measurements`)).json()) as { measurements: unknown }).measurements;
+    return (await api.get<{ measurements: unknown }>(`/shots/${encodeURIComponent(id)}/measurements`)).measurements;
   }
-  async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
-    const raw = await RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
-    raws.push(raw);
-    return raw;
+  function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
+    return RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
   }
   async function deliver(raw: RawConnection, record: Record<string, unknown>, type = "shot", id = randomUUID()) {
     await raw.deliver({ type, id, shotId: String(record.id), shot: record });
@@ -153,7 +139,7 @@ describe("Shot capture and reconciliation", () => {
     expect(indexPages(tablet.sent.slice(sentBefore)).filter((page) => acknowledged.has(page.id))).toEqual([]);
     const first = await list(machine.machine.id);
     expect(first.shots[0]!.id).toBe("history-204");
-    const lastPage = await (await api.call("GET", `/shots?limit=100&offset=200&machineId=${machine.machine.id}`)).json() as { shots: ShotView[] };
+    const lastPage = await api.get<{ shots: ShotView[] }>(`/shots?limit=100&offset=200&machineId=${machine.machine.id}`);
     expect(lastPage.shots).toHaveLength(5);
     expect(new Set([...first.shots, ...lastPage.shots].map((shot) => shot.id)).size).toBe(105);
   }, 300_000);

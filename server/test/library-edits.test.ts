@@ -1,7 +1,9 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "./support/simulated-tablet.js";
+import { emptyLibrary, localTime, syncingTablet } from "./support/loaded-tablets.js";
+import { type SimulatedTablet, type SimulatedTabletOptions, derivedProfile } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #84: an edit of a Library item's content on any tablet
@@ -48,7 +50,6 @@ describe("Edits of the Library", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -56,7 +57,6 @@ describe("Edits of the Library", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
     await other?.stop();
     await server?.stop();
   });
@@ -69,43 +69,18 @@ describe("Edits of the Library", () => {
   function load(
     machine: CreatedMachine,
     serial: string,
-    options: {
-      instance?: TestServer;
-      pollSeconds?: number;
-      decaidClockOffsetMs?: number;
-      stallUpload?: (frame: unknown) => boolean;
-      apiDelayMs?: (method: string, path: string) => number;
-    } = {},
+    { instance = server, ...options }: { instance?: TestServer; pollSeconds?: number } & Pick<SimulatedTabletOptions, "decaidClockOffsetMs" | "stallUpload" | "apiDelayMs"> = {},
   ): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      apiDelayMs: options.apiDelayMs,
-      decaidClockOffsetMs: options.decaidClockOffsetMs,
-      stallUpload: options.stallUpload,
-      settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: options.pollSeconds ?? 5 },
-      api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS },
-      timeScale: 50,
-    });
-    tablets.push(tablet);
-    return tablet;
-  }
-
-  async function online(...machines: CreatedMachine[]): Promise<void> {
-    for (const { machine } of machines) await api.waitForMachine(machine.name, (viewed) => viewed.online);
-  }
-
-  async function get<T>(path: string): Promise<T> {
-    const response = await api.call("GET", path);
-    expect(response.status).toBe(200);
-    return (await response.json()) as T;
+    return syncingTablet(machine, instance, { api: emptyLibrary(serial), ...options });
   }
 
   /** The Library's one Bean of that name, once there is one. */
   async function libraryBean(name: string): Promise<{ id: string; content: Record_ }> {
-    const named = async () => (await get<{ beans: { id: string; name: string | null }[] }>("/beans")).beans.filter((bean) => bean.name === name);
+    const named = async () => (await api.get<{ beans: { id: string; name: string | null }[] }>("/beans")).beans.filter((bean) => bean.name === name);
     await expect.poll(async () => (await named()).length).toBe(1);
-    return (await get<{ bean: { id: string; content: Record_ } }>(`/beans/${(await named())[0]!.id}`)).bean;
+    return (await api.get<{ bean: { id: string; content: Record_ } }>(`/beans/${(await named())[0]!.id}`)).bean;
   }
-  const beanContent = async (id: string) => (await get<{ bean: { content: Record_ } }>(`/beans/${id}`)).bean.content;
+  const beanContent = async (id: string) => (await api.get<{ bean: { content: Record_ } }>(`/beans/${id}`)).bean.content;
   /** The tablet's record of the Library Bean, if it holds one. */
   const heldBean = (tablet: SimulatedTablet, id: string) => tablet.beans().find((record) => globalIdOf(record) === id);
   /** Resolves once the tablet holds the Bean with these fields. */
@@ -114,7 +89,7 @@ describe("Edits of the Library", () => {
     return heldBean(tablet, id)!;
   }
   /** The open Conflicts about an item. */
-  const conflictsOf = async (id: string) => (await get<{ conflicts: ConflictView[] }>("/conflicts")).conflicts.filter((conflict) => conflict.item.id === id);
+  const conflictsOf = async (id: string) => (await api.get<{ conflicts: ConflictView[] }>("/conflicts")).conflicts.filter((conflict) => conflict.item.id === id);
 
   /** A Location with a tablet that enters a Bean, written to the Location's other tablet; and a cafe whose tablet enters the same coffee, so holds it too. */
   async function shared(name: string, serials: number, options: { instance?: TestServer } = {}) {
@@ -126,7 +101,7 @@ describe("Edits of the Library", () => {
     const one = load(labMachine, String(serials + 1));
     const two = load(secondMachine, String(serials + 2), { instance: options.instance ?? other });
     const cafe = load(cafeMachine, String(serials + 3));
-    await online(labMachine, secondMachine, cafeMachine);
+    await api.waitForOnline(labMachine, secondMachine, cafeMachine);
     const entered = await one.addBean({ roaster: "Roux", name: `${name} Guji`, country: "Ethiopia", notes: "Peach" });
     const bean = await libraryBean(`${name} Guji`);
     await holds(two, bean.id, { notes: "Peach" });
@@ -241,7 +216,7 @@ describe("Edits of the Library", () => {
     const one = load(first, "19051");
     // Polls once an hour (every 72 s here), so what is entered on it is reported only on its next welcome.
     const two = load(second, "19052", { pollSeconds: 3600 });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const record = await one.addBean({ roaster: "Roux", name: "Unreported Guji", notes: "Peach" });
     const bean = await libraryBean("Unreported Guji");
     await holds(two, bean.id, { notes: "Peach" });
@@ -263,7 +238,7 @@ describe("Edits of the Library", () => {
     const one = load(first, "19091", { decaidClockOffsetMs: 10 * 60_000 });
     // Polls once an hour (every 72 s here), so what is entered on it is not reported within the test.
     const two = load(second, "19092", { pollSeconds: 3600 });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const record = await one.addBean({ roaster: "Roux", name: "Losing Guji", notes: "Peach" });
     const bean = await libraryBean("Losing Guji");
     await holds(two, bean.id, { notes: "Peach" });
@@ -292,7 +267,7 @@ describe("Edits of the Library", () => {
       pollSeconds: 3600,
       apiDelayMs: (method, path) => (slow && method === "GET" && path.startsWith("/beans/") ? 25_000 : 0),
     });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const record = await one.addBean({ roaster: "Roux", name: "Twice Guji", notes: "Peach" });
     const bean = await libraryBean("Twice Guji");
     await holds(two, bean.id, { notes: "Peach" });
@@ -317,7 +292,7 @@ describe("Edits of the Library", () => {
     const one = load(first, "19131");
     // Its Decaid's clock runs 10 minutes slow, so its edits are timed before the other tablet's, and it reports only on welcome.
     const two = load(second, "19132", { decaidClockOffsetMs: -10 * 60_000, pollSeconds: 3600 });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const record = await one.addBean({ roaster: "Roux", name: "Other Field Guji", notes: "Peach", country: "Ethiopia" });
     const bean = await libraryBean("Other Field Guji");
     await holds(two, bean.id, { notes: "Peach" });
@@ -350,7 +325,7 @@ describe("Edits of the Library", () => {
       decaidClockOffsetMs: -10 * 60_000,
       stallUpload: (frame) => holding && (frame as Frame).type === "written",
     });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const record = await one.addBean({ roaster: "Roux", name: "Late Guji", notes: "v1" });
     const bean = await libraryBean("Late Guji");
     await holds(two, bean.id, { notes: "v1" });
@@ -382,7 +357,7 @@ describe("Edits of the Library", () => {
     const one = load(first, "19111");
     // Polls once an hour (every 72 s here), so what is changed on it is not reported within the test.
     const two = load(second, "19112", { pollSeconds: 3600 });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const saved = await one.addProfile(derivedProfile("Hide Bloom", 7.25));
     const on = (tablet: SimulatedTablet) => tablet.profiles().find((record) => record.id === saved.id);
     await expect.poll(() => on(two)?.visibility).toBe("visible");
@@ -393,7 +368,7 @@ describe("Edits of the Library", () => {
     await expect.poll(() => (on(two)?.profile as Record_ | undefined)?.title).toBe("Hide Bloom v2");
     await expect.poll(() => on(one)?.visibility).toBe("hidden");
     expect(on(two)?.visibility).toBe("hidden");
-    expect((await get<{ profile: { shownAt: unknown[] } }>(`/profiles/${encodeURIComponent(String(saved.id))}`)).profile.shownAt).toEqual([]);
+    expect((await api.get<{ profile: { shownAt: unknown[] } }>(`/profiles/${encodeURIComponent(String(saved.id))}`)).profile.shownAt).toEqual([]);
     expect(await conflictsOf(String(saved.id))).toEqual([]);
   });
 
@@ -406,7 +381,7 @@ describe("Edits of the Library", () => {
     const one = load(first, "19061");
     const two = load(second, "19062", { instance: other });
     const three = load(third, "19063");
-    await online(first, second, third);
+    await api.waitForOnline(first, second, third);
     const profile = derivedProfile("House Bloom", 7.75);
     const saved = await one.addProfile(profile);
     const titleOn = (tablet: SimulatedTablet) => (tablet.profiles().find((record) => record.id === saved.id)?.profile as Record_ | undefined)?.title;
@@ -414,7 +389,7 @@ describe("Edits of the Library", () => {
     // The cafe saves the same steps, so holds the same Profile (ADR-0006).
     await three.addProfile(profile);
     const shownAt = async () =>
-      (await get<{ profile: { shownAt: { location: LocationView }[] } }>(`/profiles/${encodeURIComponent(String(saved.id))}`)).profile.shownAt
+      (await api.get<{ profile: { shownAt: { location: LocationView }[] } }>(`/profiles/${encodeURIComponent(String(saved.id))}`)).profile.shownAt
         .map((here) => here.location.name)
         .sort();
     await expect.poll(shownAt).toEqual(["Rename cafe", "Rename lab"]);
@@ -427,7 +402,7 @@ describe("Edits of the Library", () => {
     expect([notesOn(two), notesOn(three)]).toEqual(["Longer bloom", "Longer bloom"]);
     // Still one Profile, under the same id, on every tablet.
     for (const tablet of [one, two, three]) expect(tablet.profiles().filter((record) => (record.profile as Record_).title === "House Bloom v2").map((record) => record.id)).toEqual([saved.id]);
-    expect((await get<{ profile: { title: string } }>(`/profiles/${encodeURIComponent(String(saved.id))}`)).profile.title).toBe("House Bloom v2");
+    expect((await api.get<{ profile: { title: string } }>(`/profiles/${encodeURIComponent(String(saved.id))}`)).profile.title).toBe("House Bloom v2");
     expect(await conflictsOf(String(saved.id))).toEqual([]);
   });
 
@@ -437,7 +412,7 @@ describe("Edits of the Library", () => {
     const second = await api.createMachine("Equipment 2", lab.id);
     const one = load(first, "19071");
     const two = load(second, "19072", { instance: other });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const bean = await one.addBean({ roaster: "Roux", name: "Equipment Guji" });
     const batch = await one.addBatch(bean.id, { roastDate: "2026-10-01", roastLevel: "light", weight: 250 });
     const grinder = await one.addGrinder({ model: "Fixture Grinder", burrs: "Fixture 63mm" });
@@ -458,14 +433,14 @@ describe("Edits of the Library", () => {
     const second = await api.createMachine("History 2", lab.id);
     const one = load(first, "19081");
     const two = load(second, "19082", { instance: other });
-    await online(first, second);
+    await api.waitForOnline(first, second);
     const record = await one.addBean({ roaster: "Roux", name: "History Guji", notes: "Peach" });
     const bean = await libraryBean("History Guji");
     await holds(two, bean.id, { notes: "Peach" });
     const edited = await two.editBean(heldBean(two, bean.id)!.id, { notes: "Jasmine", country: "Ethiopia" });
     await holds(one, bean.id, { notes: "Jasmine" });
 
-    const { versions } = await get<{ versions: VersionView[] }>(`/beans/${bean.id}/history`);
+    const { versions } = await api.get<{ versions: VersionView[] }>(`/beans/${bean.id}/history`);
     expect(versions).toHaveLength(2);
     const [edit, joined] = versions;
     expect(edit).toMatchObject({ fields: { notes: "Jasmine", country: "Ethiopia" }, location: null, source: { machine: { id: second.machine.id, name: "History 2" } } });
@@ -484,13 +459,13 @@ describe("Edits of the Library", () => {
     // A batch's history includes its state at each Location, named by that Location.
     const added = await one.addBatch(record.id, { roastDate: "2026-10-01", weight: 250 });
     const weighed = async (weight: number) =>
-      (await get<{ batches: { id: string; bean: { id: string }; locations: { remainingWeight: number | null }[] }[] }>("/bean-batches")).batches.find(
+      (await api.get<{ batches: { id: string; bean: { id: string }; locations: { remainingWeight: number | null }[] }[] }>("/bean-batches")).batches.find(
         (batch) => batch.bean.id === bean.id && batch.locations[0]?.remainingWeight === weight,
       );
     await expect.poll(() => weighed(250)).toBeDefined();
     await one.editBatch(added.id, { weightRemaining: 180 });
     await expect.poll(() => weighed(180)).toBeDefined();
-    const batchHistory = (await get<{ versions: VersionView[] }>(`/bean-batches/${(await weighed(180))!.id}/history`)).versions;
+    const batchHistory = (await api.get<{ versions: VersionView[] }>(`/bean-batches/${(await weighed(180))!.id}/history`)).versions;
     expect(batchHistory[0]).toMatchObject({ location: { name: "History lab" }, fields: { remainingWeight: 180 } });
     // Joining the Library, at the lab with the weight Decaid gave it, are each a version, taken in together.
     expect(batchHistory.slice(1).map((version) => [version.location?.name ?? null, version.fields])).toEqual(
@@ -506,12 +481,3 @@ describe("Edits of the Library", () => {
     expect((await api.call("GET", "/profiles/profile%3A00000000000000000000/history")).status).toBe(404);
   });
 });
-
-/** A time Decaid wrote in the tablet's local time without an offset, to the millisecond the plugin reads, as a UTC instant: the simulated tablet's zone is the process's. */
-function localTime(written: unknown): number {
-  return new Date(String(written).slice(0, 23)).getTime();
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}

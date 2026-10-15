@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView } from "./support/admin-api.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
 import { derivedShot, shotFixture, withShots } from "./support/shot-fixtures.js";
@@ -112,8 +112,6 @@ describe("Location History", () => {
   let cart: LocationView;
   /** Where no Machine ever was: records set to it keep it only if nothing credits them again. */
   let elsewhere: LocationView;
-  const tablets: SimulatedTablet[] = [];
-  const raws: RawConnection[] = [];
   const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
   beforeAll(async () => {
@@ -125,10 +123,6 @@ describe("Location History", () => {
     belmont = await api.createLocation("Belmont", "America/Chicago");
     cart = await api.createLocation("Cart", "America/Chicago");
     elsewhere = await api.createLocation("Elsewhere", "America/Chicago");
-  });
-  afterEach(async () => {
-    await Promise.all(tablets.splice(0).map((tablet) => tablet.unload()));
-    await Promise.all(raws.splice(0).map((raw) => raw.terminate()));
   });
   afterAll(async () => {
     await other?.stop();
@@ -148,18 +142,14 @@ describe("Location History", () => {
     return { model: "DE1Pro", serial: machine.machine.id.replaceAll("-", "") };
   }
   function load(machine: CreatedMachine, shots: Record<string, unknown>[]) {
-    const tablet = SimulatedTablet.load({
+    return SimulatedTablet.load({
       settings: settingsFor(machine),
       api: withShots(derivedDe1Pro({ serial: hardwareOf(machine).serial }), shots),
       timeScale: 50,
     });
-    tablets.push(tablet);
-    return tablet;
   }
-  async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
-    const raw = await RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
-    raws.push(raw);
-    return raw;
+  function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
+    return RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
   }
   function sendShot(raw: RawConnection, record: Record<string, unknown>, id = randomUUID()) {
     raw.send({ type: "shot", id, shotId: String(record.id), shot: record });
@@ -228,9 +218,7 @@ describe("Location History", () => {
     return rows;
   }
   async function detail(id: string): Promise<ShotView> {
-    const response = await api.call("GET", `/shots/${encodeURIComponent(id)}`);
-    expect(response.status).toBe(200);
-    return ((await response.json()) as { shot: ShotView }).shot;
+    return (await api.get<{ shot: ShotView }>(`/shots/${encodeURIComponent(id)}`)).shot;
   }
   async function waitShot(id: string): Promise<ShotView> {
     await expect.poll(async () => (await api.call("GET", `/shots/${encodeURIComponent(id)}`)).status).toBe(200);
@@ -241,9 +229,7 @@ describe("Location History", () => {
     return Object.fromEntries(await Promise.all(ids.map(async (id) => [id, (await detail(id)).location?.name ?? null])));
   }
   async function machine(id: string, at = api): Promise<MachineView> {
-    const response = await at.call("GET", `/machines/${id}`);
-    expect(response.status).toBe(200);
-    return ((await response.json()) as { machine: MachineView }).machine;
+    return (await at.get<{ machine: MachineView }>(`/machines/${id}`)).machine;
   }
   function move(machineId: string, locationId: string, effectiveFrom?: string, at = api) {
     return at.call("POST", `/machines/${machineId}/location-history`, { locationId, effectiveFrom });
@@ -388,7 +374,7 @@ describe("Location History", () => {
     expect(await locations(ids)).toEqual({ "adopted-january": null, "adopted-february": "Belmont", "adopted-march": "Belmont" });
     await moved(await correct(created.machine.id, afterMove.locationHistory[0]!.id, "2025-06-01T00:00:00-05:00"));
     expect(await locations(ids)).toEqual({ "adopted-january": "Belmont", "adopted-february": "Belmont", "adopted-march": "Belmont" });
-    const listed = ((await (await api.call("GET", `/shots?limit=100&machineId=${created.machine.id}`)).json()) as { shots: ShotView[] }).shots;
+    const listed = (await api.get<{ shots: ShotView[] }>(`/shots?limit=100&machineId=${created.machine.id}`)).shots;
     expect(listed.map((shot) => [shot.id, shot.location?.name, shot.locationInferred])).toEqual([
       ["adopted-march", "Belmont", true],
       ["adopted-february", "Belmont", true],
@@ -755,7 +741,6 @@ describe("Location History", () => {
       // Holds the hello partway through handing the records over, past Prisma's default 5 s limit on a transaction.
       await database.query("LOCK TABLE steam_records IN ACCESS EXCLUSIVE MODE");
       const abandoned = await RawConnection.open(server.url);
-      raws.push(abandoned);
       abandoned.send(helloWith(created.token, { machine: hardware }));
       await waitForLockWaits(server, { relation: "steam_records" });
       // Counted from here, when the hello's transaction has certainly begun.
