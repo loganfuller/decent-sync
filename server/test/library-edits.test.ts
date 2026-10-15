@@ -13,6 +13,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // 19001.
 
 type Record_ = Record<string, unknown>;
+/** A frame a tablet sent or received, as far as these tests read it. */
+type Frame = { type?: unknown; id?: unknown; globalId?: unknown };
 
 interface Source {
   machine: { id: string; name: string } | null;
@@ -346,12 +348,16 @@ describe("Edits of the Library", { timeout: 60_000 }, () => {
     let holding = false;
     const two = load(second, "19102", {
       decaidClockOffsetMs: -10 * 60_000,
-      stallUpload: (frame) => holding && (frame as { type?: unknown }).type === "written",
+      stallUpload: (frame) => holding && (frame as Frame).type === "written",
     });
     await online(first, second);
     const record = await one.addBean({ roaster: "Roux", name: "Late Guji", notes: "v1" });
     const bean = await libraryBean("Late Guji");
     await holds(two, bean.id, { notes: "v1" });
+    // Its answer to that write acknowledged: held, it would hold up the next write to it.
+    const answers = two.sent as Frame[];
+    const acknowledged = (answer: Frame) => (two.received as Frame[]).some((reply) => reply.type === "ack" && reply.id === answer.id);
+    await expect.poll(() => answers.filter((answer) => answer.type === "written" && answer.globalId === bean.id && acknowledged(answer)).length).toBe(1);
 
     holding = true;
     await one.editBean(record.id, { notes: "v2 from one" });
