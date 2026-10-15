@@ -293,7 +293,9 @@ from the Workflow deliveries.
   recipe holds none of is left as the Workflow has it. Decaid refuses to
   change the hot water settings while no machine is connected, so the rest
   is then written without them, the Workflow read and checked again first.
-  A part changed after the load was decided on is not written. Streamline
+  A part changed after the load was decided on is not written. The
+  Workflow Decaid answers the write with becomes the one decided on, so its
+  echo is no change, and a part kept as a barista changed it stays. Streamline
   adopts a Workflow change made elsewhere (ADR-0021), so it takes the hot
   water as its own, and the plugin sets none of its values.
 - **Unloading.** A change of the Workflow's profile, grinder or Bean (its

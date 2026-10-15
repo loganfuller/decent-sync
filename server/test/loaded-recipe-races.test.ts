@@ -28,16 +28,23 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
   const brazil = batchOf("Brazil");
   const applied = dye2Recording("dye2-applies").applySlot1;
 
+  /** A second batch of the recording's Ethiopia, as a barista adds the next bag. */
+  const nextBag = { ...(library["/bean-batches"] as Record_[]).find((batch) => batch.id === ethiopia)!, id: "0190a5a2-0000-7000-8000-000000000999" };
+
   /**
    * The recording's tablet, holding slot 1 with its Recipe's id, Bean Batch
-   * and hot water, its Workflow as given, the first read of the Recipe's
-   * Bean taking 300 ms, as `during` changes the Workflow.
+   * and hot water, its dial changed as `dial` says since the Workflow
+   * embedded in it was written, as Streamline's strip then applies a stale
+   * one, its Workflow as given, the first read of the Recipe's Bean taking
+   * 300 ms, as `during` changes the Workflow.
    */
-  function load(serial: string, workflow: Record_, during: (tablet: SimulatedTablet) => Promise<unknown>) {
+  function load(serial: string, workflow: Record_, during: (tablet: SimulatedTablet) => Promise<unknown>, dial: Record_ = {}) {
     const [slot1] = dye2Keys().recipes as [Record_];
+    Object.assign(slot1.dashboardVariables as Record_, dial);
     const api: DecaidApi = {
       ...derivedDe1Pro({ serial }),
       ...library,
+      "/bean-batches": [...(library["/bean-batches"] as Record_[]), nextBag],
       "/workflow": workflow,
       [`/store/${DYE2_NAMESPACE}/recipes`]: [{ ...slot1, decentSyncId: RECIPE, [RECIPE_FIELD]: { beanBatchId: ethiopia, hotWaterData: HOT_WATER } }],
     };
@@ -79,6 +86,26 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     await expect.poll(() => named(tablet), { timeout: 10_000 }).toBe(RECIPE);
     await settled();
     expect(context(tablet)).toMatchObject({ targetDoseWeight: 18.6, beanBatchId: ethiopia, grinderSetting: "2.7" });
+    expect(tablet.workflow().hotWaterData).toEqual(HOT_WATER);
+  });
+
+  it("keeps hot water changed as a load of a stale dial is decided, after the plugin writes the current dial", async () => {
+    const { tablet, changed } = load("47221", structuredClone(library["/workflow"]) as Record_, (tablet) => tablet.changeSettings({ hotWaterData: { volume: 61 } }), { dose: 19.5, grind: 2.9 });
+    for (const answer of await replayWrites(tablet, applied)) expect(answer.status).toBe(200);
+    await changed();
+    await expect.poll(() => named(tablet), { timeout: 10_000 }).toBe(RECIPE);
+    await settled();
+    expect(context(tablet)).toMatchObject({ targetDoseWeight: 19.5, grinderSetting: "2.9", beanBatchId: ethiopia });
+    expect(tablet.workflow().hotWaterData).toEqual({ ...HOT_WATER, volume: 61 });
+  });
+
+  it("keeps the next bag of the Recipe's Bean picked as a load of a stale dial is decided, after the plugin writes the current dial", async () => {
+    const { tablet, changed } = load("47231", structuredClone(library["/workflow"]) as Record_, (tablet) => tablet.changeSettings({ context: { beanBatchId: nextBag.id } }), { dose: 19.5, grind: 2.9 });
+    for (const answer of await replayWrites(tablet, applied)) expect(answer.status).toBe(200);
+    await changed();
+    await expect.poll(() => named(tablet), { timeout: 10_000 }).toBe(RECIPE);
+    await settled();
+    expect(context(tablet)).toMatchObject({ targetDoseWeight: 19.5, grinderSetting: "2.9", beanBatchId: nextBag.id });
     expect(tablet.workflow().hotWaterData).toEqual(HOT_WATER);
   });
 });

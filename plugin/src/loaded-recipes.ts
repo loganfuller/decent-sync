@@ -194,8 +194,13 @@ export class LoadedRecipes {
         if (this.queue.length > 0) await this.decideQueued();
         if (this.pending.kind === "none" || this.stopped) continue;
         const written = await this.write(this.pending, this.decided!);
-        if (written === true) this.pending = { kind: "none" };
-        else this.enqueue(written);
+        if (written.kind === "changed") {
+          this.enqueue(written.workflow);
+          continue;
+        }
+        this.pending = { kind: "none" };
+        // The Workflow Decaid answered the plugin's write with is the one decided on, so its echo is no change.
+        if (written.kind === "written") this.decided = written.workflow;
       }
       this.retryMs = FIRST_RETRY_MS;
     } catch (error) {
@@ -247,9 +252,9 @@ export class LoadedRecipes {
 
   /**
    * Writes what is pending into the Workflow, as Decaid holds it now, while
-   * that is the one last decided on (`decided`): resolves with true once
-   * written, or nothing was left to write, and otherwise with the Workflow
-   * Decaid holds, to be decided on first. A load writes the recipe's current
+   * that is the one last decided on (`decided`): resolves with the Workflow
+   * Decaid answered the write with, or that nothing was left to write, or
+   * otherwise with the Workflow Decaid holds, to be decided on first. A load writes the recipe's current
    * values and global id (`loadWrite`) but the parts changed since it was
    * loaded; Decaid refuses to change the hot water settings while no machine
    * is connected, so the rest is then written without them, the Workflow
@@ -258,19 +263,18 @@ export class LoadedRecipes {
    * plugin's read and its write is written over where the write sets the
    * same part. Throws if Decaid fails it.
    */
-  private async write(pending: Pending, decided: Record<string, unknown>): Promise<true | Record<string, unknown>> {
+  private async write(pending: Pending, decided: Record<string, unknown>): Promise<Outcome> {
     if (pending.kind === "unload") {
       // Decaid merges the Workflow's `extras` key by key, so the key is cleared by setting it to null.
       const done = await this.writeIfDecided(decided, (workflow) => (loadedRecipeOf(workflow) === null ? null : { context: { extras: { [LOADED_RECIPE_KEY]: null } } }));
-      if (done.kind === "changed") return done.workflow;
       if (done.kind === "written" && !done.answer.ok) throw new Error(`Decaid answered ${done.answer.status} recording the Loaded Recipe as unloaded: ${done.answer.text.slice(0, 200)}`);
-      return true;
+      return outcome(done);
     }
-    if (pending.kind !== "load") return true;
+    if (pending.kind !== "load") return { kind: "nothing" };
     const records = await this.readRecipes();
     const recipe = loadable(records).find((candidate) => candidate.globalId === pending.globalId);
     // Gone from the tablet's slots since it was decided on: nothing is written, and the server unloads it.
-    if (!recipe) return true;
+    if (!recipe) return { kind: "nothing" };
     // Everything else is read first, so each write follows the Workflow's last read at once.
     const context: LoadContext = pending.kept.has("batch") ? { ...(await this.loadContext(recipe.record)), batch: null } : await this.loadContext(recipe.record);
     let hotWater = false;
@@ -285,11 +289,10 @@ export class LoadedRecipes {
     };
     let done = await this.writeIfDecided(decided, build(true));
     if (done.kind === "written" && !done.answer.ok && hotWater && machineMissing(done.answer)) done = await this.writeIfDecided(decided, build(false));
-    if (done.kind === "changed") return done.workflow;
     if (done.kind === "written" && !done.answer.ok) {
       throw new Error(`Decaid answered ${done.answer.status} recording the recipe in slot ${recipe.slot} as loaded: ${done.answer.text.slice(0, 200)}`);
     }
-    return true;
+    return outcome(done);
   }
 
   /**
@@ -390,6 +393,16 @@ export class LoadedRecipes {
 
 /** What became of a write into the Workflow: Decaid's answer, nothing to write, or the Workflow changed from the one decided on. */
 type Written = { kind: "written"; answer: Answer } | { kind: "nothing" } | { kind: "changed"; workflow: Record<string, unknown> };
+
+/** What became of writing what is pending: the Workflow Decaid answered with, nothing written, or the Workflow changed from the one decided on. */
+type Outcome = { kind: "written"; workflow: Record<string, unknown> } | { kind: "nothing" } | { kind: "changed"; workflow: Record<string, unknown> };
+
+/** A write Decaid took, as the Workflow it answered with, where it answered with one; otherwise nothing written for the run to judge it by, its echo then decided on as a change. */
+function outcome(done: Written): Outcome {
+  if (done.kind !== "written") return done;
+  const workflow = parsed(done.answer.text);
+  return isObject(workflow) ? { kind: "written", workflow } : { kind: "nothing" };
+}
 
 /** Whether Decaid refused a Workflow change as no machine is connected, which it needs to change the hot water settings. */
 function machineMissing(answer: Answer): boolean {

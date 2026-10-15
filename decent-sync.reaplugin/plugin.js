@@ -1322,20 +1322,20 @@ var __decentSync = (() => {
   var SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches";
   var MAX_SHOTS_READ = 20;
   async function setAside(leave, posted) {
-    const answer = (outcome, status, error) => ({
+    const answer = (outcome2, status, error) => ({
       type: "leftOut",
       id: leave.id,
       kind: leave.kind,
       localId: leave.localId,
-      outcome,
-      ...outcome === "refused" ? { status: status ?? null, error: (error ?? "").slice(0, MAX_REFUSAL_LENGTH) } : {}
+      outcome: outcome2,
+      ...outcome2 === "refused" ? { status: status ?? null, error: (error ?? "").slice(0, MAX_REFUSAL_LENGTH) } : {}
     });
     const writer = libraryWriterOf(leave.kind);
     if (!writer) return answer("refused", null, `This plugin cannot set aside a ${leave.kind}`);
     try {
-      const outcome = await writer.setAside(leave, posted);
-      if (outcome === "unrecognised") return unrecognised(leave);
-      return typeof outcome === "string" ? answer(outcome) : answer("refused", outcome.status, outcome.text);
+      const outcome2 = await writer.setAside(leave, posted);
+      if (outcome2 === "unrecognised") return unrecognised(leave);
+      return typeof outcome2 === "string" ? answer(outcome2) : answer("refused", outcome2.status, outcome2.text);
     } catch (error) {
       return answer("refused", null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -2143,8 +2143,12 @@ var __decentSync = (() => {
           if (this.queue.length > 0) await this.decideQueued();
           if (this.pending.kind === "none" || this.stopped) continue;
           const written2 = await this.write(this.pending, this.decided);
-          if (written2 === true) this.pending = { kind: "none" };
-          else this.enqueue(written2);
+          if (written2.kind === "changed") {
+            this.enqueue(written2.workflow);
+            continue;
+          }
+          this.pending = { kind: "none" };
+          if (written2.kind === "written") this.decided = written2.workflow;
         }
         this.retryMs = FIRST_RETRY_MS;
       } catch (error) {
@@ -2192,9 +2196,9 @@ var __decentSync = (() => {
     }
     /**
      * Writes what is pending into the Workflow, as Decaid holds it now, while
-     * that is the one last decided on (`decided`): resolves with true once
-     * written, or nothing was left to write, and otherwise with the Workflow
-     * Decaid holds, to be decided on first. A load writes the recipe's current
+     * that is the one last decided on (`decided`): resolves with the Workflow
+     * Decaid answered the write with, or that nothing was left to write, or
+     * otherwise with the Workflow Decaid holds, to be decided on first. A load writes the recipe's current
      * values and global id (`loadWrite`) but the parts changed since it was
      * loaded; Decaid refuses to change the hot water settings while no machine
      * is connected, so the rest is then written without them, the Workflow
@@ -2206,14 +2210,13 @@ var __decentSync = (() => {
     async write(pending, decided) {
       if (pending.kind === "unload") {
         const done2 = await this.writeIfDecided(decided, (workflow) => loadedRecipeOf(workflow) === null ? null : { context: { extras: { [LOADED_RECIPE_KEY]: null } } });
-        if (done2.kind === "changed") return done2.workflow;
         if (done2.kind === "written" && !done2.answer.ok) throw new Error(`Decaid answered ${done2.answer.status} recording the Loaded Recipe as unloaded: ${done2.answer.text.slice(0, 200)}`);
-        return true;
+        return outcome(done2);
       }
-      if (pending.kind !== "load") return true;
+      if (pending.kind !== "load") return { kind: "nothing" };
       const records = await this.readRecipes();
       const recipe = loadable(records).find((candidate) => candidate.globalId === pending.globalId);
-      if (!recipe) return true;
+      if (!recipe) return { kind: "nothing" };
       const context = pending.kept.has("batch") ? { ...await this.loadContext(recipe.record), batch: null } : await this.loadContext(recipe.record);
       let hotWater = false;
       const build = (withHotWater) => (workflow) => {
@@ -2227,11 +2230,10 @@ var __decentSync = (() => {
       };
       let done = await this.writeIfDecided(decided, build(true));
       if (done.kind === "written" && !done.answer.ok && hotWater && machineMissing(done.answer)) done = await this.writeIfDecided(decided, build(false));
-      if (done.kind === "changed") return done.workflow;
       if (done.kind === "written" && !done.answer.ok) {
         throw new Error(`Decaid answered ${done.answer.status} recording the recipe in slot ${recipe.slot} as loaded: ${done.answer.text.slice(0, 200)}`);
       }
-      return true;
+      return outcome(done);
     }
     /**
      * Writes into the Workflow what `build` makes of it, read again just
@@ -2320,6 +2322,11 @@ var __decentSync = (() => {
       return workflow;
     }
   };
+  function outcome(done) {
+    if (done.kind !== "written") return done;
+    const workflow = parsed3(done.answer.text);
+    return isObject4(workflow) ? { kind: "written", workflow } : { kind: "nothing" };
+  }
   function machineMissing(answer) {
     return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");
   }
