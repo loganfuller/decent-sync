@@ -17,6 +17,7 @@ import { readMachineHardware, readTabletIdentity } from "./decaid.js";
 import type { PluginHost, TransportEvent } from "./host.js";
 import { KeptDeliveries } from "./kept-deliveries.js";
 import { LibraryAccess, LibraryWrites } from "./library-writes.js";
+import { LoadedRecipes } from "./loaded-recipes.js";
 import { MachineEvents } from "./machine-events.js";
 import { Outbox } from "./outbox.js";
 import { Sender } from "./sender.js";
@@ -150,6 +151,8 @@ export class SyncConnection {
   private readonly shots: ShotCapture;
   private readonly steams: SteamCapture;
   private readonly machineEvents: MachineEvents;
+  /** Works out the Machine's Loaded Recipe from its Workflow, and records it there. */
+  private readonly loadedRecipes: LoadedRecipes;
   private readonly collections: CollectionCapture;
   /** Carries out the Library writes the server asks for, one at a time, between reads of the lists it writes to. */
   private readonly writes: LibraryWrites;
@@ -174,9 +177,10 @@ export class SyncConnection {
     );
     this.shots = new ShotCapture(this.outbox, log);
     this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1000, log);
-    this.machineEvents = new MachineEvents(this.outbox);
+    this.loadedRecipes = new LoadedRecipes({ hold: () => this.machineEvents.hold(), release: () => this.machineEvents.release() }, log);
+    this.machineEvents = new MachineEvents(this.outbox, (workflow) => this.loadedRecipes.observe(workflow));
     const library = new LibraryAccess();
-    this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1000);
+    this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1000, (value) => this.loadedRecipes.sawRecipes(value));
     this.writes = new LibraryWrites(
       library,
       this.outbox,
@@ -227,6 +231,7 @@ export class SyncConnection {
     this.shots.stop();
     this.steams.stop();
     this.collections.stop();
+    this.loadedRecipes.stop();
     this.tabletId.stop();
     // Sends the writes still waiting their turn, such as of a delivery just acknowledged.
     this.storage.stop();

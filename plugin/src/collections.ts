@@ -82,6 +82,8 @@ export class CollectionCapture {
     private readonly outbox: Outbox,
     private readonly library: LibraryAccess,
     private readonly pollMs: number,
+    /** Told of each value of DYE2's recipes read (`LoadedRecipes.sawRecipes`). */
+    private readonly sawRecipes: (value: unknown) => void = () => {},
   ) {
     // One of DYE2's lists the plugin wrote is reported on its next read, as it may read as last reported, its write lost.
     library.onWrite((list) => this.last.delete(list));
@@ -144,6 +146,7 @@ export class CollectionCapture {
     // A key of Decaid's store DYE2 never wrote is an empty list, as DYE2 reads it (ADR-0005).
     const reading = selected(source, await readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name)));
     if (this.stopped) return false;
+    if (source.name === "dye2Recipes" && reading.kind === "value") this.sawRecipes(reading.value);
     const decision = decide(last, reading, full);
     if (decision.next) this.last.set(source.name, decision.next);
     if (!decision.send || reading.kind === "notModified") return false;

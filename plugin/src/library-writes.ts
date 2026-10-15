@@ -41,6 +41,7 @@ import {
 import { type Answer, readShot, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
 import type { Outbox } from "./outbox.js";
+import { stepsKey } from "./recipe-matching.js";
 import { keepStreamlineSteamTemperature } from "./streamline.js";
 import { randomUuid } from "./tablet-id.js";
 
@@ -349,7 +350,7 @@ export class LibraryWrites {
   private noteShot(shot: Record<string, unknown>): void {
     const workflow = shot.workflow;
     if (!isObject(workflow)) return;
-    const steps = stepsKey(workflow.profile);
+    const steps = stepsKey(isObject(workflow.profile) ? workflow.profile.steps : undefined);
     if (steps !== null) this.shotsName.add(`profile:${steps}`);
     const context = workflow.context;
     if (!isObject(context)) return;
@@ -481,40 +482,12 @@ async function purgeProfile(remove: LibraryDelete, namedByShot: NamedByShot): Pr
   if (current.status === 404) return deleted(remove);
   const record = current.ok ? parsed(current.text) : undefined;
   if (!isObject(record)) return refused(remove, current.status, current.text);
-  const steps = stepsKey(record.profile);
+  const steps = stepsKey(isObject(record.profile) ? record.profile.steps : undefined);
   const named = await namedByShot("profile", new Set(steps === null ? [remove.localId] : [remove.localId, steps]));
   if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
   const answer = await request("DELETE", `${path}/purge`);
   // Decaid answers a purge of a profile it no longer holds, as one replaced since it was read, with 400.
   return answer.ok || (answer.status === 400 && answer.text.includes("Profile not found")) ? deleted(remove) : refused(remove, answer.status, answer.text);
-}
-
-/**
- * A profile's steps as they identify it, as text that is the same for the
- * same steps, its keys sorted, as a Shot's Workflow and a profile's record
- * hold them alike; null if it has none. As the server compares them
- * (`profile_steps_key`), each step's temperature is left out and a limiter
- * of value 0, which is no limiter, is read as none: a skin overrides the
- * temperature in the profile it loads into the Workflow, and streamline-js
- * sends such a limiter as null while the record keeps it. Its other fields
- * are not compared, as the server does not compare them: a skin sets the
- * Workflow's profile's targets for the Shot.
- */
-function stepsKey(profile: unknown): string | null {
-  if (!isObject(profile) || !Array.isArray(profile.steps)) return null;
-  const steps = profile.steps.map((step: unknown) => {
-    if (!isObject(step)) return step;
-    const { temperature: _, ...rest } = step;
-    return isObject(rest.limiter) && rest.limiter.value === 0 ? { ...rest, limiter: null } : rest;
-  });
-  return stableJson(steps);
-}
-
-/** JSON with every object's keys sorted. */
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  if (isObject(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
-  return JSON.stringify(value ?? null);
 }
 
 /** Why a delete is refused while a Shot this plugin queued, or has yet to send, may name its record or one of its batches. */

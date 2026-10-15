@@ -14,11 +14,12 @@ export class MachineEvents implements WorkflowChanges {
   /** The latest Workflow Decaid reported. */
   private workflow: Record<string, unknown> | undefined;
   /**
-   * Set while the plugin writes the shared settings into the Workflow
-   * (`LibraryWrites`): a change Decaid reports meanwhile is sent once the
-   * write's answer is queued, so the server reads the answer first.
+   * How many of the plugin's writes into the Workflow are under way: the
+   * shared settings (`LibraryWrites`), whose answers the server reads first,
+   * and a Loaded Recipe's (`LoadedRecipes`), whose echo is no change of the
+   * tablet's. A change Decaid reports meanwhile is sent once none is.
    */
-  private held = false;
+  private holds = 0;
   /** A change reported while held, which `release` sends. */
   private heldChange = false;
   /** The delivery that sent it again on the latest welcome, which the next welcome's replaces unless it was ever sent. */
@@ -26,29 +27,35 @@ export class MachineEvents implements WorkflowChanges {
   /** The state and substate last queued, so repeated state updates send nothing. */
   private state: { state: string; substate: string } | undefined;
 
-  constructor(private readonly outbox: Outbox) {}
+  constructor(
+    private readonly outbox: Outbox,
+    /** Told of each Workflow Decaid reports before it is queued, so it may hold it back (`LoadedRecipes`). */
+    private readonly observe: (workflow: Record<string, unknown>) => void = () => {},
+  ) {}
 
   /** Decaid's `workflowUpdated`: the whole Workflow, sent on every load and every change. */
   workflowUpdated(payload: unknown): void {
     const workflow = object(payload);
     if (!workflow) return;
     this.workflow = workflow;
-    if (this.held) this.heldChange = true;
+    this.observe(workflow);
+    if (this.holds > 0) this.heldChange = true;
     else this.queueWorkflow(workflow);
   }
 
-  /** Holds back the Workflow's changes, as a write of the shared settings begins. */
+  /** Holds back the Workflow's changes, as one of the plugin's writes into it begins. */
   hold(): void {
-    this.held = true;
+    this.holds++;
   }
 
   /**
-   * Sends the latest Workflow, observed now, if it changed while held: that
-   * holds the plugin's own write, and any change a barista made meanwhile.
+   * Once no write is under way, sends the latest Workflow, observed now, if
+   * it changed while held: that holds the plugin's own writes, and any
+   * change a barista made meanwhile.
    */
   release(): void {
-    this.held = false;
-    if (!this.heldChange || !this.workflow) return;
+    this.holds = Math.max(0, this.holds - 1);
+    if (this.holds > 0 || !this.heldChange || !this.workflow) return;
     this.heldChange = false;
     this.queueWorkflow(this.workflow);
   }
@@ -96,8 +103,8 @@ export class MachineEvents implements WorkflowChanges {
     if (!this.workflow) return;
     if (this.resent !== undefined) this.outbox.supersede(this.resent);
     this.resent = undefined;
-    // Sent once the write under way is answered, which it may hold already.
-    if (this.held) this.heldChange = true;
+    // Sent once the writes under way are answered, which they may hold already.
+    if (this.holds > 0) this.heldChange = true;
     else this.resent = this.queueWorkflow(this.workflow);
   }
 

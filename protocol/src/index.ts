@@ -693,6 +693,24 @@ export const WORKFLOW_KIND = "workflow";
 export const WORKFLOW_GRINDER = ["context.grinderId", "context.grinderModel"] as const;
 export const WORKFLOW_BATCH = ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"] as const;
 
+/**
+ * The key in a Workflow's `context.extras` holding its Loaded Recipe's global
+ * id (ADR-0022), which the plugin writes there as it records a load, and
+ * sets to null as it unloads one. Decaid keeps a Workflow's `extras` whole,
+ * merging a `PUT /workflow` into them key by key, and copies the Workflow's
+ * context onto every Shot pulled with it, so each Shot names the Recipe
+ * loaded when it was pulled, offline ones included.
+ */
+export const LOADED_RECIPE_KEY = "decentSyncRecipeId";
+
+/** The global id of the Recipe a Workflow names as its Loaded Recipe (LOADED_RECIPE_KEY), or null if it names none. */
+export function loadedRecipeOf(workflow: unknown): string | null {
+  const context = isObject(workflow) ? workflow.context : undefined;
+  const extras = isObject(context) ? context.extras : undefined;
+  const id = isObject(extras) ? extras[LOADED_RECIPE_KEY] : undefined;
+  return isGlobalId(id) ? id.toLowerCase() : null;
+}
+
 /** What has versions and Conflicts (ADR-0020): a Library item of one of LIBRARY_KINDS, or a Location's shared settings. */
 export type VersionedKind = LibraryKind | typeof SETTINGS_KIND;
 

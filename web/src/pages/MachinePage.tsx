@@ -18,6 +18,7 @@ import {
 } from "@/components/machines";
 import { TokenNotice } from "@/components/TokenNotice";
 import { Field, Fields } from "@/components/fields";
+import { LoadedRecipeCard } from "@/components/loaded-recipes";
 import { LibraryCard, PairedDevicesCard, SETTINGS, SettingsCard } from "@/components/machine-collections";
 import { CaptureOnlyBadge, MachineSharingCard } from "@/components/machine-sharing";
 import { SetAsideDeliveriesCard } from "@/components/set-aside-deliveries";
@@ -58,7 +59,8 @@ interface Reports {
 
 /**
  * One Machine: its identity, versions and status, deliveries from its tablet
- * set aside, its tablets, its Workflow, paired devices, settings and library,
+ * set aside, its tablets, its Loaded Recipe and those it had, its Workflow,
+ * paired devices, settings and library,
  * its Location, its token, and resolving its identity. Staff see all of it,
  * and can move it between the Locations they work at; every other change is
  * for Admins.
@@ -302,6 +304,7 @@ function MachineDetails({ id }: { id: string }) {
           </div>
 
           <MachineTablets machine={machine} />
+          <LoadedRecipeCard machine={machine} />
           {/* Shown once loaded: the status above does not wait for them. */}
           {data && (
             <>

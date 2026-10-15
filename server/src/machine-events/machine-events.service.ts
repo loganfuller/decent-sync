@@ -8,6 +8,7 @@ import { machineNotFound } from "../machines/input.js";
 import type { MachineStateView } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
+import { type LoadedRecipeView, loadedRecipeHistory, takeInLoadedRecipe } from "./loaded-recipes.js";
 
 /** A page of a history, as `readPage` reads it from a request. */
 type Page = { limit: number; offset: number };
@@ -48,7 +49,8 @@ export interface MachineStateEventView extends MachineStateView {
  *
  * A Workflow from a connection that is not mismatched, for its token's
  * Machine, is also taken into its Location's steam and rinse settings in
- * the same transaction (`takeInWorkflow`, ADR-0014).
+ * the same transaction (`takeInWorkflow`, ADR-0014), and into the Machine's
+ * Loaded Recipe (`takeInLoadedRecipe`, ADR-0022).
  */
 @Injectable()
 export class MachineEventsService {
@@ -74,7 +76,10 @@ export class MachineEventsService {
         )`;
       // A mismatched connection's tablet is not its token's Machine's, so it takes no part in the Library (ADR-0004).
       if (reporter.identity.kind !== "mismatch" && credit.machineId === reporter.machineId) {
-        return takeInWorkflow(tx, { machineId: reporter.machineId, tabletId: reporter.tabletId }, message.workflow, message.observedAt);
+        const standing = await takeInWorkflow(tx, { machineId: reporter.machineId, tabletId: reporter.tabletId }, message.workflow, message.observedAt);
+        // After the tablet's and the Location's locks, which a hard delete of the Recipe takes before its row.
+        await takeInLoadedRecipe(tx, reporter.machineId, message.workflow, message.observedAt);
+        return standing;
       }
       return undefined;
     }, INTAKE_TRANSACTION);
@@ -100,6 +105,12 @@ export class MachineEventsService {
     await this.requireMachine(machineId);
     const latest = await this.prisma.workflowEvent.findFirst({ where: { machineId }, orderBy: { id: "desc" } });
     return latest ? viewWorkflowEvent(latest) : null;
+  }
+
+  /** The Machine's Loaded Recipes, latest first: its current one, if it has one, then those it had before. */
+  async loadedRecipes(machineId: string, page: Page): Promise<{ entries: LoadedRecipeView[]; total: number } & Page> {
+    await this.requireMachine(machineId);
+    return loadedRecipeHistory(this.prisma, machineId, page);
   }
 
   /** The Workflows recorded for the Machine, latest first. */

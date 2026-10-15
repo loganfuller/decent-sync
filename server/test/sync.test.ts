@@ -67,6 +67,7 @@ describe("Machines and the sync connection", () => {
         lastSeenAt: null,
         lastShot: null,
         machineState: null,
+        loadedRecipe: null,
         location: null,
         locationHistory: [],
         sharing: true,

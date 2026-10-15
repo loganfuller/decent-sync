@@ -1583,8 +1583,9 @@ Machine's hot water volume, temperature, time and flow are its own, as its
 profile, dose and yield are, set by the Recipe it loads (ADR-0022). A change
 of a Machine's hot water, on its tablet or by Streamline, is no edit of its
 Location's settings, a settings write carries none, and a Machine joining a
-Location keeps its own. Until a Loaded Recipe's hot water is written,
-nothing the server sends changes it. The migration that took hot water out
+Location keeps its own. The plugin writes a Recipe's hot water into the
+Workflow as it records a load of it (`WORKFLOW-AND-STATE.md`, The Loaded
+Recipe); nothing the server sends changes it yet. The migration that took hot water out
 dropped it from each Location's settings, their latest edits, versions and
 Conflicts, and each tablet's settings as it last had them.
 

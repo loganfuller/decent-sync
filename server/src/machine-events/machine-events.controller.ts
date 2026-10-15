@@ -23,6 +23,13 @@ export class MachineEventsController {
     return this.events.workflowEvents(machineId, readPage(limit, offset));
   }
 
+  /** The Machine's Loaded Recipes, latest first: its current one, if any, then each it had before, with when it was loaded and unloaded. */
+  @Get(":id/loaded-recipes")
+  loadedRecipes(@Param("id") id: string, @Query("limit") limit?: string, @Query("offset") offset?: string) {
+    const machineId = readMachineId(id);
+    return this.events.loadedRecipes(machineId, readPage(limit, offset));
+  }
+
   /** Every machine state transition recorded for the Machine, latest first. */
   @Get(":id/machine-state-events")
   machineStateEvents(@Param("id") id: string, @Query("limit") limit?: string, @Query("offset") offset?: string) {
