@@ -244,9 +244,12 @@ from the Workflow deliveries.
   - Any other change made after a load still to be written is the barista's,
     after it: the load leaves the parts it changed as they were changed,
     the dose of a tweak or a batch of the same Bean, say.
-  - A load of the recipe the Workflow names already, its dial set back or
-    applied again, writes its current dial alone: its RPM, Basket, batch and
-    hot water stay as the barista left them.
+  - A load of the recipe the Workflow names already, with nothing left to
+    write, its dial set back or applied again as it is now, writes its
+    current dial alone: its RPM, Basket, batch and hot water stay as the
+    barista left them. A stale copy of it, matching only a dial it held
+    before, has all but its batch corrected, as no app applying a recipe
+    sets one.
   - The first Workflow, as on every load of the plugin, is no change. One
     naming a recipe it matches is written that recipe's dial alone, and one
     naming none loads no recipe of another Bean than its batch's, as when
@@ -345,7 +348,14 @@ window to one request. The dials a recipe held before are kept only in memory, s
 copy read before the plugin loaded, as a DYE2 page open across a reload of
 the plugin, is matched only where its dial is the recipe's now. A barista
 who dials in exactly a dial the Loaded Recipe held before, on its Machine,
-has the recipe's current one written back, as for a stale copy.
+has the recipe's current one written back, as for a stale copy. The
+recipe the Workflow names, applied again after its batch was changed
+elsewhere, keeps the Workflow's batch until #146 follows the Recipe's edits.
+The plugin judges nothing of what changed while it was not loaded: a
+Workflow naming a recipe with another Bean's batch or grinder stays as it is
+until its next change, and one applied over another Bean's batch while the
+plugin reloaded, as after a change of its settings, is loaded only on the
+Workflow's next change of its dial.
 
 ### Server
 

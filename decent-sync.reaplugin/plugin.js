@@ -941,7 +941,10 @@ var __decentSync = (() => {
       if (chosen) {
         const kept2 = new Set(picked ? ["batch"] : []);
         if (pending.kind === "load" && pending.globalId === chosen.globalId) for (const part of pending.kept) kept2.add(part);
-        if (after.named === chosen.globalId) for (const part of AFTER_LOADED) kept2.add(part);
+        if (pending.kind === "none" && after.named === chosen.globalId) {
+          const current = chosen.now.some((candidate) => matches(candidate, after.dial));
+          for (const part of current ? AFTER_LOADED : ["batch"]) kept2.add(part);
+        }
         return { kind: "load", globalId: chosen.globalId, kept: kept2 };
       }
     }

@@ -162,4 +162,19 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     expect(context(tablet)).toMatchObject({ targetDoseWeight: 18.5, beanBatchId: nextBag.id });
     expect(tablet.workflow().hotWaterData).toEqual({ ...HOT_WATER, volume: 61 });
   });
+
+  it("loads the Recipe again, writing its batch, from a tweak set back while its unload by another Bean's batch is still to be written, as had each been decided at once", async () => {
+    const tweaked = appliedWith(ethiopia, true);
+    (tweaked.context as Record_).targetDoseWeight = 19;
+    const { tablet, changed } = load("47281", tweaked, (tablet) => tablet.changeSettings({ context: { targetDoseWeight: 18.5 } }), {}, (method, path) => method === "GET" && path === `/bean-batches/${brazil}`);
+    await settled();
+    expect(named(tablet)).toBe(RECIPE);
+    // A batch of another Bean unloads it; as the plugin reads that batch's Bean, the dose is set back to the Recipe's.
+    await tablet.changeSettings({ context: { beanBatchId: brazil } });
+    await changed();
+    await settled();
+    expect(named(tablet)).toBe(RECIPE);
+    expect(context(tablet)).toMatchObject({ beanBatchId: ethiopia, targetDoseWeight: 18.5 });
+  });
 });
+

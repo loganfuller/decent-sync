@@ -225,7 +225,7 @@ describe("deciding each change of the Workflow in turn", () => {
   const derived = (from: Record_, context: Record_) => ({ ...from, context: { ...(from.context as Record_), ...context } });
   const withId = (from: Record_, id: string | null) => derived(from, { extras: { ...((from.context as Record_).extras as Record_), [LOADED_RECIPE_KEY]: id } });
   /** Decides each Workflow in turn from the one before it, each batch's Bean as `beans` says, from nothing pending. */
-  function decided(workflows: Record_[], beans: Record<string, string> = {}): Pending {
+  function decided(workflows: Record_[], beans: Record<string, string> = {}, tabletRecipes: readonly HeldRecipe[] = recipes): Pending {
     let pending: Pending = { kind: "none" };
     let before: Record_ | undefined;
     for (const workflow of workflows) {
@@ -236,7 +236,7 @@ describe("deciding each change of the Workflow in turn", () => {
         const batch = ((of.context as Record_).beanBatchId as string | undefined) ?? null;
         return { dial: workflowDial(of), batch, bean: picked && batch !== null ? (beans[batch] ?? null) : null, named: named(of) };
       };
-      pending = decideChange(pending, before && setUp(before), setUp(workflow), before ? changedParts(before, workflow) : new Set(), recipes);
+      pending = decideChange(pending, before && setUp(before), setUp(workflow), before ? changedParts(before, workflow) : new Set(), tabletRecipes);
       before = workflow;
     }
     return pending;
@@ -286,6 +286,26 @@ describe("deciding each change of the Workflow in turn", () => {
     expect(decided([loaded, another])).toEqual({ kind: "unload" });
     expect(decided([loaded, another, derived(another, { targetDoseWeight: 19.25 })])).toEqual({ kind: "unload" });
     expect(decided([loaded, another, derived(loaded, { targetDoseWeight: 19.25 })])).toEqual({ kind: "unload" });
+  });
+
+  it("loads a recipe set back to its dial while its unload is still to be written as it would once written, its batch included", () => {
+    const otherBean = derived(tweaked, { beanBatchId: "batch-b" });
+    const setBack = derived(loaded, { beanBatchId: "batch-b" });
+    const atOnce = decided([withId(otherBean, null), withId(setBack, null)], beans);
+    expect(atOnce).toEqual({ kind: "load", globalId: ONE, kept: new Set() });
+    expect(decided([tweaked, otherBean, setBack], beans)).toEqual(atOnce);
+  });
+
+  it("corrects all but the batch of the Recipe the Workflow names as a stale copy of it is applied", () => {
+    const edited = recipe("1");
+    Object.assign(edited.dashboardVariables as Record_, { dose: 19 });
+    Object.assign((edited.workflow as Record_).context as Record_, { targetDoseWeight: 19 });
+    const tablet = [held(ONE, 1, edited, [recipe("1")])];
+    const current = derived(loaded, { targetDoseWeight: 19 });
+    // Its grind tweaked on the machine, then a page read before its dose was edited applied.
+    expect(decided([derived(current, { grinderSetting: "2.8" }), loaded], beans, tablet)).toEqual({ kind: "load", globalId: ONE, kept: new Set(["batch"]) });
+    // As it is now, applied again: its dial alone.
+    expect(decided([derived(current, { targetDoseWeight: 19.5 }), current], beans, tablet)).toEqual({ kind: "load", globalId: ONE, kept: new Set(afterLoaded) });
   });
 
   it("loads another recipe applied over a load still to be written", () => {

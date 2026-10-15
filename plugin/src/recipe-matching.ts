@@ -373,7 +373,8 @@ const AFTER_LOADED: readonly WrittenPart[] = ["rpm", "basket", "batch", ...HOT_W
  * that matches one of the tablet's recipes (`chooseLoad`) loads it, a batch
  * picked in the same change, which no app applying a recipe does, staying
  * as picked, and a recipe of another Bean is none it loads. A load of the
- * recipe the Workflow names already writes its dial alone. The first
+ * recipe the Workflow names already, with nothing left to write, writes its
+ * dial alone, as it is now, or, from a stale copy, all but its batch. The first
  * Workflow, as on every load of the plugin, is no change: naming a recipe it
  * matches, it is written that recipe's dial alone, and naming none, it loads
  * no recipe of another Bean than its batch's. Otherwise a
@@ -399,9 +400,13 @@ export function decideChange(
     if (chosen) {
       const kept = new Set<WrittenPart>(picked ? ["batch"] : []);
       if (pending.kind === "load" && pending.globalId === chosen.globalId) for (const part of pending.kept) kept.add(part);
-      // The recipe the Workflow names already, its load written: its dial set back, or applied again, is written its
-      // current dial alone, the rest staying as the barista left it.
-      if (after.named === chosen.globalId) for (const part of AFTER_LOADED) kept.add(part);
+      // The recipe the Workflow names, with nothing left to write: its dial set back, or applied again as it is now, is
+      // written its current dial alone, the rest staying as the barista left it. A stale copy of it, matching only a
+      // dial it held before, has the rest corrected too, but its batch, which no app applying a recipe sets.
+      if (pending.kind === "none" && after.named === chosen.globalId) {
+        const current = chosen.now.some((candidate) => matches(candidate, after.dial));
+        for (const part of current ? AFTER_LOADED : (["batch"] as const)) kept.add(part);
+      }
       return { kind: "load", globalId: chosen.globalId, kept };
     }
   }
