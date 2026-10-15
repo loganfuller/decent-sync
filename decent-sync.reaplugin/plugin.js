@@ -251,6 +251,7 @@ var __decentSync = (() => {
   function isSlotId(value) {
     return typeof value === "string" && /^[1-9][0-9]{0,9}$/.test(value) && Number(value) <= MAX_SLOT;
   }
+  var RECIPE_FIELD = "decentSyncRecipe";
   function dye2GlobalIdOf(record) {
     const id = isObject(record) ? record[GLOBAL_ID_KEY] : void 0;
     return isGlobalId(id) ? id.toLowerCase() : null;
@@ -304,6 +305,13 @@ var __decentSync = (() => {
   var WORKFLOW_KIND = "workflow";
   var WORKFLOW_GRINDER = ["context.grinderId", "context.grinderModel"];
   var WORKFLOW_BATCH = ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"];
+  var LOADED_RECIPE_KEY = "decentSyncRecipeId";
+  function loadedRecipeOf(workflow) {
+    const context = isObject(workflow) ? workflow.context : void 0;
+    const extras = isObject(context) ? context.extras : void 0;
+    const id = isObject(extras) ? extras[LOADED_RECIPE_KEY] : void 0;
+    return isGlobalId(id) ? id.toLowerCase() : null;
+  }
   function itemIdRule(kind) {
     return isLibraryKind(kind) ? LIBRARY_ITEM_KINDS[kind].id : GLOBAL_ITEM_ID;
   }
@@ -755,6 +763,252 @@ var __decentSync = (() => {
     return (offset.startsWith("-") ? -1 : 1) * (hours * 60 + minutes);
   }
 
+  // src/recipe-matching.ts
+  function profileKey(profile) {
+    const steps = isObject2(profile) ? stepsKey(profile.steps) : null;
+    if (steps === null || !isObject2(profile)) return null;
+    const hashed = Object.fromEntries(HASHED.map((field) => [field, profile[field] ?? null]));
+    return stableJson({ ...hashed, steps: JSON.parse(steps) });
+  }
+  var HASHED = ["version", "beverage_type", "tank_temperature", "target_volume", "target_volume_count_start"];
+  function stepsKey(steps) {
+    if (!Array.isArray(steps)) return null;
+    return stableJson(
+      steps.map((step) => {
+        if (!isObject2(step)) return step;
+        const { temperature: _, ...rest } = step;
+        return isObject2(rest.limiter) && rest.limiter.value === 0 ? { ...rest, limiter: null } : rest;
+      })
+    );
+  }
+  function stableJson(value) {
+    if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+    if (isObject2(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+    return JSON.stringify(value ?? null);
+  }
+  function workflowDial(workflow) {
+    const context = isObject2(workflow.context) ? workflow.context : {};
+    return {
+      profile: profileKey(workflow.profile),
+      dose: numberOf(context.targetDoseWeight),
+      yield: numberOf(context.targetYield),
+      grinder: textOf(context.grinderId),
+      grind: grindOf(context.grinderSetting)
+    };
+  }
+  function workflowBatch(workflow) {
+    return isObject2(workflow.context) ? textOf(workflow.context.beanBatchId) : null;
+  }
+  function recipeDials(record) {
+    const variables = isObject2(record.dashboardVariables) ? record.dashboardVariables : {};
+    const dose = numberOf(variables.dose);
+    const ratio = numberOf(variables.ratio);
+    const drink = numberOf(variables.drink);
+    const dye2 = {
+      profile: profileRef(record.profileSnapshot, record.profileId),
+      dose,
+      yield: drink ?? (ratio !== null && dose !== null ? Math.round(dose * ratio * 10) / 10 : null),
+      grinder: textOf(variables.grinderId),
+      grind: grindOf(variables.grind)
+    };
+    const dials = [dye2];
+    const embedded = isObject2(record.workflow) ? record.workflow : void 0;
+    if (embedded) {
+      const context = isObject2(embedded.context) ? embedded.context : {};
+      const profile = isObject2(embedded.profile) ? embedded.profile : void 0;
+      const streamline = {
+        profile: profile ? profileRef(profile, profile.id) : null,
+        dose: numberOf(context.targetDoseWeight),
+        yield: numberOf(context.targetYield),
+        grinder: textOf(context.grinderId),
+        grind: grindOf(context.grinderSetting)
+      };
+      if (!sameRecipeDial(streamline, dye2)) dials.push(streamline);
+    }
+    return dials;
+  }
+  function profileRef(profile, id) {
+    const key = profileKey(profile);
+    if (key !== null) return { key };
+    const named = textOf(id);
+    return named === null ? null : { id: named };
+  }
+  function resolveDial(dial, keyOfId) {
+    const profile = dial.profile === null ? null : "key" in dial.profile ? dial.profile.key : keyOfId(dial.profile.id);
+    return { ...dial, profile };
+  }
+  function profileIds(dials) {
+    return dials.flatMap((dial) => dial.profile !== null && "id" in dial.profile ? [dial.profile.id] : []);
+  }
+  function sameRecipeDial(a, b) {
+    return stableJson(a) === stableJson(b);
+  }
+  function sameDial(a, b) {
+    return a.profile === b.profile && sameNumber(a.dose, b.dose) && sameNumber(a.yield, b.yield) && a.grinder === b.grinder && sameGrind(a.grind, b.grind);
+  }
+  function matches(recipe, workflow) {
+    if (recipe.profile === null && recipe.dose === null && recipe.yield === null && recipe.grinder === null && recipe.grind === null) return false;
+    return (recipe.profile === null || recipe.profile === workflow.profile) && (recipe.dose === null || sameNumber(recipe.dose, workflow.dose)) && (recipe.yield === null || sameNumber(recipe.yield, workflow.yield)) && (recipe.grinder === null || recipe.grinder === workflow.grinder) && (recipe.grind === null || sameGrind(recipe.grind, workflow.grind));
+  }
+  function chooseLoad(dial, named, held, picked = null, changed) {
+    const sets = (candidate) => Object.keys(candidate).some((field) => candidate[field] !== null && changed.has(field));
+    const matching = held.filter((recipe) => {
+      const bean = recipe.record.beanId;
+      if (picked !== null && typeof bean === "string" && bean !== "" && bean !== picked) return false;
+      return recipe.dials.some((candidate) => matches(candidate, dial) && (changed === void 0 || sets(candidate)));
+    });
+    return matching.find((recipe) => recipe.globalId === named) ?? [...matching].sort((a, b) => a.slot - b.slot)[0] ?? null;
+  }
+  function loadable(records) {
+    return records.flatMap((record) => {
+      const globalId = dye2GlobalIdOf(record);
+      return globalId !== null && isSlotId(record.id) ? [{ globalId, slot: Number(record.id), record }] : [];
+    });
+  }
+  function loadWrite(workflow, record, globalId, load, kept = /* @__PURE__ */ new Set(), keptWhereHeld = /* @__PURE__ */ new Set()) {
+    const context = isObject2(workflow.context) ? workflow.context : {};
+    const extras = isObject2(context.extras) ? context.extras : {};
+    const variables = isObject2(record.dashboardVariables) ? record.dashboardVariables : {};
+    const [dial] = recipeDials(record);
+    const contextWrite = {};
+    const extrasWrite = {};
+    const hotWaterHeld = isObject2(workflow.hotWaterData) ? workflow.hotWaterData : {};
+    const holds = {
+      dose: context.targetDoseWeight,
+      yield: context.targetYield,
+      grind: context.grinderSetting,
+      grinder: context.grinderId,
+      profile: workflow.profile,
+      rpm: extras.rpm,
+      basket: extras.basketId,
+      batch: context.beanBatchId,
+      targetTemperature: hotWaterHeld.targetTemperature,
+      duration: hotWaterHeld.duration,
+      volume: hotWaterHeld.volume,
+      flow: hotWaterHeld.flow
+    };
+    const writes = (part) => !kept.has(part) && !(keptWhereHeld.has(part) && holds[part] !== null && holds[part] !== void 0);
+    if (writes("dose") && dial.dose !== null && !sameNumber(dial.dose, numberOf(context.targetDoseWeight))) contextWrite.targetDoseWeight = dial.dose;
+    if (writes("yield") && dial.yield !== null && !sameNumber(dial.yield, numberOf(context.targetYield))) contextWrite.targetYield = dial.yield;
+    if (writes("grind") && dial.grind !== null && !sameGrind(dial.grind, grindOf(context.grinderSetting))) contextWrite.grinderSetting = dial.grind;
+    if (writes("grinder") && dial.grinder !== null && dial.grinder !== textOf(context.grinderId)) {
+      contextWrite.grinderId = dial.grinder;
+      if (textOf(variables.grinderModel) !== null) contextWrite.grinderModel = variables.grinderModel;
+    }
+    const rpm = numberOf(variables.rpm);
+    if (writes("rpm") && rpm !== null && !sameNumber(rpm, numberOf(extras.rpm))) extrasWrite.rpm = rpm;
+    const basket = textOf(variables.basketId);
+    if (writes("basket") && basket !== null && basket !== textOf(extras.basketId)) {
+      extrasWrite.basketId = basket;
+      if (textOf(variables.basketName) !== null) extrasWrite.basketName = variables.basketName;
+    }
+    if (writes("batch") && load.batch !== null && load.batch.id !== textOf(context.beanBatchId)) {
+      contextWrite.beanBatchId = load.batch.id;
+      if (load.batch.coffeeName !== null) contextWrite.coffeeName = load.batch.coffeeName;
+      if (load.batch.coffeeRoaster !== null) contextWrite.coffeeRoaster = load.batch.coffeeRoaster;
+    }
+    if (loadedRecipeOf(workflow) !== globalId) extrasWrite[LOADED_RECIPE_KEY] = globalId;
+    if (Object.keys(extrasWrite).length > 0) contextWrite.extras = extrasWrite;
+    const write = {};
+    if (Object.keys(contextWrite).length > 0) write.context = contextWrite;
+    const key = profileKey(load.profile);
+    if (writes("profile") && key !== null && key !== profileKey(workflow.profile)) write.profile = load.profile;
+    const own = isObject2(record[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
+    const hotWater = isObject2(own.hotWaterData) ? own.hotWaterData : {};
+    const held = isObject2(workflow.hotWaterData) ? workflow.hotWaterData : {};
+    const hotWaterWrite = Object.fromEntries(
+      HOT_WATER.flatMap((field) => {
+        const value = numberOf(hotWater[field]);
+        return writes(field) && value !== null && !sameNumber(value, numberOf(held[field])) ? [[field, value]] : [];
+      })
+    );
+    if (Object.keys(hotWaterWrite).length > 0) write.hotWaterData = hotWaterWrite;
+    return Object.keys(write).length > 0 ? write : null;
+  }
+  var HOT_WATER = ["targetTemperature", "duration", "volume", "flow"];
+  function changedParts(a, b) {
+    const [x, y] = [workflowDial(a), workflowDial(b)];
+    const part = (workflow, name) => isObject2(workflow[name]) ? workflow[name] : {};
+    const extra = (workflow, name) => {
+      const extras = part(workflow, "context").extras;
+      return isObject2(extras) ? extras[name] : void 0;
+    };
+    const changed = /* @__PURE__ */ new Set();
+    if (!sameNumber(x.dose, y.dose)) changed.add("dose");
+    if (!sameNumber(x.yield, y.yield)) changed.add("yield");
+    if (!sameGrind(x.grind, y.grind)) changed.add("grind");
+    if (x.grinder !== y.grinder) changed.add("grinder");
+    if (x.profile !== y.profile) changed.add("profile");
+    if (!sameNumber(numberOf(extra(a, "rpm")), numberOf(extra(b, "rpm")))) changed.add("rpm");
+    if (textOf(extra(a, "basketId")) !== textOf(extra(b, "basketId"))) changed.add("basket");
+    if (workflowBatch(a) !== workflowBatch(b)) changed.add("batch");
+    for (const field of HOT_WATER) if (!sameNumber(numberOf(part(a, "hotWaterData")[field]), numberOf(part(b, "hotWaterData")[field]))) changed.add(field);
+    if (loadedRecipeOf(a) !== loadedRecipeOf(b)) changed.add("recipe");
+    return changed;
+  }
+  var AFTER_LOADED = ["rpm", "basket", "batch", ...HOT_WATER];
+  var EVERY_PART = ["dose", "yield", "grind", "grinder", "profile", ...AFTER_LOADED];
+  function decideChange(pending, before, after, changed, held) {
+    const dialChanged = !before || !sameDial(before.dial, after.dial);
+    const picked = before !== void 0 && before.batch !== after.batch;
+    const loaded = pending.kind === "load" ? pending.globalId : pending.kind === "unload" ? null : after.named;
+    if (dialChanged) {
+      const candidates = before ? held : held.filter((recipe2) => recipe2.globalId === after.named);
+      const chosen = chooseLoad(after.dial, loaded, candidates, picked ? after.bean : null, before ? changed : void 0);
+      if (chosen) {
+        const kept2 = new Set(picked ? ["batch"] : []);
+        const same = pending.kind === "load" && pending.globalId === chosen.globalId;
+        if (same) {
+          for (const part of pending.kept) if (AFTER_LOADED.includes(part)) kept2.add(part);
+        }
+        if (pending.kind === "none" && after.named === chosen.globalId || same && pending.alone !== void 0) {
+          return { kind: "load", globalId: chosen.globalId, kept: kept2, alone: new Set(EVERY_PART) };
+        }
+        return { kind: "load", globalId: chosen.globalId, kept: kept2 };
+      }
+    }
+    if (loaded === null || !before) return pending;
+    const recipe = held.find((candidate) => candidate.globalId === loaded);
+    if (!recipe) return pending;
+    const bean = typeof recipe.record.beanId === "string" && recipe.record.beanId !== "" ? recipe.record.beanId : null;
+    if (unloads({ dial: before.dial, bean: picked ? before.bean : null }, { dial: after.dial, bean: picked ? after.bean : null }, recipe.now, bean)) return { kind: "unload" };
+    if (pending.kind !== "load") return pending;
+    const kept = new Set(pending.kept);
+    for (const part of changed) if (part !== "recipe") kept.add(part);
+    return { ...pending, kept };
+  }
+  function unloads(before, after, dials, bean) {
+    const named = (read) => dials.map(read).filter((value) => value !== null);
+    const profiles = named((dial) => dial.profile);
+    if (after.dial.profile !== before.dial.profile && profiles.length > 0 && !profiles.includes(after.dial.profile)) return true;
+    const grinders = named((dial) => dial.grinder);
+    if (after.dial.grinder !== before.dial.grinder && after.dial.grinder !== null && grinders.length > 0 && !grinders.includes(after.dial.grinder)) return true;
+    return after.bean !== before.bean && after.bean !== null && bean !== null && after.bean !== bean;
+  }
+  function numberOf(value) {
+    if (typeof value === "number") return Number.isFinite(value) ? value : null;
+    if (typeof value === "string" && /^\s*[+-]?\d+(\.\d+)?\s*$/.test(value)) return Number(value);
+    return null;
+  }
+  function grindOf(value) {
+    if (typeof value === "number") return Number.isFinite(value) ? String(value) : null;
+    return typeof value === "string" && value.trim() !== "" ? value : null;
+  }
+  function textOf(value) {
+    return typeof value === "string" && value !== "" ? value : null;
+  }
+  function sameNumber(a, b) {
+    return a === null || b === null ? a === b : Math.abs(a - b) < 1e-9;
+  }
+  function sameGrind(a, b) {
+    if (a === null || b === null) return a === b;
+    const [x, y] = [numberOf(a), numberOf(b)];
+    return x !== null && y !== null ? sameNumber(x, y) : a.trim() === b.trim();
+  }
+  function isObject2(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
   // src/streamline.ts
   var PATH = "/store/streamline-app/last-steam-temp";
   async function keepStreamlineSteamTemperature(temperature, log) {
@@ -950,11 +1204,11 @@ var __decentSync = (() => {
     }
   };
   var LibraryWrites = class {
-    constructor(library, outbox, workflow, machineMissing, log, posted) {
+    constructor(library, outbox, workflow, machineMissing2, log, posted) {
       __publicField(this, "library", library);
       __publicField(this, "outbox", outbox);
       __publicField(this, "workflow", workflow);
-      __publicField(this, "machineMissing", machineMissing);
+      __publicField(this, "machineMissing", machineMissing2);
       __publicField(this, "log", log);
       __publicField(this, "posted", posted);
       /**
@@ -995,15 +1249,15 @@ var __decentSync = (() => {
     /** Notes the batch, Grinder and profile records a Shot names. */
     noteShot(shot) {
       const workflow = shot.workflow;
-      if (!isObject2(workflow)) return;
-      const steps = stepsKey(workflow.profile);
+      if (!isObject3(workflow)) return;
+      const steps = stepsKey(isObject3(workflow.profile) ? workflow.profile.steps : void 0);
       if (steps !== null) this.shotsName.add(`profile:${steps}`);
       const context = workflow.context;
-      if (!isObject2(context)) return;
+      if (!isObject3(context)) return;
       if (typeof context.beanBatchId === "string") this.shotsName.add(`beanBatch:${context.beanBatchId}`);
       if (typeof context.grinderId === "string") this.shotsName.add(`grinder:${context.grinderId}`);
-      const skin = isObject2(context.extras) ? context.extras.workflowSkin : void 0;
-      if (isObject2(skin) && typeof skin.selectedProfileId === "string") this.shotsName.add(`profile:${skin.selectedProfileId}`);
+      const skin = isObject3(context.extras) ? context.extras.workflowSkin : void 0;
+      if (isObject3(skin) && typeof skin.selectedProfileId === "string") this.shotsName.add(`profile:${skin.selectedProfileId}`);
     }
     /** Removes a record from one of DYE2's lists once the reads and writes before it are done, and queues its answer. It never rejects. */
     drop(remove) {
@@ -1058,7 +1312,7 @@ var __decentSync = (() => {
     const current = await request("GET", path);
     if (current.status === 404) return deleted(remove);
     const record = current.ok ? parsed2(current.text) : void 0;
-    if (!isObject2(record)) return refused(remove, current.status, current.text);
+    if (!isObject3(record)) return refused(remove, current.status, current.text);
     const carried = globalIdOf(record);
     if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
     if (route.namedByShots) {
@@ -1071,7 +1325,7 @@ var __decentSync = (() => {
       const listed = await request("GET", under(path));
       const children = listed.ok ? parsed2(listed.text) : void 0;
       if (!Array.isArray(children)) return refused(remove, listed.status, listed.text);
-      const ids = new Set(children.filter(isObject2).flatMap((record2) => typeof record2.id === "string" ? [record2.id] : []));
+      const ids = new Set(children.filter(isObject3).flatMap((record2) => typeof record2.id === "string" ? [record2.id] : []));
       const named = await namedByShot(child, ids);
       if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
       for (const id of ids) {
@@ -1087,44 +1341,30 @@ var __decentSync = (() => {
     const current = await request("GET", path);
     if (current.status === 404) return deleted(remove);
     const record = current.ok ? parsed2(current.text) : void 0;
-    if (!isObject2(record)) return refused(remove, current.status, current.text);
-    const steps = stepsKey(record.profile);
+    if (!isObject3(record)) return refused(remove, current.status, current.text);
+    const steps = stepsKey(isObject3(record.profile) ? record.profile.steps : void 0);
     const named = await namedByShot("profile", new Set(steps === null ? [remove.localId] : [remove.localId, steps]));
     if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
     const answer = await request("DELETE", `${path}/purge`);
     return answer.ok || answer.status === 400 && answer.text.includes("Profile not found") ? deleted(remove) : refused(remove, answer.status, answer.text);
   }
-  function stepsKey(profile) {
-    if (!isObject2(profile) || !Array.isArray(profile.steps)) return null;
-    const steps = profile.steps.map((step) => {
-      if (!isObject2(step)) return step;
-      const { temperature: _, ...rest } = step;
-      return isObject2(rest.limiter) && rest.limiter.value === 0 ? { ...rest, limiter: null } : rest;
-    });
-    return stableJson(steps);
-  }
-  function stableJson(value) {
-    if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-    if (isObject2(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
-    return JSON.stringify(value ?? null);
-  }
   var SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches";
   var MAX_SHOTS_READ = 20;
   async function setAside(leave, posted) {
-    const answer = (outcome, status, error) => ({
+    const answer = (outcome2, status, error) => ({
       type: "leftOut",
       id: leave.id,
       kind: leave.kind,
       localId: leave.localId,
-      outcome,
-      ...outcome === "refused" ? { status: status ?? null, error: (error ?? "").slice(0, MAX_REFUSAL_LENGTH) } : {}
+      outcome: outcome2,
+      ...outcome2 === "refused" ? { status: status ?? null, error: (error ?? "").slice(0, MAX_REFUSAL_LENGTH) } : {}
     });
     const writer = libraryWriterOf(leave.kind);
     if (!writer) return answer("refused", null, `This plugin cannot set aside a ${leave.kind}`);
     try {
-      const outcome = await writer.setAside(leave, posted);
-      if (outcome === "unrecognised") return unrecognised(leave);
-      return typeof outcome === "string" ? answer(outcome) : answer("refused", outcome.status, outcome.text);
+      const outcome2 = await writer.setAside(leave, posted);
+      if (outcome2 === "unrecognised") return unrecognised(leave);
+      return typeof outcome2 === "string" ? answer(outcome2) : answer("refused", outcome2.status, outcome2.text);
     } catch (error) {
       return answer("refused", null, `Decaid did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -1134,21 +1374,21 @@ var __decentSync = (() => {
     const current = await request("GET", path);
     if (current.status === 404) return "gone";
     const record = current.ok ? parsed2(current.text) : void 0;
-    if (!isObject2(record)) return current;
+    if (!isObject3(record)) return current;
     return setAsideRecord(leave, record, path);
   }
   async function archiveRecord(_leave, record, path) {
     if (globalIdOf(record) !== null) return "taken";
     if (record.archived === true) return "setAside";
-    const archived = await request("PUT", path, { archived: true, extras: isObject2(record.extras) ? record.extras : {} });
+    const archived = await request("PUT", path, { archived: true, extras: isObject3(record.extras) ? record.extras : {} });
     const updated = archived.ok ? parsed2(archived.text) : void 0;
-    return isObject2(updated) && updated.archived === true ? "setAside" : archived;
+    return isObject3(updated) && updated.archived === true ? "setAside" : archived;
   }
   async function hideProfile(leave, record) {
     if (record.visibility !== "visible") return "setAside";
     const hidden = await setVisibility(leave.localId, "hidden");
     const updated = hidden.ok ? parsed2(hidden.text) : void 0;
-    return isObject2(updated) && updated.visibility !== "visible" ? "setAside" : hidden;
+    return isObject3(updated) && updated.visibility !== "visible" ? "setAside" : hidden;
   }
   function deleted(remove) {
     return { type: "deleted", id: remove.id, kind: remove.kind, globalId: remove.globalId, localId: remove.localId };
@@ -1173,27 +1413,27 @@ var __decentSync = (() => {
       const { parentId, metadata } = write.fields;
       const parent = typeof parentId === "string" ? await heldProfile(parentId) : void 0;
       if (parent && "refused" in parent) return refused(write, parent.refused.status, parent.refused.text);
-      const body = { profile: write.fields.profile, ...parent?.record ? { parentId } : {}, ...isObject2(metadata) ? { metadata } : {} };
+      const body = { profile: write.fields.profile, ...parent?.record ? { parentId } : {}, ...isObject3(metadata) ? { metadata } : {} };
       const made = await request("POST", "/profiles", body);
       const created = made.ok ? parsed2(made.text) : void 0;
-      if (!isObject2(created) || typeof created.id !== "string") return refused(write, made.status, made.text);
+      if (!isObject3(created) || typeof created.id !== "string") return refused(write, made.status, made.text);
       record = created;
       writtenFields.push(...Object.keys(body));
     }
     if (record.id !== write.globalId || typeof visibility !== "string" || record.visibility === visibility) return written(write, record, writtenFields);
     const again = await setVisibility(write.globalId, visibility).catch(() => void 0);
     const updated = again?.ok ? parsed2(again.text) : void 0;
-    if (!isObject2(updated) || updated.id !== write.globalId) return written(write, record, writtenFields);
+    if (!isObject3(updated) || updated.id !== write.globalId) return written(write, record, writtenFields);
     return written(write, updated, [...writtenFields, "visibility"]);
   }
   async function writeSettings(write, log) {
     const current = await request("GET", "/workflow");
     const workflow = current.ok ? parsed2(current.text) : void 0;
-    if (!isObject2(workflow)) return refused(write, current.status, current.text);
+    if (!isObject3(workflow)) return refused(write, current.status, current.text);
     const held = (field) => {
       const [part, name] = field.split(".");
       const values = workflow[part];
-      return isObject2(values) ? values[name] : void 0;
+      return isObject3(values) ? values[name] : void 0;
     };
     const steamOn = steamIsOn({ "steamSettings.targetTemperature": held("steamSettings.targetTemperature") });
     const fields = Object.fromEntries(
@@ -1202,15 +1442,15 @@ var __decentSync = (() => {
     if (Object.keys(fields).length === 0) return written(write, workflowSettings(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
     const answer = await request("PUT", "/workflow", settingsParts(fields));
     const updated = answer.ok ? parsed2(answer.text) : void 0;
-    if (!isObject2(updated)) return refused(write, answer.status, answer.text);
+    if (!isObject3(updated)) return refused(write, answer.status, answer.text);
     if ("steamSettings.targetTemperature" in fields) await keepStreamlineSteamTemperature(fields["steamSettings.targetTemperature"], log);
     return written(write, workflowSettings(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
   }
   async function clearWorkflow(write) {
     const current = await request("GET", "/workflow");
     const workflow = current.ok ? parsed2(current.text) : void 0;
-    if (!isObject2(workflow)) return refused(write, current.status, current.text);
-    const context = isObject2(workflow.context) ? workflow.context : {};
+    if (!isObject3(workflow)) return refused(write, current.status, current.text);
+    const context = isObject3(workflow.context) ? workflow.context : {};
     const fields = Object.fromEntries(
       [WORKFLOW_GRINDER, WORKFLOW_BATCH].flatMap((group) => {
         const [id] = group;
@@ -1223,11 +1463,11 @@ var __decentSync = (() => {
     if (Object.keys(fields).length === 0) return written(write, workflowContext(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
     const answer = await request("PUT", "/workflow", settingsParts(fields));
     const updated = answer.ok ? parsed2(answer.text) : void 0;
-    if (!isObject2(updated)) return refused(write, answer.status, answer.text);
+    if (!isObject3(updated)) return refused(write, answer.status, answer.text);
     return written(write, workflowContext(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
   }
   function workflowContext(workflow) {
-    return { context: isObject2(workflow.context) ? workflow.context : {} };
+    return { context: isObject3(workflow.context) ? workflow.context : {} };
   }
   function workflowSettings(workflow) {
     return Object.fromEntries(SETTINGS_PARTS.flatMap((part) => part in workflow ? [[part, workflow[part]]] : []));
@@ -1238,18 +1478,18 @@ var __decentSync = (() => {
     if ("refused" in held) return refused(write, held.refused.status, held.refused.text);
     if (!held.record) return refused(write, 404, "Profile not found");
     let record = held.record;
-    const fields = settable(write, (field) => field === "visibility" ? record.visibility : isObject2(record.profile) ? record.profile[field] : void 0);
+    const fields = settable(write, (field) => field === "visibility" ? record.visibility : isObject3(record.profile) ? record.profile[field] : void 0);
     const writtenFields = [];
     const text = PROFILE_TEXT.filter((field) => field in fields);
     if (text.length > 0) {
-      const profile = { ...isObject2(record.profile) ? record.profile : {} };
+      const profile = { ...isObject3(record.profile) ? record.profile : {} };
       for (const field of text) {
         if (fields[field] === null) delete profile[field];
         else profile[field] = fields[field];
       }
       const answer = await request("PUT", `/profiles/${encodeURIComponent(id)}`, { profile });
       const updated = answer.ok ? parsed2(answer.text) : void 0;
-      if (!isObject2(updated) || typeof updated.id !== "string") return refused(write, answer.status, answer.text);
+      if (!isObject3(updated) || typeof updated.id !== "string") return refused(write, answer.status, answer.text);
       if (updated.id !== id) return written(write, updated, text);
       record = updated;
       writtenFields.push(...text);
@@ -1261,7 +1501,7 @@ var __decentSync = (() => {
           return void 0;
         });
         const updated = answer?.ok ? parsed2(answer.text) : void 0;
-        if (!isObject2(updated) || updated.id !== id) {
+        if (!isObject3(updated) || updated.id !== id) {
           return writtenFields.length === 0 ? refused(write, answer?.status ?? null, answer?.text ?? "") : written(write, record, writtenFields);
         }
         record = updated;
@@ -1280,7 +1520,7 @@ var __decentSync = (() => {
     const answer = await request("GET", `/profiles/${encodeURIComponent(id)}`);
     if (answer.status === 404) return { record: void 0 };
     const record = answer.ok ? parsed2(answer.text) : void 0;
-    return isObject2(record) && record.id === id ? { record } : { refused: answer };
+    return isObject3(record) && record.id === id ? { record } : { refused: answer };
   }
   function setVisibility(id, visibility) {
     return request("PUT", `/profiles/${encodeURIComponent(id)}/visibility`, { visibility });
@@ -1289,7 +1529,7 @@ var __decentSync = (() => {
     const listed = await request("GET", route.list);
     if (!listed.ok) return refused(write, listed.status, listed.text);
     const parsedList = parsed2(listed.text);
-    const records = Array.isArray(parsedList) ? parsedList.filter(isObject2) : [];
+    const records = Array.isArray(parsedList) ? parsedList.filter(isObject3) : [];
     const held = records.find((record2) => globalIdOf(record2) === write.globalId.toLowerCase());
     if (held) return written(write, held, []);
     const same = records.find((record2) => globalIdOf(record2) === null && record2.archived !== true && route.sameItem(record2, write.fields));
@@ -1303,27 +1543,27 @@ var __decentSync = (() => {
     for (const field of route.deferred) delete body[field];
     const made = await request("POST", path, body);
     const record = made.ok ? parsed2(made.text) : void 0;
-    if (!isObject2(record) || typeof record.id !== "string") return refused(write, made.status, made.text);
+    if (!isObject3(record) || typeof record.id !== "string") return refused(write, made.status, made.text);
     const later = Object.fromEntries(route.deferred.flatMap((field) => field in write.fields && write.fields[field] !== (record[field] ?? null) ? [[field, write.fields[field]]] : []));
     const writtenFields = Object.keys(write.fields);
     if (Object.keys(later).length === 0) return written(write, record, writtenFields);
     const again = await request("PUT", `${route.records}/${encodeURIComponent(record.id)}`, later).catch(() => void 0);
     const updated = again?.ok ? parsed2(again.text) : void 0;
-    return written(write, isObject2(updated) && typeof updated.id === "string" ? updated : record, writtenFields);
+    return written(write, isObject3(updated) && typeof updated.id === "string" ? updated : record, writtenFields);
   }
   async function update(route, write, localId) {
     const path = `${route.records}/${encodeURIComponent(localId)}`;
     const current = await request("GET", path);
     if (!current.ok) return { answer: current, written: [] };
     const parsedRecord = parsed2(current.text);
-    const record = isObject2(parsedRecord) ? parsedRecord : {};
-    const extras = isObject2(record.extras) ? record.extras : {};
+    const record = isObject3(parsedRecord) ? parsedRecord : {};
+    const extras = isObject3(record.extras) ? record.extras : {};
     const fields = settable(write, (field) => record[field]);
     return { answer: await request("PUT", path, { ...fields, extras: { ...extras, [GLOBAL_ID_KEY]: write.globalId } }), written: Object.keys(fields) };
   }
   function answerTo(write, answer, writtenFields) {
     const record = answer.ok ? parsed2(answer.text) : void 0;
-    if (isObject2(record) && typeof record.id === "string") return written(write, record, writtenFields);
+    if (isObject3(record) && typeof record.id === "string") return written(write, record, writtenFields);
     return refused(write, answer.status, answer.text);
   }
   function written(write, record, writtenFields, at) {
@@ -1351,7 +1591,7 @@ var __decentSync = (() => {
       return void 0;
     }
   }
-  function isObject2(value) {
+  function isObject3(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
   function dye2Writer(key) {
@@ -1496,7 +1736,7 @@ var __decentSync = (() => {
   function valueAt(record, path) {
     if (!path.startsWith(`${DASHBOARD}.`)) return record[path];
     const variables = record[DASHBOARD];
-    return isObject2(variables) ? variables[path.slice(DASHBOARD.length + 1)] : void 0;
+    return isObject3(variables) ? variables[path.slice(DASHBOARD.length + 1)] : void 0;
   }
   function atPaths(record, values) {
     const result = { ...record };
@@ -1505,7 +1745,7 @@ var __decentSync = (() => {
       let target = result;
       let field = path;
       if (path.startsWith(`${DASHBOARD}.`)) {
-        variables ?? (variables = { ...isObject2(result[DASHBOARD]) ? result[DASHBOARD] : {} });
+        variables ?? (variables = { ...isObject3(result[DASHBOARD]) ? result[DASHBOARD] : {} });
         target = variables;
         field = path.slice(DASHBOARD.length + 1);
       }
@@ -1531,10 +1771,12 @@ var __decentSync = (() => {
   ];
   var WRITTEN_LISTS = new Set(LIBRARY_LISTS);
   var CollectionCapture = class {
-    constructor(outbox, library, pollMs) {
+    constructor(outbox, library, pollMs, sawRecipes = () => {
+    }) {
       __publicField(this, "outbox", outbox);
       __publicField(this, "library", library);
       __publicField(this, "pollMs", pollMs);
+      __publicField(this, "sawRecipes", sawRecipes);
       /** What was last queued for each collection. */
       __publicField(this, "last", /* @__PURE__ */ new Map());
       /** When each record of each of DYE2's lists that is a Library list was first read in its current content. */
@@ -1594,6 +1836,7 @@ var __decentSync = (() => {
       const last = this.last.get(source.name);
       const reading = selected(source, await readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name)));
       if (this.stopped) return false;
+      if (source.name === "dye2Recipes" && reading.kind === "value") this.sawRecipes(reading.value);
       const decision = decide(last, reading, full);
       if (decision.next) this.last.set(source.name, decision.next);
       if (!decision.send || reading.kind === "notModified") return false;
@@ -1759,11 +2002,11 @@ var __decentSync = (() => {
     return `${SEQUENCE_KEY}.${seq % MAX_KEPT}`;
   }
   function parseSequence(value) {
-    const parsed3 = parse(value);
-    const first = parsed3?.first;
-    const next = parsed3?.next;
+    const parsed4 = parse(value);
+    const first = parsed4?.first;
+    const next = parsed4?.next;
     if (!isCount(first) || !isCount(next) || first > next || next - first > MAX_KEPT) return { first: 0, next: 0 };
-    return { first, next, token: typeof parsed3?.token === "string" ? parsed3.token : "" };
+    return { first, next, token: typeof parsed4?.token === "string" ? parsed4.token : "" };
   }
   function tokenHash(token) {
     let hash = 2166136261;
@@ -1774,16 +2017,16 @@ var __decentSync = (() => {
     return hash.toString(16).padStart(8, "0");
   }
   function parseSlot(value, seq) {
-    const parsed3 = parse(value);
-    if (parsed3?.seq !== seq || parsed3.delivery === void 0) return void 0;
-    const decoded = decodeMachineEvent(JSON.stringify(parsed3.delivery));
+    const parsed4 = parse(value);
+    if (parsed4?.seq !== seq || parsed4.delivery === void 0) return void 0;
+    const decoded = decodeMachineEvent(JSON.stringify(parsed4.delivery));
     return decoded.ok ? decoded.message : void 0;
   }
   function parse(value) {
     if (typeof value !== "string") return void 0;
     try {
-      const parsed3 = JSON.parse(value);
-      return typeof parsed3 === "object" && parsed3 !== null && !Array.isArray(parsed3) ? parsed3 : void 0;
+      const parsed4 = JSON.parse(value);
+      return typeof parsed4 === "object" && parsed4 !== null && !Array.isArray(parsed4) ? parsed4 : void 0;
     } catch {
       return void 0;
     }
@@ -1792,18 +2035,405 @@ var __decentSync = (() => {
     return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
   }
 
+  // src/loaded-recipes.ts
+  var RECIPES = `/store/${DYE2_NAMESPACE}/recipes`;
+  var MAX_EARLIER_DIALS = 20;
+  var MAX_KEPT_RECIPES = 200;
+  var FIRST_RETRY_MS = 5e3;
+  var MAX_RETRY_MS = 5 * 6e4;
+  var REPORT_WAIT_MS = 2e3;
+  var LoadedRecipes = class {
+    constructor(changes, log) {
+      __publicField(this, "changes", changes);
+      __publicField(this, "log", log);
+      /** The latest Workflow Decaid reported. */
+      __publicField(this, "latest");
+      /** The Workflows reported, in order, still to be decided on. */
+      __publicField(this, "queue", []);
+      /** The latest Workflow decided on, which the next change is judged from. */
+      __publicField(this, "decided");
+      /** What the changes decided on so far leave to write into the Workflow. */
+      __publicField(this, "pending", { kind: "none" });
+      /**
+       * The plugin's latest write Decaid took, until its echo is decided on: the
+       * Workflow Decaid answered with, and what was pending as it was written.
+       */
+      __publicField(this, "written");
+      /** Told of the next change Decaid reports, while the plugin waits for one (`waitForChange`). */
+      __publicField(this, "reported");
+      __publicField(this, "running", false);
+      /** Whether the Workflow's changes are held back while it decides (`observe`). */
+      __publicField(this, "holding", false);
+      __publicField(this, "stopped", false);
+      /** Set while a decision Decaid failed waits to be tried again, with how long the next failure waits. */
+      __publicField(this, "retryTimer");
+      __publicField(this, "retryMs", FIRST_RETRY_MS);
+      /** The dials each recipe the tablet held holds, by global id, as last read, in the order last seen. */
+      __publicField(this, "seen", /* @__PURE__ */ new Map());
+      /** The dials each recipe the tablet held before, by global id, oldest first: what a stale DYE2 page or Streamline strip applies. */
+      __publicField(this, "earlier", /* @__PURE__ */ new Map());
+      /** The tablet's profiles read, by id: Decaid derives a profile's id from what it holds, so one id always holds the same. */
+      __publicField(this, "profiles", /* @__PURE__ */ new Map());
+      /** The Bean of each of the tablet's Bean Batches read, by their ids there, null for one it does not hold: a batch's Bean never changes. */
+      __publicField(this, "beans", /* @__PURE__ */ new Map());
+    }
+    /**
+     * Decaid's `workflowUpdated`, before the Workflow is queued. A change of
+     * its dial or Bean Batch is decided on (`run`), as is any change of what a
+     * load writes while one is under way. The change is held back until it is
+     * decided on and written, so the server never reads a Workflow as a stale
+     * copy applied it, if it names a Loaded Recipe, which the change may
+     * unload or replace, or matches a recipe as the tablet held it when last
+     * read, or a write is still to be made. Any other is sent at once, as it
+     * is kept in Decaid's plugin storage as it is queued, so an unload of the
+     * plugin meanwhile loses none: it names no Recipe the server could take it
+     * for, and a load the plugin then finds, of a recipe saved since it last
+     * read them, is sent after it.
+     */
+    observe(workflow) {
+      if (this.stopped) return;
+      this.latest = workflow;
+      this.enqueue(workflow);
+      this.reported?.();
+      if (this.queue.length === 0 && this.pending.kind === "none") return;
+      if (!this.holding && (loadedRecipeOf(workflow) !== null || this.pending.kind !== "none" || this.mayLoad(workflowDial(workflow)))) {
+        this.holding = true;
+        this.changes.hold();
+      }
+      if (!this.running) {
+        this.running = true;
+        void this.run();
+      }
+    }
+    /**
+     * Queues a Workflow to be decided on: one that changes what a load writes
+     * from the last queued or decided on, while a decision is under way or a
+     * write still to be made, and otherwise only one that changes its dial or
+     * Bean Batch, which alone can load or unload a recipe.
+     */
+    enqueue(workflow) {
+      const last = this.queue[this.queue.length - 1] ?? this.decided;
+      if (!last) {
+        this.queue.push(workflow);
+        return;
+      }
+      const changed = changedParts(last, workflow);
+      const busy = this.running || this.pending.kind !== "none";
+      const setUp = ["dose", "yield", "grind", "grinder", "profile", "batch"].some((part) => changed.has(part));
+      if (busy ? changed.size > 0 : setUp) this.queue.push(workflow);
+    }
+    /**
+     * Whether a dial matches any dial of a recipe the tablet held as last
+     * read, now or before, a profile not looked up yet matching any.
+     */
+    mayLoad(dial) {
+      return [...this.seen.values(), ...this.earlier.values()].some(
+        (dials) => dials.some((recipeDial) => matches(resolveDial(recipeDial, (id) => profileKey(this.profiles.get(id))), dial))
+      );
+    }
+    /**
+     * DYE2's recipes as a read of them found them, whoever read them: each
+     * recipe's dials it held before are kept, so a stale copy applied later
+     * is still taken for it. A list in a shape not recognised changes nothing.
+     */
+    sawRecipes(value) {
+      const records = value === null ? [] : dye2Records(value, "recipes");
+      if (records === null) return;
+      for (const { globalId, record } of loadable(records)) {
+        const dials = recipeDials(record);
+        const before = this.seen.get(globalId);
+        this.seen.delete(globalId);
+        this.seen.set(globalId, dials);
+        if (!before) continue;
+        const earlier = (this.earlier.get(globalId) ?? []).filter((kept) => !dials.some((dial) => sameRecipeDial(dial, kept)));
+        for (const dial of before) {
+          if (dials.some((now2) => sameRecipeDial(now2, dial))) continue;
+          const at = earlier.findIndex((kept) => sameRecipeDial(kept, dial));
+          if (at !== -1) earlier.splice(at, 1);
+          earlier.push(dial);
+        }
+        this.earlier.delete(globalId);
+        if (earlier.length > 0) this.earlier.set(globalId, earlier.slice(-MAX_EARLIER_DIALS));
+      }
+      for (const map of [this.seen, this.earlier]) {
+        for (const globalId of [...map.keys()].slice(0, Math.max(0, map.size - MAX_KEPT_RECIPES))) map.delete(globalId);
+      }
+    }
+    stop() {
+      this.stopped = true;
+      if (this.retryTimer !== void 0) clearTimeout(this.retryTimer);
+      this.reported?.();
+    }
+    /**
+     * Decides on each Workflow queued, in turn, then writes what they leave
+     * to write (`pending`), until none is queued and nothing is left, then
+     * sends the latest if it held any. A write finds the Workflow as Decaid
+     * holds it first, and where that is not the one last decided on, which
+     * Decaid then reports, it is decided on as the next change instead, and
+     * the write made after. Where Decaid fails what a decision or a write
+     * needs, the Workflows still to be decided on and the write still to be
+     * made wait, and are tried again later, as no change may come to try them:
+     * the Workflow is sent meanwhile, as it is.
+     */
+    async run() {
+      await Promise.resolve();
+      try {
+        while (!this.stopped && (this.queue.length > 0 || this.pending.kind !== "none")) {
+          if (this.queue.length > 0) await this.decideQueued();
+          if (this.pending.kind === "none" || this.stopped) continue;
+          const written2 = await this.write(this.pending, this.decided);
+          if (written2.kind === "nothing") {
+            this.pending = { kind: "none" };
+            continue;
+          }
+          if (written2.kind === "written") this.written = { workflow: written2.workflow, pending: this.pending };
+          if (this.queue.length > 0 || await this.waitForChange(REPORT_WAIT_MS) || this.stopped) continue;
+          if (this.written) {
+            if (this.pending === this.written.pending) this.pending = { kind: "none" };
+            this.decided = this.written.workflow;
+            this.written = void 0;
+          } else this.enqueue(written2.workflow);
+        }
+        this.retryMs = FIRST_RETRY_MS;
+      } catch (error) {
+        this.log(`Could not work out the Loaded Recipe, trying again in ${this.retryMs / 1e3} s: ${error instanceof Error ? error.message : String(error)}`);
+        this.retryLater();
+      } finally {
+        this.running = false;
+        if (this.holding) {
+          this.holding = false;
+          this.changes.release();
+        }
+      }
+    }
+    /** Resolves with true once Decaid reports a change, or false after `ms`. */
+    waitForChange(ms) {
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          this.reported = void 0;
+          resolve(false);
+        }, ms);
+        this.reported = () => {
+          clearTimeout(timer);
+          this.reported = void 0;
+          resolve(true);
+        };
+      });
+    }
+    /** Tries what is still to be decided on or written again once the wait is over, unless a change tries it first. */
+    retryLater() {
+      if (this.retryTimer !== void 0 || this.stopped) return;
+      const wait = this.retryMs;
+      this.retryMs = Math.min(this.retryMs * 2, MAX_RETRY_MS);
+      this.retryTimer = setTimeout(() => {
+        this.retryTimer = void 0;
+        if (this.latest) this.observe(this.latest);
+      }, wait);
+    }
+    /**
+     * Decides on each Workflow queued, in turn, from the one before it, with
+     * the tablet's recipes read now (`decideChange`), as though at once. Each
+     * becomes the Workflow decided on once decided. The echo of the plugin's
+     * write (`written`) is no change: those before it were made before Decaid
+     * took the write, with what it writes still pending, and those after it
+     * after. Throws if Decaid fails what it needs, leaving the rest queued.
+     */
+    async decideQueued() {
+      const held = await this.held(await this.readRecipes());
+      while (this.queue.length > 0 && !this.stopped) {
+        const workflow = this.queue[0];
+        if (this.written && changedParts(this.written.workflow, workflow).size === 0) {
+          if (this.pending === this.written.pending) this.pending = { kind: "none" };
+          this.written = void 0;
+          this.decided = workflow;
+          this.queue.shift();
+          continue;
+        }
+        const before = this.decided;
+        const picked = before !== void 0 && workflowBatch(before) !== workflowBatch(workflow);
+        const setUp = async (of) => {
+          const batch = workflowBatch(of);
+          return { dial: workflowDial(of), batch, bean: picked && batch !== null ? await this.beanOf(batch) : null, named: loadedRecipeOf(of) };
+        };
+        const changed = before ? changedParts(before, workflow) : /* @__PURE__ */ new Set();
+        this.pending = decideChange(this.pending, before && await setUp(before), await setUp(workflow), changed, held);
+        this.decided = workflow;
+        this.queue.shift();
+      }
+    }
+    /**
+     * Writes what is pending into the Workflow, as Decaid holds it now, while
+     * that is the one last decided on (`decided`): resolves with the Workflow
+     * Decaid answered the write with, or that nothing was left to write, or
+     * otherwise with the Workflow Decaid holds, to be decided on first. A load writes the recipe's current
+     * values and global id (`loadWrite`) but the parts changed since it was
+     * loaded, and, for the recipe the Workflow names already, every part it
+     * holds a value for (`alone`); Decaid refuses to change the hot water settings while no machine
+     * is connected, so the rest is then written without them, the Workflow
+     * read and checked again. An unload clears the global id the Workflow
+     * names. Decaid has no conditional write, so a change made between the
+     * plugin's read and its write is written over where the write sets the
+     * same part. Throws if Decaid fails it.
+     */
+    async write(pending, decided) {
+      if (pending.kind === "unload") {
+        const done2 = await this.writeIfDecided(decided, (workflow) => loadedRecipeOf(workflow) === null ? null : { context: { extras: { [LOADED_RECIPE_KEY]: null } } });
+        if (done2.kind === "written" && !done2.answer.ok) throw new Error(`Decaid answered ${done2.answer.status} recording the Loaded Recipe as unloaded: ${done2.answer.text.slice(0, 200)}`);
+        return outcome(done2);
+      }
+      if (pending.kind !== "load") return { kind: "nothing" };
+      const records = await this.readRecipes();
+      const recipe = loadable(records).find((candidate) => candidate.globalId === pending.globalId);
+      if (!recipe) return { kind: "nothing" };
+      const context = pending.kept.has("batch") ? { ...await this.loadContext(recipe.record), batch: null } : await this.loadContext(recipe.record);
+      let hotWater = false;
+      const build = (withHotWater) => (workflow) => {
+        const all = loadWrite(workflow, recipe.record, recipe.globalId, context, pending.kept, pending.alone);
+        if (all === null || withHotWater) {
+          hotWater = all !== null && "hotWaterData" in all;
+          return all;
+        }
+        const { hotWaterData: _, ...rest } = all;
+        return Object.keys(rest).length > 0 ? rest : null;
+      };
+      let done = await this.writeIfDecided(decided, build(true));
+      if (done.kind === "written" && !done.answer.ok && hotWater && machineMissing(done.answer)) done = await this.writeIfDecided(decided, build(false));
+      if (done.kind === "written" && !done.answer.ok) {
+        throw new Error(`Decaid answered ${done.answer.status} recording the recipe in slot ${recipe.slot} as loaded: ${done.answer.text.slice(0, 200)}`);
+      }
+      return outcome(done);
+    }
+    /**
+     * Writes into the Workflow what `build` makes of it, read again just
+     * before, while it holds all a load writes as the Workflow decided on
+     * does (`changedParts`): Decaid's answer, nothing where there was nothing
+     * to write, or the Workflow Decaid holds where it differs.
+     */
+    async writeIfDecided(decided, build) {
+      const workflow = await this.workflowNow();
+      if (changedParts(decided, workflow).size > 0) return { kind: "changed", workflow };
+      const write = build(workflow);
+      if (write === null || this.stopped) return { kind: "nothing" };
+      return { kind: "written", answer: await request("PUT", "/workflow", write) };
+    }
+    /**
+     * The tablet's recipes, read now: none from a key never written, or a list
+     * in a shape not recognised (`dye2Records`), which loads nothing. Throws if
+     * Decaid does not answer with them.
+     */
+    async readRecipes() {
+      const answer = await request("GET", RECIPES);
+      const value = answer.ok ? parsed3(answer.text) : void 0;
+      if (value === void 0) throw new Error(`Decaid answered ${answer.status} reading DYE2's recipes`);
+      this.sawRecipes(value);
+      return value === null ? [] : dye2Records(value, "recipes") ?? [];
+    }
+    /** The recipes a Workflow can load, each with every dial it holds and held before, their profiles looked up. */
+    async held(records) {
+      return Promise.all(
+        loadable(records).map(async ({ globalId, slot, record }) => ({
+          globalId,
+          slot,
+          record,
+          dials: await this.resolved([...recipeDials(record), ...this.earlier.get(globalId) ?? []]),
+          now: await this.resolved(recipeDials(record))
+        }))
+      );
+    }
+    /** Recipe dials with each profile named by its id looked up among the tablet's profiles. */
+    async resolved(dials) {
+      for (const id of new Set(profileIds(dials))) await this.profileOf(id);
+      return dials.map((dial) => resolveDial(dial, (id) => profileKey(this.profiles.get(id))));
+    }
+    /** The tablet's profile with that id, hidden ones included, or null if it holds none. Throws if Decaid does not answer with it. */
+    async profileOf(id) {
+      const known = this.profiles.get(id);
+      if (known) return known;
+      const record = await this.readRecord(`/profiles/${encodeURIComponent(id)}`);
+      const profile = isObject4(record) && isObject4(record.profile) ? record.profile : null;
+      if (profile) this.profiles.set(id, profile);
+      return profile;
+    }
+    /** The Bean of the tablet's Bean Batch with that id, or null if it holds none. Throws if Decaid does not answer with it. */
+    async beanOf(batchId) {
+      if (this.beans.has(batchId)) return this.beans.get(batchId);
+      const record = await this.readRecord(`/bean-batches/${encodeURIComponent(batchId)}`);
+      const bean = isObject4(record) && typeof record.beanId === "string" ? record.beanId : null;
+      this.beans.set(batchId, bean);
+      return bean;
+    }
+    /** The record at that path of Decaid's API, or null if it holds none (404). Throws if Decaid answers otherwise. */
+    async readRecord(path) {
+      const answer = await request("GET", path);
+      if (answer.status === 404) return null;
+      const record = answer.ok ? parsed3(answer.text) : void 0;
+      if (record === void 0) throw new Error(`Decaid answered ${answer.status} reading ${path}`);
+      return record;
+    }
+    /** What a load of the recipe writes besides its record: its full Profile, as applying it loads one, and its Bean Batch as the tablet holds it. */
+    async loadContext(record) {
+      const snapshot = record.profileSnapshot;
+      const profile = isObject4(snapshot) && Array.isArray(snapshot.steps) ? snapshot : typeof record.profileId === "string" ? await this.profileOf(record.profileId) : null;
+      const kept = isObject4(record[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
+      const batchId = typeof kept.beanBatchId === "string" ? kept.beanBatchId : null;
+      if (batchId === null) return { profile, batch: null };
+      const beanId = await this.beanOf(batchId);
+      if (beanId === null) return { profile, batch: null };
+      const bean = await this.readRecord(`/beans/${encodeURIComponent(beanId)}`);
+      const text = (field) => isObject4(bean) && typeof bean[field] === "string" ? bean[field] : null;
+      return { profile, batch: { id: batchId, coffeeName: text("name"), coffeeRoaster: text("roaster") } };
+    }
+    /** The Workflow as Decaid holds it now. Throws if Decaid does not answer with one. */
+    async workflowNow() {
+      const answer = await request("GET", "/workflow");
+      const workflow = answer.ok ? parsed3(answer.text) : void 0;
+      if (!isObject4(workflow)) throw new Error(`Decaid answered ${answer.status} reading the Workflow`);
+      return workflow;
+    }
+  };
+  function outcome(done) {
+    if (done.kind !== "written") return done;
+    const workflow = parsed3(done.answer.text);
+    return isObject4(workflow) ? { kind: "written", workflow } : { kind: "nothing" };
+  }
+  function machineMissing(answer) {
+    return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");
+  }
+  function parsed3(text) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return void 0;
+    }
+  }
+  function isObject4(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
   // src/machine-events.ts
   var MachineEvents = class {
-    constructor(outbox) {
+    constructor(outbox, observe = () => {
+    }) {
       __publicField(this, "outbox", outbox);
+      __publicField(this, "observe", observe);
       /** The latest Workflow Decaid reported. */
       __publicField(this, "workflow");
       /**
-       * Set while the plugin writes the shared settings into the Workflow
-       * (`LibraryWrites`): a change Decaid reports meanwhile is sent once the
-       * write's answer is queued, so the server reads the answer first.
+       * How many of the plugin's writes into the Workflow are under way: the
+       * shared settings (`LibraryWrites`), whose answers the server reads first,
+       * and a Loaded Recipe's (`LoadedRecipes`), whose echo is no change of the
+       * tablet's. A change Decaid reports meanwhile is sent once none is.
        */
-      __publicField(this, "held", false);
+      __publicField(this, "holds", 0);
+      /**
+       * Set once a resend was asked for while held (`resend`), and no change was
+       * reported while held: the Workflow `release` sends is then that resend
+       * alone, which the next welcome's replaces unless it was ever sent. One
+       * that holds a change too is no resend: replacing it would lose the change.
+       */
+      __publicField(this, "heldResend", false);
+      /** Set once a change was reported while held. */
+      __publicField(this, "heldReport", false);
       /** A change reported while held, which `release` sends. */
       __publicField(this, "heldChange", false);
       /** The delivery that sent it again on the latest welcome, which the next welcome's replaces unless it was ever sent. */
@@ -1816,22 +2446,29 @@ var __decentSync = (() => {
       const workflow = object(payload);
       if (!workflow) return;
       this.workflow = workflow;
-      if (this.held) this.heldChange = true;
-      else this.queueWorkflow(workflow);
+      this.observe(workflow);
+      if (this.holds > 0) {
+        this.heldChange = true;
+        this.heldReport = true;
+      } else this.queueWorkflow(workflow);
     }
-    /** Holds back the Workflow's changes, as a write of the shared settings begins. */
+    /** Holds back the Workflow's changes, as one of the plugin's writes into it begins. */
     hold() {
-      this.held = true;
+      this.holds++;
     }
     /**
-     * Sends the latest Workflow, observed now, if it changed while held: that
-     * holds the plugin's own write, and any change a barista made meanwhile.
+     * Once no write is under way, sends the latest Workflow, observed now, if
+     * it changed while held: that holds the plugin's own writes, and any
+     * change a barista made meanwhile.
      */
     release() {
-      this.held = false;
-      if (!this.heldChange || !this.workflow) return;
+      this.holds = Math.max(0, this.holds - 1);
+      if (this.holds > 0 || !this.heldChange || !this.workflow) return;
       this.heldChange = false;
-      this.queueWorkflow(this.workflow);
+      const id = this.queueWorkflow(this.workflow);
+      if (this.heldResend && !this.heldReport) this.resent = id;
+      this.heldResend = false;
+      this.heldReport = false;
     }
     /**
      * Decaid's `stateUpdate`, which arrives several times a second while a
@@ -1874,8 +2511,10 @@ var __decentSync = (() => {
       if (!this.workflow) return;
       if (this.resent !== void 0) this.outbox.supersede(this.resent);
       this.resent = void 0;
-      if (this.held) this.heldChange = true;
-      else this.resent = this.queueWorkflow(this.workflow);
+      if (this.holds > 0) {
+        this.heldChange = true;
+        this.heldResend = true;
+      } else this.resent = this.queueWorkflow(this.workflow);
     }
     /** Queues the Workflow as observed now, returning its delivery's id. */
     queueWorkflow(workflow) {
@@ -2696,6 +3335,8 @@ var __decentSync = (() => {
       __publicField(this, "shots");
       __publicField(this, "steams");
       __publicField(this, "machineEvents");
+      /** Works out the Machine's Loaded Recipe from its Workflow, and records it there. */
+      __publicField(this, "loadedRecipes");
       __publicField(this, "collections");
       /** Carries out the Library writes the server asks for, one at a time, between reads of the lists it writes to. */
       __publicField(this, "writes");
@@ -2714,9 +3355,10 @@ var __decentSync = (() => {
       );
       this.shots = new ShotCapture(this.outbox, log);
       this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1e3, log);
-      this.machineEvents = new MachineEvents(this.outbox);
+      this.loadedRecipes = new LoadedRecipes({ hold: () => this.machineEvents.hold(), release: () => this.machineEvents.release() }, log);
+      this.machineEvents = new MachineEvents(this.outbox, (workflow) => this.loadedRecipes.observe(workflow));
       const library = new LibraryAccess();
-      this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1e3);
+      this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1e3, (value) => this.loadedRecipes.sawRecipes(value));
       this.writes = new LibraryWrites(
         library,
         this.outbox,
@@ -2765,6 +3407,7 @@ var __decentSync = (() => {
       this.shots.stop();
       this.steams.stop();
       this.collections.stop();
+      this.loadedRecipes.stop();
       this.tabletId.stop();
       this.storage.stop();
       for (const id of this.timers.values()) clearTimeout(id);

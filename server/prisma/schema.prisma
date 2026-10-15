@@ -273,6 +273,7 @@ model Machine {
   itemVersions       ItemVersion[]
   conflicts          Conflict[]
   takeover           Takeover?
+  loadedRecipes      LoadedRecipe[]
 
   /// One Machine per piece of hardware. Unbound Machines (nulls) never clash.
   @@unique([model, serial])
@@ -1245,10 +1246,34 @@ model Recipe {
   /// Each content field's latest edit (ADR-0020), as `Bean.fieldEdits`.
   fieldEdits Json      @default("{}") @map("field_edits") @db.JsonB
 
-  tablets TabletRecipe[]
+  tablets  TabletRecipe[]
+  loadedOn LoadedRecipe[]
 
   @@unique([locationId, slot])
   @@map("recipes")
+}
+
+/// A Machine's Loaded Recipe while it had it (ADR-0022): the Recipe its
+/// Workflow named as loaded, read from its tablet's Workflow deliveries,
+/// from the time the plugin observed the Workflow naming it until it named
+/// another or none. The one not unloaded is its Loaded Recipe now, at most
+/// one per Machine (a partial unique index in the migration). Gone with its
+/// Recipe's hard delete. See server/src/machine-events/loaded-recipes.ts.
+model LoadedRecipe {
+  /// Rises as entries are made; the highest is the latest.
+  id         BigInt    @id @default(autoincrement())
+  machineId  String    @map("machine_id") @db.Uuid
+  machine    Machine   @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  recipeId   String    @map("recipe_id") @db.Uuid
+  recipe     Recipe    @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  /// By the tablet's clock, as the plugin observed the Workflow, but never before the entry before it was loaded.
+  loadedAt   DateTime  @map("loaded_at") @db.Timestamptz(3)
+  /// The same way; null while it is the Machine's Loaded Recipe.
+  unloadedAt DateTime? @map("unloaded_at") @db.Timestamptz(3)
+
+  @@index([machineId, id])
+  @@index([recipeId])
+  @@map("loaded_recipes")
 }
 
 /// Each tablet's map of its records in DYE2's `recipes` list (ADR-0006), as

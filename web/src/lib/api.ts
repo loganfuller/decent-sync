@@ -151,6 +151,8 @@ export interface Machine {
   lastShot: { id: string; pulledAt: string | null } | null;
   /** What it is doing: the latest machine state its tablet reported, or null before any. */
   machineState: MachineState | null;
+  /** The Recipe its Workflow has loaded, since when, or null for none. */
+  loadedRecipe: LoadedRecipe | null;
   /** Where it is now: the Location of its Location History's latest entry, or null if it has none. */
   location: Location | null;
   /** Where it has been, oldest first. Each entry lasts until the next one's time. */
@@ -593,6 +595,15 @@ export interface Equipment extends EquipmentSummary {
    * decided. A Location not listed does not show it.
    */
   locations: { location: Location; shown: boolean; since: string }[];
+}
+
+/** A Recipe a Machine has loaded, or had loaded: since when, and until when, null while it still has it. */
+export interface LoadedRecipe {
+  id: string;
+  recipe: { id: string; name: string | null; slot: number | null; locationId: string | null; archived: boolean };
+  /** When its tablet observed the Workflow naming it, by the tablet's clock. */
+  loadedAt: string;
+  unloadedAt: string | null;
 }
 
 /**

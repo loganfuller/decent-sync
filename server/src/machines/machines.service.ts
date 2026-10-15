@@ -5,6 +5,7 @@ import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { type Machine, MachineIdentification, Prisma } from "../generated/prisma/client.js";
 import type { LocationView } from "../locations/locations.service.js";
+import { type LoadedRecipeView, currentLoadedRecipes } from "../machine-events/loaded-recipes.js";
 import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
 import { type Hardware, type Identity, isRealSerial, realHardware, resolveIdentity, sameHardware } from "../sync/identity.js";
@@ -69,6 +70,8 @@ export interface MachineView {
   lastShot: { id: string; pulledAt: string | null } | null;
   /** What it is doing: the latest machine state stored for it, or null before any. */
   machineState: MachineStateView | null;
+  /** The Recipe its Workflow has loaded (ADR-0022), since when, or null for none. */
+  loadedRecipe: LoadedRecipeView | null;
   /** Where it is now: the Location of its Location History's latest entry, or null if it has none. */
   location: LocationView | null;
   /** Where it has been, oldest first. Each entry lasts until the next one's time. */
@@ -507,7 +510,7 @@ export class MachinesService {
       return hardware ? [hardware] : [];
     });
     // Each Machine's last Shot and latest machine state are one index probe each, however long its history.
-    const [owners, pending, lastShots, states, tablets, takeovers] = await Promise.all([
+    const [owners, pending, lastShots, states, tablets, takeovers, loaded] = await Promise.all([
       mismatched.length === 0 ? [] : this.prisma.machine.findMany({ where: { OR: mismatched }, select: { id: true, name: true, model: true, serial: true } }),
       mismatched.length === 0 ? [] : this.prisma.pendingMachine.findMany({ where: { OR: mismatched }, select: { id: true, model: true, serial: true } }),
       machines.length === 0 ? [] : this.prisma.$queryRaw<{ id: string; machineId: string; pulledAt: Date | null }[]>(Prisma.sql`
@@ -527,6 +530,7 @@ export class MachinesService {
         ) AS latest`),
       tabletsOf(this.prisma, machines.map((machine) => machine.id)),
       takeoversOf(this.prisma, machines.map((machine) => machine.id)),
+      currentLoadedRecipes(this.prisma, machines.map((machine) => machine.id)),
     ]);
     const lastByMachine = new Map(lastShots.map((shot) => [shot.machineId, { id: shot.id, pulledAt: shot.pulledAt?.toISOString() ?? null }]));
     const stateByMachine = new Map(
@@ -565,6 +569,7 @@ export class MachinesService {
         lastSeenAt: machine.lastSeenAt?.toISOString() ?? null,
         lastShot: lastByMachine.get(machine.id) ?? null,
         machineState: stateByMachine.get(machine.id) ?? null,
+        loadedRecipe: loaded.get(machine.id) ?? null,
         ...viewLocationHistory(machine.locationHistory),
         sharing: machine.sharing,
         captureOnly: [

@@ -39,6 +39,11 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 // steam time and flow, sent on a switch to it (`applySavedSteamSettings`), its
 // Auto steam mode, which writes back the steam settings it found on entering
 // it, and its 20 s Workflow poll, which only repaints its tiles (ADR-0021).
+//
+// Once each Shot is stored, it also clears from the Workflow the batch,
+// grinder, barista, drinker, Basket, RPM and note a DYE2 recipe or favourite
+// set, so they do not label the next Shot (`clearDyeWorkflowContext` in
+// src/modules/dyeStrip.js, called from app.js): `shotStored()`.
 
 /** Streamline's namespace in Decaid's store. */
 export const STREAMLINE_NAMESPACE = "streamline-app";
@@ -142,6 +147,23 @@ export class SimulatedStreamline {
   /** Resolves once Streamline has done what it does in reply to every frame and load so far. */
   async settled(): Promise<void> {
     while (this.pending.size > 0) await Promise.allSettled([...this.pending]);
+  }
+
+  /**
+   * What Streamline does once a Shot is stored (`clearDyeWorkflowContext`):
+   * where the Workflow holds any of them, it clears its batch, grinder,
+   * barista and drinker, and the Basket, RPM and note in its `extras`, in one
+   * `PUT /workflow`, leaving its dose, yield, grind setting and profile.
+   */
+  async shotStored(): Promise<void> {
+    const { status, body } = await this.tablet.callApi("GET", "/workflow");
+    if (status !== 200) throw new Error(`Decaid refused the Workflow with ${status}`);
+    const context = ((body as Record_).context ?? {}) as Record_;
+    const extras = (context.extras ?? {}) as Record_;
+    const top = ["beanBatchId", "coffeeName", "coffeeRoaster", "grinderId", "grinderModel", "baristaName", "drinkerName"];
+    const inExtras = ["basketId", "basketName", "rpm", "note"];
+    if (!top.some((field) => context[field] != null) && !inExtras.some((field) => extras[field] != null)) return;
+    await this.change({ context: { ...Object.fromEntries(top.map((field) => [field, null])), extras: Object.fromEntries(inExtras.map((field) => [field, null])) } });
   }
 
   /** Stops hearing of the Workflow's changes, as when another skin is chosen. */
