@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
-import { SimulatedTablet, derivedDe1Pro, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
+import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
+import { syncingTablet } from "./support/loaded-tablets.js";
+import { type SimulatedTablet, derivedDe1Pro, workflowFixture } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for tickets #86 and #137: steam and rinse settings are shared by a
@@ -43,7 +44,6 @@ describe("Steam and rinse settings shared by a Location's Machines", () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
-  const tablets: SimulatedTablet[] = [];
 
   beforeAll(async () => {
     server = await startTestServer({ env });
@@ -51,7 +51,6 @@ describe("Steam and rinse settings shared by a Location's Machines", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await Promise.all(tablets.map((tablet) => tablet.unload()));
     await other?.stop();
     await server?.stop();
   });
@@ -60,38 +59,21 @@ describe("Steam and rinse settings shared by a Location's Machines", () => {
   function load(
     machine: CreatedMachine,
     serial: string,
-    options: { instance?: TestServer; model?: string; parts?: Parts; stallUpload?: (frame: unknown) => boolean } = {},
+    { instance = server, model, parts, stallUpload }: { instance?: TestServer; model?: string; parts?: Parts; stallUpload?: (frame: unknown) => boolean } = {},
   ): SimulatedTablet {
-    const tablet = SimulatedTablet.load({
-      settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
-      api: {
-        ...derivedDe1Pro({ serial, model: options.model }),
-        "/beans": [],
-        "/bean-batches": [],
-        "/profiles": [],
-        "/grinders": [],
-        "/workflow": workflowWith(options.parts),
-      },
-      timeScale: 50,
-      stallUpload: options.stallUpload,
+    return syncingTablet(machine, instance, {
+      api: { ...derivedDe1Pro({ serial, model }), "/beans": [], "/bean-batches": [], "/profiles": [], "/grinders": [], "/workflow": workflowWith(parts) },
+      stallUpload,
     });
-    tablets.push(tablet);
-    return tablet;
   }
 
-  async function online(...machines: CreatedMachine[]): Promise<void> {
-    for (const { machine } of machines) await api.waitForMachine(machine.name, (viewed) => viewed.online);
-  }
-
-  const settingsAt = async (location: LocationView, as = api) =>
-    ((await (await as.call("GET", `/locations/${location.id}/settings`)).json()) as { settings: SettingsView }).settings;
+  const settingsAt = async (location: LocationView, as = api) => (await as.get<{ settings: SettingsView }>(`/locations/${location.id}/settings`)).settings;
   /** Resolves with the Location's settings once they are set. */
   async function settingsOf(location: LocationView): Promise<SettingsView> {
     await expect.poll(async () => (await settingsAt(location)).id).not.toBeNull();
     return settingsAt(location);
   }
-  const versions = async (settings: SettingsView) =>
-    ((await (await api.call("GET", `/location-settings/${settings.id}/history`)).json()) as { versions: VersionView[] }).versions;
+  const versions = async (settings: SettingsView) => (await api.get<{ versions: VersionView[] }>(`/location-settings/${settings.id}/history`)).versions;
   /** A setting of the tablet's Workflow, as Decaid holds it, by its name, such as `steamSettings.flow`. */
   function setting(tablet: SimulatedTablet, field: string): unknown {
     const [part, name] = field.split(".") as [string, string];
@@ -104,7 +86,7 @@ describe("Steam and rinse settings shared by a Location's Machines", () => {
   const workflowWrites = (tablet: SimulatedTablet) => tablet.writes.filter((write) => write === "PUT /workflow");
   /** Each value of a setting the Machine's Workflows the server stored held, the latest first. */
   const storedSettings = async ({ machine }: CreatedMachine, part: string, name: string) => {
-    const { events } = (await (await api.call("GET", `/machines/${machine.id}/workflow-events?limit=100`)).json()) as { events: { workflow: Record<string, Record_> }[] };
+    const { events } = await api.get<{ events: { workflow: Record<string, Record_> }[] }>(`/machines/${machine.id}/workflow-events?limit=100`);
     return events.map((event) => event.workflow[part]?.[name]);
   };
 
@@ -124,12 +106,12 @@ describe("Steam and rinse settings shared by a Location's Machines", () => {
       belmont: await api.createMachine(`${name} Belmont 1`, belmont.id),
     };
     const first = load(machines.first, String(serials), { parts: { steamSettings: { flow: 1.5 } } });
-    await online(machines.first);
+    await api.waitForOnline(machines.first);
     const uptownSettings = await settingsOf(uptown);
     const second = load(machines.second, String(serials + 1), { instance: other, parts: { steamSettings: { flow: 0.9 }, rinseData: { duration: 7 } } });
     const bengle = load(machines.bengle, String(serials + 2), { model: "Bengle", parts: { steamSettings: { flow: 1.2 } }, stallUpload: options.stallBengle });
     const belmontDe1 = load(machines.belmont, String(serials + 3), { parts: { steamSettings: { flow: 0.8 } } });
-    await online(machines.second, machines.bengle, machines.belmont);
+    await api.waitForOnline(machines.second, machines.bengle, machines.belmont);
     await holds(second, { "steamSettings.flow": 1.5 });
     await holds(bengle, { "steamSettings.flow": 1.5 });
     return { uptown, belmont, machines, first, second, bengle, belmontDe1, uptownSettings };
@@ -284,8 +266,7 @@ describe("Steam and rinse settings shared by a Location's Machines", () => {
     expect((await versions(uptownSettings)).every((version) => version.source.machine?.id !== machines.bengle.machine.id)).toBe(true);
 
     // Staff may switch it only at their own Locations.
-    const { link } = await api.invite("switching-belmont@example.com", "staff", [belmont.id]);
-    const elsewhere = AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Staff", password: "staff password 1" }));
+    const elsewhere = await api.staffAt("switching-belmont@example.com", belmont);
     expect((await switchBengle(true, elsewhere)).status).toBe(403);
 
     // With sharing turned back on, it takes Uptown's settings, and its changes are shared from then on.
@@ -345,7 +326,7 @@ describe("Steam and rinse settings shared by a Location's Machines", () => {
     // The offline change was made before the management interface's: it loses, and the Location's is written back.
     await holds(second, { "rinseData.duration": 9 });
     const conflicts = async () =>
-      ((await (await api.call("GET", `/location-settings/${uptownSettings.id}/conflicts`)).json()) as { conflicts: Record_[] }).conflicts;
+      (await api.get<{ conflicts: Record_[] }>(`/location-settings/${uptownSettings.id}/conflicts`)).conflicts;
     await expect.poll(async () => (await conflicts()).length).toBe(1);
     const [conflict] = (await conflicts()) as { id: string; current: { versionId: string } }[];
     expect(conflict).toMatchObject({
