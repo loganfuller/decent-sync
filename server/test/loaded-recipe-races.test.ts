@@ -39,7 +39,14 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
    * whatever request `slowed` names, taking 300 ms, as `during` changes the
    * Workflow.
    */
-  function load(serial: string, workflow: Record_, during?: (tablet: SimulatedTablet) => Promise<unknown>, dial: Record_ = {}, slowed = (method: string, path: string, slot1: Record_) => method === "GET" && path === `/beans/${String(slot1.beanId)}`) {
+  function load(
+    serial: string,
+    workflow: Record_,
+    during?: (tablet: SimulatedTablet) => Promise<unknown>,
+    dial: Record_ = {},
+    slowed = (method: string, path: string, slot1: Record_) => method === "GET" && path === `/beans/${String(slot1.beanId)}`,
+    others: Record_[] = [],
+  ) {
     const [slot1] = dye2Keys().recipes as [Record_];
     Object.assign(slot1.dashboardVariables as Record_, dial);
     const api: DecaidApi = {
@@ -47,7 +54,7 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
       ...library,
       "/bean-batches": [...(library["/bean-batches"] as Record_[]), nextBag],
       "/workflow": workflow,
-      [`/store/${DYE2_NAMESPACE}/recipes`]: [{ ...slot1, decentSyncId: RECIPE, [RECIPE_FIELD]: { beanBatchId: ethiopia, hotWaterData: HOT_WATER } }],
+      [`/store/${DYE2_NAMESPACE}/recipes`]: [{ ...slot1, decentSyncId: RECIPE, [RECIPE_FIELD]: { beanBatchId: ethiopia, hotWaterData: HOT_WATER } }, ...others],
     };
     let changing: Promise<unknown> | undefined;
     const tablet: SimulatedTablet = SimulatedTablet.load({
@@ -175,6 +182,31 @@ describe("Deciding a Loaded Recipe while the Workflow changes", { timeout: 30_00
     await settled();
     expect(named(tablet)).toBe(RECIPE);
     expect(context(tablet)).toMatchObject({ beanBatchId: ethiopia, targetDoseWeight: 18.5 });
+  });
+
+  it("keeps the Recipe loaded through a tweak of its grind, though a recipe in another slot that leaves its grind blank then matches", async () => {
+    // Slot 1's recipe saved again in slot 3, for a batch of another Bean, before its grind was settled.
+    const [slot1] = dye2Keys().recipes as [Record_];
+    const variables = { ...(slot1.dashboardVariables as Record_) };
+    delete variables.grind;
+    const embedded = { ...((slot1.workflow as Record_).context as Record_) };
+    delete embedded.grinderSetting;
+    const slot3 = {
+      ...slot1,
+      id: "3",
+      name: "Tomorrow's roast",
+      dashboardVariables: variables,
+      workflow: { ...(slot1.workflow as Record_), context: embedded },
+      decentSyncId: "0190a5a2-0000-7000-8000-000000000146",
+      [RECIPE_FIELD]: { beanBatchId: brazil, hotWaterData: { ...HOT_WATER, volume: 200 } },
+    };
+    const { tablet } = load("47291", appliedWith(ethiopia, true), undefined, {}, undefined, [slot3]);
+    await settled();
+    await tablet.changeSettings({ context: { grinderSetting: "2.6" } });
+    await settled();
+    expect(named(tablet)).toBe(RECIPE);
+    expect(context(tablet)).toMatchObject({ beanBatchId: ethiopia, grinderSetting: "2.6" });
+    expect((tablet.workflow().hotWaterData as Record_).volume).not.toBe(200);
   });
 });
 

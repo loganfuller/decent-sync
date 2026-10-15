@@ -60,6 +60,7 @@ const held = (globalId: string, slot: number, record: Record_, earlier: Record_[
 
 const ONE = "0190a5a2-0000-7000-8000-000000000001";
 const TWO = "0190a5a2-0000-7000-8000-000000000002";
+const THREE = "0190a5a2-0000-7000-8000-000000000003";
 
 describe("a profile compared by what Decaid hashes for its id", () => {
   const profile = library.profiles[0]!.profile;
@@ -347,6 +348,37 @@ describe("deciding each change of the Workflow in turn", () => {
     const atOnce = decided([derived(current, { grinderSetting: "2.8" }), loaded], beans, tablet);
     expect(atOnce).toEqual({ kind: "load", globalId: ONE, kept: new Set(["batch"]) });
     expect(decided([current, derived(current, { grinderSetting: "2.8" }), current, loaded], beans, tablet)).toEqual(atOnce);
+  });
+
+  /** Slot 1's recipe saved again in slot 3 before its grind, or its grinder, was settled: each left blank. */
+  const loose = (...blank: ("grind" | "grinder")[]) => {
+    const record: Record_ = { ...recipe("1"), id: "3", name: "Tomorrow's roast" };
+    const variables = { ...(record.dashboardVariables as Record_) };
+    const embedded = { ...((record.workflow as Record_).context as Record_) };
+    if (blank.includes("grind")) {
+      delete variables.grind;
+      delete embedded.grinderSetting;
+    }
+    if (blank.includes("grinder")) {
+      delete variables.grinderId;
+      delete embedded.grinderId;
+    }
+    return held(THREE, 3, { ...record, dashboardVariables: variables, workflow: { ...(record.workflow as Record_), context: embedded } });
+  };
+
+  it("keeps the Loaded Recipe through a tweak of its grind, though another recipe that leaves its grind blank then matches", () => {
+    const tablet = [held(ONE, 1, recipe("1")), loose("grind")];
+    // From a Workflow already written its load: the tweak loads nothing.
+    expect(decided([derived(loaded, { targetDoseWeight: 17 }), derived(loaded, { targetDoseWeight: 17, grinderSetting: "2.6" })], beans, tablet)).toEqual({ kind: "none" });
+    expect(decided([loaded, derived(loaded, { grinderSetting: "2.6" })], beans, tablet)).toMatchObject({ kind: "load", globalId: ONE });
+    // Applied, that one loads: its change sets what it sets.
+    expect(decided([derived(slot1, { targetDoseWeight: 17 }), derived(slot1, { grinderSetting: "2.6" })], beans, [loose("grind")])).toMatchObject({ kind: "load", globalId: THREE });
+  });
+
+  it("keeps the Loaded Recipe through Streamline clearing its grinder, though another recipe that leaves its grinder blank then matches", () => {
+    const tablet = [held(ONE, 1, recipe("1")), loose("grinder")];
+    expect(decided([derived(slot1, { targetDoseWeight: 17, beanBatchId: "batch-e" }), loaded, shotStored(loaded)], beans, tablet)).toMatchObject({ kind: "load", globalId: ONE });
+    expect(decided([withId(derived(loaded, { grinderSetting: "2.8" }), ONE), withId(shotStored(derived(loaded, { grinderSetting: "2.8" })), ONE)], beans, tablet)).toEqual({ kind: "none" });
   });
 
   it("loads another recipe applied over a load still to be written", () => {

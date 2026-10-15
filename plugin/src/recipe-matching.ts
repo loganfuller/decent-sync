@@ -216,13 +216,19 @@ export function matches(recipe: Dial, workflow: Dial): boolean {
  * Workflow names as loaded already (`named`) wins, then the one in the
  * lowest Recipe Slot (ADR-0022). Where the same change picked a batch of a
  * Bean (`picked`, by the tablet's id for it), as a barista does, but no app
- * applying a recipe, a recipe naming another Bean is none it loads.
+ * applying a recipe, a recipe naming another Bean is none it loads. Where it
+ * is a change of the dial (`changed`, the parts of the dial it changed), it
+ * loads only a recipe with a dial it matches that sets one of them: a recipe
+ * that leaves a field blank matches whatever the Workflow holds there, so a
+ * tweak of the Loaded Recipe's grind, or Streamline clearing its grinder,
+ * would otherwise load a recipe that sets no grind, or no grinder.
  */
-export function chooseLoad(dial: Dial, named: string | null, held: readonly HeldRecipe[], picked: string | null = null): HeldRecipe | null {
+export function chooseLoad(dial: Dial, named: string | null, held: readonly HeldRecipe[], picked: string | null = null, changed?: ReadonlySet<string>): HeldRecipe | null {
+  const sets = (candidate: Dial) => (Object.keys(candidate) as (keyof Dial)[]).some((field) => candidate[field] !== null && changed!.has(field));
   const matching = held.filter((recipe) => {
     const bean = recipe.record.beanId;
     if (picked !== null && typeof bean === "string" && bean !== "" && bean !== picked) return false;
-    return recipe.dials.some((candidate) => matches(candidate, dial));
+    return recipe.dials.some((candidate) => matches(candidate, dial) && (changed === undefined || sets(candidate)));
   });
   return matching.find((recipe) => recipe.globalId === named) ?? [...matching].sort((a, b) => a.slot - b.slot)[0] ?? null;
 }
@@ -431,7 +437,7 @@ export function decideChange(
   if (dialChanged) {
     // The first Workflow is no change: one naming no recipe is the barista's as it stands, its batch's Bean included.
     const bean = picked || (!before && after.named === null) ? after.bean : null;
-    const chosen = chooseLoad(after.dial, loaded, held, bean);
+    const chosen = chooseLoad(after.dial, loaded, held, bean, before ? changed : undefined);
     if (chosen) {
       const kept = new Set<WrittenPart>(picked ? ["batch"] : []);
       const same = pending.kind === "load" && pending.globalId === chosen.globalId;

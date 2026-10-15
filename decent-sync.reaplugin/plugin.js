@@ -850,11 +850,12 @@ var __decentSync = (() => {
     if (recipe.profile === null && recipe.dose === null && recipe.yield === null && recipe.grinder === null && recipe.grind === null) return false;
     return (recipe.profile === null || recipe.profile === workflow.profile) && (recipe.dose === null || sameNumber(recipe.dose, workflow.dose)) && (recipe.yield === null || sameNumber(recipe.yield, workflow.yield)) && (recipe.grinder === null || recipe.grinder === workflow.grinder) && (recipe.grind === null || sameGrind(recipe.grind, workflow.grind));
   }
-  function chooseLoad(dial, named, held, picked = null) {
+  function chooseLoad(dial, named, held, picked = null, changed) {
+    const sets = (candidate) => Object.keys(candidate).some((field) => candidate[field] !== null && changed.has(field));
     const matching = held.filter((recipe) => {
       const bean = recipe.record.beanId;
       if (picked !== null && typeof bean === "string" && bean !== "" && bean !== picked) return false;
-      return recipe.dials.some((candidate) => matches(candidate, dial));
+      return recipe.dials.some((candidate) => matches(candidate, dial) && (changed === void 0 || sets(candidate)));
     });
     return matching.find((recipe) => recipe.globalId === named) ?? [...matching].sort((a, b) => a.slot - b.slot)[0] ?? null;
   }
@@ -952,7 +953,7 @@ var __decentSync = (() => {
     const loaded = pending.kind === "load" ? pending.globalId : pending.kind === "unload" ? null : after.named;
     if (dialChanged) {
       const bean2 = picked || !before && after.named === null ? after.bean : null;
-      const chosen = chooseLoad(after.dial, loaded, held, bean2);
+      const chosen = chooseLoad(after.dial, loaded, held, bean2, before ? changed : void 0);
       if (chosen) {
         const kept2 = new Set(picked ? ["batch"] : []);
         const same = pending.kind === "load" && pending.globalId === chosen.globalId;

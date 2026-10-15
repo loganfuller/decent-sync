@@ -234,9 +234,13 @@ from the Workflow deliveries.
   left to decide on. The first Workflow after a load of the plugin is
   decided on too, and may load a recipe it matches (below), but unloads
   nothing.
-  - A change of the dial may load a recipe (A load, below). A batch picked
-    in the same change, which no app applying a recipe does, stays as
-    picked, and a recipe of another Bean is none it loads.
+  - A change of the dial may load a recipe (A load, below), but only one it
+    changed a field of that the recipe sets: a recipe leaving a field blank
+    matches whatever the Workflow holds there, so a tweak of the Loaded
+    Recipe's grind, or Streamline clearing its grinder, loads no recipe in
+    another slot that sets no grind, or no grinder. A batch picked in the
+    same change, which no app applying a recipe does, stays as picked, and
+    a recipe of another Bean is none it loads.
   - Otherwise a change of the profile, grinder or Bean to one the Loaded
     Recipe does not name unloads it (Unloading, below). A change of the Bean
     Batch alone loads nothing, and only a batch of another Bean unloads, so
@@ -252,7 +256,8 @@ from the Workflow deliveries.
     back. A stale copy of it, matching only a dial it held before, has all
     but its batch corrected, as no app applying a recipe sets one. The
     barista's changes of the dial before such a match are no longer kept:
-    the match sets it again.
+    the match sets it again. A part the barista cleared on purpose is
+    written back as well, as a cleared part cannot tell who cleared it.
   - The first Workflow, as on every load of the plugin, is no change. One
     naming a recipe it matches is written that recipe's dial alone, and one
     naming none loads no recipe of another Bean than its batch's, as when
