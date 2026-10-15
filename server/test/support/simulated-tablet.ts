@@ -11,6 +11,7 @@ import { createGrinder, deleteGrinder, listedGrinders, updateGrinder } from "./d
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
 import { updateWorkflow } from "./decaid-workflow.js";
 import { rememberSecret, watchLog } from "./secrets.js";
+import { opened } from "./test-scope.js";
 
 // Seam 1's simulated tablet: runs the built decent-sync.reaplugin/plugin.js
 // (`npm run build` first) in a stand-in for Decaid's plugin host, the way
@@ -665,7 +666,9 @@ export class SimulatedTablet {
 
   /** Loads the built plugin and calls onLoad, as Decaid does when the plugin is enabled. */
   static load(options: SimulatedTabletOptions): SimulatedTablet {
-    return new SimulatedTablet(options);
+    const tablet = new SimulatedTablet(options);
+    opened({ end: () => tablet.unload() });
+    return tablet;
   }
 
   private constructor(options: SimulatedTabletOptions) {
@@ -1759,7 +1762,9 @@ export class RawConnection {
       socket.once("open", resolve);
       socket.once("error", reject);
     });
-    return new RawConnection(socket);
+    const raw = new RawConnection(socket);
+    opened({ end: () => raw.terminate() });
+    return raw;
   }
 
   /**
