@@ -83,6 +83,19 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     for (const { machine } of machines) await api.waitForMachine(machine.name, (viewed) => viewed.online);
   }
 
+  /**
+   * Resolves once the server has acknowledged a report of the tablet's
+   * profiles, so taken it in: until then, the tablet's map holds none of
+   * them, and a bundled Profile it hides is not hidden at its Location but
+   * written back as the Location has it.
+   */
+  async function reported(tablet: SimulatedTablet): Promise<void> {
+    const frames = (list: unknown[]) => list as { type?: unknown; name?: unknown; id?: unknown }[];
+    const acknowledged = () =>
+      frames(tablet.sent).some((frame) => frame.name === "profiles" && frames(tablet.received).some((reply) => reply.type === "ack" && reply.id === frame.id));
+    await expect.poll(acknowledged, { timeout: 10_000 }).toBe(true);
+  }
+
   const libraryProfiles = async () => ((await (await api.call("GET", "/profiles")).json()) as { profiles: ProfileSummary[] }).profiles;
   const viewProfile = async (id: string) => ((await (await api.call("GET", `/profiles/${encodeURIComponent(id)}`)).json()) as { profile: ProfileView }).profile;
   /**
@@ -119,8 +132,9 @@ describe("Profiles shown per Location", { timeout: 60_000 }, () => {
     const cafe = load(machines[2], String(serials + 2));
     const cafeTwo = load(machines[3], String(serials + 3), { instance: other });
     await online(...machines);
-    // Each Location shows Decaid's bundled Profiles, as its first tablet reported them.
+    // Each Location shows Decaid's bundled Profiles, as its first tablet reported them, and every tablet's report is taken in.
     await expect.poll(() => shownAt(name, BUNDLED), { timeout: 10_000 }).toEqual([`${name} cafe`, `${name} lab`]);
+    for (const tablet of [one, two, cafe, cafeTwo]) await reported(tablet);
     return { labLocation, cafeLocation, machines, one, two, cafe, cafeTwo };
   }
 
