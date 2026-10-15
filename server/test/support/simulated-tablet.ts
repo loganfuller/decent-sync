@@ -28,8 +28,9 @@ import { opened } from "./test-scope.js";
 //   `GET /steams/ids` lists the Steam Records served at `/steams/{id}`,
 //   failing as Decaid's 10 MiB response limit fails it once the list passes
 //   `steamIdsLimitBytes`, and `GET /steams/latest` answers the newest of them
-//   without measurements, or `null`; `holdSteamReads` holds either, and
-//   `holdWorkflowReads` holds reads of the Workflow. The
+//   without measurements, or `null`; `holdSteamReads` holds either,
+//   `holdWorkflowReads` reads of the Workflow, and `holdShotReads` reads
+//   of each Shot. The
 //   library's lists leave out archived and hidden records unless asked for
 //   them, the bean batches leaving out those of archived beans too, and send
 //   an ETag, answering 304 to it in If-None-Match. A key of
@@ -602,6 +603,8 @@ export class SimulatedTablet {
   private readonly steamReadsHeld = new Map<HeldSteamRead, Promise<boolean>>();
   /** The reads of the Workflow held, as they are requested, until the promise settles. */
   private workflowReadsHeld: Promise<void> | undefined;
+  /** The reads of each Shot held, as they are requested, until the promise settles. */
+  private shotReadsHeld: Promise<void> | undefined;
   /** Every frame the plugin sent, parsed, in order. */
   readonly sent: unknown[] = [];
   /** Every text frame the server sent the plugin, parsed, in order. */
@@ -821,6 +824,23 @@ export class SimulatedTablet {
     this.workflowReadsHeld = held;
     return () => {
       if (this.workflowReadsHeld === held) this.workflowReadsHeld = undefined;
+      release();
+    };
+  }
+
+  /**
+   * Holds the plugin's reads of each Shot (`GET /shots/{id}`) until the
+   * function returned is called, as Decaid is slow to read one: each is
+   * answered, when released, from the Shots the tablet holds then.
+   */
+  holdShotReads(): () => void {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.shotReadsHeld = held;
+    return () => {
+      if (this.shotReadsHeld === held) this.shotReadsHeld = undefined;
       release();
     };
   }
@@ -1213,6 +1233,7 @@ export class SimulatedTablet {
     }
     if ((route === "/steams/ids" || route === "/steams/latest") && (await this.steamReadsHeld.get(route))) throw new Error("Fetch timed out");
     if (method === "GET" && route === "/workflow") await this.workflowReadsHeld;
+    if (method === "GET" && route.startsWith("/shots/")) await this.shotReadsHeld;
     if (route === "/steams/ids") {
       // Every id at once, unpaginated, in the order of Decaid's primary key index.
       const ids = Object.keys(this.api).filter((path) => path.startsWith("/steams/")).map((path) => decodeURIComponent(path.slice("/steams/".length)));

@@ -67,12 +67,11 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
   function load(
     machine: CreatedMachine,
     serial: string,
-    options: { instance?: TestServer; library?: Record_; storage?: PluginStorage; apiDelayMs?: (method: string, path: string) => number } = {},
+    options: { instance?: TestServer; library?: Record_; storage?: PluginStorage } = {},
   ): SimulatedTablet {
     const tablet = SimulatedTablet.load({
       settings: { ...settingsFor({ token: machine.token, serverUrl: (options.instance ?? server).url }), PollSeconds: 5 },
       api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS, ...options.library },
-      apiDelayMs: options.apiDelayMs,
       storage: options.storage,
       timeScale: 50,
     });
@@ -310,9 +309,7 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
   it("refuses to hard-delete a Profile a Shot pulled through streamline-js used, its overrides and all, on the server and on the tablet that has yet to send the Shot", async () => {
     const location = await api.createLocation("Zeroed cafe", "America/Chicago");
     const machine = await api.createMachine("Zeroed cafe 1", location.id);
-    let slowShots = false;
-    // Decaid is slow to read a Shot, so the server plans a delete before it has the Shot just pulled.
-    const tablet = load(machine, "26071", { apiDelayMs: (method, path) => (slowShots && method === "GET" && path.startsWith("/shots/") ? 3_000 : 0) });
+    const tablet = load(machine, "26071");
     await api.waitForMachine(machine.machine.name, (viewed) => viewed.online);
     const sent = (await tablet.addProfile(withLimiter(derivedProfile("Zeroed bloom", 4.25), { value: 0, range: 0.6 }))).profile as Record_;
     const unsent = (await tablet.addProfile(withLimiter(derivedProfile("Zeroed unsent bloom", 4.35), { value: 0, range: 0.6 }))).profile as Record_;
@@ -326,10 +323,13 @@ describe("Shots linked to the Library", { timeout: 60_000 }, () => {
     expect(refused.status).toBe(409);
     expect(await refused.text()).toMatch(/A Shot names this Profile/);
 
-    // The tablet has yet to send the Shot when the delete reaches it.
-    slowShots = true;
+    // The tablet has yet to send the Shot when the delete reaches it: Decaid is slow to read it, so the server plans the
+    // delete before it has the Shot just pulled.
+    const releaseShots = tablet.holdShotReads();
     tablet.pullShot(shotWith("zeroed-unsent", "26071", {}, withTemperature(withLimiter(unsent, null), 95)));
     expect((await api.call("DELETE", `/profiles/${encodeURIComponent(unsentId)}`)).status).toBe(204);
+    await poll(() => tablet.received.some((frame) => (frame as { type?: unknown }).type === "delete")).toBe(true);
+    releaseShots();
     await expect
       .poll(() => server.output(), { timeout: 20_000 })
       .toMatch(/did not delete "profile" .*A Shot this plugin has queued or has yet to send names the record/);
