@@ -978,8 +978,10 @@ export const STEAM_ON_FROM = 135;
  * Recipe as loaded (`loadedRecipeOf`); otherwise it sets, through
  * `PUT /workflow` (`workflowPatch`), each part whose first field still holds
  * the value expected, or none, as Streamline clears the batch, Basket and
- * RPM once each Shot is stored, or that expects none: a part a barista
- * changed since is kept, which its Workflow change brings to the server.
+ * RPM once each Shot is stored, or the value written already, as one DYE2
+ * recorded that the server did not hold, or that expects none: a part a
+ * barista changed since is kept, which its Workflow change brings to the
+ * server.
  * Decaid refuses to change the hot water settings while no machine is
  * connected, so the rest is then written without them. Its answer's
  * `record` is the Workflow's `context`, `hotWaterData` and `profile` as

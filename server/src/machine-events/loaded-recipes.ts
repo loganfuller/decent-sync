@@ -521,6 +521,27 @@ export async function recordedByDye2(
   return stale;
 }
 
+/**
+ * After a save of DYE2's editor of a Recipe (`savedInEditor`), which DYE2
+ * does not apply to the Workflow, and which a report can bring with what
+ * DYE2 recorded before it: the parts DYE2 records are held as the tablet's
+ * latest Workflow holds them, while that Recipe is its Loaded Recipe, under
+ * the tablet's lock, which the report holds. So the save's values are
+ * written into that Workflow, as into the others that have the Recipe
+ * loaded, each expecting what it holds.
+ */
+export async function heldAfterEditorSave(tx: Prisma.TransactionClient, tablet: ReportingTablet, recipeId: string, content: Readonly<Record<string, unknown>>): Promise<void> {
+  const known = await heldLoadedRecipe(tx, tablet.tabletId);
+  if (known === null || known.recipeId !== recipeId) return;
+  const [latest] = await tx.$queryRaw<{ workflow: unknown }[]>`
+    SELECT workflow FROM workflow_events WHERE machine_id = ${tablet.machineId}::uuid ORDER BY id DESC LIMIT 1`;
+  if (!latest) return;
+  const now = workflowParts(latest.workflow);
+  const held: WorkflowParts = { ...known.held };
+  for (const part of recordedParts(content)) held[part] = now[part];
+  await saveHeld(tx, tablet.tabletId, recipeId, held, null);
+}
+
 /** The tablet's id for its record of a Grinder, Basket or Bean Batch, by the item's global id, by its map; undefined where it holds none. */
 async function tabletLocals(tx: Prisma.TransactionClient, tabletId: string): Promise<(kind: ItemKind, itemId: string) => string | undefined> {
   const rows = await tx.$queryRaw<{ kind: ItemKind; itemId: string; localId: string }[]>`

@@ -458,10 +458,16 @@ the parts to the Recipe's content both ways.
   before its post, as the answer to the post carries it
   (`recordRecipeWritten`). A save of DYE2's editor, which stamps the
   record's `capturedAt` anew where a recording keeps it (`savedInEditor`),
-  is no recording: nothing of it is held as the Workflow's, so its values
-  are written into the Workflow of every Machine that has the Recipe
-  loaded, the saving one's included, and DYE2 does not record the old
-  ones back. DYE2 never records a batch: another batch on the
+  is no recording: the parts DYE2 records are held as the tablet's latest
+  Workflow holds them (`heldAfterEditorSave`), whatever the report brings
+  with it, so the save's values are written into the Workflow of every
+  Machine that has the Recipe loaded, the saving one's included. Where DYE2
+  recorded a change whose Workflow reaches the server only after the report,
+  the write of it finds the Workflow holding the value written already,
+  which the plugin writes all the same, so its answer has it held. DYE2
+  applies no save to the Workflow, so a change of that Workflow before the
+  save is reported has DYE2 record its old values back over the save, which
+  the server never sees (an accepted gap, ADR-0022). DYE2 never records a batch: another batch on the
   Machine, of the Recipe's Bean or not, unloads it (A load, above). Where
   the Recipe holds no batch, DYE2 takes the first one picked as the one it
   was applied with (decentespresso/dye2#19), so the Recipe stays loaded,
@@ -543,8 +549,8 @@ the parts to the Recipe's content both ways.
   still names the Recipe and DYE2 still has its slot selected, or answers
   404, or has nothing selected while the plugin is still to select the slot
   again after a write that changed the profile (it refuses the write otherwise, and the writer tries it again once it
-  changes), and sets a part only while it holds the value expected or none,
-  so a barista's change since is kept, and reaches the server in the answer,
+  changes), and sets a part only while it holds the value expected, the
+  value written or none, so a barista's change since is kept, and reaches the server in the answer,
   where it is the tablet's edit, timed when the plugin had Decaid's answer;
   a brew temperature moves every step of the profile written, or else the
   Workflow's, by the same amount. A write that changed the profile has the

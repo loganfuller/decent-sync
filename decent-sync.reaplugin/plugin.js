@@ -2185,7 +2185,7 @@ var __decentSync = (() => {
         if (!(first in write.fields) || !hotWater && first.startsWith("hotWaterData.")) return [];
         const held = workflowValueAt(workflow, first);
         const expected = write.expected?.[first];
-        if (held !== void 0 && held !== null && expected !== void 0 && !sameValue(held, expected)) return [];
+        if (held !== void 0 && held !== null && expected !== void 0 && !sameValue(held, expected) && !sameValue(held, write.fields[first])) return [];
         return part.filter((field) => field in write.fields).map((field) => [field, write.fields[field]]);
       })
     );

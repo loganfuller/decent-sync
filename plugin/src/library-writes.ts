@@ -776,7 +776,9 @@ function loadedRecipeFields(write: LibraryWrite, workflow: Record<string, unknow
       if (!(first in write.fields) || (!hotWater && first.startsWith("hotWaterData."))) return [];
       const held = workflowValueAt(workflow, first);
       const expected = write.expected?.[first];
-      if (held !== undefined && held !== null && expected !== undefined && !sameValue(held, expected)) return [];
+      // One holding the value written already is written too, so its answer has the server hold it: as where DYE2 recorded
+      // a change the server did not hold, as of a report bringing a save of DYE2's editor with it.
+      if (held !== undefined && held !== null && expected !== undefined && !sameValue(held, expected) && !sameValue(held, write.fields[first])) return [];
       return part.filter((field) => field in write.fields).map((field) => [field, write.fields[field]]);
     }),
   );

@@ -143,7 +143,9 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
 
   it("loads a recipe applied the Streamline way on a tablet on the other instance, which names it at once and applies its batch and brew temperature", async () => {
     const { machine, tablet, two } = await lab("Strip", 47011, { instance: other });
-    // The Workflow on another batch than the Recipe's, which the strip applies from the record's embedded Workflow.
+    // The Workflow on another batch than the Recipe's, which the strip applies from the record's embedded Workflow, once the
+    // record names its Basket, which the tablet is written first.
+    await expect.poll(() => (inSlot(tablet, "2")?.dashboardVariables as Record_ | undefined)?.basketId ?? null, { timeout: 15_000 }).not.toBeNull();
     expect(context(tablet).beanBatchId).not.toBe(inSlot(tablet, "2")!.beanBatchId);
     const writes = workflowWrites(tablet);
     const streamline = await startStreamline(tablet);

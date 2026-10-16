@@ -84,6 +84,9 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     const listed = (await tablet.callApi("GET", `${route}?includeArchived=true`)).body as Record_[];
     return listed.find((record) => (record.extras as Record_ | undefined)?.[GLOBAL_ID_KEY] === globalId)?.id;
   };
+  /** The Machine's current Workflow as the server holds it, or null. */
+  const currentWorkflow = async ({ machine }: CreatedMachine) =>
+    (await api.get<{ workflow: { workflow: Record_ } | null }>(`/machines/${machine.id}/workflow`)).workflow?.workflow ?? null;
   /** Waits a while for what should not happen, as a write to a Workflow that does not follow the Recipe. */
   const settle = () => new Promise((resolve) => setTimeout(resolve, 1_500));
 
@@ -94,7 +97,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
    * every tablet there is written, and slot 1 is applied on DYE2's dashboard
    * on A and C, and slot 2 on D, which each loads. A's machine is connected.
    */
-  async function lab(scenario: string, serial: number) {
+  async function lab(scenario: string, serial: number, options: { pollSeconds?: number } = {}) {
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machines = {
       a: await api.createMachine(`${scenario} lab A`, here.id),
@@ -102,7 +105,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
       d: await api.createMachine(`${scenario} lab D`, here.id),
     };
     const dye2 = { a: new SimulatedDye2(), c: new SimulatedDye2(), d: new SimulatedDye2() };
-    const a = syncingTablet(machines.a, server, { api: recordedDye2MainTablet(String(serial), scenario), dye2: dye2.a });
+    const a = syncingTablet(machines.a, server, { api: recordedDye2MainTablet(String(serial), scenario), dye2: dye2.a, pollSeconds: options.pollSeconds });
     await api.waitForOnline(machines.a);
     await expect.poll(() => ["1", "2"].map((slot) => dye2GlobalIdOf(inSlot(a, slot))), { timeout: 15_000 }).not.toContain(null);
     const c = syncingTablet(machines.c, other, { api: dye2NeverUsed(String(serial + 1)), dye2: dye2.c });
@@ -194,6 +197,32 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await settle();
     expect((await recipe(one)).content).toMatchObject({ rpm: 1333, dose: 19.5 });
     expect([extras(c).rpm, context(c).targetDoseWeight]).toEqual([1333, 19.5]);
+  });
+
+  it("follows a grind DYE2 records and an editor save that reach the server in one report, writing a later edit into A's Workflow", async () => {
+    // A's recipes are read at a welcome, not at its poll.
+    const { machines, a, c, one } = await lab("Coalesced", 48171, { pollSeconds: 3600 });
+    await a.changeSettings({ context: { grinderSetting: "3.3" } });
+    await expect.poll(() => variables(inSlot(a, "1")).grind, { timeout: 15_000 }).toBe(3.3);
+    await expect.poll(() => currentWorkflow(machines.a).then((workflow) => (workflow?.context as Record_ | undefined)?.grinderSetting), { timeout: 15_000 }).toBe("3.3");
+    // Then DYE2's editor saves a rename of slot 1, and the plugin reports both at its next welcome.
+    const renamed = records(a).map((record) => (record.id === "1" ? { ...record, capturedAt: new Date().toISOString(), name: "Coalesced rename" } : record));
+    expect((await a.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, renamed)).status).toBe(200);
+    a.dropConnections();
+    await expect.poll(async () => (await recipe(one)).content, { timeout: 15_000 }).toMatchObject({ name: "Coalesced rename", grindSetting: 3.3 });
+    // An edit of the grind from elsewhere reaches A's Workflow as C's.
+    await patch(one, { grindSetting: 3.5 });
+    for (const tablet of [a, c]) await expect.poll(() => context(tablet).grinderSetting, { timeout: 15_000 }).toBe("3.5");
+  });
+
+  it("writes an RPM saved in DYE2's editor on A, read as the plugin writes the record, into A's Workflow too", async () => {
+    const { a, c, one } = await lab("Answered", 48181, { pollSeconds: 3600 });
+    const saved = records(a).map((record) => (record.id === "1" ? { ...record, capturedAt: new Date().toISOString(), dashboardVariables: { ...variables(record), rpm: 1444 } } : record));
+    expect((await a.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, saved)).status).toBe(200);
+    // The Recipe's own edit has the plugin read and write slot 1: its answer carries the save.
+    await patch(one, { dose: 19 });
+    await expect.poll(async () => (await recipe(one)).content.rpm, { timeout: 15_000 }).toBe(1444);
+    for (const tablet of [a, c]) await expect.poll(() => [extras(tablet).rpm, context(tablet).targetDoseWeight], { timeout: 15_000 }).toEqual([1444, 19]);
   });
 
   it("changes nothing of a Recipe holding no RPM or Basket as they change on its Machine, as DYE2 records neither into it", async () => {
