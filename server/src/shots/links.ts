@@ -41,10 +41,12 @@ import { KINDS } from "../library/kinds.js";
 // (`selection_named` false), as one pulled while the plugin selects the slot
 // again after its own write of a batch or grinder, which DYE2 clears its
 // selection on, is stored naming the Recipe its Machine had loaded latest by
-// its end, and linked to it where it still had it loaded as the Shot ended. Which Recipe its Machine had loaded is read, not stored
-// (`shotRecipeSql`), so it follows the Loaded Recipes as their deliveries
-// arrive, those of a tablet that was offline included, and the Shot's credit
-// as it changes. A Shot's Tools are linked as its Basket is, each in its place among the ids
+// its end, as the server knows its Loaded Recipes then (`nameLoadedRecipe`),
+// and linked to it where it still had it loaded as the Shot ended. Whether
+// the Machine had the Recipe loaded is read, not stored (`shotRecipeSql`), so
+// it follows the Loaded Recipes as their deliveries arrive, those of a tablet
+// that was offline included, and the Shot's credit as it changes. A Shot's
+// Tools are linked as its Basket is, each in its place among the ids
 // DYE2 recorded (`library_tool_ids`), only so a Tool a Shot used is never
 // hard-deleted once its record has left the tablet, as when it was Archived
 // or hidden there: its page shows the names DYE2 stored.

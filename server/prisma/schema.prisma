@@ -510,8 +510,9 @@ model Shot {
   recipeId         String?           @map("recipe_id") @db.Uuid
   /// Whether its Workflow's DYE2 selection named an item, a recipe or a
   /// favourite: one naming nothing, as while the plugin selects the slot
-  /// again after its own write, is linked to the Recipe its Machine still
-  /// had loaded as it ended.
+  /// again after its own write, names the Recipe its Machine had loaded
+  /// latest by its end (`recipeId`), and is linked to it where that was still
+  /// loaded as it ended.
   selectionNamed   Boolean           @default(false) @map("selection_named")
   coffeeName       String?           @map("coffee_name")
   coffeeRoaster    String?           @map("coffee_roaster")
