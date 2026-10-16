@@ -5,12 +5,14 @@
       "beverage": "Fixture Flat White",
       "barista": "Fixture Barista",
       "drinker": "Fixture Drinker",
-      "beanId": "8ee8ac01-bf2b-47d6-b4e2-292bd7ef5ada",
+      "beanId": "bdae1553-8b0f-4d37-94a1-15d61b543e74",
       "beanName": "Fixture Ethiopia",
+      "beanRoaster": "Fixture Roasters",
       "profileId": "profile:98fa00c191551b435845",
       "profileTitle": "Adaptive v3",
-      "profileSnapshot": null,
       "showOnStreamlineDashboard": true,
+      "id": "1",
+      "capturedAt": "2026-10-16T17:27:28.642Z",
       "dashboardVariables": {
         "dose": 18.5,
         "drink": 36,
@@ -22,20 +24,20 @@
         "hotWaterTempC": 88,
         "grind": 2.7,
         "rpm": 900,
-        "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+        "grinderId": "cc95ada6-98db-4495-8b24-a46239ad94a0",
         "grinderModel": "Fixture Grinder 64",
-        "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+        "basketId": "b09fb95c-7e5d-4be1-a4b8-d89c79523343",
         "basketName": "Fixture 18g Precision",
         "equipmentIds": [
-          "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
-          "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2"
+          "0ee0a5bb-5e08-4a2b-9bce-3b256693a6d2",
+          "28dc53fe-df8b-4789-9589-49ef5e45d57e"
         ],
         "equipmentNames": [
           "Fixture WDT Tool",
           "Fixture Puck Screen"
         ],
         "equipmentCustom": {
-          "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6": [
+          "0ee0a5bb-5e08-4a2b-9bce-3b256693a6d2": [
             {
               "key": "Needles",
               "value": "12"
@@ -47,8 +49,6 @@
           ]
         }
       },
-      "id": "1",
-      "capturedAt": "2026-10-12T20:25:55.195Z",
       "title": "Fixture Ethiopia Espresso",
       "subtitle": "Fixture Ethiopia",
       "workflow": {
@@ -58,12 +58,27 @@
           "grinderSetting": "2.7",
           "extras": {
             "rpm": 900,
-            "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
-            "basketName": "Fixture 18g Precision"
+            "basketId": "b09fb95c-7e5d-4be1-a4b8-d89c79523343",
+            "basketName": "Fixture 18g Precision",
+            "dye": {
+              "v": 1,
+              "beanBatchId": null,
+              "coffeeName": true,
+              "coffeeRoaster": true,
+              "grinderId": true,
+              "grinderModel": true,
+              "baristaName": true,
+              "drinkerName": true,
+              "basketId": true,
+              "basketName": true,
+              "rpm": true
+            }
           },
-          "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+          "grinderId": "cc95ada6-98db-4495-8b24-a46239ad94a0",
           "grinderModel": "Fixture Grinder 64",
           "coffeeName": "Fixture Ethiopia",
+          "coffeeRoaster": "Fixture Roasters",
+          "beanBatchId": null,
           "baristaName": "Fixture Barista",
           "drinkerName": "Fixture Drinker"
         },
@@ -82,7 +97,7 @@
               "volume": 100,
               "seconds": 5,
               "weight": 0,
-              "temperature": 93,
+              "temperature": 92,
               "sensor": "coffee",
               "flow": 8,
               "limiter": {
@@ -102,7 +117,7 @@
               "volume": 100,
               "seconds": 12,
               "weight": 0,
-              "temperature": 93,
+              "temperature": 92,
               "sensor": "coffee",
               "flow": 8,
               "limiter": {
@@ -122,7 +137,7 @@
               "volume": 100,
               "seconds": 12,
               "weight": 0,
-              "temperature": 88,
+              "temperature": 87,
               "sensor": "coffee",
               "pressure": 3,
               "limiter": {
@@ -138,7 +153,7 @@
               "volume": 0,
               "seconds": 6,
               "weight": 0,
-              "temperature": 88,
+              "temperature": 87,
               "sensor": "coffee",
               "pressure": 0.1,
               "limiter": {
@@ -158,7 +173,7 @@
               "volume": 100,
               "seconds": 6,
               "weight": 0,
-              "temperature": 88,
+              "temperature": 87,
               "sensor": "coffee",
               "pressure": 11,
               "limiter": {
@@ -178,7 +193,7 @@
               "volume": 0,
               "seconds": 0,
               "weight": 0,
-              "temperature": 88,
+              "temperature": 87,
               "sensor": "coffee",
               "flow": 1.5,
               "limiter": {
@@ -194,7 +209,7 @@
               "volume": 100,
               "seconds": 60,
               "weight": 0,
-              "temperature": 88,
+              "temperature": 87,
               "sensor": "coffee",
               "flow": 3.5,
               "limiter": {
@@ -207,6 +222,15 @@
           "target_weight": 36,
           "target_volume_count_start": 3,
           "tank_temperature": 0
+        },
+        "steamSettings": {
+          "duration": 30
+        },
+        "hotWaterData": {
+          "targetTemperature": 88
+        },
+        "rinseData": {
+          "duration": 5
         }
       }
     },
@@ -215,9 +239,9 @@
       "beverage": "",
       "barista": "",
       "drinker": "",
-      "beanId": "6b16db38-425e-48ec-93b7-e03e1d8707cd",
+      "beanId": "1497c30b-e01e-4241-b1b0-a82bdae089d3",
       "beanName": "Fixture Brazil",
-      "profileId": null,
+      "beanRoaster": "Fixture Roasters",
       "profileTitle": "Classic Italian espresso",
       "profileSnapshot": {
         "version": "2",
@@ -296,31 +320,30 @@
         "tank_temperature": 0
       },
       "showOnStreamlineDashboard": true,
+      "id": "2",
+      "capturedAt": "2026-10-16T17:27:23.380Z",
       "dashboardVariables": {
-        "dose": 20,
+        "dose": 19,
         "drink": 36,
-        "brewC": 94,
         "steamMode": "flow",
-        "steamFlowMls": 1.3,
+        "steamFlowMls": 1.2,
         "flushS": 4,
         "hotWaterMode": "vol",
-        "hotWaterMl": 155,
-        "grind": 3.1,
+        "hotWaterMl": 150,
+        "grind": 3,
         "rpm": 1100,
-        "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+        "grinderId": "cc95ada6-98db-4495-8b24-a46239ad94a0",
         "grinderModel": "Fixture Grinder 64",
-        "basketId": "1749fba2-86b3-43e2-badf-97af64ae888b",
+        "basketId": "fa7809d4-1843-4745-8a37-ca6f43025dba",
         "basketName": "Fixture 20g High-flow",
         "equipmentIds": [
-          "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2"
+          "28dc53fe-df8b-4789-9589-49ef5e45d57e"
         ],
         "equipmentNames": [
           "Fixture Puck Screen"
         ],
         "equipmentCustom": {}
       },
-      "id": "2",
-      "capturedAt": "2026-10-12T20:25:49.933Z",
       "title": "Fixture Brazil Espresso",
       "subtitle": "Fixture Brazil",
       "workflow": {
@@ -330,12 +353,25 @@
           "grinderSetting": "3",
           "extras": {
             "rpm": 1100,
-            "basketId": "1749fba2-86b3-43e2-badf-97af64ae888b",
-            "basketName": "Fixture 20g High-flow"
+            "basketId": "fa7809d4-1843-4745-8a37-ca6f43025dba",
+            "basketName": "Fixture 20g High-flow",
+            "dye": {
+              "v": 1,
+              "beanBatchId": null,
+              "coffeeName": true,
+              "coffeeRoaster": true,
+              "grinderId": true,
+              "grinderModel": true,
+              "basketId": true,
+              "basketName": true,
+              "rpm": true
+            }
           },
-          "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+          "grinderId": "cc95ada6-98db-4495-8b24-a46239ad94a0",
           "grinderModel": "Fixture Grinder 64",
-          "coffeeName": "Fixture Brazil"
+          "coffeeName": "Fixture Brazil",
+          "coffeeRoaster": "Fixture Roasters",
+          "beanBatchId": null
         },
         "profile": {
           "version": "2",
@@ -412,6 +448,15 @@
           "target_weight": 36,
           "target_volume_count_start": 2,
           "tank_temperature": 0
+        },
+        "steamSettings": {
+          "flow": 1.2
+        },
+        "hotWaterData": {
+          "volume": 150
+        },
+        "rinseData": {
+          "duration": 4
         }
       }
     },
@@ -420,47 +465,37 @@
       "beverage": "",
       "barista": "",
       "drinker": "",
-      "beanId": null,
-      "beanName": null,
-      "profileId": null,
-      "profileTitle": null,
-      "profileSnapshot": null,
       "showOnStreamlineDashboard": true,
+      "id": "3",
+      "capturedAt": "2026-10-16T17:27:33.829Z",
       "dashboardVariables": {
-        "dose": 0,
-        "drink": 0,
-        "brewC": 93,
         "steamMode": "flow",
-        "steamFlowMls": 0,
-        "flushS": 0,
         "hotWaterMode": "vol",
-        "hotWaterMl": 0,
-        "grind": 0,
-        "rpm": 0,
-        "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
+        "grinderId": "cc95ada6-98db-4495-8b24-a46239ad94a0",
         "grinderModel": "Fixture Grinder 64",
-        "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
+        "basketId": "b09fb95c-7e5d-4be1-a4b8-d89c79523343",
         "basketName": "Fixture 18g Precision",
         "equipmentIds": [],
         "equipmentNames": [],
         "equipmentCustom": {}
       },
-      "id": "3",
-      "capturedAt": "2026-10-12T20:26:00.395Z",
       "title": "Fixture Blank Recipe",
       "subtitle": "",
       "workflow": {
         "context": {
-          "targetDoseWeight": 0,
-          "targetYield": 0,
-          "grinderSetting": "0",
+          "grinderId": "cc95ada6-98db-4495-8b24-a46239ad94a0",
+          "grinderModel": "Fixture Grinder 64",
           "extras": {
-            "rpm": 0,
-            "basketId": "5a792f42-b6ff-44e0-a58c-ed165741b789",
-            "basketName": "Fixture 18g Precision"
-          },
-          "grinderId": "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
-          "grinderModel": "Fixture Grinder 64"
+            "basketId": "b09fb95c-7e5d-4be1-a4b8-d89c79523343",
+            "basketName": "Fixture 18g Precision",
+            "dye": {
+              "v": 1,
+              "grinderId": true,
+              "grinderModel": true,
+              "basketId": true,
+              "basketName": true
+            }
+          }
         }
       }
     }
@@ -471,15 +506,15 @@
       "size": "double",
       "notes": "Fixture notes, edited",
       "diameterMm": 58.4,
-      "id": "5a792f42-b6ff-44e0-a58c-ed165741b789",
-      "createdAt": "2026-10-12T20:25:34.993Z"
+      "id": "b09fb95c-7e5d-4be1-a4b8-d89c79523343",
+      "createdAt": "2026-10-16T17:27:08.155Z"
     },
     {
       "name": "Fixture 20g High-flow",
       "size": "double",
       "diameterMm": 58,
-      "id": "1749fba2-86b3-43e2-badf-97af64ae888b",
-      "createdAt": "2026-10-12T20:25:36.143Z"
+      "id": "fa7809d4-1843-4745-8a37-ca6f43025dba",
+      "createdAt": "2026-10-16T17:27:09.306Z"
     }
   ],
   "equipment": [
@@ -495,8 +530,8 @@
           "value": "0.3 mm"
         }
       ],
-      "id": "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
-      "createdAt": "2026-10-12T20:25:27.296Z"
+      "id": "0ee0a5bb-5e08-4a2b-9bce-3b256693a6d2",
+      "createdAt": "2026-10-16T17:27:00.391Z"
     },
     {
       "name": "Fixture Puck Screen",
@@ -506,8 +541,8 @@
           "value": "1.7 mm"
         }
       ],
-      "id": "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2",
-      "createdAt": "2026-10-12T20:25:28.463Z"
+      "id": "28dc53fe-df8b-4789-9589-49ef5e45d57e",
+      "createdAt": "2026-10-16T17:27:01.557Z"
     }
   ]
 }

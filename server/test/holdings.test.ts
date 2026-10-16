@@ -410,7 +410,7 @@ describe("batchesAwaitingBeans", () => {
 });
 
 describe("Baskets and Tools a Location shows", () => {
-  // DYE2's records as it saved them (fixtures/decaid/dye2-v0.1.19/keys.json).
+  // DYE2's records as it saved them (fixtures/decaid/dye2-2cf631c/keys.json).
   const [basket18, basket20] = dye2Keys().baskets as [Record<string, unknown>, Record<string, unknown>];
   const [wdt] = dye2Keys().equipment as [Record<string, unknown>];
   const BASKETS = ["2f9c1e4a-6b3d-4c8e-9a1f-5d7b3c9e1a2f", "8e1a3c5b-7d9f-4b2e-8c4a-6f1d3b5e7a9c"] as const;

@@ -22,6 +22,35 @@ Shot's grinder onto each Shot it pulls, which the server now keeps with each
 Shot. Shots stored before the upgrade keep no burrs until they are stored
 again.
 
+### Run DYE2 and Streamline from `main` on every tablet
+
+A Machine that follows Recipes now needs DYE2 built from `main` at
+[`2cf631c`](https://github.com/decentespresso/dye2/commit/2cf631c) or later,
+and, where Streamline is its skin, streamline-js from `main` at
+[`c006dac`](https://github.com/decentespresso/streamline-js/commit/c006dac)
+or later. These untagged builds are the minimums until tagged releases
+contain them ([ADR-0017](docs/adr/0017-supported-versions.md)). With DYE2
+v0.1.20, no Recipe loads where its profile has a target weight.
+
+With them, a yield set on Streamline's Drink tile keeps the Recipe loaded and
+becomes the Recipe's, a Shot no longer clears the Recipe's batch, grinder,
+Basket and RPM from the Workflow, and, with Streamline's DYE2 switch on, a
+wake onto the Loaded Recipe's profile leaves its dial alone, so a wake
+profile no longer needs to be left unset. With that switch off, waking onto
+it still sends the dose, yield, grind and brew temperature Streamline saved
+for the profile, which become the Recipe's: set no wake profile there. So
+does a wake onto a profile with a step limiter of 0, such as Adaptive v3,
+applied from Streamline's strip
+([decentespresso/streamline-js#158](https://github.com/decentespresso/streamline-js/issues/158)). On
+a profile with a step limiter of 0, such as Adaptive v3, applied from DYE2's
+dashboard, a yield or dose set on Streamline's tiles still unloads the Recipe
+([decentespresso/dye2#32](https://github.com/decentespresso/dye2/issues/32)).
+And until the server writes each recipe's batch where DYE2 applies it
+([#187](https://github.com/loganfuller/decent-sync/issues/187)), a change made
+on DYE2's dashboard right after applying a Recipe there, or its Done, unloads
+the Recipe: dial in from Streamline's tiles, or open the dashboard again
+([ADR-0022](docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md)).
+
 ### Approve the plugin update on every tablet
 
 The plugin now tells Streamline when it has written a tablet's DYE2
@@ -45,9 +74,8 @@ earlier release, which this release does not support
 Streamline's builds with live plugin notifications
 ([decentespresso/streamline-js#120](https://github.com/decentespresso/streamline-js/pull/120)
 and [#127](https://github.com/decentespresso/streamline-js/pull/127)) take
-the plugin's notice: its `dist` branch for now, or its first release after
-v0.2.13, which the next section asks for anyway. A dashboard that was hidden
-when the recipes changed, Streamline v0.2.13 and any other skin show the
+the plugin's notice, as the build from `main` above does. A dashboard that
+was hidden when the recipes changed, and any other skin, show the
 change once the dashboard is opened again, regains focus or becomes visible,
 as before.
 
@@ -60,9 +88,9 @@ Location's settings. Streamline's builds since
 [decentespresso/streamline-js#109](https://github.com/decentespresso/streamline-js/pull/109)
 keep a change made elsewhere instead, so this release sets only the steam
 temperature Streamline remembers, which it still never takes from the
-Workflow. Run such a build on every tablet that uses Streamline:
-its `dist` branch for now, or its first release after v0.2.13. On a tablet
-still running v0.2.13, Streamline undoes the Location's steam and flush
+Workflow. Run such a build on every tablet that uses Streamline, as the
+build from `main` above is. On a tablet still running v0.2.13, Streamline
+undoes the Location's steam and flush
 changes on its Machine and shares its own, so turn that Machine's settings
 sharing off until Streamline is updated.
 

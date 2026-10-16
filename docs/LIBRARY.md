@@ -1222,24 +1222,24 @@ written (`recipeRecord` in `recipe-intake.ts`) holds:
 
 A record is written where any of that differs from what it holds, as when an
 item it names is created on the tablet, renamed, or its Profile edited, or
-Streamline's auto-save left its embedded Workflow behind its dial, or the
+a save left its embedded Workflow behind its dial, or the
 settings it mirrors change: the Location's, which commits with a `NOTIFY`
 on `library_changes`, or a Machine's own while its sharing of them is off,
 whose Workflow changing one notifies the same.
 
 So a recipe saved in DYE2 in a slot on one tablet is written to that slot on
 every tablet at its Location, and to no other Location's; an edit on any
-tablet, in DYE2's editor or through Streamline's auto-save, reaches every
+tablet, in DYE2's editor or recorded by DYE2, reaches every
 tablet there; and a recipe gone from a tablet's list empties its slot on the
-others. DYE2, from v0.1.20, records into the recipe it has selected the
+others. DYE2 records into the recipe it has selected the
 change a barista made in the Workflow of a Machine with it loaded, its dose,
 yield, grind setting, brew temperature and the hot water value of its mode,
 as the Machine's edit of its Loaded Recipe; the Workflow's change of those is
 no edit, but what DYE2 records stale is written back (`recordedByDye2`,
 `WORKFLOW-AND-STATE.md`, Following the Recipe). A field of a record that
 sets the Recipe's value its tablet's own latest edit set already is no edit
-(`withoutOwnEdits`), so a change the Workflow brought where DYE2 missed it
-(decentespresso/dye2#18), which DYE2 may record later, is one edit. Recipes are read through the REST API (below), and managed in the
+(`withoutOwnEdits`), so a change the Workflow brought that DYE2 records
+too, as the RPM and Basket, is one edit. Recipes are read through the REST API (below), and managed in the
 management interface (Editing in the management interface, above).
 
 ## Writing to tablets
@@ -1784,8 +1784,8 @@ Workflow holds that differs from the one remembered, rather than pushing
 theirs back (ADR-0021, ADR-0017; the evidence is in `AI_RUNTIME_NOTES.md`,
 Skins). The steam temperature is the exception: Streamline never compares
 the one it remembers (`last-steam-temp`) with the Workflow, yet sends it
-with every steam time but 0 (`steamHeaterFor`), as on a steam time change,
-a profile switch or its own retry. So once Decaid has taken a
+with a steam time that turns steam back on from off (`steamHeaterFor`), as
+on a steam time change, a profile switch or its own retry. So once Decaid has taken a
 steam temperature the plugin wrote, of at least 135 °C (`STEAM_ON_FROM`),
 the plugin sets that key to match (`keepStreamlineSteamTemperature`,
 `plugin/src/streamline.ts`), where it holds a number, and sets nothing else

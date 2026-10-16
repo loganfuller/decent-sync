@@ -386,18 +386,9 @@ export interface WorkflowDelivery {
    * each part keeps its earliest `before`. The server tells a part set back
    * to its `before` before the Machine's first espresso since the load, as
    * DYE2's dashboard sends back the Workflow it read as it opened, by them
-   * (interim for decentespresso/dye2#28).
+   * (interim for decentespresso/dye2#31).
    */
   loadBefore?: Record<string, LoadBefore>;
-  /**
-   * Set where the Workflow's profile changed in its target weight or volume
-   * alone, as Streamline sets a yield, which clears DYE2's selection before
-   * DYE2 records anything of the change, and the plugin selected the Loaded
-   * Recipe again: the server takes from this Workflow, as the Recipe's
-   * edits, every field DYE2 would have recorded that differs from it
-   * (interim for decentespresso/dye2#18).
-   */
-  unrecorded?: boolean;
 }
 
 /** What a part of a Workflow held just before a load's write (`before`), and what the write put there (`written`). */
@@ -1473,7 +1464,6 @@ function checkMachineEvent(object: Fields & { type: string }): Decoded<WorkflowD
       fields.instant("observedAt");
       fields.objectField("workflow");
       if (object.loadBefore !== undefined) fields.objectField("loadBefore");
-      fields.optionalBoolean("unrecorded");
     });
   }
   return check<MachineStateDelivery>(object, "machineState", (fields) => {

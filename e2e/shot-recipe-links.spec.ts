@@ -111,7 +111,7 @@ test("an Admin hard-deletes a Recipe no Shot was pulled with from every tablet, 
 
 /**
  * A Location with two Machines: Bar 1, the recording's tablet running DYE2
- * v0.1.20, whose DYE2 editor saves slots 1 and 2, and Bar 2,
+ * at 2cf631c, whose DYE2 editor saves slots 1 and 2, and Bar 2,
  * whose tablet has no DYE2 lists, each written both.
  */
 async function lab(page: Page, name: string, serial: number) {

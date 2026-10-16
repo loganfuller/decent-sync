@@ -1,19 +1,19 @@
 import fs from "node:fs";
 import { LOADED_RECIPE_KEY, RECIPE_FIELD, profileAtBrewTemperature, shiftedTemperatures } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { dye2Fingerprint, loadWrite, profileKey, recipeSetUp, targetsOnlyDiffer, vacatedSlots } from "../src/loaded-recipe-rules.js";
+import { dye2Fingerprint, loadWrite, profileKey, recipeSetUp, vacatedSlots } from "../src/loaded-recipe-rules.js";
 
 // Module tests for what the plugin writes into the Workflow as DYE2's
 // selection loads a Recipe (ADR-0022), and how it reads DYE2's fingerprint of
-// a profile. With what DYE2 v0.1.19 and Streamline were recorded holding and
-// applying on Decaid's Linux release (server/test/fixtures/decaid/dye2-v0.1.19/),
-// which DYE2 v0.1.20 applies the same way, or records derived from them by
-// the named changes.
+// a profile. With what DYE2 at 2cf631c and Streamline at c006dac were
+// recorded holding and applying on Decaid's Linux release
+// (server/test/fixtures/decaid/dye2-2cf631c/), or records derived from them
+// by the named changes.
 
 type Record_ = Record<string, unknown>;
 
 function fixture<T>(file: string): T {
-  return JSON.parse(fs.readFileSync(new URL(`../../server/test/fixtures/decaid/dye2-v0.1.19/${file}.json`, import.meta.url), "utf8")) as T;
+  return JSON.parse(fs.readFileSync(new URL(`../../server/test/fixtures/decaid/dye2-2cf631c/${file}.json`, import.meta.url), "utf8")) as T;
 }
 
 interface Exchange {
@@ -23,7 +23,7 @@ interface Exchange {
 
 /** The Workflow Decaid answered the step's `PUT /workflow` with. */
 function applied(file: "dye2-applies" | "streamline", step: string): Record_ {
-  const exchange = fixture<Record<string, Exchange[]>>(file)[step]!.find(({ request }) => request.method === "PUT" && request.path === "/workflow");
+  const exchange = fixture<Record<string, { exchanges: Exchange[] }>>(file)[step]!.exchanges.find(({ request }) => request.method === "PUT" && request.path === "/workflow");
   return structuredClone(exchange!.response.body) as Record_;
 }
 
@@ -85,43 +85,43 @@ describe("DYE2's fingerprint of a profile", () => {
     expect(dye2Fingerprint(null)).toBeNull();
   });
 
-  it("tells a change of the target weight or volume alone, as Streamline sets a yield (dye2#18)", () => {
-    const fingerprint = dye2Fingerprint(profile);
-    expect(targetsOnlyDiffer(fingerprint, dye2Fingerprint({ ...profile, target_weight: 40 }))).toBe(true);
-    expect(targetsOnlyDiffer(fingerprint, dye2Fingerprint({ ...profile, target_volume: 50 }))).toBe(true);
-    expect(targetsOnlyDiffer(fingerprint, dye2Fingerprint({ ...profile, target_weight: 40, title: "Another" }))).toBe(false);
-    expect(targetsOnlyDiffer(fingerprint, fingerprint)).toBe(false);
-    expect(targetsOnlyDiffer(null, fingerprint)).toBe(false);
-    // Steps whose keys come in another order, as from the server's records, are the same steps.
-    const reordered = (profile.steps as Record_[]).map((step) => Object.fromEntries(Object.entries(step).reverse()));
-    expect(targetsOnlyDiffer(fingerprint, dye2Fingerprint({ ...profile, steps: reordered, target_weight: 40 }))).toBe(true);
+  it("leaves out the target weight and volume, as DYE2's does, so a yield set in Streamline is no change of profile (dye2#18)", () => {
+    expect(dye2Fingerprint({ ...profile, target_weight: 40, target_volume: 50 })).toBe(dye2Fingerprint(profile));
   });
 });
 
 describe("recording a load", () => {
-  const batch = { id: "b850e4f2-89cf-400f-9d43-ec1080ad595b", coffeeName: "Fixture Ethiopia", coffeeRoaster: "Fixture Roasters" };
+  const batch = { id: "6f741a24-ceb9-4ec6-aa51-750c6e9fec26", coffeeName: "Fixture Ethiopia", coffeeRoaster: "Fixture Roasters" };
   const hotWater = { targetTemperature: 85, duration: 40, volume: 120, flow: 7.5 };
   /** Slot 1 as the server writes it: its Bean Batch and all four hot water settings in its own field. */
   const written = (): Record_ => ({ ...recipe("1"), [RECIPE_FIELD]: { beanBatchId: batch.id, hotWaterData: hotWater } });
   const profile = library.profiles[0]!.profile;
   const adaptive = library.profiles.find((candidate) => candidate.profile.title === "Adaptive v3")!.profile;
+  const basket = (recipe("1").dashboardVariables as Record_).basketId as string;
+  /**
+   * Slot 1 applied on DYE2's dashboard, which sets its brew temperature itself
+   * (decentespresso/dye2#26), but for the Profile at its own step
+   * temperatures, as from a copy read before the server wrote it at the
+   * recipe's.
+   */
+  const appliedAtOwnTemperatures = (): Record_ => ({ ...applied("dye2-applies", "applySlot1"), profile: structuredClone(adaptive) });
 
   it("writes what the Workflow lacks of the recipe's current values, its brew temperature, batch, hot water and id, with what each part held", () => {
-    const workflow = applied("dye2-applies", "applySlot1");
+    const workflow = appliedAtOwnTemperatures();
     const write = loadWrite(workflow, written(), ONE, { profile, baseTemperatures: temperatures(adaptive), batch })!;
     expect(write.write.context).toEqual({
       beanBatchId: batch.id,
       coffeeName: "Fixture Ethiopia",
       coffeeRoaster: "Fixture Roasters",
-      extras: { basketId: "5a792f42-b6ff-44e0-a58c-ed165741b789", basketName: "Fixture 18g Precision", [LOADED_RECIPE_KEY]: ONE },
+      extras: { basketId: basket, basketName: "Fixture 18g Precision", [LOADED_RECIPE_KEY]: ONE },
     });
     expect(write.write.hotWaterData).toEqual(hotWater);
-    // DYE2 applied Adaptive v3 at its own 93 °C; the recipe's is 92, the Profile's shape kept.
+    // Adaptive v3 at its own 93 °C; the recipe's is 92, the Profile's shape kept.
     expect(temperatures(write.write.profile).slice(0, 3)).toEqual([92, 92, 87]);
     const context = workflow.context as Record_;
     expect(write.before).toEqual({
       batch: { before: context.beanBatchId ?? null, written: batch.id },
-      basket: { before: (context.extras as Record_).basketId ?? null, written: "5a792f42-b6ff-44e0-a58c-ed165741b789" },
+      basket: { before: (context.extras as Record_).basketId ?? null, written: basket },
       brewTemperature: { before: 93, written: 92 },
       ...Object.fromEntries(
         Object.entries(hotWater)
@@ -132,7 +132,7 @@ describe("recording a load", () => {
   });
 
   it("writes the recipe's current dial over a stale copy's, and its Profile where the Workflow's is another, at the recipe's brew temperature", () => {
-    const workflow = applied("dye2-applies", "applySlot1");
+    const workflow = appliedAtOwnTemperatures();
     const record = written();
     Object.assign(record.dashboardVariables as Record_, { dose: 19.5, drink: 40, grind: 2.9, rpm: 950 });
     const other = library.profiles.find((candidate) => candidate.profile.title !== "Adaptive v3")!.profile;
@@ -147,7 +147,7 @@ describe("recording a load", () => {
   });
 
   it("writes nothing to a Workflow holding it all, and leaves a value the recipe holds none of", () => {
-    const workflow = applied("dye2-applies", "applySlot1");
+    const workflow = appliedAtOwnTemperatures();
     const record = written();
     const first = loadWrite(workflow, record, ONE, { profile, baseTemperatures: null, batch })!.write;
     const after = structuredClone(workflow);

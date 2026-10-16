@@ -2,12 +2,12 @@ import { DYE2_NAMESPACE } from "@decent-sync/protocol";
 import { request } from "./decaid.js";
 import type { TransportEvent } from "./host.js";
 
-// DYE2's selected recipe (ADR-0022). From v0.1.20, DYE2 keeps one selected
+// DYE2's selected recipe (ADR-0022). DYE2 keeps one selected
 // recipe or favourite on each tablet, which its dashboard and Streamline's
 // DYE strip select as they apply one, through DYE2's `selection` endpoint,
 // and records into it each change of the Workflow it sees, whichever app
 // made it, but for its own applies (`workflow-record.ts` in
-// dye2:dye2-plugin/src/utils at v0.1.20). The Machine's Loaded Recipe is the
+// dye2:dye2-plugin/src/utils at 2cf631c). The Machine's Loaded Recipe is the
 // recipe it selects (loaded-recipes.ts). This module is how the plugin reads
 // and makes that selection, keeps a cleared one cleared in DYE2's storage,
 // tells whether DYE2 is there at all, and hears DYE2's pushes.

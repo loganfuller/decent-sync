@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, LOADED_RECIPE_KEY, dye2GlobalIdOf } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, LOADED_RECIPE_KEY, RECIPE_FIELD, dye2GlobalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { syncingTablet } from "./support/loaded-tablets.js";
@@ -29,7 +29,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // hard-deletes a Recipe no Shot is linked to, and a Basket or Tool no Shot or
 // Recipe names, from every tablet. Through the built plugin in simulated
 // tablets acting as DYE2 does with the steps recorded from it
-// (fixtures/decaid/dye2-v0.1.19/), on two server instances sharing one
+// (fixtures/decaid/dye2-2cf631c/), on two server instances sharing one
 // database, with assertions through the REST API and what each simulated
 // tablet holds. Serials are made up, from 49001.
 
@@ -124,7 +124,7 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
 
   /**
    * A Location with a Machine whose tablet is the recording's, running DYE2
-   * v0.1.20, on the first instance, and another whose tablet has
+   * at 2cf631c, on the first instance, and another whose tablet has
    * never used DYE2 on the other, both holding slots 1 and 2 as the first
    * tablet's DYE2 editor saved and edited them, each naming a Basket.
    */
@@ -201,7 +201,10 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     await loads(machine, null);
 
     // Slot 2 applied from Streamline's strip while capture-only, whose record's embedded Workflow names its Recipe, stays
-    // selected there, its id in the Workflow, but is not its Loaded Recipe: the plugin writes nothing there.
+    // selected there, its id in the Workflow, but is not its Loaded Recipe: the plugin writes nothing there. The strip leaves
+    // the Workflow's batch, which DYE2 clears its selection on once it moves, so it is on slot 2's already (ADR-0022, the
+    // transitional gap until #187 and #188).
+    await tablet.changeSettings({ context: { beanBatchId: (inSlot(tablet, "2")?.[RECIPE_FIELD] as Record_ | undefined)?.beanBatchId } });
     expect((await (await startStreamline(tablet)).applyRecipe("2")).selection?.status).toBe(200);
     await expect.poll(() => named(tablet)).toBe(two);
     await settle();

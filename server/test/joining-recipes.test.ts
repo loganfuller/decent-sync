@@ -2,7 +2,7 @@ import { LOADED_RECIPE_KEY, dye2GlobalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { syncingTablet } from "./support/loaded-tablets.js";
-import { DYE2_NAMESPACE, SimulatedDye2, dye2Keys, dye2List, dye2NeverUsed, openDye2Dashboard, recordedDye2V020Tablet } from "./support/simulated-dye2.js";
+import { DYE2_NAMESPACE, SimulatedDye2, dye2Keys, dye2List, dye2NeverUsed, openDye2Dashboard, recordedDye2MainTablet } from "./support/simulated-dye2.js";
 import type { DecaidApi, SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -15,7 +15,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // in, its recipes in their slots. Its Workflow loses a Basket the Location
 // does not show and its Loaded Recipe, cleared from DYE2's selection too,
 // and keeps its hot water. Through the built plugin in simulated tablets
-// running DYE2 v0.1.20 as recorded (fixtures/decaid/dye2-v0.1.20/), on two
+// running DYE2 at 2cf631c as recorded (fixtures/decaid/dye2-2cf631c/), on two
 // server instances sharing one database, with assertions through the REST
 // API and what each simulated tablet holds. Serials are made up, from 49001.
 
@@ -40,19 +40,20 @@ const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 const CLASSIC = "profile:39e939592679fb194706";
 
 /**
- * The v0.1.20 recording's tablet with this serial (recordedDye2V020Tablet),
+ * The 2cf631c recording's tablet with this serial (recordedDye2MainTablet),
  * its beans', baskets' and tools' names begun with `scenario`, as Beans,
  * Baskets and Tools are matched by name across a file's tests (ADR-0018),
- * with the recording's tool (fixtures/decaid/dye2-v0.1.19/) beside its
- * baskets.
+ * with the recording's tool (fixtures/decaid/dye2-2cf631c/) beside its
+ * baskets, and its recipes in slots 1 and 2 alone, without its blank slot 3.
  */
 function recordedTablet(serial: string, scenario: string): DecaidApi {
-  const api = recordedDye2V020Tablet(serial, scenario);
+  const api = recordedDye2MainTablet(serial, scenario);
   const named = (records: unknown) => (records as Record_[]).map((record) => ({ ...record, name: `${scenario} ${String(record.name)}` }));
   return {
     ...api,
     [`/store/${DYE2_NAMESPACE}/baskets`]: named(api[`/store/${DYE2_NAMESPACE}/baskets`]),
     [`/store/${DYE2_NAMESPACE}/equipment`]: named(dye2Keys().equipment),
+    [`/store/${DYE2_NAMESPACE}/recipes`]: (api[`/store/${DYE2_NAMESPACE}/recipes`] as Record_[]).filter((record) => record.id !== "3"),
   };
 }
 

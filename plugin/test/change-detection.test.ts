@@ -129,8 +129,8 @@ describe("paired devices", () => {
 describe("FirstReads", () => {
   it("times each record of one of DYE2's lists by when its current content was first read", () => {
     const reads = new FirstReads();
-    const basket = { id: "5a792f42-b6ff-44e0-a58c-ed165741b789", name: "Fixture 18g Precision", diameterMm: 58.5 };
-    const tool = { id: "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6", name: "Fixture WDT Tool" };
+    const basket = { id: "b09fb95c-7e5d-4be1-a4b8-d89c79523343", name: "Fixture 18g Precision", diameterMm: 58.5 };
+    const tool = { id: "0ee0a5bb-5e08-4a2b-9bce-3b256693a6d2", name: "Fixture WDT Tool" };
     expect(reads.times([basket, { name: "no id" }], "2026-10-12T20:00:00.000Z")).toEqual(["2026-10-12T20:00:00.000Z", null]);
     // Read the same, it keeps its time; edited, or new, it is read now.
     expect(reads.times([{ ...basket }, tool], "2026-10-12T20:01:00.000Z")).toEqual(["2026-10-12T20:00:00.000Z", "2026-10-12T20:01:00.000Z"]);

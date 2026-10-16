@@ -16,8 +16,8 @@ import { dye2Keys } from "./support/simulated-dye2.js";
 
 // How a tablet's report of DYE2's baskets or tools is taken into the Library
 // (ADR-0005, ADR-0006, ADR-0018, ADR-0019), through the pure module's
-// interface. Records are DYE2 v0.1.19's, as it saved them
-// (fixtures/decaid/dye2-v0.1.19/keys.json), with made-up global ids.
+// interface. Records are DYE2 2cf631c's, as it saved them
+// (fixtures/decaid/dye2-2cf631c/keys.json), with made-up global ids.
 
 const [basket18, basket20] = dye2Keys().baskets as [Record<string, unknown>, Record<string, unknown>];
 const [wdt, puckScreen] = dye2Keys().equipment as [Record<string, unknown>, Record<string, unknown>];

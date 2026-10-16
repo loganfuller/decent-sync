@@ -3,15 +3,14 @@ import { AdminApi, type CreatedMachine, type LocationView } from "./support/admi
 import { syncingTablet } from "./support/loaded-tablets.js";
 import {
   DYE2_NAMESPACE,
-  applyInDye2,
-  applyInStreamline,
-  autoSaveInStreamline,
   dye2List,
   dye2NeverUsed,
   dye2Recording,
+  openDye2Dashboard,
   recordedDye2Tablet,
   saveInDye2,
 } from "./support/simulated-dye2.js";
+import { startStreamline } from "./support/simulated-streamline.js";
 import type { DecaidApi, SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -26,8 +25,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // applied from a copy read before the server's latest write of it is no
 // edit, and neither is a steam value DYE2's editor carries over as it
 // switches a recipe's steam mode. Through the built
-// plugin in simulated tablets, acting as DYE2 v0.1.19 and Streamline v0.2.13
-// do with the steps recorded from them (fixtures/decaid/dye2-v0.1.19/), on
+// plugin in simulated tablets, acting as DYE2 at 2cf631c and Streamline at
+// c006dac do with the steps recorded from them (fixtures/decaid/dye2-2cf631c/), on
 // two server instances sharing one database, with assertions through the
 // REST API and what each simulated tablet holds. Serials are made up, from
 // 44001.
@@ -133,7 +132,18 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
   }
 
   const recipes = dye2Recording("recipes");
-  const streamline = dye2Recording("streamline");
+  /** The tablet's recipe in that slot applied on DYE2's dashboard, which reads it again as it applies it: what Decaid answered its Workflow write. */
+  const applyInDye2 = async (tablet: SimulatedTablet, slot: string) => (await (await openDye2Dashboard(tablet)).applyRecipe(slot)).workflow;
+  /** The tablet's recipe in that slot applied from Streamline's DYE strip, or the copy of it the strip read before: what Decaid answered its Workflow write. */
+  const applyInStreamline = async (tablet: SimulatedTablet, slot: string, copy?: Record_) => {
+    const streamline = await startStreamline(tablet);
+    try {
+      return (await streamline.applyRecipe(copy ?? slot)).workflow;
+    } finally {
+      await streamline.settled();
+      streamline.stop();
+    }
+  };
 
   it("leaves the Location's settings and the other Machine's Workflow as they are when a recipe is applied the DYE2 way and the Streamline way, and steam that is off stays off", async () => {
     const { here, machines, one, two, settings } = await lab("Applied", 44001);
@@ -184,12 +194,10 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
     await expect.poll(() => mirrored(one, "1")).toEqual({ steamMode: "time", steamTimeS: 33, steamFlowMls: undefined, flushS: 6 });
 
     expect((await applyInDye2(one, "3")).status).toBe(200);
-    await dosed(machines[0], 0);
     expect(held(one)).toEqual(LOCATION);
-    // Applied from the copy DYE2's dashboard read as the editor saved it, before the server wrote the Location's values into
+    // Applied from a copy Streamline's strip read as the editor saved it, before the server wrote the Location's values into
     // it, it sets 0, which is no edit: the Location's are written back.
-    expect((await applyInDye2(one, "3", { ...inSlot(one, "3")!, dashboardVariables: { ...variables(one, "3"), steamFlowMls: 0, flushS: 0 } })).status).toBe(200);
-    expect(held(one, ["steamSettings.flow", "rinseData.duration"])).toEqual({ "steamSettings.flow": 0, "rinseData.duration": 0 });
+    expect((await applyInStreamline(one, "3", { ...inSlot(one, "3")!, dashboardVariables: { ...variables(one, "3"), steamFlowMls: 0, flushS: 0 } })).status).toBe(200);
     await holds(one, { "steamSettings.flow": 1.7, "rinseData.duration": 6 });
     expect((await settingsAt(here)).values).toMatchObject(LOCATION);
     expect(await versions(settings)).toHaveLength(history.length);
@@ -213,14 +221,6 @@ describe("Steam and flush inside recipes mirror the shared settings", { timeout:
     }
     expect((await versions(settings))[0]).toMatchObject({ fields: { "rinseData.duration": 9 }, source: { machine: { name: "Flushed lab 2" } } });
     expect(await conflicts(settings)).toEqual([]);
-
-    // Streamline's auto-save of a steam flow change, into the Workflow and the recipe it applied, reaches the Location and
-    // every recipe there.
-    expect((await applyInStreamline(one, "2")).status).toBe(200);
-    expect(await autoSaveInStreamline(one, streamline.autoSaveSteam)).toBeDefined();
-    await expect.poll(async () => (await settingsAt(here)).values["steamSettings.flow"]).toBe(1.3);
-    await holds(two, { "steamSettings.flow": 1.3 });
-    await expect.poll(() => mirrored(two, "2").steamFlowMls).toBe(1.3);
   });
 
   it("writes a Machine's own values into its recipes while its sharing of the settings is off, keeps them as a recipe is applied, and puts back a change made inside one", async () => {

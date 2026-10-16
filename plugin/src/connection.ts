@@ -178,7 +178,7 @@ export class SyncConnection {
     this.shots = new ShotCapture(this.outbox, log);
     this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1000, log);
     this.loadedRecipes = new LoadedRecipes(
-      { hold: () => this.machineEvents.hold(), release: () => this.machineEvents.release(), attach: (extra) => this.machineEvents.attach(extra), sendWith: (extra) => this.machineEvents.sendWith(extra) },
+      { hold: () => this.machineEvents.hold(), release: () => this.machineEvents.release(), attach: (extra) => this.machineEvents.attach(extra) },
       log,
       {
         // DYE2's socket leaves one transport for a connection to the server.

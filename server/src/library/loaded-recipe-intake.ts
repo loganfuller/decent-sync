@@ -28,7 +28,9 @@ const HOT_WATER_PARTS = ["targetTemperature", "duration", "volume", "flow"] as c
  * grind setting and brew temperature, and the hot water value of the
  * Recipe's mode, its temperature for `temp` and its volume otherwise, as its
  * record holds that one alone (`itemPatch` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.20).
+ * dye2:dye2-plugin/src/utils/workflow-record.ts). DYE2 records the RPM and
+ * Basket too where the record holds one, which the server still also takes
+ * from the Workflow (`workflowEditedParts`), the same value either way.
  */
 export function recordedParts(content: Readonly<Record<string, unknown>>): LoadedRecipePart[] {
   return ["dose", "yield", "grind", "brewTemperature", content.hotWaterMode === "temp" ? "targetTemperature" : "volume"];
@@ -44,15 +46,6 @@ export function workflowEditedParts(content: Readonly<Record<string, unknown>>):
   const recorded = recordedParts(content);
   return ["rpm", "basket", "batch", ...HOT_WATER_PARTS.filter((part) => !recorded.includes(part))];
 }
-
-/**
- * The parts Streamline clears once each Shot is stored, and as it starts
- * while DYE2 is not loaded or its DYE2 switch is off
- * (`clearDyeWorkflowContext` in streamline-js:src/modules/dyeStrip.js),
- * which the server writes back once for each clear while the Recipe is
- * loaded, so the next Shot records them (decentespresso/streamline-js#149).
- */
-export const KEPT_PARTS: readonly LoadedRecipePart[] = ["batch", "grinder", "basket", "rpm"];
 
 /**
  * A part's value as a Workflow holds it: a number, a grind setting's text,
@@ -117,8 +110,9 @@ export function samePart(part: LoadedRecipePart, a: unknown, b: unknown): boolea
 /**
  * The parts of those given (`parts`) the Workflow holds now (`now`)
  * otherwise than it last did (`held`): a part it holds none of now is no
- * change, as Streamline clears the batch, Basket and RPM once each Shot is
- * stored, so they do not label the next one, and the Recipe keeps them.
+ * change, as Streamline clears the batch, Basket and RPM after a Shot
+ * stored while DYE2 has no recipe selected, so they do not label the next
+ * one, and the Recipe keeps them.
  */
 export function changedParts(held: WorkflowParts, now: WorkflowParts, parts: readonly LoadedRecipePart[]): LoadedRecipePart[] {
   return parts.filter((part) => now[part] !== null && !samePart(part, held[part], now[part]));
@@ -142,7 +136,7 @@ export function readLoadBefore(value: unknown): LoadBefore | null {
  * Whether a part's value (`held`, as the Workflow holds it) sets it back to
  * what the plugin's write of the load replaced (`loadBefore`), which the
  * load changed: stale, as DYE2's dashboard sends back the Workflow it read as
- * it opened (decentespresso/dye2#28), unless the tablet made the field's
+ * it opened (decentespresso/dye2#31), unless the tablet made the field's
  * latest edit itself since the load, as a barista undoing a tweak (`own`),
  * or it is the Grinder, a change of which unloads the Recipe (dye2#19).
  */
@@ -177,13 +171,6 @@ export interface StaleCheck {
   loadBefore?: LoadBefore | null;
   /** The fields of the Recipe whose latest edit the tablet made itself since the load, which a set-back to what the load replaced undoes. */
   ownSinceLoad?: ReadonlySet<string>;
-  /**
-   * For a Workflow whose change DYE2 did not record (`unrecorded`), its
-   * Recipe's Profile's own first step temperature, which Streamline's Drink
-   * tile puts back with a yield (decentespresso/streamline-js#155): a brew
-   * temperature at it is no edit, and the Recipe's is written back.
-   */
-  profileTemperature?: number | null;
 }
 
 /** No stale copy to tell: what a part is judged by where the tablet's record of the Recipe is not known. */
@@ -228,9 +215,6 @@ export interface PartEdits {
  * - a value set back to what the plugin's write of the load replaced, before
  *   the Machine's first espresso since (`setBackToLoad`), is no edit either,
  *   and the Recipe's value is written back;
- * - nor is a brew temperature at its Profile's own first step temperature in
- *   a Workflow DYE2 did not record (`profileTemperature`), as Streamline's
- *   Drink tile sends with a yield (decentespresso/streamline-js#155);
  * - DYE2's ratio is kept only while the yield is the dose times it
  *   (`ratioValues`), the Workflow's yield kept as the Recipe's where it held
  *   none, the yield worked out from the ratio.
@@ -271,7 +255,6 @@ export function partEdits(
       value = held;
     }
     edits.taken.push(part);
-    if (part === "brewTemperature" && typeof stale.profileTemperature === "number" && samePart(part, held, stale.profileTemperature)) continue;
     if (sameValue(content[field] ?? null, value) || setBack(part, held, value, content[field], stale) || setBackToLoad(part, held, stale.loadBefore ?? null, stale.ownSinceLoad ?? new Set())) continue;
     edits.values[field] = value;
   }

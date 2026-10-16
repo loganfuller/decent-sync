@@ -11,7 +11,7 @@ import {
   storeSelection,
 } from "./dye2-selection.js";
 import type { WorkflowChanges } from "./machine-events.js";
-import { type LoadContext, dye2Fingerprint, loadWrite, loadable, recipeSetUp, targetsOnlyDiffer, vacatedSlots, workflowBatch, workflowGrinder } from "./loaded-recipe-rules.js";
+import { type LoadContext, dye2Fingerprint, loadWrite, loadable, recipeSetUp, vacatedSlots, workflowBatch, workflowGrinder } from "./loaded-recipe-rules.js";
 
 // Each Machine's Loaded Recipe (ADR-0022): the recipe DYE2 has selected on
 // the tablet, where it is in a Recipe Slot carrying a Recipe's global id and
@@ -21,10 +21,9 @@ import { type LoadContext, dye2Fingerprint, loadWrite, loadable, recipeSetUp, ta
 // Shot pulled with it, and the server reads it from the Workflow deliveries.
 //
 // The plugin reads DYE2's selection on each push from DYE2's `changed`
-// socket, about 2 s after each change of the Workflow, past DYE2's 1.5 s
-// wait before it records, to catch the clears DYE2 does not push
-// (decentespresso/dye2#24), and on its poll, when it also reads whether
-// DYE2 is loaded at all. A selection of a recipe the Workflow does not name
+// socket; about 2 s after each change of the Workflow, past DYE2's 1.5 s
+// wait before it records, which decides on the changes held back meanwhile;
+// and on its poll, when it also reads whether DYE2 is loaded at all. A selection of a recipe the Workflow does not name
 // loads it: the plugin writes into the Workflow what applying a DYE2 recipe
 // leaves out, or a stale copy got wrong (`loadWrite`), and tells the server
 // what that write replaced (`WorkflowDelivery.loadBefore`). A selection
@@ -35,15 +34,14 @@ import { type LoadContext, dye2Fingerprint, loadWrite, loadable, recipeSetUp, ta
 // DYE2's dashboard, which names the Recipe loaded before, as a change of
 // that one.
 //
-// Besides following DYE2, the plugin stands in for what DYE2 does not do
-// yet, each until its upstream fix (ADR-0022, Interim): it unloads the
-// Recipe on a change of grinder or Bean, which DYE2 keeps its selection
-// through, and clears DYE2's selection (dye2#19); it selects the slot again
-// after a write of its own that changes the profile, which DYE2 takes for a
-// change of profile and clears its selection on; it selects it again after
-// a yield set in Streamline, and has the server take the change in
-// (`unrecorded`, dye2#18); and it keeps a selection it saw cleared cleared
-// in DYE2's storage (dye2#22). On a Capture-only Machine it does none of it.
+// Besides following DYE2, the plugin stands in for what DYE2 did not do
+// before the supported floor, each until the ticket ADR-0022's interim list
+// names: it unloads the Recipe on a change of grinder or Bean, and clears
+// DYE2's selection, which DYE2 now does itself (dye2#19, #188); it selects
+// the slot again after a write of its own that changes the profile, which
+// DYE2 takes for a change of profile and clears its selection on; and it
+// keeps a selection it saw cleared cleared in DYE2's storage (dye2#22,
+// #188). On a Capture-only Machine it does none of it.
 
 const RECIPES = `/store/${DYE2_NAMESPACE}/recipes`;
 
@@ -613,20 +611,9 @@ export class LoadedRecipes implements LoadedRecipeWrites {
         return;
       }
       this.answer = "none";
-      const loaded = this.loaded;
-      const slot = loaded === null ? null : this.slotOf(loaded);
-      // A yield set in Streamline changed the profile's target weight alone, which cleared DYE2's selection before it
-      // recorded anything (decentespresso/dye2#18): it is selected again, and the server takes the change in.
-      if (loaded !== null && slot !== null && this.selected?.slot === slot && targetsOnlyDiffer(this.selected.fingerprint, dye2Fingerprint(this.latest?.profile))) {
-        this.changes.sendWith({ unrecorded: true });
-        this.selected = null;
-        this.pendingSelect = { slot, globalId: loaded };
-        await this.tryPending({ kind: "none" });
-        return;
-      }
       const cleared = this.selected;
       this.selected = null;
-      if (loaded !== null) await this.unload("selection");
+      if (this.loaded !== null) await this.unload("selection");
       if (previous === "recipe") await this.keepCleared(cleared);
       return;
     }
