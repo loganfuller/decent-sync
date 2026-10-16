@@ -1,6 +1,6 @@
 import { expect as baseExpect, type Page, test } from "@playwright/test";
 import { dye2GlobalIdOf } from "@decent-sync/protocol";
-import { DYE2_NAMESPACE, applyInDye2, dye2Keys, dye2Library, dye2List, dye2Recording, saveInDye2 } from "../server/test/support/simulated-dye2.js";
+import { DYE2_NAMESPACE, SimulatedDye2, dye2Keys, dye2Library, dye2List, dye2Recording, openDye2Dashboard, saveInDye2 } from "../server/test/support/simulated-dye2.js";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
@@ -44,7 +44,7 @@ test("a recipe applied in DYE2 shows as its Machine's Loaded Recipe on the Machi
   const loaded = page.getByRole("region", { name: "Loaded Recipe" });
   await expect(loaded).toContainText("No Recipe is loaded.");
 
-  expect((await applyInDye2(bar1.tablet, "1")).status).toBe(200);
+  expect((await (await openDye2Dashboard(bar1.tablet)).applyRecipe("1")).selection?.status).toBe(200);
   const now = loaded.getByLabel("Loaded now");
   await expect(field(now, "Recipe")).toHaveText("Fixture Ethiopia EspressoSlot 1");
   await expect(field(now, "Since")).toHaveText(/^\w{3} \d+, \d{4}/);
@@ -88,7 +88,7 @@ test("a grind changed on one Machine reaches the Recipe's page, and the Workflow
   for (const { tablet } of [bar1, bar2]) {
     await expect.poll(() => dye2GlobalIdOf(slotOn(tablet, "1"))).not.toBeNull();
     await expect.poll(() => ((slotOn(tablet, "1")?.dashboardVariables ?? {}) as Record_).basketId ?? null).not.toBeNull();
-    expect((await applyInDye2(tablet, "1")).status).toBe(200);
+    expect((await (await openDye2Dashboard(tablet)).applyRecipe("1")).selection?.status).toBe(200);
   }
   await page.goto(`/machines/${bar2.id}`);
   await expect(field(page.getByRole("region", { name: "Loaded Recipe" }).getByLabel("Loaded now"), "Recipe")).toHaveText("Fixture Ethiopia EspressoSlot 1");
@@ -107,7 +107,7 @@ async function tabletAt(page: Page, name: string, location: { id: string }, api:
   const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
   baseExpect(response.status()).toBe(201);
   const { token, machine } = (await response.json()) as { token: string; machine: { id: string } };
-  const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api, timeScale: 50 });
+  const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api, dye2: new SimulatedDye2(), timeScale: 50 });
   tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
   return { id: machine.id, tablet };

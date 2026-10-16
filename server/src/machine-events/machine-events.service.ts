@@ -8,7 +8,7 @@ import { machineNotFound } from "../machines/input.js";
 import type { MachineStateView } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
-import { type LoadedRecipeView, loadedRecipeHistory, takeInLoadedRecipe } from "./loaded-recipes.js";
+import { type LoadedRecipeView, espressoStarted, loadedRecipeHistory, takeInLoadedRecipe } from "./loaded-recipes.js";
 
 /** A page of a history, as `readPage` reads it from a request. */
 type Page = { limit: number; offset: number };
@@ -78,7 +78,7 @@ export class MachineEventsService {
       if (reporter.identity.kind !== "mismatch" && credit.machineId === reporter.machineId) {
         const tablet = { machineId: reporter.machineId, tabletId: reporter.tabletId };
         return takeInWorkflow(tx, tablet, message.workflow, message.observedAt, (entry, joining) =>
-          takeInLoadedRecipe(tx, tablet, message.workflow, message.observedAt, entry, joining),
+          takeInLoadedRecipe(tx, tablet, message.workflow, message.observedAt, entry, joining, { loadBefore: message.loadBefore, unrecorded: message.unrecorded }),
         );
       }
       return undefined;
@@ -97,6 +97,11 @@ export class MachineEventsService {
           SELECT 1 FROM (SELECT state, substate FROM machine_state_events WHERE ${heldBy(credit)} ORDER BY id DESC LIMIT 1) AS latest
           WHERE latest.state = ${state} AND latest.substate = ${substate}
         )`;
+      // The first espresso since a load, from the Machine's own tablet, ends the window a part set back to what the
+      // load's write replaced is stale in (ADR-0022).
+      if (state === "espresso" && reporter.identity.kind !== "mismatch" && credit.machineId === reporter.machineId) {
+        await espressoStarted(tx, reporter.machineId);
+      }
     });
   }
 

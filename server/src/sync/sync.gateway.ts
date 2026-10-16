@@ -738,6 +738,9 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         (work) => this.track(work),
         // A delete the plugin could not judge yet is asked again after two heartbeat intervals.
         2 * this.config.heartbeatIntervalMs,
+        (captureOnly) => {
+          if (!session.closing) this.send(session, { type: "captureOnly", captureOnly });
+        },
       );
     }
     this.logger.log(

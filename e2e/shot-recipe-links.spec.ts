@@ -1,7 +1,7 @@
 import { expect as baseExpect, type Browser, type Page, test } from "@playwright/test";
 import { LOADED_RECIPE_KEY, dye2GlobalIdOf } from "@decent-sync/protocol";
 import { shotFixture } from "../server/test/support/shot-fixtures.js";
-import { DYE2_NAMESPACE, applyInDye2, dye2Keys, dye2Library, dye2List, dye2Recording, saveInDye2, withDye2Selection } from "../server/test/support/simulated-dye2.js";
+import { DYE2_NAMESPACE, SimulatedDye2, dye2Keys, dye2Library, dye2List, dye2Recording, openDye2Dashboard, saveInDye2 } from "../server/test/support/simulated-dye2.js";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
@@ -110,20 +110,20 @@ test("an Admin hard-deletes a Recipe no Shot was pulled with from every tablet, 
 });
 
 /**
- * A Location with two Machines: Bar 1, the recording's tablet with DYE2
- * v0.1.20's selection, whose DYE2 editor saves slots 1 and 2, and Bar 2,
+ * A Location with two Machines: Bar 1, the recording's tablet running DYE2
+ * v0.1.20, whose DYE2 editor saves slots 1 and 2, and Bar 2,
  * whose tablet has no DYE2 lists, each written both.
  */
 async function lab(page: Page, name: string, serial: number) {
   const location = await createLocation(page, name);
   const recipes = dye2Recording("recipes");
-  const bar1 = await tabletAt(page, `${name} 1`, location, withDye2Selection({
+  const bar1 = await tabletAt(page, `${name} 1`, location, {
     ...derivedDe1Pro({ serial: String(serial) }),
     ...dye2Library(),
     [`/store/${DYE2_NAMESPACE}/baskets`]: dye2Keys().baskets,
     [`/store/${DYE2_NAMESPACE}/equipment`]: dye2Keys().equipment,
     [`/store/${DYE2_NAMESPACE}/recipes`]: [],
-  }));
+  });
   const bar2 = await tabletAt(page, `${name} 2`, location, { ...derivedDe1Pro({ serial: String(serial + 1) }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS });
   await saveInDye2(bar1, recipes.saveSlot1);
   await saveInDye2(bar1, recipes.saveSlot2);
@@ -141,7 +141,7 @@ async function lab(page: Page, name: string, serial: number) {
  * Machine has the Recipe loaded, and waits for the Shot to be linked to it.
  */
 async function pullWith(page: Page, tablet: SimulatedTablet, slot: string, recipeId: string, id: string, serial: number): Promise<void> {
-  baseExpect((await applyInDye2(tablet, slot)).status).toBe(200);
+  baseExpect((await (await openDye2Dashboard(tablet)).applyRecipe(slot)).selection?.status).toBe(200);
   await expect.poll(() => ((tablet.workflow().context as Record_ | undefined)?.extras as Record_ | undefined)?.[LOADED_RECIPE_KEY]).toBe(recipeId);
   const fixture = shotFixture();
   const samples = fixture.measurements as Record_[];
@@ -191,7 +191,7 @@ async function tabletAt(page: Page, name: string, location: { id: string }, api:
   const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
   baseExpect(response.status()).toBe(201);
   const { token } = (await response.json()) as { token: string };
-  const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api, timeScale: 50 });
+  const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api, dye2: new SimulatedDye2(), timeScale: 50 });
   tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
   return tablet;

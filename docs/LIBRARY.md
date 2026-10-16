@@ -1188,9 +1188,18 @@ written (`recipeRecord` in `recipe-intake.ts`) holds:
 - the names DYE2 copies, and `title`, `subtitle` and the embedded
   `workflow`, built as DYE2's `buildRecipeWorkflow` builds them, with the full
   Profile and the tablet's grinder id, so DYE2 and Streamline apply it the
-  same way;
-- the full Profile in `profileSnapshot`, so it applies where the Profile is
-  hidden, or the tablet lacks it;
+  same way, and the Recipe's global id in its `context.extras`
+  (`decentSyncRecipeId`), so a recipe Streamline applies names its Recipe at
+  once (ADR-0022, decentespresso/dye2#20);
+- the full Profile in `profileSnapshot` and the embedded `workflow`, so it
+  applies where the Profile is hidden, or the tablet lacks it, at the
+  Recipe's brew temperature, its first step at it and every other step moved
+  by the same amount, as Streamline's Brew tile sets one
+  (`profileAtBrewTemperature` in `protocol/`), since DYE2 and Streamline
+  apply a recipe's profile as it is (decentespresso/dye2#26);
+- its brew temperature in `dashboardVariables.brewC`, its Profile's first
+  step's where the Recipe holds none, as DYE2 records a brew temperature
+  only into a record holding one;
 - the steam and rinse settings the tablet's recipes mirror
   (`mirroredSettings` in `location-settings.ts`): its Location's, or, while
   its Machine's sharing of them is off, its own, as its Workflow last held
@@ -1216,13 +1225,15 @@ So a recipe saved in DYE2 in a slot on one tablet is written to that slot on
 every tablet at its Location, and to no other Location's; an edit on any
 tablet, in DYE2's editor or through Streamline's auto-save, reaches every
 tablet there; and a recipe gone from a tablet's list empties its slot on the
-others. DYE2, from v0.1.20, and Streamline's auto-save with an earlier
-DYE2, save into the recipe the change a barista made in the Workflow of a
-Machine with it loaded, which the Workflow brings too, as the Machine's edit
-of its Loaded Recipe (ticket #146, `WORKFLOW-AND-STATE.md`, Following the
-Recipe): a field of a record that sets the Recipe's value its tablet's own
-latest edit set already is no edit (`withoutOwnEdits`), so the two are one
-edit, whichever reaches the server first. Recipes are read through the REST API (below), and managed in the
+others. DYE2, from v0.1.20, records into the recipe it has selected the
+change a barista made in the Workflow of a Machine with it loaded, its dose,
+yield, grind setting, brew temperature and the hot water value of its mode,
+as the Machine's edit of its Loaded Recipe; the Workflow's change of those is
+no edit, but what DYE2 records stale is written back (`recordedByDye2`,
+`WORKFLOW-AND-STATE.md`, Following the Recipe). A field of a record that
+sets the Recipe's value its tablet's own latest edit set already is no edit
+(`withoutOwnEdits`), so a change the Workflow brought where DYE2 missed it
+(decentespresso/dye2#18), which DYE2 may record later, is one edit. Recipes are read through the REST API (below), and managed in the
 management interface (Editing in the management interface, above).
 
 ## Writing to tablets

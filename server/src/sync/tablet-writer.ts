@@ -198,7 +198,12 @@ export class TabletWriter {
     private readonly track: (work: Promise<void>) => Promise<void>,
     /** How long a deferred delete waits before it is planned again. */
     private readonly retryDeferredMs: number,
+    /** Tells the plugin whether the Machine is capture-only (`CaptureOnly`). */
+    private readonly tellCaptureOnly: (captureOnly: boolean) => void = () => {},
   ) {}
+
+  /** Whether the plugin was last told its Machine is capture-only, or undefined before it was told. */
+  private toldCaptureOnly: boolean | undefined;
 
   /** Looks for writes due, now or, if it is writing, once the current write is done. */
   wake(): void {
@@ -316,6 +321,11 @@ export class TabletWriter {
        * it is written whatever its reports, one unavailable included.
        */
       const nowhere = found !== null && found.standing === null;
+      // The plugin loads no Recipe into a Capture-only Machine's Workflow, nor runs ADR-0022's workarounds there.
+      if (found !== null && this.toldCaptureOnly !== nowhere) {
+        this.toldCaptureOnly = nowhere;
+        this.tellCaptureOnly(nowhere);
+      }
       // Until the connection's reports are taken in, nothing else is due.
       if (!ready && !nowhere) found = null;
       /** Whether the connection's latest Workflow was taken in elsewhere than where the Machine takes part now. */

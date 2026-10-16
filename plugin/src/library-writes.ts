@@ -4,6 +4,7 @@ import {
   type CollectionName,
   DYE2_NAMESPACE,
   LIBRARY_ITEM_KINDS,
+  BREW_TEMPERATURE_FIELD,
   LOADED_RECIPE_FIELD,
   LOADED_RECIPE_KIND,
   LOADED_RECIPE_PARTS,
@@ -31,12 +32,14 @@ import {
   beanMatchKey,
   childKinds,
   dye2GlobalIdOf,
+  dye2Key,
   dye2Records,
   equipmentMatchKey,
   globalIdOf,
   isLibraryKind,
   isSlotId,
   loadedRecipeOf,
+  profileAtBrewTemperature,
   sameValue,
   settingsParts,
   steamIsOn,
@@ -47,7 +50,8 @@ import { type Answer, readShot, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
 import type { WorkflowChanges } from "./machine-events.js";
 import type { Outbox } from "./outbox.js";
-import { stepsKey } from "./recipe-matching.js";
+import { stepsKey } from "./loaded-recipe-rules.js";
+import { type LoadedRecipeWrites, machineMissing } from "./loaded-recipes.js";
 import { keepStreamlineSteamTemperature } from "./streamline.js";
 import { randomUuid } from "./tablet-id.js";
 
@@ -137,8 +141,16 @@ interface LibraryKindWriter extends KindWriter {
   drop?(remove: LibraryRemove, posted: ListPosted): Promise<RemoveAnswer>;
 }
 
-/** Told each time Decaid takes a post of one of DYE2's lists, under its key, and never when nothing was posted. It must not throw. */
-export type ListPosted = (key: Dye2Key) => void;
+/**
+ * Told each time Decaid takes a post of one of DYE2's lists, under its key,
+ * and never when nothing was posted. It must not throw. It carries the
+ * Loaded Recipe's part in the writes (`LoadedRecipeWrites`), where there is
+ * one.
+ */
+export interface ListPosted {
+  (key: Dye2Key): void;
+  loaded?: LoadedRecipeWrites;
+}
 
 /** Whether a Shot this plugin queued since it loaded, or has yet to send, names one of a kind's records (`LibraryWrites.namedByShot`). */
 type NamedByShot = (kind: LibraryKind, ids: ReadonlySet<string>) => Promise<boolean | "tooMany">;
@@ -267,13 +279,10 @@ export class LibraryAccess {
   }
 
   /**
-   * The plugin wrote one of the Library's lists: its next read is reported
-   * whatever it holds, though it reads as it was last reported. Decaid's
-   * ETags, like the content hashes DYE2's lists are compared by, follow the
-   * list's content, so one a barista put back as it was before the write,
-   * such as by deleting a batch the server had just created, or another app
-   * rewrote at the same moment, losing the write (ADR-0005), would otherwise
-   * not be reported until the next welcome.
+   * The plugin wrote one of DYE2's lists, whose reports are compared by
+   * content: its next read is reported whatever it holds, so one another app
+   * rewrote at the same moment, losing the write, is reported though it reads
+   * as it was last reported (ADR-0005).
    */
   wrote(list: CollectionName): void {
     for (const listener of this.listeners) listener(list);
@@ -296,16 +305,22 @@ export class LibraryAccess {
  * edit (ADR-0003).
  */
 export class LibraryWrites {
+  /** Told of each post of one of DYE2's lists Decaid took, carrying the Loaded Recipe's part in them. */
+  private readonly posted: ListPosted;
+
   constructor(
     private readonly library: LibraryAccess,
     private readonly outbox: Outbox,
     private readonly workflow: WorkflowChanges,
+    /** The Machine's Loaded Recipe, which the server's writes of it, and moves of it to another slot, keep in step with DYE2's selection. */
+    loaded: LoadedRecipeWrites,
     /** Told when Decaid refuses a write of the shared settings as no machine is connected. */
     private readonly machineMissing: () => void,
     private readonly log: (message: string) => void,
     /** Told of each post of one of DYE2's lists Decaid took. */
-    private readonly posted: ListPosted,
+    posted: ListPosted,
   ) {
+    this.posted = Object.assign((key: Dye2Key) => posted(key), { loaded });
     outbox.watch((delivery) => {
       if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shotId, delivery.shot);
     });
@@ -387,9 +402,9 @@ export class LibraryWrites {
     return this.library.run(async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutRemove(remove, this.posted))));
   }
 
-  /** Has the next read of the kind's list, which the plugin may just have written, reported whatever it holds; returns the answer. */
+  /** Has the next read of the kind's list reported whatever it holds, if it is one of DYE2's, which the plugin may just have written; returns the answer. */
   private wrote<T>(kind: string, answer: T): T {
-    if (isLibraryKind(kind)) this.library.wrote(LIBRARY_ITEM_KINDS[kind].list);
+    if (isLibraryKind(kind) && dye2Key(kind) !== undefined) this.library.wrote(LIBRARY_ITEM_KINDS[kind].list);
     return answer;
   }
 
@@ -727,13 +742,22 @@ async function clearWorkflow(write: LibraryWrite): Promise<WriteAnswer> {
  * through `PUT /workflow`, which Decaid merges into the Workflow: nothing
  * unless the Workflow still names that Recipe as loaded, and of the rest
  * each part whose first field still holds the value expected, or none
- * (`loadedRecipeFields`). Decaid refuses to change the hot water settings
- * while no machine is connected, so the rest is then written without them,
- * the Workflow read again first, and a write of only them is refused. Answers
+ * (`loadedRecipeFields`). A brew temperature moves every step of the
+ * profile written, or else the Workflow's, by the same amount
+ * (`profileAtBrewTemperature`). A write that is no clear is refused unless DYE2
+ * still has the Recipe's slot selected, or answers 404
+ * (`LoadedRecipeWrites.mayWrite`), and once made, a profile it changed is
+ * selected again; a clear has DYE2's selection of the Recipe's slot cleared
+ * (ADR-0022). Decaid refuses to change the hot water settings while no
+ * machine is connected, so the rest is then written without them, the
+ * Workflow read again first, and a write of only them is refused. Answers
  * with the Workflow's `context`, `hotWaterData` and `profile`, timed now, as
  * a Workflow carries no time.
  */
-async function writeLoadedRecipe(write: LibraryWrite): Promise<WriteAnswer> {
+async function writeLoadedRecipe(write: LibraryWrite, _log: (message: string) => void, posted: ListPosted): Promise<WriteAnswer> {
+  const globalId = write.globalId.toLowerCase();
+  const clearing = LOADED_RECIPE_FIELD in write.fields;
+  if (!clearing && posted.loaded && !(await posted.loaded.mayWrite(globalId))) return refused(write, null, ANOTHER_SELECTED);
   let hotWater = true;
   for (;;) {
     const current = await request("GET", "/workflow");
@@ -741,14 +765,36 @@ async function writeLoadedRecipe(write: LibraryWrite): Promise<WriteAnswer> {
     if (!isObject(workflow)) return refused(write, current.status, current.text);
     const fields = loadedRecipeFields(write, workflow, hotWater);
     if (Object.keys(fields).length === 0) return written(write, loadedRecipeParts(workflow), [], new Date().toISOString());
-    const answer = await request("PUT", "/workflow", workflowPatch(fields));
+    const answer = await request("PUT", "/workflow", loadedRecipePatch(fields, workflow));
     const updated = answer.ok ? parsed(answer.text) : undefined;
-    if (isObject(updated)) return written(write, loadedRecipeParts(updated), Object.keys(fields), new Date().toISOString());
+    if (isObject(updated)) {
+      if (clearing) posted.loaded?.cleared(globalId);
+      else posted.loaded?.written(globalId, workflow, updated);
+      return written(write, loadedRecipeParts(updated), Object.keys(fields), new Date().toISOString());
+    }
     const ofHotWater = Object.keys(fields).filter((field) => field.startsWith("hotWaterData."));
     // Hot water alone is refused, as a settings write is, so the plugin writes it once the machine is back.
     if (ofHotWater.length === 0 || ofHotWater.length === Object.keys(fields).length || !machineMissing(answer)) return refused(write, answer.status, answer.text);
     hotWater = false;
   }
+}
+
+/** Why the plugin refuses a write of the server's into the Workflow for its Loaded Recipe while DYE2 has another selected. */
+const ANOTHER_SELECTED = "DYE2 has another recipe selected on the tablet, which the plugin follows first";
+
+/**
+ * The body of a `PUT /workflow` setting the fields of a write of
+ * LOADED_RECIPE_KIND (`workflowPatch`), its brew temperature as the profile
+ * it writes, or else the Workflow's, moved to it (`profileAtBrewTemperature`).
+ */
+function loadedRecipePatch(fields: Readonly<Record<string, unknown>>, workflow: Record<string, unknown>): Record<string, unknown> {
+  const { [BREW_TEMPERATURE_FIELD]: temperature, ...rest } = fields;
+  const patch = workflowPatch(rest);
+  if (typeof temperature === "number") {
+    const shifted = profileAtBrewTemperature(isObject(patch.profile) ? patch.profile : workflow.profile, temperature, null);
+    if (shifted !== null) patch.profile = shifted;
+  }
+  return patch;
 }
 
 /**
@@ -781,11 +827,6 @@ function loadedRecipeParts(workflow: Record<string, unknown>): Record<string, un
     hotWaterData: isObject(workflow.hotWaterData) ? workflow.hotWaterData : {},
     ...(isObject(workflow.profile) ? { profile: workflow.profile } : {}),
   };
-}
-
-/** Whether Decaid refused a Workflow change as no machine is connected, which it needs to change the hot water settings. */
-function machineMissing(answer: Answer): boolean {
-  return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");
 }
 
 /** A Workflow's `context`, as Decaid holds it: none is an empty one. */
@@ -1039,10 +1080,16 @@ async function readList({ path, key }: ListPath): Promise<Dye2List> {
  * every tablet at a Location holds them (ADR-0005): DYE2 adds a recipe saved
  * in a new slot at the end. A post Decaid takes is told of (`ListPosted`).
  */
-async function postList({ path, key, posted }: ListPath, records: Record<string, unknown>[]): Promise<Answer> {
+async function postList({ path, key, posted }: ListPath, records: Record<string, unknown>[], before: readonly Record<string, unknown>[]): Promise<Answer> {
   const ordered = key === "recipes" ? [...records].sort((a, b) => Number(a.id) - Number(b.id)) : records;
+  // The Loaded Recipe moving to another slot is cleared from DYE2's selection first, so DYE2 never records into a recipe
+  // put in its old slot, and selected in its new one after (ADR-0022).
+  if (key === "recipes") await posted.loaded?.moving(before, ordered);
   const answer = await request("POST", path, ordered);
-  if (answer.ok) posted(key);
+  if (answer.ok) {
+    posted(key);
+    if (key === "recipes") posted.loaded?.posted(ordered);
+  }
   return answer;
 }
 
@@ -1096,8 +1143,9 @@ async function writeInList(path: ListPath, write: LibraryWrite): Promise<WriteAn
     writtenFields = Object.keys(fields);
     if (sameValue(record, current)) return written(write, current, writtenFields, now);
   }
+  const before = [...records];
   records[index] = record;
-  const posted = await postList(path, records);
+  const posted = await postList(path, records, before);
   if (!posted.ok) return refused(write, posted.status, posted.text);
   const answer = written(write, record, writtenFields, now);
   return linked ? { ...answer, linked } : answer;
@@ -1120,7 +1168,7 @@ async function removeFromList(path: ListPath, remove: LibraryRemove | LibraryDel
   const carried = dye2GlobalIdOf(list.records[index]);
   if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
   if (remove.type === "remove" && remove.expected !== undefined && !sameValue(list.records[index], remove.expected)) return refused(remove, null, RECORD_CHANGED);
-  const posted = await postList(path, list.records.filter((_, at) => at !== index));
+  const posted = await postList(path, list.records.filter((_, at) => at !== index), list.records);
   return posted.ok ? removed : refused(remove, posted.status, posted.text);
 }
 
@@ -1137,7 +1185,7 @@ async function leaveOutOfList(path: ListPath, leave: LeaveOut): Promise<ItemLeft
   const index = list.records.findIndex((record) => record.id === leave.localId);
   if (index === -1) return "gone";
   if (dye2GlobalIdOf(list.records[index]) !== null) return "taken";
-  const posted = await postList(path, list.records.filter((_, at) => at !== index));
+  const posted = await postList(path, list.records.filter((_, at) => at !== index), list.records);
   return posted.ok ? "setAside" : posted;
 }
 
@@ -1195,8 +1243,9 @@ async function writeRecipe(path: ListPath, write: LibraryWrite): Promise<WriteAn
     writtenFields = Object.keys(settled);
     if (sameValue(record, current)) return written(write, current, writtenFields, now);
   }
+  const before = [...records];
   records[index] = record;
-  const posted = await postList(path, records);
+  const posted = await postList(path, records, before);
   if (!posted.ok) return refused(write, posted.status, posted.text);
   const answer = written(write, record, writtenFields, now);
   return linked ? { ...answer, linked } : answer;

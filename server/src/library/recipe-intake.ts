@@ -1,4 +1,4 @@
-import { RECIPE_FIELD, type SharedSetting, dye2GlobalIdOf, dye2Records, isSlotId, sameValue } from "@decent-sync/protocol";
+import { LOADED_RECIPE_KEY, RECIPE_FIELD, type SharedSetting, dye2GlobalIdOf, dye2Records, isSlotId, profileAtBrewTemperature, sameValue } from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
 import { type FieldEdits, changedFields } from "./merge.js";
 import type { LocationValues } from "./settings-intake.js";
@@ -451,14 +451,18 @@ export interface WriteContext {
  * Tools by the tablet's ids, and its Profile by Decaid's, each left out where
  * the tablet holds no record of it, and the names DYE2 copies from them; its
  * full Profile in `profileSnapshot`, so it applies where the Profile is
- * hidden; a blank barista and drinker; the steam and rinse settings it
+ * hidden, at the Recipe's brew temperature (`profileAtBrewTemperature`), as
+ * DYE2 and Streamline apply a recipe's profile as it is; its brew
+ * temperature, its Profile's first step's where it holds none, which DYE2
+ * records into only a record holding one (ADR-0022); a blank barista and
+ * drinker; the steam and rinse settings it
  * mirrors (`MIRRORED_PATHS`), its steam's of its steam mode alone, and none
  * not known or of 0; the hot water value of its mode,
  * with all four and its Bean Batch, by the tablet's id, in the record's own
  * field (RECIPE_FIELD); and `title`, `subtitle` and the embedded `workflow`
  * as DYE2 derives them (`recipeWorkflow`).
  */
-export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: number, context: WriteContext): RecipeView {
+export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: number, context: WriteContext, recipeId: string): RecipeView {
   const { ids } = context;
   const id = (key: string) => (typeof content[key] === "string" ? (content[key] as string) : null);
   const local = (kind: Parameters<TabletIds["local"]>[0], itemId: string | null) => (itemId === null ? null : (ids.local(kind, itemId) ?? null));
@@ -467,7 +471,11 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
   const profileId = id("profileId");
   const grinderId = id("grinderId");
   const basketId = id("basketId");
-  const profile = profileId === null ? undefined : context.profiles.get(profileId);
+  const stored = profileId === null ? undefined : context.profiles.get(profileId);
+  // At the Recipe's brew temperature, or else its Profile's own, as DYE2 and Streamline apply a recipe's profile as it is
+  // (decentespresso/dye2#26).
+  const brewTemperature = typeof content.brewTemperature === "number" ? content.brewTemperature : firstStepTemperature(stored);
+  const profile = stored && brewTemperature !== null ? (profileAtBrewTemperature(stored, brewTemperature, null) ?? stored) : stored;
   const tools = (Array.isArray(content.toolIds) ? (content.toolIds as unknown[]) : []).filter((tool): tool is string => typeof tool === "string");
   const held = tools.filter((tool) => ids.local("tool", tool) !== undefined);
   const attributes = isObject(content.toolAttributes) ? content.toolAttributes : {};
@@ -500,7 +508,8 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
     [`${DV}.dose`]: value("dose"),
     [`${DV}.drink`]: value("yield"),
     [`${DV}.ratio`]: value("ratio"),
-    [`${DV}.brewC`]: value("brewTemperature"),
+    // Held whatever the Recipe holds, as DYE2 records a brew temperature only into a record holding one.
+    [`${DV}.brewC`]: brewTemperature,
     [`${DV}.steamMode`]: steamMode,
     // DYE2 and Streamline apply the steam value of the recipe's mode alone. The other is left out: DYE2's editor shows a
     // time whatever the mode, and would save it as the flow.
@@ -533,8 +542,16 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
   const name = typeof view.name === "string" ? view.name : "";
   view.title = name !== "" ? name : `Recipe ${slot}`;
   view.subtitle = [view.beanName, view.beverage].find((text) => typeof text === "string" && text !== "") ?? "";
-  view.workflow = recipeWorkflow(view);
+  view.workflow = recipeWorkflow(view, recipeId);
   return view;
+}
+
+/** A profile's first step's temperature, or null for none. */
+function firstStepTemperature(profile: unknown): number | null {
+  const steps = isObject(profile) && Array.isArray(profile.steps) ? profile.steps : [];
+  const first: unknown = steps[0];
+  const temperature = isObject(first) ? first.temperature : undefined;
+  return typeof temperature === "number" && Number.isFinite(temperature) ? temperature : null;
 }
 
 /**
@@ -543,9 +560,11 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
  * at v0.1.19) from the record's fields: its dose, yield (or its dose times
  * its ratio), grind setting, RPM, Grinder and Basket by the tablet's ids,
  * coffee, barista and drinker, each only where the record holds one, and its
- * full Profile where it names one.
+ * full Profile where it names one; and the Recipe's global id
+ * (LOADED_RECIPE_KEY), which DYE2's own does not hold, so a Workflow
+ * Streamline applies it to names its Recipe (ADR-0022).
  */
-export function recipeWorkflow(view: Readonly<RecipeView>): Record<string, unknown> {
+export function recipeWorkflow(view: Readonly<RecipeView>, recipeId: string): Record<string, unknown> {
   const at = (field: string) => view[`${DV}.${field}`];
   const present = (value: unknown) => value !== null && value !== undefined;
   const context: Record<string, unknown> = {};
@@ -559,7 +578,9 @@ export function recipeWorkflow(view: Readonly<RecipeView>): Record<string, unkno
   if (at("grinderModel")) context.grinderModel = at("grinderModel");
   if (at("basketId")) extras.basketId = at("basketId");
   if (at("basketName")) extras.basketName = at("basketName");
-  if (Object.keys(extras).length > 0) context.extras = extras;
+  // So a recipe applied from Streamline's strip names its Recipe at once (decentespresso/dye2#20).
+  extras[LOADED_RECIPE_KEY] = recipeId;
+  context.extras = extras;
   if (view.beanName) context.coffeeName = view.beanName;
   if (view.barista) context.baristaName = view.barista;
   if (view.drinker) context.drinkerName = view.drinker;

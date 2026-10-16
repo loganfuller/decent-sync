@@ -9,6 +9,10 @@ import {
   partsWrite,
   readParts,
   recipeParts,
+  readLoadBefore,
+  recordedParts,
+  setBackToLoad,
+  workflowEditedParts,
   workflowParts,
 } from "../src/library/loaded-recipe-intake.js";
 import type { FieldEdits } from "../src/library/merge.js";
@@ -55,7 +59,7 @@ const CONTENT = {
 
 /** A Workflow holding that Recipe, as Decaid keeps one, naming the tablet's records. */
 const WORKFLOW = {
-  profile: { title: "Adaptive v3", steps: [] },
+  profile: { title: "Adaptive v3", steps: [{ name: "pour", temperature: 92 }] },
   context: {
     targetDoseWeight: 18,
     targetYield: 36,
@@ -86,19 +90,31 @@ describe("A Workflow's parts that follow its Loaded Recipe", () => {
       duration: 40,
       volume: 120,
       flow: 7.5,
+      // Its first step's temperature.
+      brewTemperature: 92,
     });
     expect(readParts(JSON.parse(JSON.stringify(HELD)))).toEqual(HELD);
     expect(workflowParts({ context: { grinderSetting: 3 } })).toMatchObject({ grind: "3", dose: null, batch: null });
   });
 
   it("change where they differ, a grind setting compared as a number, and not where one is cleared, as Streamline clears them once a Shot is stored", () => {
-    expect(changedParts(HELD, { ...HELD, grind: "2.70" })).toEqual([]);
-    expect(changedParts(HELD, { ...HELD, grind: "2.8", volume: 140 })).toEqual(["grind", "volume"]);
-    expect(changedParts(HELD, { ...HELD, batch: null, basket: null, rpm: null })).toEqual([]);
+    const every = recordedParts(CONTENT).concat(workflowEditedParts(CONTENT));
+    expect(changedParts(HELD, { ...HELD, grind: "2.70" }, every)).toEqual([]);
+    expect(changedParts(HELD, { ...HELD, grind: "2.8", volume: 140 }, every)).toEqual(["grind", "volume"]);
+    expect(changedParts(HELD, { ...HELD, batch: null, basket: null, rpm: null }, every)).toEqual([]);
+  });
+
+  it("change in the Workflow only where DYE2 does not record them: not the dose, yield, grind setting, brew temperature, or hot water value of the Recipe's mode", () => {
+    const now = { ...HELD, dose: 19, yield: 40, grind: "2.8", brewTemperature: 91, rpm: 950, targetTemperature: 90, volume: 140, duration: 30 };
+    // By temperature, DYE2 records the hot water temperature, and the volume is the Workflow's to edit.
+    expect(changedParts(HELD, now, workflowEditedParts({ ...CONTENT, hotWaterMode: "temp" }))).toEqual(["rpm", "duration", "volume"]);
+    // By volume, or naming no mode, it records the volume.
+    expect(changedParts(HELD, now, workflowEditedParts(CONTENT))).toEqual(["rpm", "targetTemperature", "duration"]);
+    expect(recordedParts(CONTENT)).toEqual(["dose", "yield", "grind", "brewTemperature", "volume"]);
   });
 
   it("change no Grinder or Profile, a change of which unloads the Recipe rather than edits it", () => {
-    expect(changedParts(HELD, { ...HELD, grinder: "g2", profile: "profile:classic" })).toEqual([]);
+    expect(changedParts(HELD, { ...HELD, grinder: "g2", profile: "profile:classic" }, workflowEditedParts(CONTENT))).toEqual([]);
   });
 });
 
@@ -162,6 +178,33 @@ describe("A change of a Workflow's parts", () => {
   });
 });
 
+describe("A part set back to what a load's write replaced", () => {
+  const loadBefore = { batch: { before: "b3", written: "b1" }, basket: { before: "k2", written: "k1" }, grinder: { before: "g2", written: "g1" } };
+
+  it("is stale, before the first espresso since, unless the tablet made the field's latest edit itself, or it is the Grinder", () => {
+    expect(setBackToLoad("batch", "b3", loadBefore, new Set())).toBe(true);
+    expect(setBackToLoad("basket", "k2", loadBefore, new Set())).toBe(true);
+    // An undo of the barista's own tweak.
+    expect(setBackToLoad("basket", "k2", loadBefore, new Set(["basketId"]))).toBe(false);
+    // A grinder set back unloads the Recipe.
+    expect(setBackToLoad("grinder", "g2", loadBefore, new Set())).toBe(false);
+    // A part the load did not change, another value, or none known once an espresso started.
+    expect(setBackToLoad("rpm", 900, loadBefore, new Set())).toBe(false);
+    expect(setBackToLoad("batch", "b2", loadBefore, new Set())).toBe(false);
+    expect(setBackToLoad("batch", "b3", null, new Set())).toBe(false);
+  });
+
+  it("is no edit, taken as the Workflow holds it, so the Recipe's value is written back", () => {
+    const now = { ...HELD, batch: "b3" };
+    const content = { ...CONTENT, beanId: OTHER_BEAN };
+    expect(partEdits(["batch"], now, content, LOOKUPS, { beforeWrite: null, previous: {}, own: new Set(), loadBefore })).toEqual({ values: {}, taken: ["batch"], unmapped: [] });
+    // Once an espresso started, it is the barista's next batch of the Recipe's Bean.
+    expect(partEdits(["batch"], now, content, LOOKUPS).values).toEqual({ beanBatchId: OTHER_BEANS_BATCH });
+    expect(readLoadBefore({ batch: { before: "b3", written: "b1" }, unknown: { before: 1, written: 2 } })).toEqual({ batch: { before: "b3", written: "b1" } });
+    expect(readLoadBefore({})).toBeNull();
+  });
+});
+
 describe("What a Workflow is written of its Loaded Recipe", () => {
   const locals: Record<string, string> = {
     [`beanBatch:${NEXT_BAG}`]: "b2",
@@ -174,11 +217,19 @@ describe("What a Workflow is written of its Loaded Recipe", () => {
   const CLASSIC = { title: "Classic Italian espresso", steps: [{ name: "pour" }] };
   const names = { profile: CLASSIC, grinderModel: "EK43", basketName: "18g", coffeeName: "Ethiopia", coffeeRoaster: "Fixture Roasters" };
 
-  it("is its Grinder, with its model, and its Profile whole, expecting nothing of the Profile", () => {
+  it("is its Grinder, with its model, and its Profile whole, expecting nothing of the Profile, at the Recipe's brew temperature, or its first step's", () => {
     expect(partsWrite(recipeParts({ ...CONTENT, grinderId: OTHER_GRINDER, profileId: "profile:classic" }, local), HELD, names)).toEqual({
       fields: { profile: CLASSIC, "context.grinderId": "g2", "context.grinderModel": "EK43" },
       expected: { "context.grinderId": "g1" },
     });
+    // The Profile written holds its own step temperatures, so the Recipe's brew temperature is written with it, whatever the
+    // Workflow held.
+    expect(partsWrite(recipeParts({ ...CONTENT, profileId: "profile:classic", brewTemperature: 92 }, local), HELD, names)).toEqual({
+      fields: { profile: CLASSIC, "profile.steps.0.temperature": 92 },
+      expected: {},
+    });
+    expect(recipeParts({ ...CONTENT }, local, 94).brewTemperature).toBe(94);
+    expect(recipeParts({ ...CONTENT, brewTemperature: 91 }, local, 94).brewTemperature).toBe(91);
     // A Profile the Library does not hold whole is not written.
     expect(partsWrite(recipeParts({ ...CONTENT, profileId: "profile:classic" }, local), HELD, { ...names, profile: null })).toBeNull();
   });
@@ -198,6 +249,13 @@ describe("What a Workflow is written of its Loaded Recipe", () => {
     });
   });
 
+  it("is the Recipe's brew temperature, expecting the Workflow's first step's", () => {
+    expect(partsWrite(recipeParts({ ...CONTENT, brewTemperature: 90 }, local), HELD, names)).toEqual({
+      fields: { "profile.steps.0.temperature": 90 },
+      expected: { "profile.steps.0.temperature": 92 },
+    });
+  });
+
   it("is nothing where it holds the Recipe's, a grind setting as a number, nor a field the Recipe holds none of", () => {
     expect(partsWrite(recipeParts(CONTENT, local), HELD, names)).toBeNull();
     expect(partsWrite(recipeParts({ dose: 18 }, local), { ...HELD, grind: "9" }, names)).toBeNull();
@@ -213,7 +271,7 @@ describe("What a Workflow is written of its Loaded Recipe", () => {
 
 describe("The dial and batch written into a Workflow", () => {
   const target = { ...HELD, profile: "profile:classic", grinder: "g2", batch: "b2", dose: 19, yield: 38, grind: "3.1", rpm: 950 };
-  const current = { profileId: "profile:classic", dashboardVariables: { grinderId: "g2", dose: 19, ratio: 2, grind: 3.1 }, [RECIPE_FIELD]: { beanBatchId: "b2" } };
+  const current = { profileId: "profile:classic", dashboardVariables: { grinderId: "g2", dose: 19, ratio: 2, grind: 3.1, brewC: 92 }, [RECIPE_FIELD]: { beanBatchId: "b2" } };
 
   it("wait for the tablet's record of the Recipe to hold them, as the plugin judges a change of the dial by its records, the rest going ahead", () => {
     const stale = { profileId: "profile:adaptive", dashboardVariables: { grinderId: "g1", dose: 18, drink: 36, grind: 2.7 }, [RECIPE_FIELD]: { beanBatchId: "b1" } };
@@ -225,6 +283,7 @@ describe("The dial and batch written into a Workflow", () => {
       yield: undefined,
       grind: undefined,
       batch: undefined,
+      brewTemperature: undefined,
     });
     // A yield worked out from the ratio, and a grind setting as a number, are held.
     expect(heldByRecord(target, current)).toEqual(target);
