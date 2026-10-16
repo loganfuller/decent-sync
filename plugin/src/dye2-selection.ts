@@ -1,162 +1,153 @@
 import { DYE2_NAMESPACE } from "@decent-sync/protocol";
 import { request } from "./decaid.js";
+import type { TransportEvent } from "./host.js";
 
-// DYE2's selected recipe kept in step with the Machine's Loaded Recipe
-// (ADR-0022). From DYE2 v0.1.20, DYE2 keeps one selected recipe or favourite,
-// which its dashboard selects as it applies one and Streamline's strip
-// selects through DYE2's `selection` endpoint, and records into it each
-// change of the Workflow's dial it sees, whichever app made it, the
-// plugin's writes included, but for its own applies (`workflow-record.ts` in
-// dye2:dye2-plugin/src/utils at v0.1.20). Left to itself, it records into a
-// recipe that is not the Loaded Recipe: one still selected after the plugin
-// unloaded it on a change of grinder or Bean, which DYE2 does not clear on,
-// or one selected before the barista dialled in another by hand. Each such
-// change would be taken in as an edit of that Recipe, and reach every
-// Machine that has it loaded. So the plugin selects the Loaded Recipe through
-// that endpoint, as Streamline does, and clears its selection of a recipe
-// it unloaded, following DYE2's own model rather than working around it.
-// A tablet without DYE2, or with a release before v0.1.20, answers 404,
-// which changes nothing.
+// DYE2's selected recipe (ADR-0022). From v0.1.20, DYE2 keeps one selected
+// recipe or favourite on each tablet, which its dashboard and Streamline's
+// DYE strip select as they apply one, through DYE2's `selection` endpoint,
+// and records into it each change of the Workflow it sees, whichever app
+// made it, but for its own applies (`workflow-record.ts` in
+// dye2:dye2-plugin/src/utils at v0.1.20). The Machine's Loaded Recipe is the
+// recipe it selects (loaded-recipes.ts). This module is how the plugin reads
+// and makes that selection, keeps a cleared one cleared in DYE2's storage,
+// tells whether DYE2 is there at all, and hears DYE2's pushes.
 
 const SELECTION = `/plugins/${DYE2_NAMESPACE}/selection`;
 
-/** The Loaded Recipe as DYE2's selection follows it: its global id, its Recipe Slot, and the Workflow's profile as DYE2 tells it apart. */
-export interface Followed {
-  globalId: string | null;
-  slot: number | null;
-  /** The Workflow's profile, as DYE2 fingerprints it (`dye2Fingerprint`): DYE2 clears its selection as that changes, so it is selected again. */
-  profile: string | null;
+/** DYE2's storage key for its selection, which it restores as it loads, through Decaid's store API. */
+const STORED_SELECTION = `/store/${DYE2_NAMESPACE}/selection`;
+
+/** DYE2's WebSocket endpoint, on which it pushes `{"what":"workflow"}` as it selects, records and refreshes its recent favourites. */
+export const CHANGED_SOCKET = `ws://localhost:8080/ws/v1/plugins/${DYE2_NAMESPACE}/changed`;
+
+/** DYE2's selection as its endpoint answers it. */
+export type SelectionAnswer =
+  /** 404: DYE2 is not loaded, as while it reloads or updates. */
+  | { kind: "unavailable" }
+  | { kind: "none" }
+  /** A recipe, by its slot (null for an id that names none), with the fingerprint of the profile it was selected on, or null. */
+  | { kind: "recipe"; slot: number | null; fingerprint: string | null; selection: Record<string, unknown> }
+  | { kind: "favourite"; selection: Record<string, unknown> };
+
+/** DYE2's selection now. Throws if Decaid answers otherwise than with it or 404, or does not answer. */
+export async function readSelection(): Promise<SelectionAnswer> {
+  const answer = await request("GET", SELECTION);
+  if (answer.status === 404) return { kind: "unavailable" };
+  const value = answer.ok ? parsed(answer.text) : undefined;
+  if (value === undefined) throw new Error(`Decaid answered ${answer.status} reading DYE2's selection`);
+  if (!isObject(value) || typeof value.kind !== "string") return { kind: "none" };
+  if (value.kind === "recipe") {
+    const id = String(value.id);
+    return {
+      kind: "recipe",
+      slot: /^[1-9]\d*$/.test(id) ? Number(id) : null,
+      fingerprint: typeof value.profileFingerprint === "string" ? value.profileFingerprint : null,
+      selection: value,
+    };
+  }
+  return { kind: "favourite", selection: value };
 }
 
 /**
- * A profile as DYE2 fingerprints one to tell a change of profile, which
- * clears its selection (`profileFingerprint` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.20): its title,
- * target weight and volume, tank temperature and steps, but each step's
- * temperature. Null for none.
+ * Has DYE2 select the recipe in that slot, as its dashboard does as it
+ * applies one, or clear its selection (null), as Streamline does as its
+ * strip is switched off: "done", or "unavailable" where DYE2 answers 404.
+ * Throws if Decaid refuses it, or does not answer.
  */
-export function dye2Fingerprint(profile: unknown): string | null {
-  if (!isObject(profile)) return null;
-  const steps = Array.isArray(profile.steps)
-    ? profile.steps.map((step: unknown) => {
-        if (!isObject(step)) return step;
-        const { temperature: _, ...rest } = step;
-        return rest;
-      })
-    : profile.steps;
-  return JSON.stringify({
-    title: profile.title,
-    target_weight: profile.target_weight,
-    target_volume: profile.target_volume,
-    tank_temperature: profile.tank_temperature,
-    steps,
-  });
+export async function postSelection(slot: number | null): Promise<"done" | "unavailable"> {
+  const answer = await request("POST", SELECTION, slot === null ? {} : { kind: "recipe", id: String(slot) });
+  if (answer.status === 404) return "unavailable";
+  if (!answer.ok) throw new Error(`Decaid answered ${answer.status} setting DYE2's selection`);
+  return "done";
 }
 
-export class Dye2Selection {
-  /** What DYE2 was last told, or undefined before the first Workflow the plugin saw, or after a selection Decaid failed. */
-  private told: Followed | undefined;
-  /** The slots whose clearing Decaid failed, cleared at the next Workflow or read of the recipes unless selected again since. */
-  private readonly failedClears = new Set<number>();
-  private queue: Promise<void> = Promise.resolve();
-  /** Whether a failure was logged since the last success, so a Decaid failing every request logs once. */
-  private failing = false;
+/**
+ * Keeps a selection in DYE2's storage, which DYE2 restores as it next loads:
+ * `{}`, which it restores as none, or a selection as its endpoint answered
+ * it (decentespresso/dye2#22). Throws if Decaid refuses it, or does not
+ * answer.
+ */
+export async function storeSelection(value: Record<string, unknown>): Promise<void> {
+  const answer = await request("POST", STORED_SELECTION, value);
+  if (!answer.ok) throw new Error(`Decaid answered ${answer.status} keeping DYE2's selection`);
+}
 
-  constructor(private readonly log: (message: string) => void) {}
+/**
+ * DYE2 as Decaid's plugins list shows it (`GET /api/v1/plugins`,
+ * `plugins_handler.dart`): loaded; not loaded but to load at startup, as
+ * while it reloads, updates or fails to load; disabled, neither loaded nor
+ * to load (`loaded` and `autoLoad` both false); or absent from the list.
+ */
+export type Dye2State = "loaded" | "notLoaded" | "disabled" | "absent";
 
-  /**
-   * The Loaded Recipe the Workflow names once the plugin has decided on it:
-   * DYE2 selects it where it is in a slot, again as it moves to another
-   * slot, or as its profile changes, which clears DYE2's selection, but
-   * never while the tablet holds it in no slot, as another may be in the
-   * slot it left. A Loaded Recipe that leaves the slot DYE2 was told of is
-   * cleared from it as the plugin reads the recipes, though the Workflow
-   * still names it; and a Recipe the Workflow no longer names is cleared
-   * from the slot it was told of, as the server's clear of it, or the
-   * plugin's (`unloaded`), reaches the Workflow. A clear is made only while
-   * DYE2 still has that slot selected, leaving a favourite or another slot
-   * the barista selected since; DYE2 names a recipe by its slot alone, so a
-   * selection of another recipe put in that slot since is cleared too. The
-   * first Workflow the plugin sees, as on every load of it, clears nothing:
-   * DYE2 may hold a selection a barista made since. A selection or clear
-   * Decaid fails is tried again at the next call, unless overtaken.
-   */
-  follow(followed: Followed): void {
-    const told = this.told;
-    for (const slot of this.failedClears) {
-      this.failedClears.delete(slot);
-      // Selected again since it failed: no longer to clear.
-      if (told?.globalId && told.slot === slot) continue;
-      this.clearSlot(slot);
-    }
-    if (followed.globalId !== null && followed.slot !== null) {
-      if (!told || told.globalId !== followed.globalId || told.slot !== followed.slot || told.profile !== followed.profile) {
-        this.told = followed;
-        const slot = followed.slot;
-        this.send(
-          () => this.select(slot),
-          () => {
-            // Tried again at the next call, unless another has been told since.
-            if (this.told === followed) this.told = undefined;
-          },
-        );
-      }
-      return;
-    }
-    // Gone from the tablet's slots while the Workflow names it, as before the server clears it, or no longer named: cleared
-    // from the slot DYE2 was told of, and never selected there again.
-    if (told && told.globalId !== null && told.slot !== null && (followed.globalId === null || told.globalId === followed.globalId)) this.clearSlot(told.slot);
-    this.told = followed;
-  }
+/** DYE2's state now. Throws if Decaid does not answer with its plugins. */
+export async function readDye2State(): Promise<Dye2State> {
+  const answer = await request("GET", "/plugins");
+  const value = answer.ok ? parsed(answer.text) : undefined;
+  if (!Array.isArray(value)) throw new Error(`Decaid answered ${answer.status} listing its plugins`);
+  const dye2 = value.find((plugin: unknown) => isObject(plugin) && plugin.id === DYE2_NAMESPACE) as Record<string, unknown> | undefined;
+  if (!dye2) return "absent";
+  if (dye2.loaded === true) return "loaded";
+  return dye2.autoLoad === false ? "disabled" : "notLoaded";
+}
 
-  /** The plugin unloaded the Recipe, as on a change of grinder or Bean, which DYE2 keeps its selection through: it is cleared at once. */
-  unloaded(globalId: string): void {
-    const told = this.told;
-    if (told?.globalId !== globalId) return;
-    if (told.slot !== null) this.clearSlot(told.slot);
-    this.told = { globalId: null, slot: null, profile: told.profile };
-  }
+/** The transports the plugin opens, counted against Decaid's limit per plugin generation with its connections to the server. */
+export interface Transports {
+  /** Opens one, or rejects where Decaid allows no more, or the open fails. */
+  open(url: string): Promise<string>;
+  onEvent(handle: string, listener: (event: TransportEvent) => void): void;
+  /** Closes one, which counts against the limit until Decaid has closed it. */
+  close(handle: string): void;
+}
 
-  /** Clears the slot from DYE2's selection, tried again at the next `follow` if Decaid fails it. */
-  private clearSlot(slot: number): void {
-    this.send(
-      () => this.clear(slot),
-      () => this.failedClears.add(slot),
+/**
+ * DYE2's `changed` socket, kept open while DYE2 is loaded: each push tells
+ * `pushed`. Opened again at the next `keepOpen` after it closes, as when
+ * DYE2 unloads. A push arriving while it is opening is lost, which the
+ * plugin's reads after each Workflow change and on its poll make up for.
+ */
+export class Dye2Pushes {
+  private handle: string | undefined;
+  private opening = false;
+  private stopped = false;
+
+  constructor(
+    private readonly transports: Transports,
+    private readonly pushed: () => void,
+  ) {}
+
+  /** Opens the socket unless it is open or opening. */
+  keepOpen(): void {
+    if (this.handle !== undefined || this.opening || this.stopped) return;
+    this.opening = true;
+    this.transports.open(CHANGED_SOCKET).then(
+      (handle) => {
+        this.opening = false;
+        if (this.stopped) {
+          this.transports.close(handle);
+          return;
+        }
+        this.handle = handle;
+        this.transports.onEvent(handle, (event) => {
+          if (handle !== this.handle) return;
+          if (event.type === "data") this.pushed();
+          else this.closed(handle);
+        });
+      },
+      () => {
+        this.opening = false;
+      },
     );
   }
 
-  /** Has DYE2 select the recipe in that slot, as its dashboard does as it applies one. */
-  private async select(slot: number): Promise<void> {
-    await this.post({ kind: "recipe", id: String(slot) });
+  stop(): void {
+    this.stopped = true;
+    if (this.handle !== undefined) this.closed(this.handle);
   }
 
-  /** Clears DYE2's selection while it is still the recipe in that slot, leaving another the barista selected since. */
-  private async clear(slot: number): Promise<void> {
-    const answer = await request("GET", SELECTION);
-    if (answer.status === 404) return;
-    if (!answer.ok) throw new Error(`Decaid answered ${answer.status} reading DYE2's selection`);
-    const selected = parsed(answer.text);
-    if (!isObject(selected) || selected.kind !== "recipe" || String(selected.id) !== String(slot)) return;
-    await this.post({});
-  }
-
-  private async post(body: Record<string, unknown>): Promise<void> {
-    const answer = await request("POST", SELECTION, body);
-    if (!answer.ok && answer.status !== 404) throw new Error(`Decaid answered ${answer.status} setting DYE2's selection`);
-  }
-
-  /** Runs each request in turn, logging a failure once until one succeeds, and marking it to be tried again (`failed`). */
-  private send(work: () => Promise<void>, failed: () => void): void {
-    this.queue = this.queue
-      .then(work)
-      .then(() => {
-        this.failing = false;
-      })
-      .catch((error: unknown) => {
-        failed();
-        if (!this.failing) this.log(`Could not keep DYE2's selected recipe in step with the Loaded Recipe: ${error instanceof Error ? error.message : String(error)}`);
-        this.failing = true;
-      });
+  private closed(handle: string): void {
+    this.handle = undefined;
+    this.transports.close(handle);
   }
 }
 

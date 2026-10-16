@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, RECIPE_FIELD } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, RECIPE_FIELD, profileAtBrewTemperature } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
 import { syncingTablet } from "./support/loaded-tablets.js";
@@ -456,7 +456,9 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     // The lab hides the Recipe's Profile: the second tablet, which never had it, holds none.
     expect((await api.call("PUT", `/profiles/${encodeURIComponent(ADAPTIVE)}/locations/${here.id}`, { shown: false })).status).toBe(200);
     expect(asList((await two.callApi("GET", "/profiles?includeHidden=true")).body).map((profile) => profile.id)).not.toContain(ADAPTIVE);
-    const library = (await api.get<{ profile: { content: { profile: Record_ } } }>(`/profiles/${encodeURIComponent(ADAPTIVE)}`)).profile.content.profile;
+    const stored = (await api.get<{ profile: { content: { profile: Record_ } } }>(`/profiles/${encodeURIComponent(ADAPTIVE)}`)).profile.content.profile;
+    // At the recipe's brew temperature, slot 1's 92 °C, its steps moved by the same amount (ADR-0022, decentespresso/dye2#26).
+    const library = profileAtBrewTemperature(stored, 92, null)!;
     expect(inSlot(two, "1")!.profileSnapshot).toEqual(library);
     expect((inSlot(two, "1")!.workflow as Record_).profile).toEqual(library);
 

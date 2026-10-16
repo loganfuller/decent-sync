@@ -1,21 +1,53 @@
-import type { MachineStateDelivery, WorkflowDelivery } from "@decent-sync/protocol";
+import type { LoadBefore, MachineStateDelivery, WorkflowDelivery } from "@decent-sync/protocol";
 
 /**
  * Holds back the changes of the tablet's Workflow the plugin sends while it
  * writes into it, the shared settings (`LibraryWrites`) or a Loaded Recipe
- * (`LoadedRecipes`), and sends the latest once released (`MachineEvents`).
+ * (`LoadedRecipes`), or decides on them, and sends the latest once released
+ * (`MachineEvents`), with the changes of the machine's state held meanwhile
+ * after it.
  */
 export interface WorkflowChanges {
   hold(): void;
   release(): void;
+  /**
+   * What the next Workflow delivery queued carries besides the Workflow
+   * (`WorkflowDelivery.loadBefore` and `unrecorded`), released or not: a
+   * load's values, each part's earliest `before` kept where several loads
+   * come before one delivery.
+   */
+  attach(extra: WorkflowExtra): void;
+  /** The latest Workflow sent again with that extra, at once, or as released where held. */
+  sendWith(extra: WorkflowExtra): void;
+}
+
+/** What a Workflow delivery may carry besides the Workflow (`WorkflowDelivery`). */
+export interface WorkflowExtra {
+  loadBefore?: Record<string, LoadBefore>;
+  unrecorded?: boolean;
+}
+
+/** Two extras as one: each part's earliest `before` and latest `written`, and `unrecorded` where either sets it. */
+export function mergeExtra(earlier: WorkflowExtra, later: WorkflowExtra): WorkflowExtra {
+  const merged: WorkflowExtra = { ...earlier };
+  if (later.loadBefore) {
+    const parts: Record<string, LoadBefore> = { ...(earlier.loadBefore ?? {}) };
+    for (const [part, value] of Object.entries(later.loadBefore)) {
+      const kept = parts[part];
+      parts[part] = kept ? { before: kept.before, written: value.written } : value;
+    }
+    merged.loadBefore = parts;
+  }
+  if (later.unrecorded) merged.unrecorded = true;
+  return merged;
 }
 
 /** What MachineEvents needs of the plugin's one outbox (`Outbox`). */
 export interface EventOutbox {
   nextId(): string;
   enqueue(delivery: WorkflowDelivery | MachineStateDelivery): void;
-  /** Drops a delivery that is no longer needed, unless it was ever sent. */
-  supersede(id: string): void;
+  /** Drops a delivery that is no longer needed, unless it was ever sent: whether it dropped it. */
+  supersede(id: string): boolean;
 }
 
 /**
@@ -27,8 +59,9 @@ export interface EventOutbox {
  * stored last, so sending one again is harmless.
  */
 export class MachineEvents implements WorkflowChanges {
-  /** The latest Workflow Decaid reported. */
+  /** The latest Workflow Decaid reported, and when. */
   private workflow: Record<string, unknown> | undefined;
+  private reportedAt = now();
   /**
    * How many of the plugin's writes into the Workflow are under way: the
    * shared settings (`LibraryWrites`), whose answers the server reads first,
@@ -51,6 +84,17 @@ export class MachineEvents implements WorkflowChanges {
   private resent: string | undefined;
   /** The state and substate last queued, so repeated state updates send nothing. */
   private state: { state: string; substate: string } | undefined;
+  /**
+   * The changes of state reported while held, each as observed, queued once
+   * released, after the Workflow: so the server reads a Workflow change
+   * reported before a change of state, as a DYE2 dashboard's send before an
+   * espresso, before it (ADR-0022). Lost if the plugin stops meanwhile.
+   */
+  private heldStates: MachineStateDelivery[] = [];
+  /** What the next Workflow delivery queued carries besides the Workflow (`attach`). */
+  private extra: WorkflowExtra = {};
+  /** What the delivery `resent` carries besides the Workflow, carried into the one that replaces it. */
+  private resentExtra: WorkflowExtra = {};
 
   constructor(
     private readonly outbox: EventOutbox,
@@ -63,6 +107,7 @@ export class MachineEvents implements WorkflowChanges {
     const workflow = object(payload);
     if (!workflow) return;
     this.workflow = workflow;
+    this.reportedAt = now();
     this.observe(workflow);
     if (this.holds > 0) {
       this.heldChange = true;
@@ -76,18 +121,43 @@ export class MachineEvents implements WorkflowChanges {
   }
 
   /**
-   * Once no write is under way, sends the latest Workflow, observed now, if
-   * it changed while held: that holds the plugin's own writes, and any
-   * change a barista made meanwhile.
+   * Once no write is under way, sends the latest Workflow, observed when
+   * Decaid reported it, or now for a resend alone, if it changed while held:
+   * that holds the plugin's own writes, and any change a barista made
+   * meanwhile.
    */
   release(): void {
     this.holds = Math.max(0, this.holds - 1);
-    if (this.holds > 0 || !this.heldChange || !this.workflow) return;
-    this.heldChange = false;
-    const id = this.queueWorkflow(this.workflow);
-    if (this.heldResend && !this.heldReport) this.resent = id;
-    this.heldResend = false;
-    this.heldReport = false;
+    if (this.holds > 0) return;
+    if (this.heldChange && this.workflow) {
+      this.heldChange = false;
+      const resend = this.heldResend && !this.heldReport;
+      const extra = this.extra;
+      // A change held back keeps the time it was reported, so a Shot pulled after it is not taken for one before it.
+      const id = this.queueWorkflow(this.workflow, resend ? now() : this.reportedAt);
+      if (resend) {
+        this.resent = id;
+        this.resentExtra = extra;
+      }
+      this.heldResend = false;
+      this.heldReport = false;
+    }
+    const states = this.heldStates;
+    this.heldStates = [];
+    for (const delivery of states) this.outbox.enqueue(delivery);
+  }
+
+  attach(extra: WorkflowExtra): void {
+    this.extra = mergeExtra(this.extra, extra);
+  }
+
+  sendWith(extra: WorkflowExtra): void {
+    this.attach(extra);
+    if (!this.workflow) return;
+    if (this.holds > 0) {
+      this.heldChange = true;
+      this.heldReport = true;
+    } else this.queueWorkflow(this.workflow, this.reportedAt);
   }
 
   /**
@@ -101,7 +171,9 @@ export class MachineEvents implements WorkflowChanges {
     if (typeof state !== "string" || state === "" || typeof substate !== "string" || substate === "") return;
     if (this.state?.state === state && this.state.substate === substate) return;
     this.state = { state, substate };
-    this.outbox.enqueue({ type: "machineState", id: this.outbox.nextId(), observedAt: now(), state, substate });
+    const delivery: MachineStateDelivery = { type: "machineState", id: this.outbox.nextId(), observedAt: now(), state, substate };
+    if (this.holds > 0) this.heldStates.push(delivery);
+    else this.outbox.enqueue(delivery);
   }
 
   /**
@@ -131,18 +203,26 @@ export class MachineEvents implements WorkflowChanges {
    */
   resend(): void {
     if (!this.workflow) return;
-    if (this.resent !== undefined) this.outbox.supersede(this.resent);
+    // What it carried is carried into the delivery that replaces it, only where it was dropped unsent: one sent may have
+    // reached the server, which takes what it carried once, and an espresso since may have closed it.
+    if (this.resent !== undefined && this.outbox.supersede(this.resent)) this.extra = mergeExtra(this.resentExtra, this.extra);
     this.resent = undefined;
+    this.resentExtra = {};
     // Sent once the writes under way are answered, which they may hold already.
     if (this.holds > 0) {
       this.heldChange = true;
       this.heldResend = true;
-    } else this.resent = this.queueWorkflow(this.workflow);
+    } else {
+      this.resentExtra = this.extra;
+      this.resent = this.queueWorkflow(this.workflow);
+    }
   }
 
-  /** Queues the Workflow as observed now, returning its delivery's id. */
-  private queueWorkflow(workflow: Record<string, unknown>): string {
-    const delivery: WorkflowDelivery = { type: "workflow", id: this.outbox.nextId(), observedAt: now(), workflow };
+  /** Queues the Workflow as observed now, with what is attached to the next delivery (`attach`), returning its delivery's id. */
+  private queueWorkflow(workflow: Record<string, unknown>, observedAt = now()): string {
+    const extra = this.extra;
+    this.extra = {};
+    const delivery: WorkflowDelivery = { type: "workflow", id: this.outbox.nextId(), observedAt, workflow, ...extra };
     this.outbox.enqueue(delivery);
     return delivery.id;
   }

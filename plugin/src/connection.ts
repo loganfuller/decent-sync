@@ -151,7 +151,7 @@ export class SyncConnection {
   private readonly shots: ShotCapture;
   private readonly steams: SteamCapture;
   private readonly machineEvents: MachineEvents;
-  /** Works out the Machine's Loaded Recipe from its Workflow, and records it there. */
+  /** Follows DYE2's selection as the Machine's Loaded Recipe, and records it in the Workflow. */
   private readonly loadedRecipes: LoadedRecipes;
   private readonly collections: CollectionCapture;
   /** Carries out the Library writes the server asks for, one at a time, between reads of the lists it writes to. */
@@ -177,7 +177,26 @@ export class SyncConnection {
     );
     this.shots = new ShotCapture(this.outbox, log);
     this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1000, log);
-    this.loadedRecipes = new LoadedRecipes({ hold: () => this.machineEvents.hold(), release: () => this.machineEvents.release() }, log);
+    this.loadedRecipes = new LoadedRecipes(
+      { hold: () => this.machineEvents.hold(), release: () => this.machineEvents.release(), attach: (extra) => this.machineEvents.attach(extra), sendWith: (extra) => this.machineEvents.sendWith(extra) },
+      log,
+      {
+        // DYE2's socket leaves one transport for a connection to the server.
+        open: async (url) => {
+          if (this.transportsInUse >= MAX_TRANSPORTS - 1) throw new Error("Decaid allows no more transports");
+          this.transportsInUse++;
+          try {
+            return (await this.host.transport.open({ kind: "websocket", url })).handle;
+          } catch (error) {
+            this.transportsInUse--;
+            throw error;
+          }
+        },
+        onEvent: (handle, listener) => this.host.transport.onEvent(handle, listener),
+        close: (handle) => this.closeTransport(handle),
+      },
+      settings.pollSeconds * 1000,
+    );
     this.machineEvents = new MachineEvents(this.outbox, (workflow) => this.loadedRecipes.observe(workflow));
     const library = new LibraryAccess();
     this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1000, (value) => this.loadedRecipes.sawRecipes(value));
@@ -185,6 +204,7 @@ export class SyncConnection {
       library,
       this.outbox,
       this.machineEvents,
+      this.loadedRecipes,
       () => {
         if (this.sentHardware !== null) this.machineAway = true;
       },
@@ -204,6 +224,7 @@ export class SyncConnection {
     this.scheduleHardwarePoll();
     this.steams.start();
     this.collections.start();
+    this.loadedRecipes.start();
   }
 
   /**
@@ -212,6 +233,8 @@ export class SyncConnection {
    */
   stateUpdate(payload: unknown): void {
     if (this.stopped) return;
+    const state = isObject(payload) && isObject(payload.state) ? payload.state.state : undefined;
+    if (typeof state === "string") this.loadedRecipes.stateChanged(state);
     this.machineEvents.stateUpdate(payload);
     this.checkHardwareSoon();
   }
@@ -405,6 +428,9 @@ export class SyncConnection {
         break;
       case "requestSteams":
         this.outbox.request("steam", message.steamIds);
+        break;
+      case "captureOnly":
+        this.loadedRecipes.setCaptureOnly(message.captureOnly);
         break;
       case "requestCollections":
         // As when the Machine's Location changed: its Workflow and Library are taken in there before anything is written to it.
@@ -622,4 +648,8 @@ function describeError(code: ErrorCode | string): string {
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

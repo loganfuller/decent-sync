@@ -347,6 +347,19 @@ export interface RequestCollections {
 }
 
 /**
+ * Whether the tablet's Machine is a Capture-only Machine, at no Location or
+ * with sharing off, taking no part in the Library: sent after `welcome` and
+ * whenever that changes. The plugin loads no Recipe into the Workflow of one, and runs
+ * none of ADR-0022's workarounds there, as nothing there shares it. Until
+ * told, the plugin takes its Machine to take part, so a load made while the
+ * tablet is offline is still recorded.
+ */
+export interface CaptureOnly {
+  type: "captureOnly";
+  captureOnly: boolean;
+}
+
+/**
  * The tablet's Workflow, as Decaid's `workflowUpdated` event gave it, sent on
  * every change and again on every `welcome`. The Workflow stays opaque.
  */
@@ -364,6 +377,33 @@ export interface WorkflowDelivery {
    */
   observedAt: string;
   workflow: Record<string, unknown>;
+  /**
+   * The values the plugin's write of a load of a Recipe replaced (ADR-0022),
+   * on the first Workflow delivery queued after that write, and on any
+   * resend that replaces it: for each part of LOADED_RECIPE_PARTS the write
+   * changed, what the Workflow held just before it (`before`) and what it
+   * wrote (`written`). Where several loads were written before one delivery,
+   * each part keeps its earliest `before`. The server tells a part set back
+   * to its `before` before the Machine's first espresso since the load, as
+   * DYE2's dashboard sends back the Workflow it read as it opened, by them
+   * (interim for decentespresso/dye2#28).
+   */
+  loadBefore?: Record<string, LoadBefore>;
+  /**
+   * Set where the Workflow's profile changed in its target weight or volume
+   * alone, as Streamline sets a yield, which clears DYE2's selection before
+   * DYE2 records anything of the change, and the plugin selected the Loaded
+   * Recipe again: the server takes from this Workflow, as the Recipe's
+   * edits, every field DYE2 would have recorded that differs from it
+   * (interim for decentespresso/dye2#18).
+   */
+  unrecorded?: boolean;
+}
+
+/** What a part of a Workflow held just before a load's write (`before`), and what the write put there (`written`). */
+export interface LoadBefore {
+  before: unknown;
+  written: unknown;
 }
 
 /** A change of the machine's state or substate, from Decaid's `stateUpdate` event. */
@@ -722,14 +762,56 @@ export function loadedRecipeOf(workflow: unknown): string | null {
 export const LOADED_RECIPE_KIND = "loadedRecipe";
 
 /**
+ * A Workflow's brew temperature, by its path: its profile's first step's
+ * temperature. A write of LOADED_RECIPE_KIND setting it moves every step of
+ * the profile by the same amount, as Streamline's Brew tile does
+ * (`shiftedTemperatures` in streamline-js:src/modules/brew-temp.js), so the
+ * profile keeps its shape.
+ */
+export const BREW_TEMPERATURE_FIELD = "profile.steps.0.temperature";
+
+/**
+ * A profile at a brew temperature, as Streamline's Brew tile sets one
+ * (`profileAtBrewTemp` in streamline-js:src/modules/brew-temp.js): its first
+ * step at that temperature, and every other moved by the same amount, from
+ * the Profile's own step temperatures (`base`, the tablet's record of it)
+ * where it holds as many steps, or else from the profile's own, so the
+ * profile keeps its shape however often it is moved. Null for a profile
+ * with no usable first step temperature, which is written none.
+ */
+export function profileAtBrewTemperature(profile: unknown, temperature: number, base: readonly unknown[] | null): Record<string, unknown> | null {
+  if (!isObject(profile) || !Array.isArray(profile.steps)) return null;
+  const steps = profile.steps as unknown[];
+  const own = steps.map((step) => (isObject(step) ? step.temperature : undefined));
+  const temperatures = shiftedTemperatures(base !== null && base.length === steps.length ? base : own, temperature);
+  if (temperatures === null) return null;
+  return { ...profile, steps: steps.map((step, index) => (isObject(step) ? { ...step, temperature: temperatures[index] } : step)) };
+}
+
+/**
+ * Step temperatures moved so the first is `first` and the others keep their
+ * distance from it, each rounded to 0.01 °C, a step with none set to `first`
+ * (`shiftedTemperatures` in streamline-js:src/modules/brew-temp.js); null
+ * where the first step has no usable temperature to measure from.
+ */
+export function shiftedTemperatures(base: readonly unknown[], first: number): number[] | null {
+  const origin = base[0];
+  if (base.length === 0 || !Number.isFinite(first) || typeof origin !== "number" || !Number.isFinite(origin)) return null;
+  const shift = first - origin;
+  const round = (value: number) => Math.round(value * 100) / 100;
+  return base.map((value) => (typeof value === "number" && Number.isFinite(value) ? round(value + shift) : round(first)));
+}
+
+/**
  * The parts of a Workflow that follow its Loaded Recipe (ADR-0022): its
- * dose, yield, grind setting, RPM, Basket, Bean Batch and four hot water
- * settings, which a change on its Machine edits too, and its Grinder and
- * Profile, a change of which there unloads it instead; each with the fields
- * of the Workflow that hold it, by their paths, its id or value first. A
- * write of LOADED_RECIPE_KIND sets a part's fields together: a Grinder with
- * its model, a Basket with its name, and a Bean Batch with its Bean's name
- * and roaster, as DYE2 and a load write them, and a Profile whole.
+ * dose, yield, grind setting, RPM, Basket, Bean Batch, four hot water
+ * settings and brew temperature, and its Grinder and Profile, a change of
+ * which there unloads it instead; each with the fields of the Workflow that
+ * hold it, by their paths, its id or value first. A write of
+ * LOADED_RECIPE_KIND sets a part's fields together: a Grinder with its
+ * model, a Basket with its name, and a Bean Batch with its Bean's name and
+ * roaster, as DYE2 and a load write them, a Profile whole, and a brew
+ * temperature as BREW_TEMPERATURE_FIELD says.
  */
 export const LOADED_RECIPE_PARTS = {
   profile: ["profile"],
@@ -744,6 +826,7 @@ export const LOADED_RECIPE_PARTS = {
   duration: ["hotWaterData.duration"],
   volume: ["hotWaterData.volume"],
   flow: ["hotWaterData.flow"],
+  brewTemperature: [BREW_TEMPERATURE_FIELD],
 } as const satisfies Record<string, readonly [string, ...string[]]>;
 
 /** A part of a Workflow that follows its Loaded Recipe (LOADED_RECIPE_PARTS). */
@@ -752,10 +835,10 @@ export type LoadedRecipePart = keyof typeof LOADED_RECIPE_PARTS;
 /** The field of a Workflow naming its Loaded Recipe (LOADED_RECIPE_KEY), by its path, which a write of LOADED_RECIPE_KIND clears. */
 export const LOADED_RECIPE_FIELD = `context.extras.${LOADED_RECIPE_KEY}`;
 
-/** The value a Workflow holds at a path, such as `context.extras.rpm`; undefined where it holds none. */
+/** The value a Workflow holds at a path, such as `context.extras.rpm`, a number naming an item of a list; undefined where it holds none. */
 export function workflowValueAt(workflow: unknown, path: string): unknown {
   let value: unknown = workflow;
-  for (const name of path.split(".")) value = isObject(value) ? value[name] : undefined;
+  for (const name of path.split(".")) value = isObject(value) ? value[name] : Array.isArray(value) && /^\d+$/.test(name) ? value[Number(name)] : undefined;
   return value;
 }
 
@@ -1310,6 +1393,7 @@ export type ServerMessage =
   | RequestShots
   | RequestSteams
   | RequestCollections
+  | CaptureOnly
   | Ack
   | ChunkReceived
   | LibraryWrite
@@ -1377,6 +1461,8 @@ function checkMachineEvent(object: Fields & { type: string }): Decoded<WorkflowD
       fields.id();
       fields.instant("observedAt");
       fields.objectField("workflow");
+      if (object.loadBefore !== undefined) fields.objectField("loadBefore");
+      fields.optionalBoolean("unrecorded");
     });
   }
   return check<MachineStateDelivery>(object, "machineState", (fields) => {
@@ -1585,6 +1671,8 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
       });
     case "requestCollections":
       return check<RequestCollections>(object, "requestCollections", () => {});
+    case "captureOnly":
+      return check<CaptureOnly>(object, "captureOnly", (fields) => fields.boolean("captureOnly"));
     case "heartbeat":
       return check<Heartbeat>(object, "heartbeat", () => {});
     case "error":

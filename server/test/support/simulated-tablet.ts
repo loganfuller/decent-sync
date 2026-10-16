@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PROTOCOL_VERSION, SYNC_PATH } from "@decent-sync/protocol";
+import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import { assertBuilt } from "./builds.js";
 import { batchesOf, createBatch, deleteBatch, deleteBean, listedBatches, updateBatch } from "./decaid-batches.js";
@@ -10,6 +11,7 @@ import { type DecaidAnswer, createBean, listedBeans, updateBean, withDecaidClock
 import { createGrinder, deleteGrinder, listedGrinders, updateGrinder } from "./decaid-grinders.js";
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
 import { updateWorkflow } from "./decaid-workflow.js";
+import type { SimulatedDye2 } from "./simulated-dye2.js";
 import { rememberSecret, watchLog } from "./secrets.js";
 import { opened } from "./test-scope.js";
 
@@ -78,7 +80,21 @@ import { opened } from "./test-scope.js";
 //   `resumeUpload` once it lets the frame pass. Closing a transport first
 //   waits for its queued frames to be written. `loseNetwork` ends every
 //   connection and fails every open until `restoreNetwork`, while Decaid's
-//   own API keeps answering.
+//   own API keeps answering. An open to Decaid's own origin
+//   (`ws://localhost:8080/ws/v1/plugins/{id}/{endpoint}`) is not on the
+//   network, and counts against the 8 all the same: it is refused with 404,
+//   as `_handlePluginSocketEndpoint` in plugins_handler.dart refuses it,
+//   while that plugin is not loaded or declares no such endpoint, and once
+//   open hears each push of that plugin on that endpoint, as `data` events,
+//   whichever load of it makes it, until the tablet unloads. Only DYE2's are
+//   simulated.
+// - `dye2` runs DYE2 v0.1.20 beside the plugin (`SimulatedDye2` in
+//   simulated-dye2.ts), as Decaid runs another plugin: `GET /plugins` lists
+//   the plugin and DYE2, `/plugins/dye2.reaplugin/{endpoint}` is DYE2's
+//   (404 while it is not loaded), and DYE2 is told of each change of the
+//   Workflow and each Shot stored, and keeps its selection under its key
+//   `selection` in Decaid's store. Its timers are the tablet's (`schedule`,
+//   `readClock`). Without it `GET /plugins` lists the plugin alone.
 // - `host.storage` is Decaid's plugin storage, given only to a plugin whose
 //   manifest declares `pluginStorage`: it answers a read with a `storageRead`
 //   event of `{ key, value }`, `value` null for a key never written, and a
@@ -547,6 +563,14 @@ export interface SimulatedTabletOptions {
    * it matches. Nothing stalls by default.
    */
   stallUpload?: (frame: unknown) => boolean;
+  /**
+   * DYE2 v0.1.20 running on the tablet beside the plugin, as Decaid runs
+   * another plugin (simulated-dye2.ts): its HTTP endpoints, its socket and
+   * its entry in `GET /plugins`. Pass the same one to a later load of the
+   * same tablet, as DYE2 outlives the plugin's reloads. Without it Decaid
+   * lists no DYE2.
+   */
+  dye2?: SimulatedDye2;
 }
 
 type TransportEvent = Record<string, unknown> & { type: string };
@@ -555,7 +579,9 @@ export type HeldSteamRead = "/steams/ids" | "/steams/latest";
 
 interface TransportRecord {
   handle: string;
-  socket: WebSocket;
+  socket: WebSocket | LocalSocket;
+  /** A socket on one of Decaid's own plugin endpoints, which the tablet's network does not carry. */
+  local: boolean;
   listener?: (event: TransportEvent) => void;
   inbound: { event: TransportEvent; size: number }[];
   inboundBytes: number;
@@ -606,6 +632,12 @@ export class SimulatedTablet {
   /** Told of every change of the Workflow, after the plugin is. */
   private readonly workflowListeners = new Set<(workflow: Record<string, unknown>) => void>();
   readonly plugin: BuiltPlugin;
+  /** DYE2 running beside the plugin, if the tablet has it. */
+  readonly dye2: SimulatedDye2 | undefined;
+  /** The sockets open on Decaid's plugin WebSocket endpoints, by the plugin id and endpoint each was opened on. */
+  private readonly localSockets = new Map<LocalSocket, { pluginId: string; endpoint: string }>();
+  /** The plugin's manifest, as `GET /plugins` lists it. */
+  private readonly manifest: Record<string, unknown>;
   machineConnected: boolean;
   private api: DecaidApi;
   private readonly apiFailures = new Map<string, number>();
@@ -694,6 +726,9 @@ export class SimulatedTablet {
     rememberSecret(options.settings.Token);
     watchLog("a simulated tablet's log", () => this.logs.join("\n"));
     const { source, manifest } = readBuiltPlugin();
+    this.manifest = manifest;
+    this.dye2 = options.dye2;
+    this.dye2?.attach(this);
     this.pluginId = String(manifest.id);
     this.endpoints = declaredEndpoints(manifest);
     const permissions = manifest.permissions as string[];
@@ -764,6 +799,7 @@ export class SimulatedTablet {
   pullShot(shot: Record<string, unknown>): void {
     this.api = { ...this.api, [`/shots/${encodeURIComponent(String(shot.id))}`]: shot };
     this.fire("shotStored", { id: shot.id });
+    if (!this.unloaded) this.dye2?.shotStored();
   }
 
   /**
@@ -774,6 +810,7 @@ export class SimulatedTablet {
   setWorkflow(workflow: Record<string, unknown>): void {
     this.api = { ...this.api, "/workflow": workflow };
     this.fire("workflowUpdated", workflow);
+    if (!this.unloaded) this.dye2?.workflowUpdated(workflow);
     for (const listener of this.workflowListeners) listener(workflow);
   }
 
@@ -898,7 +935,7 @@ export class SimulatedTablet {
 
   /** Loses the network: every connection ends without a close handshake, as if the Wi-Fi dropped. */
   dropConnections(): void {
-    for (const record of this.transports.values()) record.socket.terminate();
+    for (const record of this.transports.values()) if (!record.local) record.socket.terminate();
   }
 
   /**
@@ -910,10 +947,11 @@ export class SimulatedTablet {
    */
   dropConnectionsUnnoticed(): void {
     for (const record of this.transports.values()) {
-      if (record.terminal) continue;
+      if (record.terminal || record.local) continue;
       record.socket.removeAllListeners("message");
-      this.unnoticed.add(record.socket);
-      record.socket.once("close", () => this.unnoticed.delete(record.socket));
+      const socket = record.socket as WebSocket;
+      this.unnoticed.add(socket);
+      socket.once("close", () => this.unnoticed.delete(socket));
       this.terminate(record, "WebSocket error: Software caused connection abort", "transport_error");
     }
   }
@@ -984,6 +1022,60 @@ export class SimulatedTablet {
     const declared = this.endpoints.find((candidate) => candidate.id === endpoint);
     if (declared?.type !== "websocket") throw new Error(`Decaid opens no socket on ${endpoint}: the manifest does not declare it as a websocket endpoint`);
     return this.emits.filter((emitted) => emitted.event === endpoint).map((emitted) => emitted.payload);
+  }
+
+  /**
+   * The socket a WebSocket open to Decaid's own origin is, on a plugin's
+   * WebSocket endpoint (`/ws/v1/plugins/{id}/{endpoint}`), as
+   * `_handlePluginSocketEndpoint` in plugins_handler.dart opens one: refused
+   * with 404 while that plugin is not loaded or declares no such endpoint,
+   * and with 400 for an HTTP one; once open, it hears every push of that
+   * plugin on that endpoint, whichever load of it makes it, until the tablet
+   * unloads. Undefined for any other URL. Only DYE2's endpoints are
+   * simulated.
+   */
+  private localSocket(url: string): LocalSocket | undefined {
+    const origin = API_ORIGIN.replace(/^http/, "ws");
+    if (!url.startsWith(`${origin}/`)) return undefined;
+    const [, ws, v1, plugins, pluginId, endpoint, ...rest] = new URL(url).pathname.split("/");
+    const refused = (status: number) => new TransportError(`WebSocket connect failed: Connection to '${url.replace(/^ws/, "http")}#' was not upgraded to websocket, HTTP status code: ${status}`);
+    if (ws !== "ws" || v1 !== "v1" || plugins !== "plugins" || pluginId === undefined || endpoint === undefined || rest.length > 0) throw refused(404);
+    const id = decodeURIComponent(pluginId);
+    const name = decodeURIComponent(endpoint);
+    if (id !== this.dye2?.id) throw new Error(`The simulated tablet opens no socket on ${id}'s endpoints`);
+    const type = this.dye2.socketEndpoint(name);
+    if (type !== "websocket") throw refused(type === "http" ? 400 : 404);
+    const socket = new LocalSocket();
+    this.localSockets.set(socket, { pluginId: id, endpoint: name });
+    return socket;
+  }
+
+  /** Sends a plugin's push, through JSON, to each socket open on its endpoint, as Decaid's `host.emit` does; nothing is kept for a socket opened later. */
+  pushOnSocket(pluginId: string, endpoint: string, payload: unknown): void {
+    const text = JSON.stringify(payload ?? null);
+    for (const [socket, opened] of this.localSockets) if (opened.pluginId === pluginId && opened.endpoint === endpoint) socket.receive(text);
+  }
+
+  /** The plugins Decaid lists at `GET /plugins` (`PluginsHandler.addRoutes`): this one, loaded, and DYE2 where the tablet has it installed. */
+  private listedPlugins(): Record<string, unknown>[] {
+    const own = { ...this.manifest, loaded: !this.unloaded, autoLoad: true, source: null, pendingUpdate: null };
+    const dye2 = this.dye2?.listing();
+    return dye2 ? [dye2, own] : [own];
+  }
+
+  /** The tablet's clock, which `timeScale` speeds, in milliseconds. */
+  readClock(): number {
+    return this.now();
+  }
+
+  /**
+   * Runs the callback after that many milliseconds of the tablet's clock,
+   * as Decaid's timers do for another plugin, such as DYE2, unless the
+   * function returned is called first or the tablet unloads.
+   */
+  schedule(callback: () => void, delayMs: number): () => void {
+    const id = this.setTimer(callback, delayMs);
+    return () => this.clearTimer(id);
   }
 
   /**
@@ -1252,6 +1344,12 @@ export class SimulatedTablet {
     }
     const kept = this.answerStore(method, route, requestBody);
     if (kept) return response(kept.status, JSON.stringify(kept.body));
+    if (method === "GET" && route === "/plugins") return response(200, JSON.stringify(this.listedPlugins()));
+    if (this.dye2?.answers(route)) {
+      const body = typeof requestBody === "string" ? (requestBody === "" ? null : JSON.parse(requestBody)) : (requestBody ?? null);
+      const answered = await this.dye2.answer(method, route, body);
+      return response(answered.status, JSON.stringify(answered.body));
+    }
     const selected = this.answerDye2Selection(method, route, requestBody);
     if (selected) return response(selected.status, JSON.stringify(selected.body));
     const written = withDecaidClock(this.decaidClockOffsetMs, () => this.writeLibrary(method, route, new URL(url).searchParams, requestBody));
@@ -1567,10 +1665,12 @@ export class SimulatedTablet {
     if (live.length + this.opening >= MAX_LIVE_TRANSPORTS) {
       throw new TransportError("Too many open transports for this plugin", "transport_resource_limit");
     }
-    if (this.networkLost) throw new TransportError("WebSocket connect failed: Network is unreachable");
+    // A socket on one of Decaid's own plugin endpoints, which the tablet's network does not carry.
+    const local = this.localSocket(url);
+    if (this.networkLost && !local) throw new TransportError("WebSocket connect failed: Network is unreachable");
 
     // Only the URL and subprotocols: Decaid cannot send custom headers.
-    const socket = new WebSocket(url, protocols as string[] | undefined);
+    const socket = local ?? new WebSocket(url, protocols as string[] | undefined);
     this.retimed(() => this.opening++);
     try {
       await new Promise<void>((resolve, reject) => {
@@ -1585,7 +1685,7 @@ export class SimulatedTablet {
       socket.terminate();
       throw new TransportError("Plugin unloaded during connect");
     }
-    if (this.networkLost) {
+    if (this.networkLost && !local) {
       socket.terminate();
       throw new TransportError("WebSocket connect failed: Network is unreachable");
     }
@@ -1593,6 +1693,7 @@ export class SimulatedTablet {
     const record: TransportRecord = {
       handle: `simulated-${++this.nextHandle}`,
       socket,
+      local: local !== undefined,
       inbound: [],
       inboundBytes: 0,
       outbound: [],
@@ -1604,9 +1705,19 @@ export class SimulatedTablet {
       draining: false,
     };
     this.transports.set(record.handle, record);
-    this.setAwaitingServer(record, true);
     let failure: string | undefined;
-    socket.on("message", (data, isBinary) => {
+    if (local) {
+      // Decaid's own endpoint: pushes come as text, and nothing waits on a server.
+      local.on("message", (text: string) => this.enqueue(record, { type: "data", dataType: "text", data: text }, Buffer.byteLength(text)));
+      local.on("close", (code: number) => {
+        this.localSockets.delete(local);
+        this.terminate(record, undefined, "transport_error", code);
+      });
+      return { handle: record.handle };
+    }
+    const remote = socket as WebSocket;
+    this.setAwaitingServer(record, true);
+    remote.on("message", (data, isBinary) => {
       this.setAwaitingServer(record, false);
       const buffer = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer);
       const frame = isBinary ? undefined : parsed(buffer.toString("utf8"));
@@ -1618,15 +1729,15 @@ export class SimulatedTablet {
       if (!isBinary && this.cutAfter?.(frame)) {
         this.cutAfter = undefined;
         this.terminate(record, "WebSocket error: Connection reset by peer", "transport_error");
-        socket.removeAllListeners("message");
-        socket.terminate();
+        remote.removeAllListeners("message");
+        remote.terminate();
       }
     });
-    socket.on("error", (error) => {
+    remote.on("error", (error) => {
       failure = `WebSocket error: ${error.message}`;
     });
-    socket.on("close", (code, reason) => this.terminate(record, failure, "transport_error", code, reason.toString()));
-    return { handle: record.handle, ...(socket.protocol ? { protocol: socket.protocol } : {}) };
+    remote.on("close", (code, reason) => this.terminate(record, failure, "transport_error", code, reason.toString()));
+    return { handle: record.handle, ...(remote.protocol ? { protocol: remote.protocol } : {}) };
   }
 
   /** Scales the heartbeat interval in a `welcome` up by `timeScale`, which the plugin's timers then scale back down. */
@@ -1762,6 +1873,44 @@ export class SimulatedTablet {
       }
       this.drain(record);
     });
+  }
+}
+
+/**
+ * A socket on one of Decaid's own plugin endpoints, in the process: it opens
+ * in a later turn, hears each push as a `message` of its text, ignores what
+ * is sent on it, as Decaid does, and closes in a later turn.
+ */
+class LocalSocket extends EventEmitter {
+  readyState: number = WebSocket.CONNECTING;
+  readonly protocol = "";
+
+  constructor() {
+    super();
+    setImmediate(() => {
+      if (this.readyState !== WebSocket.CONNECTING) return;
+      this.readyState = WebSocket.OPEN;
+      this.emit("open");
+    });
+  }
+
+  /** A push from the plugin. */
+  receive(text: string): void {
+    if (this.readyState === WebSocket.OPEN) this.emit("message", text);
+  }
+
+  send(_data: string, written: () => void): void {
+    setImmediate(written);
+  }
+
+  close(code = 1000): void {
+    if (this.readyState === WebSocket.CLOSED) return;
+    this.readyState = WebSocket.CLOSED;
+    setImmediate(() => this.emit("close", code, Buffer.from("")));
+  }
+
+  terminate(): void {
+    this.close(1006);
   }
 }
 

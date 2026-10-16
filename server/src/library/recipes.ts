@@ -5,6 +5,7 @@ import type { PrismaService } from "../prisma.service.js";
 import { profileOfSql } from "../shots/links.js";
 import { type EditOutcome, editContent, lockItems, recordJoined } from "./content-edits.js";
 import { markUnrecognised } from "./dye2-lists.js";
+import { recordedByDye2 } from "../machine-events/loaded-recipes.js";
 import { answeredEquipment, beforeWriteAfter, editedContent, withoutSettled } from "./equipment-intake.js";
 import { setAsideDeleted } from "./hard-deletes.js";
 import { recordVersion, tabletSource } from "./history.js";
@@ -124,7 +125,7 @@ export async function offeredRecipes(tx: Prisma.TransactionClient, tablet: Repor
   return rows.map((row, index) => ({
     id: row.id,
     slot: row.slot,
-    record: recipeRecord(contents[index]!, row.slot, context),
+    record: recipeRecord(contents[index]!, row.slot, context, row.id),
     contentDecidedAt: latestDecision(readFieldEdits(row.fieldEdits)),
   }));
 }
@@ -144,8 +145,9 @@ async function recordFor(
   ids: TabletIds,
   content: Record<string, unknown>,
   localId: string,
+  recipeId: string,
 ): Promise<RecipeView> {
-  return recipeRecord(content, Number(localId), await writeContext(tx, tablet, locationId, ids, [content]));
+  return recipeRecord(content, Number(localId), await writeContext(tx, tablet, locationId, ids, [content]), recipeId);
 }
 
 /** What taking records into Recipes of the Location reads, given what they are to edit (`current`, each Recipe's content now). */
@@ -326,6 +328,8 @@ export async function takeInRecipes(
       const knownView = recipeView(known.record);
       if (!joining && recipe) {
         const edits = editedContent(knownView, view, known.beforeWrite);
+        // What DYE2 recorded from the Workflow of a Machine with the Recipe loaded that is stale is no edit (ADR-0022).
+        for (const path of await recordedByDye2(tx, tablet, itemId, recipe.content, recipe.fieldEdits, edits)) delete edits[path];
         const paths = editedPaths(edits);
         if (paths.length > 0) {
           const values = withoutOwnEdits(libraryValues(view, paths, recipe.content, await context(view)), recipe.content, recipe.fieldEdits, tablet.tabletId);
@@ -340,7 +344,7 @@ export async function takeInRecipes(
       const content = recipe ? (await readRecipes(tx, [itemId])).get(itemId)?.content : undefined;
       beforeWrite = {
         beforeWrite:
-          standingBefore && !joining && content ? withoutSettled(standingBefore, view, await recordFor(tx, tablet, locationId, ids, content, record.localId)) : standingBefore,
+          standingBefore && !joining && content ? withoutSettled(standingBefore, view, await recordFor(tx, tablet, locationId, ids, content, record.localId, itemId)) : standingBefore,
       };
     }
     // The record may differ from the Recipe now, or lack its global id: it is written.
@@ -430,13 +434,13 @@ export async function recordRecipeWritten(
     // A Recipe of another Location than the tablet's now, as before its writer removes it after a move, takes no edit there.
     const here = item.locationId !== null && item.locationId === locationId;
     if (known) {
-      const answered = answeredEquipment(recipeView(known.record), view, written, known.beforeWrite, await recordFor(tx, tablet, locationId, ids, content, localId));
+      const answered = answeredEquipment(recipeView(known.record), view, written, known.beforeWrite, await recordFor(tx, tablet, locationId, ids, content, localId, itemId));
       const paths = editedPaths(answered.values);
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
       const values = paths.length === 0 || !here ? {} : withoutOwnEdits(libraryValues(view, paths, content, await context(view)), content, readFieldEdits(item.fieldEdits), tablet.tabletId);
       edited = await editContent(tx, ref, { values, at, seenAt: known.contentSeenAt }, source);
       if (here) await editSettingsInRecipe(tx, tablet, locationId!, settingsValues(view, Object.keys(answered.values), recipeView(known.record)), at);
-      const now = await recordFor(tx, tablet, locationId, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, localId);
+      const now = await recordFor(tx, tablet, locationId, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, localId, itemId);
       stale = answered.stale && !holdsRecipe(view, now);
       staleSettings = !holdsRecord(view, now);
       answeredBefore = { beforeWrite: answered.beforeWrite };
@@ -456,9 +460,9 @@ export async function recordRecipeWritten(
       edited = await editContent(tx, ref, { values: changed, at, seenAt: null }, source);
     }
     // A record linked holds what was saved in the slot, its steam and flush values the tablet's own.
-    if (!known && linked) staleSettings = !holdsRecord(view, await recordFor(tx, tablet, locationId, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, localId));
+    if (!known && linked) staleSettings = !holdsRecord(view, await recordFor(tx, tablet, locationId, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, localId, itemId));
     if (((edited?.writesDue ?? false) || staleSettings) && locationId !== null) await notify(tx, "library_changes", locationId);
-    const holds = contentSeen !== null && !stale && (edited !== null ? !edited.lost : holdsRecipe(view, await recordFor(tx, tablet, locationId, ids, content, localId)));
+    const holds = contentSeen !== null && !stale && (edited !== null ? !edited.lost : holdsRecipe(view, await recordFor(tx, tablet, locationId, ids, content, localId, itemId)));
     await saveRecord(tx, tablet.tabletId, itemId, localId, record, at, { contentSeen: holds ? contentSeen : null, listed: known?.listed ?? false, ...answeredBefore });
     return "recorded";
   }, INTAKE_TRANSACTION);

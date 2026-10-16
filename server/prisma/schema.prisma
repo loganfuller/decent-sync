@@ -1299,6 +1299,12 @@ model LoadedRecipe {
   loadedAt   DateTime  @map("loaded_at") @db.Timestamptz(3)
   /// The same way; null while it is the Machine's Loaded Recipe.
   unloadedAt DateTime? @map("unloaded_at") @db.Timestamptz(3)
+  /// What the plugin's write of the load replaced in the Workflow, by part
+  /// (LOADED_RECIPE_PARTS in `protocol/`), each `{ before, written }` as
+  /// `WorkflowDelivery.loadBefore` carries it: a part set back to its
+  /// `before` is stale (ADR-0022). Null once the Machine's first espresso
+  /// since the load was delivered, or for a load the plugin wrote nothing for.
+  loadBefore Json?     @map("load_before") @db.JsonB
 
   @@index([machineId, id])
   @@index([recipeId])

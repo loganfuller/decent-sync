@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, RECIPE_FIELD } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, RECIPE_FIELD, profileAtBrewTemperature } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import { beforeWriteAfter, editedContent, heldBefore } from "../src/library/equipment-intake.js";
 import {
@@ -236,8 +236,11 @@ describe("DYE2's recipes as Recipes", () => {
     expect(libraryValues(picked, ["dashboardVariables.basketId"], { basketId: GLOBAL.basket20 }, intake({ ids: otherIds }))).toEqual({ basketId: GLOBAL.basket18 });
   });
 
-  it("writes a Recipe to a tablet under its own ids, with its full Profile, a blank barista, its hot water value of its mode, and what DYE2 derives", () => {
-    const view = recipeRecord(slot1Content, 1, writing());
+  it("writes a Recipe to a tablet under its own ids, with its full Profile at its brew temperature, a blank barista, its hot water value of its mode, and what DYE2 derives", () => {
+    const view = recipeRecord(slot1Content, 1, writing(), GLOBAL.recipe);
+    // Adaptive v3 starts at 93 °C: at the Recipe's 92, every step is a degree cooler.
+    const adaptiveAt92 = profileAtBrewTemperature(adaptive, 92, null);
+    expect((adaptiveAt92?.steps as Record_[]).map((step) => step.temperature)).toEqual([92, 92, 87, 87, 87, 87, 87]);
     expect(view).toEqual({
       name: "Fixture Ethiopia Espresso",
       beverage: "Fixture Flat White",
@@ -247,7 +250,7 @@ describe("DYE2's recipes as Recipes", () => {
       beanName: "Fixture Ethiopia",
       profileId: ADAPTIVE,
       profileTitle: "Adaptive v3",
-      profileSnapshot: adaptive,
+      profileSnapshot: adaptiveAt92,
       showOnStreamlineDashboard: true,
       "dashboardVariables.dose": 18.5,
       "dashboardVariables.drink": 36,
@@ -281,15 +284,16 @@ describe("DYE2's recipes as Recipes", () => {
           grinderSetting: "2.7",
           grinderId: "other-grinder",
           grinderModel: "Fixture Grinder 64",
-          extras: { rpm: 900, basketId: "other-basket", basketName: "Fixture 18g Precision" },
+          // So a Workflow Streamline applies it to names the Recipe.
+          extras: { rpm: 900, basketId: "other-basket", basketName: "Fixture 18g Precision", decentSyncRecipeId: GLOBAL.recipe },
           coffeeName: "Fixture Ethiopia",
         },
-        profile: adaptive,
+        profile: adaptiveAt92,
       },
     });
     // Its batch is named by the tablet's id where it holds it; a nameless one is called by its slot; hot water by volume
     // keeps the volume.
-    const recorded = recipeRecord({ ...slot1Content, beanBatchId: GLOBAL.ethiopiaBatch, name: "", hotWaterMode: "vol", hotWaterVolume: 120 }, 4, writing(recordedIds));
+    const recorded = recipeRecord({ ...slot1Content, beanBatchId: GLOBAL.ethiopiaBatch, name: "", hotWaterMode: "vol", hotWaterVolume: 120 }, 4, writing(recordedIds), GLOBAL.recipe);
     expect(recorded[RECIPE_FIELD]).toEqual({ beanBatchId: LOCAL.ethiopiaBatch, hotWaterData: { targetTemperature: 88, duration: null, volume: 120, flow: null } });
     expect([recorded.title, recorded["dashboardVariables.hotWaterMl"], recorded["dashboardVariables.hotWaterTempC"]]).toEqual(["Recipe 4", 120, null]);
   });
@@ -298,14 +302,19 @@ describe("DYE2's recipes as Recipes", () => {
     const keptWorkflow = slot1.workflow as Record_;
     // DYE2's own, as it saved slot 1, is what this builds from the record DYE2 saved, with its full Profile.
     const view = recipeView(slot1);
-    expect(recipeWorkflow({ ...view, profileSnapshot: (keptWorkflow as { profile: unknown }).profile })).toEqual(keptWorkflow);
-    const ratio = recipeWorkflow({ ...view, "dashboardVariables.drink": null, "dashboardVariables.ratio": 2.2, profileSnapshot: null });
+    // But for the Recipe's global id, which DYE2's does not hold.
+    const kept = keptWorkflow as { context: Record_ };
+    expect(recipeWorkflow({ ...view, profileSnapshot: (keptWorkflow as { profile: unknown }).profile }, GLOBAL.recipe)).toEqual({
+      ...keptWorkflow,
+      context: { ...kept.context, extras: { ...(kept.context.extras as Record_), decentSyncRecipeId: GLOBAL.recipe } },
+    });
+    const ratio = recipeWorkflow({ ...view, "dashboardVariables.drink": null, "dashboardVariables.ratio": 2.2, profileSnapshot: null }, GLOBAL.recipe);
     expect(ratio).toMatchObject({ context: { targetDoseWeight: 18.5, targetYield: 40.7 }, profile: { id: ADAPTIVE, title: "Adaptive v3" } });
-    expect(recipeWorkflow(recipeView(blank))).not.toHaveProperty("profile");
+    expect(recipeWorkflow(recipeView(blank), GLOBAL.recipe)).not.toHaveProperty("profile");
   });
 
   it("writes a record a tablet holds where it differs, and takes back as written what the server wrote it", () => {
-    const written = recipeRecord(slot1Content, 1, writing(recordedIds));
+    const written = recipeRecord(slot1Content, 1, writing(recordedIds), GLOBAL.recipe);
     const record: Record_ = { ...recordOf(written), id: "1", [GLOBAL_ID_KEY]: GLOBAL.recipe };
     expect(recipeView(record)).toEqual(written);
     // Taken back in, it changes nothing of the Recipe.
@@ -358,29 +367,29 @@ describe("DYE2's recipes as Recipes", () => {
     const steamAndFlush = (view: Record_) => [view["dashboardVariables.steamTimeS"], view["dashboardVariables.steamFlowMls"], view["dashboardVariables.flushS"]];
     // At a Location: its steam time for a recipe steaming by time, its steam flow for one by flow, and its flush time.
     const shared = mirroredValues(true, LOCATION, OWN);
-    expect(steamAndFlush(recipeRecord(slot1Content, 1, writing(otherIds, shared)))).toEqual([32, null, 6]);
-    expect(steamAndFlush(recipeRecord({ ...slot1Content, steamMode: "flow" }, 1, writing(otherIds, shared)))).toEqual([null, 1.6, 6]);
+    expect(steamAndFlush(recipeRecord(slot1Content, 1, writing(otherIds, shared), GLOBAL.recipe))).toEqual([32, null, 6]);
+    expect(steamAndFlush(recipeRecord({ ...slot1Content, steamMode: "flow" }, 1, writing(otherIds, shared), GLOBAL.recipe))).toEqual([null, 1.6, 6]);
     // A Machine whose sharing of them is off: its own Workflow's values.
     const own = mirroredValues(false, LOCATION, OWN);
-    expect(steamAndFlush(recipeRecord(slot1Content, 1, writing(otherIds, own)))).toEqual([45, null, 3]);
-    expect(steamAndFlush(recipeRecord({ ...slot1Content, steamMode: "flow" }, 1, writing(otherIds, own)))).toEqual([null, 0.9, 3]);
+    expect(steamAndFlush(recipeRecord(slot1Content, 1, writing(otherIds, own), GLOBAL.recipe))).toEqual([45, null, 3]);
+    expect(steamAndFlush(recipeRecord({ ...slot1Content, steamMode: "flow" }, 1, writing(otherIds, own), GLOBAL.recipe))).toEqual([null, 0.9, 3]);
     // A recipe with no steam mode, which neither app applies steam from, holds no steam value; a setting not known yet
     // is left out, so applying the recipe sets none of it.
     const { steamMode: _mode, ...modeless } = slot1Content;
-    expect(steamAndFlush(recipeRecord(modeless, 1, writing(otherIds, shared)))).toEqual([null, null, 6]);
-    expect(steamAndFlush(recipeRecord(slot1Content, 1, writing(otherIds, {})))).toEqual([null, null, null]);
+    expect(steamAndFlush(recipeRecord(modeless, 1, writing(otherIds, shared), GLOBAL.recipe))).toEqual([null, null, 6]);
+    expect(steamAndFlush(recipeRecord(slot1Content, 1, writing(otherIds, {}), GLOBAL.recipe))).toEqual([null, null, null]);
     // Nor is a value of 0, as a Machine with sharing off may hold of its own.
-    expect(steamAndFlush(recipeRecord(slot1Content, 1, writing(otherIds, { ...OWN, "steamSettings.duration": 0, "rinseData.duration": 0 })))).toEqual([null, null, null]);
+    expect(steamAndFlush(recipeRecord(slot1Content, 1, writing(otherIds, { ...OWN, "steamSettings.duration": 0, "rinseData.duration": 0 }), GLOBAL.recipe))).toEqual([null, null, null]);
     // The blank recipe DYE2 saved, its steam flow and flush 0, is written the Location's, never 0.
     const blankContent = recipeContent(recipeView(blank), intake());
-    expect(steamAndFlush(recipeRecord(blankContent, 3, writing(otherIds, shared)))).toEqual([null, 1.6, 6]);
+    expect(steamAndFlush(recipeRecord(blankContent, 3, writing(otherIds, shared), GLOBAL.recipe))).toEqual([null, 1.6, 6]);
     // Its steam and flush values are no part of what DYE2 embeds, nor of the Recipe.
-    expect(recipeWorkflow(recipeRecord(slot1Content, 1, writing(otherIds, shared)))).not.toHaveProperty("steamSettings");
+    expect(recipeWorkflow(recipeRecord(slot1Content, 1, writing(otherIds, shared), GLOBAL.recipe), GLOBAL.recipe)).not.toHaveProperty("steamSettings");
     expect(blankContent).not.toHaveProperty("flushS");
   });
 
   it("takes a changed steam or flush value in a recipe as an edit of the settings it mirrors, but not a blank one", () => {
-    const written = recipeRecord(slot1Content, 1, writing(recordedIds));
+    const written = recipeRecord(slot1Content, 1, writing(recordedIds), GLOBAL.recipe);
     const changed = (variables: Record_) => {
       const record = recordOf(written);
       const view = recipeView({ ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), ...variables } });

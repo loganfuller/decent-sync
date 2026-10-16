@@ -3,17 +3,18 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { syncingTablet } from "./support/loaded-tablets.js";
 import { shotFixture } from "./support/shot-fixtures.js";
+import { startStreamline } from "./support/simulated-streamline.js";
 import {
   DYE2_NAMESPACE,
   type Dye2Key,
-  applyInDye2,
+  SimulatedDye2,
   dye2List,
   dye2NeverUsed,
   dye2Recording,
+  openDye2Dashboard,
   recordedDye2Tablet,
   replayWrites,
   saveInDye2,
-  withDye2Selection,
 } from "./support/simulated-dye2.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
 import type { SimulatedTablet, SimulatedTabletOptions } from "./support/simulated-tablet.js";
@@ -122,8 +123,8 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
   }
 
   /**
-   * A Location with a Machine whose tablet is the recording's, DYE2 v0.1.20's
-   * selection included, on the first instance, and another whose tablet has
+   * A Location with a Machine whose tablet is the recording's, running DYE2
+   * v0.1.20, on the first instance, and another whose tablet has
    * never used DYE2 on the other, both holding slots 1 and 2 as the first
    * tablet's DYE2 editor saved and edited them, each naming a Basket.
    */
@@ -131,8 +132,8 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machine = await api.createMachine(`${scenario} lab A`, here.id);
     const second = await api.createMachine(`${scenario} lab B`, here.id);
-    const tablet = syncingTablet(machine, server, { api: withDye2Selection(recordedDye2Tablet(String(serial), scenario)), ...tabletOptions });
-    const neverUsed = syncingTablet(second, other, { api: withDye2Selection(dye2NeverUsed(String(serial + 1))) });
+    const tablet = syncingTablet(machine, server, { api: recordedDye2Tablet(String(serial), scenario), dye2: new SimulatedDye2(), ...tabletOptions });
+    const neverUsed = syncingTablet(second, other, { api: dye2NeverUsed(String(serial + 1)), dye2: new SimulatedDye2() });
     await api.waitForOnline(machine, second);
     await saveInDye2(tablet, recipes.saveSlot1);
     await saveInDye2(tablet, recipes.saveSlot2);
@@ -147,7 +148,7 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
 
   /** Applies the slot on DYE2's dashboard, and resolves once the Machine has its Recipe loaded. */
   async function load(tablet: SimulatedTablet, machine: CreatedMachine, slot: string, recipeId: string): Promise<void> {
-    expect((await applyInDye2(tablet, slot)).status).toBe(200);
+    expect((await (await openDye2Dashboard(tablet)).applyRecipe(slot)).selection?.status).toBe(200);
     await expect.poll(() => named(tablet)).toBe(recipeId);
     await loads(machine, recipeId);
   }
@@ -163,7 +164,7 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     // Offline, slot 2 applied and a Shot pulled with it: both reach the server as the tablet reconnects.
     tablet.loseNetwork();
     await api.waitForMachine(machine.machine.name, (viewed) => !viewed.online, 15_000);
-    expect((await applyInDye2(tablet, "2")).status).toBe(200);
+    expect((await (await openDye2Dashboard(tablet)).applyRecipe("2")).selection?.status).toBe(200);
     await expect.poll(() => named(tablet)).toBe(two);
     pull(tablet, "recipe-linked-offline", 49001);
     tablet.restoreNetwork();
@@ -199,8 +200,9 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     await expect.poll(() => named(tablet)).toBeNull();
     await loads(machine, null);
 
-    // Slot 2 applied while capture-only stays selected there, its id in the Workflow, but is not its Loaded Recipe.
-    expect((await applyInDye2(tablet, "2")).status).toBe(200);
+    // Slot 2 applied from Streamline's strip while capture-only, whose record's embedded Workflow names its Recipe, stays
+    // selected there, its id in the Workflow, but is not its Loaded Recipe: the plugin writes nothing there.
+    expect((await (await startStreamline(tablet)).applyRecipe("2")).selection?.status).toBe(200);
     await expect.poll(() => named(tablet)).toBe(two);
     await settle();
     const shot = pull(tablet, "recipe-capture-only", 49011);
