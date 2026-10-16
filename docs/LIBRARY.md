@@ -1115,9 +1115,9 @@ never matched (ADR-0018).
   Recipe stays loaded without it (`WORKFLOW-AND-STATE.md`).
 - **A saved 0 is a value**, as a milk stop of 0 is off. DYE2 saves a blank
   field as `null` (decentespresso/dye2#29), which holds none.
-- **Hot water.** DYE2 keeps one hot water value, of its mode: the volume by
-  `hotWaterMl`, the temperature by `hotWaterTempC`. A save that leaves the
-  others out changes none of them.
+- **Hot water.** A record holds the volume by `hotWaterMl` and the
+  temperature by `hotWaterTempC`, which DYE2's editor shows by the
+  Recipe's mode. A save that leaves one out changes none of them.
 - **Its Grinder** is one of its Location's: a record naming another, or one
   Archived, changes none. **Its Tools** the tablet holds no record of, which
   were never written to it, stay the Recipe's whatever the tablet's record
@@ -1182,8 +1182,10 @@ written (`recipeRecord` in `recipe-intake.ts`) holds:
   Tools by the tablet's own ids, each left out where the tablet holds no
   record of it, and its Profile by Decaid's id;
 - all four hot water settings in the record's own field
-  (`decentSyncRecipe`, RECIPE_FIELD in `protocol/`), and the hot water value
-  of its mode in `dashboardVariables`;
+  (`decentSyncRecipe`, RECIPE_FIELD in `protocol/`), and its volume and
+  temperature in `dashboardVariables`, both whatever its mode, as DYE2
+  holds each once it moves in the Workflow, so no write takes out one DYE2
+  records back;
 - the names DYE2 copies, the Bean's roaster among them, and `title`,
   `subtitle` and the embedded `workflow`, built as DYE2's
   `buildRecipeWorkflow` builds them, with the Bean's name, roaster and batch
@@ -1216,14 +1218,14 @@ tablet, in DYE2's editor or recorded by DYE2, reaches every
 tablet there; and a recipe gone from a tablet's list empties its slot on the
 others. DYE2 records into the recipe it has selected the
 change a barista made in the Workflow of a Machine with it loaded, its dose,
-yield, grind setting, RPM, Basket, brew temperature and the hot water value
-of its mode, each where the record holds one, as the Machine's edit of its
+yield, grind setting, RPM, Basket, brew temperature and hot water volume and
+temperature, each where the record holds one, as the Machine's edit of its
 Loaded Recipe; the Workflow's change of those is no edit, but what DYE2
 records stale is written back (`recordedByDye2`, `WORKFLOW-AND-STATE.md`,
 Following the Recipe). A field of a record that sets the Recipe's value its
 tablet's own latest edit set already is no edit (`withoutOwnEdits`), so a
-change the Workflow brought that DYE2 records too, as the hot water volume
-of a Recipe by temperature, is one edit. Recipes are read through the REST API (below), and managed in the
+change the Workflow brought that DYE2 records too, as a hot water duration,
+is one edit. Recipes are read through the REST API (below), and managed in the
 management interface (Editing in the management interface, above).
 
 ## Writing to tablets

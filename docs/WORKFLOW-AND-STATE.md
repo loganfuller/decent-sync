@@ -440,9 +440,8 @@ tablet's edit. The pure `server/src/library/loaded-recipe-intake.ts` maps
 the parts to the Recipe's content both ways.
 
 - **What DYE2 records.** DYE2 records a change of the Workflow's dose,
-  yield, grind setting, RPM, Basket, brew temperature, and the hot water
-  value of the Recipe's mode (its temperature for `temp`, its volume
-  otherwise), into the recipe's record (`recordedParts`,
+  yield, grind setting, RPM, Basket, brew temperature, and hot water volume
+  and temperature, into the recipe's record (`RECORDED_PARTS`,
   decentespresso/dye2#21), which the plugin reports with DYE2's recipes:
   the tablet's change of the record, taken in as any is (`LIBRARY.md`,
   Taking in a tablet's recipes). It records only a field the record holds,
@@ -451,12 +450,14 @@ the parts to the Recipe's content both ways.
   edit: DYE2 is their only recorder, so the change is one edit. Each value
   recorded is held as the Workflow's (`recordedByDye2`), one a stale save's
   rule takes as unchanged (`before_write`) too, as it is still what the
-  Workflow holds. DYE2 records the other hot water value too, which the
-  Workflow still edits (below): DYE2's record of it is judged stale the
-  same way, but is not held as the Workflow's, which the Workflow's own
-  report keeps. So is a recording the plugin's read of the list caught just
-  before its post, as the answer to the post carries it
-  (`recordRecipeWritten`). A save of DYE2's editor, which stamps the
+  Workflow holds. So is a recording the plugin's read of the list caught
+  just before its post, as the answer to the post carries it
+  (`recordRecipeWritten`). The server writes both the hot water volume and
+  temperature into each record, whatever the Recipe's mode, as DYE2 holds
+  each once it moves, so no write of the server's takes out one DYE2 then
+  records back: that kept a read and post of the list under way at nearly
+  every recording, and DYE2's recording at risk of being lost to it
+  (ADR-0005). A save of DYE2's editor, which stamps the
   record's `capturedAt` anew where a recording keeps it (`savedInEditor`),
   is no recording: the parts DYE2 records are held as the tablet's latest
   Workflow holds them (`heldAfterEditorSave`), whatever the report brings
@@ -477,9 +478,9 @@ the parts to the Recipe's content both ways.
   stay the Machine's own (`LIBRARY.md`, Steam and rinse settings).
 - **What the Workflow edits.** A Workflow delivery naming the Recipe its
   Machine went on having loaded, not as it joins its Location, is the
-  tablet's edit of the Recipe in each of its hot water settings but the one
-  DYE2 records (`workflowEditedParts`), until a Recipe holds them as DYE2's
-  recipe does (#173), each it holds otherwise than it last did, timed when
+  tablet's edit of the Recipe in its hot water duration and flow
+  (`WORKFLOW_EDITED_PARTS`), whose record fields the server does not take
+  in, until a Recipe holds them as DYE2's recipe does (#173), each it holds otherwise than it last did, timed when
   the plugin observed it, merged
   with what the Workflow had seen of the Recipe's edits (ADR-0020), from the
   Machine's tablet, whatever app made it. What the Workflow has seen is,

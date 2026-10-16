@@ -202,8 +202,8 @@ export interface IntakeContext {
  *   of it and names none; and its Tools with their attributes, keeping those
  *   of the Recipe's the tablet holds no record of, which it was never
  *   written, where they were;
- * - its hot water value of the mode the record names, a value the record
- *   leaves out, as DYE2 keeps one, changing none;
+ * - its hot water volume and temperature, a value the record leaves out
+ *   changing none;
  * - and the rest of its dial as it is.
  *
  * A record the map does not hold, or one of the tablet's own, names none.
@@ -227,7 +227,7 @@ export function libraryValues(view: Readonly<RecipeView>, fields: Iterable<strin
     // A profile read from the Workflow that is no Library Profile names none the Library knows: the Recipe's stays.
     if (named !== null || !isObject(view.profileSnapshot)) values.profileId = named;
   }
-  // DYE2 keeps one hot water value, of its mode; the one it leaves out stays as it is.
+  // A record leaving a hot water value out leaves it as it is.
   if (changed.has(`${DV}.hotWaterMl`) && view[`${DV}.hotWaterMl`] !== null) values.hotWaterVolume = view[`${DV}.hotWaterMl`];
   if (changed.has(`${DV}.hotWaterTempC`) && view[`${DV}.hotWaterTempC`] !== null) values.hotWaterTemperature = view[`${DV}.hotWaterTempC`];
   if (changed.has(`${DV}.grinderId`)) {
@@ -383,8 +383,8 @@ export interface WriteContext {
  * names DYE2 copies from them; its full Profile in `profileSnapshot`, so it
  * applies where the Profile is hidden; its brew temperature, its Profile's
  * first step's where it holds none, which DYE2 records into only a record
- * holding one, and applies (ADR-0022); a blank barista and drinker; the hot
- * water value of its mode, with all four in the record's own field
+ * holding one, and applies (ADR-0022); a blank barista and drinker; its hot
+ * water volume and temperature, with all four in the record's own field
  * (RECIPE_FIELD); and `title`, `subtitle` and the embedded `workflow` as
  * DYE2 derives them (`recipeWorkflow`).
  */
@@ -430,9 +430,9 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
     [`${DV}.brewC`]: brewTemperature,
     [`${DV}.steamMode`]: value("steamMode"),
     [`${DV}.hotWaterMode`]: hotWaterMode,
-    // DYE2 keeps the value of its mode, volume where it names none, as its editor shows.
-    [`${DV}.hotWaterMl`]: hotWaterMode === "temp" ? null : value("hotWaterVolume"),
-    [`${DV}.hotWaterTempC`]: hotWaterMode === "temp" ? value("hotWaterTemperature") : null,
+    // Both, as DYE2 holds each once it moves in the Workflow, so the server never writes one out that DYE2 records back.
+    [`${DV}.hotWaterMl`]: value("hotWaterVolume"),
+    [`${DV}.hotWaterTempC`]: value("hotWaterTemperature"),
     [`${DV}.grind`]: value("grindSetting"),
     [`${DV}.rpm`]: value("rpm"),
     [`${DV}.grinderId`]: local("grinder", grinderId),

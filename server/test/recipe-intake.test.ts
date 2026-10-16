@@ -230,7 +230,7 @@ describe("DYE2's recipes as Recipes", () => {
     expect(libraryValues(picked, ["dashboardVariables.basketId"], { basketId: GLOBAL.basket20 }, intake({ ids: otherIds }))).toEqual({ basketId: GLOBAL.basket18 });
   });
 
-  it("writes a Recipe to a tablet under its own ids, with its full Profile, a blank barista, its hot water value of its mode, and what DYE2 derives, its embedded Workflow's Profile at its brew temperature", () => {
+  it("writes a Recipe to a tablet under its own ids, with its full Profile, a blank barista, its hot water volume and temperature, and what DYE2 derives, its embedded Workflow's Profile at its brew temperature", () => {
     const view = recipeRecord(slot1Content, 1, writing(), GLOBAL.recipe);
     // Adaptive v3 starts at 93 °C: at the Recipe's 92, every step is a degree cooler.
     const adaptiveAt92 = profileAtBrewTemperature(adaptive, 92);
@@ -290,12 +290,12 @@ describe("DYE2's recipes as Recipes", () => {
       },
     });
     // Its batch is named by the tablet's id where it holds it; a nameless one is called by its slot; hot water by volume
-    // keeps the volume.
+    // keeps the temperature too, as DYE2 holds both once each moves.
     const recorded = recipeRecord({ ...slot1Content, beanBatchId: GLOBAL.ethiopiaBatch, name: "", hotWaterMode: "vol", hotWaterVolume: 120 }, 4, writing(recordedIds), GLOBAL.recipe);
     expect(recorded.beanBatchId).toEqual(LOCAL.ethiopiaBatch);
     expect((recorded.workflow as { context: Record_ }).context.beanBatchId).toEqual(LOCAL.ethiopiaBatch);
     expect(recorded[RECIPE_FIELD]).toEqual({ hotWaterData: { targetTemperature: 88, duration: null, volume: 120, flow: null } });
-    expect([recorded.title, recorded["dashboardVariables.hotWaterMl"], recorded["dashboardVariables.hotWaterTempC"]]).toEqual(["Recipe 4", 120, null]);
+    expect([recorded.title, recorded["dashboardVariables.hotWaterMl"], recorded["dashboardVariables.hotWaterTempC"]]).toEqual(["Recipe 4", 120, 88]);
   });
 
   it("builds a recipe's embedded Workflow as DYE2 2cf631c does, from its yield or its dose times its ratio, with a Profile's id and title where it has no steps", () => {

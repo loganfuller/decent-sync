@@ -28,10 +28,10 @@ import {
   readLoadBefore,
   readParts,
   recipeParts,
-  recordedParts,
+  RECORDED_PARTS,
   samePart,
   setBackToLoad,
-  workflowEditedParts,
+  WORKFLOW_EDITED_PARTS,
   workflowParts,
 } from "../library/loaded-recipe-intake.js";
 import { lockLocation, transactionTime } from "../library/location-state.js";
@@ -45,12 +45,12 @@ import { profileOfSql } from "../shots/links.js";
 // global id (LOADED_RECIPE_KEY), so the server reads it from the Workflow
 // deliveries milestone 1 captures, keeping each Machine's current Loaded
 // Recipe and its history (`loaded_recipes`). A Machine follows its Loaded
-// Recipe both ways (tickets #146 and #177): DYE2 records a change on it of
-// the dose, yield, grind setting, brew temperature and the hot water value
-// of the Recipe's mode into the Recipe's record, which reaches the server as
-// the tablet's change of the record (`recordedByDye2`, recipes.ts); a change
-// of the Workflow's other parts that follow the Recipe (`workflowEditedParts`)
-// is an edit of it; and an edit of the Recipe from anywhere is written into
+// Recipe both ways (tickets #146, #177 and #187): DYE2 records a change on
+// it of the dose, yield, grind setting, RPM, Basket, brew temperature and
+// hot water volume and temperature into the Recipe's record, which reaches
+// the server as the tablet's change of the record (`recordedByDye2`,
+// recipes.ts); a change of its hot water duration or flow
+// (`WORKFLOW_EDITED_PARTS`) is an edit of it; and an edit of the Recipe from anywhere is written into
 // the Workflow of every Machine that has it loaded, each tablet's Workflow as
 // it last held them kept in `tablet_loaded_recipes`, so the plugin's own
 // write is never read as the tablet's edit (loaded-recipe-intake.ts). A part
@@ -265,7 +265,7 @@ async function takeInParts(
   written: ReadonlySet<LoadedRecipePart>,
 ): Promise<void> {
   // DYE2 records the rest into the Recipe's record.
-  const changed = changedParts(known.held, now, workflowEditedParts(followed.content)).filter((part) => !written.has(part));
+  const changed = changedParts(known.held, now, WORKFLOW_EDITED_PARTS).filter((part) => !written.has(part));
   const held: WorkflowParts = { ...known.held };
   for (const part of written) held[part] = now[part];
   if (changed.length === 0) {
@@ -452,10 +452,8 @@ function firstStepTemperature(profile: unknown): number | null {
 
 /**
  * The paths of a recipe record DYE2 records into, each with the part of the
- * Workflow it records from: those of `recordedParts`, and the RPM, Basket
- * and other hot water value, which DYE2 records too, the hot water value
- * once it moves off the one the Workflow held as the recipe was selected
- * (`itemPatch` in dye2:dye2-plugin/src/utils/workflow-record.ts at 2cf631c).
+ * Workflow it records from (`RECORDED_PARTS`; `itemPatch` in
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at 2cf631c).
  */
 const RECORDED_PATHS: Readonly<Record<string, LoadedRecipePart>> = {
   "dashboardVariables.dose": "dose",
@@ -498,9 +496,6 @@ export async function recordedByDye2(
   if (!load) return stale;
   const { loadBefore } = load;
   const own = ownSince(readFieldEdits(fieldEdits), tablet.tabletId, load.loadedAt);
-  // The parts the Workflow also reports (`workflowEditedParts`) are held as it reports them, which can be later than the
-  // value DYE2 recorded: only those DYE2 alone records are held as recorded.
-  const recordedOnly = new Set(recordedParts(content));
   const locals = "dashboardVariables.basketId" in changed ? await tabletLocals(tx, tablet.tabletId) : undefined;
   const held: WorkflowParts = { ...known.held };
   for (const [path, value] of Object.entries(changed)) {
@@ -515,7 +510,7 @@ export async function recordedByDye2(
     const unwritten = recipeValue !== null && known.held[part] !== null && samePart(part, known.held[part], recordedValue) && !samePart(part, recipeValue, recordedValue);
     // A value that is the Recipe's already, as DYE2 records the plugin's own write, is no edit either.
     if (samePart(part, recipeValue, recordedValue) || setBackToLoad(part, recordedValue, loadBefore, own) || unwritten) stale.add(path);
-    if (recordedOnly.has(part)) held[part] = recordedValue;
+    held[part] = recordedValue;
   }
   await saveHeld(tx, tablet.tabletId, recipeId, held, null);
   return stale;
@@ -538,7 +533,7 @@ export async function heldAfterEditorSave(tx: Prisma.TransactionClient, tablet: 
   if (!latest) return;
   const now = workflowParts(latest.workflow);
   const held: WorkflowParts = { ...known.held };
-  for (const part of recordedParts(content)) held[part] = now[part];
+  for (const part of RECORDED_PARTS) held[part] = now[part];
   await saveHeld(tx, tablet.tabletId, recipeId, held, null);
 }
 

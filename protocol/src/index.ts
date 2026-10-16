@@ -503,7 +503,7 @@ export function isSlotId(value: unknown): value is string {
  * they save, as they keep the global id's field: all four of its hot water
  * settings, by Decaid's names for them in a Workflow's `hotWaterData`
  * (`targetTemperature`, `duration`, `volume` and `flow`), each null where the
- * Recipe has none. DYE2 keeps one hot water value, chosen by its mode. Its
+ * Recipe has none; DYE2's record holds the volume and temperature too. Its
  * Bean Batch is DYE2's own `beanBatchId`, beside the Bean.
  */
 export const RECIPE_FIELD = "decentSyncRecipe";

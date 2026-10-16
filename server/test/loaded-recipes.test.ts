@@ -71,6 +71,21 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
   const loads = (machine: CreatedMachine, recipeId: string | null) =>
     expect.poll(async () => (await loadedRecipe(machine))?.recipe.id ?? null, { timeout: 15_000 }).toBe(recipeId);
   const recipe = async (id: string) => (await api.get<{ recipe: { content: Record_ } }>(`/recipes/${id}`)).recipe;
+  /** Resolves once the plugin has made no write to the tablet for a second. */
+  const quiet = async (tablet: SimulatedTablet) => {
+    let seen = -1;
+    await expect
+      .poll(
+        () => {
+          const now = tablet.writes.length;
+          const settled = now === seen;
+          seen = now;
+          return settled;
+        },
+        { timeout: 15_000, interval: 1_000 },
+      )
+      .toBe(true);
+  };
   /** The writes of DYE2's stored selection the plugin made, besides DYE2's own. */
   const storedByPlugin = (tablet: SimulatedTablet) => tablet.storeWrites.filter((write) => write.namespace === DYE2_NAMESPACE && write.key === "selection");
 
@@ -180,6 +195,9 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect((await dashboard.tap("grind", 2.6)).status).toBe(200);
     await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(2.6);
     await expect.poll(() => extras(tablet).basketId, { timeout: 15_000 }).toBe(written);
+    // Once the plugin's writes for the tap are done: a post of DYE2's recipes made while DYE2 records Done's would undo
+    // DYE2's recording, as Decaid's store has no conditional write (ADR-0005).
+    await quiet(tablet);
     expect((await dashboard.done())?.status).toBe(200);
     await expect.poll(() => extras(tablet).basketId, { timeout: 15_000 }).toBe(written);
     expect(context(tablet).grinderSetting).toBe("2.6");

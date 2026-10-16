@@ -19,34 +19,27 @@ import { ratioValues } from "./recipe-intake.js";
 /** Each part, in the order LOADED_RECIPE_PARTS lists them. */
 export const PARTS = Object.keys(LOADED_RECIPE_PARTS) as LoadedRecipePart[];
 
-/** The hot water parts, each a setting of a Workflow's `hotWaterData`. */
-const HOT_WATER_PARTS = ["targetTemperature", "duration", "volume", "flow"] as const satisfies readonly LoadedRecipePart[];
-
 /**
  * The parts DYE2 records into the Loaded Recipe's record as they change in
  * the Workflow, so a change of them on the Machine reaches the server as the
  * tablet's change of the record, not of the Workflow: its dose, yield,
- * grind setting, RPM, Basket and brew temperature, and the hot water value
- * of the Recipe's mode, its temperature for `temp` and its volume otherwise,
- * as its record holds that one alone (`itemPatch` in
+ * grind setting, RPM, Basket and brew temperature, where the record holds
+ * one, and its hot water volume and temperature, which every record the
+ * server writes holds where the Recipe does, and DYE2 records once they
+ * move otherwise (`itemPatch` in
  * dye2:dye2-plugin/src/utils/workflow-record.ts, decentespresso/dye2#21).
- * DYE2 records each only where the record holds one, so a change of one a
- * Recipe holds none of stays on the Machine.
+ * A change of a dial part a Recipe holds none of stays on the Machine.
  */
-export function recordedParts(content: Readonly<Record<string, unknown>>): LoadedRecipePart[] {
-  return ["dose", "yield", "grind", "rpm", "basket", "brewTemperature", content.hotWaterMode === "temp" ? "targetTemperature" : "volume"];
-}
+export const RECORDED_PARTS: readonly LoadedRecipePart[] = ["dose", "yield", "grind", "rpm", "basket", "brewTemperature", "volume", "targetTemperature"];
 
 /**
  * The parts a change of the Workflow on the Machine edits the Recipe in,
- * those DYE2 does not record: every hot water setting but the one DYE2
- * records, until a Recipe holds the rest as DYE2's recipe does (#173). Not
- * its Grinder, Bean Batch or Profile, a change of which unloads it.
+ * those whose record field the server does not take in: its hot water
+ * duration and flow, until a Recipe holds them as DYE2's recipe does
+ * (#173). Not its Grinder, Bean Batch or Profile, a change of which unloads
+ * it.
  */
-export function workflowEditedParts(content: Readonly<Record<string, unknown>>): LoadedRecipePart[] {
-  const recorded = recordedParts(content);
-  return HOT_WATER_PARTS.filter((part) => !recorded.includes(part));
-}
+export const WORKFLOW_EDITED_PARTS: readonly LoadedRecipePart[] = ["duration", "flow"];
 
 /**
  * A part's value as a Workflow holds it: a number, a grind setting's text,
@@ -253,7 +246,7 @@ function recordValues(part: LoadedRecipePart, beforeWrite: Readonly<Record<strin
   return values;
 }
 
-/** The paths of a recipe record's `dashboardVariables` holding each part, as DYE2 keeps one hot water value of its mode. */
+/** The paths of a recipe record's `dashboardVariables` holding each part. */
 const DASHBOARD_PATHS: Readonly<Record<LoadedRecipePart, readonly string[]>> = {
   profile: [],
   grinder: [],

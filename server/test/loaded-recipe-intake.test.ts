@@ -9,9 +9,9 @@ import {
   readParts,
   recipeParts,
   readLoadBefore,
-  recordedParts,
+  RECORDED_PARTS,
   setBackToLoad,
-  workflowEditedParts,
+  WORKFLOW_EDITED_PARTS,
   workflowParts,
 } from "../src/library/loaded-recipe-intake.js";
 import type { FieldEdits } from "../src/library/merge.js";
@@ -89,23 +89,20 @@ describe("A Workflow's parts that follow its Loaded Recipe", () => {
   });
 
   it("change where they differ, a grind setting compared as a number, and not where one is cleared, as Streamline clears them once a Shot is stored", () => {
-    const every = recordedParts(CONTENT).concat(workflowEditedParts(CONTENT));
+    const every = [...RECORDED_PARTS, ...WORKFLOW_EDITED_PARTS];
     expect(changedParts(HELD, { ...HELD, grind: "2.70" }, every)).toEqual([]);
     expect(changedParts(HELD, { ...HELD, grind: "2.8", volume: 140 }, every)).toEqual(["grind", "volume"]);
     expect(changedParts(HELD, { ...HELD, batch: null, basket: null, rpm: null }, every)).toEqual([]);
   });
 
-  it("change in the Workflow only where DYE2 does not record them: not the dose, yield, grind setting, RPM, Basket, brew temperature, or hot water value of the Recipe's mode", () => {
-    const now = { ...HELD, dose: 19, yield: 40, grind: "2.8", brewTemperature: 91, rpm: 950, basket: "k2", targetTemperature: 90, volume: 140, duration: 30 };
-    // By temperature, DYE2 records the hot water temperature, and the volume is the Workflow's to edit.
-    expect(changedParts(HELD, now, workflowEditedParts({ ...CONTENT, hotWaterMode: "temp" }))).toEqual(["duration", "volume"]);
-    // By volume, or naming no mode, it records the volume.
-    expect(changedParts(HELD, now, workflowEditedParts(CONTENT))).toEqual(["targetTemperature", "duration"]);
-    expect(recordedParts(CONTENT)).toEqual(["dose", "yield", "grind", "rpm", "basket", "brewTemperature", "volume"]);
+  it("change in the Workflow only where DYE2 does not record them: its hot water duration and flow", () => {
+    const now = { ...HELD, dose: 19, yield: 40, grind: "2.8", brewTemperature: 91, rpm: 950, basket: "k2", targetTemperature: 90, volume: 140, duration: 30, flow: 6 };
+    expect(changedParts(HELD, now, WORKFLOW_EDITED_PARTS)).toEqual(["duration", "flow"]);
+    expect(changedParts(HELD, now, RECORDED_PARTS)).toEqual(["dose", "yield", "grind", "rpm", "basket", "brewTemperature", "volume", "targetTemperature"]);
   });
 
   it("change no Grinder, Bean Batch or Profile, a change of which unloads the Recipe rather than edits it", () => {
-    expect(changedParts(HELD, { ...HELD, grinder: "g2", batch: "b2", profile: "profile:classic" }, workflowEditedParts(CONTENT))).toEqual([]);
+    expect(changedParts(HELD, { ...HELD, grinder: "g2", batch: "b2", profile: "profile:classic" }, WORKFLOW_EDITED_PARTS)).toEqual([]);
   });
 });
 
