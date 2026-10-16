@@ -44,7 +44,7 @@ import { type Answer, readShot, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
 import type { WorkflowChanges } from "./machine-events.js";
 import type { Outbox } from "./outbox.js";
-import { dye2Fingerprint, stepsKey } from "./loaded-recipe-rules.js";
+import { clearsSelection, stepsKey } from "./loaded-recipe-rules.js";
 import { type LoadedRecipeWrites, machineMissing } from "./loaded-recipes.js";
 import { randomUuid } from "./tablet-id.js";
 
@@ -702,7 +702,8 @@ async function clearWorkflow(write: LibraryWrite): Promise<WriteAnswer> {
  * profile written, or else the Workflow's, by the same amount
  * (`profileAtBrewTemperature`). A write that is no clear is refused unless DYE2
  * still has the Recipe's slot selected, or answers 404
- * (`LoadedRecipeWrites.mayWrite`), and once made, a profile it changed is
+ * (`LoadedRecipeWrites.mayWrite`), and once made, one that changed the
+ * profile, batch or grinder, which DYE2 clears its selection on, has the slot
  * selected again; a clear has DYE2's selection of the Recipe's slot cleared
  * (ADR-0022). Decaid refuses to change the hot water settings while no
  * machine is connected, so the rest is then written without them, the
@@ -722,16 +723,16 @@ async function writeLoadedRecipe(write: LibraryWrite, _log: (message: string) =>
     const fields = loadedRecipeFields(write, workflow, hotWater);
     if (Object.keys(fields).length === 0) return written(write, loadedRecipeParts(workflow), [], new Date().toISOString());
     const patch = loadedRecipePatch(fields, workflow);
-    const changesProfile = "profile" in patch && dye2Fingerprint(patch.profile) !== dye2Fingerprint(workflow.profile);
-    if (changesProfile) posted.loaded?.profileChanging(globalId);
+    const clears = clearsSelection(workflow, patch);
+    if (clears) posted.loaded?.selectionClearing(globalId);
     const answer = await request("PUT", "/workflow", patch);
     const updated = answer.ok ? parsed(answer.text) : undefined;
-    // This write refused, its profile stayed, so DYE2 cleared nothing for it; one that threw may have landed, and is
+    // This write refused, the Workflow stayed, so DYE2 cleared nothing for it; one that threw may have landed, and is
     // selected again anyway.
-    if (changesProfile && !isObject(updated)) posted.loaded?.profileUnchanged(globalId);
+    if (clears && !isObject(updated)) posted.loaded?.selectionKept(globalId);
     if (isObject(updated)) {
       if (clearing) posted.loaded?.cleared(globalId);
-      else posted.loaded?.written(globalId, workflow, updated);
+      else posted.loaded?.written(globalId, updated, clears);
       return written(write, loadedRecipeParts(updated), Object.keys(fields), new Date().toISOString());
     }
     const ofHotWater = Object.keys(fields).filter((field) => field.startsWith("hotWaterData."));

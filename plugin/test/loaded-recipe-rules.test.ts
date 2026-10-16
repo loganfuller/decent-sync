@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { LOADED_RECIPE_KEY, RECIPE_FIELD, profileAtBrewTemperature, shiftedTemperatures } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { dye2Fingerprint, loadWrite, profileKey, recipeSetUp, vacatedSlots } from "../src/loaded-recipe-rules.js";
+import { clearsSelection, dye2Fingerprint, loadWrite, profileKey, selectedOn, vacatedSlots } from "../src/loaded-recipe-rules.js";
 
 // Module tests for what the plugin writes into the Workflow as DYE2's
 // selection loads a Recipe (ADR-0022), and how it reads DYE2's fingerprint of
@@ -160,11 +160,41 @@ describe("recording a load", () => {
   });
 });
 
-describe("what a recipe names that a change of grinder or Bean is judged by", () => {
-  it("is its grinder by the tablet's id and its Bean", () => {
-    const record = recipe("1");
-    expect(recipeSetUp(record)).toEqual({ grinder: (record.dashboardVariables as Record_).grinderId, bean: record.beanId });
-    expect(recipeSetUp({})).toEqual({ grinder: null, bean: null });
+describe("whether DYE2's selection holds for the Workflow, as DYE2 judges it", () => {
+  const workflow = applied("dye2-applies", "applySlot1");
+  const context = workflow.context as Record_;
+  const BATCH = "837c5af9-aa43-44ed-a857-5009969e3217";
+  /** The Workflow with its `context` changed so. */
+  const withContext = (change: Record_) => ({ ...workflow, context: { ...context, ...change } });
+  /** A selection made on the Workflow, with the batch given. */
+  const armed = { fingerprint: dye2Fingerprint(workflow.profile), batch: BATCH, grinder: context.grinderId as string };
+
+  it("holds on the profile, batch and grinder it was made on, a brew temperature changed, or a batch set where it was made on none", () => {
+    expect(selectedOn(armed, withContext({ beanBatchId: BATCH }))).toBe(true);
+    expect(selectedOn(armed, { ...withContext({ beanBatchId: BATCH }), profile: profileAtBrewTemperature(workflow.profile, 90) })).toBe(true);
+    expect(selectedOn({ ...armed, batch: null }, withContext({ beanBatchId: "another" }))).toBe(true);
+    expect(selectedOn({ fingerprint: null, batch: null, grinder: null }, workflow)).toBe(true);
+  });
+
+  it("does not hold on another profile, batch or grinder, or a batch or grinder cleared, nor before a Workflow is seen", () => {
+    const other = { ...(workflow.profile as Record_), title: "Another" };
+    expect(selectedOn(armed, { ...withContext({ beanBatchId: BATCH }), profile: other })).toBe(false);
+    expect(selectedOn(armed, withContext({ beanBatchId: "another" }))).toBe(false);
+    expect(selectedOn(armed, withContext({ beanBatchId: null }))).toBe(false);
+    expect(selectedOn(armed, withContext({ beanBatchId: BATCH, grinderId: "another" }))).toBe(false);
+    expect(selectedOn(armed, withContext({ beanBatchId: BATCH, grinderId: "" }))).toBe(false);
+    expect(selectedOn(armed, undefined)).toBe(false);
+  });
+
+  it("is cleared by a write changing the profile, batch or grinder, and not by one of the dial", () => {
+    const at = (context: Record_) => ({ context });
+    expect(clearsSelection(workflow, at({ targetDoseWeight: 19.5, grinderSetting: "3.3" }))).toBe(false);
+    expect(clearsSelection(workflow, { profile: profileAtBrewTemperature(workflow.profile, 90) })).toBe(false);
+    expect(clearsSelection(workflow, { profile: { ...(workflow.profile as Record_), title: "Another" } })).toBe(true);
+    expect(clearsSelection(workflow, at({ beanBatchId: BATCH }))).toBe(true);
+    expect(clearsSelection(withContext({ beanBatchId: BATCH }), at({ beanBatchId: null }))).toBe(true);
+    expect(clearsSelection(workflow, at({ grinderId: "another" }))).toBe(true);
+    expect(clearsSelection(workflow, at({ grinderId: context.grinderId }))).toBe(false);
   });
 });
 

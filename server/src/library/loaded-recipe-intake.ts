@@ -297,16 +297,14 @@ export function recipeParts(
 /**
  * The parts of a Recipe the Workflow is to hold (`target`, as `recipeParts`
  * reads it) that wait for the tablet's record of the Recipe (`record`, as
- * the server last knew it) to hold them too: its dial (Profile, Grinder,
- * dose, yield, grind setting, RPM, Basket and brew temperature) and its Bean
- * Batch, as the record is written first. The plugin judges whether a change
- * of the Workflow's Grinder or Bean unloads it by the tablet's record
- * (loaded-recipes.ts), so one written into the Workflow before the record,
- * as when the tablet refused the record's write, would unload the Recipe;
- * and DYE2 records the Workflow's dial into the record, so a dial written
- * into the Workflow first would reach the server as the tablet's change of
- * the record. Each that waits is undefined, as one the tablet holds no
- * record of yet is; the rest of the write goes ahead.
+ * the server last knew it) to hold them too: its dial (Profile, dose, yield,
+ * grind setting, RPM, Basket and brew temperature), as the record is written
+ * first. DYE2 records the Workflow's dial into the record, so a dial written
+ * into the Workflow first, as when the tablet refused the record's write,
+ * would reach the server as the tablet's change of the record. Each that
+ * waits is undefined, as one the tablet holds no record of yet is; the rest
+ * of the write goes ahead, its Grinder and Bean Batch included, which DYE2
+ * records none of.
  */
 export function heldByRecord(
   target: Readonly<Record<LoadedRecipePart, PartValue | undefined>>,
@@ -316,17 +314,15 @@ export function heldByRecord(
   const [dose, ratio] = [numberOf(variables.dose), numberOf(variables.ratio)];
   const holds: Partial<Record<LoadedRecipePart, unknown>> = {
     profile: record?.profileId ?? null,
-    grinder: variables.grinderId ?? null,
     dose,
     yield: numberOf(variables.drink) ?? (dose !== null && ratio !== null ? Math.round(dose * ratio * 10) / 10 : null),
     grind: variables.grind ?? null,
     rpm: numberOf(variables.rpm),
     basket: variables.basketId ?? null,
-    batch: record?.beanBatchId ?? null,
     brewTemperature: numberOf(variables.brewC),
   };
   const parts = { ...target };
-  for (const part of ["profile", "grinder", "dose", "yield", "grind", "rpm", "basket", "batch", "brewTemperature"] as const) {
+  for (const part of ["profile", "dose", "yield", "grind", "rpm", "basket", "brewTemperature"] as const) {
     if (parts[part] !== null && parts[part] !== undefined && (record === null || !samePart(part, holds[part], parts[part]))) parts[part] = undefined;
   }
   return parts;

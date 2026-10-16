@@ -247,7 +247,7 @@ describe("What a Workflow is written of its Loaded Recipe", () => {
   });
 });
 
-describe("The dial and batch written into a Workflow", () => {
+describe("The dial written into a Workflow", () => {
   const target = { ...HELD, profile: "profile:classic", grinder: "g2", batch: "b2", dose: 19, yield: 38, grind: "3.1", rpm: 950, basket: "k2" };
   const current = {
     profileId: "profile:classic",
@@ -255,23 +255,21 @@ describe("The dial and batch written into a Workflow", () => {
     dashboardVariables: { grinderId: "g2", dose: 19, ratio: 2, grind: 3.1, rpm: 950, basketId: "k2", brewC: 92 },
   };
 
-  it("wait for the tablet's record of the Recipe to hold them, as the plugin judges a change of the dial by its records, the rest going ahead", () => {
+  it("waits for the tablet's record of the Recipe to hold it, as DYE2 records the Workflow's dial into the record, its Grinder, batch and the rest going ahead", () => {
     const stale = { profileId: "profile:adaptive", beanBatchId: "b1", dashboardVariables: { grinderId: "g1", dose: 18, drink: 36, grind: 2.7, rpm: 900, basketId: "k1" } };
     expect(heldByRecord(target, stale)).toEqual({
       ...target,
       profile: undefined,
-      grinder: undefined,
       dose: undefined,
       yield: undefined,
       grind: undefined,
       rpm: undefined,
       basket: undefined,
-      batch: undefined,
       brewTemperature: undefined,
     });
     // A yield worked out from the ratio, and a grind setting as a number, are held.
     expect(heldByRecord(target, current)).toEqual(target);
-    expect(heldByRecord(target, null)).toMatchObject({ profile: undefined, grinder: undefined, batch: undefined, dose: undefined, rpm: undefined, flow: 7.5 });
+    expect(heldByRecord(target, null)).toMatchObject({ profile: undefined, grinder: "g2", batch: "b2", dose: undefined, rpm: undefined, flow: 7.5 });
   });
 });
 

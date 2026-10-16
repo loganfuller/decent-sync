@@ -233,8 +233,6 @@ export class SyncConnection {
    */
   stateUpdate(payload: unknown): void {
     if (this.stopped) return;
-    const state = isObject(payload) && isObject(payload.state) ? payload.state.state : undefined;
-    if (typeof state === "string") this.loadedRecipes.stateChanged(state);
     this.machineEvents.stateUpdate(payload);
     this.checkHardwareSoon();
   }

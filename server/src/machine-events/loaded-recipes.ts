@@ -401,8 +401,8 @@ function ownSince(fieldEdits: FieldEdits, tabletId: string, since: Date): Set<st
  * in a slot of that Location, the Recipe's fields that the Workflow holds
  * otherwise (`partsWrite`), those naming a Grinder, Basket or batch its
  * tablet holds no record of yet waiting until it is written one, as it is
- * before this, and its dial and batch until its record of the Recipe holds
- * them (`heldByRecord`), as when the tablet refused it;
+ * before this, and its dial until its record of the Recipe holds it
+ * (`heldByRecord`), as when the tablet refused it;
  * where it named any other, as one taken out of its slot or Archived, or
  * when the Machine is no longer at its Location, or capture-only, the
  * clearing of its Loaded Recipe.
@@ -429,7 +429,7 @@ export async function loadedRecipeDue(tx: Prisma.TransactionClient, tablet: { ma
     LEFT JOIN bean_batches AS batch ON batch.id::text = lower(${String(content.beanBatchId ?? "")})
     LEFT JOIN beans AS bean ON bean.id = batch.bean_id`;
   const text = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
-  // Its dial and batch wait for the tablet's record of it, written before (`heldByRecord`).
+  // Its dial waits for the tablet's record of it, written before (`heldByRecord`).
   const target = heldByRecord(recipeParts(content, local, firstStepTemperature(names?.profile)), record?.record ?? null);
   const due = partsWrite(target, known.held, {
     profile: isObject(names?.profile) ? names.profile : null,

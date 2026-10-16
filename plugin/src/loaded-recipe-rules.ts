@@ -81,13 +81,65 @@ export function dye2Fingerprint(profile: unknown): string | null {
 }
 
 /** The Bean Batch a Workflow names, by the tablet's id for it, or null. */
-export function workflowBatch(workflow: Record<string, unknown>): string | null {
+function workflowBatch(workflow: Record<string, unknown>): string | null {
   return isObject(workflow.context) ? textOf(workflow.context.beanBatchId) : null;
 }
 
 /** The grinder a Workflow names, by the tablet's id for it, or null. */
-export function workflowGrinder(workflow: Record<string, unknown>): string | null {
+function workflowGrinder(workflow: Record<string, unknown>): string | null {
   return isObject(workflow.context) ? textOf(workflow.context.grinderId) : null;
+}
+
+/**
+ * What the Workflow held as DYE2's selection was made, as DYE2 judges a
+ * change off it by (`profileDrifted` and `contextDrifted` in
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at 2cf631c): the fingerprint
+ * of its profile (`dye2Fingerprint`), and its Bean Batch and grinder, by the
+ * tablet's ids. Each is null where DYE2 answered none or does not know it,
+ * as for a Workflow that held no batch, where DYE2 takes the first one set.
+ */
+export interface ArmedOn {
+  fingerprint: string | null;
+  batch: string | null;
+  grinder: string | null;
+}
+
+/**
+ * Whether DYE2's selection, made on what its answer names (`ArmedOn`),
+ * still holds for the Workflow, as DYE2 judges it on the Workflow's next
+ * change (`profileDrifted` and `contextDrifted` in
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at 2cf631c): the same
+ * profile by DYE2's fingerprint, and the same Bean Batch and grinder. A
+ * value DYE2 answered none of counts as no difference, as DYE2 takes the
+ * first one set then; a batch or grinder cleared since is one. So a
+ * selection DYE2 restored over a Bean, grinder or profile switched while it
+ * was away does not hold. False for a Workflow not seen yet.
+ */
+export function selectedOn(armed: ArmedOn, workflow: Record<string, unknown> | undefined): boolean {
+  if (workflow === undefined) return false;
+  const fingerprint = dye2Fingerprint(workflow.profile);
+  if (armed.fingerprint !== null && fingerprint !== null && armed.fingerprint !== fingerprint) return false;
+  if (armed.batch !== null && armed.batch !== workflowBatch(workflow)) return false;
+  return armed.grinder === null || armed.grinder === workflowGrinder(workflow);
+}
+
+/**
+ * Whether a write into the Workflow (`write`, the body of a `PUT /workflow`,
+ * which Decaid merges into it) changes what DYE2 clears its selection on:
+ * the profile, by DYE2's fingerprint, the Bean Batch or the grinder
+ * (decentespresso/dye2#18, #19). Judged by what the write sets, not by
+ * Decaid's answer, which holds a barista's change made meanwhile too. A
+ * batch or grinder set where the Workflow held none may leave the
+ * selection, which DYE2 then takes as the one it holds.
+ */
+export function clearsSelection(workflow: Record<string, unknown>, write: Record<string, unknown>): boolean {
+  const context = { ...(isObject(workflow.context) ? workflow.context : {}), ...(isObject(write.context) ? write.context : {}) };
+  const after = { ...workflow, context, ...(isObject(write.profile) ? { profile: write.profile } : {}) };
+  return (
+    dye2Fingerprint(workflow.profile) !== dye2Fingerprint(after.profile) ||
+    workflowBatch(workflow) !== workflowBatch(after) ||
+    workflowGrinder(workflow) !== workflowGrinder(after)
+  );
 }
 
 /** The records of a tablet's recipes that can be a Loaded Recipe: those in a Recipe Slot carrying a global id. */
@@ -115,12 +167,6 @@ export function vacatedSlots(before: readonly Record<string, unknown>[], after: 
     const is = now.get(record.id);
     return is === undefined || (was !== null && dye2GlobalIdOf(is) !== was) ? [Number(record.id)] : [];
   });
-}
-
-/** What a recipe's record names that a change of grinder or Bean is judged by (dye2#19): its grinder, by the tablet's id, and its Bean. */
-export function recipeSetUp(record: Record<string, unknown>): { grinder: string | null; bean: string | null } {
-  const variables = isObject(record.dashboardVariables) ? record.dashboardVariables : {};
-  return { grinder: textOf(variables.grinderId), bean: textOf(record.beanId) };
 }
 
 /** What a load writes besides the record: the recipe's full Profile at its brew temperature, as applying it loads one. */

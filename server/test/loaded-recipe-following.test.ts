@@ -7,16 +7,18 @@ import { startStreamline } from "./support/simulated-streamline.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
-// Seam 1 for tickets #146, #177 and #187: a Machine follows its Loaded
+// Seam 1 for tickets #146, #177, #187 and #188: a Machine follows its Loaded
 // Recipe both ways (ADR-0022). DYE2 records a change on one Machine of the
 // dose, yield, grind setting, RPM, Basket, brew temperature and hot water
 // value of the Recipe's mode into the Recipe's record, where it holds one,
 // an edit of the Recipe from that Machine's tablet, once; a change of its
 // other hot water settings is one through the Workflow; another batch, of
-// its Bean or not, unloads it; and an edit of the Recipe from anywhere is
-// written into the Workflow of every Machine that has it loaded, its brew
-// temperature as on a load. A part set back to what
-// a stale copy or the load replaced is written back. Taking the Recipe out
+// its Bean or not, unloads it through DYE2's own clear; and an edit of the
+// Recipe from anywhere is written into the Workflow of every Machine that
+// has it loaded, its brew temperature as on a load, the plugin selecting the
+// Recipe again after a write of its batch or grinder, which DYE2 clears its
+// selection on (#188). A part set back to what a stale copy or the load
+// replaced is written back. Taking the Recipe out
 // of its slot, Archiving it, or making the Machine capture-only clears it
 // from the Workflow and from DYE2's selection; moving it to another slot
 // selects it there. Through the built plugin in simulated tablets running
@@ -330,6 +332,47 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     // C keeps it loaded, on the Recipe's batch.
     expect(await loadedRecipe(machines.c)).toBe(one);
     expect(context(c).beanBatchId).toBe(await localId(c, "/bean-batches", batch));
+  });
+
+  it("writes a batch picked in DYE2's editor on A, and a grinder set in the management interface, into A's and C's Workflows, which keep the Recipe selected and recording", async () => {
+    const { here, machines, dye2, a, c, one } = await lab("New roast", 48171);
+    const bean = (await recipe(one)).content.beanId as string;
+    const created = await api.call("POST", "/bean-batches", { beanId: bean, content: { roastDate: "2026-10-12" }, locations: [{ locationId: here.id }] });
+    expect(created.status).toBe(201);
+    const next = ((await created.json()) as { batch: { id: string } }).batch.id;
+    for (const tablet of [a, c]) await expect.poll(() => localId(tablet, "/bean-batches", next), { timeout: 15_000 }).toEqual(expect.any(String));
+    const clears = () => [dye2.a, dye2.c].map((selection) => selection.asked.filter((asked) => asked === null).length);
+    const cleared = clears();
+
+    // DYE2's editor on A picks the new batch for slot 1, which every Machine with the Recipe loaded is written, A's included.
+    const picked = await localId(a, "/bean-batches", next);
+    const edited = records(a).map((record) => (record.id === "1" ? { ...record, beanBatchId: picked, capturedAt: new Date().toISOString() } : record));
+    expect((await a.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, edited)).status).toBe(200);
+    await expect.poll(async () => (await recipe(one)).content.beanBatchId, { timeout: 15_000 }).toBe(next);
+    for (const tablet of [a, c]) await expect.poll(async () => context(tablet).beanBatchId, { timeout: 15_000 }).toBe(await localId(tablet, "/bean-batches", next));
+
+    // And a grinder set in the management interface.
+    const grinder = (await api.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: here.id, content: { model: "New roast Grinder 2" } }, 201)).grinder.id;
+    for (const tablet of [a, c]) await expect.poll(() => localId(tablet, "/grinders", grinder), { timeout: 15_000 }).toEqual(expect.any(String));
+    await patch(one, { grinderId: grinder });
+    for (const tablet of [a, c]) await expect.poll(async () => context(tablet).grinderId, { timeout: 15_000 }).toBe(await localId(tablet, "/grinders", grinder));
+
+    // DYE2 cleared each selection on the write, and the plugin selected it again on the Workflow holding them, posting no clear.
+    await settle();
+    for (const [tablet, selection] of [[a, dye2.a], [c, dye2.c]] as const) {
+      expect(selection.selected()).toMatchObject({
+        kind: "recipe",
+        id: "1",
+        armedBeanBatchId: await localId(tablet, "/bean-batches", next),
+        armedGrinderId: await localId(tablet, "/grinders", grinder),
+      });
+    }
+    expect(clears()).toEqual(cleared);
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+    expect([named(a), named(c)]).toEqual([one, one]);
+    // DYE2 on C still records into the Recipe.
+    await c.changeSettings({ context: { grinderSetting: "3.4" } });
+    await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(3.4);
   });
 
   it("loads a recipe selected from Streamline's strip on a profile with a target weight, with the Workflow on the Recipe's batch, selecting it once", async () => {
