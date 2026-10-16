@@ -10,6 +10,11 @@ import { dye2Fingerprint } from "../src/dye2-selection.js";
 // `GET /workflow` answered it (server/test/fixtures/decaid/dye2-v0.1.20/,
 // fingerprints.json).
 
+declare global {
+  // Replaced at build time (plugin/build.mjs); dye2-selection.ts reaches it through decaid.ts, which this test does not call.
+  const __PLUGIN_ID__: string;
+}
+
 interface Recorded {
   name: string;
   workflowUpdated: unknown;
