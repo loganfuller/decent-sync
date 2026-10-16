@@ -117,7 +117,8 @@ export async function resolveLinks(
     libraryBatchId: resolved?.batch ?? kept(ids.beanBatchId, stored?.beanBatchId, stored?.libraryBatchId),
     libraryGrinderId: resolved?.grinder ?? kept(ids.grinderId, stored?.grinderId, stored?.libraryGrinderId),
     libraryBasketId: resolved?.basket ?? kept(ids.basketId, stored?.basketId, stored?.libraryBasketId),
-    recipeId: resolved?.recipe ?? kept(ids.recipeSlot, stored?.recipeSlot, stored?.recipeId),
+    // A slot holds another Recipe once its own moves: the one the Shot was stored naming is kept while it names that slot.
+    recipeId: (ids.recipeSlot !== null && ids.recipeSlot === stored?.recipeSlot ? stored.recipeId : null) ?? resolved?.recipe ?? null,
     libraryToolIds: ids.toolIds.map((localId) => {
       const before = stored ? stored.toolIds.indexOf(localId) : -1;
       return tools.find((tool) => tool.localId === localId)?.toolId ?? (before === -1 ? NO_TOOL : (stored!.libraryToolIds[before] ?? NO_TOOL));
@@ -212,14 +213,15 @@ export function shotRecipeSql(alias: string): Prisma.Sql {
   const end = Prisma.sql`${shot}.pulled_at + make_interval(secs => coalesce(${shot}.duration, 0))`;
   return Prisma.sql`(CASE
     WHEN ${shot}.recipe_id IS NOT NULL THEN (
-      SELECT loaded.recipe_id FROM loaded_recipes AS loaded
-      WHERE loaded.machine_id = ${shot}.machine_id AND loaded.recipe_id = ${shot}.recipe_id AND loaded.loaded_at <= ${end}
-        AND (loaded.unloaded_at IS NULL OR loaded.unloaded_at > ${shot}.pulled_at)
-      ORDER BY loaded.loaded_at DESC, loaded.id DESC LIMIT 1)
+      SELECT CASE WHEN latest.unloaded_at IS NULL OR latest.unloaded_at > ${shot}.pulled_at THEN latest.recipe_id END FROM (
+        SELECT loaded.recipe_id, loaded.unloaded_at FROM loaded_recipes AS loaded
+        WHERE loaded.machine_id = ${shot}.machine_id AND loaded.recipe_id = ${shot}.recipe_id AND loaded.loaded_at <= ${end}
+        ORDER BY loaded.loaded_at DESC, loaded.id DESC LIMIT 1) AS latest)
     WHEN NOT ${shot}.selection_named THEN (
-      SELECT loaded.recipe_id FROM loaded_recipes AS loaded
-      WHERE loaded.machine_id = ${shot}.machine_id AND loaded.loaded_at <= ${end} AND (loaded.unloaded_at IS NULL OR loaded.unloaded_at > ${end})
-      ORDER BY loaded.loaded_at DESC, loaded.id DESC LIMIT 1)
+      SELECT CASE WHEN latest.unloaded_at IS NULL OR latest.unloaded_at > ${end} THEN latest.recipe_id END FROM (
+        SELECT loaded.recipe_id, loaded.unloaded_at FROM loaded_recipes AS loaded
+        WHERE loaded.machine_id = ${shot}.machine_id AND loaded.loaded_at <= ${end}
+        ORDER BY loaded.loaded_at DESC, loaded.id DESC LIMIT 1) AS latest)
   END)`;
 }
 

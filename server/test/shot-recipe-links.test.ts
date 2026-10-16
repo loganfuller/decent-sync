@@ -223,6 +223,21 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     expect((await storedShot("recipe-sharing-again")).recipe).toMatchObject({ id: two });
   });
 
+  it("keeps a Shot linked to its Recipe through an edit sent after another Recipe takes the slot it named", async () => {
+    const { machine, tablet, one, two } = await lab("Slot reused", 49091);
+    await load(tablet, machine, "1", one);
+    const shot = pull(tablet, "recipe-slot-reused", 49091);
+    expect((await storedShot("recipe-slot-reused")).recipe).toMatchObject({ id: one });
+    expect((await api.call("PUT", `/recipes/${one}/slot`, { slot: null })).status).toBe(200);
+    expect((await api.call("PUT", `/recipes/${two}/slot`, { slot: 1 })).status).toBe(200);
+    await expect.poll(() => dye2GlobalIdOf(inSlot(tablet, "1")), { timeout: 15_000 }).toBe(two);
+    // Rated on DYE2's Edit Shot page: the Shot still names slot 1, which holds the other Recipe now.
+    const { measurements: _measurements, ...metadata } = shot;
+    tablet.fire("shotUpdated", { id: shot.id, shot: { ...metadata, updatedAt: "2026-11-01T12:01:00Z", annotations: { enjoyment: 80 } } });
+    await expect.poll(() => tablet.acknowledgedSome((frame: Record_) => frame.type === "shotUpdated" && frame.shotId === shot.id)).toBe(true);
+    expect((await storedShot("recipe-slot-reused")).recipe).toMatchObject({ id: one });
+  });
+
   it("links a Shot to the Basket picked for it on DYE2's dashboard, and to the one DYE2's Edit Shot page sets", async () => {
     const { tablet } = await lab("Basket", 49021);
     // DYE2's dashboard picking a basket for the next Shot, as recorded.

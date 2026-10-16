@@ -115,6 +115,8 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   private loaded: string | null = null;
   /** The slot the first Workflow's DYE2 selection names, until the recipes are read; null for none. */
   private firstSlot: string | null | undefined;
+  /** Whether the plugin has decided on DYE2's selection since it loaded (`decide`). */
+  private decided = false;
   /** What DYE2's selection last answered, as its field in the Workflow names it (`dye2SelectionOf`); undefined while unread or 404. */
   private selected: { named: boolean; slot: string | null } | undefined;
   /** The tablet's recipes that can be loaded, by slot, as last read. */
@@ -230,7 +232,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   observe(workflow: Record<string, unknown>): void {
     if (this.stopped) return;
     this.latest = workflow;
-    if (this.firstSlot === undefined && this.answer === "unread") this.firstSlot = dye2SelectionOf(workflow).slot;
+    if (this.firstSlot === undefined) this.firstSlot = dye2SelectionOf(workflow).slot;
     if (this.captureOnly) return;
     // Its write's echo, or a barista's change made meanwhile, which the write decides on once done (`ownWrite`).
     if (this.writing > 0) {
@@ -541,6 +543,9 @@ export class LoadedRecipes implements LoadedRecipeWrites {
         return;
       }
       if (this.unavailable()) {
+        // Nothing is held for a read while DYE2 is not there, whatever its field last named.
+        this.answer = "unavailable";
+        this.selected = undefined;
         this.pendingSelect = null;
         this.unload();
         return;
@@ -548,7 +553,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       this.sawRecipes(await this.readRecipes());
       if (this.firstSlot !== undefined) {
         // The Recipe the first Workflow's DYE2 selection names is the one taken as loaded until the plugin decides.
-        if (this.firstSlot !== null) this.loaded = this.recipes.get(Number(this.firstSlot))?.globalId ?? null;
+        if (this.firstSlot !== null && !this.decided) this.loaded = this.recipes.get(Number(this.firstSlot))?.globalId ?? null;
         this.firstSlot = null;
       }
       let answer = await readSelection();
@@ -622,6 +627,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
 
   /** Decides on DYE2's selection, as `check` reads it. */
   private async decide(answer: Exclude<SelectionAnswer, { kind: "unavailable" }>): Promise<void> {
+    this.decided = true;
     const previous = this.answer;
     if (answer.kind === "none") {
       // DYE2 restores a stored selection only after it loads: a later read confirms none.

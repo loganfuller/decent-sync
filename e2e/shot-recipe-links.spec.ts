@@ -138,12 +138,19 @@ async function lab(page: Page, name: string, serial: number) {
 /**
  * Applies the slot on the tablet's DYE2 dashboard, then pulls a Shot with
  * the Workflow as it stands, its samples a tenth of a second apart, once
- * DYE2 names its selection there, and waits for the Shot to be linked to
- * the Recipe as its Machine has it loaded.
+ * DYE2 names its selection there and the server has the Recipe loaded on a
+ * Machine, as this Shot lasts too little to span the plugin's report of it,
+ * and waits for the Shot to be linked to the Recipe.
  */
 async function pullWith(page: Page, tablet: SimulatedTablet, slot: string, recipeId: string, id: string, serial: number): Promise<void> {
   baseExpect((await (await openDye2Dashboard(tablet)).applyRecipe(slot)).selection?.status).toBe(200);
   await expect.poll(() => dye2SelectionOf(tablet.workflow()).slot).toBe(slot);
+  await expect
+    .poll(async () => {
+      const { machines } = (await (await page.request.get("/api/machines")).json()) as { machines: { loadedRecipe: { recipe: { id: string } } | null }[] };
+      return machines.some((machine) => machine.loadedRecipe?.recipe.id === recipeId);
+    })
+    .toBe(true);
   const fixture = shotFixture();
   const samples = fixture.measurements as Record_[];
   const startedAt = Date.now() - (samples.length - 1) * 100;

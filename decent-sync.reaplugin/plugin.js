@@ -1046,6 +1046,8 @@ var __decentSync = (() => {
       __publicField(this, "loaded", null);
       /** The slot the first Workflow's DYE2 selection names, until the recipes are read; null for none. */
       __publicField(this, "firstSlot");
+      /** Whether the plugin has decided on DYE2's selection since it loaded (`decide`). */
+      __publicField(this, "decided", false);
       /** What DYE2's selection last answered, as its field in the Workflow names it (`dye2SelectionOf`); undefined while unread or 404. */
       __publicField(this, "selected");
       /** The tablet's recipes that can be loaded, by slot, as last read. */
@@ -1139,7 +1141,7 @@ var __decentSync = (() => {
     observe(workflow) {
       if (this.stopped) return;
       this.latest = workflow;
-      if (this.firstSlot === void 0 && this.answer === "unread") this.firstSlot = dye2SelectionOf(workflow).slot;
+      if (this.firstSlot === void 0) this.firstSlot = dye2SelectionOf(workflow).slot;
       if (this.captureOnly) return;
       if (this.writing > 0) {
         this.reportedDuringWrite = true;
@@ -1405,13 +1407,15 @@ var __decentSync = (() => {
           return;
         }
         if (this.unavailable()) {
+          this.answer = "unavailable";
+          this.selected = void 0;
           this.pendingSelect = null;
           this.unload();
           return;
         }
         this.sawRecipes(await this.readRecipes());
         if (this.firstSlot !== void 0) {
-          if (this.firstSlot !== null) this.loaded = this.recipes.get(Number(this.firstSlot))?.globalId ?? null;
+          if (this.firstSlot !== null && !this.decided) this.loaded = this.recipes.get(Number(this.firstSlot))?.globalId ?? null;
           this.firstSlot = null;
         }
         let answer = await readSelection();
@@ -1477,6 +1481,7 @@ var __decentSync = (() => {
     }
     /** Decides on DYE2's selection, as `check` reads it. */
     async decide(answer) {
+      this.decided = true;
       const previous = this.answer;
       if (answer.kind === "none") {
         if (previous === "unread" || previous === "unavailable") {
