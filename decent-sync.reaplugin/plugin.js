@@ -1324,7 +1324,13 @@ var __decentSync = (() => {
     releaseHold(seen) {
       const holding = this.holding;
       if (!holding) return;
-      if (seen !== void 0 && seen < holding.observed && Date.now() - holding.since < MAX_HOLD_MS) return;
+      if (seen !== void 0 && Date.now() - holding.since < MAX_HOLD_MS) {
+        if (seen < holding.observed) return;
+        if (!this.captureOnly && this.latest && loadedRecipeOf(this.latest) !== this.loaded) {
+          this.readSoon();
+          return;
+        }
+      }
       this.holding = null;
       this.changes.release();
     }
@@ -1370,10 +1376,6 @@ var __decentSync = (() => {
     async check(polled = false) {
       const seen = this.observed;
       try {
-        if (this.captureOnly) {
-          if (this.pendingClears.size > 0 || this.keepPending) await this.tryPending(await readSelection());
-          return;
-        }
         if (polled) {
           this.dye2 = await readDye2State();
           if (this.dye2 === "loaded") {
@@ -1381,6 +1383,10 @@ var __decentSync = (() => {
             this.keptUnavailable = false;
             this.pushes.keepOpen();
           } else this.notLoadedSince ?? (this.notLoadedSince = Date.now());
+        }
+        if (this.captureOnly) {
+          if (this.pendingClears.size > 0 || this.keepPending) await this.tryPending(await readSelection());
+          return;
         }
         if (this.unavailable()) {
           this.pendingSelect = null;

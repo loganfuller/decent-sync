@@ -380,7 +380,15 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   private releaseHold(seen?: number): void {
     const holding = this.holding;
     if (!holding) return;
-    if (seen !== undefined && seen < holding.observed && Date.now() - holding.since < MAX_HOLD_MS) return;
+    if (seen !== undefined && Date.now() - holding.since < MAX_HOLD_MS) {
+      if (seen < holding.observed) return;
+      // The Workflow still names a Recipe the plugin has not loaded, as after its write of that failed: held until the
+      // next read writes it, so the server never reads a change made since as that Recipe's.
+      if (!this.captureOnly && this.latest && loadedRecipeOf(this.latest) !== this.loaded) {
+        this.readSoon();
+        return;
+      }
+    }
     this.holding = null;
     this.changes.release();
   }
@@ -429,11 +437,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   private async check(polled = false): Promise<void> {
     const seen = this.observed;
     try {
-      if (this.captureOnly) {
-        // Only the clears and kept clears already due are tried again, each while DYE2 still has what it clears.
-        if (this.pendingClears.size > 0 || this.keepPending) await this.tryPending(await readSelection());
-        return;
-      }
+      // Kept up to date while capture-only too, so a Machine sharing again decides on DYE2 as it is.
       if (polled) {
         this.dye2 = await readDye2State();
         if (this.dye2 === "loaded") {
@@ -441,6 +445,11 @@ export class LoadedRecipes implements LoadedRecipeWrites {
           this.keptUnavailable = false;
           this.pushes.keepOpen();
         } else this.notLoadedSince ??= Date.now();
+      }
+      if (this.captureOnly) {
+        // Only the clears and kept clears already due are tried again, each while DYE2 still has what it clears.
+        if (this.pendingClears.size > 0 || this.keepPending) await this.tryPending(await readSelection());
+        return;
       }
       if (this.unavailable()) {
         this.pendingSelect = null;
