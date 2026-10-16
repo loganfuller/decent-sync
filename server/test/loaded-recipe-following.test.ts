@@ -375,6 +375,30 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(3.4);
   });
 
+  it("selects the Recipe again after its grinder is written into A's Workflow only while A's barista has not picked another batch since, which unloads it", async () => {
+    const { here, machines, dye2, a, c, one } = await lab("Switched since", 48181);
+    const grinder = (await api.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: here.id, content: { model: "Switched since Grinder 2" } }, 201)).grinder.id;
+    for (const tablet of [a, c]) await expect.poll(() => localId(tablet, "/grinders", grinder), { timeout: 15_000 }).toEqual(expect.any(String));
+    // Decaid refuses the plugin's selection on A for now, so its selection again after the write is still to be made.
+    dye2.a.refuseSelections(1_000);
+    await patch(one, { grinderId: grinder });
+    await expect.poll(async () => context(a).grinderId, { timeout: 15_000 }).toBe(await localId(a, "/grinders", grinder));
+    expect(dye2.a.selected()).toBeNull();
+    // Meanwhile A's barista picks slot 2's batch, which DYE2 would have cleared a selection on.
+    await a.changeSettings({ context: { beanBatchId: inSlot(a, "2")!.beanBatchId } });
+    await settle();
+    dye2.a.refuseSelections(0);
+    await loads(machines.a, null);
+    await settle();
+    expect(dye2.a.selected()).toBeNull();
+    expect(named(a)).toBeNull();
+    // C, which nothing switched, stays loaded on the new grinder.
+    await expect.poll(async () => context(c).grinderId, { timeout: 15_000 }).toBe(await localId(c, "/grinders", grinder));
+    await settle();
+    expect(dye2.c.selected()).toMatchObject({ kind: "recipe", id: "1" });
+    await loads(machines.c, one);
+  });
+
   it("loads a recipe selected from Streamline's strip on a profile with a target weight, with the Workflow on the Recipe's batch, selecting it once", async () => {
     const { machines, dye2, c, one, two } = await lab("Target", 48111);
     // Classic Italian espresso, slot 2's, stops at a target weight, which DYE2's fingerprint leaves out (decentespresso/dye2#18).

@@ -123,6 +123,11 @@ export function selectedOn(armed: ArmedOn, workflow: Record<string, unknown> | u
   return armed.grinder === null || armed.grinder === workflowGrinder(workflow);
 }
 
+/** What a Workflow holds that DYE2 judges a change off a selection by, as one made on it now would hold it. */
+export function armedOn(workflow: Record<string, unknown>): ArmedOn {
+  return { fingerprint: dye2Fingerprint(workflow.profile), batch: workflowBatch(workflow), grinder: workflowGrinder(workflow) };
+}
+
 /**
  * Whether a write into the Workflow (`write`, the body of a `PUT /workflow`,
  * which Decaid merges into it) changes what DYE2 clears its selection on:

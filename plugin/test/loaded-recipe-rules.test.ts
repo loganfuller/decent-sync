@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { LOADED_RECIPE_KEY, RECIPE_FIELD, profileAtBrewTemperature, shiftedTemperatures } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { clearsSelection, dye2Fingerprint, loadWrite, profileKey, selectedOn, vacatedSlots } from "../src/loaded-recipe-rules.js";
+import { armedOn, clearsSelection, dye2Fingerprint, loadWrite, profileKey, selectedOn, vacatedSlots } from "../src/loaded-recipe-rules.js";
 
 // Module tests for what the plugin writes into the Workflow as DYE2's
 // selection loads a Recipe (ADR-0022), and how it reads DYE2's fingerprint of
@@ -174,6 +174,12 @@ describe("whether DYE2's selection holds for the Workflow, as DYE2 judges it", (
     expect(selectedOn(armed, { ...withContext({ beanBatchId: BATCH }), profile: profileAtBrewTemperature(workflow.profile, 90) })).toBe(true);
     expect(selectedOn({ ...armed, batch: null }, withContext({ beanBatchId: "another" }))).toBe(true);
     expect(selectedOn({ fingerprint: null, batch: null, grinder: null }, workflow)).toBe(true);
+  });
+
+  it("holds on what a Workflow holds, as a selection made on it now", () => {
+    expect(armedOn(withContext({ beanBatchId: BATCH }))).toEqual(armed);
+    expect(selectedOn(armedOn(workflow), withContext({ beanBatchId: BATCH }))).toBe(true);
+    expect(selectedOn(armedOn(withContext({ beanBatchId: BATCH })), withContext({ beanBatchId: "another" }))).toBe(false);
   });
 
   it("does not hold on another profile, batch or grinder, or a batch or grinder cleared, nor before a Workflow is seen", () => {

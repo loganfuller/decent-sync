@@ -2,7 +2,7 @@ import { DYE2_NAMESPACE, LOADED_RECIPE_KEY, dye2Records, loadedRecipeOf } from "
 import { type Answer, request } from "./decaid.js";
 import { Dye2Pushes, type Dye2State, type SelectionAnswer, type Transports, postSelection, readDye2State, readSelection } from "./dye2-selection.js";
 import type { WorkflowChanges } from "./machine-events.js";
-import { type LoadContext, clearsSelection, loadWrite, loadable, selectedOn, vacatedSlots } from "./loaded-recipe-rules.js";
+import { type ArmedOn, type LoadContext, armedOn, clearsSelection, loadWrite, loadable, selectedOn, vacatedSlots } from "./loaded-recipe-rules.js";
 
 // Each Machine's Loaded Recipe (ADR-0022): the recipe DYE2 has selected on
 // the tablet, where it is in a Recipe Slot carrying a Recipe's global id and
@@ -102,9 +102,9 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   private readonly lastSlots = new Map<string, number>();
   private answer: LastAnswer = "unread";
   /** The selection to be made again that a server write DYE2 clears its selection on set (`selectionClearing`), until it is answered. */
-  private clearingWrite: { slot: number; globalId: string } | null = null;
+  private clearingWrite: PendingSelect | null = null;
   /** A selection of the plugin's still to be made: tried again until DYE2 answers, unless a barista selects something else first. */
-  private pendingSelect: { slot: number; globalId: string } | null = null;
+  private pendingSelect: PendingSelect | null = null;
   /** Slots whose clearing from DYE2's selection is still to be made. */
   private readonly pendingClears = new Set<number>();
   /**
@@ -258,6 +258,8 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   selectionClearing(globalId: string): void {
     const slot = this.slotOf(globalId);
     if (this.captureOnly || slot === null || this.loaded !== globalId) return;
+    // One already to be made, as after an earlier write while DYE2 answers 404, stays to be made whatever this write does.
+    if (this.pendingSelect?.globalId === globalId && this.pendingSelect.slot === slot) return;
     this.pendingSelect = { slot, globalId };
     this.clearingWrite = this.pendingSelect;
   }
@@ -270,10 +272,11 @@ export class LoadedRecipes implements LoadedRecipeWrites {
 
   written(globalId: string, after: Record<string, unknown>, clears: boolean): void {
     this.latest = after;
+    this.clearingWrite = null;
     if (this.captureOnly || !clears) return;
     const slot = this.slotOf(globalId);
     if (slot === null || this.loaded !== globalId) return;
-    this.pendingSelect = { slot, globalId };
+    this.pendingSelect = { slot, globalId, on: armedOn(after) };
     this.enqueue(() => this.check());
   }
 
@@ -485,7 +488,14 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     }
     const pending = this.pendingSelect;
     if (pending === null || answer.kind === "unavailable") return answer;
-    if (answer.kind === "recipe" && answer.slot === pending.slot && selectedOn(answer, this.latest)) {
+    // The Workflow moved off the one the plugin's write left, as a barista picking another batch since: DYE2 would have
+    // cleared a selection made on it, so none is made.
+    if (pending.on !== undefined && !selectedOn(pending.on, this.latest)) {
+      this.pendingSelect = null;
+      return answer;
+    }
+    // Still the selection made before a write of the server's that is yet to answer: DYE2 is to clear it.
+    if (answer.kind === "recipe" && answer.slot === pending.slot && pending !== this.clearingWrite && selectedOn(answer, this.latest)) {
       this.landed(pending);
       return answer;
     }
@@ -501,7 +511,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   }
 
   /** The plugin's selection of a slot was made. */
-  private landed(pending: { slot: number; globalId: string }): void {
+  private landed(pending: PendingSelect): void {
     if (this.pendingSelect === pending) this.pendingSelect = null;
     if (this.relocating?.globalId === pending.globalId) this.relocating = null;
   }
@@ -566,7 +576,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       const after = answer ? parsed(answer.text) : workflow;
       if (planned && Object.keys(planned.before).length > 0) this.changes.attach({ loadBefore: planned.before });
       this.loaded = globalId;
-      if (planned !== null && answer?.ok && clearsSelection(workflow, planned.write)) this.pendingSelect = { slot, globalId };
+      if (planned !== null && isObject(after) && clearsSelection(workflow, planned.write)) this.pendingSelect = { slot, globalId, on: armedOn(after) };
       return isObject(after) ? after : undefined;
     });
     if (this.pendingSelect?.globalId === globalId) await this.tryPending(await readSelection());
@@ -704,6 +714,14 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     return workflow;
   }
 }
+
+/**
+ * A selection of a slot the plugin is still to make, and, after a write of
+ * its own that DYE2 clears its selection on, what the Workflow held once
+ * written (`armedOn`): a barista's change of profile, batch or grinder
+ * since, which DYE2 would clear a selection on, drops it.
+ */
+type PendingSelect = { slot: number; globalId: string; on?: ArmedOn };
 
 /** Whether Decaid refused a Workflow change as no machine is connected, which it needs to change the hot water settings. */
 export function machineMissing(answer: Answer): boolean {

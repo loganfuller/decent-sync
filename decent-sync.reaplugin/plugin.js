@@ -837,6 +837,9 @@ var __decentSync = (() => {
     if (armed.batch !== null && armed.batch !== workflowBatch(workflow)) return false;
     return armed.grinder === null || armed.grinder === workflowGrinder(workflow);
   }
+  function armedOn(workflow) {
+    return { fingerprint: dye2Fingerprint(workflow.profile), batch: workflowBatch(workflow), grinder: workflowGrinder(workflow) };
+  }
   function clearsSelection(workflow, write) {
     const context = { ...isObject2(workflow.context) ? workflow.context : {}, ...isObject2(write.context) ? write.context : {} };
     const after = { ...workflow, context, ...isObject2(write.profile) ? { profile: write.profile } : {} };
@@ -1180,6 +1183,7 @@ var __decentSync = (() => {
     selectionClearing(globalId) {
       const slot = this.slotOf(globalId);
       if (this.captureOnly || slot === null || this.loaded !== globalId) return;
+      if (this.pendingSelect?.globalId === globalId && this.pendingSelect.slot === slot) return;
       this.pendingSelect = { slot, globalId };
       this.clearingWrite = this.pendingSelect;
     }
@@ -1189,10 +1193,11 @@ var __decentSync = (() => {
     }
     written(globalId, after, clears) {
       this.latest = after;
+      this.clearingWrite = null;
       if (this.captureOnly || !clears) return;
       const slot = this.slotOf(globalId);
       if (slot === null || this.loaded !== globalId) return;
-      this.pendingSelect = { slot, globalId };
+      this.pendingSelect = { slot, globalId, on: armedOn(after) };
       this.enqueue(() => this.check());
     }
     cleared(globalId) {
@@ -1375,7 +1380,11 @@ var __decentSync = (() => {
       }
       const pending = this.pendingSelect;
       if (pending === null || answer.kind === "unavailable") return answer;
-      if (answer.kind === "recipe" && answer.slot === pending.slot && selectedOn(answer, this.latest)) {
+      if (pending.on !== void 0 && !selectedOn(pending.on, this.latest)) {
+        this.pendingSelect = null;
+        return answer;
+      }
+      if (answer.kind === "recipe" && answer.slot === pending.slot && pending !== this.clearingWrite && selectedOn(answer, this.latest)) {
         this.landed(pending);
         return answer;
       }
@@ -1449,7 +1458,7 @@ var __decentSync = (() => {
         const after = answer ? parsed2(answer.text) : workflow;
         if (planned && Object.keys(planned.before).length > 0) this.changes.attach({ loadBefore: planned.before });
         this.loaded = globalId;
-        if (planned !== null && answer?.ok && clearsSelection(workflow, planned.write)) this.pendingSelect = { slot, globalId };
+        if (planned !== null && isObject4(after) && clearsSelection(workflow, planned.write)) this.pendingSelect = { slot, globalId, on: armedOn(after) };
         return isObject4(after) ? after : void 0;
       });
       if (this.pendingSelect?.globalId === globalId) await this.tryPending(await readSelection());
