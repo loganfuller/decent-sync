@@ -1109,6 +1109,8 @@ var __decentSync = (() => {
       __publicField(this, "keepPending", null);
       /** How many espressos have started since the plugin loaded: a load's write made before one is followed by it. */
       __publicField(this, "espressos", 0);
+      /** The machine's state last reported, so only a change into espresso counts as one starting. */
+      __publicField(this, "state");
       /** Whether Decaid reported a change of the Workflow during a write of the plugin's (`ownWrite`). */
       __publicField(this, "reportedDuringWrite", false);
       /** The latest load: its Recipe, the Bean Batch its write replaced, and how many espressos had started as its write was sent (`espressos`). */
@@ -1152,8 +1154,11 @@ var __decentSync = (() => {
     setCaptureOnly(captureOnly) {
       if (this.captureOnly === captureOnly) return;
       this.captureOnly = captureOnly;
-      if (captureOnly) this.releaseHold();
-      else this.enqueue(() => this.check());
+      if (captureOnly) {
+        this.pendingSelect = null;
+        this.relocating = null;
+        this.releaseHold();
+      } else this.enqueue(() => this.check());
     }
     /**
      * Decaid's `workflowUpdated`, before the Workflow is queued. The first
@@ -1195,7 +1200,8 @@ var __decentSync = (() => {
     }
     /** Decaid's `stateUpdate`, a change of state: the first espresso since a load closes the window in which a batch set back to the one it replaced is no change of Bean. */
     stateChanged(state) {
-      if (state === "espresso") this.espressos++;
+      if (state === "espresso" && this.state !== "espresso") this.espressos++;
+      this.state = state;
     }
     /**
      * DYE2's recipes as a read of them found them, whoever read them: the
@@ -1263,7 +1269,15 @@ var __decentSync = (() => {
       const left = new Set([...was].filter((slot) => !is.has(slot)));
       if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
       this.relocating = { globalId, left: /* @__PURE__ */ new Set([...this.relocating?.globalId === globalId ? this.relocating.left : [], ...left]), posted: false };
-      for (const slot of left) await this.clearSlot(slot, false);
+      try {
+        for (const slot of left) await this.clearSlot(slot, false);
+      } catch (error) {
+        this.relocating = null;
+        for (const slot2 of left) this.pendingClears.delete(slot2);
+        const slot = this.slotOf(globalId);
+        if (slot !== null && this.loaded === globalId) this.pendingSelect = { slot, globalId };
+        throw error;
+      }
     }
     posted(records) {
       if (this.relocating) this.relocating.posted = true;
@@ -1356,7 +1370,10 @@ var __decentSync = (() => {
     async check(polled = false) {
       const seen = this.observed;
       try {
-        if (this.captureOnly) return;
+        if (this.captureOnly) {
+          if (this.pendingClears.size > 0 || this.keepPending) await this.tryPending(await readSelection());
+          return;
+        }
         if (polled) {
           this.dye2 = await readDye2State();
           if (this.dye2 === "loaded") {
@@ -1531,10 +1548,12 @@ var __decentSync = (() => {
       this.loaded = null;
       this.load = null;
       if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
+      const slot = reason === "changed" ? this.lastSlots.get(globalId) : void 0;
+      if (slot !== void 0) this.pendingClears.set(slot, true);
       await this.keepNamed();
-      if (reason === "changed") {
-        const slot = this.lastSlots.get(globalId);
-        if (slot !== void 0) await this.clearSlot(slot, true);
+      if (slot !== void 0) {
+        this.pendingClears.delete(slot);
+        await this.clearSlot(slot, true);
       }
     }
     /** Keeps the Workflow naming the Loaded Recipe, or none, as Decaid holds it now. */

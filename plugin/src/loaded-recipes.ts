@@ -122,6 +122,8 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   private keepPending: Cleared | null = null;
   /** How many espressos have started since the plugin loaded: a load's write made before one is followed by it. */
   private espressos = 0;
+  /** The machine's state last reported, so only a change into espresso counts as one starting. */
+  private state: string | undefined;
   /** Whether Decaid reported a change of the Workflow during a write of the plugin's (`ownWrite`). */
   private reportedDuringWrite = false;
   /** The latest load: its Recipe, the Bean Batch its write replaced, and how many espressos had started as its write was sent (`espressos`). */
@@ -177,8 +179,12 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   setCaptureOnly(captureOnly: boolean): void {
     if (this.captureOnly === captureOnly) return;
     this.captureOnly = captureOnly;
-    if (captureOnly) this.releaseHold();
-    else this.enqueue(() => this.check());
+    if (captureOnly) {
+      // Nothing is selected there for the plugin: but clears already due, as of the Recipe the server clears, still are.
+      this.pendingSelect = null;
+      this.relocating = null;
+      this.releaseHold();
+    } else this.enqueue(() => this.check());
   }
 
   /**
@@ -225,7 +231,9 @@ export class LoadedRecipes implements LoadedRecipeWrites {
 
   /** Decaid's `stateUpdate`, a change of state: the first espresso since a load closes the window in which a batch set back to the one it replaced is no change of Bean. */
   stateChanged(state: string): void {
-    if (state === "espresso") this.espressos++;
+    // Decaid reports the state several times a second: only a change into espresso is one starting.
+    if (state === "espresso" && this.state !== "espresso") this.espressos++;
+    this.state = state;
   }
 
   /**
@@ -303,7 +311,17 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
     this.relocating = { globalId, left: new Set([...(this.relocating?.globalId === globalId ? this.relocating.left : []), ...left]), posted: false };
     // Cleared before the list is posted, so DYE2 never records into a recipe put in the old slot; no `{}` is kept for it.
-    for (const slot of left) await this.clearSlot(slot, false);
+    try {
+      for (const slot of left) await this.clearSlot(slot, false);
+    } catch (error) {
+      // The list is not posted, and the Recipe stays where it was: no move, and nothing of it left to clear.
+      this.relocating = null;
+      for (const slot of left) this.pendingClears.delete(slot);
+      // Any of them cleared already is selected again, where DYE2 then has nothing selected.
+      const slot = this.slotOf(globalId);
+      if (slot !== null && this.loaded === globalId) this.pendingSelect = { slot, globalId };
+      throw error;
+    }
   }
 
   posted(records: readonly Record<string, unknown>[]): void {
@@ -411,7 +429,11 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   private async check(polled = false): Promise<void> {
     const seen = this.observed;
     try {
-      if (this.captureOnly) return;
+      if (this.captureOnly) {
+        // Only the clears and kept clears already due are tried again, each while DYE2 still has what it clears.
+        if (this.pendingClears.size > 0 || this.keepPending) await this.tryPending(await readSelection());
+        return;
+      }
       if (polled) {
         this.dye2 = await readDye2State();
         if (this.dye2 === "loaded") {
@@ -601,10 +623,14 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     this.loaded = null;
     this.load = null;
     if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
+    const slot = reason === "changed" ? this.lastSlots.get(globalId) : undefined;
+    // Due before the Workflow's write, which may fail: tried again at the next read until made, so DYE2's selection
+    // never loads the Recipe again over the change.
+    if (slot !== undefined) this.pendingClears.set(slot, true);
     await this.keepNamed();
-    if (reason === "changed") {
-      const slot = this.lastSlots.get(globalId);
-      if (slot !== undefined) await this.clearSlot(slot, true);
+    if (slot !== undefined) {
+      this.pendingClears.delete(slot);
+      await this.clearSlot(slot, true);
     }
   }
 
