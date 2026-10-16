@@ -198,8 +198,8 @@ export class MachineEvents implements WorkflowChanges {
    * Sends the latest Workflow again, observed now, as on a welcome: the
    * server asks for it with every collection when the Machine's Location
    * changes (`requestCollections`), so the tablet takes the new Location's
-   * settings, or sets them, and its Workflow's grinder and batch are judged
-   * there (ADR-0008).
+   * settings, or sets them, and its Workflow's grinder, batch and Basket are
+   * judged there (ADR-0008).
    */
   resend(): void {
     if (!this.workflow) return;

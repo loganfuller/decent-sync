@@ -20,8 +20,8 @@ import {
   seenAtSql,
   sharingLocation,
 } from "./intake.js";
-import { standing } from "./join-plan.js";
-import { currentEntry, takenIn } from "./joining.js";
+import { joiningRecord, standing } from "./join-plan.js";
+import { currentEntry, judgeWorkflowBasket, takenIn } from "./joining.js";
 import { leaveOut, offersAny, screenLeftOut } from "./left-out.js";
 import { listedIds } from "./listed.js";
 import { settlePendingParts } from "../machine-events/loaded-recipes.js";
@@ -145,6 +145,8 @@ export async function takeInEquipment(
   const steps = planEquipmentIntake(reported, mapped, library, listed);
   if (steps.length === 0) {
     if (screened.due || left.due) await notify(tx, "library_changes", locationId);
+    // The Workflow's Basket judged again, now its record is mapped or left out (joining.ts).
+    if (kind === "basket" && joining) await judgeWorkflowBasket(tx, tablet, locationId);
     return takenInAt;
   }
   await lockLocation(tx, locationId);
@@ -173,8 +175,10 @@ export async function takeInEquipment(
       continue;
     }
     const { reported: record } = step;
+    /** What joining does with the record, as the tablet joins the Location (`joiningRecord`). */
+    const joined = joining ? joiningRecord(step.kind, bringing) : null;
     // A joining tablet brings its own only to a Location that shows none of the kind yet.
-    if (step.kind === "add" && joining && !bringing) {
+    if (joined === "leftOut") {
       writesDue = (await leaveOut(tx, tablet.tabletId, kind, { localId: record.localId, setAside: false })) || writesDue;
       continue;
     }
@@ -199,7 +203,7 @@ export async function takeInEquipment(
       // A linked record takes the item's content: each field it held otherwise is kept as a Conflict (ADR-0018), but as the
       // tablet joins the Location, whose state wins, and which shows it only if it shows none of the kind yet.
       if (!joining) await recordLinked(tx, { kind, id: itemId }, equipmentContent(record.record), record.updatedAt, source);
-      if (bringing || !joining) decided = await showAt(tx, kind, itemId, locationId, source, true, record.updatedAt, null);
+      if (joined === null || joined === "shown") decided = await showAt(tx, kind, itemId, locationId, source, true, record.updatedAt, null);
       writesDue = true;
     } else if (step.kind === "map" || (step.kind === "update" && joining)) {
       // The tablet holds it as the Location has it, or is written so: what it changed before it joined is written over.
@@ -221,8 +225,10 @@ export async function takeInEquipment(
     await saveRecord(tx, kind, tablet.tabletId, itemId, record.localId, record.record, record.updatedAt, { seen, contentSeen: null, listed: true, ...beforeWrite });
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
-  // A Basket the Workflow named before the map held it follows its Loaded Recipe now (ADR-0022), under the Location's lock.
+  // A Basket the Workflow named before the map held it follows its Loaded Recipe now (ADR-0022), under the Location's lock;
+  // joining, it is judged again, now its record is mapped or left out (joining.ts).
   if (kind === "basket" && !joining) await settlePendingParts(tx, tablet, locationId);
+  if (kind === "basket" && joining) await judgeWorkflowBasket(tx, tablet, locationId);
   return takenInAt;
 }
 

@@ -22,8 +22,8 @@ import { settingsDue } from "./location-settings.js";
 // What a connection's tablet is due: the next write that brings it to what
 // its Machine's Location offers, and each record it holds to its item's
 // content (holdings.ts), its Workflow to the Location's steam and rinse
-// settings (location-settings.ts), its Workflow's grinder and
-// batch cleared as it joined a Location that does not offer them
+// settings (location-settings.ts), its Workflow's grinder, batch
+// and Basket cleared as it joined a Location that does not offer them
 // (joining.ts), its Workflow to its Loaded Recipe, or that Recipe cleared
 // from it (machine-events/loaded-recipes.ts), the deletes of its records
 // of items an Admin hard-deleted (hard-deletes.ts), and the setting aside of
@@ -121,8 +121,8 @@ export async function changesDue(
     offer[holdings.key] = await holdings.offered(tx, tablet, locationId);
     held[holdings.key] = await holdings.held(tx, tablet.tabletId, locationId);
   }
-  // The Location's settings first, then the clearing of the Workflow's grinder and batch as the tablet joined it: they
-  // need no item written before them.
+  // The Location's settings first, then the clearing of the Workflow's grinder, batch and Basket as the tablet joined it:
+  // they need no item written before them.
   const workflow = [await settingsDue(tx, tablet, locationId), await workflowClearDue(tx, tablet.tabletId, locationId)];
   const writes = workflow.filter((write): write is PlannedWrite => write !== null && !skipped.has(writeKey(write.kind, write.globalId)));
   // Nothing is written to one of DYE2's lists the tablet holds in a shape that is not recognised (ADR-0005).

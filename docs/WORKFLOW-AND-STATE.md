@@ -38,8 +38,8 @@ the plugin's one outbox (`plugin/src/outbox.ts`), which Shots share:
 - When the server sends `requestCollections`, as when the Machine's Location
   changes, the latest Workflow is sent again the same way, before the
   collections, so it is taken in at the new Location: its settings give way
-  to the Location's, and its grinder and batch are cleared if the Location
-  does not offer them (`LIBRARY.md`, Joining a Location).
+  to the Location's, and its grinder, batch and Basket are cleared if the
+  Location does not offer them (`LIBRARY.md`, Joining a Location).
 
 `observedAt` is when the plugin observed the event, from its own clock in UTC
 (`new Date().toISOString()`), because the outbox may deliver it minutes later.
@@ -338,10 +338,25 @@ deliveries.
   should DYE2 have selected something meanwhile. A slot move's clear keeps
   nothing.
 - **Moving to another slot.** Before a post of DYE2's recipes the server's
-  write makes that moves the Loaded Recipe to another slot, the plugin clears
-  DYE2's selection of the old slot, keeping nothing, so DYE2 never records
-  into a recipe put there; after it, it selects the new slot. Reads decide
-  nothing meanwhile.
+  write makes that moves the Loaded Recipe out of its slot, the plugin clears
+  DYE2's selection of the old slot, so DYE2 never records into a recipe put
+  there; once it is posted in another, it selects the new slot. Reads decide
+  nothing meanwhile. A post that leaves it in no slot keeps `{}`, as a
+  selection DYE2 restored would name the recipe put there: so does every
+  move the server writes, which removes the record before it creates the
+  new one, and the new slot's selection is stored as it is made. The
+  server's clear of a Recipe that left every slot clears no slot holding
+  another Recipe's record by then, whose selection the barista made.
+- **A slot emptied or filled anew.** DYE2 keeps its selection through its
+  recipe's removal from the list. So before a post of DYE2's recipes that
+  removes the recipe in a slot DYE2 has selected, or replaces it with
+  another Recipe's record (`vacatedSlots` in `loaded-recipe-rules.ts`), as
+  the server's writes do as a Machine joins a Location (`LIBRARY.md`,
+  Joining a Location), the plugin clears that selection and keeps `{}`,
+  whether or not the recipe is the Loaded Recipe: DYE2 would otherwise
+  record into the recipe put there, and the plugin load it. A record given
+  its global id, as one a Location takes in, is the same recipe. A clear
+  DYE2 answers 404 to is tried again once it answers.
 - **Capture-only.** The server tells the plugin whether its Machine is
   capture-only (`captureOnly`, sent after `welcome` and whenever it
   changes). On one, the plugin loads nothing, unloads nothing and runs none
@@ -380,7 +395,7 @@ accepted until DYE2 and Streamline fix them upstream.
 The Loaded Recipe a Workflow delivery names is taken into its Machine's
 state in the transaction storing it, from a connection that is not
 mismatched, for its token's Machine, after the tablet's lock and its
-Workflow's grinder and batch, before its Location's settings
+Workflow's grinder, batch and Basket, before its Location's settings
 (`takeInLoadedRecipe` in `server/src/machine-events/loaded-recipes.ts`):
 one of the Recipes in a slot of the Machine's Location while it takes part
 in the Library there, and none otherwise, as on a Capture-only Machine, or
@@ -520,10 +535,11 @@ the parts to the Recipe's content both ways.
   Workflow names; a Machine with no Loaded Recipe keeps its own hot water.
 - **Unloads the server decides.** A Workflow naming a Recipe that is not
   its Machine's Loaded Recipe, as one taken out of its slot or Archived, or
-  of a Location the Machine left, or the one the server last had as its
-  Loaded Recipe as it was made capture-only, is due the same `write`,
-  clearing the Workflow's Loaded Recipe (`LOADED_RECIPE_FIELD`, null) while
-  it still names that Recipe; the plugin then clears DYE2's selection where
+  of a Location the Machine left, as it joins another (ticket
+  [#148](https://github.com/loganfuller/decent-sync/issues/148)), or the
+  one the server last had as its Loaded Recipe as it was made capture-only,
+  is due the same `write`, clearing the Workflow's Loaded Recipe
+  (`LOADED_RECIPE_FIELD`, null) while it still names that Recipe; the plugin then clears DYE2's selection where
   it still names the Recipe's slot, as last seen, and keeps `{}`. A Recipe
   moved to another slot stays loaded. A Capture-only Machine's writer writes
   this, and nothing else, whatever its reports. The Workflow the plugin

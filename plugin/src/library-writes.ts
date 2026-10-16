@@ -24,8 +24,7 @@ import {
   SETTINGS_KIND,
   SETTINGS_PARTS,
   STEAM_SETTINGS,
-  WORKFLOW_BATCH,
-  WORKFLOW_GRINDER,
+  WORKFLOW_CLEARED,
   WORKFLOW_KIND,
   type WriteRefused,
   type WrittenKind,
@@ -68,8 +67,8 @@ import { randomUuid } from "./tablet-id.js";
 // A Location's steam and rinse settings are written into the
 // tablet's Workflow the same way (ADR-0014), with the steam temperature
 // Streamline remembers set to match (ADR-0021), and so is the clearing of the
-// Workflow's grinder and batch as its Machine joins a Location that does not
-// offer them (ADR-0008). A record of an item an Admin
+// Workflow's grinder, batch and Basket as its Machine joins a Location that
+// does not offer them (ADR-0008). A record of an item an Admin
 // hard-deleted is deleted the same way too, a Profile's purged, the one
 // thing the plugin deletes (ADR-0003), and a record the Library leaves out
 // as its Machine joins a Location is archived or hidden (ADR-0018).
@@ -193,7 +192,7 @@ const ROUTES = {
 /**
  * Each kind the server writes, described once: the Library's kinds
  * (`LIBRARY_ITEM_KINDS`), a Location's shared settings, the clearing of a
- * Workflow's grinder and batch, and a Workflow's Loaded Recipe.
+ * Workflow's grinder, batch and Basket, and a Workflow's Loaded Recipe.
  */
 const WRITERS: { readonly [K in WrittenKind]: K extends LibraryKind ? LibraryKindWriter : KindWriter } = {
   bean: recordWriter("bean", ROUTES.bean),
@@ -706,31 +705,31 @@ async function writeSettings(write: LibraryWrite, log: (message: string) => void
 }
 
 /**
- * Clears the grinder and batch of the tablet's Workflow that the write names
- * (`WORKFLOW_KIND`), each whole, only while the Workflow still names the
- * grinder, or batch, by the id expected, through `PUT /workflow`, which
- * Decaid merges into the Workflow: a field merged in as null is cleared. A
- * grinder or batch a barista picked since stays whole, though another
- * grinder may be of the same model, while one a skin relabelled is still
- * cleared. Answers with the Workflow's `context`, timed now, as a Workflow
- * carries no time.
+ * Clears the grinder, batch and Basket of the tablet's Workflow that the
+ * write names (`WORKFLOW_KIND`), each whole, only while the Workflow still
+ * names the grinder, batch or Basket by the id expected, through `PUT
+ * /workflow` (`workflowPatch`), which Decaid merges into the Workflow: a
+ * field of its `context` merged in as null is cleared, and a key of its
+ * `extras` set to null. A grinder, batch or Basket a barista picked since
+ * stays whole, though another grinder may be of the same model, while one a
+ * skin relabelled is still cleared. Answers with the Workflow's `context`,
+ * timed now, as a Workflow carries no time.
  */
 async function clearWorkflow(write: LibraryWrite): Promise<WriteAnswer> {
   const current = await request("GET", "/workflow");
   const workflow = current.ok ? parsed(current.text) : undefined;
   if (!isObject(workflow)) return refused(write, current.status, current.text);
-  const context = isObject(workflow.context) ? workflow.context : {};
   const fields = Object.fromEntries(
-    [WORKFLOW_GRINDER, WORKFLOW_BATCH].flatMap((group) => {
+    WORKFLOW_CLEARED.flatMap((group) => {
       const [id] = group;
       const named = group.filter((field) => field in write.fields);
       const expected = write.expected?.[id];
-      const holds = named.includes(id) && expected !== undefined && expected !== null && sameValue(context[id.slice("context.".length)], expected);
+      const holds = named.includes(id) && expected !== undefined && expected !== null && sameValue(workflowValueAt(workflow, id), expected);
       return holds ? named.map((field) => [field, null]) : [];
     }),
   );
   if (Object.keys(fields).length === 0) return written(write, workflowContext(workflow), [], new Date().toISOString());
-  const answer = await request("PUT", "/workflow", settingsParts(fields));
+  const answer = await request("PUT", "/workflow", workflowPatch(fields));
   const updated = answer.ok ? parsed(answer.text) : undefined;
   if (!isObject(updated)) return refused(write, answer.status, answer.text);
   return written(write, workflowContext(updated), Object.keys(fields), new Date().toISOString());
@@ -1089,7 +1088,8 @@ async function readList({ path, key }: ListPath): Promise<Dye2List> {
 async function postList({ path, key, posted }: ListPath, records: Record<string, unknown>[], before: readonly Record<string, unknown>[]): Promise<Answer> {
   const ordered = key === "recipes" ? [...records].sort((a, b) => Number(a.id) - Number(b.id)) : records;
   // The Loaded Recipe moving to another slot is cleared from DYE2's selection first, so DYE2 never records into a recipe
-  // put in its old slot, and selected in its new one after (ADR-0022).
+  // put in its old slot, and selected in its new one after, and so is a slot whose recipe the post removes or replaces
+  // (ADR-0022).
   if (key === "recipes") await posted.loaded?.moving(before, ordered);
   let answer: Answer;
   try {

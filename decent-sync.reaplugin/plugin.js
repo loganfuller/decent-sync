@@ -305,6 +305,8 @@ var __decentSync = (() => {
   var WORKFLOW_KIND = "workflow";
   var WORKFLOW_GRINDER = ["context.grinderId", "context.grinderModel"];
   var WORKFLOW_BATCH = ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"];
+  var WORKFLOW_BASKET = ["context.extras.basketId", "context.extras.basketName"];
+  var WORKFLOW_CLEARED = [WORKFLOW_GRINDER, WORKFLOW_BATCH, WORKFLOW_BASKET];
   var LOADED_RECIPE_KEY = "decentSyncRecipeId";
   function loadedRecipeOf(workflow) {
     const context = isObject(workflow) ? workflow.context : void 0;
@@ -875,6 +877,15 @@ var __decentSync = (() => {
       return globalId !== null && isSlotId(record.id) ? [{ globalId, slot: Number(record.id), record }] : [];
     });
   }
+  function vacatedSlots(before, after) {
+    const now2 = new Map(after.flatMap((record) => isSlotId(record.id) ? [[record.id, record]] : []));
+    return before.flatMap((record) => {
+      if (!isSlotId(record.id)) return [];
+      const was = dye2GlobalIdOf(record);
+      const is = now2.get(record.id);
+      return is === void 0 || was !== null && dye2GlobalIdOf(is) !== was ? [Number(record.id)] : [];
+    });
+  }
   function recipeSetUp(record) {
     const variables = isObject2(record.dashboardVariables) ? record.dashboardVariables : {};
     return { grinder: textOf(variables.grinderId), bean: textOf(record.beanId) };
@@ -1270,26 +1281,60 @@ var __decentSync = (() => {
       if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
       if (this.relocating?.globalId === globalId) this.relocating = null;
       const slot = this.lastSlots.get(globalId);
-      if (slot !== void 0) this.enqueue(() => this.clearSlot(slot, true));
+      const now2 = slot === void 0 ? void 0 : this.recipes.get(slot)?.globalId;
+      if (slot !== void 0 && (now2 === void 0 || now2 === globalId)) this.enqueue(() => this.clearSlot(slot, true));
     }
     async moving(before, after) {
+      if (this.captureOnly) return;
+      const left = await this.relocate(before, after);
+      const vacated = vacatedSlots(before, after).filter((slot) => !left.has(slot));
+      try {
+        for (const slot of vacated) await this.clearSlot(slot, true);
+      } catch (error) {
+        for (const slot of vacated) this.pendingClears.delete(slot);
+        if (left.size > 0) this.unmoved(left);
+        throw error;
+      }
+    }
+    /**
+     * Before a post of DYE2's recipes moving the Loaded Recipe out of a slot:
+     * the selection of each slot it leaves is cleared, so DYE2 never records
+     * into a recipe put there, and its new slot is selected once posted. A
+     * post leaving it in no slot keeps `{}`, as a selection DYE2 restored would
+     * name the recipe put in its slot: so does every move the server writes,
+     * which removes the record before it creates the new one, and the new
+     * slot's selection is stored as it is made. Resolves with the slots it
+     * leaves.
+     */
+    async relocate(before, after) {
       const globalId = this.loaded;
-      if (globalId === null || this.captureOnly) return;
+      if (globalId === null) return /* @__PURE__ */ new Set();
       const slots = (records) => new Set(loadable(records).flatMap((recipe) => recipe.globalId === globalId ? [recipe.slot] : []));
       const [was, is] = [slots(before), slots(after)];
-      if (was.size === is.size && [...was].every((slot) => is.has(slot))) return;
+      if (was.size === is.size && [...was].every((slot) => is.has(slot))) return /* @__PURE__ */ new Set();
       const left = new Set([...was].filter((slot) => !is.has(slot)));
       if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
       this.relocating = { globalId, left: /* @__PURE__ */ new Set([...this.relocating?.globalId === globalId ? this.relocating.left : [], ...left]), posted: false };
       try {
-        for (const slot of left) await this.clearSlot(slot, false);
+        for (const slot of left) await this.clearSlot(slot, is.size === 0);
       } catch (error) {
-        this.relocating = null;
-        for (const slot2 of left) this.pendingClears.delete(slot2);
-        const slot = this.slotOf(globalId);
-        if (slot !== null && this.loaded === globalId) this.pendingSelect = { slot, globalId };
+        this.unmoved(left);
         throw error;
       }
+      return left;
+    }
+    /**
+     * A post that was to move the Loaded Recipe out of the slots it left is
+     * not made: the Recipe stays where it was, with nothing of it left to
+     * clear, and any of them cleared already is selected again, where DYE2
+     * then has nothing selected.
+     */
+    unmoved(left) {
+      const globalId = this.relocating?.globalId;
+      this.relocating = null;
+      for (const slot2 of left) this.pendingClears.delete(slot2);
+      const slot = globalId === void 0 ? null : this.slotOf(globalId);
+      if (globalId !== void 0 && slot !== null && this.loaded === globalId) this.pendingSelect = { slot, globalId };
     }
     posted(records) {
       if (this.relocating) this.relocating.posted = true;
@@ -2204,18 +2249,17 @@ var __decentSync = (() => {
     const current = await request("GET", "/workflow");
     const workflow = current.ok ? parsed5(current.text) : void 0;
     if (!isObject5(workflow)) return refused(write, current.status, current.text);
-    const context = isObject5(workflow.context) ? workflow.context : {};
     const fields = Object.fromEntries(
-      [WORKFLOW_GRINDER, WORKFLOW_BATCH].flatMap((group) => {
+      WORKFLOW_CLEARED.flatMap((group) => {
         const [id] = group;
         const named = group.filter((field) => field in write.fields);
         const expected = write.expected?.[id];
-        const holds = named.includes(id) && expected !== void 0 && expected !== null && sameValue(context[id.slice("context.".length)], expected);
+        const holds = named.includes(id) && expected !== void 0 && expected !== null && sameValue(workflowValueAt(workflow, id), expected);
         return holds ? named.map((field) => [field, null]) : [];
       })
     );
     if (Object.keys(fields).length === 0) return written(write, workflowContext(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
-    const answer = await request("PUT", "/workflow", settingsParts(fields));
+    const answer = await request("PUT", "/workflow", workflowPatch(fields));
     const updated = answer.ok ? parsed5(answer.text) : void 0;
     if (!isObject5(updated)) return refused(write, answer.status, answer.text);
     return written(write, workflowContext(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
@@ -3009,8 +3053,8 @@ var __decentSync = (() => {
      * Sends the latest Workflow again, observed now, as on a welcome: the
      * server asks for it with every collection when the Machine's Location
      * changes (`requestCollections`), so the tablet takes the new Location's
-     * settings, or sets them, and its Workflow's grinder and batch are judged
-     * there (ADR-0008).
+     * settings, or sets them, and its Workflow's grinder, batch and Basket are
+     * judged there (ADR-0008).
      */
     resend() {
       if (!this.workflow) return;

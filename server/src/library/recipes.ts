@@ -11,7 +11,7 @@ import { setAsideDeleted } from "./hard-deletes.js";
 import { recordVersion, tabletSource } from "./history.js";
 import type { HeldRecord, OfferedRecipe } from "./holdings.js";
 import { type AnswerRecorded, type AnsweringTablet, INTAKE_TRANSACTION, type ReportingTablet, lockHeldMachine, lockTablet, sharingLocation } from "./intake.js";
-import { standing } from "./join-plan.js";
+import { joiningRecord, standing } from "./join-plan.js";
 import { currentEntry, takenIn } from "./joining.js";
 import { leaveOut, offersAny, screenLeftOut } from "./left-out.js";
 import { isObject, listedIds } from "./listed.js";
@@ -297,7 +297,7 @@ export async function takeInRecipes(
     const { reported: record } = step;
     const view = recipeView(record.record);
     // A joining tablet brings its own only to a Location with no Recipes yet; one in a slot the Location fills is not its Recipe's.
-    if ((step.kind === "add" && joining && !bringing) || (step.kind === "edit" && joining)) {
+    if (joining && joiningRecord(step.kind, bringing) === "leftOut") {
       writesDue = (await leaveOut(tx, tablet.tabletId, "recipe", { localId: record.localId, setAside: false })) || writesDue;
       continue;
     }

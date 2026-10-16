@@ -11,7 +11,7 @@ import {
   storeSelection,
 } from "./dye2-selection.js";
 import type { WorkflowChanges } from "./machine-events.js";
-import { type LoadContext, dye2Fingerprint, loadWrite, loadable, recipeSetUp, targetsOnlyDiffer, workflowBatch, workflowGrinder } from "./loaded-recipe-rules.js";
+import { type LoadContext, dye2Fingerprint, loadWrite, loadable, recipeSetUp, targetsOnlyDiffer, vacatedSlots, workflowBatch, workflowGrinder } from "./loaded-recipe-rules.js";
 
 // Each Machine's Loaded Recipe (ADR-0022): the recipe DYE2 has selected on
 // the tablet, where it is in a Recipe Slot carrying a Recipe's global id and
@@ -75,7 +75,11 @@ export interface LoadedRecipeWrites {
   written(globalId: string, before: Record<string, unknown>, after: Record<string, unknown>): void;
   /** After the server's clearing of a Loaded Recipe: its slot is cleared from DYE2's selection, and that kept. */
   cleared(globalId: string): void;
-  /** Before a post of DYE2's recipes moving the Loaded Recipe to another slot: the selection of its old one is cleared. */
+  /**
+   * Before a post of DYE2's recipes: the selection of a slot the Loaded
+   * Recipe moves out of is cleared, and so is that of a slot whose recipe the
+   * post removes or replaces with another (`vacatedSlots`).
+   */
   moving(before: readonly Record<string, unknown>[], after: readonly Record<string, unknown>[]): Promise<void>;
   /** After a post of DYE2's recipes Decaid took: the Loaded Recipe moved is selected in its new slot. */
   posted(records: readonly Record<string, unknown>[]): void;
@@ -321,31 +325,69 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
     if (this.relocating?.globalId === globalId) this.relocating = null;
     const slot = this.lastSlots.get(globalId);
-    if (slot !== undefined) this.enqueue(() => this.clearSlot(slot, true));
+    // A slot holding another Recipe's record now was cleared before that was posted: what DYE2 has selected there since
+    // is the barista's.
+    const now = slot === undefined ? undefined : this.recipes.get(slot)?.globalId;
+    if (slot !== undefined && (now === undefined || now === globalId)) this.enqueue(() => this.clearSlot(slot, true));
   }
 
   async moving(before: readonly Record<string, unknown>[], after: readonly Record<string, unknown>[]): Promise<void> {
+    if (this.captureOnly) return;
+    const left = await this.relocate(before, after);
+    // Any other slot whose recipe the post removes or replaces, as a joining Machine's own or another Location's, is cleared
+    // from DYE2's selection first, and `{}` kept, so DYE2 neither records into the Recipe put there nor has it loaded.
+    const vacated = vacatedSlots(before, after).filter((slot) => !left.has(slot));
+    try {
+      for (const slot of vacated) await this.clearSlot(slot, true);
+    } catch (error) {
+      // The list is not posted, and its recipes stay where they were: nothing of them is left to clear.
+      for (const slot of vacated) this.pendingClears.delete(slot);
+      if (left.size > 0) this.unmoved(left);
+      throw error;
+    }
+  }
+
+  /**
+   * Before a post of DYE2's recipes moving the Loaded Recipe out of a slot:
+   * the selection of each slot it leaves is cleared, so DYE2 never records
+   * into a recipe put there, and its new slot is selected once posted. A
+   * post leaving it in no slot keeps `{}`, as a selection DYE2 restored would
+   * name the recipe put in its slot: so does every move the server writes,
+   * which removes the record before it creates the new one, and the new
+   * slot's selection is stored as it is made. Resolves with the slots it
+   * leaves.
+   */
+  private async relocate(before: readonly Record<string, unknown>[], after: readonly Record<string, unknown>[]): Promise<ReadonlySet<number>> {
     const globalId = this.loaded;
-    if (globalId === null || this.captureOnly) return;
+    if (globalId === null) return new Set();
     const slots = (records: readonly Record<string, unknown>[]) => new Set(loadable(records).flatMap((recipe) => (recipe.globalId === globalId ? [recipe.slot] : [])));
     const [was, is] = [slots(before), slots(after)];
-    if (was.size === is.size && [...was].every((slot) => is.has(slot))) return;
+    if (was.size === is.size && [...was].every((slot) => is.has(slot))) return new Set();
     const left = new Set([...was].filter((slot) => !is.has(slot)));
     // A selection of its old slot still to be made would select it there: its new slot is selected once posted.
     if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
     this.relocating = { globalId, left: new Set([...(this.relocating?.globalId === globalId ? this.relocating.left : []), ...left]), posted: false };
-    // Cleared before the list is posted, so DYE2 never records into a recipe put in the old slot; no `{}` is kept for it.
     try {
-      for (const slot of left) await this.clearSlot(slot, false);
+      for (const slot of left) await this.clearSlot(slot, is.size === 0);
     } catch (error) {
-      // The list is not posted, and the Recipe stays where it was: no move, and nothing of it left to clear.
-      this.relocating = null;
-      for (const slot of left) this.pendingClears.delete(slot);
-      // Any of them cleared already is selected again, where DYE2 then has nothing selected.
-      const slot = this.slotOf(globalId);
-      if (slot !== null && this.loaded === globalId) this.pendingSelect = { slot, globalId };
+      this.unmoved(left);
       throw error;
     }
+    return left;
+  }
+
+  /**
+   * A post that was to move the Loaded Recipe out of the slots it left is
+   * not made: the Recipe stays where it was, with nothing of it left to
+   * clear, and any of them cleared already is selected again, where DYE2
+   * then has nothing selected.
+   */
+  private unmoved(left: ReadonlySet<number>): void {
+    const globalId = this.relocating?.globalId;
+    this.relocating = null;
+    for (const slot of left) this.pendingClears.delete(slot);
+    const slot = globalId === undefined ? null : this.slotOf(globalId);
+    if (globalId !== undefined && slot !== null && this.loaded === globalId) this.pendingSelect = { slot, globalId };
   }
 
   posted(records: readonly Record<string, unknown>[]): void {

@@ -117,6 +117,25 @@ export function loadable(records: readonly Record<string, unknown>[]): { globalI
   });
 }
 
+/**
+ * The slots of DYE2's recipes whose recipe a post of the list (`before` to
+ * `after`) removes, or replaces with another Recipe's record, by the global
+ * ids they carry: as the server removes a joining Machine's own recipes or
+ * another Location's Recipes, and writes its Location's in their slots. DYE2
+ * keeps its selection through its recipe's removal, and would record into
+ * the recipe put in that slot, or have it loaded. A record given its global
+ * id, as one a Location takes in, is no other recipe.
+ */
+export function vacatedSlots(before: readonly Record<string, unknown>[], after: readonly Record<string, unknown>[]): number[] {
+  const now = new Map(after.flatMap((record) => (isSlotId(record.id) ? [[record.id, record] as const] : [])));
+  return before.flatMap((record) => {
+    if (!isSlotId(record.id)) return [];
+    const was = dye2GlobalIdOf(record);
+    const is = now.get(record.id);
+    return is === undefined || (was !== null && dye2GlobalIdOf(is) !== was) ? [Number(record.id)] : [];
+  });
+}
+
 /** What a recipe's record names that a change of grinder or Bean is judged by (dye2#19): its grinder, by the tablet's id, and its Bean. */
 export function recipeSetUp(record: Record<string, unknown>): { grinder: string | null; bean: string | null } {
   const variables = isObject(record.dashboardVariables) ? record.dashboardVariables : {};

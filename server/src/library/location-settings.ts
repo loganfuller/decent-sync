@@ -156,8 +156,9 @@ export async function editSettings(tx: Prisma.TransactionClient, settingsId: str
  * from the Location's, which are written to it. A Workflow reported as the
  * tablet joins the Location (joining.ts) has had none of its settings yet,
  * whatever it held there before, so the Location's state wins (ADR-0008),
- * and its grinder and batch are cleared if the Location does not offer them
- * (`takeInWorkflowContext`), whether or not its Machine shares the settings.
+ * and its grinder, batch and Basket are cleared if the Location does not
+ * offer them (`takeInWorkflowContext`), whether or not its Machine shares
+ * the settings.
  * Its Loaded Recipe is taken in by `loadedRecipe`, given where the report is
  * taken in and whether it joins there, under the tablet's lock and before
  * the settings' row lock, capture-only included.
