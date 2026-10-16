@@ -21,7 +21,7 @@ import {
   sharingLocation,
 } from "./intake.js";
 import { joiningRecord, standing } from "./join-plan.js";
-import { currentEntry, takenIn } from "./joining.js";
+import { currentEntry, judgeWorkflowBasket, takenIn } from "./joining.js";
 import { leaveOut, offersAny, screenLeftOut } from "./left-out.js";
 import { listedIds } from "./listed.js";
 import { settlePendingParts } from "../machine-events/loaded-recipes.js";
@@ -145,6 +145,8 @@ export async function takeInEquipment(
   const steps = planEquipmentIntake(reported, mapped, library, listed);
   if (steps.length === 0) {
     if (screened.due || left.due) await notify(tx, "library_changes", locationId);
+    // The Workflow's Basket judged again, now its record is mapped or left out (joining.ts).
+    if (kind === "basket" && joining) await judgeWorkflowBasket(tx, tablet, locationId);
     return takenInAt;
   }
   await lockLocation(tx, locationId);
@@ -223,8 +225,10 @@ export async function takeInEquipment(
     await saveRecord(tx, kind, tablet.tabletId, itemId, record.localId, record.record, record.updatedAt, { seen, contentSeen: null, listed: true, ...beforeWrite });
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
-  // A Basket the Workflow named before the map held it follows its Loaded Recipe now (ADR-0022), under the Location's lock.
+  // A Basket the Workflow named before the map held it follows its Loaded Recipe now (ADR-0022), under the Location's lock;
+  // joining, it is judged again, now its record is mapped or left out (joining.ts).
   if (kind === "basket" && !joining) await settlePendingParts(tx, tablet, locationId);
+  if (kind === "basket" && joining) await judgeWorkflowBasket(tx, tablet, locationId);
   return takenInAt;
 }
 

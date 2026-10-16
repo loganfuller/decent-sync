@@ -338,12 +338,15 @@ deliveries.
   should DYE2 have selected something meanwhile. A slot move's clear keeps
   nothing.
 - **Moving to another slot.** Before a post of DYE2's recipes the server's
-  write makes that moves the Loaded Recipe to another slot, the plugin clears
-  DYE2's selection of the old slot, keeping nothing, so DYE2 never records
-  into a recipe put there; after it, it selects the new slot. Reads decide
-  nothing meanwhile. A post that leaves it in no slot, as the server removes
-  it, keeps `{}`, as a selection DYE2 restored would name the recipe put
-  there.
+  write makes that moves the Loaded Recipe out of its slot, the plugin clears
+  DYE2's selection of the old slot, so DYE2 never records into a recipe put
+  there; once it is posted in another, it selects the new slot. Reads decide
+  nothing meanwhile. A post that leaves it in no slot keeps `{}`, as a
+  selection DYE2 restored would name the recipe put there: so does every
+  move the server writes, which removes the record before it creates the
+  new one, and the new slot's selection is stored as it is made. The
+  server's clear of a Recipe that left every slot clears no slot holding
+  another Recipe's record by then, whose selection the barista made.
 - **A slot emptied or filled anew.** DYE2 keeps its selection through its
   recipe's removal from the list. So before a post of DYE2's recipes that
   removes the recipe in a slot DYE2 has selected, or replaces it with

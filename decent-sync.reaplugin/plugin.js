@@ -1281,7 +1281,8 @@ var __decentSync = (() => {
       if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
       if (this.relocating?.globalId === globalId) this.relocating = null;
       const slot = this.lastSlots.get(globalId);
-      if (slot !== void 0) this.enqueue(() => this.clearSlot(slot, true));
+      const now2 = slot === void 0 ? void 0 : this.recipes.get(slot)?.globalId;
+      if (slot !== void 0 && (now2 === void 0 || now2 === globalId)) this.enqueue(() => this.clearSlot(slot, true));
     }
     async moving(before, after) {
       if (this.captureOnly) return;
@@ -1291,16 +1292,19 @@ var __decentSync = (() => {
         for (const slot of vacated) await this.clearSlot(slot, true);
       } catch (error) {
         for (const slot of vacated) this.pendingClears.delete(slot);
+        if (left.size > 0) this.unmoved(left);
         throw error;
       }
     }
     /**
      * Before a post of DYE2's recipes moving the Loaded Recipe out of a slot:
      * the selection of each slot it leaves is cleared, so DYE2 never records
-     * into a recipe put there, and its new slot is selected once posted. No
-     * `{}` is kept for a move, but where it leaves every slot, as the server
-     * removes it: a selection DYE2 restored would name the recipe put in its
-     * slot. Resolves with the slots it leaves.
+     * into a recipe put there, and its new slot is selected once posted. A
+     * post leaving it in no slot keeps `{}`, as a selection DYE2 restored would
+     * name the recipe put in its slot: so does every move the server writes,
+     * which removes the record before it creates the new one, and the new
+     * slot's selection is stored as it is made. Resolves with the slots it
+     * leaves.
      */
     async relocate(before, after) {
       const globalId = this.loaded;
@@ -1314,13 +1318,23 @@ var __decentSync = (() => {
       try {
         for (const slot of left) await this.clearSlot(slot, is.size === 0);
       } catch (error) {
-        this.relocating = null;
-        for (const slot2 of left) this.pendingClears.delete(slot2);
-        const slot = this.slotOf(globalId);
-        if (slot !== null && this.loaded === globalId) this.pendingSelect = { slot, globalId };
+        this.unmoved(left);
         throw error;
       }
       return left;
+    }
+    /**
+     * A post that was to move the Loaded Recipe out of the slots it left is
+     * not made: the Recipe stays where it was, with nothing of it left to
+     * clear, and any of them cleared already is selected again, where DYE2
+     * then has nothing selected.
+     */
+    unmoved(left) {
+      const globalId = this.relocating?.globalId;
+      this.relocating = null;
+      for (const slot2 of left) this.pendingClears.delete(slot2);
+      const slot = globalId === void 0 ? null : this.slotOf(globalId);
+      if (globalId !== void 0 && slot !== null && this.loaded === globalId) this.pendingSelect = { slot, globalId };
     }
     posted(records) {
       if (this.relocating) this.relocating.posted = true;

@@ -1884,10 +1884,13 @@ it.
   that Basket: kept where the Location shows it, the Workflow's
   `basketName` read for its record's, as DYE2 copies it, and one another
   of the tablet's records is already passed over, as the intake passes it
-  over. A basket renamed in DYE2 since the Workflow named it is judged by
-  its old name, as the Workflow is taken in before the tablet's lists: it
-  may be kept though its record is removed, or cleared though it is kept.
-  The Workflow is
+  over. That is foreseen, as the Workflow is taken in before the tablet's
+  lists: once its report of its baskets is taken in as it joins, the
+  Basket is judged again from the map and what the Library left out
+  (`judgeWorkflowBasket`), so a basket renamed in DYE2 since the Workflow
+  named it, a record carrying a Library Basket's global id, or one left out
+  as another Machine joining at once brought the Location its first
+  Baskets, is cleared or kept as the writer then holds it. The Workflow is
   judged before the lists are taken in, so a batch whose bean is then
   linked to one of the Location's, and that joins the Library as the
   Location offers no batch yet, is cleared all the same. The clear is kept

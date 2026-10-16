@@ -325,7 +325,10 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
     if (this.relocating?.globalId === globalId) this.relocating = null;
     const slot = this.lastSlots.get(globalId);
-    if (slot !== undefined) this.enqueue(() => this.clearSlot(slot, true));
+    // A slot holding another Recipe's record now was cleared before that was posted: what DYE2 has selected there since
+    // is the barista's.
+    const now = slot === undefined ? undefined : this.recipes.get(slot)?.globalId;
+    if (slot !== undefined && (now === undefined || now === globalId)) this.enqueue(() => this.clearSlot(slot, true));
   }
 
   async moving(before: readonly Record<string, unknown>[], after: readonly Record<string, unknown>[]): Promise<void> {
@@ -339,6 +342,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     } catch (error) {
       // The list is not posted, and its recipes stay where they were: nothing of them is left to clear.
       for (const slot of vacated) this.pendingClears.delete(slot);
+      if (left.size > 0) this.unmoved(left);
       throw error;
     }
   }
@@ -346,10 +350,12 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   /**
    * Before a post of DYE2's recipes moving the Loaded Recipe out of a slot:
    * the selection of each slot it leaves is cleared, so DYE2 never records
-   * into a recipe put there, and its new slot is selected once posted. No
-   * `{}` is kept for a move, but where it leaves every slot, as the server
-   * removes it: a selection DYE2 restored would name the recipe put in its
-   * slot. Resolves with the slots it leaves.
+   * into a recipe put there, and its new slot is selected once posted. A
+   * post leaving it in no slot keeps `{}`, as a selection DYE2 restored would
+   * name the recipe put in its slot: so does every move the server writes,
+   * which removes the record before it creates the new one, and the new
+   * slot's selection is stored as it is made. Resolves with the slots it
+   * leaves.
    */
   private async relocate(before: readonly Record<string, unknown>[], after: readonly Record<string, unknown>[]): Promise<ReadonlySet<number>> {
     const globalId = this.loaded;
@@ -364,15 +370,24 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     try {
       for (const slot of left) await this.clearSlot(slot, is.size === 0);
     } catch (error) {
-      // The list is not posted, and the Recipe stays where it was: no move, and nothing of it left to clear.
-      this.relocating = null;
-      for (const slot of left) this.pendingClears.delete(slot);
-      // Any of them cleared already is selected again, where DYE2 then has nothing selected.
-      const slot = this.slotOf(globalId);
-      if (slot !== null && this.loaded === globalId) this.pendingSelect = { slot, globalId };
+      this.unmoved(left);
       throw error;
     }
     return left;
+  }
+
+  /**
+   * A post that was to move the Loaded Recipe out of the slots it left is
+   * not made: the Recipe stays where it was, with nothing of it left to
+   * clear, and any of them cleared already is selected again, where DYE2
+   * then has nothing selected.
+   */
+  private unmoved(left: ReadonlySet<number>): void {
+    const globalId = this.relocating?.globalId;
+    this.relocating = null;
+    for (const slot of left) this.pendingClears.delete(slot);
+    const slot = globalId === undefined ? null : this.slotOf(globalId);
+    if (globalId !== undefined && slot !== null && this.loaded === globalId) this.pendingSelect = { slot, globalId };
   }
 
   posted(records: readonly Record<string, unknown>[]): void {

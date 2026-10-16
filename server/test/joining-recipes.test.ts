@@ -200,24 +200,31 @@ describe("Joining a Location with Recipes, Baskets and Tools", { timeout: 120_00
   it("keeps a joining Machine's Workflow's Basket of a name the Location shows, and clears its own one", async () => {
     const cafe = await api.createLocation("Matching cafe", "America/Chicago");
     const shown = (await createEquipment("baskets", cafe, "Matching Fixture 20g High-flow")).basket!;
-    /** A tablet whose Workflow names its record of the basket of that name, as DYE2 sets it. */
-    const naming = (serial: string, basket: string): DecaidApi => {
+    /** A tablet whose Workflow names its record of the basket of that name, by that name as DYE2 sets it unless given another. */
+    const naming = (serial: string, basket: string, named = basket): DecaidApi => {
       const tablet = recordedTablet(serial, "Matching");
       const record = (tablet[`/store/${DYE2_NAMESPACE}/baskets`] as Record_[]).find((held) => held.name === basket)!;
       const workflow = tablet["/workflow"] as Record_;
-      return { ...tablet, "/workflow": { ...workflow, context: { ...(workflow.context as Record_), extras: { basketId: record.id, basketName: basket } } } };
+      return { ...tablet, "/workflow": { ...workflow, context: { ...(workflow.context as Record_), extras: { basketId: record.id, basketName: named } } } };
     };
-    const machines = [await api.createMachine("Matching 1", cafe.id), await api.createMachine("Matching 2", cafe.id)] as const;
+    const machines = [
+      await api.createMachine("Matching 1", cafe.id),
+      await api.createMachine("Matching 2", cafe.id),
+      await api.createMachine("Matching 3", cafe.id),
+    ] as const;
     const kept = syncingTablet(machines[0], server, { api: naming("49031", "Matching Fixture 20g High-flow") });
     const cleared = syncingTablet(machines[1], other, { api: naming("49032", "Matching Fixture 18g Precision") });
+    // Renamed in DYE2 since the Workflow named it: its record is the cafe's Basket all the same, and the Workflow keeps it.
+    const renamed = syncingTablet(machines[2], server, { api: naming("49033", "Matching Fixture 20g High-flow", "Matching old 20g") });
     await api.waitForOnline(...machines);
     // Each tablet's record of the cafe's Basket is that Basket, and the Workflow naming it keeps it.
-    for (const tablet of [kept, cleared]) {
+    for (const tablet of [kept, cleared, renamed]) {
       await expect.poll(() => records(tablet, "baskets").map((record) => [record.name, dye2GlobalIdOf(record)]), { timeout: 15_000 }).toEqual([["Matching Fixture 20g High-flow", shown.id]]);
     }
     await settle();
     expect(extras(kept).basketName).toBe("Matching Fixture 20g High-flow");
     expect(extras(kept).basketId).toBe(records(kept, "baskets")[0]!.id);
+    expect(extras(renamed).basketId).toBe(records(renamed, "baskets")[0]!.id);
     // The tablet's own Basket, which the cafe leaves out, is cleared.
     await expect.poll(() => [extras(cleared).basketId ?? null, extras(cleared).basketName ?? null]).toEqual([null, null]);
     expect(await library("baskets", "Matching")).toEqual([{ name: "Matching Fixture 20g High-flow", shownAt: [cafe.id] }]);

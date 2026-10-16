@@ -6,6 +6,7 @@ import {
   WORKFLOW_KIND,
   equipmentMatchKey,
   parentList,
+  sameValue,
   workflowValueAt,
 } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
@@ -180,6 +181,41 @@ export async function takeInWorkflowContext(
   const expected = workflowClear(context, offer!);
   await saveClear(tx, tablet.tabletId, locationId, expected);
   if (expected !== null) await notify(tx, "library_changes", locationId);
+}
+
+/**
+ * Judges again the Basket the joining tablet's Workflow names, once its
+ * report of its baskets is taken in as it joins, in that transaction, under
+ * the Location's lock: from the tablet's map and what the Library left out
+ * as they are now, not as the Workflow, taken in before the lists, foresaw
+ * them, as when its record was linked by a name the Workflow no longer
+ * holds, or carries a Library Basket's global id, or another tablet joining
+ * at once brought the Location its first Baskets. The Workflow is its
+ * Machine's latest. A record the tablet's list does not hold is not offered
+ * where the Location shows any Basket. The clear due gains the Basket, or
+ * loses it, the grinder and batch kept as they were.
+ */
+export async function judgeWorkflowBasket(tx: Prisma.TransactionClient, tablet: ReportingTablet, locationId: string): Promise<void> {
+  const [latest] = await tx.$queryRaw<{ workflow: unknown }[]>`
+    SELECT workflow FROM workflow_events WHERE machine_id = ${tablet.machineId}::uuid ORDER BY id DESC LIMIT 1`;
+  const workflow = latest?.workflow;
+  const basketId = workflowValueAt(workflow, WORKFLOW_BASKET[0]);
+  if (typeof basketId !== "string") return;
+  const unknownBasket: Offered = (await offersAny(tx, locationId, "basket")) ? "notOffered" : "unknown";
+  const [offer] = await tx.$queryRaw<{ basket: Offered }[]>`
+    SELECT COALESCE((
+      SELECT ${basketOfferedSql(locationId)} FROM tablet_baskets AS held JOIN baskets AS items ON items.id = held.basket_id
+      WHERE held.tablet_id = ${tablet.tabletId}::uuid AND held.local_id = ${basketId}
+    ), ${leftOutSql(tablet.tabletId, "basket", basketId)}, ${unknownBasket}) AS basket`;
+  const [pending] = await tx.$queryRaw<{ expected: Record<string, unknown> }[]>`
+    SELECT expected FROM workflow_clears WHERE tablet_id = ${tablet.tabletId}::uuid AND location_id = ${locationId}::uuid`;
+  const others = Object.fromEntries(Object.entries(pending?.expected ?? {}).filter(([field]) => !(WORKFLOW_BASKET as readonly string[]).includes(field)));
+  const basket = workflowClear(isObject(workflow) ? workflow.context : undefined, { grinder: "offered", batch: "offered", basket: offer!.basket }) ?? {};
+  const expected = { ...others, ...basket };
+  const due = Object.keys(expected).length === 0 ? null : expected;
+  if (sameValue(due, pending?.expected ?? null)) return;
+  await saveClear(tx, tablet.tabletId, locationId, due);
+  if (due !== null) await notify(tx, "library_changes", locationId);
 }
 
 /** Whether the Location shows the Basket `items` names and it is not Archived, as SQL: 'offered' or 'notOffered'. */
