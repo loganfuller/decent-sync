@@ -145,16 +145,23 @@ export function shotLinkedSql(kind: LibraryKind, ids: readonly string[]): Prisma
  * tablet's clock, as both are. A Shot started as the plugin's write of the
  * id landed, before the plugin reported the Workflow holding it, is still
  * pulled with it. A Shot whose time is unknown, or that no Machine has, is
- * linked to none.
+ * linked to none. A Machine's Loaded Recipes follow one another, each loaded
+ * no earlier than the one before was unloaded (loaded-recipes.ts), so of its
+ * entries for the Recipe loaded by the Shot's end, the latest is the one
+ * unloaded last: the Shot is pulled with it if that one was unloaded after
+ * the Shot started, or not yet. That one entry is found through the index on
+ * the Machine, the Recipe and when it was loaded, whatever the history's
+ * length.
  */
 export function shotRecipeLinkedSql(alias: string): Prisma.Sql {
   const shot = Prisma.raw(alias);
-  return Prisma.sql`(${shot}.recipe_id IS NOT NULL AND EXISTS (
-    SELECT 1 FROM loaded_recipes AS loaded
+  return Prisma.sql`(${shot}.recipe_id IS NOT NULL AND coalesce((
+    SELECT loaded.unloaded_at IS NULL OR loaded.unloaded_at > ${shot}.pulled_at
+    FROM loaded_recipes AS loaded
     WHERE loaded.machine_id = ${shot}.machine_id AND loaded.recipe_id = ${shot}.recipe_id
       AND loaded.loaded_at <= ${shot}.pulled_at + make_interval(secs => coalesce(${shot}.duration, 0))
-      AND (loaded.unloaded_at IS NULL OR loaded.unloaded_at > ${shot}.pulled_at)
-  ))`;
+    ORDER BY loaded.loaded_at DESC, loaded.id DESC LIMIT 1
+  ), false))`;
 }
 
 /** The id of the Recipe the Shot of `shots` aliased `alias` is linked to (`shotRecipeLinkedSql`), or null. */

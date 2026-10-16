@@ -1296,6 +1296,8 @@ model LoadedRecipe {
 
   @@index([machineId, id])
   @@index([recipeId])
+  /// A Shot's Recipe is read through it (server/src/shots/links.ts).
+  @@index([machineId, recipeId, loadedAt, id])
   @@map("loaded_recipes")
 }
 

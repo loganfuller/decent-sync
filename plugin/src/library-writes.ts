@@ -305,18 +305,18 @@ export class LibraryWrites {
     private readonly posted: ListPosted,
   ) {
     outbox.watch((delivery) => {
-      if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shot);
+      if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shotId, delivery.shot);
     });
   }
 
   /**
-   * The batch, Grinder and profile records the Shots this plugin queued since
-   * it loaded name, as `kind:id`: a few per batch, Grinder and profile used.
-   * A profile is named by its steps (`stepsKey`), as a skin sets the
-   * Workflow's profile's targets for the Shot, and by the id a skin recorded,
-   * if one did.
+   * The batch, Grinder, profile, basket and tool records each Shot this
+   * plugin queued since it loaded names, by its id, as `kind:id`, as its
+   * latest record names them: a few per Shot. A profile is named by its
+   * steps (`stepsKey`), as a skin sets the Workflow's profile's targets for
+   * the Shot, and by the id a skin recorded, if one did.
    */
-  private readonly shotsName = new Set<string>();
+  private readonly shotsName = new Map<string, Set<string>>();
   /** The Shots still to be sent that `namedByShot` read. */
   private readonly shotsRead = new Set<string>();
 
@@ -339,34 +339,38 @@ export class LibraryWrites {
     for (const id of unread) {
       const shot = await readShot(id);
       this.shotsRead.add(id);
-      if (shot) this.noteShot(shot);
+      if (shot) this.noteShot(id, shot);
     }
-    return [...ids].some((id) => this.shotsName.has(`${kind}:${id}`));
+    const named = [...ids].map((id) => `${kind}:${id}`);
+    return [...this.shotsName.values()].some((names) => named.some((name) => names.has(name)));
   }
 
-  /** Notes the batch, Grinder, profile, basket and tool records a Shot names. */
-  private noteShot(shot: Record<string, unknown>): void {
-    // DYE2's Edit Shot page records the basket and tools in the annotations' extras, as the server reads them (shots/extraction.ts).
-    const edited = isObject(shot.annotations) && isObject(shot.annotations.extras) ? shot.annotations.extras : {};
-    this.noteEquipment(edited);
-    const workflow = shot.workflow;
-    if (!isObject(workflow)) return;
+  /**
+   * Notes the batch, Grinder, profile, basket and tool records a Shot names,
+   * in place of what its earlier record named, as the server keeps a Shot's
+   * latest metadata: so an edit naming another basket, say, no longer keeps
+   * the one it named before.
+   */
+  private noteShot(id: string, shot: Record<string, unknown>): void {
+    const names = new Set<string>();
+    this.shotsName.set(id, names);
+    const workflow = isObject(shot.workflow) ? shot.workflow : {};
     const steps = stepsKey(isObject(workflow.profile) ? workflow.profile.steps : undefined);
-    if (steps !== null) this.shotsName.add(`profile:${steps}`);
-    const context = workflow.context;
-    if (!isObject(context)) return;
-    if (typeof context.beanBatchId === "string") this.shotsName.add(`beanBatch:${context.beanBatchId}`);
-    if (typeof context.grinderId === "string") this.shotsName.add(`grinder:${context.grinderId}`);
-    const skin = isObject(context.extras) ? context.extras.workflowSkin : undefined;
-    if (isObject(skin) && typeof skin.selectedProfileId === "string") this.shotsName.add(`profile:${skin.selectedProfileId}`);
-    if (isObject(context.extras)) this.noteEquipment(context.extras);
-  }
-
-  /** Notes the basket and tools that extras DYE2 keeps on a Shot name, each one the server may count as named. */
-  private noteEquipment(extras: Record<string, unknown>): void {
-    if (typeof extras.basketId === "string") this.shotsName.add(`basket:${extras.basketId}`);
-    const tools = Array.isArray(extras.equipmentIds) ? extras.equipmentIds : [extras.equipmentId];
-    for (const id of tools) if (typeof id === "string") this.shotsName.add(`tool:${id}`);
+    if (steps !== null) names.add(`profile:${steps}`);
+    const context = isObject(workflow.context) ? workflow.context : {};
+    const extras = isObject(context.extras) ? context.extras : {};
+    if (typeof context.beanBatchId === "string") names.add(`beanBatch:${context.beanBatchId}`);
+    if (typeof context.grinderId === "string") names.add(`grinder:${context.grinderId}`);
+    if (isObject(extras.workflowSkin) && typeof extras.workflowSkin.selectedProfileId === "string") names.add(`profile:${extras.workflowSkin.selectedProfileId}`);
+    // DYE2's Edit Shot page records the basket and tools in the annotations' extras, its basket over the Workflow's, as
+    // the server reads them (shots/extraction.ts).
+    const edited = isObject(shot.annotations) && isObject(shot.annotations.extras) ? shot.annotations.extras : {};
+    const basket = edited.basketId != null || edited.basketName != null ? edited.basketId : extras.basketId;
+    if (typeof basket === "string") names.add(`basket:${basket}`);
+    for (const recorded of [edited, extras]) {
+      const tools = Array.isArray(recorded.equipmentIds) ? recorded.equipmentIds : [recorded.equipmentId];
+      for (const id of tools) if (typeof id === "string") names.add(`tool:${id}`);
+    }
   }
 
   /** Removes a record from one of DYE2's lists once the reads and writes before it are done, and queues its answer. It never rejects. */

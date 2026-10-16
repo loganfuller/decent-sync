@@ -199,7 +199,10 @@ its Machine had loaded and the Basket DYE2 recorded
   start to its last sample, both by the tablet's clock, as the Loaded
   Recipes are timed; so a Shot started as the plugin's write of the id
   landed, before the plugin reported the Workflow holding it, is still
-  linked. The link is read, not stored (`shotRecipeSql`), so it follows the
+  linked. A Machine's Loaded Recipes follow one another, so the link reads
+  only its latest entry for that Recipe loaded by the Shot's end, through an
+  index on the Machine, the Recipe and the time, however long its history.
+  The link is read, not stored (`shotRecipeSql`), so it follows the
   Loaded Recipes as their deliveries arrive, those of a tablet that was
   offline included, and the Shot's credit, as an adoption changes it. A
   Shot whose time is unknown, or that only a Pending Machine holds, is

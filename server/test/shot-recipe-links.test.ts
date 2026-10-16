@@ -14,6 +14,7 @@ import {
   saveInDye2,
   withDye2Selection,
 } from "./support/simulated-dye2.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -100,6 +101,13 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
    * Its samples are a tenth of a second apart, so it started a moment ago.
    */
   function pull(tablet: SimulatedTablet, id: string, serial: number, changes: Record_ = {}): Record_ {
+    const shot = pulledNow(tablet, id, serial, changes);
+    tablet.pullShot(shot);
+    return shot;
+  }
+
+  /** The Shot `pull` saves, not saved yet. */
+  function pulledNow(tablet: SimulatedTablet, id: string, serial: number, changes: Record_ = {}): Record_ {
     const fixture = shotFixture();
     const samples = fixture.measurements as Record_[];
     const startedAt = Date.now() - (samples.length - 1) * SAMPLE_MS;
@@ -109,9 +117,7 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     }));
     const machine = { ...((fixture.workflow as Record_).machine as Record_), serialNumber: String(serial) };
     const workflow = { ...structuredClone(tablet.workflow()), machine };
-    const shot = { ...fixture, id, timestamp: new Date(startedAt).toISOString(), workflow, measurements, ...changes };
-    tablet.pullShot(shot);
-    return shot;
+    return { ...fixture, id, timestamp: new Date(startedAt).toISOString(), workflow, measurements, ...changes };
   }
 
   /**
@@ -257,6 +263,53 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     await expect.poll(() => named(tablet)).toBeNull();
     await loads(machine, null);
     expect(recordOf(tablet, "recipes", one)).toBeDefined();
+  });
+
+  it("stores a Shot's full record after its early edit under its Recipe's lock, so a delete racing it finds the Shot linked", async () => {
+    const { machine, tablet, one } = await lab("Early edit", 49051);
+    await load(tablet, machine, "1", one);
+    // DYE2's Edit Shot page saves the Shot before the plugin has sent it: its edit reaches the server first.
+    const shot = pulledNow(tablet, "recipe-early-edit", 49051);
+    const { measurements: _measurements, ...metadata } = shot;
+    tablet.fire("shotUpdated", { id: shot.id, shot: metadata });
+    await expect.poll(() => tablet.acknowledgedSome((frame: Record_) => frame.type === "shotUpdated" && frame.shotId === shot.id)).toBe(true);
+
+    // A delete holding the Recipe's row, as it does once it has looked for linked Shots, holds back the full record's storage.
+    const database = await server.connectDatabase();
+    try {
+      await database.query("BEGIN");
+      await database.query("SELECT 1 FROM recipes WHERE id = $1 FOR UPDATE", [one]);
+      tablet.pullShot(shot);
+      await waitForLockWaits(server);
+      expect((await api.call("GET", `/shots/${shot.id}`)).status).toBe(404);
+      await database.query("ROLLBACK");
+    } finally {
+      await database.end();
+    }
+    expect((await storedShot("recipe-early-edit")).recipe).toMatchObject({ id: one });
+    expect((await api.call("DELETE", `/recipes/${one}`)).status).toBe(409);
+  });
+
+  it("deletes a Basket from a tablet whose Shot named it until DYE2's Edit Shot page set another", async () => {
+    const { here, tablet, neverUsed } = await lab("Basket edited", 49061);
+    const create = async (name: string) => (await api.send<{ basket: { id: string } }>("POST", "/baskets", { locationId: here.id, content: { name } }, 201)).basket.id;
+    const [picked, edited] = [await create("Basket edited 18 g"), await create("Basket edited 20 g")];
+    for (const id of [picked, edited]) await expect.poll(() => recordOf(tablet, "baskets", id)).toBeDefined();
+    const local = (id: string) => recordOf(tablet, "baskets", id)!.id as string;
+    await tablet.changeSettings({ context: { extras: { basketId: local(picked), basketName: "Basket edited 18 g" } } });
+    const shot = pull(tablet, "basket-edited-away", 49061);
+    expect((await storedShot("basket-edited-away")).basket).toMatchObject({ id: picked });
+    const { measurements: _measurements, ...metadata } = shot;
+    tablet.fire("shotUpdated", {
+      id: shot.id,
+      shot: { ...metadata, updatedAt: "2026-11-01T12:01:00Z", annotations: { extras: { basketId: local(edited), basketName: "Basket edited 20 g" } } },
+    });
+    await expect.poll(async () => (await storedShot("basket-edited-away")).basket?.id).toBe(edited);
+
+    // The Shot names the other Basket now, on the server and on the tablet, so the first goes from both tablets.
+    expect((await api.call("DELETE", `/baskets/${picked}`)).status).toBe(204);
+    for (const each of [tablet, neverUsed]) await expect.poll(() => recordOf(each, "baskets", picked)).toBeUndefined();
+    expect((await api.call("DELETE", `/baskets/${edited}`)).status).toBe(409);
   });
 
   it("hard-deletes a Basket or Tool no Shot or Recipe names from every tablet, and refuses one either names", async () => {

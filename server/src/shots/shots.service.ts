@@ -55,8 +55,9 @@ export class ShotsService {
       const credit = full && !stored?.hasFullRecord ? await this.credit(tx, incoming, reporter) : null;
       // Its ids are the reporting tablet's, so they resolve through its map, after the Machine's row lock credit takes.
       const links = reported ? { tabletId: reporter.tabletId, ...(await resolveLinks(tx, reporter.tabletId, message.shotId, metadata)) } : null;
-      // The Recipe it names is not hard-deleted until the Shot is stored, which the delete then finds linked to it, if it is.
-      if (reported && metadata.recipeId !== null) await tx.$queryRaw`SELECT 1 FROM recipes WHERE id = ${metadata.recipeId}::uuid FOR KEY SHARE`;
+      // The Recipe it names is not hard-deleted until the Shot is stored, which the delete then finds linked to it, if it is:
+      // whatever this delivery stores, as a full record after an early edit sets the Machine and time the link reads.
+      if (metadata.recipeId !== null) await tx.$queryRaw`SELECT 1 FROM recipes WHERE id = ${metadata.recipeId}::uuid FOR KEY SHARE`;
       const data = {
         ...metadata,
         ...links,

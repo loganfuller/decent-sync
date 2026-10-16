@@ -26,5 +26,8 @@ CREATE INDEX "shots_unlinked_basket_idx" ON "shots"("basket_id") WHERE "library_
 -- The Shots naming a Tool, which its hard delete looks for.
 CREATE INDEX "shots_tool_ids_idx" ON "shots" USING gin ("tool_ids");
 
+-- A Shot's Recipe is read through its Machine's latest entry for it loaded by the Shot's end.
+CREATE INDEX "loaded_recipes_machine_id_recipe_id_loaded_at_id_idx" ON "loaded_recipes"("machine_id", "recipe_id", "loaded_at", "id");
+
 -- AddForeignKey
 ALTER TABLE "shots" ADD CONSTRAINT "shots_library_basket_id_fkey" FOREIGN KEY ("library_basket_id") REFERENCES "baskets"("id") ON DELETE SET NULL ON UPDATE CASCADE;
