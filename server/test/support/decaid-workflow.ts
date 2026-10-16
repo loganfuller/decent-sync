@@ -61,8 +61,8 @@ const PROFILE_FIELDS = ["version", "title", "notes", "author", "beverage_type", 
 
 /**
  * A step's fields as `ProfileStepPressure.toJson` and `ProfileStepFlow.toJson`
- * write them, in their order, its pressure or flow by its pump; its exit and
- * limiter as theirs do, or null for none (decaid:lib/src/models/data/profile.dart).
+ * write them, in their order, its pressure or flow by its pump; its weight,
+ * exit and limiter as theirs do, or null for none (decaid:lib/src/models/data/profile.dart).
  * So a profile reads back in the same order whatever order it was sent in.
  */
 function rebuiltStep(step: unknown): unknown {
@@ -71,8 +71,8 @@ function rebuiltStep(step: unknown): unknown {
   const ordered = (value: unknown, keys: readonly string[]) => (isObject(value) ? Object.fromEntries(keys.filter((key) => key in value).map((key) => [key, value[key]])) : null);
   return Object.fromEntries(
     fields
-      .filter((field) => field in step || field === "exit" || field === "limiter")
-      .map((field) => [field, field === "exit" ? ordered(step.exit, ["type", "condition", "value"]) : field === "limiter" ? ordered(step.limiter, ["value", "range"]) : step[field]]),
+      .filter((field) => field in step || field === "exit" || field === "weight" || field === "limiter")
+      .map((field) => [field, field === "exit" ? ordered(step.exit, ["type", "condition", "value"]) : field === "limiter" ? ordered(step.limiter, ["value", "range"]) : field === "weight" ? (step.weight ?? null) : step[field]]),
   );
 }
 

@@ -34,8 +34,11 @@ v0.1.20, no Recipe loads where its profile has a target weight.
 
 With them, a yield set on Streamline's Drink tile keeps the Recipe loaded and
 becomes the Recipe's, a Shot no longer clears the Recipe's batch, grinder,
-Basket and RPM from the Workflow, and a wake onto the Loaded Recipe's profile
-leaves its dial alone, so a wake profile no longer needs to be left unset. On
+Basket and RPM from the Workflow, and, with Streamline's DYE2 switch on, a
+wake onto the Loaded Recipe's profile leaves its dial alone, so a wake
+profile no longer needs to be left unset. With that switch off, waking onto
+it still sends the dose, yield, grind and brew temperature Streamline saved
+for the profile, which become the Recipe's: set no wake profile there. On
 a profile with a step limiter of 0, such as Adaptive v3, applied from DYE2's
 dashboard, a yield or dose set on Streamline's tiles still unloads the Recipe.
 And until the server writes each recipe's batch where DYE2 applies it
