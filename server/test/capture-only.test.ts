@@ -122,12 +122,6 @@ describe("The capture-only switch", () => {
     const view = await machineView(switched);
     expect(view.sharing).toBe(false);
     expect(view.captureOnly).toEqual(["sharingOff"]);
-    // Its Location's settings list it as capture-only.
-    const listed = (await read<{ settings: { machines: { id: string; sharing: boolean }[] } }>(`/locations/${uptown.id}/settings`)).settings.machines;
-    expect(listed.map(({ id, sharing }) => ({ id, sharing }))).toEqual([
-      { id: switched.machine.id, sharing: false },
-      { id: sharing.machine.id, sharing: true },
-    ]);
     const writes = tablet.writes.length;
     const held = tablet.beans();
 
@@ -139,31 +133,26 @@ describe("The capture-only switch", () => {
     // A Bean entered on its tablet is captured, but does not join the Library.
     await tablet.addBean({ roaster: "Roux", name: "Switching Own" });
     await expect.poll(() => capturedBeans(switched)).toEqual(expect.arrayContaining(["Switching Before", "Switching Own"]));
-    // Its settings changed on its tablet are its own, and the Location's changed in the management interface are not written to it.
+    // A change of its Workflow is captured too.
     await tablet.changeSettings({ rinseData: { duration: 13 } });
     await expect.poll(async () => (await capturedWorkflow(switched))?.rinseData?.duration).toBe(13);
-    const { settings } = await read<{ settings: { id: string; values: Record<string, number | null> } }>(`/locations/${uptown.id}/settings`);
-    expect((await api.call("PATCH", `/location-settings/${settings.id}`, { values: { "rinseData.flow": 4.5 } })).status).toBe(200);
-    await expect.poll(() => setting(sharingTablet, "rinseData.flow")).toBe(4.5);
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(tablet.writes.length).toBe(writes);
     expect(tablet.beans().filter((bean) => bean.name !== "Switching Own")).toEqual(held);
     expect((await libraryBeans("Switching")).map((bean) => bean.name)).toEqual(["Switching Before", "Switching Created", "Switching Entered"]);
-    expect(setting(sharingTablet, "rinseData.duration")).toBe(settings.values["rinseData.duration"]);
 
-    // Turned back on, it joins Uptown: it is written Uptown's Beans and settings, and its own Bean is archived on it, out of the Library.
+    // Turned back on, it joins Uptown: it is written Uptown's Beans, keeping its own rinse time, which is each Machine's, and
+    // its own Bean is archived on it, out of the Library.
     expect(await (await switchSharing(switched, true)).json()).toEqual({ sharing: true });
     expect((await machineView(switched)).captureOnly).toEqual([]);
     const uptownBeans = ["Switching Before", "Switching Created", "Switching Entered"];
     await expect.poll(() => sharedBeans(tablet)).toEqual(uptownBeans);
-    await expect.poll(() => setting(tablet, "rinseData.flow")).toBe(4.5);
-    await expect.poll(() => setting(tablet, "rinseData.duration")).toBe(settings.values["rinseData.duration"]);
     const own = () => tablet.beans().find((bean) => bean.name === "Switching Own")!;
     await expect.poll(() => own().archived).toBe(true);
     expect(globalIdOf(own())).toBeNull();
     expect((await libraryBeans("Switching")).map((bean) => bean.name)).toEqual(uptownBeans);
     expect(sharedBeans(sharingTablet)).toEqual(uptownBeans);
-    expect(setting(sharingTablet, "rinseData.duration")).toBe(settings.values["rinseData.duration"]);
+    expect(setting(tablet, "rinseData.duration")).toBe(13);
 
     // Its barista takes the coffee up again: un-archived there, it joins the Library at Uptown as one entered then.
     await tablet.editBean(own().id, { archived: false });
@@ -176,22 +165,21 @@ describe("The capture-only switch", () => {
   it("has a Machine join its Location once sharing is back on though its tablet reported nothing meanwhile", async () => {
     const cafe = await api.createLocation("Rejoining cafe", "UTC");
     const switched = await api.createMachine("Rejoining cafe 1", cafe.id);
-    const tablet = load(switched, "25011", { instance: other, parts: { steamSettings: { flow: 1.3 } } });
+    const tablet = load(switched, "25011", { instance: other });
     await online(switched);
-    const settingsId = async () => (await read<{ settings: { id: string | null } }>(`/locations/${cafe.id}/settings`)).settings.id;
-    await expect.poll(settingsId).not.toBeNull();
     // Its reports of its Library lists are all taken in, as they are stored.
     await expect.poll(async () => (await collections(switched)).filter((name) => LISTS.includes(name)).sort()).toEqual([...LISTS].sort());
     const asked = requests(tablet);
 
     expect((await switchSharing(switched, false)).status).toBe(200);
-    expect((await api.call("PATCH", `/location-settings/${await settingsId()}`, { values: { "steamSettings.flow": 2.2 } })).status).toBe(200);
+    const created = (await (await api.call("POST", "/beans", { content: { roaster: "Roux", name: "Rejoining Created" } })).json()) as { bean: { id: string } };
+    expect((await api.call("POST", "/bean-batches", { beanId: created.bean.id, content: { roastDate: "2026-10-05" }, locations: [{ locationId: cafe.id }] })).status).toBe(201);
     await new Promise((resolve) => setTimeout(resolve, 500));
-    expect(setting(tablet, "steamSettings.flow")).toBe(1.3);
+    expect(sharedBeans(tablet)).toEqual([]);
     expect((await switchSharing(switched, true)).status).toBe(200);
-    // Asked for its Workflow and collections afresh, it joins the cafe again, and takes its settings.
+    // Asked for its Workflow and collections afresh, it joins the cafe again, and takes its Beans.
     await expect.poll(() => requests(tablet)).toBe(asked + 1);
-    await expect.poll(() => setting(tablet, "steamSettings.flow")).toBe(2.2);
+    await expect.poll(() => sharedBeans(tablet)).toEqual(["Rejoining Created"]);
   });
 
   it("writes its Location's state over an edit its tablet made while capture-only once sharing is back on, and deletes a Profile hard-deleted meanwhile", async () => {

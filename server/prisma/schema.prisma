@@ -178,7 +178,6 @@ model Location {
   tools           ToolLocation[]
   recipes         Recipe[]
   grinders        Grinder[]
-  settings        LocationSettings?
   itemVersions    ItemVersion[]        @relation("VersionLocation")
   copiesFrom      ItemVersion[]        @relation("VersionCopiedFrom")
   conflicts       Conflict[]
@@ -233,15 +232,6 @@ model Machine {
   /// if never. Each of its tablet's reports records it (`tablet_reports`),
   /// so the first report since is part of joining its Location (ADR-0008).
   sharingSince        DateTime?             @map("sharing_since") @db.Timestamptz(3)
-  /// Whether its tablet shares its Location's steam and rinse settings
-  /// (ADR-0014): with sharing turned off, nothing of them is taken
-  /// from it or written to it, and with sharing turned back on it takes the
-  /// Location's.
-  sharesSettings      Boolean               @default(true) @map("shares_settings")
-  /// When an account last switched it on, by PostgreSQL's clock; null if
-  /// never. A change its tablet observed before then, delivered after, was
-  /// made while it kept its own settings, and is not shared.
-  sharesSettingsSince DateTime?             @map("shares_settings_since") @db.Timestamptz(3)
   /// Why a connection with its token was last refused, until one is accepted.
   refusalReason       String?               @map("refusal_reason")
   refusedAt           DateTime?             @map("refused_at") @db.Timestamptz(3)
@@ -371,7 +361,6 @@ model Tablet {
   recipes      TabletRecipe[]
   removed      TabletRemovedRecipe[]
   unrecognised TabletUnrecognisedList[]
-  settings     TabletSettings?
   itemVersions ItemVersion[]
   conflicts    Conflict[]
   deletions    TabletDeletion[]
@@ -1321,12 +1310,12 @@ model LoadedRecipe {
 /// The Loaded Recipe each tablet's Workflow last named (ADR-0022, ticket
 /// #146), with the parts of it that follow the Recipe as the Workflow held
 /// them, reported or as Decaid returned the plugin's write of them, so the
-/// plugin's own write is never read as the tablet's edit, as
-/// `TabletSettings` keeps the settings. A change of a part from these, while
-/// the Workflow still names the Recipe its Machine has loaded, is an edit of
-/// the Recipe; a Recipe's field that differs from them is written into the
-/// Workflow; and a Recipe named that is not its Machine's Loaded Recipe, as
-/// one taken out of its slot, is cleared from the Workflow.
+/// plugin's own write is never read as the tablet's edit. A change of a
+/// part from these, while the Workflow still names the Recipe its Machine
+/// has loaded, is an edit of the Recipe; a Recipe's field that differs from
+/// them is written into the Workflow; and a Recipe named that is not its
+/// Machine's Loaded Recipe, as one taken out of its slot, is cleared from
+/// the Workflow.
 model TabletLoadedRecipe {
   tabletId      String    @id @map("tablet_id") @db.Uuid
   tablet        Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
@@ -1342,7 +1331,7 @@ model TabletLoadedRecipe {
   /// the Workflow naming it: each is taken in as the map gains it.
   pending       Json?     @db.JsonB
   /// The latest edit of the Recipe the Workflow has seen, as
-  /// `TabletSettings.contentSeenAt` (ADR-0020); null if none.
+  /// `TabletBean.contentSeenAt` (ADR-0020); null if none.
   contentSeenAt DateTime? @map("content_seen_at") @db.Timestamptz(3)
 
   @@index([recipeId])
@@ -1415,8 +1404,7 @@ model TabletUnrecognisedList {
 }
 
 /// Each item that keeps versions and Conflicts (ADR-0020): every Library
-/// item and each Location's steam and rinse settings, by its kind
-/// and id, as `ItemVersion` and `Conflict` name it, so a new kind needs no
+/// item, by its kind and id, as `ItemVersion` and `Conflict` name it, so a new kind needs no
 /// column of its own. A trigger on each kind's table adds its row as the
 /// item is inserted, follows a change of its id, and deletes it as the item
 /// is, taking the item's versions and Conflicts with it, as a foreign key to
@@ -1426,9 +1414,9 @@ model TabletUnrecognisedList {
 /// `versioned_items_truncated`), and
 /// server/src/library/kinds.ts names each kind's table.
 model VersionedItem {
-  /// One of LIBRARY_KINDS (protocol/), or `settings`.
+  /// One of LIBRARY_KINDS (protocol/).
   kind      String
-  /// The item's id as text: a global id, a Profile's id, or the settings' id.
+  /// The item's id as text: a global id, or a Profile's id.
   itemId    String        @map("item_id")
   versions  ItemVersion[]
   conflicts Conflict[]
@@ -1449,13 +1437,11 @@ model ItemVersion {
   kind                 String
   itemId               String        @map("item_id")
   item                 VersionedItem @relation(fields: [kind, itemId], references: [kind, itemId], onDelete: Cascade)
-  /// The Location whose state of the item it changed; a Location's settings,
-  /// which keep versions as items do, always name their Location.
+  /// The Location whose state of the item it changed.
   locationId           String?       @map("location_id") @db.Uuid
   location             Location?     @relation("VersionLocation", fields: [locationId], references: [id], onDelete: Cascade)
   /// The fields it set, by Decaid's names or a Location's state's
-  /// (`atLocation`, `remainingWeight`, `shown`, or a shared setting such as
-  /// `steamSettings.flow`), each with its value.
+  /// (`atLocation`, `remainingWeight` or `shown`), each with its value.
   fields               Json          @db.JsonB
   /// The Machine whose tablet made it, if one did.
   machineId            String?       @map("machine_id") @db.Uuid
@@ -1535,50 +1521,6 @@ model Conflict {
   @@index([tabletId])
   @@index([accountId])
   @@map("conflicts")
-}
-
-/// A Location's steam and rinse settings, shared by its Machines whatever
-/// their model (ADR-0014), each a field of its own, merged as edits
-/// of a Library item's content are (ADR-0020). The first Machine at the
-/// Location to report its Workflow sets them; a setting no Machine with steam
-/// on has reported yet is unset. See server/src/library/location-settings.ts.
-model LocationSettings {
-  id         String   @id @default(uuid(7)) @db.Uuid
-  locationId String   @unique @map("location_id") @db.Uuid
-  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
-  /// Each setting set, by its name in SHARED_SETTINGS (protocol/), such as
-  /// `steamSettings.flow`.
-  values     Json     @default("{}") @db.JsonB
-  /// Each setting's latest edit, as `Bean.fieldEdits` keeps a Bean's fields.
-  fieldEdits Json     @default("{}") @map("field_edits") @db.JsonB
-  /// When the first Machine there reported them, by PostgreSQL's clock.
-  createdAt  DateTime @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
-
-  tablets TabletSettings[]
-
-  @@map("location_settings")
-}
-
-/// A tablet's shared settings as it last had them, reported in its Workflow
-/// or as Decaid returned the plugin's write of them, as `TabletBean` keeps a
-/// Bean's record: what an edit there is compared with. They are of its
-/// Machine's Location's settings then; a tablet whose Machine moved, or that
-/// moved to a Machine at another Location, has had none of the new settings
-/// yet.
-model TabletSettings {
-  tabletId      String           @id @map("tablet_id") @db.Uuid
-  tablet        Tablet           @relation(fields: [tabletId], references: [id], onDelete: Cascade)
-  settingsId    String           @map("settings_id") @db.Uuid
-  settings      LocationSettings @relation(fields: [settingsId], references: [id], onDelete: Cascade)
-  /// Each setting, by its name in SHARED_SETTINGS, as the tablet's Workflow held it.
-  values        Json             @db.JsonB
-  /// The latest edit of the settings that they have seen (`fieldEdits`
-  /// `decidedAt`), by PostgreSQL's clock, as the server's write they
-  /// answered carried them; null if none (ADR-0020).
-  contentSeenAt DateTime?        @map("content_seen_at") @db.Timestamptz(3)
-
-  @@index([settingsId])
-  @@map("tablet_settings")
 }
 
 /// A Bean, Bean Batch or Grinder an Admin hard-deleted, by its global id,
@@ -1698,10 +1640,11 @@ model TabletRefusal {
   changeKey String   @map("change_key")
   /// `write`, `delete`, `remove` or `leaveOut`.
   change    String
-  /// A Library kind, `settings` or `workflow`.
+  /// A Library kind, `workflow` or `loadedRecipe`.
   kind      String
-  /// The item's global id, a Profile's id, the settings' id or the tablet's
-  /// id for a Workflow; null for a leave-out, whose record has none.
+  /// The item's global id, a Profile's id, the tablet's id for a Workflow,
+  /// or a Loaded Recipe's global id; null for a leave-out, whose record has
+  /// none.
   itemId    String?  @map("item_id")
   /// Decaid's id for the record written, deleted or set aside; null for a create.
   localId   String?  @map("local_id")

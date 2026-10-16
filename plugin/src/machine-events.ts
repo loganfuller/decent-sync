@@ -2,8 +2,8 @@ import type { LoadBefore, MachineStateDelivery, WorkflowDelivery } from "@decent
 
 /**
  * Holds back the changes of the tablet's Workflow the plugin sends while it
- * writes into it, the shared settings (`LibraryWrites`) or a Loaded Recipe
- * (`LoadedRecipes`), or decides on them, and sends the latest once released
+ * writes into it, clearing its grinder, batch and Basket (`LibraryWrites`)
+ * or a Loaded Recipe (`LoadedRecipes`), or decides on them, and sends the latest once released
  * (`MachineEvents`), with the changes of the machine's state held meanwhile
  * after it.
  */
@@ -60,7 +60,7 @@ export class MachineEvents implements WorkflowChanges {
   private reportedAt = now();
   /**
    * How many of the plugin's writes into the Workflow are under way: the
-   * shared settings (`LibraryWrites`), whose answers the server reads first,
+   * server's (`LibraryWrites`), whose answers the server reads first,
    * and a Loaded Recipe's (`LoadedRecipes`), whose echo is no change of the
    * tablet's. A change Decaid reports meanwhile is sent once none is.
    */

@@ -1,12 +1,12 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { type VersionedKind, isLibraryKind } from "@decent-sync/protocol";
+import { type LibraryKind, isLibraryKind } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
 import type { ConflictState, Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { mayResolve } from "./conflict-access.js";
 import { type ItemRef, itemKey } from "./history.js";
-import { KINDS, type LocationStateDescription, type StateValue, type VersionedItem, isVersionedKind, versionedKind } from "./kinds.js";
+import { KINDS, type LocationStateDescription, type StateValue, type VersionedItem } from "./kinds.js";
 import { isObject } from "./listed.js";
 
 /**
@@ -51,15 +51,15 @@ export interface VersionView {
   copiedFrom: { id: string; name: string | null; location: LocationView | null } | null;
 }
 
-/** A Library item a Conflict is about, or a Location's steam and rinse settings (`settings`), whose Location the Conflict names. */
+/** A Library item a Conflict is about. */
 export interface ConflictItemView {
-  kind: VersionedKind;
-  /** Its global id, a Profile's id, or the settings' id. */
+  kind: LibraryKind;
+  /** Its global id, or a Profile's id. */
   id: string;
   /**
    * What the management interface names it by: a Bean's roaster and name, a
-   * batch's Bean and roast date, a Grinder's model, a Profile's title, the
-   * settings' "Steam and rinse"; null where its content has none.
+   * batch's Bean and roast date, a Grinder's model, a Profile's title; null
+   * where its content has none.
    */
   name: string | null;
 }
@@ -119,10 +119,10 @@ export class HistoryService {
       }),
       this.exists(item),
     ]);
-    if (!exists) throw new NotFoundException(`No such ${versionedKind(item.kind).name}`);
+    if (!exists) throw new NotFoundException(`No such ${KINDS[item.kind].name}`);
     // The items copies were copied from, read as the item's kind reads them, so a copy names its original as it is named now.
     const copiedFromIds = [...new Set(versions.flatMap((version) => (version.copiedFromId === null ? [] : [version.copiedFromId])))];
-    const originals = copiedFromIds.length === 0 ? new Map<string, VersionedItem>() : await versionedKind(item.kind).read(this.prisma, copiedFromIds);
+    const originals = copiedFromIds.length === 0 ? new Map<string, VersionedItem>() : await KINDS[item.kind].read(this.prisma, copiedFromIds);
     return versions.map((version) => ({
       id: version.id,
       fields: isObject(version.fields) ? version.fields : {},
@@ -143,7 +143,7 @@ export class HistoryService {
 
   /** The open Conflicts, the latest first: all of them, or those about one item, 404 if the Library does not have it. */
   async openConflicts(scope: Scope, item?: ItemRef): Promise<ConflictView[]> {
-    if (item && !(await this.exists(item))) throw new NotFoundException(`No such ${versionedKind(item.kind).name}`);
+    if (item && !(await this.exists(item))) throw new NotFoundException(`No such ${KINDS[item.kind].name}`);
     return this.conflicts({ state: "OPEN", ...(item ? itemKey(item) : {}) }, scope);
   }
 
@@ -157,7 +157,7 @@ export class HistoryService {
   private async conflicts(where: Prisma.ConflictWhereInput, scope: Scope): Promise<ConflictView[]> {
     const conflicts = (
       await this.prisma.conflict.findMany({ where, include: withSource, orderBy: [{ createdAt: "desc" }, { seq: "desc" }] })
-    ).filter((conflict): conflict is typeof conflict & { kind: VersionedKind } => isVersionedKind(conflict.kind));
+    ).filter((conflict): conflict is typeof conflict & { kind: LibraryKind } => isLibraryKind(conflict.kind));
     const items = await readItems(this.prisma, conflicts);
     const currents = await currentValues(this.prisma, conflicts, items);
     const versionIds = [...new Set(currents.flatMap((current) => (current.versionId === null ? [] : [current.versionId])))];
@@ -194,7 +194,7 @@ export class HistoryService {
     });
   }
 
-  /** Whether the Library has the item, or the Location's settings exist: they keep versions while they do (`versioned_items`). */
+  /** Whether the Library has the item: it keeps versions while it does (`versioned_items`). */
   private async exists(item: ItemRef): Promise<boolean> {
     return (await this.prisma.versionedItem.count({ where: itemKey(item) })) > 0;
   }
@@ -204,7 +204,7 @@ const STATES: Readonly<Record<ConflictState, ConflictView["state"]>> = { OPEN: "
 
 /** A Conflict as its item and its field's value now are read for it. */
 interface ConflictAbout {
-  kind: VersionedKind;
+  kind: LibraryKind;
   itemId: string;
   field: string;
   locationId: string | null;
@@ -214,7 +214,7 @@ interface ConflictAbout {
 async function readItems(db: PrismaService, conflicts: readonly ConflictAbout[]): Promise<Map<string, VersionedItem>> {
   const items = new Map<string, VersionedItem>();
   for (const [kind, ids] of grouped(conflicts, (conflict) => conflict.kind)) {
-    const read = await versionedKind(kind).read(db, [...new Set(ids.map((conflict) => conflict.itemId))]);
+    const read = await KINDS[kind].read(db, [...new Set(ids.map((conflict) => conflict.itemId))]);
     for (const [id, item] of read) items.set(`${kind}:${id}`, item);
   }
   return items;
@@ -224,7 +224,7 @@ async function readItems(db: PrismaService, conflicts: readonly ConflictAbout[])
  * Each Conflict's field's value now, and the version that set it, if one is
  * known, in order: of a Location's state of its item, for a kind that has
  * one (`LocationStateDescription`), at the Location it names; otherwise of
- * its item's content, or a Location's settings.
+ * its item's content.
  */
 async function currentValues(db: PrismaService, conflicts: readonly ConflictAbout[], items: ReadonlyMap<string, VersionedItem>): Promise<StateValue[]> {
   const values: StateValue[] = conflicts.map((conflict) => {
@@ -243,9 +243,9 @@ async function currentValues(db: PrismaService, conflicts: readonly ConflictAbou
   return values;
 }
 
-/** A kind's Location's state, if it is a Library kind that has one. */
-function versionedState(kind: VersionedKind): LocationStateDescription | undefined {
-  return isLibraryKind(kind) ? KINDS[kind].state : undefined;
+/** A kind's Location's state, if it has one. */
+function versionedState(kind: LibraryKind): LocationStateDescription | undefined {
+  return KINDS[kind].state;
 }
 
 /** Values grouped by a key, in the order each key is first met. */

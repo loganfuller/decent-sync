@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type { MachineStateDelivery, WorkflowDelivery } from "@decent-sync/protocol";
 import { type MachineStateEvent, Prisma, type WorkflowEvent } from "../generated/prisma/client.js";
 import { INTAKE_TRANSACTION } from "../library/intake.js";
-import { takeInWorkflow } from "../library/location-settings.js";
+import { takeInWorkflow } from "../library/joining.js";
 import { type Credit, creditFirstDelivery } from "../machines/credit.js";
 import { machineNotFound } from "../machines/input.js";
 import type { MachineStateView } from "../machines/machines.service.js";
@@ -48,17 +48,17 @@ export interface MachineStateEventView extends MachineStateView {
  * keeps the time the plugin observed it.
  *
  * A Workflow from a connection that is not mismatched, for its token's
- * Machine, is also taken into its Location's steam and rinse settings in
- * the same transaction (`takeInWorkflow`, ADR-0014), and into the Machine's
- * Loaded Recipe (`takeInLoadedRecipe`, ADR-0022).
+ * Machine, is also taken in at its Location in the same transaction
+ * (`takeInWorkflow`), as its tablet joins it, and into the Machine's Loaded
+ * Recipe (`takeInLoadedRecipe`, ADR-0022).
  */
 @Injectable()
 export class MachineEventsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Stores a Workflow delivery, and returns where it was taken into its
-   * Location's settings (`takeInWorkflow`): a `standing`, null if nowhere, as
+   * Stores a Workflow delivery, and returns where it was taken in
+   * (`takeInWorkflow`): a `standing`, null if nowhere, as
    * its Machine is capture-only, or undefined if it was not taken in, as a
    * delivery handled before, or a mismatched connection's.
    */
@@ -77,7 +77,7 @@ export class MachineEventsService {
       // A mismatched connection's tablet is not its token's Machine's, so it takes no part in the Library (ADR-0004).
       if (reporter.identity.kind !== "mismatch" && credit.machineId === reporter.machineId) {
         const tablet = { machineId: reporter.machineId, tabletId: reporter.tabletId };
-        return takeInWorkflow(tx, tablet, message.workflow, message.observedAt, (entry, joining) =>
+        return takeInWorkflow(tx, tablet, message.workflow, (entry, joining) =>
           takeInLoadedRecipe(tx, tablet, message.workflow, message.observedAt, entry, joining, { loadBefore: message.loadBefore }),
         );
       }

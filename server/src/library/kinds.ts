@@ -3,13 +3,10 @@ import {
   type LibraryKind,
   type LibraryList,
   LOADED_RECIPE_KIND,
-  SETTINGS_KIND,
-  type VersionedKind,
   WORKFLOW_KIND,
   type WrittenKind,
   beanMatchKey,
   equipmentMatchKey,
-  isLibraryKind,
 } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import type { PrismaService } from "../prisma.service.js";
@@ -45,7 +42,6 @@ import type { FieldType } from "./item-input.js";
 import { recordLoadedRecipeWritten } from "../machine-events/loaded-recipes.js";
 import { recordWorkflowCleared } from "./joining.js";
 import { isObject } from "./listed.js";
-import { recordSettingsWritten } from "./location-settings.js";
 import { addBatchAt, enterRemainingWeight, finishBatchAt, showAt, showProfileAt } from "./location-state.js";
 import { type FieldEdits, latestDecision, readFieldEdits } from "./merge.js";
 import { profileText } from "./profile-intake.js";
@@ -55,14 +51,14 @@ import { heldRecipes, offeredRecipes, recordRecipeWritten, takeInRecipes } from 
 
 // Each kind the server writes to tablets, described once (`LIBRARY.md`,
 // Adding a Library kind): the Library's kinds, Beans, Bean Batches, Grinders,
-// Profiles, Baskets, Tools and Recipes, in the order of LIBRARY_ITEM_KINDS (protocol/), and a
-// Location's steam and rinse settings and the clearing of a
-// Workflow's grinder, batch and Basket. What the server does to every kind alike
+// Profiles, Baskets, Tools and Recipes, in the order of LIBRARY_ITEM_KINDS (protocol/), the
+// clearing of a Workflow's grinder, batch and Basket, and a Workflow's Loaded
+// Recipe. What the server does to every kind alike
 // (its versions and Conflicts, the edits of its content, what a tablet is
 // due, its hard deletes, what a joining tablet brings) reads each kind's
 // table, columns, content and SQL from here, and what only one kind does is
 // in its own modules (beans.ts, bean-batches.ts, grinders.ts, profiles.ts,
-// equipment.ts, recipes.ts, location-settings.ts and joining.ts), which this binds to it.
+// equipment.ts, recipes.ts, joining.ts and loaded-recipes.ts), which this binds to it.
 //
 // This imports those modules, which import what reads this: each binds
 // them in a function, called once every module has loaded, and none of them
@@ -76,7 +72,7 @@ export interface WrittenAnswer {
   written: ReadonlySet<string>;
   /** The record as Decaid returned it. */
   record: Record<string, unknown>;
-  /** The record's `updatedAt` in UTC, or when the plugin had Decaid's answer for the settings and a Workflow, which carry none. */
+  /** The record's `updatedAt` in UTC, or when the plugin had Decaid's answer for a Workflow, which carries none. */
   updatedAt: string | null;
   /** The decision of its Location's state the write carried, if it was awaited. */
   seen: SeenDecision | null;
@@ -93,8 +89,8 @@ export interface WrittenKindDescription {
   /**
    * What the management interface names each of the items with these ids
    * by (`ChangedItemView`, `ConflictItemView`): a Bean's roaster and name, a
-   * batch's Bean and roast date, a Grinder's model, a Profile's title, the
-   * settings' "Steam and rinse", a Workflow's "Grinder and
+   * batch's Bean and roast date, a Grinder's model, a Profile's title, a
+   * Workflow's "Grinder and
    * batch"; null where its content has none. A Library item the server no
    * longer has is left out.
    */
@@ -106,14 +102,14 @@ export interface WrittenKindDescription {
 /** An item as a Conflict about it reads it now: its name, its values as edits merge them, and their latest edits. */
 export interface VersionedItem {
   name: string | null;
-  /** Its content as edits merge it (`LibraryKindDescription.values`), or a Location's settings by name. */
+  /** Its content as edits merge it (`LibraryKindDescription.values`). */
   values: Record<string, unknown>;
   fieldEdits: FieldEdits;
   /** For a kind that belongs to one Location (`belongsToLocation`), that Location, null if it no longer exists; undefined otherwise. */
   locationId?: string | null;
 }
 
-/** What the server says of every kind that keeps versions and Conflicts (ADR-0020): the Library's kinds, and a Location's settings. */
+/** What the server says of every kind that keeps versions and Conflicts (ADR-0020): the Library's kinds. */
 export interface VersionedKindDescription extends WrittenKindDescription {
   /** Its table, whose rows `versioned_items` keeps a row for (the migration's triggers), and the type of their `id`. */
   table: string;
@@ -288,8 +284,8 @@ const TOOL_FIELDS: Readonly<Record<string, FieldType>> = {
 /**
  * A Recipe's fields the management interface sets, in the Library's terms
  * (`recipeContent` in recipe-intake.ts), as DYE2's recipe editor saves them
- * but for steam and flush, which mirror the Location's settings, the barista
- * and drinker, which a Recipe never carries, its steam mode, a steam setting
+ * but for steam and flush, which are each Machine's own, the barista and
+ * drinker, which a Recipe never carries, its steam mode, a steam setting
  * too, and its ratio, kept while its yield is its dose times it
  * (recipe-edits.service.ts). Its Bean is its Bean Batch's.
  */
@@ -784,22 +780,6 @@ function equipmentKind(
   };
 }
 
-/** A Location's steam and rinse settings (ADR-0014), which keep versions and Conflicts as an item's content does, always of their Location. */
-const SETTINGS: VersionedKindDescription = {
-  name: "Location settings",
-  table: "location_settings",
-  idType: "uuid",
-  read: async (db, ids) =>
-    versionedRows(
-      await db.$queryRaw<{ id: string; values: unknown; fieldEdits: unknown }[]>`
-        SELECT id::text AS id, values, field_edits AS "fieldEdits" FROM location_settings WHERE id = ANY(${uuids(ids)}::uuid[])`,
-      (row) => ({ name: SETTINGS_NAME, values: fields(row.values) }),
-    ),
-  itemNames: async (_db, ids) => new Map(ids.map((id) => [id, SETTINGS_NAME])),
-  recordWritten: (prisma, tablet, answer) =>
-    recordSettingsWritten(prisma, tablet, answer.globalId, answer.written, answer.record, answer.updatedAt, answer.contentSeen),
-};
-
 /** The clearing of a tablet's Workflow's grinder, batch and Basket as its Machine joins a Location that does not offer them (joining.ts), named by the tablet's id. */
 const WORKFLOW: WrittenKindDescription = {
   name: "Workflow",
@@ -819,22 +799,10 @@ const LOADED_RECIPE: WrittenKindDescription = {
     recordLoadedRecipeWritten(prisma, tablet, answer.globalId, answer.written, answer.record, answer.updatedAt, answer.contentSeen),
 };
 
-const SETTINGS_NAME = "Steam and rinse";
-
 /** The description of a kind the server writes. */
 export function writtenKind(kind: WrittenKind): WrittenKindDescription {
   if (kind === LOADED_RECIPE_KIND) return LOADED_RECIPE;
-  return kind === SETTINGS_KIND ? SETTINGS : kind === WORKFLOW_KIND ? WORKFLOW : KINDS[kind];
-}
-
-/** The description of a kind that keeps versions and Conflicts. */
-export function versionedKind(kind: VersionedKind): VersionedKindDescription {
-  return kind === SETTINGS_KIND ? SETTINGS : KINDS[kind];
-}
-
-/** Whether a kind keeps versions and Conflicts: one of the Library's, or a Location's settings. */
-export function isVersionedKind(kind: string): kind is VersionedKind {
-  return kind === SETTINGS_KIND || isLibraryKind(kind);
+  return kind === WORKFLOW_KIND ? WORKFLOW : KINDS[kind];
 }
 
 /** The item's id as SQL of its kind's type, as `${table}.id` compares with it. */

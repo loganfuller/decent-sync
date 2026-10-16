@@ -21,9 +21,6 @@ import {
   type LibraryWrite,
   type ListUnrecognised,
   MAX_REFUSAL_LENGTH,
-  SETTINGS_KIND,
-  SETTINGS_PARTS,
-  STEAM_SETTINGS,
   WORKFLOW_CLEARED,
   WORKFLOW_KIND,
   type WriteRefused,
@@ -40,8 +37,6 @@ import {
   loadedRecipeOf,
   profileAtBrewTemperature,
   sameValue,
-  settingsParts,
-  steamIsOn,
   workflowPatch,
   workflowValueAt,
 } from "@decent-sync/protocol";
@@ -51,7 +46,6 @@ import type { WorkflowChanges } from "./machine-events.js";
 import type { Outbox } from "./outbox.js";
 import { dye2Fingerprint, stepsKey } from "./loaded-recipe-rules.js";
 import { type LoadedRecipeWrites, machineMissing } from "./loaded-recipes.js";
-import { keepStreamlineSteamTemperature } from "./streamline.js";
 import { randomUuid } from "./tablet-id.js";
 
 // The Library items the server shares, written to this tablet through
@@ -64,11 +58,9 @@ import { randomUuid } from "./tablet-id.js";
 // An update sets a field only while the record holds what the server expects
 // it to (`LibraryWrite.expected`), so a barista's change the tablet has not
 // reported yet is kept, and reaches the server in the answer (ADR-0020).
-// A Location's steam and rinse settings are written into the
-// tablet's Workflow the same way (ADR-0014), with the steam temperature
-// Streamline remembers set to match (ADR-0021), and so is the clearing of the
-// Workflow's grinder, batch and Basket as its Machine joins a Location that
-// does not offer them (ADR-0008). A record of an item an Admin
+// The clearing of the Workflow's grinder, batch and Basket as its Machine
+// joins a Location that does not offer them is written into the tablet's
+// Workflow the same way (ADR-0008). A record of an item an Admin
 // hard-deleted is deleted the same way too, a Profile's purged, the one
 // thing the plugin deletes (ADR-0003), and a record the Library leaves out
 // as its Machine joins a Location is archived or hidden (ADR-0018).
@@ -191,8 +183,8 @@ const ROUTES = {
 
 /**
  * Each kind the server writes, described once: the Library's kinds
- * (`LIBRARY_ITEM_KINDS`), a Location's shared settings, the clearing of a
- * Workflow's grinder, batch and Basket, and a Workflow's Loaded Recipe.
+ * (`LIBRARY_ITEM_KINDS`), the clearing of a Workflow's grinder, batch and
+ * Basket, and a Workflow's Loaded Recipe.
  */
 const WRITERS: { readonly [K in WrittenKind]: K extends LibraryKind ? LibraryKindWriter : KindWriter } = {
   bean: recordWriter("bean", ROUTES.bean),
@@ -207,7 +199,6 @@ const WRITERS: { readonly [K in WrittenKind]: K extends LibraryKind ? LibraryKin
   basket: dye2Writer("baskets"),
   tool: dye2Writer("equipment"),
   recipe: dye2Writer("recipes"),
-  [SETTINGS_KIND]: { write: writeSettings, changesWorkflow: true },
   [WORKFLOW_KIND]: { write: clearWorkflow, changesWorkflow: true },
   [LOADED_RECIPE_KIND]: { write: writeLoadedRecipe, changesWorkflow: true },
 };
@@ -295,11 +286,11 @@ export class LibraryAccess {
  * report read before a write before that write's answer, and never reads an
  * item the plugin wrote as deleted from a report that predates it (ADR-0019).
  *
- * Decaid refuses to change the shared settings while no machine is
+ * Decaid refuses to change a Loaded Recipe's hot water while no machine is
  * connected (500, `DeviceNotConnectedException`), which `machineMissing` is
- * told of. Decaid sends the plugin the Workflow a write of the shared
- * settings changed (`workflowUpdated`), around when it answers the write. That change
- * is held back until the answer is queued, so the server takes in the answer
+ * told of. Decaid sends the plugin the Workflow a write into it changed
+ * (`workflowUpdated`), around when it answers the write. That change is
+ * held back until the answer is queued, so the server takes in the answer
  * first and finds the change is the plugin's own write, not the tablet's
  * edit (ADR-0003).
  */
@@ -313,7 +304,7 @@ export class LibraryWrites {
     private readonly workflow: WorkflowChanges,
     /** The Machine's Loaded Recipe, which the server's writes of it, and moves of it to another slot, keep in step with DYE2's selection. */
     loaded: LoadedRecipeWrites,
-    /** Told when Decaid refuses a write of the shared settings as no machine is connected. */
+    /** Told when Decaid refuses a write into the Workflow as no machine is connected. */
     private readonly machineMissing: () => void,
     private readonly log: (message: string) => void,
     /** Told of each post of one of DYE2's lists Decaid took. */
@@ -671,40 +662,6 @@ async function writeProfile(write: LibraryWrite): Promise<WriteAnswer> {
 }
 
 /**
- * Writes a Location's shared settings into the tablet's Workflow (ADR-0014):
- * reads the Workflow, then sets, through `PUT /workflow`, which Decaid merges
- * into it, the fields it still holds as the server expects, its steam
- * settings only while it keeps steam on: a barista may have turned steam off
- * since the tablet last reported, which stays on this Machine. A skin that
- * remembers them takes the Workflow's as its own, but for Streamline's steam
- * temperature, which is set to match once Decaid has taken the Workflow
- * (`keepStreamlineSteamTemperature`, ADR-0021). The answer is
- * the Workflow's steam and rinse parts as Decaid returned them,
- * or as read when nothing was left to set, timed now, as a Workflow carries
- * no time. Decaid refuses to change them while no machine is connected.
- */
-async function writeSettings(write: LibraryWrite, log: (message: string) => void): Promise<WriteAnswer> {
-  const current = await request("GET", "/workflow");
-  const workflow = current.ok ? parsed(current.text) : undefined;
-  if (!isObject(workflow)) return refused(write, current.status, current.text);
-  const held = (field: string) => {
-    const [part, name] = field.split(".") as [string, string];
-    const values = workflow[part];
-    return isObject(values) ? values[name] : undefined;
-  };
-  const steamOn = steamIsOn({ "steamSettings.targetTemperature": held("steamSettings.targetTemperature") });
-  const fields = Object.fromEntries(
-    Object.entries(settable(write, held)).filter(([field]) => steamOn || !(STEAM_SETTINGS as readonly string[]).includes(field)),
-  );
-  if (Object.keys(fields).length === 0) return written(write, workflowSettings(workflow), [], new Date().toISOString());
-  const answer = await request("PUT", "/workflow", settingsParts(fields));
-  const updated = answer.ok ? parsed(answer.text) : undefined;
-  if (!isObject(updated)) return refused(write, answer.status, answer.text);
-  if ("steamSettings.targetTemperature" in fields) await keepStreamlineSteamTemperature(fields["steamSettings.targetTemperature"], log);
-  return written(write, workflowSettings(updated), Object.keys(fields), new Date().toISOString());
-}
-
-/**
  * Clears the grinder, batch and Basket of the tablet's Workflow that the
  * write names (`WORKFLOW_KIND`), each whole, only while the Workflow still
  * names the grinder, batch or Basket by the id expected, through `PUT
@@ -778,7 +735,7 @@ async function writeLoadedRecipe(write: LibraryWrite, _log: (message: string) =>
       return written(write, loadedRecipeParts(updated), Object.keys(fields), new Date().toISOString());
     }
     const ofHotWater = Object.keys(fields).filter((field) => field.startsWith("hotWaterData."));
-    // Hot water alone is refused, as a settings write is, so the plugin writes it once the machine is back.
+    // Hot water alone, which Decaid refuses while no machine is connected, is refused, so the plugin writes it once the machine is back.
     if (ofHotWater.length === 0 || ofHotWater.length === Object.keys(fields).length || !machineMissing(answer)) return refused(write, answer.status, answer.text);
     hotWater = false;
   }
@@ -837,11 +794,6 @@ function loadedRecipeParts(workflow: Record<string, unknown>): Record<string, un
 /** A Workflow's `context`, as Decaid holds it: none is an empty one. */
 function workflowContext(workflow: Record<string, unknown>): Record<string, unknown> {
   return { context: isObject(workflow.context) ? workflow.context : {} };
-}
-
-/** The steam and rinse parts of a Workflow, as Decaid holds them. */
-function workflowSettings(workflow: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(SETTINGS_PARTS.flatMap((part) => (part in workflow ? [[part, workflow[part]]] : [])));
 }
 
 /** The fields of a Profile's `profile` the server writes: outside the hash of what the machine executes, so its id stays (ADR-0006). */

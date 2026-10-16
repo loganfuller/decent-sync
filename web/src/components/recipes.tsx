@@ -441,8 +441,7 @@ function RecipeFormDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             {recipe ? "Each field changed is an edit made here," : `A Recipe at ${location.name},`} written to every tablet at {location.name}
-            {recipe ? " that holds it." : " once it is in a slot."} Steam and flush are the Location's settings, and a Recipe carries no barista or
-            drinker.
+            {recipe ? " that holds it." : " once it is in a slot."} A Recipe carries no barista or drinker.
           </DialogDescription>
         </DialogHeader>
         {open && (
@@ -1066,7 +1065,7 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
           <DialogTitle>Copy {recipeName(recipe)} to a Location</DialogTitle>
           <DialogDescription>
             A new Recipe there, as a starting point: its history starts with the copy, and this Recipe is not changed. It keeps its dial, grind
-            setting and hot water; its steam and flush are that Location's settings.
+            setting and hot water.
           </DialogDescription>
         </DialogHeader>
         <form aria-label="Copy the Recipe" className="grid gap-4" onSubmit={copy}>
@@ -1310,8 +1309,7 @@ export function RecipeDetails({ id }: { id: string }) {
             <h2>Recipe</h2>
           </CardTitle>
           <CardDescription>
-            Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location. Its steam and flush are the
-            Location's settings.
+            Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location.
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -133,8 +133,8 @@ export class SyncConnection {
   private sentHardware: MachineHardware | null = null;
   /**
    * Set once the machine this connection's `hello` reported is seen gone:
-   * no hardware read, or Decaid refusing a write of the shared settings as
-   * no machine is connected. Decaid refuses those while it is gone, and the
+   * no hardware read, or Decaid refusing a Loaded Recipe's hot water as no
+   * machine is connected. Decaid refuses those while it is gone, and the
    * server skips such a write until it changes or the tablet reconnects, so
    * once the same machine is back the plugin reconnects, and is written it
    * again.

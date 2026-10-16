@@ -53,11 +53,11 @@ import { profileOfSql } from "../shots/links.js";
 // of the Workflow's other parts that follow the Recipe (`workflowEditedParts`)
 // is an edit of it; and an edit of the Recipe from anywhere is written into
 // the Workflow of every Machine that has it loaded, each tablet's Workflow as
-// it last held them kept in `tablet_loaded_recipes`, as `tablet_settings`
-// keeps the settings, so the plugin's own write is never read as the
-// tablet's edit (loaded-recipe-intake.ts). A part set back to what a stale
-// copy held, or to what the plugin's write of the load replaced before the
-// Machine's first espresso since (`load_before`), is written back instead.
+// it last held them kept in `tablet_loaded_recipes`, so the plugin's own
+// write is never read as the tablet's edit (loaded-recipe-intake.ts). A part
+// set back to what a stale copy held, or to what the plugin's write of the
+// load replaced before the Machine's first espresso since (`load_before`),
+// is written back instead.
 // A Workflow naming a Recipe its Machine does not have loaded, as one taken
 // out of its slot or Archived, or of a Location it left, or the one the
 // server last had as its Loaded Recipe as it was made capture-only, has it
@@ -85,7 +85,7 @@ export interface LoadedRecipeView {
 /**
  * Takes the Loaded Recipe a Workflow names into its Machine's state, in the
  * transaction storing the delivery from the Machine's own tablet, under its
- * row lock and the tablet's (`takeInWorkflow` in location-settings.ts), as
+ * row lock and the tablet's (`takeInWorkflow` in joining.ts), as
  * the tablet's report of where it takes part (`entry`, null while its
  * Machine is capture-only), joining it or not: one of the Recipes in a slot
  * of the Machine's Location, while it takes part in the Library there, and
@@ -603,7 +603,7 @@ async function tabletLocals(tx: Prisma.TransactionClient, tabletId: string): Pro
 /**
  * Records the Workflow Decaid returned for the plugin's write of its Loaded
  * Recipe (`record`, its `context` and `hotWaterData`), as
- * `recordSettingsWritten` records the settings': each part the write set is
+ * `recordGrinderWritten` records a Grinder's record: each part the write set is
  * held as Decaid returned it, and any other the tablet changed since its
  * last report is its edit, timed when the plugin had Decaid's answer
  * (`takeInParts`). The Workflow has seen the latest edit of the Recipe the

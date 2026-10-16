@@ -1,6 +1,6 @@
 import type { LibraryKind } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
-import { type CopiedFrom, type EditSource, type LibraryItemRef as ItemRef, recordConflict, recordReplaced, recordVersion } from "./history.js";
+import { type CopiedFrom, type EditSource, type ItemRef, recordConflict, recordReplaced, recordVersion } from "./history.js";
 import { KINDS, idSql, idsSql } from "./kinds.js";
 import { isObject } from "./listed.js";
 import { type FieldEdits, changedFields, editsAfter, latestDecision, mergeEdit, readFieldEdits } from "./merge.js";

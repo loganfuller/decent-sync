@@ -2,9 +2,9 @@ import type { DecaidAnswer } from "./decaid-beans.js";
 import type { SimulatedTablet } from "./simulated-tablet.js";
 
 // Streamline (streamline-js) running as a simulated tablet's skin, as far as
-// it touches the shared settings, as on `main` at 07be2b3 (2026-10-14), and
-// as far as its DYE strip, tiles, wake and post-shot clear touch DYE2 and the
-// Workflow, as on `main` at c006dac, the build Decent Sync supports
+// it touches the steam, hot water and rinse settings it remembers, as on
+// `main` at 07be2b3 (2026-10-14), and as far as its DYE strip, tiles, wake
+// and post-shot clear touch DYE2 and the Workflow, as on `main` at c006dac, the build Decent Sync supports
 // (ADR-0017), checked against fixtures/decaid/dye2-2cf631c/. The plugin is
 // not told of it: it calls Decaid's API as anything else on the tablet does
 // (`SimulatedTablet.callApi`).
@@ -104,7 +104,7 @@ const RESYNC_COOLDOWN_MS = 30_000;
 /** How long after its own push Streamline ignores a differing value as a stale echo (resync-policy.js). */
 const ECHO_WINDOW_MS = 10_000;
 
-/** The keys Streamline keeps the shared settings under (api.js). */
+/** The keys Streamline keeps the steam, hot water and rinse settings it remembers under (api.js). */
 export type StreamlineKey =
   | "last-steam-duration"
   | "last-steam-flow"

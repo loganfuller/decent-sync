@@ -2,17 +2,15 @@ import { useCallback } from "react";
 import { Link, useParams } from "react-router";
 import { useStaffLocationIds } from "@/auth";
 import { LocationMachinesCard } from "@/components/loaded-recipes";
-import { LocationSettingsCard } from "@/components/location-settings";
 import { LocationRecipesCard } from "@/components/recipes";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { ApiError, api, type Location, type LocationSettings, type Machine, type Recipe } from "@/lib/api";
+import { ApiError, api, type Location, type Machine, type Recipe } from "@/lib/api";
 import { usePolled } from "@/lib/use-polled";
 
 /**
- * One Location: its Recipes, in its Recipe Slots and in none, its Machines
- * and the Recipe each has loaded, the steam and rinse settings they share,
- * and each Machine's switch for sharing them. Loaded every 5 s, so a change
+ * One Location: its Recipes, in its Recipe Slots and in none, and its
+ * Machines and the Recipe each has loaded. Loaded every 5 s, so a change
  * made on a tablet shows.
  */
 export function LocationPage() {
@@ -25,14 +23,13 @@ function LocationDetails({ id }: { id: string }) {
   // Null once the Location is found gone.
   const load = useCallback(async () => {
     try {
-      const [{ locations }, { settings }, { recipes }, { machines }] = await Promise.all([
+      const [{ locations }, { recipes }, { machines }] = await Promise.all([
         api<{ locations: Location[] }>("GET", "/locations"),
-        api<{ settings: LocationSettings }>("GET", `/locations/${encodeURIComponent(id)}/settings`),
         api<{ recipes: Recipe[] }>("GET", `/locations/${encodeURIComponent(id)}/recipes`),
         api<{ machines: Machine[] }>("GET", "/machines"),
       ]);
       const here = machines.filter((machine) => machine.location?.id === id);
-      return { location: locations.find((location) => location.id === id), settings, recipes, machines: here };
+      return { location: locations.find((location) => location.id === id), recipes, machines: here };
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 404) return null;
       throw caught;
@@ -65,7 +62,7 @@ function LocationDetails({ id }: { id: string }) {
       </section>
     );
   }
-  const { location, settings, recipes, machines } = data;
+  const { location, recipes, machines } = data;
 
   return (
     <section className="grid gap-6">
@@ -85,7 +82,6 @@ function LocationDetails({ id }: { id: string }) {
       )}
       {location && <LocationRecipesCard location={location} recipes={recipes} onChanged={reload} />}
       <LocationMachinesCard machines={machines} />
-      <LocationSettingsCard settings={settings} onSaved={reload} />
     </section>
   );
 }

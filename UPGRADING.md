@@ -86,23 +86,32 @@ Up to v0.2.13 it pushed those values back over any change made elsewhere,
 so this plugin used to set Streamline's remembered values before writing a
 Location's settings. Streamline's builds since
 [decentespresso/streamline-js#109](https://github.com/decentespresso/streamline-js/pull/109)
-keep a change made elsewhere instead, so this release sets only the steam
-temperature Streamline remembers, which it still never takes from the
-Workflow. Run such a build on every tablet that uses Streamline, as the
-build from `main` above is. On a tablet still running v0.2.13, Streamline
-undoes the Location's steam and flush
-changes on its Machine and shares its own, so turn that Machine's settings
-sharing off until Streamline is updated.
+keep a change made elsewhere instead, so this release sets none of them.
+Run such a build on every tablet that uses Streamline, as the build from
+`main` above is.
 
 ### Hot water settings are no longer shared
 
-A Location's Machines now share only their steam and rinse settings. Each
-Machine's hot water volume, temperature, time and flow are its own, and a
-Recipe it loads will set them. Hot water changed on one tablet stays on that
-Machine, and each Location's page no longer shows or changes hot water. The
-upgrade drops the hot water settings each Location had, with their history
-and Conflicts, and leaves each Machine's Workflow holding the hot water it
-has now, so set any Machine's hot water you want otherwise on its tablet.
+Each Machine's hot water volume, temperature, time and flow are its own, and
+a Recipe it loads sets them. The upgrade drops the hot water settings each
+Location had, with their history and Conflicts, and leaves each Machine's
+Workflow holding the hot water it has now, so set any Machine's hot water you
+want otherwise on its tablet.
+
+### Steam and rinse settings are no longer shared
+
+A Location's Machines no longer share their steam and rinse settings. Each
+Machine keeps its own, and nothing syncs them until a later release makes
+them the Recipe's ([#173](https://github.com/loganfuller/decent-sync/issues/173)):
+a change on one tablet stays on that Machine, and a Machine joining a
+Location keeps its own. Each Location's page no longer shows or changes them,
+nor has a switch for each Machine's sharing of them, and the upgrade deletes
+them, with their history and Conflicts, leaving each Machine's Workflow
+holding the steam and rinse settings it has now. Applying a recipe, in DYE2
+or in Streamline's DYE strip, still sets the steam and flush values that
+tablet's copy of it holds, so one saved there with a blank steam or flush
+field can set it to 0 on that Machine. Set each Machine's steam and rinse as
+you want them on its tablet.
 
 ### Baskets and Tools are shared through DYE2's lists
 
@@ -133,19 +142,6 @@ as Conflicts. So make sure each Location's tablets hold the same recipe in
 each slot before upgrading, or turn sharing off for a Machine whose recipes
 are to stay as they are. A recipe removed from a tablet's list is taken out
 of its slot and kept.
-
-### Applying a recipe no longer changes a Location's steam and flush
-
-Each recipe written to a tablet now holds its Location's steam time or flow,
-by the recipe's steam mode, and its flush time, or the Machine's own while
-its sharing of the settings is off, and is rewritten whenever they change.
-Applying a recipe, in DYE2 or in Streamline's DYE strip, then leaves the
-Location's steam and rinse settings as they are, and a recipe saved with a
-blank steam or flush field no longer sets every wand to 0. Changing the
-steam or flush inside a recipe on a tablet changes the Location's settings,
-as changing them on the machine does. The workaround of turning settings
-sharing off on all but one of a Location's Machines that use DYE2 recipes is
-no longer needed: turn it back on where it was only for that.
 
 ## 0.3.0
 

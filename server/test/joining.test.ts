@@ -8,9 +8,9 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #89: a Machine joining a Location, as it is adopted
 // there or moved there, takes on the Location's state (ADR-0008). Its tablet
-// is written the Location's shown Profiles, its batches and their Beans, its
-// Grinders and its steam and rinse settings, while its hot water stays its
-// own (ticket #137); what only its old Location offered is archived or
+// is written the Location's shown Profiles, its batches and their Beans, and
+// its Grinders, while its steam, rinse and hot water settings stay its own
+// (tickets #137 and #190); what only its old Location offered is archived or
 // hidden on it; its Workflow's grinder and batch are cleared when the new
 // Location does not offer them. What its tablet held of its own stays out of
 // the Library, archived or hidden on it, but for a Bean matching one the
@@ -23,11 +23,6 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 
 type Record_ = Record<string, unknown>;
 type Parts = Record<string, Record_>;
-
-interface SettingsView {
-  id: string | null;
-  values: Record<string, number | null>;
-}
 
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
@@ -109,12 +104,6 @@ describe("Joining a Location", () => {
   }
 
   const read = async <T>(path: string): Promise<T> => (await (await api.call("GET", path)).json()) as T;
-  const settingsAt = async (location: LocationView) => (await read<{ settings: SettingsView }>(`/locations/${location.id}/settings`)).settings;
-  /** Resolves with the Location's settings once they are set. */
-  async function settingsOf(location: LocationView): Promise<Record<string, number | null>> {
-    await expect.poll(async () => (await settingsAt(location)).id).not.toBeNull();
-    return (await settingsAt(location)).values;
-  }
   /** The steam and rinse settings of the tablet's Workflow, as Decaid holds them, by their names. */
   function tabletSettings(tablet: SimulatedTablet): Record<string, unknown> {
     const workflow = tablet.workflow();
@@ -172,13 +161,13 @@ describe("Joining a Location", () => {
     profiles: userProfiles(tablet, true),
   });
 
-  it("writes a Machine adopted at Uptown Uptown's shown Profiles, its batches and their Beans, its Grinders, and its settings", async () => {
+  it("writes a Machine adopted at Uptown Uptown's shown Profiles, its batches and their Beans, and its Grinders, keeping its own settings", async () => {
     const uptown = await api.createLocation("Adopting Uptown", "America/Chicago");
     const first = await api.createMachine("Adopting Uptown 1", uptown.id);
     const one = load(first, "23001", { parts: { steamSettings: { flow: 1.6 }, hotWaterData: { volume: 120 } } });
     await online(first);
     await mapped(one);
-    const values = await settingsOf(uptown);
+    const firstSettings = tabletSettings(one);
     const uptownOffers = offered(one);
     expect(uptownOffers.beans).toHaveLength(9);
     expect(uptownOffers.batches).toHaveLength(7);
@@ -189,10 +178,13 @@ describe("Joining a Location", () => {
     const second = await api.createMachine("Adopting Uptown 2", uptown.id);
     const two = load(second, "23002", { instance: other, fresh: true, parts: { steamSettings: { flow: 0.7 }, hotWaterData: { volume: 80 }, rinseData: { duration: 9 } } });
     const ownHotWater = hotWater(two);
+    const ownSettings = tabletSettings(two);
+    expect(ownSettings).not.toEqual(firstSettings);
     await online(second);
     await expect.poll(() => offered(two)).toEqual(uptownOffers);
-    await expect.poll(() => tabletSettings(two)).toEqual(values);
-    // Its hot water is its own, which it keeps, and the first Machine keeps its own.
+    // Its steam, rinse and hot water are its own, which it keeps, and the first Machine keeps its own.
+    expect(tabletSettings(two)).toEqual(ownSettings);
+    expect(tabletSettings(one)).toEqual(firstSettings);
     expect(hotWater(two)).toEqual(ownHotWater);
     expect(hotWater(two)).toMatchObject({ volume: 80 });
     expect(hotWater(one)).toMatchObject({ volume: 120 });
@@ -204,8 +196,6 @@ describe("Joining a Location", () => {
       expect(beanOf.get(batch.beanId)).toBe(uptownBeanOf.get(same.beanId));
       expect(batch.weightRemaining).toBe(same.weightRemaining);
     }
-    // Uptown's settings are as they were.
-    expect((await settingsAt(uptown)).values).toEqual(values);
   });
 
   it("writes the lab's Machine moved to Belmont Belmont's state, archives or hides what only the lab offered, and clears its Workflow's grinder and batch", async () => {
@@ -227,7 +217,6 @@ describe("Joining a Location", () => {
     const belmontOffers = offered(belmontTablet);
     expect(belmontOffers.profiles).toEqual([String(profile.id)]);
     const labOffers = offered(labTablet);
-    const belmontValues = await settingsOf(belmont);
     const labWorkflow = labTablet.workflow();
     expect(hotWater(labTablet)).not.toEqual(hotWater(belmontTablet));
     expect(context(labTablet)).toMatchObject({ grinderModel: "DF64 v2", grinderBurrs: "SSP MP", coffeeName: "Ethiopia Generic 100g Sample" });
@@ -239,17 +228,15 @@ describe("Joining a Location", () => {
     expect(heldIds(labTablet.batches(), true)).toEqual(labOffers.batches);
     expect(heldIds(labTablet.grinders(), true)).toEqual(labOffers.grinders);
     expect(userProfiles(labTablet, false)).toEqual(labOffers.profiles);
-    // It takes Belmont's steam and rinse settings, which it does not change, and keeps its own hot water.
-    await expect.poll(() => tabletSettings(labTablet)).toEqual(belmontValues);
-    expect((await settingsAt(belmont)).values).toEqual(belmontValues);
     // Belmont offers neither its grinder nor its batch, which are cleared; its profile, dose, yield, grinder setting and barista stay.
     await expect.poll(() => GRINDER_AND_BATCH.filter((field) => field in context(labTablet))).toEqual([]);
     const { context: before, ...rest } = labWorkflow;
     const kept = Object.fromEntries(Object.entries(before as Record_).filter(([field]) => !GRINDER_AND_BATCH.includes(field)));
     expect(context(labTablet)).toEqual(kept);
-    const { context: _after, steamSettings: _steam, rinseData: _rinse, ...restNow } = labTablet.workflow();
-    const { steamSettings: _s, rinseData: _r, ...restBefore } = rest;
-    expect(restNow).toEqual(restBefore);
+    // It keeps its own steam, rinse and hot water settings, as the rest of its Workflow.
+    const { context: _after, ...restNow } = labTablet.workflow();
+    expect(restNow).toEqual(rest);
+    expect(tabletSettings(labTablet)).not.toEqual(tabletSettings(belmontTablet));
     expect(hotWater(belmontTablet)).toMatchObject({ volume: 140 });
     // The lab's items are still offered at the lab only.
     const labBean = await read<{ bean: { offeredAt: LocationView[] } }>(`/beans/${labOffers.beans[0]}`);
@@ -442,21 +429,6 @@ describe("Joining a Location", () => {
     expect(record().map((bean) => bean.id)).toEqual([roest24!.id]);
   });
 
-  it("lets a Machine joining a Location that has no settings yet set them", async () => {
-    const cafe = await api.createLocation("Settling cafe", "UTC");
-    const traveller = await api.createMachine("Settling traveller");
-    const tablet = load(traveller, "23051", { fresh: true, parts: { steamSettings: { flow: 1.1 }, hotWaterData: { volume: 90 }, rinseData: { duration: 6 } } });
-    await online(traveller);
-    const own = tabletSettings(tablet);
-    expect((await settingsAt(cafe)).id).toBeNull();
-
-    expect((await move(traveller, cafe)).status).toBe(201);
-    // Its steam and rinse, and none of its hot water.
-    expect(await settingsOf(cafe)).toEqual(own);
-    expect(tabletSettings(tablet)).toEqual(own);
-    expect(hotWater(tablet)).toMatchObject({ volume: 90 });
-  });
-
   it("writes nothing more to a Machine moved to no Location, whose tablet keeps what it has", async () => {
     const lab = await api.createLocation("Leaving lab", "UTC");
     const leaving = await api.createMachine("Leaving lab 1", lab.id);
@@ -521,7 +493,6 @@ describe("Joining a Location", () => {
     load(labMachine, "23081", { fresh: true, parts: { steamSettings: { flow: 1.4 } } });
     const belmontTablet = load(belmontMachine, "23083", { fresh: true });
     await online(labMachine, belmontMachine);
-    await settingsOf(lab);
     await belmontTablet.addBean({ roaster: "Roux", name: "Mistaken Belmont Bean" });
     const tablet = load(traveller, "23082", { instance: other, fresh: true, parts: { steamSettings: { flow: 1.4 } } });
     await online(traveller);
@@ -539,9 +510,8 @@ describe("Joining a Location", () => {
     expect(toBelmont!.location.id).toBe(belmont.id);
     expect((await api.call("DELETE", `/machines/${traveller.machine.id}/location-history/${toBelmont!.id}`)).status).toBe(200);
     expect((await machineView(traveller)).locationHistory.map((entry) => entry.location.id)).toEqual([lab.id]);
-    // A change its barista makes then is an edit at the lab, not given way to the lab's settings, and a coffee entered joins the Library.
+    // A change its barista makes then stays, and a coffee entered joins the Library.
     await tablet.changeSettings({ steamSettings: { flow: 2.1 } });
-    await expect.poll(async () => (await settingsAt(lab)).values["steamSettings.flow"]).toBe(2.1);
     await tablet.addBean({ roaster: "Roux", name: "Mistaken Later" });
     await expect.poll(() => held(false)).toEqual(["Mistaken Later"]);
     expect(requests()).toBe(asked);

@@ -2,7 +2,6 @@ import { type ReactNode, useCallback, useState } from "react";
 import { Link } from "react-router";
 import { useAuth } from "@/auth";
 import { ConfirmButton, formatTime } from "@/components/machines";
-import { SETTING_LABELS, settingText } from "@/components/location-settings";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,14 +10,13 @@ import { api, type Conflict, type EditSource, type ItemKind, type ItemVersion, t
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
-/** What an item's kind is called: a Library kind's name (`LIBRARY_KINDS`), or a Location's settings. */
+/** What an item's kind is called: a Library kind's name (`LIBRARY_KINDS`). */
 function kindName(kind: ItemKind): string {
-  return kind === "settings" ? "Location settings" : LIBRARY_KINDS[kind].name;
+  return LIBRARY_KINDS[kind].name;
 }
 
-/** The address of an item's page; a Location's settings are on its page. */
-export function itemPath(kind: ItemKind, id: string, location: Location | null = null): string {
-  if (kind === "settings") return location ? `/locations/${location.id}` : "/locations";
+/** The address of an item's page. */
+export function itemPath(kind: ItemKind, id: string): string {
   return `${LIBRARY_KINDS[kind].pages}/${encodeURIComponent(id)}`;
 }
 
@@ -34,7 +32,7 @@ export function ItemLink({ path, className, children }: { path: string | null; c
 
 /** The REST API's address of an item. */
 function itemApiPath(kind: ItemKind, id: string): string {
-  return `${kind === "settings" ? "/location-settings" : LIBRARY_KINDS[kind].api}/${encodeURIComponent(id)}`;
+  return `${LIBRARY_KINDS[kind].api}/${encodeURIComponent(id)}`;
 }
 
 /**
@@ -71,7 +69,6 @@ function fieldLabel(field: string, location: Location | null): string {
     if (field === "atLocation") return `At ${location.name}`;
     if (field === "remainingWeight") return `Remaining weight at ${location.name}`;
     if (field === "shown") return `Shown at ${location.name}`;
-    if (Object.prototype.hasOwnProperty.call(SETTING_LABELS, field)) return `${SETTING_LABELS[field]} at ${location.name}`;
     return `${spelled(field)} at ${location.name}`;
   }
   return Object.prototype.hasOwnProperty.call(FIELD_LABELS, field) ? FIELD_LABELS[field]! : spelled(field);
@@ -80,13 +77,6 @@ function fieldLabel(field: string, location: Location | null): string {
 function spelled(field: string): string {
   const words = field.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
   return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
-/** A version's fields, settings in Decaid's order (`SETTING_LABELS`), as a database's own key order reads oddly. */
-function inOrder(fields: Record<string, unknown>): [string, unknown][] {
-  const settings = Object.keys(SETTING_LABELS);
-  const rank = (field: string) => (settings.includes(field) ? settings.indexOf(field) : -1);
-  return Object.entries(fields).sort(([a], [b]) => rank(a) - rank(b));
 }
 
 /**
@@ -105,10 +95,7 @@ function valueText(field: string, value: unknown, names: ReadonlyMap<string, str
     return tools.map(([tool, pairs]) => `${names.get(tool) ?? tool}: ${valueText("custom", pairs)}`).join("; ");
   }
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "number") {
-    if (field === "remainingWeight") return `${value} g`;
-    return Object.prototype.hasOwnProperty.call(SETTING_LABELS, field) ? settingText(value) : String(value);
-  }
+  if (typeof value === "number") return field === "remainingWeight" ? `${value} g` : String(value);
   // Decaid keeps a day as its local midnight, such as a roast date entered as a day.
   if (typeof value === "string") return /^\d{4}-\d\d-\d\dT00:00:00\.000$/.test(value) ? value.slice(0, 10) : value;
   if (Array.isArray(value) && value.every((item) => typeof item === "string" || typeof item === "number")) {
@@ -235,7 +222,7 @@ export function ConflictsTable({
               <TableRow key={conflict.id}>
                 {showItem && (
                   <TableCell className="whitespace-normal">
-                    <ItemLink path={itemPath(conflict.item.kind, conflict.item.id, conflict.location)} className="font-medium">
+                    <ItemLink path={itemPath(conflict.item.kind, conflict.item.id)} className="font-medium">
                       {itemName}
                     </ItemLink>
                     <div className="text-xs text-muted-foreground">{kindName(conflict.item.kind)}</div>
@@ -263,19 +250,12 @@ export function ConflictsTable({
                       ariaDescribedBy={conflict.resolvable ? undefined : refusedId}
                       title="Use this value?"
                       description={
-                        conflict.item.kind === "settings" ? (
-                          <>
-                            {field} becomes {valueText(conflict.field, conflict.value, names)}, an edit made here, written to every Machine there that
-                            shares the settings. {valueText(conflict.field, conflict.current.value, names)}, its value now, stays in their history.
-                          </>
-                        ) : (
-                          <>
-                            {field} of {itemName} becomes {valueText(conflict.field, conflict.value, names)}, an edit made here, written to every tablet
-                            that holds it. {valueText(conflict.field, conflict.current.value, names)}, its value now, stays in its history.
-                            {conflict.item.kind === "recipe" &&
-                              " A Bean Batch, Profile, Basket or Tool it names that the Recipe's Location does not offer is offered there too."}
-                          </>
-                        )
+                        <>
+                          {field} of {itemName} becomes {valueText(conflict.field, conflict.value, names)}, an edit made here, written to every tablet
+                          that holds it. {valueText(conflict.field, conflict.current.value, names)}, its value now, stays in its history.
+                          {conflict.item.kind === "recipe" &&
+                            " A Bean Batch, Profile, Basket or Tool it names that the Recipe's Location does not offer is offered there too."}
+                        </>
                       }
                       confirmLabel="Use this value"
                       disabled={!conflict.resolvable || busy !== undefined}
@@ -329,9 +309,8 @@ export function ItemConflictsCard({ kind, id, onResolved, names }: { kind: ItemK
           <h2>Open Conflicts</h2>
         </CardTitle>
         <CardDescription>
-          {conflicts.length === 1 ? "An edit" : `${conflicts.length} edits`} of {kind === "settings" ? "these settings" : `this ${kindName(kind)}`}{" "}
-          lost to another of the same field made without seeing it. Use a losing value to make it current on every tablet that{" "}
-          {kind === "settings" ? "shares them" : "holds it"}, or dismiss the Conflict to keep the value now.
+          {conflicts.length === 1 ? "An edit" : `${conflicts.length} edits`} of this {kindName(kind)} lost to another of the same field made
+          without seeing it. Use a losing value to make it current on every tablet that holds it, or dismiss the Conflict to keep the value now.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -365,9 +344,7 @@ export function ItemHistoryCard({ kind, id, names }: { kind: ItemKind; id: strin
         </CardTitle>
         <CardDescription>
           Each change that was kept, the latest first, with the Machine or account it came from.{" "}
-          {kind === "settings"
-            ? "Its first is the first Machine at the Location setting them."
-            : `Its first is the ${kindName(kind)} joining the Library${kind === "recipe" ? ", or copied from another" : ""}.`}
+          {`Its first is the ${kindName(kind)} joining the Library${kind === "recipe" ? ", or copied from another" : ""}.`}
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
@@ -401,7 +378,7 @@ export function ItemHistoryCard({ kind, id, names }: { kind: ItemKind; id: strin
                       </p>
                     )}
                     <dl className="grid grid-cols-[auto_1fr] gap-x-3 text-sm">
-                      {inOrder(version.fields).map(([field, value]) => (
+                      {Object.entries(version.fields).map(([field, value]) => (
                         <div key={field} className="contents">
                           <dt className="text-muted-foreground">{fieldLabel(field, version.location)}</dt>
                           <dd className="min-w-0 wrap-anywhere">{valueText(field, value, names)}</dd>
