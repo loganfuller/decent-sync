@@ -8,7 +8,7 @@ import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
 import { extractCurves, extractShot, object, shotHardware, shotVersion, string } from "./extraction.js";
 import { type ShotFilters, shotFilterSql } from "./filters.js";
-import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
+import { claimListed, nameLoadedRecipe, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
 const SHOT_LOCK = 4_000_003;
@@ -74,6 +74,7 @@ export class ShotsService {
         await tx.$executeRaw`UPDATE shots SET version_at = ${version}::timestamptz WHERE id = ${message.shotId}`;
       }
       if (credit) await creditShotLocation(tx, message.shotId);
+      await nameLoadedRecipe(tx, message.shotId);
       // The Recipe it is linked to is not hard-deleted until the Shot is stored, which the delete then finds linked to it:
       // whatever this delivery stores, as a full record after an early edit sets the Machine and time the link reads.
       await tx.$queryRaw`SELECT 1 FROM recipes WHERE id = (SELECT ${shotRecipeSql("s")} FROM shots AS s WHERE s.id = ${message.shotId}) FOR KEY SHARE`;

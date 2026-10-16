@@ -233,17 +233,18 @@ its Machine had loaded and the Basket DYE2 recorded
   unlinked, even once sharing is back on. A Shot whose selection named
   nothing, as one pulled while the plugin selects the slot again after its
   own write of a batch or grinder, which DYE2 clears its selection on, is
-  linked to the Recipe its Machine still had loaded as it ended, as the
-  plugin holds the Workflow's changes meanwhile, so its Loaded Recipes run
-  on unbroken; one a barista unloaded is unloaded before. One naming
+  stored naming the Recipe its Machine had loaded latest by its end, as the
+  server knows its Loaded Recipes then (`nameLoadedRecipe`), and linked to it
+  where it was still loaded at the Shot's end, as the plugin holds the
+  Workflow's changes meanwhile, so its Loaded Recipes run on unbroken; one a
+  barista unloaded is unloaded before. One naming
   a favourite, or a recipe no Recipe's, is linked to none. Pulled means from
   the Shot's start to its last sample, both by the tablet's clock, as the
   Loaded Recipes are timed; so a Shot started as DYE2 wrote its selection,
   before the plugin reported the Workflow holding it, is still linked. A
   Machine's Loaded Recipes follow one another, so the link reads only its
-  latest entry loaded by the Shot's end, for the Recipe named or any,
-  through an index on the Machine, the time and the Recipe, however long
-  its history. The link is read, not stored (`shotRecipeSql`), so it
+  latest entry for that Recipe loaded by the Shot's end, through an index
+  on the Machine, the Recipe and the time, however long its history. The link is read, not stored (`shotRecipeSql`), so it
   follows the Loaded Recipes as their deliveries arrive, those of a tablet
   that was offline included, and the Shot's credit, as an adoption changes
   it. A Shot whose time is unknown, or that only a Pending Machine holds, is

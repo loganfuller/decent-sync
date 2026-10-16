@@ -7,7 +7,7 @@ import { readGrinderId } from "../library/grinders.service.js";
 import { readProfileId } from "../library/profiles.service.js";
 import { readRecipeId } from "../library/recipes.service.js";
 import { type RecordFilters, queryValue, readRecordFilters, recordFilterSql } from "../record-filters.js";
-import { shotPulledWithRecipeSql, shotPulledWithSql, shotRecipeSql } from "./links.js";
+import { shotPulledWithSql, shotRecipeSql } from "./links.js";
 
 /**
  * What a Shots list is narrowed to: the filters every record list has, what
@@ -97,6 +97,6 @@ export function shotFilterSql(filters: ShotFilters): Prisma.Sql {
   }
   if (filters.profileId !== undefined) conditions.push(shotPulledWithSql("s", filters.profileId));
   if (filters.recipeId === null) conditions.push(Prisma.sql`${shotRecipeSql("s")} IS NULL`);
-  else if (filters.recipeId !== undefined) conditions.push(shotPulledWithRecipeSql("s", filters.recipeId));
+  else if (filters.recipeId !== undefined) conditions.push(Prisma.sql`s.recipe_id = ${filters.recipeId}::uuid AND ${shotRecipeSql("s")} IS NOT NULL`);
   return Prisma.join(conditions, " AND ");
 }

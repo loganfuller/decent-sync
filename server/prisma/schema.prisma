@@ -502,9 +502,11 @@ model Shot {
   /// leaves the tablet; read by hard deletes only.
   libraryToolIds   String[]          @default([]) @map("library_tool_ids")
   /// The Recipe its Workflow's DYE2 selection named (ADR-0022), by the slot
-  /// of the recipe it named, through its tablet's map, kept as the Basket's
-  /// link is. The Shot is linked to it only where its Machine had it loaded
-  /// as it was pulled (server/src/shots/links.ts), which is read, not stored.
+  /// of the recipe it named, through its tablet's map, kept while it names
+  /// the same slot; for a Shot whose selection named nothing, the Recipe its
+  /// Machine had loaded latest by its end as it was stored. The Shot is
+  /// linked to it only where its Machine had it loaded as it was pulled
+  /// (server/src/shots/links.ts), which is read, not stored.
   recipeId         String?           @map("recipe_id") @db.Uuid
   /// Whether its Workflow's DYE2 selection named an item, a recipe or a
   /// favourite: one naming nothing, as while the plugin selects the slot
