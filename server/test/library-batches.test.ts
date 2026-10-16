@@ -643,6 +643,43 @@ describe("Bean Batches at Locations", () => {
     expect(heldBatch(one, batch.id)).toMatchObject([{ archived: true }]);
   });
 
+  it("finishes a batch a barista deleted as the server wrote it, which leaves the list as last reported", async () => {
+    const cafe = await api.createLocation("Undone cafe", "UTC");
+    const machine = await api.createMachine("Undone cafe 1", cafe.id);
+    const bean = (await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Undone Guji" } }, 201)).bean;
+    const addBatch = async () =>
+      (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: {}, locations: [{ locationId: cafe.id }] }, 201)).batch;
+    /** The batch the tablet keeps, once it holds it: the barista deletes the next one written, the moment Decaid creates it. */
+    let keptId: string | undefined;
+    let deleted: Record_ | undefined;
+    // Armed before that batch is created, as the server may write it before the create's response arrives here.
+    const tablet: SimulatedTablet = load(machine, "16301", {
+      answerOnArrival: true,
+      apiDelayMs: (method, path) => {
+        if (keptId === undefined || deleted || method !== "POST" || !/^\/beans\/[^/]+\/batches$/.test(path)) return 0;
+        // Decaid carried out the create on arrival; the plugin has neither its answer nor read the list since.
+        deleted = tablet.batches().find((record) => globalIdOf(record) !== keptId);
+        if (deleted) void tablet.callApi("DELETE", `/bean-batches/${String(deleted.id)}`);
+        return 0;
+      },
+    });
+    await api.waitForOnline(machine);
+    // The tablet holds one batch of the Bean, reported, so its list reads the same once the second is created and deleted.
+    const kept = await addBatch();
+    const keptRecord = await holds(() => heldBatch(tablet, kept.id), { archived: false });
+    const reported = async () =>
+      (await api.get<{ collection: { value: Record_[] } | null }>(`/machines/${machine.machine.id}/collections/beanBatches`)).collection?.value ?? [];
+    await expect.poll(async () => (await reported()).map((record) => record.id)).toEqual([keptRecord.id]);
+
+    keptId = kept.id;
+    const batch = await addBatch();
+    await expect.poll(() => deleted && globalIdOf(deleted)).toBe(batch.id);
+    await expect.poll(() => whereAt(batch.id)).toEqual([]);
+    expect(await whereAt(kept.id)).toEqual([["Undone cafe", null]]);
+    expect(heldBatch(tablet, batch.id)).toEqual([]);
+    expect(tablet.writes.filter((write) => write.startsWith("POST /beans/"))).toHaveLength(2);
+  });
+
   it("writes the Location's remaining weight again on the same connection when the request after a batch's create fails", async () => {
     const lab_ = await api.createLocation("Retried lab", "UTC");
     const first = await api.createMachine("Retried lab 1", lab_.id);

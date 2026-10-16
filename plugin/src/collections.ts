@@ -60,7 +60,8 @@ const WRITTEN_LISTS: ReadonlySet<CollectionName> = new Set(LIBRARY_LISTS);
  *
  * A Library list the server writes to is read, and its report queued,
  * between the server's writes to the tablet (`LibraryAccess`), so a report
- * holds each write that began before it. And whenever a list was sent, the
+ * holds each write that began before it, and its next read after a write is
+ * sent whatever it holds (`LibraryAccess.wrote`). And whenever a list was sent, the
  * lists of the kinds made under it (`childLists`) are sent in full after it,
  * changed or not: whenever the beans were, the bean batches are, as the
  * server takes in a batch only once it knows its bean, which may have been
@@ -85,7 +86,7 @@ export class CollectionCapture {
     /** Told of each value of DYE2's recipes read (`LoadedRecipes.sawRecipes`). */
     private readonly sawRecipes: (value: unknown) => void = () => {},
   ) {
-    // One of DYE2's lists the plugin wrote is reported on its next read, as it may read as last reported, its write lost.
+    // A Library list the plugin wrote is reported on its next read, as it may read as last reported: a barista undid the write, or another app's rewrite lost it.
     library.onWrite((list) => this.last.delete(list));
   }
 
