@@ -580,7 +580,8 @@ export async function recordedByDye2(
     // The Recipe names its Basket by its global id, the record by the tablet's.
     const basket = content[RECIPE_FIELDS.basket];
     const recipeValue = part === "basket" ? (typeof basket === "string" ? (locals?.("basket", basket) ?? null) : null) : readParts({ [part]: content[RECIPE_FIELDS[part]] })[part];
-    const unwritten = known.held[part] !== null && samePart(part, known.held[part], recordedValue) && !samePart(part, recipeValue, recordedValue);
+    // A write of the server's still to land: never of a part the Recipe holds none of, which it writes none of.
+    const unwritten = recipeValue !== null && known.held[part] !== null && samePart(part, known.held[part], recordedValue) && !samePart(part, recipeValue, recordedValue);
     // A value that is the Recipe's already, as DYE2 records the plugin's own write, is no edit either.
     if (samePart(part, recipeValue, recordedValue) || setBackToLoad(part, recordedValue, loadBefore, own) || unwritten) stale.add(path);
     if (recordedOnly.has(part)) held[part] = recordedValue;

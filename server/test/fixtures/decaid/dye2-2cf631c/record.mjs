@@ -185,8 +185,8 @@ const put = async (body) => [await api("PUT", "/workflow", body)];
 
 /**
  * Restarts Decaid, keeping its data, with the command RESTART_DECAID names,
- * and opens the sockets again: on v0.8.7 its simulated machine stored only the
- * first Shot pulled after it started. Resolves once DYE2 has loaded and
+ * and opens the sockets again: the earlier recordings found its simulated
+ * machine storing only the first Shot pulled after it started (on v0.8.7). Resolves once DYE2 has loaded and
  * restored its selection.
  */
 async function restartDecaid() {

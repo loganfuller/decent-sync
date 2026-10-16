@@ -309,9 +309,11 @@ deliveries.
   unloads the Recipe at once, and the plugin clears
   DYE2's selection while it still names the slot, keeping `{}` after. A
   grinder or batch cleared is no such change for the plugin, as Streamline
-  clears them after a Shot stored with no recipe selected, nor is a batch set back to the one the load replaced,
-  before the first espresso since (`stateUpdate`), which the server writes
-  back; any other grinder set back unloads it.
+  clears them after a Shot stored with no recipe selected, nor is a batch
+  set back to the one the load replaced, before the first espresso since
+  (`stateUpdate`), which the server would write back, though DYE2 clears its
+  selection on it all the same (ADR-0022, until #188); any other grinder
+  set back unloads it.
 - **Selecting again.** A selection or clear of the plugin's that Decaid
   fails, or that DYE2 answers 404, is tried again at the next read once DYE2
   answers (unlike #176's, which took a 404 as done), and gives way to
@@ -470,10 +472,11 @@ the parts to the Recipe's content both ways.
   clear after each Shot leaves the batch, coffee, grinder, Basket and RPM,
   and clears only the barista, drinker and note
   (`clearDyeWorkflowContext`, decentespresso/streamline-js#149), so the next
-  Shot records the Recipe's. Where DYE2 is not loaded or has no recipe
-  selected, Streamline still clears them, or those DYE2 flagged. A part
-  cleared is neither an edit nor an unload, and is held as it was, so
-  nothing is written back (ADR-0022's accepted gaps).
+  Shot records the Recipe's. Where DYE2 is loaded and Streamline's DYE2
+  switch on but DYE2's stored selection names no recipe, Streamline still
+  clears them; where DYE2 is not loaded or the switch is off, it leaves
+  them. A part cleared is neither an edit nor an unload, and is held as it
+  was, so nothing is written back (ADR-0022's accepted gaps).
 - **Stale values.** A part set back is stale, no edit, and the Recipe's
   value is written back (into the Workflow, and the record where it differs)
   where it is:

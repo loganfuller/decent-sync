@@ -94,8 +94,9 @@ port 8080.
   Before reading slot 2's values from the Workflow it sets the Workflow's
   profile to `Classic Italian espresso`; before the selection's steps it saves
   the favourite, sets the Ethiopia batch, pulls a Shot, sets `Classic Italian
-  espresso` and clears DYE2's selection. As Decaid v0.8.7's simulated machine
-  stored only the first Shot pulled after Decaid started, before each later
+  espresso` and clears DYE2's selection. As the earlier recordings found
+  Decaid's simulated machine storing only the first Shot pulled after Decaid
+  started (on v0.8.7; not checked again on v0.9.0), before each later
   Shot the script runs the command `RESTART_DECAID` names, which
   restarted Decaid in the container keeping its data, then opens the sockets
   again. Shots are pulled with `PUT /api/v1/machine/state/espresso`. Those

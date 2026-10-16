@@ -178,6 +178,8 @@ export class SimulatedStreamline {
   private readonly lastResyncAt = new Map<string, number>();
   /** Whether DYE2 confirmed the strip's last selection (`dye2Armed`). */
   private dye2Armed = false;
+  /** Whether DYE2 records dial-in itself, as the strip found it when it last read its recipes (`dye2RecordsDialIn` in dyeStrip.js). */
+  private recordsDialIn: boolean | undefined;
   /** Its DYE2 switch (`streamline.dye2Enabled`). */
   private dye2Enabled: boolean;
   /** Each apply's number: only the newest arms, or retries (`applySeq`). */
@@ -350,7 +352,8 @@ export class SimulatedStreamline {
     const selection = await this.postSelection(body);
     if (selection.status === 200) {
       this.dye2Armed = true;
-    } else if (selection.status !== 404 && (await this.dye2RecordsDialIn())) {
+    } else if (this.recordsDialIn ?? (await this.dye2RecordsDialIn())) {
+      // As the strip found DYE2 when it read its recipes: a 404 now, as while DYE2 reloads, is retried too.
       this.dye2Armed = true;
       this.track(this.retrySelection(body, seq));
     } else {
@@ -393,7 +396,10 @@ export class SimulatedStreamline {
 
   /**
    * A barista sets the dose on the Dose tile (`updateDoseValue('in')`): it
-   * sends the dose and yield shown together, `{ context: { targetDoseWeight,
+   * sends the dose and yield together, the other read from the Workflow now
+   * (Streamline takes it from the tile, which repaints only on its own
+   * writes, its 20 s poll, focus or a plugin's push, so a tap there soon
+   * after another app changed it sends the old value back: not simulated), `{ context: { targetDoseWeight,
    * targetYield } }`, with the Workflow's own profile, its `target_weight` at
    * the yield, where the yield is above 0 (`profileWithTargetWeight`), then
    * saves the value set for the active profile.
@@ -648,6 +654,8 @@ export class SimulatedStreamline {
   /** The tablet's recipe in that slot, as the strip read it. */
   private async recipeIn(slot: string): Promise<Record_> {
     const { body } = await this.tablet.callApi("GET", "/store/dye2.reaplugin/recipes");
+    // Read with its recipes (`loadDyeStripData`).
+    this.recordsDialIn = await this.dye2RecordsDialIn();
     const recipe = (Array.isArray(body) ? (body as Record_[]) : []).find((candidate) => candidate.id === slot);
     if (!recipe) throw new Error(`The tablet holds no recipe in slot ${slot}`);
     return recipe;

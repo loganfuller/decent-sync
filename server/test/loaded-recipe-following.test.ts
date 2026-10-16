@@ -178,6 +178,26 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(() => [extras(c).rpm, hotWater(c).duration], { timeout: 15_000 }).toEqual([950, 33]);
   });
 
+  it("takes a Basket picked in DYE2's editor on A for its Loaded Recipe holding none, though A's Workflow holds that Basket already", async () => {
+    const { machines, a, c, two, load } = await lab("Basket picked", 48121);
+    // Slot 2's Recipe holds no Basket; A's Workflow holds slot 1's, which loading slot 2 leaves, as it writes none.
+    await patch(two, { basketId: null });
+    await expect.poll(() => variables(inSlot(a, "2")).basketId ?? null, { timeout: 15_000 }).toBeNull();
+    const basket = extras(a).basketId as string;
+    expect(basket).toEqual(expect.any(String));
+    await load(a, machines.a, "2", two);
+    expect(extras(a).basketId).toBe(basket);
+    // DYE2's editor saves slot 2 with that Basket picked: the Recipe's first.
+    const saved = records(a).map((record) =>
+      record.id === "2" ? { ...record, dashboardVariables: { ...variables(record), basketId: basket, basketName: "Fixture 18g Precision" } } : record,
+    );
+    expect((await a.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, saved)).status).toBe(200);
+    await expect.poll(async () => (await recipe(two)).content.basketId ?? null, { timeout: 15_000 }).toEqual(expect.any(String));
+    await expect.poll(() => variables(inSlot(c, "2")).basketId ?? null, { timeout: 15_000 }).toEqual(expect.any(String));
+    await settle();
+    expect(variables(inSlot(a, "2")).basketId).toBe(basket);
+  });
+
   it("edits the Recipe from A's own set-back of its grind, and unloads it as A's barista picks the grinder the load replaced", async () => {
     const { machines, dye2, a, one } = await lab("Undo", 48021);
     const grind = (await recipe(one)).content.grindSetting;

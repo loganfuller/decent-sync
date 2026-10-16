@@ -21,10 +21,9 @@ import { type LoadContext, dye2Fingerprint, loadWrite, loadable, recipeSetUp, va
 // Shot pulled with it, and the server reads it from the Workflow deliveries.
 //
 // The plugin reads DYE2's selection on each push from DYE2's `changed`
-// socket, about 2 s after each change of the Workflow, past DYE2's 1.5 s
-// wait before it records, to catch the clears DYE2 does not push
-// (decentespresso/dye2#24), and on its poll, when it also reads whether
-// DYE2 is loaded at all. A selection of a recipe the Workflow does not name
+// socket; about 2 s after each change of the Workflow, past DYE2's 1.5 s
+// wait before it records, which decides on the changes held back meanwhile;
+// and on its poll, when it also reads whether DYE2 is loaded at all. A selection of a recipe the Workflow does not name
 // loads it: the plugin writes into the Workflow what applying a DYE2 recipe
 // leaves out, or a stale copy got wrong (`loadWrite`), and tells the server
 // what that write replaced (`WorkflowDelivery.loadBefore`). A selection
@@ -35,14 +34,14 @@ import { type LoadContext, dye2Fingerprint, loadWrite, loadable, recipeSetUp, va
 // DYE2's dashboard, which names the Recipe loaded before, as a change of
 // that one.
 //
-// Besides following DYE2, the plugin stands in for what DYE2 does not do
-// yet, each until its upstream fix (ADR-0022, Interim): it unloads the
-// Recipe on a change of grinder or Bean, which DYE2 keeps its selection
-// through, and clears DYE2's selection (dye2#19); it selects the slot again
-// after a write of its own that changes the profile, which DYE2 takes for a
-// change of profile and clears its selection on; and it keeps a selection
-// it saw cleared cleared in DYE2's storage (dye2#22). On a Capture-only
-// Machine it does none of it.
+// Besides following DYE2, the plugin stands in for what DYE2 did not do
+// before the supported floor, each until the ticket ADR-0022's interim list
+// names: it unloads the Recipe on a change of grinder or Bean, and clears
+// DYE2's selection, which DYE2 now does itself (dye2#19, #188); it selects
+// the slot again after a write of its own that changes the profile, which
+// DYE2 takes for a change of profile and clears its selection on; and it
+// keeps a selection it saw cleared cleared in DYE2's storage (dye2#22,
+// #188). On a Capture-only Machine it does none of it.
 
 const RECIPES = `/store/${DYE2_NAMESPACE}/recipes`;
 

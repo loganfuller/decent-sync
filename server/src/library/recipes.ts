@@ -465,7 +465,7 @@ export async function recordRecipeWritten(
     }
     // A record linked holds what was saved in the slot, its steam and flush values the tablet's own.
     if (!known && linked) staleSettings = !holdsRecord(view, await recordFor(tx, tablet, locationId, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, localId, itemId));
-    if (((edited?.writesDue ?? false) || staleSettings) && locationId !== null) await notify(tx, "library_changes", locationId);
+    if (((edited?.writesDue ?? false) || staleSettings || stale) && locationId !== null) await notify(tx, "library_changes", locationId);
     const holds = contentSeen !== null && !stale && (edited !== null ? !edited.lost : holdsRecipe(view, await recordFor(tx, tablet, locationId, ids, content, localId, itemId)));
     await saveRecord(tx, tablet.tabletId, itemId, localId, record, at, { contentSeen: holds ? contentSeen : null, listed: known?.listed ?? false, ...answeredBefore });
     return "recorded";

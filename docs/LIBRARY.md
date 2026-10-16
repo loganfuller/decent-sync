@@ -1790,7 +1790,7 @@ steam temperature the plugin wrote, of at least 135 °C (`STEAM_ON_FROM`),
 the plugin sets that key to match (`keepStreamlineSteamTemperature`,
 `plugin/src/streamline.ts`), where it holds a number, and sets nothing else
 in a skin's namespace. A failure to read or set it is logged, and the
-answer the server gets is the same. Streamline v0.2.14 or earlier, or
+answer the server gets is the same. Streamline v0.2.13 or earlier, or
 another skin that pushes what it remembers back, undoes the Location's
 changes on its Machine and shares its own, so that Machine's sharing of the
 settings needs turning off (ADR-0021). Streamline also sends each profile's
