@@ -347,9 +347,9 @@ export interface RequestCollections {
 }
 
 /**
- * Whether the tablet's Machine is a Capture-only Machine, taking no part in
- * the Library at a Location: sent after `welcome` and whenever that
- * changes. The plugin loads no Recipe into the Workflow of one, and runs
+ * Whether the tablet's Machine is a Capture-only Machine, at no Location or
+ * with sharing off, taking no part in the Library: sent after `welcome` and
+ * whenever that changes. The plugin loads no Recipe into the Workflow of one, and runs
  * none of ADR-0022's workarounds there, as nothing there shares it. Until
  * told, the plugin takes its Machine to take part, so a load made while the
  * tablet is offline is still recorded.

@@ -210,7 +210,7 @@ export interface PartEdits {
  *   hold yet waits for it (`unmapped`);
  * - a Bean Batch is the Recipe's only where it is of the Recipe's Bean,
  *   which moves the Recipe to it; one of another Bean, or of a Recipe naming
- *   none, is none of its, as the plugin unloads the Recipe then, and the
+ *   none, is none of its, as the plugin unloads a Recipe naming a Bean then, and the
  *   Workflow is not held to hold it, but where it is the batch the load
  *   replaced, set back before the first espresso since (`setBackToLoad`),
  *   which the plugin unloads nothing for, and which is written back;

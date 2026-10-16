@@ -206,7 +206,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect(context(tablet).grinderId).toBe(other);
   });
 
-  it("counts an espresso running as a Recipe is loaded, reported again and again, as none started since the load", async () => {
+  it("counts an espresso running as a Recipe is loaded, reported again and again and through its substates, as none started since the load", async () => {
     const { machine, tablet, one } = await lab("Running", 47111);
     tablet.connectMachine();
     const before = { beanBatchId: (inSlot(tablet, "2")![RECIPE_FIELD] as Record_).beanBatchId };
@@ -215,8 +215,11 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     await (await openDye2Dashboard(tablet)).applyRecipe("1");
     await loads(machine, one);
     const batch = context(tablet).beanBatchId;
-    // Decaid reports the same state several times a second.
+    // Decaid reports the same state several times a second, and each substate of the Shot running, which the plugin sends.
     for (let report = 0; report < 3; report++) tablet.reportState("espresso", "pour");
+    tablet.reportState("espresso", "pouringDone");
+    tablet.reportState("idle", "ready");
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
     await tablet.changeSettings({ context: before });
     await expect.poll(() => context(tablet).beanBatchId, { timeout: 15_000 }).toBe(batch);
     expect((await loadedRecipe(machine))?.recipe.id).toBe(one);

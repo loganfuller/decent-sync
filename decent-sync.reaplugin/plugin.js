@@ -1242,6 +1242,11 @@ var __decentSync = (() => {
       if (answer.kind === "recipe" && answer.slot !== null && this.recipes.get(answer.slot)?.globalId === globalId) return true;
       return answer.kind === "none" && this.pendingSelect?.globalId === globalId;
     }
+    profileChanging(globalId) {
+      const slot = this.slotOf(globalId);
+      if (this.captureOnly || slot === null || this.loaded !== globalId) return;
+      this.pendingSelect = { slot, globalId };
+    }
     written(globalId, before, after) {
       this.latest = after;
       if (this.captureOnly || dye2Fingerprint(before.profile) === dye2Fingerprint(after.profile)) return;
@@ -2219,7 +2224,9 @@ var __decentSync = (() => {
       if (!isObject5(workflow)) return refused(write, current.status, current.text);
       const fields = loadedRecipeFields(write, workflow, hotWater);
       if (Object.keys(fields).length === 0) return written(write, loadedRecipeParts(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
-      const answer = await request("PUT", "/workflow", loadedRecipePatch(fields, workflow));
+      const patch = loadedRecipePatch(fields, workflow);
+      if ("profile" in patch && dye2Fingerprint(patch.profile) !== dye2Fingerprint(workflow.profile)) posted.loaded?.profileChanging(globalId);
+      const answer = await request("PUT", "/workflow", patch);
       const updated = answer.ok ? parsed5(answer.text) : void 0;
       if (isObject5(updated)) {
         if (clearing) posted.loaded?.cleared(globalId);

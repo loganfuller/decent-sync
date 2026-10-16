@@ -50,7 +50,7 @@ import { type Answer, readShot, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
 import type { WorkflowChanges } from "./machine-events.js";
 import type { Outbox } from "./outbox.js";
-import { stepsKey } from "./loaded-recipe-rules.js";
+import { dye2Fingerprint, stepsKey } from "./loaded-recipe-rules.js";
 import { type LoadedRecipeWrites, machineMissing } from "./loaded-recipes.js";
 import { keepStreamlineSteamTemperature } from "./streamline.js";
 import { randomUuid } from "./tablet-id.js";
@@ -765,7 +765,9 @@ async function writeLoadedRecipe(write: LibraryWrite, _log: (message: string) =>
     if (!isObject(workflow)) return refused(write, current.status, current.text);
     const fields = loadedRecipeFields(write, workflow, hotWater);
     if (Object.keys(fields).length === 0) return written(write, loadedRecipeParts(workflow), [], new Date().toISOString());
-    const answer = await request("PUT", "/workflow", loadedRecipePatch(fields, workflow));
+    const patch = loadedRecipePatch(fields, workflow);
+    if ("profile" in patch && dye2Fingerprint(patch.profile) !== dye2Fingerprint(workflow.profile)) posted.loaded?.profileChanging(globalId);
+    const answer = await request("PUT", "/workflow", patch);
     const updated = answer.ok ? parsed(answer.text) : undefined;
     if (isObject(updated)) {
       if (clearing) posted.loaded?.cleared(globalId);

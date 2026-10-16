@@ -62,6 +62,13 @@ export interface LoadedRecipeWrites {
    * selected in the moment between. Throws if Decaid does not answer.
    */
   mayWrite(globalId: string): Promise<boolean>;
+  /**
+   * Just before a write of it that changes the profile, as DYE2 fingerprints
+   * one: DYE2 clears its selection as Decaid reports it, so the slot is to be
+   * selected again from then, and no read meanwhile takes that clear for the
+   * barista's.
+   */
+  profileChanging(globalId: string): void;
   /** After it: the profile it changed, which DYE2 clears its selection on, is selected again. */
   written(globalId: string, before: Record<string, unknown>, after: Record<string, unknown>): void;
   /** After the server's clearing of a Loaded Recipe: its slot is cleared from DYE2's selection, and that kept. */
@@ -278,6 +285,12 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     if (answer.kind === "recipe" && answer.slot !== null && this.recipes.get(answer.slot)?.globalId === globalId) return true;
     // Still to be selected again by the plugin, as after its write changed the profile: while DYE2 has nothing selected.
     return answer.kind === "none" && this.pendingSelect?.globalId === globalId;
+  }
+
+  profileChanging(globalId: string): void {
+    const slot = this.slotOf(globalId);
+    if (this.captureOnly || slot === null || this.loaded !== globalId) return;
+    this.pendingSelect = { slot, globalId };
   }
 
   written(globalId: string, before: Record<string, unknown>, after: Record<string, unknown>): void {
