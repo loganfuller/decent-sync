@@ -228,11 +228,16 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(await localId(a, "/bean-batches", (await recipe(one)).content.beanBatchId as string)).toBe(batch1);
   });
 
-  it("takes a yield set on Streamline's Drink tile into the Recipe, keeping it loaded, and writes it into C's Workflow", async () => {
+  it("takes a yield set on Streamline's Drink tile into the Recipe, keeping it loaded, and writes it into C's Workflow, but not the profile's own brew temperature it sends", async () => {
     const { machines, dye2, a, c, one } = await lab("Drink", 48041);
     const streamline = await startStreamline(a);
+    const temperature = (await recipe(one)).content.brewTemperature;
+    expect(firstTemperature(a)).toBe(temperature);
     expect((await streamline.setYield(38.5)).status).toBe(200);
+    // Sent at Adaptive v3's own 93 °C (decentespresso/streamline-js#155): the Recipe's is written back.
     await expect.poll(async () => (await recipe(one)).content.yield, { timeout: 15_000 }).toBe(38.5);
+    await expect.poll(() => firstTemperature(a), { timeout: 15_000 }).toBe(temperature);
+    expect((await recipe(one)).content.brewTemperature).toBe(temperature);
     await expect.poll(() => context(c).targetYield, { timeout: 15_000 }).toBe(38.5);
     await expect.poll(() => dye2.a.selected()).toMatchObject({ kind: "recipe", id: "1" });
     await loads(machines.a, one);

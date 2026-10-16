@@ -321,8 +321,11 @@ deliveries.
   volume alone (`targetsOnlyDiffer`), the plugin selects the slot again,
   without a load's write, and marks the held Workflow delivery
   `unrecorded`, so the server takes from it every field DYE2 would have
-  recorded that differs from the Recipe. A wake profile Streamline sends
-  with another yield is taken in the same way (decentespresso/streamline-js#153).
+  recorded that differs from the Recipe, but a brew temperature at the
+  Recipe's Profile's own first step temperature: the Drink tile sends its
+  copy of the profile at those (decentespresso/streamline-js#155), so the
+  Recipe's is written back. A wake profile Streamline sends with another
+  yield is taken in the same way (decentespresso/streamline-js#153).
 - **A cleared selection kept cleared.** DYE2 restores its stored selection
   as it loads, and stores a cleared one as `null`, which Decaid's store does
   not keep, so a cleared selection comes back (decentespresso/dye2#22). So

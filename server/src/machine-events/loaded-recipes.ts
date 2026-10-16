@@ -303,6 +303,8 @@ async function takeInParts(
   }
   const lookups = await partLookups(tx, tablet.tabletId);
   const stale = await staleCheck(tx, tablet, followed, changed);
+  // Streamline's Drink tile sends its Profile's own temperatures with a yield (decentespresso/streamline-js#155).
+  if (unrecorded) stale.profileTemperature = firstStepTemperature(await profileOf(tx, followed.content.profileId));
   const source = tabletSource(tablet);
   // A part the map gained since the Workflow named it was changed when it was observed, decided before the rest.
   const timed = changed.map((part) => {
@@ -518,6 +520,13 @@ export async function loadedRecipeDue(tx: Prisma.TransactionClient, tablet: { ma
   });
   if (due === null) return null;
   return { ...base, ...due, contentDecidedAt: latestDecision(readFieldEdits(recipe.fieldEdits)) };
+}
+
+/** The Library Profile's `profile` with that id, or null. */
+async function profileOf(tx: Prisma.TransactionClient, profileId: unknown): Promise<unknown> {
+  if (typeof profileId !== "string" || profileId === "") return null;
+  const [row] = await tx.$queryRaw<{ profile: unknown }[]>`SELECT content -> 'profile' AS profile FROM profiles WHERE id = ${profileId}`;
+  return row?.profile ?? null;
 }
 
 /** A profile's first step's temperature, as a Recipe without a brew temperature of its own is brewed at; null for none. */
