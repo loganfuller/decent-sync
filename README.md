@@ -351,13 +351,10 @@ Library. See [docs/LIBRARY.md](docs/LIBRARY.md).
 
 Recipes are shared through DYE2 and follow the recipe DYE2 has selected on each
 tablet ([ADR-0022](docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md)),
-so a Machine that follows Recipes needs DYE2 v0.1.20 or newer, and Streamline
-v0.2.14 or newer where Streamline is its skin. Don't set a wake profile in
-Streamline's settings on such a Machine: waking onto it sends that tablet's
-saved dose, yield, grind and brew temperature for the profile, which then
-become the Recipe's on every Machine at the Location
-(decentespresso/streamline-js#153). Tapping the button of the profile already
-loaded sends them too.
+so a Machine that follows Recipes needs DYE2 built from `main` at `2cf631c` or
+later, and streamline-js from `main` at `c006dac` or later where Streamline is
+its skin. These untagged builds are the minimums until tagged releases contain
+them ([ADR-0017](docs/adr/0017-supported-versions.md)).
 
 | Setting | |
 |---|---|

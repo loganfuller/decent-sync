@@ -435,13 +435,17 @@ export async function recordRecipeWritten(
     const here = item.locationId !== null && item.locationId === locationId;
     if (known) {
       const answered = answeredEquipment(recipeView(known.record), view, written, known.beforeWrite, await recordFor(tx, tablet, locationId, ids, content, localId, itemId));
+      // What DYE2 recorded into the record just before the plugin's read of the list, which its post kept, is judged as a
+      // report's is (ADR-0022).
+      const recorded = here ? await recordedByDye2(tx, tablet, itemId, content, item.fieldEdits, answered.values) : new Set<string>();
+      for (const path of recorded) delete answered.values[path];
       const paths = editedPaths(answered.values);
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
       const values = paths.length === 0 || !here ? {} : withoutOwnEdits(libraryValues(view, paths, content, await context(view)), content, readFieldEdits(item.fieldEdits), tablet.tabletId);
       edited = await editContent(tx, ref, { values, at, seenAt: known.contentSeenAt }, source);
       if (here) await editSettingsInRecipe(tx, tablet, locationId!, settingsValues(view, Object.keys(answered.values), recipeView(known.record)), at);
       const now = await recordFor(tx, tablet, locationId, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, localId, itemId);
-      stale = answered.stale && !holdsRecipe(view, now);
+      stale = (answered.stale || recorded.size > 0) && !holdsRecipe(view, now);
       staleSettings = !holdsRecord(view, now);
       answeredBefore = { beforeWrite: answered.beforeWrite };
     } else if (!linked) {

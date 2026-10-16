@@ -12,22 +12,19 @@ export interface WorkflowChanges {
   release(): void;
   /**
    * What the next Workflow delivery queued carries besides the Workflow
-   * (`WorkflowDelivery.loadBefore` and `unrecorded`), released or not: a
+   * (`WorkflowDelivery.loadBefore`), released or not: a
    * load's values, each part's earliest `before` kept where several loads
    * come before one delivery.
    */
   attach(extra: WorkflowExtra): void;
-  /** The latest Workflow sent again with that extra, at once, or as released where held. */
-  sendWith(extra: WorkflowExtra): void;
 }
 
 /** What a Workflow delivery may carry besides the Workflow (`WorkflowDelivery`). */
 export interface WorkflowExtra {
   loadBefore?: Record<string, LoadBefore>;
-  unrecorded?: boolean;
 }
 
-/** Two extras as one: each part's earliest `before` and latest `written`, and `unrecorded` where either sets it. */
+/** Two extras as one: each part's earliest `before` and latest `written`. */
 export function mergeExtra(earlier: WorkflowExtra, later: WorkflowExtra): WorkflowExtra {
   const merged: WorkflowExtra = { ...earlier };
   if (later.loadBefore) {
@@ -38,7 +35,6 @@ export function mergeExtra(earlier: WorkflowExtra, later: WorkflowExtra): Workfl
     }
     merged.loadBefore = parts;
   }
-  if (later.unrecorded) merged.unrecorded = true;
   return merged;
 }
 
@@ -149,15 +145,6 @@ export class MachineEvents implements WorkflowChanges {
 
   attach(extra: WorkflowExtra): void {
     this.extra = mergeExtra(this.extra, extra);
-  }
-
-  sendWith(extra: WorkflowExtra): void {
-    this.attach(extra);
-    if (!this.workflow) return;
-    if (this.holds > 0) {
-      this.heldChange = true;
-      this.heldReport = true;
-    } else this.queueWorkflow(this.workflow, this.reportedAt);
   }
 
   /**

@@ -11,7 +11,7 @@ import {
   storeSelection,
 } from "./dye2-selection.js";
 import type { WorkflowChanges } from "./machine-events.js";
-import { type LoadContext, dye2Fingerprint, loadWrite, loadable, recipeSetUp, targetsOnlyDiffer, vacatedSlots, workflowBatch, workflowGrinder } from "./loaded-recipe-rules.js";
+import { type LoadContext, dye2Fingerprint, loadWrite, loadable, recipeSetUp, vacatedSlots, workflowBatch, workflowGrinder } from "./loaded-recipe-rules.js";
 
 // Each Machine's Loaded Recipe (ADR-0022): the recipe DYE2 has selected on
 // the tablet, where it is in a Recipe Slot carrying a Recipe's global id and
@@ -40,10 +40,9 @@ import { type LoadContext, dye2Fingerprint, loadWrite, loadable, recipeSetUp, ta
 // Recipe on a change of grinder or Bean, which DYE2 keeps its selection
 // through, and clears DYE2's selection (dye2#19); it selects the slot again
 // after a write of its own that changes the profile, which DYE2 takes for a
-// change of profile and clears its selection on; it selects it again after
-// a yield set in Streamline, and has the server take the change in
-// (`unrecorded`, dye2#18); and it keeps a selection it saw cleared cleared
-// in DYE2's storage (dye2#22). On a Capture-only Machine it does none of it.
+// change of profile and clears its selection on; and it keeps a selection
+// it saw cleared cleared in DYE2's storage (dye2#22). On a Capture-only
+// Machine it does none of it.
 
 const RECIPES = `/store/${DYE2_NAMESPACE}/recipes`;
 
@@ -613,20 +612,9 @@ export class LoadedRecipes implements LoadedRecipeWrites {
         return;
       }
       this.answer = "none";
-      const loaded = this.loaded;
-      const slot = loaded === null ? null : this.slotOf(loaded);
-      // A yield set in Streamline changed the profile's target weight alone, which cleared DYE2's selection before it
-      // recorded anything (decentespresso/dye2#18): it is selected again, and the server takes the change in.
-      if (loaded !== null && slot !== null && this.selected?.slot === slot && targetsOnlyDiffer(this.selected.fingerprint, dye2Fingerprint(this.latest?.profile))) {
-        this.changes.sendWith({ unrecorded: true });
-        this.selected = null;
-        this.pendingSelect = { slot, globalId: loaded };
-        await this.tryPending({ kind: "none" });
-        return;
-      }
       const cleared = this.selected;
       this.selected = null;
-      if (loaded !== null) await this.unload("selection");
+      if (this.loaded !== null) await this.unload("selection");
       if (previous === "recipe") await this.keepCleared(cleared);
       return;
     }

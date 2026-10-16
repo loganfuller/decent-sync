@@ -64,9 +64,10 @@ function stableJson(value: unknown): string {
 /**
  * A profile as DYE2 fingerprints one to tell a change of profile, which
  * clears its selection (`profileFingerprint` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.20): its title,
- * target weight and volume, tank temperature and steps, but each step's
- * temperature. Null for none.
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at 2cf631c): its title, tank
+ * temperature and steps, but each step's temperature. Its target weight and
+ * volume are the yield, which Streamline sends with the profile, so they are
+ * left out (decentespresso/dye2#18). Null for none.
  */
 export function dye2Fingerprint(profile: unknown): string | null {
   if (!isObject(profile)) return null;
@@ -77,26 +78,7 @@ export function dye2Fingerprint(profile: unknown): string | null {
         return rest;
       })
     : profile.steps;
-  return JSON.stringify({
-    title: profile.title,
-    target_weight: profile.target_weight,
-    target_volume: profile.target_volume,
-    tank_temperature: profile.tank_temperature,
-    steps,
-  });
-}
-
-/**
- * Whether two of DYE2's fingerprints differ, and only in the profile's
- * target weight or volume, as Streamline sets a yield (decentespresso/dye2#18).
- */
-export function targetsOnlyDiffer(a: string | null, b: string | null): boolean {
-  if (a === null || b === null || a === b) return false;
-  const [x, y] = [parsed(a), parsed(b)];
-  if (!isObject(x) || !isObject(y)) return false;
-  // Keys in any order: a profile written from the server's records holds its steps' keys sorted.
-  const rest = ({ target_weight: _w, target_volume: _v, ...others }: Record<string, unknown>) => stableJson(others);
-  return rest(x) === rest(y);
+  return JSON.stringify({ title: profile.title, tank_temperature: profile.tank_temperature, steps });
 }
 
 /** The Bean Batch a Workflow names, by the tablet's id for it, or null. */
@@ -284,12 +266,4 @@ function sameValue(a: unknown, b: unknown): boolean {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function parsed(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
-  }
 }

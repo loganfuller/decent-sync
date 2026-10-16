@@ -15,8 +15,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // at its Location only (ADR-0019), and what a Location does not show is
 // removed from its tablets' lists. And for ticket #142, a save from a DYE2
 // page opened before another tablet's change keeps that change (ADR-0005).
-// Through the built plugin in simulated tablets, acting as DYE2 v0.1.19 does
-// with the steps recorded from it (fixtures/decaid/dye2-v0.1.19/), on two
+// Through the built plugin in simulated tablets, acting as DYE2 at 2cf631c does
+// with the steps recorded from it (fixtures/decaid/dye2-2cf631c/), on two
 // server instances sharing one database, with assertions through the REST
 // API and what each simulated tablet's store holds. Serials are made up, from 41001.
 

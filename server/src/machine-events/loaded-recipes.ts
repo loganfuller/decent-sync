@@ -16,7 +16,6 @@ import type { CurrentEntry } from "../library/join-plan.js";
 import { isObject } from "../library/listed.js";
 import {
   type ItemKind,
-  KEPT_PARTS,
   NO_STALE_CHECK,
   PARTS,
   type PartLookups,
@@ -108,7 +107,7 @@ export async function takeInLoadedRecipe(
   observedAt: string,
   entry: CurrentEntry | null,
   joining: boolean,
-  extra: Pick<WorkflowDelivery, "loadBefore" | "unrecorded"> = {},
+  extra: Pick<WorkflowDelivery, "loadBefore"> = {},
 ): Promise<void> {
   const named = loadedRecipeOf(workflow);
   let recipe: FollowedRecipe | null = null;
@@ -142,7 +141,7 @@ export async function takeInLoadedRecipe(
   // Taking part nowhere, as capture-only, only the Recipe the server last had as its Loaded Recipe is cleared: one loaded
   // since stays, as does one loaded on the tablet before it stopped that the server had not heard of yet, as while offline.
   const clearsNowhere = entry !== null || loadedBefore === named;
-  await followMachine(tx, tablet, workflow, named, recipe, loadedBefore === recipeId && !joining, new Date(observedAt), clearsNowhere, extra.unrecorded === true);
+  await followMachine(tx, tablet, workflow, named, recipe, loadedBefore === recipeId && !joining, new Date(observedAt), clearsNowhere);
 }
 
 /**
@@ -240,7 +239,6 @@ async function followMachine(
   continued: boolean,
   observedAt: Date,
   clears: boolean,
-  unrecorded: boolean,
 ): Promise<void> {
   if (named === null) {
     await tx.$executeRaw`DELETE FROM tablet_loaded_recipes WHERE tablet_id = ${tablet.tabletId}::uuid`;
@@ -255,7 +253,7 @@ async function followMachine(
   }
   if (recipe !== null && continued && known?.recipeId === named) {
     // Its Grinder and Profile are no edit of it, so held as they were: the Profile is not looked up.
-    await takeInParts(tx, tablet, recipe, known, workflowParts(workflow), observedAt, new Set(), unrecorded);
+    await takeInParts(tx, tablet, recipe, known, workflowParts(workflow), observedAt, new Set());
     return;
   }
   const now = workflowParts(workflow, await libraryProfileOf(tx, workflow));
@@ -284,34 +282,25 @@ async function takeInParts(
   now: WorkflowParts,
   at: Date,
   written: ReadonlySet<LoadedRecipePart>,
-  unrecorded = false,
 ): Promise<void> {
-  // DYE2 records the rest into the Recipe's record, but where it missed a change (`unrecorded`, decentespresso/dye2#18).
-  const edited = unrecorded ? [...workflowEditedParts(followed.content), ...recordedParts(followed.content)] : workflowEditedParts(followed.content);
-  const changed = changedParts(known.held, now, edited).filter((part) => !written.has(part));
+  // DYE2 records the rest into the Recipe's record.
+  const changed = changedParts(known.held, now, workflowEditedParts(followed.content)).filter((part) => !written.has(part));
   const held: WorkflowParts = { ...known.held };
   for (const part of written) held[part] = now[part];
-  // Cleared by Streamline after a Shot, or as it starts without DYE2: written back, once for that clear
-  // (decentespresso/streamline-js#149).
-  const cleared = KEPT_PARTS.filter((part) => !written.has(part) && now[part] === null && known.held[part] !== null);
-  for (const part of cleared) held[part] = null;
   const pending: Pending = {};
   if (changed.length === 0) {
     await saveHeld(tx, tablet.tabletId, followed.id, held, pending, null);
-    if (cleared.length > 0) await notify(tx, "library_changes", followed.locationId);
     return;
   }
   const lookups = await partLookups(tx, tablet.tabletId);
   const stale = await staleCheck(tx, tablet, followed, changed);
-  // Streamline's Drink tile sends its Profile's own temperatures with a yield (decentespresso/streamline-js#155).
-  if (unrecorded) stale.profileTemperature = firstStepTemperature(await profileOf(tx, followed.content.profileId));
   const source = tabletSource(tablet);
   // A part the map gained since the Workflow named it was changed when it was observed, decided before the rest.
   const timed = changed.map((part) => {
     const waiting = known.pending[part];
     return { part, at: waiting !== undefined && waiting.localId === now[part] ? new Date(waiting.at) : at };
   });
-  let writesDue = cleared.length > 0;
+  let writesDue = false;
   let content = followed.content;
   for (const time of [...new Set(timed.map((entry) => entry.at.getTime()))].sort((a, b) => a - b)) {
     const parts = timed.filter((entry) => entry.at.getTime() === time).map((entry) => entry.part);
@@ -522,13 +511,6 @@ export async function loadedRecipeDue(tx: Prisma.TransactionClient, tablet: { ma
   return { ...base, ...due, contentDecidedAt: latestDecision(readFieldEdits(recipe.fieldEdits)) };
 }
 
-/** The Library Profile's `profile` with that id, or null. */
-async function profileOf(tx: Prisma.TransactionClient, profileId: unknown): Promise<unknown> {
-  if (typeof profileId !== "string" || profileId === "") return null;
-  const [row] = await tx.$queryRaw<{ profile: unknown }[]>`SELECT content -> 'profile' AS profile FROM profiles WHERE id = ${profileId}`;
-  return row?.profile ?? null;
-}
-
 /** A profile's first step's temperature, as a Recipe without a brew temperature of its own is brewed at; null for none. */
 function firstStepTemperature(profile: unknown): number | null {
   const steps = isObject(profile) && Array.isArray(profile.steps) ? profile.steps : [];
@@ -537,7 +519,13 @@ function firstStepTemperature(profile: unknown): number | null {
   return typeof temperature === "number" && Number.isFinite(temperature) ? temperature : null;
 }
 
-/** The paths of a recipe record DYE2 records into, each with the part of the Workflow it records from (`recordedParts`). */
+/**
+ * The paths of a recipe record DYE2 records into, each with the part of the
+ * Workflow it records from: those of `recordedParts`, and the RPM, Basket
+ * and other hot water value, which DYE2 records too, the hot water value
+ * once it moves off the one the Workflow held as the recipe was selected
+ * (`itemPatch` in dye2:dye2-plugin/src/utils/workflow-record.ts at 2cf631c).
+ */
 const RECORDED_PATHS: Readonly<Record<string, LoadedRecipePart>> = {
   "dashboardVariables.dose": "dose",
   "dashboardVariables.drink": "yield",
@@ -545,6 +533,8 @@ const RECORDED_PATHS: Readonly<Record<string, LoadedRecipePart>> = {
   "dashboardVariables.brewC": "brewTemperature",
   "dashboardVariables.hotWaterMl": "volume",
   "dashboardVariables.hotWaterTempC": "targetTemperature",
+  "dashboardVariables.rpm": "rpm",
+  "dashboardVariables.basketId": "basket",
 };
 
 /**
@@ -577,17 +567,23 @@ export async function recordedByDye2(
   if (!load) return stale;
   const { loadBefore } = load;
   const own = ownSince(readFieldEdits(fieldEdits), tablet.tabletId, load.loadedAt);
-  const recorded = recordedParts(content);
+  // The parts the Workflow also reports (`workflowEditedParts`) are held as it reports them, which can be later than the
+  // value DYE2 recorded: only those DYE2 alone records are held as recorded.
+  const recordedOnly = new Set(recordedParts(content));
+  const locals = "dashboardVariables.basketId" in changed ? await tabletLocals(tx, tablet.tabletId) : undefined;
   const held: WorkflowParts = { ...known.held };
   for (const [path, value] of Object.entries(changed)) {
     const part = RECORDED_PATHS[path];
-    if (part === undefined || !recorded.includes(part)) continue;
+    if (part === undefined) continue;
     const recordedValue = readParts({ [part]: value })[part];
     if (recordedValue === null) continue;
-    const recipeValue = readParts({ [part]: content[RECIPE_FIELDS[part]] })[part];
+    // The Recipe names its Basket by its global id, the record by the tablet's.
+    const basket = content[RECIPE_FIELDS.basket];
+    const recipeValue = part === "basket" ? (typeof basket === "string" ? (locals?.("basket", basket) ?? null) : null) : readParts({ [part]: content[RECIPE_FIELDS[part]] })[part];
     const unwritten = known.held[part] !== null && samePart(part, known.held[part], recordedValue) && !samePart(part, recipeValue, recordedValue);
-    if (setBackToLoad(part, recordedValue, loadBefore, own) || unwritten) stale.add(path);
-    held[part] = recordedValue;
+    // A value that is the Recipe's already, as DYE2 records the plugin's own write, is no edit either.
+    if (samePart(part, recipeValue, recordedValue) || setBackToLoad(part, recordedValue, loadBefore, own) || unwritten) stale.add(path);
+    if (recordedOnly.has(part)) held[part] = recordedValue;
   }
   await saveHeld(tx, tablet.tabletId, recipeId, held, known.pending, null);
   return stale;

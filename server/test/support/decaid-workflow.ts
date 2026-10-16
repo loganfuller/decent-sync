@@ -59,6 +59,23 @@ const WORKFLOW_FIELDS = ["id", "name", "description", "profile", "context", "ste
 /** The profile's fields as `Profile.toJson` writes them, in its order (decaid:lib/src/models/data/profile.dart); it drops any other, such as an `id`. */
 const PROFILE_FIELDS = ["version", "title", "notes", "author", "beverage_type", "steps", "target_volume", "target_weight", "target_volume_count_start", "tank_temperature"];
 
+/**
+ * A step's fields as `ProfileStepPressure.toJson` and `ProfileStepFlow.toJson`
+ * write them, in their order, its pressure or flow by its pump; its exit and
+ * limiter as theirs do, or null for none (decaid:lib/src/models/data/profile.dart).
+ * So a profile reads back in the same order whatever order it was sent in.
+ */
+function rebuiltStep(step: unknown): unknown {
+  if (!isObject(step)) return step;
+  const fields = ["name", "pump", "transition", "exit", "volume", "seconds", "weight", "temperature", "sensor", step.pump === "flow" ? "flow" : "pressure", "limiter"];
+  const ordered = (value: unknown, keys: readonly string[]) => (isObject(value) ? Object.fromEntries(keys.filter((key) => key in value).map((key) => [key, value[key]])) : null);
+  return Object.fromEntries(
+    fields
+      .filter((field) => field in step || field === "exit" || field === "limiter")
+      .map((field) => [field, field === "exit" ? ordered(step.exit, ["type", "condition", "value"]) : field === "limiter" ? ordered(step.limiter, ["value", "range"]) : step[field]]),
+  );
+}
+
 /** The steam settings Decaid writes to the machine, so a change of which needs one: not `stopAtTemperature`. */
 const STEAM_WRITTEN = ["targetTemperature", "duration", "flow"];
 
@@ -112,7 +129,9 @@ function rebuilt(merged: Json): Json {
   for (const field of WORKFLOW_FIELDS) if (field in merged) workflow[field] = merged[field];
   if (isObject(merged.profile)) {
     const profile = merged.profile;
-    workflow.profile = Object.fromEntries(PROFILE_FIELDS.filter((field) => field in profile).map((field) => [field, profile[field]]));
+    const kept: Json = Object.fromEntries(PROFILE_FIELDS.filter((field) => field in profile).map((field) => [field, profile[field]]));
+    if (Array.isArray(profile.steps)) kept.steps = profile.steps.map(rebuiltStep);
+    workflow.profile = kept;
   }
   if (isObject(merged.context)) workflow.context = rebuiltContext(merged.context);
   else delete workflow.context;

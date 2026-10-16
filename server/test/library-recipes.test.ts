@@ -5,17 +5,15 @@ import { syncingTablet } from "./support/loaded-tablets.js";
 import {
   DYE2_NAMESPACE,
   type Dye2Key,
-  applyInDye2,
-  applyInStreamline,
-  autoSaveInStreamline,
   dye2Library,
   dye2List,
   dye2NeverUsed,
   dye2Recording,
+  openDye2Dashboard,
   recordedDye2Tablet,
-  replayWrites,
   saveInDye2,
 } from "./support/simulated-dye2.js";
+import { startStreamline } from "./support/simulated-streamline.js";
 import type { DecaidApi, SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -27,9 +25,9 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // field with Conflicts (ADR-0020); a recipe gone from a tablet's list is taken
 // out of its slot there (ADR-0019). And for ticket #142, a save from a DYE2
 // page opened before another tablet's change keeps that change (ADR-0005).
-// Through the built plugin in simulated tablets, acting as DYE2 v0.1.19 and
-// Streamline v0.2.13 do with the steps recorded from them
-// (fixtures/decaid/dye2-v0.1.19/), on two server instances sharing one
+// Through the built plugin in simulated tablets, acting as DYE2 at 2cf631c and
+// Streamline at c006dac do with the steps recorded from them
+// (fixtures/decaid/dye2-2cf631c/), on two server instances sharing one
 // database, with assertions through the REST API and what each simulated
 // tablet's store holds. Serials are made up, from 42001.
 
@@ -44,17 +42,17 @@ interface RecipeView {
   content: Record_;
 }
 
-/** The recording's tablet's ids for what its recipes name (fixtures/decaid/dye2-v0.1.19/library.json, keys.json). */
+/** The recording's tablet's ids for what its recipes name (fixtures/decaid/dye2-2cf631c/library.json, keys.json). */
 const RECORDED = {
-  brazil: "6b16db38-425e-48ec-93b7-e03e1d8707cd",
-  ethiopia: "8ee8ac01-bf2b-47d6-b4e2-292bd7ef5ada",
-  brazilBatch: "086d9a50-63c5-4add-837b-738c88897849",
-  ethiopiaBatch: "b850e4f2-89cf-400f-9d43-ec1080ad595b",
-  grinder: "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
-  basket18: "5a792f42-b6ff-44e0-a58c-ed165741b789",
-  basket20: "1749fba2-86b3-43e2-badf-97af64ae888b",
-  wdtTool: "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
-  puckScreen: "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2",
+  brazil: "1497c30b-e01e-4241-b1b0-a82bdae089d3",
+  ethiopia: "bdae1553-8b0f-4d37-94a1-15d61b543e74",
+  brazilBatch: "837c5af9-aa43-44ed-a857-5009969e3217",
+  ethiopiaBatch: "6f741a24-ceb9-4ec6-aa51-750c6e9fec26",
+  grinder: "cc95ada6-98db-4495-8b24-a46239ad94a0",
+  basket18: "b09fb95c-7e5d-4be1-a4b8-d89c79523343",
+  basket20: "fa7809d4-1843-4745-8a37-ca6f43025dba",
+  wdtTool: "0ee0a5bb-5e08-4a2b-9bce-3b256693a6d2",
+  puckScreen: "28dc53fe-df8b-4789-9589-49ef5e45d57e",
 } as const;
 
 /** Decaid's bundled Profiles the recorded recipes use. */
@@ -84,10 +82,10 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
   }
 
   /** A Location with two Machines, the first's tablet the recording's, on one instance, the second's empty, on the other. */
-  async function lab(scenario: string, serials: number) {
+  async function lab(scenario: string, serials: number, first: DecaidApi = recordedDye2Tablet(String(serials), scenario)) {
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machines = [await api.createMachine(`${scenario} lab 1`, here.id), await api.createMachine(`${scenario} lab 2`, here.id)] as const;
-    const one = load(machines[0], recordedDye2Tablet(String(serials), scenario));
+    const one = load(machines[0], first);
     const two = load(machines[1], dye2NeverUsed(String(serials + 1)), other);
     await api.waitForOnline(...machines);
     return { here, machines, one, two };
@@ -137,7 +135,6 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     );
 
   const recipes = dye2Recording("recipes");
-  const streamline = dye2Recording("streamline");
 
   it("writes a recipe saved in DYE2 in slot 2 to slot 2 on the Location's other tablets, under their own ids, and to no other Location's", async () => {
     const { here, one, two } = await lab("Saved", 42001);
@@ -162,13 +159,14 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
         yield: 36,
         grindSetting: 3,
         rpm: 1100,
-        brewTemperature: 93,
         showOnDashboard: true,
         steamMode: "flow",
         hotWaterMode: "vol",
         hotWaterVolume: 150,
       }),
     );
+    // Its brew temperature was left blank, which DYE2's editor saves as none.
+    expect(saved!.content).not.toHaveProperty("brewTemperature");
     for (const field of ["beanBatchId", "grinderId", "basketId"]) expect(saved!.content[field]).toEqual(expect.any(String));
     expect(saved!.content.toolIds).toEqual([expect.any(String)]);
     expect(saved!.content).not.toHaveProperty("barista");
@@ -389,26 +387,6 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     expect((await recipe(replacing.id)).content).toMatchObject({ name: "Shared new", dose: 19, hotWaterTemperature: 88, rpm: 950, grindSetting: 3.3 });
   });
 
-  it("takes a Streamline auto-save into a recipe in, and writes it to every tablet at the Location", async () => {
-    const { here, one, two } = await lab("Autosaved", 42021);
-    await saveInDye2(one, recipes.saveSlot2);
-    await expect.poll(() => inSlot(two, "2")?.[GLOBAL_ID_KEY]).toEqual(expect.any(String));
-    await expect.poll(() => inSlot(one, "2")?.[GLOBAL_ID_KEY]).toEqual(expect.any(String));
-
-    // Streamline's DYE strip applies slot 2, then saves the barista's dose change into it: 19 g to 20 g, with the
-    // Profile's first step's temperature as its brew temperature.
-    await replayWrites(one, streamline.applySlot2);
-    expect(await autoSaveInStreamline(one, streamline.autoSaveDose)).toBeDefined();
-    expect(variables(inSlot(one, "2")).dose).toBe(20);
-    await expect.poll(async () => (await recipesAt(here))[0]?.content.dose).toBe(20);
-    expect((await recipesAt(here))[0]!.content).toMatchObject({ dose: 20, brewTemperature: 94 });
-    await expect.poll(() => variables(inSlot(two, "2")).dose).toBe(20);
-    // Streamline leaves the embedded Workflow as it was: the server regenerates it, on every tablet.
-    for (const tablet of [one, two]) {
-      await expect.poll(() => (inSlot(tablet, "2")?.workflow as { context: Record_ } | undefined)?.context.targetDoseWeight).toBe(20);
-    }
-  });
-
   it("writes Recipes in slots 1, 3 and 7 in slot order, with no slot 2", async () => {
     const { here, one, two } = await lab("Ordered", 42031);
     await saveInDye2(one, recipes.saveSlot1);
@@ -427,7 +405,10 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
   });
 
   it("gives a Recipe whose Bean is picked in DYE2 that Bean's batch most recently added at the Location", async () => {
-    const { here, one, two } = await lab("Picked", 42041);
+    // The tablet's batches created well before the test runs, whatever day the recording was made.
+    const tablet = recordedDye2Tablet("42041", "Picked");
+    const brought = { ...tablet, "/bean-batches": (tablet["/bean-batches"] as Record_[]).map((batch) => ({ ...batch, createdAt: "2026-10-01T09:00:00.000000", updatedAt: "2026-10-01T09:00:00.000000" })) };
+    const { here, one, two } = await lab("Picked", 42041, brought);
     await saveInDye2(one, recipes.saveSlot1);
     await expect.poll(async () => (await recipesAt(here))[0]?.content.beanBatchId).toEqual(expect.any(String));
     const [saved] = await recipesAt(here);
@@ -465,14 +446,16 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     // Another Profile loaded, applying the recipe DYE2's way loads its own.
     const classic = (dye2Library()["/profiles"] as Record_[]).find((profile) => profile.id === CLASSIC)!.profile;
     expect((await two.callApi("PUT", "/workflow", { profile: classic })).status).toBe(200);
-    expect((await applyInDye2(two, "1")).status).toBe(200);
+    expect((await (await openDye2Dashboard(two)).applyRecipe("1")).workflow.status).toBe(200);
     const loaded = async () => ((await two.callApi("GET", "/workflow")).body as { profile: Record_ }).profile;
     expect(await loaded()).toMatchObject({ title: "Adaptive v3", steps: library.steps });
     // And so does applying it Streamline's way.
     expect((await two.callApi("PUT", "/workflow", { profile: classic })).status).toBe(200);
     expect((await loaded()).title).toBe("Classic Italian espresso");
-    expect((await applyInStreamline(two, "1")).status).toBe(200);
-    expect(await loaded()).toMatchObject({ title: "Adaptive v3", steps: library.steps });
+    expect((await (await startStreamline(two)).applyRecipe("1")).workflow.status).toBe(200);
+    // Streamline sends a step limiter of 0 as none (`updateWorkflow` in streamline-js:src/modules/api.js).
+    const sanitised = (library.steps as Record_[]).map((step) => ((step.limiter as Record_ | null)?.value === 0 ? { ...step, limiter: null } : step));
+    expect(await loaded()).toMatchObject({ title: "Adaptive v3", steps: sanitised });
   });
 
   it("takes a Recipe gone from a tablet's list out of its slot at the Location, keeping it, and empties the slot on the other tablets", async () => {

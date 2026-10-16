@@ -5,9 +5,9 @@ import { dye2Fingerprint } from "../src/loaded-recipe-rules.js";
 
 // The plugin tells DYE2's change of profile as DYE2 does, by its fingerprint
 // of the Workflow's profile: checked byte for byte against the
-// `profileFingerprint` DYE2 v0.1.20 stored as it selected a recipe, for the
+// `profileFingerprint` DYE2 at 2cf631c stored as it selected a recipe, for the
 // profile as Decaid's `workflowUpdated` event carried it to plugins and as
-// `GET /workflow` answered it (server/test/fixtures/decaid/dye2-v0.1.20/,
+// `GET /workflow` answered it (server/test/fixtures/decaid/dye2-2cf631c/,
 // fingerprints.json).
 
 interface Recorded {
@@ -18,7 +18,7 @@ interface Recorded {
 }
 
 const recorded = JSON.parse(
-  fs.readFileSync(path.resolve(import.meta.dirname, "../../server/test/fixtures/decaid/dye2-v0.1.20/fingerprints.json"), "utf8"),
+  fs.readFileSync(path.resolve(import.meta.dirname, "../../server/test/fixtures/decaid/dye2-2cf631c/fingerprints.json"), "utf8"),
 ) as Recorded[];
 
 describe("dye2Fingerprint", () => {

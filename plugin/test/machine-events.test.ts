@@ -82,13 +82,12 @@ describe("Workflow changes held while the plugin writes into the Workflow", () =
     const { machineEvents, deliveries } = events();
     machineEvents.hold();
     machineEvents.attach({ loadBefore: { batch: { before: "b0", written: "b1" } } });
-    machineEvents.attach({ loadBefore: { batch: { before: "b1", written: "b2" }, rpm: { before: 800, written: 900 } }, unrecorded: true });
+    machineEvents.attach({ loadBefore: { batch: { before: "b1", written: "b2" }, rpm: { before: 800, written: 900 } } });
     machineEvents.workflowUpdated(dosed(18));
     machineEvents.release();
     expect(deliveries[0]).toMatchObject({
       type: "workflow",
       loadBefore: { batch: { before: "b0", written: "b2" }, rpm: { before: 800, written: 900 } },
-      unrecorded: true,
     });
     machineEvents.workflowUpdated(dosed(19));
     expect(deliveries[1]).not.toHaveProperty("loadBefore");

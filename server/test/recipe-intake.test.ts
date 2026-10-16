@@ -33,24 +33,24 @@ import { dye2Keys, dye2Library } from "./support/simulated-dye2.js";
 // derives regenerated, its hot water value of its mode, and the steam and
 // rinse settings it mirrors; and what a report of a tablet's recipes
 // changes, by slot. Through the pure module's
-// interface. Records are DYE2 v0.1.19's, as it saved them
-// (fixtures/decaid/dye2-v0.1.19/keys.json), with made-up global ids.
+// interface. Records are DYE2 2cf631c's, as it saved them
+// (fixtures/decaid/dye2-2cf631c/keys.json), with made-up global ids.
 
 type Record_ = Record<string, unknown>;
 
 const [slot1, slot2, blank] = dye2Keys().recipes as [Record_, Record_, Record_];
 const READ = "2026-10-12T20:30:00.000Z";
 
-/** The recording's tablet's ids for what its recipes name (fixtures/decaid/dye2-v0.1.19/library.json, keys.json), and made-up global ids for them. */
+/** The recording's tablet's ids for what its recipes name (fixtures/decaid/dye2-2cf631c/library.json, keys.json), and made-up global ids for them. */
 const LOCAL = {
-  brazil: "6b16db38-425e-48ec-93b7-e03e1d8707cd",
-  ethiopia: "8ee8ac01-bf2b-47d6-b4e2-292bd7ef5ada",
-  ethiopiaBatch: "b850e4f2-89cf-400f-9d43-ec1080ad595b",
-  grinder: "f9e3cee6-4fd0-4843-a959-b263b4e4411a",
-  basket18: "5a792f42-b6ff-44e0-a58c-ed165741b789",
-  basket20: "1749fba2-86b3-43e2-badf-97af64ae888b",
-  wdtTool: "f204e0d6-cfa8-4fd9-9316-de2e6f0ae8e6",
-  puckScreen: "57f7f897-1ecf-4f31-90f8-5f1363d8dfc2",
+  brazil: "1497c30b-e01e-4241-b1b0-a82bdae089d3",
+  ethiopia: "bdae1553-8b0f-4d37-94a1-15d61b543e74",
+  ethiopiaBatch: "6f741a24-ceb9-4ec6-aa51-750c6e9fec26",
+  grinder: "cc95ada6-98db-4495-8b24-a46239ad94a0",
+  basket18: "b09fb95c-7e5d-4be1-a4b8-d89c79523343",
+  basket20: "fa7809d4-1843-4745-8a37-ca6f43025dba",
+  wdtTool: "0ee0a5bb-5e08-4a2b-9bce-3b256693a6d2",
+  puckScreen: "28dc53fe-df8b-4789-9589-49ef5e45d57e",
 } as const;
 const GLOBAL = {
   brazil: "11111111-1111-4111-8111-111111111111",
@@ -162,19 +162,13 @@ describe("DYE2's recipes as Recipes", () => {
   it("takes a record's content in in the Library's terms, through the tablet's map, ignoring what DYE2 derives and the barista", () => {
     const content = recipeContent(recipeView(slot1), intake());
     expect(content).toEqual(slot1Content);
-    // A blank recipe names nothing; DYE2 saved its numbers as 0, which are its values.
+    // A blank recipe names no Bean, and holds none of the numbers DYE2 saved blank, as it leaves them out (decentespresso/dye2#29).
     expect(recipeContent(recipeView(blank), intake())).toEqual({
       name: "Fixture Blank Recipe",
       beverage: "",
       showOnDashboard: true,
-      dose: 0,
-      yield: 0,
-      brewTemperature: 93,
       steamMode: "flow",
       hotWaterMode: "vol",
-      hotWaterVolume: 0,
-      grindSetting: 0,
-      rpm: 0,
       grinderId: GLOBAL.grinder,
       basketId: GLOBAL.basket18,
       toolIds: [],
@@ -298,15 +292,17 @@ describe("DYE2's recipes as Recipes", () => {
     expect([recorded.title, recorded["dashboardVariables.hotWaterMl"], recorded["dashboardVariables.hotWaterTempC"]]).toEqual(["Recipe 4", 120, null]);
   });
 
-  it("builds a recipe's embedded Workflow as DYE2 does, from its yield or its dose times its ratio, with a Profile's id and title where it has no steps", () => {
+  it("builds a recipe's embedded Workflow as DYE2 v0.1.19 did, from its yield or its dose times its ratio, with a Profile's id and title where it has no steps", () => {
     const keptWorkflow = slot1.workflow as Record_;
-    // DYE2's own, as it saved slot 1, is what this builds from the record DYE2 saved, with its full Profile.
+    // DYE2's own, as it saved slot 1, holds the same dial, grinder, Basket, coffee, people and Profile. It holds its roaster,
+    // batch, field flags and machine settings too, which the server's leaves out until #187.
     const view = recipeView(slot1);
-    // But for the Recipe's global id, which DYE2's does not hold.
     const kept = keptWorkflow as { context: Record_ };
+    const { coffeeRoaster: _roaster, beanBatchId: _batch, ...context } = kept.context;
+    const { dye: _flags, ...extras } = context.extras as Record_;
     expect(recipeWorkflow({ ...view, profileSnapshot: (keptWorkflow as { profile: unknown }).profile }, GLOBAL.recipe)).toEqual({
-      ...keptWorkflow,
-      context: { ...kept.context, extras: { ...(kept.context.extras as Record_), decentSyncRecipeId: GLOBAL.recipe } },
+      profile: keptWorkflow.profile,
+      context: { ...context, extras: { ...extras, decentSyncRecipeId: GLOBAL.recipe } },
     });
     const ratio = recipeWorkflow({ ...view, "dashboardVariables.drink": null, "dashboardVariables.ratio": 2.2, profileSnapshot: null }, GLOBAL.recipe);
     expect(ratio).toMatchObject({ context: { targetDoseWeight: 18.5, targetYield: 40.7 }, profile: { id: ADAPTIVE, title: "Adaptive v3" } });

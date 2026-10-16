@@ -6,7 +6,7 @@
         "name": "Streamline/DYE2",
         "author": "Streamline",
         "description": "Beans, grinders, and shot workflow for Decent Espresso. Track roast batches and freshness, pick a bean and grinder before pulling, edit and rate shots afterwards, and manage auto-favourite recipes. Dashboard: http://localhost:8080/api/v1/plugins/dye2.reaplugin/dashboard",
-        "version": "0.1.20",
+        "version": "0.1.19",
         "apiVersion": 1,
         "permissions": [
           "log",
@@ -122,18 +122,7 @@
         ],
         "loaded": true,
         "autoLoad": true,
-        "source": {
-          "kind": "github_release",
-          "repo": "decentespresso/dye2",
-          "branch": null,
-          "commit": null,
-          "releaseTag": "v0.1.20",
-          "assetName": null,
-          "includePrerelease": false,
-          "installedAt": "2026-10-16T01:58:31.671243",
-          "lastChecked": "2026-10-16T01:58:31.671243",
-          "lastError": null
-        },
+        "source": null,
         "pendingUpdate": null
       }
     ],
@@ -170,7 +159,7 @@
         "name": "Streamline/DYE2",
         "author": "Streamline",
         "description": "Beans, grinders, and shot workflow for Decent Espresso. Track roast batches and freshness, pick a bean and grinder before pulling, edit and rate shots afterwards, and manage auto-favourite recipes. Dashboard: http://localhost:8080/api/v1/plugins/dye2.reaplugin/dashboard",
-        "version": "0.1.20",
+        "version": "0.1.19",
         "apiVersion": 1,
         "permissions": [
           "log",
@@ -286,18 +275,7 @@
         ],
         "loaded": false,
         "autoLoad": false,
-        "source": {
-          "kind": "github_release",
-          "repo": "decentespresso/dye2",
-          "branch": null,
-          "commit": null,
-          "releaseTag": "v0.1.20",
-          "assetName": null,
-          "includePrerelease": false,
-          "installedAt": "2026-10-16T01:58:31.671243",
-          "lastChecked": "2026-10-16T01:58:31.671243",
-          "lastError": null
-        },
+        "source": null,
         "pendingUpdate": null
       }
     ],
@@ -320,7 +298,7 @@
       },
       "response": {
         "status": 200,
-        "body": null
+        "body": {}
       }
     },
     "socketOpened": {
@@ -353,7 +331,7 @@
         "name": "Streamline/DYE2",
         "author": "Streamline",
         "description": "Beans, grinders, and shot workflow for Decent Espresso. Track roast batches and freshness, pick a bean and grinder before pulling, edit and rate shots afterwards, and manage auto-favourite recipes. Dashboard: http://localhost:8080/api/v1/plugins/dye2.reaplugin/dashboard",
-        "version": "0.1.20",
+        "version": "0.1.19",
         "apiVersion": 1,
         "permissions": [
           "log",
@@ -469,18 +447,7 @@
         ],
         "loaded": true,
         "autoLoad": true,
-        "source": {
-          "kind": "github_release",
-          "repo": "decentespresso/dye2",
-          "branch": null,
-          "commit": null,
-          "releaseTag": "v0.1.20",
-          "assetName": null,
-          "includePrerelease": false,
-          "installedAt": "2026-10-16T01:58:31.671243",
-          "lastChecked": "2026-10-16T01:58:31.671243",
-          "lastError": null
-        },
+        "source": null,
         "pendingUpdate": null
       }
     ],

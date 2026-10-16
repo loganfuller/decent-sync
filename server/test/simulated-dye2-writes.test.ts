@@ -1,13 +1,17 @@
 import { afterAll, describe, expect, it } from "vitest";
+import type { DecaidAnswer } from "./support/decaid-beans.js";
 import {
   DYE2_NAMESPACE,
   type Dye2Exchange,
-  autoSaveInStreamline,
+  type Dye2Step,
+  SimulatedDye2,
   dye2Keys,
   dye2Library,
   dye2List,
+  dye2MainRecording,
   dye2Recording,
   dye2StoreExchanges,
+  openDye2Dashboard,
   replayWrites,
   saveInDye2,
 } from "./support/simulated-dye2.js";
@@ -15,32 +19,34 @@ import { SimulatedTablet, de1ProOnDecaid090 } from "./support/simulated-tablet.j
 import { runAsSteps } from "./support/steps.js";
 
 // The simulated tablet's plugin storage, and the helpers that act as DYE2
-// v0.1.19 and Streamline v0.2.13 on it, against what those apps were recorded
-// writing on Decaid v0.8.7's Linux release (fixtures/decaid/dye2-v0.1.19/).
-// No settings are given, so the plugin does not connect, and only Decaid's
-// API is used.
+// `main` (2cf631c) on it, against what DYE2's pages were recorded writing on
+// Decaid v0.9.0's Linux release (fixtures/decaid/dye2-2cf631c/). No settings
+// are given, so the plugin does not connect, and only Decaid's API is used.
+
+/** How much faster the tablet's clock runs: DYE2's 1.5 s wait and 3 s echo window shrink with it. */
+const TIME_SCALE = 20;
+
+type Record_ = Record<string, unknown>;
 
 const tablets: SimulatedTablet[] = [];
 afterAll(() => Promise.all(tablets.map((tablet) => tablet.unload())));
 
-function load(api = dye2Library()): SimulatedTablet {
-  const tablet = SimulatedTablet.load({ settings: {}, api });
+function load(api = dye2Library(), dye2?: SimulatedDye2): SimulatedTablet {
+  const tablet = SimulatedTablet.load({ settings: {}, api, dye2, timeScale: TIME_SCALE });
   tablets.push(tablet);
   return tablet;
 }
+
+/** Waits that long on the tablet's clock. */
+const waitTablet = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms / TIME_SCALE));
 
 /** The list a step's last write posted. */
 function posted(step: Dye2Exchange[]): unknown {
   return step.filter(({ request }) => request.method === "POST" && request.path.startsWith(`/store/${DYE2_NAMESPACE}/`)).at(-1)!.request.body;
 }
 
-/** The Workflow Decaid answered a step's last write of it. */
-function answeredWorkflow(step: Dye2Exchange[]): unknown {
-  return step.filter(({ request }) => request.method === "PUT" && request.path === "/workflow").at(-1)!.response.body;
-}
-
 describe("The simulated tablet's plugin storage", () => {
-  it("answers as Decaid v0.8.7's store did: null for a key never written, a POST read back, null again once deleted", async () => {
+  it("answers as Decaid v0.9.0's store did: null for a key never written, a POST read back, null again once deleted", async () => {
     const tablet = load();
     const exchanges = dye2StoreExchanges();
     const answers = [];
@@ -66,14 +72,18 @@ describe("The simulated tablet's plugin storage", () => {
   });
 });
 
-describe("DYE2 and Streamline replayed on a simulated tablet", () => {
+describe("DYE2's pages replayed on a simulated tablet", () => {
   runAsSteps();
-  const tablet = load();
+  const library = dye2MainRecording<{ profiles: { profile: { title: string } }[]; machineSettings: unknown }>("library");
+  const dye2 = new SimulatedDye2();
+  // The recording's simulated machine's settings, which DYE2 reads the flush temperature and flow from.
+  const tablet = load({ ...dye2Library(), "/machine/settings": library.machineSettings }, dye2);
+  const events: unknown[] = [];
+  tablet.onWorkflowChange((workflow) => events.push(structuredClone(workflow.context ?? null)));
   const tools = dye2Recording("tools");
   const baskets = dye2Recording("baskets");
   const recipes = dye2Recording("recipes");
   const dye2Applies = dye2Recording("dye2-applies");
-  const streamline = dye2Recording("streamline");
 
   it("DYE2's equipment and baskets pages leave the tools and baskets they were recorded writing", async () => {
     for (const step of Object.values(tools)) expect(await saveInDye2(tablet, step)).toEqual(posted(step));
@@ -82,101 +92,87 @@ describe("DYE2 and Streamline replayed on a simulated tablet", () => {
     expect(dye2List(tablet, "baskets")).toEqual(dye2Keys().baskets);
   });
 
-  it("DYE2's recipe editor saves each slot as recorded, blank fields as 0", async () => {
+  it("DYE2's recipe editor saves each slot as recorded, leaving blank fields out", async () => {
     for (const step of Object.values(recipes)) {
       expect(await saveInDye2(tablet, step)).toEqual(posted(step));
       expect(dye2List(tablet, "recipes")).toEqual(posted(step));
     }
-    const blank = (dye2List(tablet, "recipes") as { id: string; dashboardVariables: Record<string, unknown> }[]).find((recipe) => recipe.id === "3")!;
-    expect(blank.dashboardVariables).toMatchObject({ dose: 0, drink: 0, steamFlowMls: 0, flushS: 0, hotWaterMl: 0, grind: 0 });
+    const blank = (dye2List(tablet, "recipes") as { id: string; dashboardVariables: Record_ }[]).find((recipe) => recipe.id === "3")!;
+    for (const field of ["dose", "drink", "brewC", "steamFlowMls", "flushS", "hotWaterMl", "grind", "rpm", "steamTempC"]) expect(blank.dashboardVariables).not.toHaveProperty(field);
   });
 
-  it("applying a recipe on DYE2's dashboard leaves the Workflow Decaid answered", async () => {
-    for (const step of Object.values(dye2Applies)) {
-      const answers = await replayWrites(tablet, step);
-      expect(answers).toEqual(step.filter(({ request }) => request.method === "PUT").map(({ response }) => response));
-      expect(tablet.workflow()).toEqual(answeredWorkflow(step));
+  /** Checks an apply made again: its reads once DYE2 would have recorded, its pushes and the context of each Workflow change, as recorded. */
+  async function checkAfter(step: Dye2Step, pushes: number, changes: number): Promise<void> {
+    await waitTablet(2000);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const answers: DecaidAnswer[] = [];
+    for (const { request } of step.after) answers.push(await tablet.callApi(request.method, request.path));
+    expect(answers).toEqual(step.after.map(({ response }) => response));
+    expect(dye2.pushes.slice(pushes)).toEqual(step.pushes);
+    expect(events.slice(changes)).toEqual(step.events);
+  }
+
+  it("applying a recipe on DYE2's dashboard sends the Workflow recorded, then selects it, which marks the Workflow", async () => {
+    // As the recording did before saving slot 2: the Workflow's profile set to the one slot 2 reads.
+    await tablet.callApi("PUT", "/workflow", { profile: library.profiles.find((record) => record.profile.title === "Classic Italian espresso")!.profile });
+    for (const [name, slot] of [
+      ["applySlot1", "1"],
+      ["applySlot2", "2"],
+      ["applyBlankSlot3", "3"],
+      ["applySlot1Again", "1"],
+    ] as const) {
+      const step = dye2Applies[name];
+      const [pushes, changes] = [dye2.pushes.length, events.length];
+      const page = await openDye2Dashboard(tablet);
+      const applied = await page.applyRecipe(slot);
+      const writes = step.exchanges.filter(({ request }) => request.method !== "GET");
+      expect(page.lastSent, name).toEqual(writes[0]!.request.body);
+      expect([applied.workflow, applied.selection], name).toEqual(writes.map(({ response }) => response));
+      await checkAfter(step, pushes, changes);
+      // Past DYE2's echo window, as the recording opened the dashboard afresh for each.
+      await waitTablet(3000);
     }
   });
 
-  it("applying a recipe on Streamline's DYE strip, and its auto-save, leave the Workflow, values and recipes recorded", async () => {
-    for (const [name, step] of Object.entries(streamline)) {
-      const writes = step.filter(({ request }) => request.method !== "GET" && !request.path.startsWith(`/store/${DYE2_NAMESPACE}/`));
-      if (name.startsWith("apply")) await replayWrites(tablet, step);
-      else {
-        const saved = await autoSaveInStreamline(tablet, step);
-        expect(saved, name).toEqual(name === "noAutoSaveAfterLibraryProfile" ? undefined : posted(step));
-      }
-      expect(tablet.workflow(), name).toEqual(answeredWorkflow(step));
-      for (const { request } of writes.filter(({ request }) => request.path.startsWith("/store/streamline-app/"))) {
-        expect(tablet.storeValue("streamline-app", request.path.split("/").pop()!)).toEqual(request.body);
-      }
-    }
+  it("a basket picked for the next Shot, and one picked in Edit Shot, are recorded into the recipe selected, leaving the lists recorded", async () => {
+    const step = dye2Applies.pickBasket;
+    const [pushes, changes] = [dye2.pushes.length, events.length];
+    expect(await replayWrites(tablet, step)).toEqual(step.exchanges.filter(({ request }) => request.method === "PUT").map(({ response }) => response));
+    await checkAfter(step, pushes, changes);
+    const shot = dye2MainRecording<{ pickShotBasket: Dye2Exchange[] }>("shot");
+    for (const answer of await replayWrites(tablet, shot.pickShotBasket)) expect(answer.status).toBe(200);
+    await waitTablet(2500);
+    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(dye2List(tablet, "recipes")).toEqual(dye2Keys().recipes);
   });
 });
 
-describe("DYE2 and Streamline replayed on a tablet holding other data", () => {
-  type Recipe = { id: string; name: string; dashboardVariables: Record<string, unknown> };
+describe("DYE2's pages replayed on a tablet holding other data", () => {
+  type Recipe = { id: string; name: string; dashboardVariables: Record_ };
   const recipe = (tablet: SimulatedTablet, id: string) => (dye2List(tablet, "recipes") as Recipe[]).find((item) => item.id === id);
 
-  /**
-   * Derived from the recorded lists: slot 2 with its hot water by temperature
-   * and a dose, yield and brew temperature of its own, a slot 4 copied from
-   * slot 3, and a tool the recording never made.
-   */
+  /** Derived from the recorded lists: a slot 4 copied from slot 3, and a tool the recording never made. */
   function loadDerived(): SimulatedTablet {
     const keys = dye2Keys();
     const recipes = keys.recipes as Recipe[];
-    const { hotWaterMl: _volume, ...slot2Variables } = recipes.find((item) => item.id === "2")!.dashboardVariables;
-    const slot2 = { ...recipes.find((item) => item.id === "2")!, dashboardVariables: { ...slot2Variables, dose: 18, drink: 40, brewC: 90, hotWaterMode: "temp", hotWaterTempC: 80 } };
     const slot4 = { ...recipes.find((item) => item.id === "3")!, id: "4", name: "Fixture Derived Recipe" };
     const tool = { ...keys.equipment[1], id: "fixture-derived-tool", name: "Fixture Derived Tamper" };
     return load({
       ...dye2Library(),
-      "/store/dye2.reaplugin/recipes": [...recipes.map((item) => (item.id === "2" ? slot2 : item)), slot4],
+      "/store/dye2.reaplugin/recipes": [...recipes, slot4],
       "/store/dye2.reaplugin/equipment": [...keys.equipment, tool],
     });
   }
 
-  it("Streamline's auto-save writes the fields it reads from the Workflow change into the tablet's recipe, leaving the rest", async () => {
-    const tablet = loadDerived();
-    const streamline = dye2Recording("streamline");
-    const slot4 = recipe(tablet, "4");
-    await autoSaveInStreamline(tablet, streamline.autoSaveDose);
-    // The yield Streamline sent with the dose, and the Profile's first step temperature, as Streamline saves them.
-    expect(recipe(tablet, "2")!.dashboardVariables).toMatchObject({ dose: 20, drink: 36, brewC: 94, hotWaterMode: "temp", hotWaterTempC: 80 });
-    await autoSaveInStreamline(tablet, streamline.autoSaveHotWater);
-    expect(recipe(tablet, "2")!.dashboardVariables).toMatchObject({ hotWaterMode: "vol", hotWaterMl: 155, hotWaterTempC: 80 });
-    expect(recipe(tablet, "4")).toEqual(slot4);
-  });
-
-  it("Streamline saves nothing after a Workflow change Decaid refuses", async () => {
-    const tablet = loadDerived();
-    // With no machine connected, Decaid refuses a hot water change with a 500.
-    tablet.machineConnected = false;
-    const recipes = dye2List(tablet, "recipes");
-    expect(await autoSaveInStreamline(tablet, dye2Recording("streamline").autoSaveHotWater)).toBeUndefined();
-    expect(dye2List(tablet, "recipes")).toEqual(recipes);
-  });
-
-  it("Streamline saves nothing into a recipe the tablet no longer holds", async () => {
-    const tablet = loadDerived();
-    const without = (dye2List(tablet, "recipes") as Recipe[]).filter((item) => item.id !== "2");
-    await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", without);
-    expect(await autoSaveInStreamline(tablet, dye2Recording("streamline").autoSaveGrind)).toBeUndefined();
-    expect(dye2List(tablet, "recipes")).toEqual(without);
-  });
-
   it("DYE2's edit and deletion of tools another tablet holds under its own ids change those, keeping when each was made", async () => {
     // Derived: the tools as DYE2 read them before editing one, under ids of another tablet's DYE2, made earlier there.
     const tools = dye2Recording("tools");
-    const elsewhere = (tool: Record<string, unknown>) => ({ ...tool, id: `elsewhere-${String(tool.id)}` });
-    const read = tools.editWdtTool[0]!.response.body as Record<string, unknown>[];
-    const held: Record<string, unknown>[] = read.map((tool) => ({ ...elsewhere(tool), createdAt: "2026-01-02T03:04:05.000Z" }));
+    const elsewhere = (tool: Record_) => ({ ...tool, id: `elsewhere-${String(tool.id)}` });
+    const read = tools.editWdtTool[0]!.response.body as Record_[];
+    const held: Record_[] = read.map((tool) => ({ ...elsewhere(tool), createdAt: "2026-01-02T03:04:05.000Z" }));
     const tablet = load({ ...dye2Library(), "/store/dye2.reaplugin/equipment": held });
     await saveInDye2(tablet, tools.editWdtTool, elsewhere);
-    const edited = (posted(tools.editWdtTool) as Record<string, unknown>[]).find((tool) => tool.name === "Fixture WDT Tool")!;
+    const edited = (posted(tools.editWdtTool) as Record_[]).find((tool) => tool.name === "Fixture WDT Tool")!;
     const afterEdit = held.map((tool) => (tool.name === "Fixture WDT Tool" ? { ...tool, custom: edited.custom } : tool));
     expect(dye2List(tablet, "equipment")).toEqual(afterEdit);
     await saveInDye2(tablet, tools.deleteSpareTamper, elsewhere);

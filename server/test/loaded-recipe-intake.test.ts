@@ -205,15 +205,6 @@ describe("A part set back to what a load's write replaced", () => {
   });
 });
 
-describe("A brew temperature in a Workflow DYE2 did not record", () => {
-  it("is no edit at the Recipe's Profile's own first step temperature, as Streamline's Drink tile sends it, and is otherwise", () => {
-    const content = { ...CONTENT, brewTemperature: 92 };
-    const unrecorded = { beforeWrite: null, previous: {}, own: new Set<string>(), profileTemperature: 93 };
-    expect(partEdits(["brewTemperature"], { ...HELD, brewTemperature: 93 }, content, LOOKUPS, unrecorded)).toEqual({ values: {}, taken: ["brewTemperature"], unmapped: [] });
-    expect(partEdits(["brewTemperature"], { ...HELD, brewTemperature: 91 }, content, LOOKUPS, unrecorded).values).toEqual({ brewTemperature: 91 });
-  });
-});
-
 describe("What a Workflow is written of its Loaded Recipe", () => {
   const locals: Record<string, string> = {
     [`beanBatch:${NEXT_BAG}`]: "b2",
