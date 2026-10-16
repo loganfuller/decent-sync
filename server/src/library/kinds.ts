@@ -644,9 +644,9 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     plan: (offer, held) => recipeWrites(offer, held),
     offersAnySql: (locationId) => Prisma.sql`SELECT 1 FROM recipes WHERE location_id = ${locationId}::uuid AND slot IS NOT NULL AND NOT archived LIMIT 1`,
     stateLocationsSql: (ids) => Prisma.sql`SELECT location_id::text AS id FROM recipes WHERE id = ANY(${ids}::uuid[]) AND location_id IS NOT NULL`,
-    // A Shot names a Recipe by its global id, which it is linked by only where its Machine had the Recipe loaded
-    // (shots/links.ts): a Capture-only Machine's Shots name one it never had. A record of one a Shot names is never held
-    // back on a tablet: its id there is its slot, which no Shot names.
+    // A Shot names a Recipe by its slot, through its tablet's map as it is stored, and is linked to it only where its
+    // Machine had the Recipe loaded (shots/links.ts): a Capture-only Machine's Shots name one it never had. A record of
+    // one a Shot names is never held back on a tablet: its slot there is another Recipe's once it moves.
     shotsNameSql: (ids) => shotLinkedToRecipesSql(ids),
     namedAs: "this Recipe",
     undeletable: async () => null,

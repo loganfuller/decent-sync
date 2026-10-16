@@ -114,3 +114,34 @@ describe("Workflow changes held while the plugin writes into the Workflow", () =
     expect(deliveries[2]).not.toHaveProperty("loadBefore");
   });
 });
+
+describe("DYE2 absent", () => {
+  it("sends a Workflow whose DYE2 field names a recipe again as DYE2 goes and comes back, every delivery meanwhile saying so, and once held, as released", () => {
+    const { machineEvents, deliveries } = events();
+    const absent = () => deliveries.flatMap((delivery) => (delivery.type === "workflow" ? [[delivery.workflow, delivery.dye2Absent ?? false]] : []));
+    const selected = (dose: number): Workflow => ({ context: { targetDoseWeight: dose, extras: { dye: { v: 1, selection: { kind: "recipe", id: "1" } } } } });
+    machineEvents.workflowUpdated(selected(18));
+    machineEvents.dye2Absent(false);
+    machineEvents.dye2Absent(true);
+    machineEvents.dye2Absent(true);
+    machineEvents.workflowUpdated(selected(19));
+    machineEvents.hold();
+    machineEvents.dye2Absent(false);
+    expect(absent()).toEqual([
+      [selected(18), false],
+      [selected(18), true],
+      [selected(19), true],
+    ]);
+    machineEvents.release();
+    expect(absent().at(-1)).toEqual([selected(19), false]);
+  });
+
+  it("sends a Workflow whose DYE2 field names nothing no more often as DYE2 goes, as the server reads none from it anyway", () => {
+    const { machineEvents, queued, deliveries } = events();
+    machineEvents.workflowUpdated(dosed(18));
+    machineEvents.dye2Absent(true);
+    expect(queued()).toEqual([dosed(18)]);
+    machineEvents.workflowUpdated(dosed(19));
+    expect(deliveries.at(-1)).toMatchObject({ workflow: dosed(19), dye2Absent: true });
+  });
+});

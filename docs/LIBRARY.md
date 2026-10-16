@@ -1191,13 +1191,12 @@ written (`recipeRecord` in `recipe-intake.ts`) holds:
   `subtitle` and the embedded `workflow`, built as DYE2's
   `buildRecipeWorkflow` builds them, with the Bean's name, roaster and batch
   together, null where it holds none, the full Profile and the tablet's
-  grinder id, so DYE2 and Streamline apply it the same way, and the Recipe's
-  global id in its `context.extras` (`decentSyncRecipeId`), so a recipe
-  Streamline applies names its Recipe at once (ADR-0022,
-  decentespresso/dye2#20), and the steam, hot water and flush settings and
-  field flags (`extras.dye`) DYE2 copies into the tablet's record of it
-  there, which the server does not derive and Streamline does not apply
-  from it (`withHeldWorkflowSettings`);
+  grinder id, so DYE2 and Streamline apply it the same way, and the steam,
+  hot water and flush settings and field flags (`extras.dye`) DYE2 copies
+  into the tablet's record of it there, which the server does not derive
+  and Streamline does not apply from it (`withHeldWorkflowSettings`); no
+  Recipe id, as DYE2's selection names the Recipe in the Workflow once a
+  recipe is applied and selected (ADR-0022, decentespresso/dye2#20);
 - the full Profile in `profileSnapshot`, as the Library holds it, so it
   applies where the Profile is hidden, or the tablet lacks it, and in the
   embedded `workflow` at the Recipe's brew temperature, its first step at it
@@ -1279,7 +1278,7 @@ each update also writing the item's content where the record differs from it
 8. Its Workflow's Loaded Recipe (`loadedRecipeDue`, `WORKFLOW-AND-STATE.md`,
    Following the Recipe): the Recipe's fields its Workflow holds otherwise,
    as an edit made anywhere, once the Recipe's record and the Basket and
-   batch it names are written; or the Recipe cleared from the Workflow,
+   batch it names are written; or DYE2's selection of the Recipe cleared,
    where it is not the Machine's Loaded Recipe, as one taken out of its
    slot or Archived. The clear of the Recipe a Machine had loaded as it
    was made capture-only is written to it too, which is written nothing
@@ -1758,8 +1757,8 @@ it.
 - **Its Loaded Recipe.** A Workflow naming a Recipe that is not one of the
   Location's in its slots, as one of the Location the Machine left, is
   not its Loaded Recipe there, and the server has the plugin clear it from
-  the Workflow and from DYE2's selection (`WORKFLOW-AND-STATE.md`, Unloads
-  the server decides). DYE2 keeps its selection through its recipe's
+  DYE2's selection, which DYE2 then clears from the Workflow
+  (`WORKFLOW-AND-STATE.md`, Unloads the server decides). DYE2 keeps its selection through its recipe's
   removal from the list, and would record the Workflow's changes into the
   recipe the writer then puts in that slot, or have the plugin load it. So
   before the plugin posts a list that removes the recipe in a slot DYE2 has

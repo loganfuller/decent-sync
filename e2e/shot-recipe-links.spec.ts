@@ -1,5 +1,5 @@
 import { expect as baseExpect, type Browser, type Page, test } from "@playwright/test";
-import { LOADED_RECIPE_KEY, dye2GlobalIdOf } from "@decent-sync/protocol";
+import { dye2GlobalIdOf, dye2SelectionOf } from "@decent-sync/protocol";
 import { shotFixture } from "../server/test/support/shot-fixtures.js";
 import { DYE2_NAMESPACE, SimulatedDye2, dye2Keys, dye2Library, dye2List, dye2Recording, openDye2Dashboard, saveInDye2 } from "../server/test/support/simulated-dye2.js";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
@@ -137,12 +137,13 @@ async function lab(page: Page, name: string, serial: number) {
 
 /**
  * Applies the slot on the tablet's DYE2 dashboard, then pulls a Shot with
- * the Workflow as it stands, its samples a tenth of a second apart, once its
- * Machine has the Recipe loaded, and waits for the Shot to be linked to it.
+ * the Workflow as it stands, its samples a tenth of a second apart, once
+ * DYE2 names its selection there, and waits for the Shot to be linked to
+ * the Recipe as its Machine has it loaded.
  */
 async function pullWith(page: Page, tablet: SimulatedTablet, slot: string, recipeId: string, id: string, serial: number): Promise<void> {
   baseExpect((await (await openDye2Dashboard(tablet)).applyRecipe(slot)).selection?.status).toBe(200);
-  await expect.poll(() => ((tablet.workflow().context as Record_ | undefined)?.extras as Record_ | undefined)?.[LOADED_RECIPE_KEY]).toBe(recipeId);
+  await expect.poll(() => dye2SelectionOf(tablet.workflow()).slot).toBe(slot);
   const fixture = shotFixture();
   const samples = fixture.measurements as Record_[];
   const startedAt = Date.now() - (samples.length - 1) * 100;

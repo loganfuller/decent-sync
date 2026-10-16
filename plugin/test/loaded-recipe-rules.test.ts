@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { LOADED_RECIPE_KEY, RECIPE_FIELD, profileAtBrewTemperature, shiftedTemperatures } from "@decent-sync/protocol";
+import { RECIPE_FIELD, profileAtBrewTemperature, shiftedTemperatures } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import { armedOn, clearsSelection, dye2Fingerprint, loadWrite, profileKey, selectedOn, vacatedSlots } from "../src/loaded-recipe-rules.js";
 
@@ -32,7 +32,6 @@ const library = fixture<{ profiles: { id: string; profile: Record_ }[]; workflow
 const recipe = (slot: string) => structuredClone(keys.recipes.find((record) => record.id === slot)!);
 const temperatures = (profile: unknown) => ((profile as Record_).steps as Record_[]).map((step) => step.temperature);
 
-const ONE = "0190a5a2-0000-7000-8000-000000000001";
 
 describe("a profile compared by what Decaid hashes for its id", () => {
   const profile = library.profiles[0]!.profile;
@@ -105,14 +104,14 @@ describe("recording a load", () => {
    */
   const appliedAtOwnTemperatures = (): Record_ => ({ ...applied("dye2-applies", "applySlot1"), profile: structuredClone(adaptive) });
 
-  it("writes what the Workflow lacks of the recipe's current values, its batch, hot water and id, with what each part held, but no brew temperature", () => {
+  it("writes what the Workflow lacks of the recipe's current values, its batch and hot water, with what each part held, but no brew temperature or Recipe id", () => {
     const workflow = appliedAtOwnTemperatures();
-    const write = loadWrite(workflow, written(), ONE, { profile })!;
+    const write = loadWrite(workflow, written(), { profile })!;
     expect(write.write.context).toEqual({
       beanBatchId: batch,
       coffeeName: "Fixture Ethiopia",
       coffeeRoaster: "Fixture Roasters",
-      extras: { basketId: basket, basketName: "Fixture 18g Precision", [LOADED_RECIPE_KEY]: ONE },
+      extras: { basketId: basket, basketName: "Fixture 18g Precision" },
     });
     expect(write.write.hotWaterData).toEqual(hotWater);
     // DYE2 and Streamline apply the recipe's brew temperature themselves (decentespresso/dye2#26): the profile's is left.
@@ -134,7 +133,7 @@ describe("recording a load", () => {
     const record = written();
     Object.assign(record.dashboardVariables as Record_, { dose: 19.5, drink: 40, grind: 2.9, rpm: 950 });
     const other = profileAtBrewTemperature(library.profiles.find((candidate) => candidate.profile.title !== "Adaptive v3")!.profile, 92)!;
-    const write = loadWrite(workflow, record, ONE, { profile: other })!;
+    const write = loadWrite(workflow, record, { profile: other })!;
     expect(write.write.context).toMatchObject({ targetDoseWeight: 19.5, targetYield: 40, grinderSetting: "2.9", extras: { rpm: 950 } });
     expect(write.before).toMatchObject({ dose: { before: 18.5, written: 19.5 }, grind: { written: "2.9" }, rpm: { written: 950 } });
     expect(write.write.profile).toEqual(other);
@@ -143,18 +142,18 @@ describe("recording a load", () => {
   it("writes nothing to a Workflow holding it all, and leaves a value the recipe holds none of", () => {
     const workflow = appliedAtOwnTemperatures();
     const record = written();
-    const first = loadWrite(workflow, record, ONE, { profile })!.write;
+    const first = loadWrite(workflow, record, { profile })!.write;
     const after = structuredClone(workflow);
     after.context = { ...(after.context as Record_), ...(first.context as Record_), extras: { ...((after.context as Record_).extras as Record_), ...((first.context as Record_).extras as Record_) } };
     after.hotWaterData = { ...(after.hotWaterData as Record_), ...(first.hotWaterData as Record_) };
-    expect(loadWrite(after, record, ONE, { profile })).toBeNull();
+    expect(loadWrite(after, record, { profile })).toBeNull();
     const bare = { ...record, beanBatchId: null, [RECIPE_FIELD]: { hotWaterData: { targetTemperature: null, duration: null, volume: null, flow: null } } };
-    expect(loadWrite(after, bare, ONE, { profile: null })).toBeNull();
+    expect(loadWrite(after, bare, { profile: null })).toBeNull();
   });
 
   it("leaves out what it is told to, as the hot water while Decaid refuses it for want of a machine", () => {
     const workflow = applied("dye2-applies", "applySlot1");
-    const write = loadWrite(workflow, written(), ONE, { profile }, new Set(["targetTemperature", "duration", "volume", "flow"]))!;
+    const write = loadWrite(workflow, written(), { profile }, new Set(["targetTemperature", "duration", "volume", "flow"]))!;
     expect(write.write).not.toHaveProperty("hotWaterData");
     expect(Object.keys(write.before)).not.toContain("volume");
   });

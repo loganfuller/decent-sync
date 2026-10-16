@@ -1,13 +1,14 @@
-import { GLOBAL_ID_KEY, LOADED_RECIPE_KEY, dye2GlobalIdOf, profileAtBrewTemperature } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, dye2GlobalIdOf, dye2SelectionOf, profileAtBrewTemperature } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
-import { syncingTablet } from "./support/loaded-tablets.js";
+import { selectedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
 import { DYE2_NAMESPACE, SimulatedDye2, dye2List, dye2NeverUsed, openDye2Dashboard, recordedDye2MainTablet } from "./support/simulated-dye2.js";
+import { shotFixture } from "./support/shot-fixtures.js";
 import { startStreamline } from "./support/simulated-streamline.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
-// Seam 1 for tickets #146, #177, #187 and #188: a Machine follows its Loaded
+// Seam 1 for tickets #146, #177, #187, #188 and #189: a Machine follows its Loaded
 // Recipe both ways (ADR-0022). DYE2 records a change on one Machine of the
 // dose, yield, grind setting, RPM, Basket, brew temperature and hot water
 // value of the Recipe's mode into the Recipe's record, where it holds one,
@@ -17,10 +18,11 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // Recipe from anywhere is written into the Workflow of every Machine that
 // has it loaded, its brew temperature as on a load, the plugin selecting the
 // Recipe again after a write of its batch or grinder, which DYE2 clears its
-// selection on (#188). A part set back to what a stale copy or the load
+// selection on (#188), with no unload meanwhile, and a Shot pulled then still
+// linked to it (#189). A part set back to what a stale copy or the load
 // replaced is written back. Taking the Recipe out
 // of its slot, Archiving it, or making the Machine capture-only clears it
-// from the Workflow and from DYE2's selection; moving it to another slot
+// from DYE2's selection; moving it to another slot
 // selects it there. Through the built plugin in simulated tablets running
 // DYE2 at 2cf631c and Streamline at c006dac as recorded (fixtures/decaid/dye2-2cf631c/),
 // Machines A and C on two server instances sharing one database, with
@@ -70,8 +72,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   const hotWater = (tablet: SimulatedTablet) => (tablet.workflow().hotWaterData ?? {}) as Record_;
   const profile = (tablet: SimulatedTablet) => tablet.workflow().profile as Record_;
   const firstTemperature = (tablet: SimulatedTablet) => ((profile(tablet).steps as Record_[])[0] ?? {}).temperature;
-  /** The Recipe id the tablet's Workflow names as loaded, or null. */
-  const named = (tablet: SimulatedTablet) => extras(tablet)[LOADED_RECIPE_KEY] ?? null;
+  /** The Recipe the tablet's Workflow names as DYE2's selection, or null. */
+  const named = selectedInWorkflow;
   const recipe = async (id: string) => (await api.get<{ recipe: RecipeView }>(`/recipes/${id}`)).recipe;
   const versions = async (id: string) => (await api.get<{ versions: VersionView[] }>(`/recipes/${id}/history`)).versions;
   /** How many of the Recipe's versions set the field. */
@@ -80,6 +82,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     (await api.get<{ machine: { loadedRecipe: { recipe: { id: string } } | null } }>(`/machines/${machine.id}`)).machine.loadedRecipe?.recipe.id ?? null;
   /** Resolves once the server holds that Recipe as the Machine's Loaded Recipe, or none. */
   const loads = (machine: CreatedMachine, recipeId: string | null) => expect.poll(() => loadedRecipe(machine), { timeout: 15_000 }).toBe(recipeId);
+  /** How many Loaded Recipes the Machine has had, its current one included. */
+  const loadedTimes = async ({ machine }: CreatedMachine) => (await api.get<{ total: number }>(`/machines/${machine.id}/loaded-recipes`)).total;
   const patch = async (id: string, content: Record_) => expect((await api.call("PATCH", `/recipes/${id}`, { content })).status).toBe(200);
   /** The tablet's id for its record of a Library item, by the global id the record carries in its `extras`. */
   const localId = async (tablet: SimulatedTablet, route: string, globalId: string) => {
@@ -334,8 +338,17 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(context(c).beanBatchId).toBe(await localId(c, "/bean-batches", batch));
   });
 
-  it("writes a batch picked in DYE2's editor on A, and a grinder set in the management interface, into A's and C's Workflows, which keep the Recipe selected and recording", async () => {
+  it("writes a batch picked in DYE2's editor on A, and a grinder set in the management interface, into A's and C's Workflows, which keep the Recipe selected, loaded and recording", async () => {
     const { here, machines, dye2, a, c, one } = await lab("New roast", 48501);
+    const times = await Promise.all([loadedTimes(machines.a), loadedTimes(machines.c)]);
+    // A Shot pulled on C as DYE2 there clears its selection on the write, before the plugin selects it again: Decaid
+    // copies the Workflow onto it with DYE2's field naming nothing.
+    let pulled: Record_ | undefined;
+    c.onWorkflowChange((workflow) => {
+      if (pulled || dye2SelectionOf(workflow).named) return;
+      pulled = shotOf(c, "new-roast-cleared-48501", 48502);
+      c.pullShot(pulled);
+    });
     const bean = (await recipe(one)).content.beanId as string;
     const created = await api.call("POST", "/bean-batches", { beanId: bean, content: { roastDate: "2026-10-12" }, locations: [{ locationId: here.id }] });
     expect(created.status).toBe(201);
@@ -370,6 +383,12 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(clears()).toEqual(cleared);
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
     expect([named(a), named(c)]).toEqual([one, one]);
+    // Neither unloaded it meanwhile, as the plugin held the Workflow's changes until its select landed.
+    expect(await Promise.all([loadedTimes(machines.a), loadedTimes(machines.c)])).toEqual(times);
+    // The Shot is linked to the Recipe through C's Loaded Recipes.
+    expect(dye2SelectionOf(pulled?.workflow).named).toBe(false);
+    await expect.poll(async () => (await api.call("GET", "/shots/new-roast-cleared-48501")).status, { timeout: 15_000 }).toBe(200);
+    expect((await api.get<{ shot: { recipe: { id: string } | null } }>("/shots/new-roast-cleared-48501")).shot.recipe?.id).toBe(one);
     // DYE2 on C still records into the Recipe.
     await c.changeSettings({ context: { grinderSetting: "3.4" } });
     await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(3.4);
@@ -399,7 +418,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await loads(machines.c, one);
   });
 
-  it("selects nothing again after a grinder written into A's Workflow while A's DYE2 answers 404, over a batch A's barista picked meanwhile, which unloads it", async () => {
+  it("selects nothing again after a grinder written into A's Workflow while A's DYE2 answers 404, over a batch A's barista picked meanwhile, which then unloads it", async () => {
     const { here, machines, dye2, a, c, one } = await lab("Away switch", 48521);
     const grinder = (await api.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: here.id, content: { model: "Away switch Grinder 2" } }, 201)).grinder.id;
     for (const tablet of [a, c]) await expect.poll(() => localId(tablet, "/grinders", grinder), { timeout: 15_000 }).toEqual(expect.any(String));
@@ -408,12 +427,18 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await a.changeSettings({ context: { beanBatchId: inSlot(a, "2")!.beanBatchId } });
     await patch(one, { grinderId: grinder });
     for (const tablet of [a, c]) await expect.poll(async () => context(tablet).grinderId, { timeout: 15_000 }).toBe(await localId(tablet, "/grinders", grinder));
-    // DYE2 restores the selection made on the batch before, which loads nothing, and the plugin selects nothing over it.
+    // DYE2 restores the selection made on the batch before, which its field still names, so the server has it loaded,
+    // but the plugin writes nothing for it and selects nothing over it. DYE2 clears it at the Workflow's next change.
     await dye2.a.load();
+    await settle();
+    expect(dye2.a.selected()).toMatchObject({ kind: "recipe", id: "1" });
+    expect(context(a).beanBatchId).toBe(inSlot(a, "2")!.beanBatchId);
+    await a.changeSettings({ context: { targetDoseWeight: 19.5 } });
     await loads(machines.a, null);
     await settle();
     expect(dye2.a.selected()).toBeNull();
     expect(named(a)).toBeNull();
+    expect(context(a).beanBatchId).toBe(inSlot(a, "2")!.beanBatchId);
     // C, which nothing switched, stays loaded on the new grinder.
     await settle();
     expect(dye2.c.selected()).toMatchObject({ kind: "recipe", id: "1" });
@@ -569,3 +594,16 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect([named(a), named(c)]).toEqual([one, one]);
   });
 });
+
+/** A Shot pulled on the tablet now, with its Workflow as it stands, its samples a tenth of a second apart, on the machine with that serial. */
+function shotOf(tablet: SimulatedTablet, id: string, serial: number): Record_ {
+  const fixture = shotFixture();
+  const samples = fixture.measurements as Record_[];
+  const startedAt = Date.now() - (samples.length - 1) * 100;
+  const measurements = samples.map((sample, index) => ({
+    ...sample,
+    machine: { ...(sample.machine as Record_), timestamp: new Date(startedAt + index * 100).toISOString().slice(0, -1) },
+  }));
+  const machine = { ...((fixture.workflow as Record_).machine as Record_), serialNumber: String(serial) };
+  return { ...fixture, id, timestamp: new Date(startedAt).toISOString(), workflow: { ...structuredClone(tablet.workflow()), machine }, measurements };
+}

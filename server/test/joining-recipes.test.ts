@@ -1,7 +1,7 @@
-import { LOADED_RECIPE_KEY, dye2GlobalIdOf } from "@decent-sync/protocol";
+import { dye2GlobalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { syncingTablet } from "./support/loaded-tablets.js";
+import { selectedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
 import { DYE2_NAMESPACE, SimulatedDye2, dye2Keys, dye2List, dye2NeverUsed, openDye2Dashboard, recordedDye2MainTablet } from "./support/simulated-dye2.js";
 import type { DecaidApi, SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
@@ -79,8 +79,8 @@ describe("Joining a Location with Recipes, Baskets and Tools", { timeout: 120_00
   /** The names in one of the tablet's lists of DYE2's, sorted. */
   const names = (tablet: SimulatedTablet, key: "baskets" | "equipment") => records(tablet, key).map((record) => String(record.name)).sort();
   const extras = (tablet: SimulatedTablet) => (((tablet.workflow().context ?? {}) as Record_).extras ?? {}) as Record_;
-  /** The Recipe id the tablet's Workflow names as loaded, or null. */
-  const named = (tablet: SimulatedTablet) => extras(tablet)[LOADED_RECIPE_KEY] ?? null;
+  /** The Recipe the tablet's Workflow names as DYE2's selection, or null. */
+  const named = selectedInWorkflow;
   const loadedRecipe = async ({ machine }: CreatedMachine) =>
     (await api.get<{ machine: { loadedRecipe: { recipe: { id: string } } | null } }>(`/machines/${machine.id}`)).machine.loadedRecipe?.recipe.id ?? null;
   const loads = (machine: CreatedMachine, recipeId: string | null) => expect.poll(() => loadedRecipe(machine), { timeout: 15_000 }).toBe(recipeId);

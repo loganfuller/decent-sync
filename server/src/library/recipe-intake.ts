@@ -1,4 +1,4 @@
-import { LOADED_RECIPE_KEY, RECIPE_FIELD, dye2GlobalIdOf, dye2Records, isSlotId, profileAtBrewTemperature, sameValue } from "@decent-sync/protocol";
+import { RECIPE_FIELD, dye2GlobalIdOf, dye2Records, isSlotId, profileAtBrewTemperature, sameValue } from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
 import { type FieldEdits, changedFields } from "./merge.js";
 
@@ -455,7 +455,7 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
   const name = typeof view.name === "string" ? view.name : "";
   view.title = name !== "" ? name : `Recipe ${slot}`;
   view.subtitle = [view.beanName, view.beverage].find((text) => typeof text === "string" && text !== "") ?? "";
-  view.workflow = recipeWorkflow(view, recipeId);
+  view.workflow = recipeWorkflow(view);
   return view;
 }
 
@@ -477,12 +477,10 @@ function firstStepTemperature(profile: unknown): number | null {
  * holds none, so applying it clears a batch the Workflow held; and its full
  * Profile where it names one, at its brew temperature, as Streamline
  * applies the profile as it is (`profileAtBrewTemperature`,
- * decentespresso/dye2#26); and the Recipe's global id (LOADED_RECIPE_KEY),
- * which DYE2's own does not hold, so a Workflow Streamline applies it to
- * names its Recipe (ADR-0022). DYE2's flags of the fields it sets, and the
+ * decentespresso/dye2#26). DYE2's flags of the fields it sets, and the
  * machine settings Streamline does not apply from it, are left out.
  */
-export function recipeWorkflow(view: Readonly<RecipeView>, recipeId: string): Record<string, unknown> {
+export function recipeWorkflow(view: Readonly<RecipeView>): Record<string, unknown> {
   const at = (field: string) => view[`${DV}.${field}`];
   const present = (value: unknown) => value !== null && value !== undefined;
   const context: Record<string, unknown> = {};
@@ -496,9 +494,7 @@ export function recipeWorkflow(view: Readonly<RecipeView>, recipeId: string): Re
   if (at("grinderModel")) context.grinderModel = at("grinderModel");
   if (at("basketId")) extras.basketId = at("basketId");
   if (at("basketName")) extras.basketName = at("basketName");
-  // So a recipe applied from Streamline's strip names its Recipe at once (decentespresso/dye2#20).
-  extras[LOADED_RECIPE_KEY] = recipeId;
-  context.extras = extras;
+  if (Object.keys(extras).length > 0) context.extras = extras;
   if (view.beanId || view.beanName) {
     context.coffeeName = view.beanName || null;
     context.coffeeRoaster = view.beanRoaster || null;

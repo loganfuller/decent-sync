@@ -74,6 +74,8 @@ export class CollectionCapture {
   /** For each collection, the latest delivery queued, and the latest queued with a value. */
   private readonly queued = new Map<CollectionName, { latest: string; value: string | undefined }>();
   private wanted: "changes" | "full" | undefined;
+  /** Whether DYE2's recipes alone are to be read, as after DYE2 pushes (`readRecipes`). */
+  private recipesWanted = false;
   private reading = false;
   private stopped = false;
   private pollTimer?: number;
@@ -103,6 +105,18 @@ export class CollectionCapture {
     this.read("full");
   }
 
+  /**
+   * DYE2's recipes, read again and sent if they changed, while connected: on
+   * each push from DYE2, which pushes after it records into its selected
+   * recipe, so the recording reaches the server then, not only on the poll
+   * (ADR-0022).
+   */
+  readRecipes(): void {
+    if (this.stopped || !this.outbox.connected) return;
+    this.recipesWanted = true;
+    void this.run();
+  }
+
   private schedulePoll(): void {
     this.pollTimer = setTimeout(() => {
       this.pollTimer = undefined;
@@ -122,11 +136,14 @@ export class CollectionCapture {
     if (this.reading) return;
     this.reading = true;
     try {
-      while (this.wanted !== undefined && !this.stopped) {
+      while ((this.wanted !== undefined || this.recipesWanted) && !this.stopped) {
         const full = this.wanted === "full";
+        // Every collection read reads DYE2's recipes too.
+        const sources = this.wanted === undefined ? SOURCES.filter((source) => source.name === "dye2Recipes") : SOURCES;
         this.wanted = undefined;
+        this.recipesWanted = false;
         const sentLists = new Set<CollectionName>();
-        for (const source of SOURCES) {
+        for (const source of sources) {
           if (this.stopped) return;
           const parent = isLibraryList(source.name) ? parentList(source.name) : undefined;
           const sent = await (WRITTEN_LISTS.has(source.name)

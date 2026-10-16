@@ -54,6 +54,12 @@ dial-in for one roast. An RPM or Basket changed on a Machine becomes the
 Recipe's only where the Recipe holds one already; give a Recipe one in DYE2's
 editor or the management interface first.
 
+DYE2 now names the recipe it has selected in the Workflow, and Decaid copies
+that onto each Shot, so the server reads each Machine's Loaded Recipe, and
+each Shot's Recipe, from it: the plugin no longer writes a Recipe id of its
+own into the Workflow. A change DYE2 records into a Recipe on a Machine now
+reaches the other Machines within seconds, not at the plugin's next poll.
+
 ### Approve the plugin update on every tablet
 
 The plugin now tells Streamline when it has written a tablet's DYE2

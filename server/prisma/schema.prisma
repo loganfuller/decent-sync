@@ -501,11 +501,16 @@ model Shot {
   /// the Basket's link is, so a Tool a Shot used stays named once its record
   /// leaves the tablet; read by hard deletes only.
   libraryToolIds   String[]          @default([]) @map("library_tool_ids")
-  /// The global id of the Recipe its Workflow named as loaded
-  /// (`decentSyncRecipeId`, ADR-0022). The Shot is linked to it only where
-  /// its Machine had it loaded as it was pulled (server/src/shots/links.ts),
-  /// which is read, not stored.
+  /// The Recipe its Workflow's DYE2 selection named (ADR-0022), by the slot
+  /// of the recipe it named, through its tablet's map, kept as the Basket's
+  /// link is. The Shot is linked to it only where its Machine had it loaded
+  /// as it was pulled (server/src/shots/links.ts), which is read, not stored.
   recipeId         String?           @map("recipe_id") @db.Uuid
+  /// Whether its Workflow's DYE2 selection named an item, a recipe or a
+  /// favourite: one naming nothing, as while the plugin selects the slot
+  /// again after its own write, is linked to the Recipe its Machine still
+  /// had loaded as it ended.
+  selectionNamed   Boolean           @default(false) @map("selection_named")
   coffeeName       String?           @map("coffee_name")
   coffeeRoaster    String?           @map("coffee_roaster")
   profileTitle     String?           @map("profile_title")
@@ -1302,8 +1307,9 @@ model LoadedRecipe {
 
   @@index([machineId, id])
   @@index([recipeId])
-  /// A Shot's Recipe is read through it (server/src/shots/links.ts).
+  /// A Shot's Recipe is read through these (server/src/shots/links.ts).
   @@index([machineId, recipeId, loadedAt, id])
+  @@index([machineId, loadedAt, id])
   @@map("loaded_recipes")
 }
 

@@ -218,28 +218,39 @@ its Machine had loaded and the Basket DYE2 recorded
   Basket it sets. Shots stored before this keep none of these ids until
   they are stored again; Shots that reach the server later, as from a
   tablet's backfill, link their Basket where the tablet's map has its id.
-- **Recipe.** The plugin writes the Loaded Recipe's global id into the
-  Workflow's context (`decentSyncRecipeId`, ADR-0022), which Decaid copies
-  onto each Shot pulled with it. A Shot is linked to that Recipe where its
-  Machine had it loaded as it was pulled, by the Machine's Loaded Recipes
+- **Recipe.** DYE2 writes its selection into the Workflow's context
+  (`context.extras.dye.selection`, `{kind, id}` or null, ADR-0022), which
+  Decaid copies onto each Shot pulled with it. The Recipe a Shot names is
+  the one whose record is in the slot of the recipe its selection names,
+  through the reporting tablet's map (`tablet_recipes`), stored as the
+  Shot is (`recipe_id`) and kept, as the Basket's link is, while the Shot
+  names the same slot; whether its selection named anything is stored too
+  (`selection_named`). A Shot is linked to that Recipe where its Machine had
+  it loaded as it was pulled, by the Machine's Loaded Recipes
   (`loaded_recipes`, `WORKFLOW-AND-STATE.md`, The Loaded Recipe), not by the
-  id alone: a Capture-only Machine's Workflow names the recipe DYE2 has
+  field alone: a Capture-only Machine's Workflow names the recipe DYE2 has
   selected there, which is not its Loaded Recipe, and its Shots stay
-  unlinked, even once sharing is back on. Pulled means from the Shot's
-  start to its last sample, both by the tablet's clock, as the Loaded
-  Recipes are timed; so a Shot started as the plugin's write of the id
-  landed, before the plugin reported the Workflow holding it, is still
-  linked. A Machine's Loaded Recipes follow one another, so the link reads
-  only its latest entry for that Recipe loaded by the Shot's end, through an
-  index on the Machine, the Recipe and the time, however long its history.
-  The link is read, not stored (`shotRecipeSql`), so it follows the
-  Loaded Recipes as their deliveries arrive, those of a tablet that was
-  offline included, and the Shot's credit, as an adoption changes it. A
-  Shot whose time is unknown, or that only a Pending Machine holds, is
-  linked to none. Shots pulled before the plugin wrote the id, as those
-  captured before this milestone, name none; ADR-0022 accepts that a Shot
-  started between a recipe applied from DYE2's dashboard and the plugin's
-  write carries the Recipe loaded before it, or none.
+  unlinked, even once sharing is back on. A Shot whose selection named
+  nothing, as one pulled while the plugin selects the slot again after its
+  own write of a batch or grinder, which DYE2 clears its selection on, is
+  linked to the Recipe its Machine still had loaded as it ended, as the
+  plugin holds the Workflow's changes meanwhile, so its Loaded Recipes run
+  on unbroken; one a barista unloaded is unloaded before. One naming
+  a favourite, or a recipe no Recipe's, is linked to none. Pulled means from
+  the Shot's start to its last sample, both by the tablet's clock, as the
+  Loaded Recipes are timed; so a Shot started as DYE2 wrote its selection,
+  before the plugin reported the Workflow holding it, is still linked. A
+  Machine's Loaded Recipes follow one another, so the link reads only its
+  latest entry loaded by the Shot's end, for the Recipe named or any,
+  through an index on the Machine, the time and the Recipe, however long
+  its history. The link is read, not stored (`shotRecipeSql`), so it
+  follows the Loaded Recipes as their deliveries arrive, those of a tablet
+  that was offline included, and the Shot's credit, as an adoption changes
+  it. A Shot whose time is unknown, or that only a Pending Machine holds, is
+  linked to none. Storing a Shot locks the Recipe it is linked to, so a hard
+  delete racing it finds the Shot linked. ADR-0022 accepts that a Shot
+  started between a recipe applied from DYE2's dashboard and DYE2's write of
+  its selection carries the recipe selected before it, or none.
 - **Tools** are not shown as links: a Shot's page shows the names DYE2
   stored. Their ids (`tool_ids`), from the annotations' extras and the
   Workflow's, as DYE2's Edit Shot page reads them, are resolved through the
