@@ -3,8 +3,9 @@
 // decaid:lib/src/services/webserver/workflow_handler.dart), learned from
 // fixtures/decaid/workflow-writes-v0.8.7/: the body is deep-merged into the
 // Workflow, which is rebuilt from the result, dropping fields Decaid does not
-// know, and fields of its `context` merged in as null, and its steam, hot
-// water and rinse settings, where they changed, are written to the machine,
+// know, its profile's included, and fields of its `context` merged in as
+// null, and its steam, hot water and rinse settings, where they changed, are
+// written to the machine,
 // which refuses them while none is connected.
 
 /** What Decaid answers a request: its status and its body, as JSON. */
@@ -52,6 +53,9 @@ const CONTEXT: Readonly<Record<string, "double" | "string" | "object">> = {
 
 /** The Workflow's fields Decaid knows; it drops any other top-level key. */
 const WORKFLOW_FIELDS = ["id", "name", "description", "profile", "context", "steamSettings", "hotWaterData", "rinseData"];
+
+/** The profile's fields as `Profile.toJson` writes them, in its order (decaid:lib/src/models/data/profile.dart); it drops any other, such as an `id`. */
+const PROFILE_FIELDS = ["version", "title", "notes", "author", "beverage_type", "steps", "target_volume", "target_weight", "target_volume_count_start", "tank_temperature"];
 
 /** The steam settings Decaid writes to the machine, so a change of which needs one: not `stopAtTemperature`. */
 const STEAM_WRITTEN = ["targetTemperature", "duration", "flow"];
@@ -104,6 +108,10 @@ function partOf(workflow: Json, part: string): Json {
 function rebuilt(merged: Json): Json {
   const workflow: Json = {};
   for (const field of WORKFLOW_FIELDS) if (field in merged) workflow[field] = merged[field];
+  if (isObject(merged.profile)) {
+    const profile = merged.profile;
+    workflow.profile = Object.fromEntries(PROFILE_FIELDS.filter((field) => field in profile).map((field) => [field, profile[field]]));
+  }
   if (isObject(merged.context)) workflow.context = rebuiltContext(merged.context);
   else delete workflow.context;
   for (const [part, fields] of Object.entries(PARTS)) {
