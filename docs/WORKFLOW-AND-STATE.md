@@ -325,13 +325,17 @@ deliveries.
   answers (unlike #176's, which took a 404 as done), and gives way to
   something else DYE2 selected since. DYE2 answering that slot still, but
   made on another Workflow than it holds now, as before it has handled the
-  write, has the slot selected again too, as does one made before a
-  write of the server's that is yet to answer. A selection to be made again
-  after a write of the plugin's that DYE2 clears its selection on is
-  dropped once the Workflow's profile, batch or grinder moves off what the
-  write left, as a barista picking another batch before it was made, which
-  DYE2 would clear it on. Until a selection of the plugin's lands, its reads
-  do not unload the Recipe.
+  write, has the slot selected again too. None is made while a write of
+  the server's it is for is yet to answer; one Decaid never answers may
+  have landed, so the slot is then selected again once DYE2 has none. A
+  write of the plugin's that DYE2 clears its selection on selects the slot
+  again only where the Workflow it wrote over still held what the selection
+  was made on, as DYE2 last answered it (`reselectAfter`): a barista who
+  changed the profile, batch or grinder first, as while DYE2 answered 404,
+  had DYE2 clear it, or will once DYE2 restores it. And a selection to be
+  made again is dropped once the Workflow moves off what the write left, as
+  a barista picking another batch before it was made. Until a selection of
+  the plugin's lands, its reads do not unload the Recipe.
 - **DYE2's stored selection.** DYE2 keeps its selection in its plugin
   storage and restores it as it loads, storing a cleared one as `{}` itself
   (decentespresso/dye2#22); the plugin never writes that store key. It keeps

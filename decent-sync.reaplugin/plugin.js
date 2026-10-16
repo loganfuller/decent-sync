@@ -1053,6 +1053,12 @@ var __decentSync = (() => {
       __publicField(this, "clearingWrite", null);
       /** A selection of the plugin's still to be made: tried again until DYE2 answers, unless a barista selects something else first. */
       __publicField(this, "pendingSelect", null);
+      /**
+       * What the Loaded Recipe's selection was made on, as DYE2 last answered
+       * it, or as the plugin's selection again is to make it: a write of the
+       * plugin's over a Workflow that no longer holds it selects nothing again.
+       */
+      __publicField(this, "armed", null);
       /** Slots whose clearing from DYE2's selection is still to be made. */
       __publicField(this, "pendingClears", /* @__PURE__ */ new Set());
       /**
@@ -1183,7 +1189,10 @@ var __decentSync = (() => {
     selectionClearing(globalId) {
       const slot = this.slotOf(globalId);
       if (this.captureOnly || slot === null || this.loaded !== globalId) return;
-      if (this.pendingSelect?.globalId === globalId && this.pendingSelect.slot === slot) return;
+      if (this.pendingSelect?.globalId === globalId && this.pendingSelect.slot === slot) {
+        this.pendingSelect.on = void 0;
+        return;
+      }
       this.pendingSelect = { slot, globalId };
       this.clearingWrite = this.pendingSelect;
     }
@@ -1191,17 +1200,42 @@ var __decentSync = (() => {
       if (this.clearingWrite?.globalId === globalId && this.pendingSelect === this.clearingWrite) this.pendingSelect = null;
       this.clearingWrite = null;
     }
-    written(globalId, after, clears) {
+    selectionUnsettled(globalId) {
+      if (this.clearingWrite?.globalId === globalId) this.clearingWrite = null;
+      this.enqueue(() => this.check());
+    }
+    written(globalId, before, after, clears) {
       this.latest = after;
       this.clearingWrite = null;
       if (this.captureOnly || !clears) return;
       const slot = this.slotOf(globalId);
       if (slot === null || this.loaded !== globalId) return;
-      this.pendingSelect = { slot, globalId, on: armedOn(after) };
+      this.reselectAfter(globalId, slot, before, after);
       this.enqueue(() => this.check());
     }
+    /**
+     * After a write of the plugin's that DYE2 clears its selection on, from
+     * `before` to `after`: the slot is to be selected again on the Workflow
+     * written, where the Workflow it wrote over still held what the selection
+     * was made on (`armed`). Where it did not, the barista changed the
+     * profile, batch or grinder first, as while DYE2 answered 404, which DYE2
+     * clears a selection on, and nothing is selected again.
+     */
+    reselectAfter(globalId, slot, before, after) {
+      const pending = this.pendingSelect?.globalId === globalId ? this.pendingSelect : null;
+      const made = pending?.on ?? this.armed;
+      if (made !== null && !selectedOn(made, before)) {
+        if (pending !== null) this.pendingSelect = null;
+        return;
+      }
+      this.armed = armedOn(after);
+      this.pendingSelect = { slot, globalId, on: this.armed };
+    }
     cleared(globalId) {
-      if (this.loaded === globalId) this.loaded = null;
+      if (this.loaded === globalId) {
+        this.loaded = null;
+        this.armed = null;
+      }
       if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
       if (this.relocating?.globalId === globalId) this.relocating = null;
       const slot = this.lastSlots.get(globalId);
@@ -1384,7 +1418,8 @@ var __decentSync = (() => {
         this.pendingSelect = null;
         return answer;
       }
-      if (answer.kind === "recipe" && answer.slot === pending.slot && pending !== this.clearingWrite && selectedOn(answer, this.latest)) {
+      if (pending === this.clearingWrite) return answer;
+      if (answer.kind === "recipe" && answer.slot === pending.slot && selectedOn(answer, this.latest)) {
         this.landed(pending);
         return answer;
       }
@@ -1425,7 +1460,8 @@ var __decentSync = (() => {
         await this.unload();
         return;
       }
-      if (recipe.globalId !== this.loaded) await this.loadRecipe(recipe.globalId, answer.slot);
+      if (recipe.globalId === this.loaded) this.armed = { fingerprint: answer.fingerprint, batch: answer.batch, grinder: answer.grinder };
+      else await this.loadRecipe(recipe.globalId, answer.slot, { fingerprint: answer.fingerprint, batch: answer.batch, grinder: answer.grinder });
     }
     /**
      * Loads the Recipe in that slot: once DYE2 is found to have the slot still
@@ -1435,9 +1471,10 @@ var __decentSync = (() => {
      * to change the hot water settings while no machine is connected, so the
      * rest is then written without them. A write that changed the profile,
      * batch or grinder, which DYE2 clears its selection on, has the slot
-     * selected again.
+     * selected again, where the Workflow it wrote over still held what DYE2's
+     * selection was made on (`armed`, `reselectAfter`).
      */
-    async loadRecipe(globalId, slot) {
+    async loadRecipe(globalId, slot, armed) {
       const now2 = await readSelection();
       if (now2.kind !== "unavailable" && !(now2.kind === "recipe" && now2.slot === slot)) return;
       const recipe = this.recipes.get(slot);
@@ -1458,7 +1495,8 @@ var __decentSync = (() => {
         const after = answer ? parsed2(answer.text) : workflow;
         if (planned && Object.keys(planned.before).length > 0) this.changes.attach({ loadBefore: planned.before });
         this.loaded = globalId;
-        if (planned !== null && isObject4(after) && clearsSelection(workflow, planned.write)) this.pendingSelect = { slot, globalId, on: armedOn(after) };
+        this.armed = armed;
+        if (planned !== null && isObject4(after) && clearsSelection(workflow, planned.write)) this.reselectAfter(globalId, slot, workflow, after);
         return isObject4(after) ? after : void 0;
       });
       if (this.pendingSelect?.globalId === globalId) await this.tryPending(await readSelection());
@@ -1468,6 +1506,7 @@ var __decentSync = (() => {
       const globalId = this.loaded;
       if (globalId === null) return;
       this.loaded = null;
+      this.armed = null;
       if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
       await this.keepNamed();
     }
@@ -2046,12 +2085,18 @@ var __decentSync = (() => {
       const patch = loadedRecipePatch(fields, workflow);
       const clears = clearsSelection(workflow, patch);
       if (clears) posted.loaded?.selectionClearing(globalId);
-      const answer = await request("PUT", "/workflow", patch);
+      let answer;
+      try {
+        answer = await request("PUT", "/workflow", patch);
+      } catch (error) {
+        if (clears) posted.loaded?.selectionUnsettled(globalId);
+        throw error;
+      }
       const updated = answer.ok ? parsed3(answer.text) : void 0;
       if (clears && !isObject5(updated)) posted.loaded?.selectionKept(globalId);
       if (isObject5(updated)) {
         if (clearing) posted.loaded?.cleared(globalId);
-        else posted.loaded?.written(globalId, updated, clears);
+        else posted.loaded?.written(globalId, workflow, updated, clears);
         return written(write, loadedRecipeParts(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
       }
       const ofHotWater = Object.keys(fields).filter((field) => field.startsWith("hotWaterData."));

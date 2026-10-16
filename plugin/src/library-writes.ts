@@ -725,14 +725,20 @@ async function writeLoadedRecipe(write: LibraryWrite, _log: (message: string) =>
     const patch = loadedRecipePatch(fields, workflow);
     const clears = clearsSelection(workflow, patch);
     if (clears) posted.loaded?.selectionClearing(globalId);
-    const answer = await request("PUT", "/workflow", patch);
+    let answer: Answer;
+    try {
+      answer = await request("PUT", "/workflow", patch);
+    } catch (error) {
+      // Decaid did not answer: the write may have landed, so the slot is selected again once DYE2 has none.
+      if (clears) posted.loaded?.selectionUnsettled(globalId);
+      throw error;
+    }
     const updated = answer.ok ? parsed(answer.text) : undefined;
-    // This write refused, the Workflow stayed, so DYE2 cleared nothing for it; one that threw may have landed, and is
-    // selected again anyway.
+    // This write refused, the Workflow stayed, so DYE2 cleared nothing for it.
     if (clears && !isObject(updated)) posted.loaded?.selectionKept(globalId);
     if (isObject(updated)) {
       if (clearing) posted.loaded?.cleared(globalId);
-      else posted.loaded?.written(globalId, updated, clears);
+      else posted.loaded?.written(globalId, workflow, updated, clears);
       return written(write, loadedRecipeParts(updated), Object.keys(fields), new Date().toISOString());
     }
     const ofHotWater = Object.keys(fields).filter((field) => field.startsWith("hotWaterData."));

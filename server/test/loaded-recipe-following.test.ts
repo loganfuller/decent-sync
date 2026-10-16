@@ -399,6 +399,27 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await loads(machines.c, one);
   });
 
+  it("selects nothing again after a grinder written into A's Workflow while A's DYE2 answers 404, over a batch A's barista picked meanwhile, which unloads it", async () => {
+    const { here, machines, dye2, a, c, one } = await lab("Away switch", 48191);
+    const grinder = (await api.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: here.id, content: { model: "Away switch Grinder 2" } }, 201)).grinder.id;
+    for (const tablet of [a, c]) await expect.poll(() => localId(tablet, "/grinders", grinder), { timeout: 15_000 }).toEqual(expect.any(String));
+    dye2.a.unload();
+    // A's barista picks slot 2's batch, which nothing judges while DYE2 answers 404, then the Recipe's new grinder is written.
+    await a.changeSettings({ context: { beanBatchId: inSlot(a, "2")!.beanBatchId } });
+    await patch(one, { grinderId: grinder });
+    for (const tablet of [a, c]) await expect.poll(async () => context(tablet).grinderId, { timeout: 15_000 }).toBe(await localId(tablet, "/grinders", grinder));
+    // DYE2 restores the selection made on the batch before, which loads nothing, and the plugin selects nothing over it.
+    await dye2.a.load();
+    await loads(machines.a, null);
+    await settle();
+    expect(dye2.a.selected()).toBeNull();
+    expect(named(a)).toBeNull();
+    // C, which nothing switched, stays loaded on the new grinder.
+    await settle();
+    expect(dye2.c.selected()).toMatchObject({ kind: "recipe", id: "1" });
+    await loads(machines.c, one);
+  });
+
   it("loads a recipe selected from Streamline's strip on a profile with a target weight, with the Workflow on the Recipe's batch, selecting it once", async () => {
     const { machines, dye2, c, one, two } = await lab("Target", 48111);
     // Classic Italian espresso, slot 2's, stops at a target weight, which DYE2's fingerprint leaves out (decentespresso/dye2#18).
