@@ -39,7 +39,10 @@ import { KINDS } from "../library/kinds.js";
 // follows the Loaded Recipes as their deliveries arrive, those of a tablet
 // that was offline included, and the Shot's credit as it changes. Shots
 // pulled before the plugin wrote the id name none, and stay unlinked. A
-// Shot's Tools are not linked: its page shows the names DYE2 stored.
+// Shot's Tools are linked as its Basket is, each in its place among the ids
+// DYE2 recorded (`library_tool_ids`), only so a Tool a Shot used is never
+// hard-deleted once its record has left the tablet, as when it was Archived
+// or hidden there: its page shows the names DYE2 stored.
 //
 // Every change to a tablet's map holds the tablet's row lock, and links the
 // Shots it can then (`linkShots`); storing a Shot's metadata holds that row
@@ -64,9 +67,11 @@ interface ShotLinks {
   beanBatchId: string | null;
   grinderId: string | null;
   basketId: string | null;
+  toolIds: string[];
   libraryBatchId: string | null;
   libraryGrinderId: string | null;
   libraryBasketId: string | null;
+  libraryToolIds: string[];
 }
 
 /**
@@ -82,17 +87,20 @@ export async function resolveLinks(
   tx: Prisma.TransactionClient,
   tabletId: string,
   shotId: string,
-  ids: { beanBatchId: string | null; grinderId: string | null; basketId: string | null },
-): Promise<{ libraryBatchId: string | null; libraryGrinderId: string | null; libraryBasketId: string | null }> {
+  ids: { beanBatchId: string | null; grinderId: string | null; basketId: string | null; toolIds: readonly string[] },
+): Promise<{ libraryBatchId: string | null; libraryGrinderId: string | null; libraryBasketId: string | null; libraryToolIds: string[] }> {
   await tx.$queryRaw`SELECT 1 FROM tablets WHERE id = ${tabletId}::uuid FOR SHARE`;
   const [resolved] = await tx.$queryRaw<{ batch: string | null; grinder: string | null; basket: string | null }[]>`
     SELECT
       (SELECT batch_id::text FROM tablet_bean_batches WHERE tablet_id = ${tabletId}::uuid AND local_id = ${ids.beanBatchId}) AS batch,
       (SELECT grinder_id::text FROM tablet_grinders WHERE tablet_id = ${tabletId}::uuid AND local_id = ${ids.grinderId}) AS grinder,
       (SELECT basket_id::text FROM tablet_baskets WHERE tablet_id = ${tabletId}::uuid AND local_id = ${ids.basketId}) AS basket`;
+  const tools = await tx.$queryRaw<{ localId: string; toolId: string }[]>`
+    SELECT local_id AS "localId", tool_id::text AS "toolId" FROM tablet_tools WHERE tablet_id = ${tabletId}::uuid AND local_id = ANY(${[...ids.toolIds]}::text[])`;
   const [stored] = await tx.$queryRaw<ShotLinks[]>`
-    SELECT bean_batch_id AS "beanBatchId", grinder_id AS "grinderId", basket_id AS "basketId",
-      library_batch_id::text AS "libraryBatchId", library_grinder_id::text AS "libraryGrinderId", library_basket_id::text AS "libraryBasketId"
+    SELECT bean_batch_id AS "beanBatchId", grinder_id AS "grinderId", basket_id AS "basketId", tool_ids AS "toolIds",
+      library_batch_id::text AS "libraryBatchId", library_grinder_id::text AS "libraryGrinderId", library_basket_id::text AS "libraryBasketId",
+      library_tool_ids AS "libraryToolIds"
     FROM shots WHERE id = ${shotId}`;
   const kept = (id: string | null, before: string | null | undefined, link: string | null | undefined) =>
     id !== null && id === before ? (link ?? null) : null;
@@ -100,7 +108,33 @@ export async function resolveLinks(
     libraryBatchId: resolved?.batch ?? kept(ids.beanBatchId, stored?.beanBatchId, stored?.libraryBatchId),
     libraryGrinderId: resolved?.grinder ?? kept(ids.grinderId, stored?.grinderId, stored?.libraryGrinderId),
     libraryBasketId: resolved?.basket ?? kept(ids.basketId, stored?.basketId, stored?.libraryBasketId),
+    libraryToolIds: ids.toolIds.map((localId) => {
+      const before = stored ? stored.toolIds.indexOf(localId) : -1;
+      return tools.find((tool) => tool.localId === localId)?.toolId ?? (before === -1 ? NO_TOOL : (stored!.libraryToolIds[before] ?? NO_TOOL));
+    }),
   };
+}
+
+/**
+ * A Tool a Shot names by an id its tablet's map does not hold, in its links
+ * (`library_tool_ids`), which follow the ids DYE2 recorded (`tool_ids`)
+ * place for place.
+ */
+const NO_TOOL = "";
+
+/**
+ * Links each Shot the tablet reported naming the Tool's record by its id
+ * there, but not linked to a Tool by it yet, to the Tool: as `linkShots`
+ * does for a kind a Shot names one of, in its place among the Shot's Tools.
+ */
+export async function linkShotTools(tx: Prisma.TransactionClient, tabletId: string, toolId: string, localId: string): Promise<void> {
+  await tx.$executeRaw`
+    UPDATE shots AS s SET library_tool_ids = ARRAY(
+      SELECT CASE WHEN listed.local = ${localId} AND coalesce(listed.link, '') = '' THEN ${toolId.toLowerCase()} ELSE coalesce(listed.link, '') END
+      FROM unnest(s.tool_ids, s.library_tool_ids) WITH ORDINALITY AS listed(local, link, position) ORDER BY listed.position
+    )
+    WHERE s.tablet_id = ${tabletId}::uuid AND s.tool_ids @> ARRAY[${localId}]::text[]
+      AND EXISTS (SELECT 1 FROM unnest(s.tool_ids, s.library_tool_ids) AS listed(local, link) WHERE listed.local = ${localId} AND coalesce(listed.link, '') = '')`;
 }
 
 /**
@@ -129,7 +163,11 @@ export async function claimListed(tx: Prisma.TransactionClient, tabletId: string
     UPDATE shots AS s SET tablet_id = ${tabletId}::uuid,
       library_batch_id = (SELECT batch_id FROM tablet_bean_batches WHERE tablet_id = ${tabletId}::uuid AND local_id = s.bean_batch_id),
       library_grinder_id = (SELECT grinder_id FROM tablet_grinders WHERE tablet_id = ${tabletId}::uuid AND local_id = s.grinder_id),
-      library_basket_id = (SELECT basket_id FROM tablet_baskets WHERE tablet_id = ${tabletId}::uuid AND local_id = s.basket_id)
+      library_basket_id = (SELECT basket_id FROM tablet_baskets WHERE tablet_id = ${tabletId}::uuid AND local_id = s.basket_id),
+      library_tool_ids = ARRAY(
+        SELECT coalesce((SELECT tool_id::text FROM tablet_tools WHERE tablet_id = ${tabletId}::uuid AND local_id = listed.local), '')
+        FROM unnest(s.tool_ids) WITH ORDINALITY AS listed(local, position) ORDER BY listed.position
+      )
     WHERE s.id = ANY(${shotIds}::text[]) AND s.tablet_id IS NULL`;
 }
 

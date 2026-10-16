@@ -636,9 +636,10 @@ Recipe).
   (`SHOTS.md`, Links to the Library), or by
   the profile id a skin recorded in its Workflow (`shots.profile_id`);
   Decaid itself records none. A Shot names a Basket as it names a batch, by
-  the id DYE2 recorded (`shots.basket_id`) or its link, and a Tool by its
-  id on the tablet among the Tools DYE2 recorded (`shots.tool_ids`, which
-  are not linked). A Recipe is named only by a Shot linked to it, one
+  the id DYE2 recorded (`shots.basket_id`) or its link, and a Tool the same
+  way, by its id on the tablet among the Tools DYE2 recorded
+  (`shots.tool_ids`) or its link (`shots.library_tool_ids`), so one
+  Archived or hidden, whose record has left every tablet, stays named. A Recipe is named only by a Shot linked to it, one
   pulled while its Machine had it loaded (`SHOTS.md`, Links to the
   Library): a Capture-only Machine's Shots name one by its global id that
   was never their Machine's Loaded Recipe, and leave it deletable. Storing

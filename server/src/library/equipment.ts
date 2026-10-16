@@ -1,7 +1,7 @@
 import { LIBRARY_ITEM_KINDS, dye2GlobalIdOf, dye2Records, isRecordId } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
-import { linkShots } from "../shots/links.js";
+import { linkShotTools, linkShots } from "../shots/links.js";
 import type { PrismaService } from "../prisma.service.js";
 import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined, recordLinked } from "./content-edits.js";
 import { type MappedEquipment, answeredEquipment, beforeWriteAfter, equipmentContent, planEquipmentIntake, readReportedEquipment, withoutSettled } from "./equipment-intake.js";
@@ -338,6 +338,7 @@ async function saveRecord(
       local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at, listed = EXCLUDED.listed,
       before_write = ${state.beforeWrite === undefined ? Prisma.sql`held.before_write` : Prisma.sql`EXCLUDED.before_write`},
       ${keepSeenSql("held")}, ${keepContentSeenSql("held")}`;
-  // The Shots that name a Basket's record by this id are linked to the Basket, if they were not yet (shots/links.ts).
+  // The Shots that name the record by this id are linked to the item, if they were not yet (shots/links.ts).
   if (kind === "basket") await linkShots(tx, "basket", tabletId, itemId, localId);
+  else await linkShotTools(tx, tabletId, itemId, localId);
 }

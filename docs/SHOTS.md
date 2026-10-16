@@ -210,10 +210,21 @@ its Machine had loaded and the Basket DYE2 recorded
   captured before this milestone, name none; ADR-0022 accepts that a Shot
   started between a recipe applied from DYE2's dashboard and the plugin's
   write carries the Recipe loaded before it, or none.
-- **Tools** are not linked: a Shot's page shows the names DYE2 stored. Their
-  ids (`tool_ids`), from the annotations' extras and the Workflow's, as
-  DYE2's Edit Shot page reads them, only keep a Tool from being
-  hard-deleted.
+- **Tools** are not shown as links: a Shot's page shows the names DYE2
+  stored. Their ids (`tool_ids`), from the annotations' extras and the
+  Workflow's, as DYE2's Edit Shot page reads them, are resolved through the
+  reporting tablet's map as the Basket is, each in its place
+  (`library_tool_ids`, empty text for one the map does not hold), and kept
+  while the Shot names the same id, only so a Tool a Shot used is not
+  hard-deleted once its record has left the tablet, as when it is Archived
+  or hidden at its Location.
+- **A Basket or Tool the tablet dropped first.** DYE2 can neither archive
+  nor hide one, so a Basket or Tool its Location stops offering is removed
+  from the tablet's list, and from its map. A Shot naming it that reaches
+  the server only after that, as one found only by a later index rather
+  than queued as it was pulled, is linked to neither, and keeps neither
+  from being hard-deleted; the plugin holds back only a hard delete's
+  removal for a Shot it has yet to send. An accepted gap.
 - **The skin's profile id is not used.** The profile id the WorkFlow skin
   (`Sabotage1/WorkFlow-Skin`) records in the Workflow
   (`context.extras.workflowSkin.selectedProfileId`, kept as `profile_id`)

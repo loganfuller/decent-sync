@@ -18,7 +18,7 @@ import { lockLocation } from "./location-state.js";
 // since; a Bean is named when one of its batches is. A Shot names a Profile by
 // the steps it executed, which its Workflow records with the rest of its
 // profile, or by the profile id a skin recorded there. A Basket is named as a
-// batch is, and a Tool by its id there among the Tools DYE2 recorded; a Recipe
+// batch is, and a Tool the same way among the Tools DYE2 recorded; a Recipe
 // only by a Shot linked to it, pulled while its Machine had it loaded
 // (shots/links.ts), whose storage holds the Recipe's row for key share.
 // Decaid's bundled Profiles, which every tablet has and Decaid refuses to

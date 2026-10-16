@@ -728,15 +728,16 @@ function equipmentKind(
     stateLocationsSql: (ids) => Prisma.sql`SELECT location_id::text AS id FROM ${shown} WHERE ${column} = ANY(${ids}::uuid[])`,
     ...(kind === "basket" ? { shotLink: { local: "basket_id", link: "library_basket_id" } } : {}),
     // A Shot names one by its id on the tablet that pulled it, so one whose record has that id on any tablet's map is named,
-    // as is a Basket a Shot is linked to, whose record may have left the map since.
+    // as is one a Shot is linked to, whose record may have left the map since, as one Archived or hidden there.
     shotsNameSql: (ids) =>
       kind === "basket"
         ? Prisma.sql`(
             EXISTS (SELECT 1 FROM shots JOIN tablet_baskets AS held ON held.local_id = shots.basket_id WHERE held.basket_id = ANY(${ids}::uuid[]))
             OR ${shotLinkedSql("basket", ids)}
           )`
-        : Prisma.sql`EXISTS (
-            SELECT 1 FROM tablet_tools AS held JOIN shots ON shots.tool_ids @> ARRAY[held.local_id] WHERE held.tool_id = ANY(${ids}::uuid[])
+        : Prisma.sql`(
+            EXISTS (SELECT 1 FROM tablet_tools AS held JOIN shots ON shots.tool_ids @> ARRAY[held.local_id] WHERE held.tool_id = ANY(${ids}::uuid[]))
+            OR EXISTS (SELECT 1 FROM shots WHERE shots.library_tool_ids && ${ids.map((id) => id.toLowerCase())}::text[])
           )`,
     namedAs: `this ${name}`,
     recipesNameSql: (ids) =>

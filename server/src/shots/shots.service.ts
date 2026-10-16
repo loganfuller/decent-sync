@@ -252,7 +252,7 @@ const creditView = {
   libraryBasket: { select: basketLink },
 } as const;
 /** The columns behind a Shot's links, which it shows as the items they link to. */
-const linkColumns = { tabletId: true, libraryBatchId: true, libraryGrinderId: true, libraryBasketId: true, recipeId: true } as const;
+const linkColumns = { tabletId: true, libraryBatchId: true, libraryGrinderId: true, libraryBasketId: true, libraryToolIds: true, recipeId: true } as const;
 const listOmitted = { record: true, versionAt: true, hasFullRecord: true, ...linkColumns } as const;
 
 /** A Library Bean Batch a Shot is linked to: its Bean and roast date, as the Bean Batches list names them. */
