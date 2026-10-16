@@ -766,11 +766,13 @@ async function writeLoadedRecipe(write: LibraryWrite, _log: (message: string) =>
     const fields = loadedRecipeFields(write, workflow, hotWater);
     if (Object.keys(fields).length === 0) return written(write, loadedRecipeParts(workflow), [], new Date().toISOString());
     const patch = loadedRecipePatch(fields, workflow);
-    if ("profile" in patch && dye2Fingerprint(patch.profile) !== dye2Fingerprint(workflow.profile)) posted.loaded?.profileChanging(globalId);
+    const changesProfile = "profile" in patch && dye2Fingerprint(patch.profile) !== dye2Fingerprint(workflow.profile);
+    if (changesProfile) posted.loaded?.profileChanging(globalId);
     const answer = await request("PUT", "/workflow", patch);
     const updated = answer.ok ? parsed(answer.text) : undefined;
-    // Refused, the profile stayed, so DYE2 cleared nothing; one that threw may have landed, and is selected again anyway.
-    if (!isObject(updated)) posted.loaded?.profileUnchanged(globalId);
+    // This write refused, its profile stayed, so DYE2 cleared nothing for it; one that threw may have landed, and is
+    // selected again anyway.
+    if (changesProfile && !isObject(updated)) posted.loaded?.profileUnchanged(globalId);
     if (isObject(updated)) {
       if (clearing) posted.loaded?.cleared(globalId);
       else posted.loaded?.written(globalId, workflow, updated);

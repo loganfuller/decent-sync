@@ -2232,10 +2232,11 @@ var __decentSync = (() => {
       const fields = loadedRecipeFields(write, workflow, hotWater);
       if (Object.keys(fields).length === 0) return written(write, loadedRecipeParts(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
       const patch = loadedRecipePatch(fields, workflow);
-      if ("profile" in patch && dye2Fingerprint(patch.profile) !== dye2Fingerprint(workflow.profile)) posted.loaded?.profileChanging(globalId);
+      const changesProfile = "profile" in patch && dye2Fingerprint(patch.profile) !== dye2Fingerprint(workflow.profile);
+      if (changesProfile) posted.loaded?.profileChanging(globalId);
       const answer = await request("PUT", "/workflow", patch);
       const updated = answer.ok ? parsed5(answer.text) : void 0;
-      if (!isObject5(updated)) posted.loaded?.profileUnchanged(globalId);
+      if (changesProfile && !isObject5(updated)) posted.loaded?.profileUnchanged(globalId);
       if (isObject5(updated)) {
         if (clearing) posted.loaded?.cleared(globalId);
         else posted.loaded?.written(globalId, workflow, updated);
