@@ -1109,8 +1109,10 @@ never matched (ADR-0018).
   keeps the Recipe's batch if it is of that Bean; otherwise the Recipe takes
   that Bean's batch most recently added at the Location, still there, or no
   batch where the Bean has none there. A batch picked on a Machine is never
-  recorded into the recipe: DYE2 clears its selection on it instead, which
-  unloads the Recipe (`WORKFLOW-AND-STATE.md`).
+  recorded into the recipe: where the Recipe holds one, DYE2 clears its
+  selection on it instead, which unloads the Recipe; where it holds none,
+  DYE2 takes the first one picked as the one it was applied with, and the
+  Recipe stays loaded without it (`WORKFLOW-AND-STATE.md`).
 - **A saved 0 is a value**, as a milk stop of 0 is off. DYE2 saves a blank
   field as `null` (decentespresso/dye2#29), which holds none.
 - **Hot water.** DYE2 keeps one hot water value, of its mode: the volume by

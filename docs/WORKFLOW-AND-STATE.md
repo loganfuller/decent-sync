@@ -457,7 +457,10 @@ the parts to the Recipe's content both ways.
   report keeps. So is a recording the plugin's read of the list caught just
   before its post, as the answer to the post carries it
   (`recordRecipeWritten`). DYE2 never records a batch: another batch on the
-  Machine, of the Recipe's Bean or not, unloads it (A load, above). Its
+  Machine, of the Recipe's Bean or not, unloads it (A load, above). Where
+  the Recipe holds no batch, DYE2 takes the first one picked as the one it
+  was applied with (decentespresso/dye2#19), so the Recipe stays loaded,
+  and stays without one until an edit gives it one. Its
   steam and flush values are no edit, recorded or in the Workflow: they
   stay the Machine's own (`LIBRARY.md`, Steam and rinse settings).
 - **What the Workflow edits.** A Workflow delivery naming the Recipe its
