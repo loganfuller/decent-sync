@@ -19,8 +19,8 @@ Decaid is updated. Update Decaid on every tablet before upgrading the
 server. Decaid v0.9.0 tells the plugin of every Shot it stores or changes,
 those a backup import adds or overwrites included, and copies the burrs of a
 Shot's grinder onto each Shot it pulls, which the server now keeps with each
-Shot. Shots
-stored before the upgrade keep no burrs until they are stored again.
+Shot. Shots stored before the upgrade keep no burrs until they are stored
+again.
 
 ### Approve the plugin update on every tablet
 
