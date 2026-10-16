@@ -653,8 +653,9 @@ Recipe).
   on its tablet, out of the Library, and so does the record of that batch's
   Bean there, which the plugin would delete with its batches. The plugin
   also refuses to delete a record a Shot it queued since it loaded, or has
-  yet to read and send, names (by that Shot's latest record, so an edit
-  naming another record releases the first), as the server may have planned the delete
+  yet to read and send, names (by that Shot's latest record, by its edit
+  time, so an edit naming another record releases the first, and a record
+  read before the edit but noted after it changes nothing), as the server may have planned the delete
   before it had that Shot; the server keeps the record once it has it. It
   reads at most 20 Shots still to be read for this, and refuses any delete
   while more are, as during a backfill (`SHOTS_STILL_TO_READ`): the

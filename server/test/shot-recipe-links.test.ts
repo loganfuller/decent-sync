@@ -15,7 +15,7 @@ import {
   withDye2Selection,
 } from "./support/simulated-dye2.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
-import type { SimulatedTablet } from "./support/simulated-tablet.js";
+import type { SimulatedTablet, SimulatedTabletOptions } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #147: each Shot is linked to the Recipe its Machine had
@@ -126,11 +126,11 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
    * never used DYE2 on the other, both holding slots 1 and 2 as the first
    * tablet's DYE2 editor saved and edited them, each naming a Basket.
    */
-  async function lab(scenario: string, serial: number) {
+  async function lab(scenario: string, serial: number, tabletOptions: Pick<SimulatedTabletOptions, "apiDelayMs" | "answerOnArrival"> = {}) {
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machine = await api.createMachine(`${scenario} lab A`, here.id);
     const second = await api.createMachine(`${scenario} lab B`, here.id);
-    const tablet = syncingTablet(machine, server, { api: withDye2Selection(recordedDye2Tablet(String(serial), scenario)) });
+    const tablet = syncingTablet(machine, server, { api: withDye2Selection(recordedDye2Tablet(String(serial), scenario)), ...tabletOptions });
     const neverUsed = syncingTablet(second, other, { api: withDye2Selection(dye2NeverUsed(String(serial + 1))) });
     await api.waitForOnline(machine, second);
     await saveInDye2(tablet, recipes.saveSlot1);
@@ -310,6 +310,37 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     expect((await api.call("DELETE", `/baskets/${picked}`)).status).toBe(204);
     for (const each of [tablet, neverUsed]) await expect.poll(() => recordOf(each, "baskets", picked)).toBeUndefined();
     expect((await api.call("DELETE", `/baskets/${edited}`)).status).toBe(409);
+  });
+
+  it("deletes a Basket from a tablet whose Shot's record, read slowly, named it after a newer edit named another", async () => {
+    let edit: (() => void) | undefined;
+    // The plugin's read of the Shot is answered from what Decaid held as it arrived, 25 s of the tablet's time later
+    // (half a second here), and DYE2's Edit Shot page sets another Basket meanwhile.
+    const apiDelayMs = (method: string, path: string) => {
+      if (method !== "GET" || path !== "/shots/basket-slow-read" || !edit) return 0;
+      setTimeout(edit, 0);
+      edit = undefined;
+      return 25_000;
+    };
+    const { here, tablet, neverUsed } = await lab("Slow read", 49071, { apiDelayMs, answerOnArrival: true });
+    const create = async (name: string) => (await api.send<{ basket: { id: string } }>("POST", "/baskets", { locationId: here.id, content: { name } }, 201)).basket.id;
+    const [picked, edited] = [await create("Slow read 18 g"), await create("Slow read 20 g")];
+    for (const id of [picked, edited]) await expect.poll(() => recordOf(tablet, "baskets", id)).toBeDefined();
+    const local = (id: string) => recordOf(tablet, "baskets", id)!.id as string;
+    await tablet.changeSettings({ context: { extras: { basketId: local(picked), basketName: "Slow read 18 g" } } });
+    const shot = pulledNow(tablet, "basket-slow-read", 49071);
+    const { measurements: _measurements, ...metadata } = shot;
+    edit = () =>
+      tablet.fire("shotUpdated", {
+        id: shot.id,
+        shot: { ...metadata, updatedAt: "2026-11-01T12:01:00.000002Z", annotations: { extras: { basketId: local(edited), basketName: "Slow read 20 g" } } },
+      });
+    tablet.pullShot(shot);
+    await expect.poll(async () => (await api.call("GET", `/shots/${shot.id}`)).status).toBe(200);
+    await expect.poll(async () => (await storedShot(shot.id as string)).basket?.id).toBe(edited);
+
+    expect((await api.call("DELETE", `/baskets/${picked}`)).status).toBe(204);
+    for (const each of [tablet, neverUsed]) await expect.poll(() => recordOf(each, "baskets", picked)).toBeUndefined();
   });
 
   it("hard-deletes a Basket or Tool no Shot or Recipe names from every tablet, and refuses one either names", async () => {

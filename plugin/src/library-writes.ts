@@ -312,11 +312,12 @@ export class LibraryWrites {
   /**
    * The batch, Grinder, profile, basket and tool records each Shot this
    * plugin queued since it loaded names, by its id, as `kind:id`, as its
-   * latest record names them: a few per Shot. A profile is named by its
-   * steps (`stepsKey`), as a skin sets the Workflow's profile's targets for
-   * the Shot, and by the id a skin recorded, if one did.
+   * latest record names them, with that record's edit time (`editOrder`):
+   * a few per Shot. A profile is named by its steps (`stepsKey`), as a skin
+   * sets the Workflow's profile's targets for the Shot, and by the id a skin
+   * recorded, if one did.
    */
-  private readonly shotsName = new Map<string, Set<string>>();
+  private readonly shotsName = new Map<string, { version: string; names: Set<string> }>();
   /** The Shots still to be sent that `namedByShot` read. */
   private readonly shotsRead = new Set<string>();
 
@@ -342,18 +343,24 @@ export class LibraryWrites {
       if (shot) this.noteShot(id, shot);
     }
     const named = [...ids].map((id) => `${kind}:${id}`);
-    return [...this.shotsName.values()].some((names) => named.some((name) => names.has(name)));
+    return [...this.shotsName.values()].some(({ names }) => named.some((name) => names.has(name)));
   }
 
   /**
    * Notes the batch, Grinder, profile, basket and tool records a Shot names,
-   * in place of what its earlier record named, as the server keeps a Shot's
-   * latest metadata: so an edit naming another basket, say, no longer keeps
-   * the one it named before.
+   * in place of what an older record of it named, as the server keeps a
+   * Shot's latest metadata by its edit time: so an edit naming another
+   * basket, say, no longer keeps the one it named before, and a record read
+   * before that edit but noted after it, as one whose read was slow, changes
+   * nothing. A record of the same edit time adds what it names, as keeping
+   * more records is the safe side.
    */
   private noteShot(id: string, shot: Record<string, unknown>): void {
-    const names = new Set<string>();
-    this.shotsName.set(id, names);
+    const version = editOrder(shot.updatedAt);
+    const noted = this.shotsName.get(id);
+    if (noted && version < noted.version) return;
+    const names = noted && version === noted.version ? noted.names : new Set<string>();
+    this.shotsName.set(id, { version, names });
     const workflow = isObject(shot.workflow) ? shot.workflow : {};
     const steps = stepsKey(isObject(workflow.profile) ? workflow.profile.steps : undefined);
     if (steps !== null) names.add(`profile:${steps}`);
@@ -501,6 +508,17 @@ async function purgeProfile(remove: LibraryDelete, namedByShot: NamedByShot): Pr
   const answer = await request("DELETE", `${path}/purge`);
   // Decaid answers a purge of a profile it no longer holds, as one replaced since it was read, with 400.
   return answer.ok || (answer.status === 400 && answer.text.includes("Profile not found")) ? deleted(remove) : refused(remove, answer.status, answer.text);
+}
+
+/**
+ * A Shot's edit time, `updatedAt` in UTC as Decaid writes it, as text that
+ * sorts in time order, to the microsecond and beyond, as the server compares
+ * them; empty, sorting first, for a record without one, which the server
+ * ignores.
+ */
+function editOrder(updatedAt: unknown): string {
+  const parts = typeof updatedAt === "string" ? /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?Z$/.exec(updatedAt) : null;
+  return parts ? `${parts[1]}.${(parts[2] ?? "").padEnd(12, "0")}` : "";
 }
 
 /** Why a delete is refused while a Shot this plugin queued, or has yet to send, may name its record or one of its batches. */

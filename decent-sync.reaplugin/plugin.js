@@ -1249,9 +1249,10 @@ var __decentSync = (() => {
       /**
        * The batch, Grinder, profile, basket and tool records each Shot this
        * plugin queued since it loaded names, by its id, as `kind:id`, as its
-       * latest record names them: a few per Shot. A profile is named by its
-       * steps (`stepsKey`), as a skin sets the Workflow's profile's targets for
-       * the Shot, and by the id a skin recorded, if one did.
+       * latest record names them, with that record's edit time (`editOrder`):
+       * a few per Shot. A profile is named by its steps (`stepsKey`), as a skin
+       * sets the Workflow's profile's targets for the Shot, and by the id a skin
+       * recorded, if one did.
        */
       __publicField(this, "shotsName", /* @__PURE__ */ new Map());
       /** The Shots still to be sent that `namedByShot` read. */
@@ -1280,17 +1281,23 @@ var __decentSync = (() => {
         if (shot) this.noteShot(id, shot);
       }
       const named = [...ids].map((id) => `${kind}:${id}`);
-      return [...this.shotsName.values()].some((names) => named.some((name) => names.has(name)));
+      return [...this.shotsName.values()].some(({ names }) => named.some((name) => names.has(name)));
     }
     /**
      * Notes the batch, Grinder, profile, basket and tool records a Shot names,
-     * in place of what its earlier record named, as the server keeps a Shot's
-     * latest metadata: so an edit naming another basket, say, no longer keeps
-     * the one it named before.
+     * in place of what an older record of it named, as the server keeps a
+     * Shot's latest metadata by its edit time: so an edit naming another
+     * basket, say, no longer keeps the one it named before, and a record read
+     * before that edit but noted after it, as one whose read was slow, changes
+     * nothing. A record of the same edit time adds what it names, as keeping
+     * more records is the safe side.
      */
     noteShot(id, shot) {
-      const names = /* @__PURE__ */ new Set();
-      this.shotsName.set(id, names);
+      const version = editOrder(shot.updatedAt);
+      const noted = this.shotsName.get(id);
+      if (noted && version < noted.version) return;
+      const names = noted && version === noted.version ? noted.names : /* @__PURE__ */ new Set();
+      this.shotsName.set(id, { version, names });
       const workflow = isObject3(shot.workflow) ? shot.workflow : {};
       const steps = stepsKey(isObject3(workflow.profile) ? workflow.profile.steps : void 0);
       if (steps !== null) names.add(`profile:${steps}`);
@@ -1395,6 +1402,10 @@ var __decentSync = (() => {
     if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
     const answer = await request("DELETE", `${path}/purge`);
     return answer.ok || answer.status === 400 && answer.text.includes("Profile not found") ? deleted(remove) : refused(remove, answer.status, answer.text);
+  }
+  function editOrder(updatedAt) {
+    const parts = typeof updatedAt === "string" ? /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?Z$/.exec(updatedAt) : null;
+    return parts ? `${parts[1]}.${(parts[2] ?? "").padEnd(12, "0")}` : "";
   }
   var SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches";
   var MAX_SHOTS_READ = 20;
