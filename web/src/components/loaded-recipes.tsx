@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { Link } from "react-router";
 import { Field, Fields } from "@/components/fields";
+import { CaptureOnlyBadge } from "@/components/machine-sharing";
 import { formatTime } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -122,7 +123,7 @@ export function LocationMachinesCard({ machines }: { machines: Machine[] }) {
         <CardTitle>
           <h2>Machines</h2>
         </CardTitle>
-        <CardDescription>The Machines here now, and the Recipe each has loaded.</CardDescription>
+        <CardDescription>The Machines here now, each flagged if it is capture-only, and the Recipe each has loaded.</CardDescription>
       </CardHeader>
       <CardContent>
         {machines.length === 0 ? (
@@ -140,9 +141,12 @@ export function LocationMachinesCard({ machines }: { machines: Machine[] }) {
               {machines.map((machine) => (
                 <TableRow key={machine.id}>
                   <TableCell>
-                    <Link to={`/machines/${encodeURIComponent(machine.id)}`} className="underline-offset-4 hover:underline">
-                      {machine.name}
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link to={`/machines/${encodeURIComponent(machine.id)}`} className="underline-offset-4 hover:underline">
+                        {machine.name}
+                      </Link>
+                      <CaptureOnlyBadge machine={machine} />
+                    </div>
                   </TableCell>
                   <TableCell>{machine.loadedRecipe ? <LoadedRecipeLink loaded={machine.loadedRecipe} /> : <span className="text-muted-foreground">None</span>}</TableCell>
                   <TableCell>{machine.loadedRecipe ? formatTime(machine.loadedRecipe.loadedAt) : ""}</TableCell>

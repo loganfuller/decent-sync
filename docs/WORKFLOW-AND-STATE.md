@@ -37,9 +37,9 @@ the plugin's one outbox (`plugin/src/outbox.ts`), which Shots share:
   records nothing for either if it is unchanged.
 - When the server sends `requestCollections`, as when the Machine's Location
   changes, the latest Workflow is sent again the same way, before the
-  collections, so it is taken in at the new Location: its settings give way
-  to the Location's, and its grinder, batch and Basket are cleared if the
-  Location does not offer them (`LIBRARY.md`, Joining a Location).
+  collections, so it is taken in at the new Location: its grinder, batch
+  and Basket are cleared if the Location does not offer them (`LIBRARY.md`,
+  Joining a Location).
 
 `observedAt` is when the plugin observed the event, from its own clock in UTC
 (`new Date().toISOString()`), because the outbox may deliver it minutes later.
@@ -189,12 +189,15 @@ Pending Machine's hardware, binding it at `hello` or entering it by hand hands
 its events over with its Shots and Steam Records (`transferPendingRecords`).
 
 A Workflow from a connection that is not mismatched, for its token's
-Machine, is also taken into its Location's steam and rinse settings in the
-same transaction (tickets #86 and #137, `LIBRARY.md`, Steam and rinse
-settings): only those settings count as edits, timed by `observedAt`, and a
-change of its hot water, which is each Machine's own, is none. While the plugin writes the shared settings
-into the Workflow, it holds back the `workflowUpdated` its write causes until
-the write's answer is queued, then sends the latest Workflow, so the server
+Machine, is also taken in at its Location in the same transaction
+(`takeInWorkflow` in `server/src/library/joining.ts`): as its tablet joins
+the Location, its grinder, batch and Basket are cleared where the Location
+does not offer them (`LIBRARY.md`, Joining a Location), and its Loaded
+Recipe is taken in (The Loaded Recipe, below). Its steam and rinse settings
+are each Machine's own, and no change of them is an edit (ticket #190,
+`LIBRARY.md`, Steam and rinse settings). While the plugin writes into the
+Workflow, it holds back the `workflowUpdated` its write causes until the
+write's answer is queued, then sends the latest Workflow, so the server
 reads its own write as the answer rather than as the tablet's edit.
 
 The current Workflow and machine state are the latest events stored, which
@@ -356,7 +359,8 @@ deliveries.
   recorded into. Until told, as offline, it takes its Machine to take part.
 - **Held back.** `MachineEvents` holds the Workflow's changes while any of
   the plugin's writes into it is under way, or a decision on one is, a
-  count shared with the writes of the shared settings, and sends the
+  count shared with the Library's writes into the Workflow, as a joining
+  tablet's clear (`LIBRARY.md`, Joining a Location), and sends the
   latest once none is, then the changes of the machine's state reported
   meanwhile, each as observed. So the server reads a Workflow change
   reported before a change of state, as a DYE2 dashboard's send just before
@@ -375,7 +379,7 @@ deliveries.
 
 Known limits: Decaid has no conditional write, so a barista's change of a
 field a write sets, made in the moment between the plugin's read and its
-write, is written over, as for a settings write (ADR-0021); and a barista
+write, is written over (ADR-0021); and a barista
 selecting another recipe in the moment between the plugin's check of the
 selection and its write has the write land there. A held change of state
 is lost if the plugin stops meanwhile; the window for a part set back
@@ -387,10 +391,11 @@ accepted until DYE2 and Streamline fix them upstream.
 The Loaded Recipe a Workflow delivery names is taken into its Machine's
 state in the transaction storing it, from a connection that is not
 mismatched, for its token's Machine, after the tablet's lock and its
-Workflow's grinder, batch and Basket, before its Location's settings
-(`takeInLoadedRecipe` in `server/src/machine-events/loaded-recipes.ts`):
-one of the Recipes in a slot of the Machine's Location while it takes part
-in the Library there, and none otherwise, as on a Capture-only Machine, or
+Workflow's grinder, batch and Basket (`takeInWorkflow` in
+`server/src/library/joining.ts`, which has `takeInLoadedRecipe` in
+`server/src/machine-events/loaded-recipes.ts` take it in): one of the
+Recipes in a slot of the Machine's Location while it takes part in the
+Library there, and none otherwise, as on a Capture-only Machine, or
 one the Workflow names that was taken out of its slot or Archived, or is of
 a Location the Machine left. Each Machine's Loaded
 Recipes are kept in `loaded_recipes`, the Recipe from when to when, its
@@ -425,8 +430,7 @@ Workflow may go on showing a previous grinder's. The Workflow's Profile is
 held as the Library Profile it is, found as a Shot's is (`profileOfSql`).
 The server keeps, per tablet, the Recipe its Workflow last named and those parts as the Workflow held them,
 reported, recorded by DYE2, or as Decaid returned the plugin's write of
-them (`tablet_loaded_recipes`), as it keeps the shared settings
-(`tablet_settings`), so the plugin's own write is never read as the
+them (`tablet_loaded_recipes`), so the plugin's own write is never read as the
 tablet's edit. The pure `server/src/library/loaded-recipe-intake.ts` maps
 the parts to the Recipe's content both ways.
 
@@ -444,9 +448,8 @@ the parts to the Recipe's content both ways.
   report keeps. So is a recording the plugin's read of the list caught just
   before its post, as the answer to the post carries it
   (`recordRecipeWritten`). Its
-  steam and flush values are the Location's settings (ADR-0014): the
-  Workflow change and the record change of one are one edit, as a value the
-  settings hold already changes nothing.
+  steam and flush values are no edit, recorded or in the Workflow: they
+  stay the Machine's own (`LIBRARY.md`, Steam and rinse settings).
 - **What the Workflow edits.** A Workflow delivery naming the Recipe its
   Machine went on having loaded, not as it joins its Location, is the
   tablet's edit of the Recipe in each of its RPM, Basket, Bean Batch and

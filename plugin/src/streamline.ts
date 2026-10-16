@@ -4,13 +4,12 @@ import { request } from "./decaid.js";
 // Streamline (streamline-js), a skin for Decaid, remembers what the barista
 // last set for some of the steam, hot water and rinse settings in Decaid's
 // store, under its namespace `streamline-app`, and adopts a Workflow change
-// made elsewhere (ADR-0021). Its steam temperature is the exception: it never
-// compares `last-steam-temp` with the Workflow, yet sends it with every steam
-// time other than 0 (`steamHeaterFor` in streamline-js:src/modules/api.js,
-// checked on `main` at 07be2b3), as on a steam time change or a profile
-// switch. So once the plugin has written a Location's steam temperature into
-// the Workflow, it sets that key to match, or Streamline would put its own
-// back, and it would become the Location's.
+// made elsewhere (ADR-0021), its steam temperature included since `main` at
+// 98b6b90 (decentespresso/streamline-js#143). Nothing calls
+// `keepStreamlineSteamTemperature` for now: steam settings are each
+// Machine's own, and the plugin writes none. It stays for #173, which keeps
+// `last-steam-temp` at the Recipe's steam temperature on each load and
+// Loaded Recipe edit until Streamline does (decentespresso/streamline-js#156).
 
 const PATH = "/store/streamline-app/last-steam-temp";
 

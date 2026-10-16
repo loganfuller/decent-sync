@@ -701,13 +701,6 @@ export function childLists(list: LibraryList): LibraryList[] {
 export const REMOVAL_ORDER: readonly LibraryKind[] = LIBRARY_KINDS.filter((kind) => parentKind(kind) === undefined).flatMap((kind) => [...childKinds(kind), kind]);
 
 /**
- * What the server writes to tablets besides Library items: the steam and
- * rinse settings of the tablet's Machine's Location (ADR-0014), which a
- * `write` of this kind carries.
- */
-export const SETTINGS_KIND = "settings";
-
-/**
  * What the server writes to a tablet as its Machine joins a Location that
  * does not offer the grinder, batch or Basket its Workflow names: that
  * Workflow's grinder, batch and Basket, cleared (ADR-0008). A `write` of
@@ -862,25 +855,21 @@ export function workflowPatch(fields: Readonly<Record<string, unknown>>): Record
   return patch;
 }
 
-/** What has versions and Conflicts (ADR-0020): a Library item of one of LIBRARY_KINDS, or a Location's shared settings. */
-export type VersionedKind = LibraryKind | typeof SETTINGS_KIND;
-
 /**
- * What a `write` writes: a Library item of one of LIBRARY_KINDS, the shared
- * settings, a Workflow's grinder, batch and Basket, cleared, or its Loaded
- * Recipe's fields.
+ * What a `write` writes: a Library item of one of LIBRARY_KINDS, a
+ * Workflow's grinder, batch and Basket, cleared, or its Loaded Recipe's
+ * fields.
  */
-export type WrittenKind = LibraryKind | typeof SETTINGS_KIND | typeof WORKFLOW_KIND | typeof LOADED_RECIPE_KIND;
+export type WrittenKind = LibraryKind | typeof WORKFLOW_KIND | typeof LOADED_RECIPE_KIND;
 
 export function isWrittenKind(kind: string): kind is WrittenKind {
-  return kind === SETTINGS_KIND || kind === WORKFLOW_KIND || kind === LOADED_RECIPE_KIND || isLibraryKind(kind);
+  return kind === WORKFLOW_KIND || kind === LOADED_RECIPE_KIND || isLibraryKind(kind);
 }
 
 /**
  * What the id of an item of that kind is: what a Library kind declares
- * (`LIBRARY_ITEM_KINDS`); otherwise a UUID: the shared settings' is the id
- * the server gives a Location's settings, a Workflow's is the tablet's id, a
- * Loaded Recipe's is its Recipe's global id, and a kind this side does not
+ * (`LIBRARY_ITEM_KINDS`); otherwise a UUID: a Workflow's is the tablet's id,
+ * a Loaded Recipe's is its Recipe's global id, and a kind this side does not
  * know is taken to have global ids.
  */
 export function itemIdRule(kind: string): ItemIdRule {
@@ -888,78 +877,10 @@ export function itemIdRule(kind: string): ItemIdRule {
 }
 
 /**
- * The parts of Decaid's Workflow that a Location shares between its
- * Machines, whatever their model (ADR-0014): the steam and rinse settings.
- * The rest of a Workflow (its profile, dose, yield, batch, grinder, basket
- * and hot water settings) stays each Machine's own, its hot water to be set
- * by the Recipe it has loaded (ADR-0022).
- */
-export const SETTINGS_PARTS = ["steamSettings", "rinseData"] as const;
-
-/**
- * The shared settings, each a field of its own (ADR-0020), named by its part
- * and Decaid's name for it in that part (`Workflow.toJson` in
- * decaid:lib/src/models/data/workflow.dart). Decaid sends each of them in
- * every Workflow. A field it may add to a part later is not shared.
- */
-export const SHARED_SETTINGS = [
-  "steamSettings.targetTemperature",
-  "steamSettings.duration",
-  "steamSettings.flow",
-  "steamSettings.stopAtTemperature",
-  "rinseData.targetTemperature",
-  "rinseData.duration",
-  "rinseData.flow",
-] as const;
-
-export type SharedSetting = (typeof SHARED_SETTINGS)[number];
-
-/** The steam settings, which a Machine whose steam is off neither shares nor takes (ADR-0014). */
-export const STEAM_SETTINGS: readonly SharedSetting[] = SHARED_SETTINGS.filter((field) => field.startsWith("steamSettings."));
-
-/**
  * Decaid has no steam on/off flag: a steam target temperature below this, in
  * °C, means steam is off (`De1Controller.updateWorkflowSettings`).
  */
 export const STEAM_ON_FROM = 135;
-
-/** The shared settings, by field name. */
-export type SharedSettings = Readonly<Record<SharedSetting, number>>;
-
-/**
- * The shared settings a Workflow, or an object holding its steam and rinse
- * parts, holds, by field name; null if it lacks any of them, or
- * holds one that is not a number, which no supported Decaid sends.
- */
-export function sharedSettingsOf(workflow: unknown): SharedSettings | null {
-  if (!isObject(workflow)) return null;
-  const settings: Partial<Record<SharedSetting, number>> = {};
-  for (const field of SHARED_SETTINGS) {
-    const [part, name] = field.split(".") as [string, string];
-    const values = workflow[part];
-    const value = isObject(values) ? values[name] : undefined;
-    if (typeof value !== "number" || !Number.isFinite(value)) return null;
-    settings[field] = value;
-  }
-  return settings as SharedSettings;
-}
-
-/** Whether settings keep steam on: a steam target temperature of STEAM_ON_FROM or more. */
-export function steamIsOn(settings: Readonly<Partial<Record<string, unknown>>>): boolean {
-  const target = settings["steamSettings.targetTemperature"];
-  return typeof target === "number" && target >= STEAM_ON_FROM;
-}
-
-/** Fields of a Workflow's parts by name, as the parts hold them: `{ steamSettings: { flow: 1.5 } }` for `steamSettings.flow`. */
-export function settingsParts(fields: Readonly<Record<string, unknown>>): Record<string, Record<string, unknown>> {
-  const parts: Record<string, Record<string, unknown>> = {};
-  for (const [field, value] of Object.entries(fields)) {
-    const [part, name] = field.split(".");
-    if (part === undefined || name === undefined) continue;
-    (parts[part] ??= {})[name] = value;
-  }
-  return parts;
-}
 
 /**
  * Asks the plugin to write one Library item to its tablet through Decaid's
@@ -1030,19 +951,6 @@ export function settingsParts(fields: Readonly<Record<string, unknown>>): Record
  * `fields` the record still holds as expected, a null one left out. Either
  * way the global id goes in the record's own field, beside RECIPE_FIELD.
  *
- * A write of SETTINGS_KIND carries the steam and rinse settings of the
- * Machine's Location (ADR-0014), and never its hot water, which is each
- * Machine's own: `globalId` is the server's id for them, `localId` null,
- * and `fields` and `expected` are named as SHARED_SETTINGS names them. The plugin reads the tablet's Workflow and
- * sets, through `PUT /workflow`, which Decaid merges into the Workflow, the
- * fields it still holds as expected, the steam settings only while the
- * Workflow keeps steam on (`steamIsOn`). Its answer's `record` is the Workflow's
- * steam and rinse parts as Decaid returned them, and its
- * `updatedAt` when the plugin had Decaid's answer, by its own clock, as a
- * Workflow carries no time. Decaid refuses to change them while no machine
- * is connected. The plugin's own write is not sent back as a change of the
- * tablet's Workflow ahead of its answer, so the server never reads it as one.
- *
  * A write of WORKFLOW_KIND clears the grinder, batch and Basket of the
  * tablet's Workflow, as its Machine joins a Location that does not offer
  * them (ADR-0008): `globalId` is the tablet's id, `localId` null, and
@@ -1054,9 +962,11 @@ export function settingsParts(fields: Readonly<Record<string, unknown>>): Record
  * `context.extras.basketId`): a barista who picked another grinder, batch
  * or Basket since keeps it.
  * Decaid needs no machine for this. Its answer's `record` is the Workflow's
- * `context` as Decaid returned it, timed as a settings write's is, and the
- * Workflow change it causes is sent after the answer, as a settings write's
- * is.
+ * `context` as Decaid returned it, and its `updatedAt` when the plugin had
+ * Decaid's answer, by its own clock, as a Workflow carries no time. The
+ * plugin's own write is not sent back as a change of the tablet's Workflow
+ * ahead of its answer, so the server never reads it as one: the Workflow
+ * change it causes is sent after the answer.
  *
  * A write of LOADED_RECIPE_KIND writes into the tablet's Workflow the
  * fields of its Loaded Recipe that the Workflow is due (ADR-0022):
@@ -1076,17 +986,16 @@ export function settingsParts(fields: Readonly<Record<string, unknown>>): Record
  * Decaid refuses to change the hot water settings while no machine is
  * connected, so the rest is then written without them. Its answer's
  * `record` is the Workflow's `context`, `hotWaterData` and `profile` as
- * Decaid returned them, timed as a settings
- * write's is, and the Workflow change it causes is sent after the answer,
- * as a settings write's is.
+ * Decaid returned them, timed as a WORKFLOW_KIND write's is, and the
+ * Workflow change it causes is sent after the answer, as that write's is.
  */
 export interface LibraryWrite {
   type: "write";
   /** Names this write, which its answer repeats. */
   id: string;
-  /** One of LIBRARY_KINDS, SETTINGS_KIND, WORKFLOW_KIND or LOADED_RECIPE_KIND. A plugin answers a kind it does not know with `writeRefused`. */
+  /** One of LIBRARY_KINDS, WORKFLOW_KIND or LOADED_RECIPE_KIND. A plugin answers a kind it does not know with `writeRefused`. */
   kind: string;
-  /** The item's global id, a Profile's id, the settings' id, the tablet's id for a Workflow, or a Loaded Recipe's global id (`itemIdRule`). */
+  /** The item's global id, a Profile's id, the tablet's id for a Workflow, or a Loaded Recipe's global id (`itemIdRule`). */
   globalId: string;
   /** The tablet's record to update, or null to create one. */
   localId: string | null;

@@ -14,7 +14,7 @@ import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import type { PlannedWrite } from "./holdings.js";
 import { type AnswerRecorded, type AnsweringTablet, INTAKE_TRANSACTION, type ReportingTablet, lockHeldMachine, lockTablet } from "./intake.js";
-import { type CurrentEntry, type Offered, type WorkflowOffers, clearStillDue, joins, sameSharing, workflowClear } from "./join-plan.js";
+import { type CurrentEntry, type Offered, type WorkflowOffers, clearStillDue, joins, sameSharing, standing, workflowClear } from "./join-plan.js";
 import { offersAny } from "./left-out.js";
 import { isObject } from "./listed.js";
 import { lockLocation } from "./location-state.js";
@@ -32,9 +32,8 @@ import { lockLocation } from "./location-state.js";
 // Location offers, and what it does not offer is archived or hidden on it,
 // as for any tablet there (holdings.ts); its Workflow's grinder, batch and
 // Basket are cleared if the Location does not offer them
-// (`workflow_clears`), and its settings give way to the Location's
-// (location-settings.ts). Under the locks of the report that takes it in:
-// the Machine's row, then the tablet's.
+// (`workflow_clears`). Under the locks of the report that takes it in: the
+// Machine's row, then the tablet's.
 
 /** The reports a tablet's Library is taken in from: its Library lists (LIBRARY_LISTS), and its Workflow. */
 export type TakenInReport = LibraryList | "workflow";
@@ -104,6 +103,36 @@ export async function forgetReports(tx: Prisma.TransactionClient, machineId: str
         SELECT 1 FROM machine_tablets AS later WHERE later.tablet_id = mine.tablet_id AND later.last_hello > mine.last_hello
       )
     )`;
+}
+
+/**
+ * Takes in a Workflow the tablet reported, in the transaction storing it,
+ * which holds its Machine's row lock: reported as the tablet joins its
+ * Machine's Location (`takenIn`), its grinder, batch and Basket are cleared
+ * if the Location does not offer them (`takeInWorkflowContext`). Its Loaded
+ * Recipe is taken in by `loadedRecipe`, given where the report is taken in
+ * and whether it joins there, under the tablet's lock, capture-only
+ * included. Returns where it was taken in (`standing`), or null if nowhere,
+ * as its Machine is capture-only.
+ */
+export async function takeInWorkflow(
+  tx: Prisma.TransactionClient,
+  tablet: ReportingTablet,
+  workflow: unknown,
+  loadedRecipe: (entry: CurrentEntry | null, joining: boolean) => Promise<void>,
+): Promise<string | null> {
+  const entry = await currentEntry(tx, tablet.machineId);
+  await lockTablet(tx, tablet.tabletId);
+  // Capture-only: the writer writes nothing until a Workflow is taken in where its lists were (`TabletWriter`).
+  if (entry === null) {
+    await loadedRecipe(null, false);
+    return null;
+  }
+  const joining = await takenIn(tx, tablet.tabletId, "workflow", entry);
+  // Each may take the Location's lock, which comes before the Loaded Recipe's row.
+  await takeInWorkflowContext(tx, tablet, workflow, entry.locationId, joining);
+  await loadedRecipe(entry, joining);
+  return standing(entry);
 }
 
 /**
@@ -263,8 +292,7 @@ export async function workflowClearDue(tx: Prisma.TransactionClient, tabletId: s
  * Workflow still holds as it was is still due (`clearStillDue`), which is
  * nothing once the write cleared it or a barista picked another. Recorded
  * only while the answering connection holds its Machine, under the
- * Machine's and the tablet's locks. Its change of the Workflow, which the
- * plugin sends after, is no edit of the settings.
+ * Machine's and the tablet's locks.
  */
 export async function recordWorkflowCleared(
   prisma: PrismaService,

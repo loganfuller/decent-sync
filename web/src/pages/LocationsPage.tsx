@@ -59,8 +59,8 @@ export function LocationsPage() {
       <div className="grid gap-1">
         <h1 className="text-2xl font-semibold">Locations</h1>
         <p className="text-muted-foreground">
-          The sites where your machines are used. Each Location's time zone sets the local times shown for it, and its page shows the
-          steam and rinse settings its Machines share.
+          The sites where your machines are used. Each Location's time zone sets the local times shown for it, and its page shows its
+          Recipes and Machines.
         </p>
       </div>
 

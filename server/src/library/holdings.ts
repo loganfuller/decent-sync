@@ -130,7 +130,7 @@ export interface TabletHoldings {
   recipes: readonly HeldRecord[];
 }
 
-/** A write that brings the tablet closer to what its Location offers, or to its settings (location-settings.ts). */
+/** A write the tablet is due (tablet-due.ts). */
 export interface PlannedWrite {
   kind: WrittenKind;
   globalId: string;

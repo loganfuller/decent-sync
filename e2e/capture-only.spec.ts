@@ -55,10 +55,12 @@ test("an Admin turns a Machine's sharing off on its page, making it capture-only
   await expect(sharing.getByText("It has no Location.")).toHaveCount(0);
   await expect(sharing.getByRole("switch", { name: "Share the Library" })).not.toBeChecked();
   await expect(page.getByText("Capture-only", { exact: true }).first()).toBeVisible();
-  // Uptown's page flags it among the Machines sharing its settings.
+  // Uptown's page flags it among its Machines, and shows no steam and rinse settings.
   await page.goto(`/locations/${uptown.id}`);
-  const row = page.getByRole("table", { name: "Machines sharing these settings" }).getByRole("row", { name: /Uptown group/ });
+  const row = page.getByRole("region", { name: "Machines" }).getByRole("row", { name: /Uptown group/ });
   await expect(row.getByText("Capture-only", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Steam and rinse" })).toHaveCount(0);
+  await expect(page.getByRole("switch")).toHaveCount(0);
   await page.goto(`/machines/${machine.id}`);
 
   // Staff working at Uptown see why, but have no switch.

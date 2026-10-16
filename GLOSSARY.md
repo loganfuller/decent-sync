@@ -110,7 +110,7 @@ The recipe a barista last applied on a machine, while they are still dialling it
 _Avoid_: Active recipe, current recipe
 
 **Workflow**:
-What a machine is set up to do next: its current profile, dose, yield, bean batch, grinder and setting, and basket, plus its steam, hot water and rinse settings. Each machine has its own profile, dose, yield, batch, grinder, basket and hot water settings, which loading a recipe sets. Steam and rinse settings are shared by the machines at a location, whatever their model, but a machine whose sharing of them is turned off.
+What a machine is set up to do next: its current profile, dose, yield, bean batch, grinder and setting, and basket, plus its steam, hot water and rinse settings. Each machine has its own profile, dose, yield, batch, grinder, basket and hot water settings, which loading a recipe sets.
 _Avoid_: Recipe (a recipe is saved; a workflow is current)
 
 **Shot**:

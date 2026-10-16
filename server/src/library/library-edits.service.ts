@@ -7,7 +7,7 @@ import { PrismaService } from "../prisma.service.js";
 import { lockBeanMatching } from "./beans.js";
 import { editContent, lockItems, recordJoined } from "./content-edits.js";
 import { type EquipmentKind, lockMatching } from "./equipment.js";
-import { type EditSource, type LibraryItemRef, accountSource, recordVersion } from "./history.js";
+import { type EditSource, type ItemRef, accountSource, recordVersion } from "./history.js";
 import { INTAKE_TRANSACTION } from "./intake.js";
 import { KINDS, idSql } from "./kinds.js";
 import { type ShownKind, addBatchAt, enterRemainingWeight, finishBatchAt, lockLocation, showAt } from "./location-state.js";
@@ -318,7 +318,7 @@ export class LibraryEditsService {
    * Location's for a Grinder, whose Archived state changes only under it.
    * With a scope, Staff edit a Grinder only at its own Location.
    */
-  private async editShared(item: LibraryItemRef, values: Record<string, unknown>, accountId: string, scope: Scope | null): Promise<void> {
+  private async editShared(item: ItemRef, values: Record<string, unknown>, accountId: string, scope: Scope | null): Promise<void> {
     const description = KINDS[item.kind];
     await this.prisma.$transaction(async (tx) => {
       if (description.belongsToLocation) {

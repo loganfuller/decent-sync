@@ -42,12 +42,10 @@ it is finished there, with its own remaining weight at each, a Bean is offered
 where its batches are, a Grinder belongs to the Location where it was created,
 and a Profile is shown or hidden at each Location. Archiving, hiding or
 deleting one on a tablet acts at that tablet's Location only; a Grinder
-archived or deleted there is Archived. A Location's Machines share their steam
-and rinse settings too, but those whose sharing is turned off, while each
-keeps its own hot water. An edit made on a tablet or in the management
+archived or deleted there is Archived. Each Machine keeps its own steam, hot
+water and rinse settings. An edit made on a tablet or in the management
 interface reaches every tablet that holds the item, merged field by field with
-the latest edit winning; each item and each Location's settings keep their
-history, and an edit that lost to one made without seeing it is kept as a
+the latest edit winning; each item keeps its history, and an edit that lost to one made without seeing it is kept as a
 Conflict, whose value the management interface uses or dismisses. The
 management interface's Library lists the Beans, the Bean Batches, the
 Grinders, the Profiles, and where each is, and creates, edits, Archives and
@@ -58,7 +56,7 @@ hard-deletes an item no Shot names, from every tablet too. Each Shot is linked
 to the Bean Batch, Grinder and Profile it used, Shots filter by them, and each
 item's page lists its Shots. A Machine adopted at a Location, moved there, or
 whose sharing an Admin turns back on after making it capture-only takes on
-that Location's Library and settings: what its tablet held of its own stays
+that Location's Library: what its tablet held of its own stays
 out of the Library, archived or hidden on it, unless the Location had none of
 that kind yet. A write a tablet refuses is skipped, and tried again once its
 item changes or the tablet reconnects, while the others go on; each Machine's
@@ -83,7 +81,7 @@ The target sharing scopes are:
 |---|---|
 | Beans, bean batches, profiles, baskets and tools | every location, each offering its own part: the profiles, baskets and tools shown there, the batches at that location and their beans, and each batch's stock there |
 | Grinders, recipes and their slots | machines at the same location |
-| Steam and rinse settings | machines at the same location, whatever their model, but those with their sharing turned off. Turning steam on or off stays per machine |
+| Steam and rinse settings | not shared: each machine keeps its own, until a recipe holds them ([#173](https://github.com/loganfuller/decent-sync/issues/173)) |
 | Profile, dose, yield, batch, grinder, basket and hot water settings in use | not shared: each machine has its own, which loading a recipe sets |
 
 - A **machine** is the hardware, identified by model and serial. Replacing its

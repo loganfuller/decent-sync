@@ -11,8 +11,6 @@ import { GrindersController } from "./grinders.controller.js";
 import { GrindersService } from "./grinders.service.js";
 import { HistoryService } from "./history.service.js";
 import { LibraryEditsService } from "./library-edits.service.js";
-import { LocationSettingsController } from "./location-settings.controller.js";
-import { LocationSettingsService } from "./location-settings.service.js";
 import { ProfilesController } from "./profiles.controller.js";
 import { ProfilesService } from "./profiles.service.js";
 import { RecipeEditsService } from "./recipe-edits.service.js";
@@ -22,8 +20,7 @@ import { SharingController } from "./sharing.controller.js";
 import { SharingService } from "./sharing.service.js";
 
 /**
- * The Library's REST API, each Location's shared settings', and each
- * Machine's capture-only switch. Tablets' reports are taken into the Library as
+ * The Library's REST API, and each Machine's capture-only switch. Tablets' reports are taken into the Library as
  * they are stored (`CollectionsService`), and it is written to tablets by
  * the sync gateway's writers (`TabletWriter`).
  */
@@ -37,7 +34,6 @@ import { SharingService } from "./sharing.service.js";
     ToolsController,
     RecipesController,
     ConflictsController,
-    LocationSettingsController,
     SharingController,
   ],
   providers: [
@@ -49,7 +45,6 @@ import { SharingService } from "./sharing.service.js";
     RecipesService,
     HistoryService,
     ConflictsService,
-    LocationSettingsService,
     LibraryEditsService,
     RecipeEditsService,
     SharingService,

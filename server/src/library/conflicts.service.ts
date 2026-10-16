@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { type LibraryKind, SETTINGS_KIND, type VersionedKind, isLibraryKind } from "@decent-sync/protocol";
+import { type LibraryKind, isLibraryKind } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
@@ -7,10 +7,9 @@ import { PrismaService } from "../prisma.service.js";
 import { mayResolve } from "./conflict-access.js";
 import { editContent, lockItems } from "./content-edits.js";
 import { type ConflictView, HistoryService } from "./history.service.js";
-import { type EditSource, type LibraryItemRef, accountSource } from "./history.js";
+import { type EditSource, type ItemRef, accountSource } from "./history.js";
 import { INTAKE_TRANSACTION } from "./intake.js";
-import { editSettings, lockSettings } from "./location-settings.js";
-import { KINDS, idSql, isVersionedKind } from "./kinds.js";
+import { KINDS, idSql } from "./kinds.js";
 import { isObject } from "./listed.js";
 import { lockLocation } from "./location-state.js";
 import { recipeEditValues } from "./recipe-edits.service.js";
@@ -78,14 +77,14 @@ export class ConflictsService {
    * Location its item belongs to, for a kind whose items belong to one
    * (`belongsToLocation`): a Grinder's Location never changes.
    */
-  private async lockOpen(tx: Prisma.TransactionClient, id: string, scope: Scope): Promise<LockedConflict & { kind: VersionedKind; itemLocationId?: string | null }> {
+  private async lockOpen(tx: Prisma.TransactionClient, id: string, scope: Scope): Promise<LockedConflict & { kind: LibraryKind; itemLocationId?: string | null }> {
     const [conflict] = await tx.$queryRaw<LockedConflict[]>`
       SELECT state::text AS state, kind, item_id AS "itemId", field, value, location_id AS "locationId"
       FROM conflicts WHERE id = ${id}::uuid
       FOR UPDATE`;
-    if (!conflict || !isVersionedKind(conflict.kind)) throw new NotFoundException("No such Conflict");
+    if (!conflict || !isLibraryKind(conflict.kind)) throw new NotFoundException("No such Conflict");
     const kind = conflict.kind;
-    const itemLocationId = isLibraryKind(kind) && KINDS[kind].belongsToLocation ? await itemLocation(tx, kind, conflict.itemId) : undefined;
+    const itemLocationId = KINDS[kind].belongsToLocation ? await itemLocation(tx, kind, conflict.itemId) : undefined;
     if (!mayResolve(scope, { locationId: conflict.locationId, field: conflict.field, itemLocationId })) {
       throw new ForbiddenException("Staff resolve Conflicts about a Location's state or a Grinder only at their own Locations");
     }
@@ -109,23 +108,14 @@ async function itemLocation(tx: Prisma.TransactionClient, kind: LibraryKind, id:
  */
 async function useValue(
   tx: Prisma.TransactionClient,
-  conflict: LockedConflict & { kind: VersionedKind; itemLocationId?: string | null },
+  conflict: LockedConflict & { kind: LibraryKind; itemLocationId?: string | null },
   seen: string | null,
   source: EditSource,
 ): Promise<void> {
   const { field, value, locationId } = conflict;
   // Timed by PostgreSQL's clock (ADR-0016), as the version's `received_at` is, to the millisecond it keeps.
   const [{ at }] = await tx.$queryRaw<[{ at: Date }]>`SELECT now()::timestamptz(3) AS at`;
-  if (conflict.kind === SETTINGS_KIND) {
-    // A Location's settings are edited under their own row lock, as a tablet's edits of them are.
-    const settings = await lockSettings(tx, conflict.itemId);
-    if (!settings) throw new NotFoundException("No such Conflict");
-    checkSeen(Object.prototype.hasOwnProperty.call(settings.fieldEdits, field) ? settings.fieldEdits[field]!.versionId : null, seen);
-    const edited = await editSettings(tx, settings.id, { values: { [field]: value ?? null }, at, seenAt: "everything" }, source);
-    if (edited.writesDue) await notify(tx, "library_changes", settings.locationId);
-    return;
-  }
-  const item: LibraryItemRef = { kind: conflict.kind, id: conflict.itemId };
+  const item: ItemRef = { kind: conflict.kind, id: conflict.itemId };
   const description = KINDS[item.kind];
   const state = locationId === null ? undefined : description.state;
   if (state === undefined) {

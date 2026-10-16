@@ -19,10 +19,11 @@ and each that lost as a Conflict (Edits, below), and ticket
 Conflicts and each item's history in the management interface, where a
 Conflict's value is used or the Conflict dismissed (Resolving Conflicts,
 below). Ticket [#86](https://github.com/loganfuller/decent-sync/issues/86)
-shares each Location's steam, hot water and rinse settings between its
-Machines, and ticket [#137](https://github.com/loganfuller/decent-sync/issues/137)
-takes hot water out of them, each Machine's own (Steam and rinse settings,
-below). Ticket
+shared each Location's steam, hot water and rinse settings between its
+Machines, ticket [#137](https://github.com/loganfuller/decent-sync/issues/137)
+took hot water out of them, and ticket
+[#190](https://github.com/loganfuller/decent-sync/issues/190) the rest, each
+Machine's own (Steam and rinse settings, below). Ticket
 [#87](https://github.com/loganfuller/decent-sync/issues/87) creates and edits
 Beans, Bean Batches and Grinders in the management interface, Archives and
 restores them, adds and finishes batches at Locations there, and lets an
@@ -74,8 +75,8 @@ slots it leaves empty emptied, and drop its own recipes, baskets and tools
 unless the Location has none of their kind yet, its Workflow losing a
 Basket the Location does not show and a Loaded Recipe of another Location,
 cleared from DYE2's selection too (Joining a Location, below). It
-follows ADR-0003, ADR-0005, ADR-0006, ADR-0008, ADR-0014, ADR-0016,
-ADR-0018, ADR-0019, ADR-0020 and ADR-0021.
+follows ADR-0003, ADR-0005, ADR-0006, ADR-0008, ADR-0016, ADR-0018,
+ADR-0019, ADR-0020 and ADR-0021.
 
 ## Who takes part
 
@@ -85,8 +86,7 @@ Location is a Capture-only Machine, and so is one an Admin turned sharing
 off for (`machines.sharing`, on by default): its tablet's beans, bean
 batches, grinders and profiles, and its Workflow, are captured as in
 milestone 1 (`COLLECTIONS.md`, `WORKFLOW-AND-STATE.md`), but not taken into
-the Library or the Location's settings, and nothing is written to it, not
-even a hard delete's. Its page says it is capture-only, and why.
+the Library, and nothing is written to it, not even a hard delete's. Its page says it is capture-only, and why.
 
 - **The capture-only switch.** Only an Admin turns it, under the Machine's
   row lock, which taking in its tablet's reports and recording its answers
@@ -303,7 +303,7 @@ can hide nothing (Taking in a tablet's baskets and tools, below).
   with it. Versions taken in together keep the order they were taken in
   (`seq`), and so do Conflicts.
 - `versioned_items`: every item that keeps versions and Conflicts, each
-  Library item and each Location's settings, by kind and id, which versions
+  Library item, by kind and id, which versions
   and Conflicts reference, so a new kind needs no column of its own in them.
   Triggers on each kind's table keep it, as its migration created them
   (`versioned_item_added`, `versioned_item_renamed`,
@@ -312,9 +312,6 @@ can hide nothing (Taking in a tablet's baskets and tools, below).
   deleted as the item is, or with every row of the kind as its table is
   truncated, taking its versions and Conflicts with it, as a foreign key to
   the item would.
-- `location_settings` and `tablet_settings`: each Location's steam and rinse
-  settings, and each tablet's as it last had them (Steam and rinse settings,
-  below).
 - `deleted_items` and `tablet_deletions`: the global id of each item an
   Admin hard-deleted, and each tablet's records of it still to be deleted
   there, by their ids there, a Profile's by Decaid's id, with its steps,
@@ -410,9 +407,8 @@ An open Conflict is resolved once, by an Admin, or by Staff where they can
 edit the item (`mayResolve` in `conflict-access.ts`): the Library's shared
 content anywhere, a Grinder's Archived state included, as Staff Archive and
 restore items anywhere; but a Location's state of an item (a batch at a
-Location, its remaining weight there, a Profile shown there), its steam, hot
-water and rinse settings, and a Grinder's other content only at their own
-Locations, as a Grinder belongs to one (`conflicts.service.ts`). Each is decided under the Conflict's row lock, on
+Location, its remaining weight there, a Profile shown there) and a
+Grinder's other content only at their own Locations, as a Grinder belongs to one (`conflicts.service.ts`). Each is decided under the Conflict's row lock, on
 any instance, so it is used or dismissed once; a tablet's report never locks
 a Conflict, so neither waits on the other in turn.
 
@@ -443,8 +439,7 @@ a Conflict, so neither waits on the other in turn.
   used keep those of the Tools it still uses. It commits with a
   `NOTIFY` on `library_changes`, so every tablet that holds the item, at every
   Location, is written it; a tablet's edit made before it that arrives later,
-  as from one that was offline, loses to it and is kept as a Conflict. A
-  setting's is merged under the settings' row lock (`editSettings`).
+  as from one that was offline, loses to it and is kept as a Conflict.
 - **Dismissing it** closes it with nothing else changed: no version, and
   nothing written.
 
@@ -580,10 +575,10 @@ tablets, below).
   keeping the Bean, offered there, as a Bean set alone does. An item a hard
   delete left the Recipe naming is left out of the copy (`withoutDeleted`),
   as tablets are written none. Its hot water is the Recipe's;
-  its steam and flush, which no Recipe carries, are that Location's on every
-  tablet there. It goes in the slot chosen, the Recipe there taken out of
-  it and kept there, or the lowest free one, or none, under that Location's
-  lock, as a new Recipe does. Its history starts with the copy: its first
+  its steam and flush, which no Recipe carries, are each Machine's own (Steam
+  and rinse settings, below). It goes in the slot chosen, the Recipe there
+  taken out of it and kept there, or the lowest free one, or none, under
+  that Location's lock, as a new Recipe does. Its history starts with the copy: its first
   version names the Recipe it was copied from and that Recipe's Location
   then (`copied_from_id` and `copied_from_location_id` on `item_versions`),
   the Recipe by its id alone, so the note outlives its hard delete.
@@ -682,8 +677,9 @@ Recipe).
 - **Tablets.** Each tablet's record of the item, read from its map, is kept
   as a delete due there (`tablet_deletions`), and the item's global id is
   kept (`deleted_items`). Each tablet's writer deletes its records, a bean's
-  batches before the bean, ahead of any write but the shared settings, now
-  or once the tablet connects again. Its next report no longer lists the
+  batches before the bean, ahead of any write but the clearing of a joining
+  tablet's Workflow (Joining a Location, below), now or once the tablet
+  connects again. Its next report no longer lists the
   record, or the plugin answers that it deleted it or found it gone, and the
   delete is no longer due. A record a tablet reports carrying a deleted
   item's global id that its map does not hold, as from one that was offline,
@@ -1096,31 +1092,16 @@ never matched (ADR-0018).
   none of the Library's changes none, and is written over with the Recipe's. A barista or
   drinker typed into a recipe is not shared: it is no field of a Recipe, and
   is written back blank. Its steam and flush values are no field of a
-  Recipe either: they mirror the steam and rinse settings (below).
+  Recipe either (below).
 - **Steam and flush.** DYE2 keeps a recipe's steam time (`steamTimeS`) or
   flow (`steamFlowMls`), by its steam mode, and its flush time (`flushS`),
   which DYE2's dashboard and Streamline's DYE strip merge into the Workflow
-  as they apply it (ADR-0014). In a record the map holds, a change of one is
-  an edit of the steam or rinse setting it mirrors (`steamSettings.duration`,
-  `steamSettings.flow`, `rinseData.duration`), not of the Recipe: an edit of
-  the Location's settings from the tablet, timed when the plugin first read
-  the record, merged per field with what the tablet's settings have seen
-  (`editSettingsInRecipe` in `location-settings.ts`, Steam and rinse
-  settings, below), whether or not the Machine's steam is off. A blank value,
-  which DYE2's editor saves as 0 and leaves out for the steam mode not
-  picked, is no edit, nor is a value the settings hold already, nor a field
-  set back to its value before the server's latest write. Nor is a steam
-  value saved in another steam mode than the record held, whether or not the
-  switch is itself an edit, as one set back by a stale save is not: DYE2's
-  editor keeps the number shown as the mode is switched, so a 30 s time
-  would become a 30 ml/s flow. The Recipe's steam mode changes, and the new mode's value is
-  written; Streamline, switching it as it saves a Workflow change into the
-  recipe, has made that change in the Workflow too. A record the map
-  does not hold, as one saved in a slot before the tablet held the Recipe, or
-  a new Recipe, edits none of them, as its values were never the
-  Location's: they are written over. On a Machine whose sharing of them is
-  off, or was when the plugin read the record, nothing is edited, and its
-  own values are written back.
+  as they apply it. They are no field of a Recipe, as a Machine's steam and
+  rinse settings are its own (Steam and rinse settings, below): a change of
+  one is no edit, and the server never writes one, so each tablet's record
+  keeps those it holds, and applying it sets them on that Machine alone. The
+  Recipe's steam mode (`steamMode`) is a field of its content, taken in as
+  any is.
 - **Its Bean Batch.** DYE2 names a Bean, not a batch. A Bean picked in DYE2
   keeps the Recipe's batch if it is of that Bean; otherwise the Recipe takes
   that Bean's batch most recently added at the Location, still there, or no
@@ -1206,26 +1187,13 @@ written (`recipeRecord` in `recipe-intake.ts`) holds:
 - its brew temperature in `dashboardVariables.brewC`, its Profile's first
   step's where the Recipe holds none, as DYE2 records a brew temperature
   only into a record holding one;
-- the steam and rinse settings the tablet's recipes mirror
-  (`mirroredSettings` in `location-settings.ts`): its Location's, or, while
-  its Machine's sharing of them is off, its own, as its Workflow last held
-  them. Its steam time where its steam mode is `time`, its steam flow where
-  it is `flow`, the other left out, as DYE2's editor shows a time whatever
-  the mode, and its flush time; a setting not known yet, or of 0, is left
-  out. So
-  applying a recipe, the DYE2 way or the Streamline way, sets the values the
-  Workflow holds already, and one saved blank sets no 0. Applying one sets
-  only the steam time or flow, never the steam temperature, so a Machine
-  whose steam is off keeps it off;
 - a blank barista and drinker;
 - its global id in its own field (`decentSyncId`), as a Basket's.
 
 A record is written where any of that differs from what it holds, as when an
 item it names is created on the tablet, renamed, or its Profile edited, or
-a save left its embedded Workflow behind its dial, or the
-settings it mirrors change: the Location's, which commits with a `NOTIFY`
-on `library_changes`, or a Machine's own while its sharing of them is off,
-whose Workflow changing one notifies the same.
+a save left its embedded Workflow behind its dial. No steam or flush value
+is written: the record keeps those the tablet's record holds.
 
 So a recipe saved in DYE2 in a slot on one tablet is written to that slot on
 every tablet at its Location, and to no other Location's; an edit on any
@@ -1311,8 +1279,9 @@ reported yet is kept, and reaches the server in the answer.
 Nothing is deleted from a tablet; an Admin's hard delete, which deletes an
 item no Shot names from every tablet that holds it, is the one exception
 (Hard deletes, above): its deletes are due before the writes above, after
-the shared settings. After them, before the writes above, each record a
-joining tablet held that the Library leaves out and that is not set aside
+the clearing of a joining tablet's Workflow grinder, batch and Basket
+(Joining a Location, below). After them, before the writes above, each
+record a joining tablet held that the Library leaves out and that is not set aside
 there yet is archived or hidden (`leaveOut`; Joining a Location, below),
 batches first, then beans, grinders and profiles, and last baskets and
 tools, which are removed from DYE2's list instead (Taking in a tablet's
@@ -1576,6 +1545,17 @@ The plugin's next report then holds the record as written, which changes
 nothing (ADR-0003). If the connection drops before the answer arrives, the
 tablet's next report shows the record carrying its global id, which maps it.
 
+Decaid refuses (500, `DeviceNotConnectedException`) to change hot water
+settings while no machine is connected to the tablet, as the change goes to
+the machine, so a Loaded Recipe's write of hot water alone is refused then,
+and skipped until what is due changes or the tablet reconnects, as any
+refused write is (`WORKFLOW-AND-STATE.md`, Following the Recipe). A tablet
+often connects before its machine, and its plugin reconnects once the
+machine reports its hardware. One whose machine goes away, as when it is
+powered off for the night while its tablet stays connected, is seen gone by
+the plugin's next read of its hardware, or by such a refusal; once the same
+machine is back, the plugin reconnects too, and the tablet is written then.
+
 Decaid v0.9.0 refuses to delete a bean that still has batches, archived ones
 included, failing SQLite's foreign key with 500 and deleting nothing
 (`server/test/fixtures/decaid/bean-batch-writes-v0.8.7/`, unchanged in
@@ -1628,194 +1608,38 @@ holds the tablet's connection.
 
 ## Steam and rinse settings
 
-A Machine's Workflow stays its own, but for its steam and rinse settings,
-which the Machines at a Location share whatever their model, DE1s and
-Bengles alike, the way every steam wand on one commercial machine runs the
-same settings (ADR-0014; `location-settings.ts`, with the pure
-`settings-intake.ts`). Who takes part is as for the Library (Who takes part,
-above), but for a Machine whose sharing of them is turned off (below).
+A Machine's steam and rinse settings are its own, as the rest of its
+Workflow is, and nothing syncs them until
+[#173](https://github.com/loganfuller/decent-sync/issues/173) makes them the
+Recipe's. Ticket #86 shared them between a Location's Machines, and ticket
+#190 took them out again (ADR-0014, superseded): a change of them on a
+tablet, by a barista, by a skin or by a recipe applied, is stored with the
+Workflow as any change is (`WORKFLOW-AND-STATE.md`), but is no edit and
+reaches no other Machine; nothing the server writes changes them; and a
+Machine joining a Location keeps its own. Ticket #190's migration
+(`server/prisma/migrations/20261022000000_location_settings_removed`)
+dropped each Location's settings, each tablet's as it last had them and
+each Machine's sharing of them, and deleted their versions and Conflicts,
+keeping nothing (ADR-0016).
 
-The settings are the seven fields `SHARED_SETTINGS` names (`protocol/`), each
-by its part of the Workflow and Decaid's name for it there, such as
-`steamSettings.flow`: steam's target temperature, time, flow and the milk
-temperature it stops at, and rinse's target temperature, time and flow. Each
-is a field of its own, merged as a Library item's content is (Edits, above;
-ADR-0020), with versions and Conflicts at the Location. A field Decaid may
-add to a part later is not shared.
-
-Hot water is not among them (ticket
-[#137](https://github.com/loganfuller/decent-sync/issues/137)): each
-Machine's hot water volume, temperature, time and flow are its own, as its
-profile, dose and yield are, set by the Recipe it loads (ADR-0022). A change
-of a Machine's hot water, on its tablet or by Streamline, is no edit of its
-Location's settings, a settings write carries none, and a Machine joining a
-Location keeps its own. The plugin writes a Recipe's hot water into the
-Workflow as it records a load of it (`WORKFLOW-AND-STATE.md`, The Loaded
-Recipe); nothing the server sends changes it yet. The migration that took hot water out
-dropped it from each Location's settings, their latest edits, versions and
-Conflicts, and each tablet's settings as it last had them.
-
-- `location_settings`: each Location's settings, each set by its name, and each setting's latest edit (`field_edits`), as an item's
-  content keeps them. The settings' row lock decides their edits, on any
-  instance, taken after the reporting Machine's and its tablet's.
-- `tablet_settings`: each tablet's settings as it last had them, reported in
-  its Workflow or as Decaid returned the plugin's write of them, of its
-  Machine's Location's settings then, with the latest edit of them they have
-  seen (`content_seen_at`), as `content_seen_at` keeps an item's. A tablet
-  joining a Location, as when its Machine moved there, or it moved to a
-  Machine there, has had none of its settings yet, whatever it had there
-  before (Joining a Location, below).
-- `machines.shares_settings`: whether a Machine's tablet shares its
-  Location's settings, on unless an account switched it off, and
-  `shares_settings_since`, when one last switched it on.
-
-Tablets' edits arrive in the Workflow the plugin sends on every change and on
-every welcome (`WORKFLOW-AND-STATE.md`), which the server takes in in the
-transaction storing it (`takeInWorkflow`), timed by when the plugin observed
-it:
-
-- **The first Machine** at a Location to report its Workflow sets the
-  Location's settings: a setting nobody has set is set by the first report
-  holding it. So a Machine joining a Location with no settings yet brings
-  its own. A tablet new to the settings, as a new tablet, or one joining the
-  Location, sets only those; the Location's state wins (ADR-0008), and is
-  written to it.
-- **Edits.** Otherwise each setting that differs from what the tablet last
-  had is its edit, merged per field: so a change on any tablet reaches the
-  Location's other Machines, and only those.
-- **Steam off.** Decaid has no steam on/off flag: a steam target temperature
-  below 135 °C means off (`STEAM_ON_FROM`). Turning steam off on one Machine,
-  for espresso only or descaling, is not shared, and while it is off none of
-  its steam settings are, either way: its changes to them are not edits, and
-  the Location's are not written to it, so they never turn its steam back
-  on. Its rinse settings are still shared. Once its steam is
-  turned on again, at whatever temperature, it takes the Location's steam
-  settings rather than giving its own, which are then written to it, but for
-  any the Location has not set yet, which it sets. A Machine whose steam was
-  off when it set its Location's settings set none of the steam ones, which
-  the first Machine there with steam on sets.
-- **Sharing turned off.** A Machine whose sharing of them is turned off in
-  the management interface keeps its own settings: none of its changes are
-  edits, and none are written to it. Its tablet's settings are still kept as
-  it reports them, so once its sharing is turned back on, its changes count
-  from then on, and it takes the Location's settings, which are written to
-  it, as when its steam is turned back on. A change its tablet observed
-  before its sharing was turned back on, by PostgreSQL's clock
-  (`shares_settings_since`), stays its own though delivered after, as from a
-  tablet that was offline meanwhile or whose outbox held it, and the tablet
-  is then written the Location's settings. Turning sharing on or off, under
-  the Machine's row lock, which taking in its Workflow holds too, commits
-  with a `NOTIFY` on `library_changes`.
-- **The plugin's own writes** are not edits (ADR-0003): the answer to a
-  write is recorded as the tablet's settings, and the plugin sends the
-  Workflow change its write causes only after the answer (below).
-- **Inside recipes.** DYE2's recipes hold a steam time or flow and a flush
-  time, which applying one merges into the Workflow, so each recipe written
-  to a tablet holds the settings its Machine takes part in (Taking in a
-  tablet's recipes, above): rewritten whenever they change, so applying one
-  changes nothing. A change of one inside a recipe on a tablet is an edit of
-  the Location's settings, as a change in its Workflow is, taken in with the
-  tablet's report of its recipes, or a write's answer, under the Recipes' row
-  locks, then the settings'.
-- **A blank value applied.** A recipe saved with a blank steam or flush
-  field holds 0, which DYE2's dashboard applies from the copy it read as the
-  editor saved it, before the server wrote the Location's values into it.
-  So a Workflow steam time, steam flow or flush time of 0 is no edit, in a
-  report or a write's answer, where the Location has set it, and the
-  Location's value is written back (`blankApplied` in `recipe-intake.ts`);
-  the management interface still sets one. Streamline's Auto Steam sets a
-  steam time of 0 too, to disarm the wand until a pitcher is picked, which
-  the Location's value is likewise written over: it does not work on a
-  Machine sharing the settings. A recipe never holds a value of 0, as a
-  Machine with sharing off may hold of its own (`recipeRecord`). Such a
-  copy's other values, as a steam value carried over by a mode switch, or a
-  new recipe's own, are taken as edits if applied before the server
-  rewrote the record (#161).
-- **Recipes applied from a stale copy.** DYE2's dashboard reads its recipes
-  once, as it opens, and Streamline's strip keeps them until its page is
-  shown again, often all day, so either may apply a recipe as it was before
-  the server last wrote it, again and again. A Workflow setting changed, in
-  a report or a write's answer, to a value the tablet's recipes held just
-  before the server's latest write of it (`before_write`) that is the
-  Location's value just before its current one (its latest version setting
-  another, by `seq`), is such an apply, and no edit (`staleApplied` in
-  `recipe-intake.ts`, ADR-0005): the Location's value is written back. That
-  holds until the Location's value changes again. So a barista who sets
-  exactly the Location's previous value on the machine has it written back,
-  and changes it in the management interface instead, or sets another value
-  first. Any other value is no stale copy's: one older than the Location's
-  previous value, which is not caught, as one a record held of a steam mode
-  it has left, a joining tablet's recipes' own, or one of a setting the
-  Location has not set yet.
-
-Each welcomed connection's writer (Writing to tablets, above) writes the
-tablet its Machine's Location's settings where its Workflow holds others,
-before any Library item: each setting the Location has set, but its steam
-settings while its steam is off. None is written before the tablet has
-reported its Workflow there, as the server does not know what it holds, nor
-to a Machine whose sharing of them is turned off. The write is a `write` of
-the `settings` kind, named by the settings' id, its fields and the values it
-expects the Workflow to hold named as `SHARED_SETTINGS` names them.
-
-The plugin reads the tablet's Workflow (`GET /workflow`), then sets the
-settings it still holds as the server expects through `PUT /workflow`,
-which Decaid deep-merges into the Workflow and writes to the machine, the
-steam settings only while the Workflow keeps steam on: a barista may have
-turned it off since the tablet last reported, and the server, not knowing
-yet, sent them. Its
-answer, `written`, is the Workflow's steam and rinse parts as
-Decaid returned them, timed by the plugin's clock, as a Workflow carries no
-time. Decaid sends the plugin the Workflow its write changed
-(`workflowUpdated`) as it sets it, before it answers the write, so the
-plugin holds that change back until the answer is queued in its outbox, then
-sends the latest Workflow (`MachineEvents.hold` and `release`): the server
-records the answer first, and finds nothing changed in the Workflow after
-it. A barista's change made meanwhile is in that Workflow, and is the
-tablet's edit. The answer is recorded as an item's is, under the Machine's,
-the tablet's and the settings' locks: a setting the write did not set that
-differs from what the tablet last had is the tablet's edit, timed by the
-answer, and the settings have seen the edits the write carried unless such
-an edit lost (`recordSettingsWritten`).
+DYE2's recipes still hold a steam time or flow and a flush time, which
+applying one merges into the Workflow. The server neither takes them in nor
+writes them, so each tablet's records keep their own, and applying one sets
+them on that Machine alone (Taking in a tablet's recipes, above).
 
 Streamline, a skin, remembers what the barista last set for some of the
 steam, hot water and rinse settings in Decaid's store, under
 `streamline-app`. The builds Decent Sync supports adopt a value the
 Workflow holds that differs from the one remembered, rather than pushing
 theirs back (ADR-0021, ADR-0017; the evidence is in `AI_RUNTIME_NOTES.md`,
-Skins). The steam temperature is the exception: Streamline never compares
-the one it remembers (`last-steam-temp`) with the Workflow, yet sends it
-with a steam time that turns steam back on from off (`steamHeaterFor`), as
-on a steam time change, a profile switch or its own retry. So once Decaid has taken a
-steam temperature the plugin wrote, of at least 135 °C (`STEAM_ON_FROM`),
-the plugin sets that key to match (`keepStreamlineSteamTemperature`,
-`plugin/src/streamline.ts`), where it holds a number, and sets nothing else
-in a skin's namespace. A failure to read or set it is logged, and the
-answer the server gets is the same. Streamline v0.2.13 or earlier, or
-another skin that pushes what it remembers back, undoes the Location's
-changes on its Machine and shares its own, so that Machine's sharing of the
-settings needs turning off (ADR-0021). Streamline also sends each profile's
-saved steam time and flow (`streamlineProfileOverrides`) on every switch to
-that profile and every wake with a wake profile set, and never takes a
-Workflow change into them, so such a switch becomes the Location's steam
-time and flow (ADR-0021).
+Skins). The plugin sets nothing of Streamline's:
+`keepStreamlineSteamTemperature` (`plugin/src/streamline.ts`), which set the
+steam temperature Streamline remembers to match a Location's, is kept
+unused until #173 calls it on each load and Loaded Recipe edit (ADR-0021).
 
-The plugin reads the Workflow, then writes the settings it still holds as
-the server expects, so a change made on the tablet in the moments between
-is overwritten with the Location's value, unseen by the server: the
-Workflow event it caused is held until the write's answer is queued, and
-carries only the Workflow after it.
-
-Decaid refuses (500, `DeviceNotConnectedException`) to change steam, hot
-water or rinse settings while no machine is connected to the tablet, as the
-change goes to the machine: the write is refused, and skipped until what is
-due changes or the tablet reconnects, as any refused write is. A tablet often connects before
-its machine, and its plugin reconnects once the machine reports its
-hardware. One whose machine goes away, as when it is powered off for the
-night while its tablet stays connected, is seen gone by the plugin's next
-read of its hardware, or by such a refusal; once the same machine is back,
-the plugin reconnects too. Either way the tablet is written the settings
-then. Decaid answers a change of `stopAtTemperature` alone without a
-machine, as it is not written to it.
+`server/test/machine-steam-settings.test.ts` covers this through Seam 1,
+with the built plugin running the simulated DYE2, and
+`server/test/joining.test.ts` a joining Machine keeping its own.
 
 ## Joining a Location
 
@@ -1856,14 +1680,13 @@ it.
   archived or hidden on the tablet, never deleted, but for a Basket, Tool
   or recipe, removed from DYE2's list: so the slots the Location leaves
   empty are emptied, and another Location's Recipes leave its list (Taking
-  in a tablet's recipes, above). The
-  Workflow taken in as the tablet joins has had none of the Location's
-  steam and rinse settings, so it sets only those the Location has not set
-  yet, and is written the others, unless the Machine's sharing of them is
-  turned off (Steam and rinse settings, below). Its hot water stays its own.
+  in a tablet's recipes, above). Its
+  Workflow's steam, hot water and rinse settings stay its own (Steam and
+  rinse settings, above).
 - **Its Workflow's grinder, batch and Basket.** The Workflow taken in as
   the tablet joins is judged against the tablet's map, which still holds
-  what the tablet held before (`takeInWorkflowContext`), under the
+  what the tablet held before (`takeInWorkflowContext`, which `takeInWorkflow`
+  in `joining.ts` calls in the transaction storing the Workflow), under the
   Location's lock: the Grinder its `context.grinderId` names there is
   cleared if the Location does not offer it, as one belonging to another
   Location or Archived, the batch its `context.beanBatchId` names if it is
@@ -1896,15 +1719,14 @@ it.
   judged before the lists are taken in, so a batch whose bean is then
   linked to one of the Location's, and that joins the Library as the
   Location offers no batch yet, is cleared all the same. The clear is kept
-  (`workflow_clears`) and written whether or not the Machine shares the
-  settings, as a `write` of the `workflow` kind, after the settings and
+  (`workflow_clears`) and written as a `write` of the `workflow` kind,
   before anything else: the plugin clears the grinder, the batch and the
   Basket, each whole, only while the Workflow still names it by the id the
   tablet reported, so one a skin relabelled is still cleared, and a
   Workflow naming another since, reported or in the write's answer, drops
   that part of the clear (`clearStillDue`), which otherwise expects what
   the Workflow holds now. It is due only as the tablet joins: a batch
-  finished at the Location later leaves the Workflow as it is (ADR-0014).
+  finished at the Location later leaves the Workflow as it is (ADR-0008).
   A clear the plugin is carrying out as its Machine moves back, within one
   write, to a Location that offers the grinder, batch or Basket is not
   called back: the Workflow's next join there finds it cleared already.
@@ -1951,9 +1773,8 @@ it.
   and one the Location has not decided is shown there or not as the
   joining tablet holds it, as on any tablet's first report there.
   - **A Location that offers none of a kind yet**, as a cafe's first
-    Machine joins it, takes the joining tablet's own items of that kind,
-    as a Location with no settings yet takes its settings: its Beans if
-    it offers no Bean, its batches if no batch, its Grinders if no
+    Machine joins it, takes the joining tablet's own items of that kind:
+    its Beans if it offers no Bean, its batches if no batch, its Grinders if no
     Grinder, its Profiles if it shows no user's Profile, its Baskets if it
     shows no Basket, its Tools if no Tool, and its recipes in their slots
     if it has no Recipe in a slot, each a new Recipe there; a Basket or
@@ -2152,9 +1973,7 @@ Every endpoint requires the account session; Staff read them as Admins do.
   or `recipe`, and `name` a Bean's roaster and name, a batch's Bean and the
   day it was roasted, as `Guji, roasted 2026-10-01`, a Grinder's model, a
   Profile's title or a Basket's, Tool's or Recipe's name, null where its
-  content has none; or, of `kind`
-  `settings`, a Location's steam and rinse settings, named
-  `Steam and rinse`, whose Location `location` names; the field and the
+  content has none; the field and the
   losing value, null where the edit cleared it; the Location whose state the
   field is, null for content; where and when the losing edit was made, as a
   version's; when it became a Conflict; `open`, `used` or `dismissed`; the
@@ -2175,31 +1994,6 @@ Every endpoint requires the account session; Staff read them as Admins do.
   is not a version's id or null, 404 if there is no such Conflict, 403 if the
   account may not resolve it, and 409 if it was used or dismissed already, or
   the field was decided since the version `seen`.
-- `GET /api/locations/:id/settings` returns `{ settings }`, the Location's
-  steam and rinse settings, `{ id, values, machines, editable }`:
-  their id, null while no Machine there sharing them has reported its
-  Workflow, so none is set; each
-  setting by its name, such as `steamSettings.flow`, null while unset, and
-  no hot water; the
-  Location's Machines now, each `{ id, name, model, sharesSettings, sharing
-  }`, by name, `model` its hardware's, or an Unidentified Machine's reported
-  one, null while neither is known, and `sharing` false while it is
-  capture-only, when it shares no settings whatever `sharesSettings` says; and whether the signed-in account may change
-  them and switch its Machines, an Admin, or Staff working there. 404 for no
-  such Location.
-- `PATCH /api/location-settings/:id`, with `{ values }`, some of the
-  settings by name, changes them, an edit by the account timed by
-  PostgreSQL's clock and made over the settings as they stand, written to
-  the Location's Machines that share them; returns `{ settings }`. Each value is
-  a number of 0 or more, a whole one where Decaid keeps a whole number (each
-  target temperature and time), and a steam target temperature of 135 °C or
-  more, as turning steam off is each Machine's own: 400 otherwise, as for a
-  setting it does not share, such as `hotWaterData.volume`. 404 if there are no such settings, 403 for Staff at another
-  Location.
-- `GET /api/location-settings/:id/history` and `GET
-  /api/location-settings/:id/conflicts` return their `{ versions }` and open
-  `{ conflicts }`, as an item's do, each version naming their Location; the
-  first is the first Machine there setting them.
 - `PUT /api/machines/:id/sharing`, with `{ sharing }`, turns the Machine's
   sharing on or off, off making it a Capture-only Machine, and returns the
   same: Admins only. 400 without a boolean, 404 for no such Machine.
@@ -2215,19 +2009,15 @@ Every endpoint requires the account session; Staff read them as Admins do.
   last change it applied, or null, and `refused` the changes it refused that
   are still due, the latest refused first (Sharing status, above), each `{ change, kind, item,
   localId }`: `change` is `write`, `delete`, `remove` or `leaveOut`; `kind` a Library
-  kind, `settings` or `workflow`; `item` the item, `{ kind, id, name }`,
+  kind or `workflow`; `item` the item, `{ kind, id, name }`,
   named as a Conflict's is, or for the Workflow "Grinder, batch and Basket", null
   for a record set aside, which is none of the Library's, or an item
   deleted since; and `localId` Decaid's id for the record, null for a
-  create, the settings and the Workflow. `lastApplied` adds `appliedAt`,
+  create and the Workflow. `lastApplied` adds `appliedAt`,
   and each refusal `status`, Decaid's HTTP status or null if it gave none,
   `error`, what it answered or why, and `refusedAt`. `unrecognisedLists` are DYE2's lists not written, each
   `{ list, since }`, by the collection's name, such as `dye2Baskets`. 404
   for no such Machine.
-- `PUT /api/machines/:id/settings-sharing`, with `{ sharesSettings }`,
-  switches whether the Machine shares its Location's settings, and returns
-  the same. 400 without a boolean, 404 for no such Machine, 403 for Staff
-  unless it is at one of their Locations.
 
 The management interface's Library section lists the Beans and where each is
 offered, the Bean Batches, the Locations each is at and its remaining weight
@@ -2243,11 +2033,8 @@ Library's Conflicts page lists every open Conflict, the latest first, with
 the losing value and the value now, and where and when each came from. A
 Conflict is used or dismissed from either, by an account that may
 (`web/src/components/conflicts.tsx`). Each Location's page
-(`/locations/:id`) shows its steam and rinse settings, which an
-Admin, or Staff working there, changes, with their Conflicts and history,
-and its Machines, each with a switch for sharing steam and rinse, a capture-only one
-flagged (`web/src/components/location-settings.tsx`). A Machine's page says whether
-it shares the Library at its Location or is capture-only, and why, with a
+(`/locations/:id`) lists its Machines, a capture-only one flagged. A
+Machine's page says whether it shares the Library at its Location or is capture-only, and why, with a
 switch an Admin turns its sharing off and on with, once they confirm, and
 its sharing status, loaded as often as its own status: the changes waiting
 for its tablet, the last it applied, and those it refused, with Decaid's
@@ -2339,7 +2126,7 @@ the same Profiles.
 `server/test/library-conflicts.test.ts`,
 `server/test/library-management.test.ts`,
 `server/test/library-profile-management.test.ts`,
-`server/test/location-settings.test.ts`, `server/test/joining.test.ts` and
+`server/test/joining.test.ts` and
 `server/test/capture-only.test.ts`, `server/test/sharing-status.test.ts`,
 `server/test/library-equipment.test.ts`,
 `server/test/library-equipment-management.test.ts`,
@@ -2348,8 +2135,8 @@ the same Profiles.
 built plugin and raw frames on two instances sharing PostgreSQL;
 `server/test/bean-intake.test.ts`, `server/test/batch-intake.test.ts`,
 `server/test/grinder-intake.test.ts`, `server/test/profile-intake.test.ts`,
-`server/test/equipment-intake.test.ts`, `server/test/recipe-intake.test.ts`, `server/test/holdings.test.ts`, `server/test/merge.test.ts`,
-`server/test/settings-intake.test.ts` and `server/test/join-plan.test.ts`
+`server/test/equipment-intake.test.ts`, `server/test/recipe-intake.test.ts`, `server/test/holdings.test.ts`, `server/test/merge.test.ts`
+and `server/test/join-plan.test.ts`
 the pure modules;
 `server/test/simulated-bean-writes.test.ts`,
 `server/test/simulated-batch-writes.test.ts`,
@@ -2363,6 +2150,6 @@ against those recorded on Decaid's Linux release
 `workflow-writes-v0.9.0/`); and
 `e2e/library.spec.ts`, `e2e/library-management.spec.ts`,
 `e2e/profile-management.spec.ts`, `e2e/conflicts.spec.ts`,
-`e2e/location-settings.spec.ts`, `e2e/capture-only.spec.ts`,
+`e2e/capture-only.spec.ts`,
 `e2e/sharing-status.spec.ts`, `e2e/equipment-management.spec.ts` and
 `e2e/recipe-management.spec.ts` the management interface.

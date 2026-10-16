@@ -1,7 +1,7 @@
-import type { LibraryKind, VersionedKind } from "@decent-sync/protocol";
+import type { LibraryKind } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import type { ReportingTablet } from "./intake.js";
-import { versionedKind } from "./kinds.js";
+import { KINDS } from "./kinds.js";
 
 // Each Library item's versions and Conflicts (ADR-0020). Every accepted edit
 // is kept as a version: the fields it set, with their values, the Machine and
@@ -11,19 +11,10 @@ import { versionedKind } from "./kinds.js";
 // that such an edit replaced, is kept as a Conflict, open until someone uses
 // its value, which makes it a new edit, or dismisses it (conflicts.service.ts).
 
-/**
- * A Library item: its kind, and its global id, or a Profile's id. Or a
- * Location's steam and rinse settings, which keep versions and
- * Conflicts as items do (ADR-0020), always of their Location.
- */
+/** A Library item: its kind, and its global id, or a Profile's id. */
 export interface ItemRef {
-  kind: VersionedKind;
-  id: string;
-}
-
-/** A Library item, as opposed to a Location's settings. */
-export interface LibraryItemRef extends ItemRef {
   kind: LibraryKind;
+  id: string;
 }
 
 /** Where an edit came from: a Machine's tablet, or an account in the management interface. */
@@ -47,8 +38,8 @@ export function accountSource(accountId: string): EditSource {
  * The item's kind and id as a version or Conflict names it (`VersionedItem`
  * in the schema): an id of UUIDs in lower case, as PostgreSQL writes it.
  */
-export function itemKey(item: ItemRef): { kind: VersionedKind; itemId: string } {
-  return { kind: item.kind, itemId: versionedKind(item.kind).idType === "uuid" ? item.id.toLowerCase() : item.id };
+export function itemKey(item: ItemRef): { kind: LibraryKind; itemId: string } {
+  return { kind: item.kind, itemId: KINDS[item.kind].idType === "uuid" ? item.id.toLowerCase() : item.id };
 }
 
 /** A value as a version or Conflict keeps it: null where the edit cleared the field. */

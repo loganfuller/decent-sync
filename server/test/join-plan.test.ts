@@ -5,8 +5,8 @@ import { type Offered, clearStillDue, joiningRecord, joins, standing, workflowCl
 // ADR-0018): which reports are part of joining, what joining does to the
 // tablet's records of Recipes, Baskets and Tools, and which of its
 // Workflow's grinder, batch and Basket are cleared. What it is written of
-// the Location's Library and settings, its Recipe Slots included, is planned
-// as for any tablet there (holdings.test.ts, settings-intake.test.ts).
+// the Location's Library, its Recipe Slots included, is planned as for any
+// tablet there (holdings.test.ts).
 
 const LAB = "0199c0de-0000-7000-8000-00000000000a";
 const BELMONT = "0199c0de-0000-7000-8000-00000000000b";

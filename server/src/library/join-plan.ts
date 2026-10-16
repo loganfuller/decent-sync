@@ -6,9 +6,8 @@ import { isObject } from "./listed.js";
 // of Recipes, Baskets and Tools, and which of its Workflow's grinder, batch
 // and Basket are cleared, as the Location does not offer them. What the
 // Library leaves out of what it holds is kept by left-out.ts, and what it is
-// written of the Location's Library and settings is planned as for any
-// tablet there (holdings.ts, settings-intake.ts), the Location's state
-// winning. Pure, so module tests can drive it; joining.ts reads what it
+// written of the Location's Library is planned as for any tablet there
+// (holdings.ts), the Location's state winning. Pure, so module tests can drive it; joining.ts reads what it
 // needs.
 
 /**

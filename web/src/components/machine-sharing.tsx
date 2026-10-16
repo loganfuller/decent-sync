@@ -18,7 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { api, type CaptureOnlyReason, type ItemKind, type Location, type Machine, type SharingStatus, type TabletChange } from "@/lib/api";
+import { api, type CaptureOnlyReason, type ItemKind, type Machine, type SharingStatus, type TabletChange } from "@/lib/api";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import { usePolled } from "@/lib/use-polled";
 
@@ -27,9 +27,8 @@ const REASONS: Record<CaptureOnlyReason, string> = {
   sharingOff: "An Admin turned its sharing off.",
 };
 
-/** What a change's kind is called: a Library kind's name (`LIBRARY_KINDS`), the shared settings, the Workflow, or its Loaded Recipe. */
+/** What a change's kind is called: a Library kind's name (`LIBRARY_KINDS`), the Workflow, or its Loaded Recipe. */
 function kindName(kind: TabletChange["kind"]): string {
-  if (kind === "settings") return "Steam and rinse settings";
   if (kind === "loadedRecipe") return "Loaded Recipe";
   return kind === "workflow" ? "Workflow" : LIBRARY_KINDS[kind].name;
 }
@@ -116,7 +115,7 @@ export function MachineSharingCard({ machine, isAdmin, onChanged }: { machine: M
               <Field term="Last change applied">
                 {status.lastApplied ? (
                   <>
-                    <ChangeDescription change={status.lastApplied} location={machine.location} />, {formatTime(status.lastApplied.appliedAt)}
+                    <ChangeDescription change={status.lastApplied} />, {formatTime(status.lastApplied.appliedAt)}
                   </>
                 ) : (
                   "None yet"
@@ -149,7 +148,7 @@ export function MachineSharingCard({ machine, isAdmin, onChanged }: { machine: M
                   <TableRow key={`${refusal.change}:${refusal.kind}:${refusal.item?.id ?? refusal.localId}`}>
                     <TableCell>{formatTime(refusal.refusedAt)}</TableCell>
                     <TableCell className="whitespace-normal">
-                      <ChangeDescription change={refusal} location={machine.location} />
+                      <ChangeDescription change={refusal} />
                     </TableCell>
                     <TableCell className="min-w-48 whitespace-normal wrap-anywhere">
                       <span className="font-medium">{refusal.status === null ? "No status" : refusal.status}</span>{" "}
@@ -195,7 +194,7 @@ export function MachineSharingCard({ machine, isAdmin, onChanged }: { machine: M
               <AlertDialogDescription>
                 {asked
                   ? location
-                    ? `It joins ${location} again: its tablet is written what ${location} offers and its settings, over what it changed meanwhile, and what it added meanwhile stays out of the Library, archived or hidden on it.`
+                    ? `It joins ${location} again: its tablet is written what ${location} offers, over what it changed meanwhile, and what it added meanwhile stays out of the Library, archived or hidden on it.`
                     : "It shares once it is at a Location."
                   : location
                     ? "It becomes capture-only: its Shots and Steam Records are still recorded, but nothing more is written to its tablet, and what its tablet adds or changes isn't taken into the Library, then or once sharing is back on."
@@ -233,7 +232,7 @@ function listTitle(name: string): string {
 }
 
 /** A change made to the Machine's tablet, naming its item, linked to its page, where the Library still has it. */
-function ChangeDescription({ change, location }: { change: TabletChange; location: Location | null }) {
+function ChangeDescription({ change }: { change: TabletChange }) {
   const kind = kindName(change.kind);
   const record = (
     <>
@@ -248,7 +247,7 @@ function ChangeDescription({ change, location }: { change: TabletChange; locatio
     return (
       <>
         Its Workflow written, or cleared of, the Recipe{" "}
-        <ItemLink path={itemPath("recipe", change.item.id, location)}>{change.item.name ?? "Unnamed Recipe"}</ItemLink>
+        <ItemLink path={itemPath("recipe", change.item.id)}>{change.item.name ?? "Unnamed Recipe"}</ItemLink>
       </>
     );
   }
@@ -256,8 +255,8 @@ function ChangeDescription({ change, location }: { change: TabletChange; locatio
   if (change.item) {
     const { item: named } = change;
     item = (
-      <ItemLink path={itemPath(named.kind as ItemKind, named.id, location)}>
-        {change.kind === "settings" ? kind : named.name === null ? `Unnamed ${kind}` : `${kind} ${named.name}`}
+      <ItemLink path={itemPath(named.kind as ItemKind, named.id)}>
+        {named.name === null ? `Unnamed ${kind}` : `${kind} ${named.name}`}
       </ItemLink>
     );
   } else {

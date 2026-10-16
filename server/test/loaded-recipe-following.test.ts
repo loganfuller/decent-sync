@@ -153,21 +153,6 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 
-  it("takes a steam time change on A, which DYE2 records into the recipe too, as one edit of the Location's settings", async () => {
-    const { here, dye2, a, c } = await lab("Steam", 48101);
-    const settingsAt = async () => (await api.get<{ settings: { id: string | null; values: Record_ } }>(`/locations/${here.id}/settings`)).settings;
-    await expect.poll(async () => (await settingsAt()).id).not.toBeNull();
-    const id = (await settingsAt()).id!;
-    const history = async () => (await api.get<{ versions: VersionView[] }>(`/location-settings/${id}/history`)).versions;
-    const before = (await history()).length;
-    await a.changeSettings({ steamSettings: { duration: 27 } });
-    await expect.poll(() => dye2.a.recorded.some((record) => record.patch.steamTimeS === 27), { timeout: 15_000 }).toBe(true);
-    await expect.poll(async () => (await settingsAt()).values["steamSettings.duration"], { timeout: 15_000 }).toBe(27);
-    await expect.poll(() => (c.workflow().steamSettings as Record_).duration, { timeout: 15_000 }).toBe(27);
-    await settle();
-    expect((await history()).length).toBe(before + 1);
-  });
-
   it("takes an RPM, Basket and hot water duration change on A into the Recipe through the Workflow, and writes them into C's", async () => {
     const { a, c, one, two } = await lab("Workflow", 48011);
     const basket20 = (await recipe(two)).content.basketId as string;

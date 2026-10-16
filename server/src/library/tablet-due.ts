@@ -5,7 +5,6 @@ import {
   type LocationOffer,
   type PlannedChange,
   type PlannedDelete,
-  type PlannedWrite,
   type TabletHoldings,
   batchesAwaitingBeans,
   deleteKey,
@@ -17,14 +16,12 @@ import { workflowClearDue } from "./joining.js";
 import { KINDS } from "./kinds.js";
 import { leaveOutsDue } from "./left-out.js";
 import { loadedRecipeDue } from "../machine-events/loaded-recipes.js";
-import { settingsDue } from "./location-settings.js";
 
 // What a connection's tablet is due: the next write that brings it to what
 // its Machine's Location offers, and each record it holds to its item's
-// content (holdings.ts), its Workflow to the Location's steam and rinse
-// settings (location-settings.ts), its Workflow's grinder, batch
-// and Basket cleared as it joined a Location that does not offer them
-// (joining.ts), its Workflow to its Loaded Recipe, or that Recipe cleared
+// content (holdings.ts), its Workflow's grinder, batch and Basket cleared
+// as it joined a Location that does not offer them (joining.ts), its
+// Workflow to its Loaded Recipe, or that Recipe cleared
 // from it (machine-events/loaded-recipes.ts), the deletes of its records
 // of items an Admin hard-deleted (hard-deletes.ts), and the setting aside of
 // its records the Library leaves out as it joined (left-out.ts), read from the database
@@ -121,10 +118,9 @@ export async function changesDue(
     offer[holdings.key] = await holdings.offered(tx, tablet, locationId);
     held[holdings.key] = await holdings.held(tx, tablet.tabletId, locationId);
   }
-  // The Location's settings first, then the clearing of the Workflow's grinder, batch and Basket as the tablet joined it:
-  // they need no item written before them.
-  const workflow = [await settingsDue(tx, tablet, locationId), await workflowClearDue(tx, tablet.tabletId, locationId)];
-  const writes = workflow.filter((write): write is PlannedWrite => write !== null && !skipped.has(writeKey(write.kind, write.globalId)));
+  // The clearing of the Workflow's grinder, batch and Basket as the tablet joined it first: it needs no item written before it.
+  const clear = await workflowClearDue(tx, tablet.tabletId, locationId);
+  const writes = clear === null || skipped.has(writeKey(clear.kind, clear.globalId)) ? [] : [clear];
   // Nothing is written to one of DYE2's lists the tablet holds in a shape that is not recognised (ADR-0005).
   const unrecognised = await unrecognisedLists(tx, tablet.tabletId);
   const writable = (change: { kind: WrittenKind }) => !isLibraryKind(change.kind) || !unrecognised.has(LIBRARY_ITEM_KINDS[change.kind].list);

@@ -170,13 +170,12 @@ export interface Machine {
 /** Why a Machine is a Capture-only Machine: it has no Location, or an Admin turned its sharing off. */
 export type CaptureOnlyReason = "noLocation" | "sharingOff";
 
-/** A change the server makes to a tablet: a write of an item, the shared settings or the Workflow, a delete, a removal from one of DYE2's lists, or setting aside a record. */
+/** A change the server makes to a tablet: a write of an item or the Workflow, a delete, a removal from one of DYE2's lists, or setting aside a record. */
 export interface TabletChange {
   change: "write" | "delete" | "remove" | "leaveOut";
   /**
-   * A Library kind, `settings` (a Location's steam and rinse settings),
-   * `workflow` (its Workflow's grinder and batch) or `loadedRecipe` (its
-   * Workflow's Loaded Recipe, named by the Recipe).
+   * A Library kind, `workflow` (its Workflow's grinder and batch) or
+   * `loadedRecipe` (its Workflow's Loaded Recipe, named by the Recipe).
    */
   kind: ItemKind | "workflow" | "loadedRecipe";
   /** The item, named as Conflicts name it, a Loaded Recipe as its Recipe; null for a record set aside, which is none of the Library's, or an item deleted since. */
@@ -664,20 +663,8 @@ export interface Recipe {
 /** The kinds of Library item (`LIBRARY_KINDS`). */
 export type { LibraryKind };
 
-/** What has versions and Conflicts: Library items, and each Location's steam and rinse settings (`settings`). */
-export type ItemKind = LibraryKind | "settings";
-
-/** A Location's steam and rinse settings, shared by its Machines whatever their model. */
-export interface LocationSettings {
-  /** Null while no Machine there sharing them has reported its Workflow, so none is set. */
-  id: string | null;
-  /** Each setting, by its part and name, such as `steamSettings.flow`; null while unset. */
-  values: Record<string, number | null>;
-  /** The Location's Machines now, each with its model, if known, and whether it shares them. */
-  machines: { id: string; name: string; model: string | null; sharesSettings: boolean; sharing: boolean }[];
-  /** Whether the signed-in account may change them, and switch its Machines' sharing. */
-  editable: boolean;
-}
+/** What has versions and Conflicts: Library items. */
+export type ItemKind = LibraryKind;
 
 /** Where a version or a Conflict came from: a Machine's tablet, or an account in the management interface. */
 export interface EditSource {
@@ -691,7 +678,7 @@ export interface EditSource {
 /** One accepted edit of a Library item. */
 export interface ItemVersion {
   id: string;
-  /** The fields it set, with their values: of the item's content, or of its state at `location` (`atLocation`, `remainingWeight`, `shown`, or a setting). */
+  /** The fields it set, with their values: of the item's content, or of its state at `location` (`atLocation`, `remainingWeight` or `shown`). */
   fields: Record<string, unknown>;
   /** The Location whose state of the item it changed; null for its content. */
   location: Location | null;
@@ -711,7 +698,7 @@ export interface ItemVersion {
 /** An edit of a field of a Library item that lost to another made without seeing it. */
 export interface Conflict {
   id: string;
-  /** The item, or a Location's steam and rinse settings, whose Location is `location`. */
+  /** The item. */
   item: { kind: ItemKind; id: string; name: string | null };
   field: string;
   /** The losing value; null where the edit cleared the field. */

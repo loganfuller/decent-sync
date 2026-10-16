@@ -1,12 +1,12 @@
 ---
-status: accepted (amended in place on 2026-10-08, while building milestone 2: how deletes are timed, and how what a tablet saw is judged, including from an answer that came late)
+status: accepted (amended in place on 2026-10-08, while building milestone 2: how deletes are timed, and how what a tablet saw is judged, including from an answer that came late; and on 2026-10-16, for ticket #190: steam and rinse settings are no longer a Location's state, as ADR-0014 is superseded)
 ---
 
 # The latest edit wins per field, not per record
 
-ADR-0003 resolves conflicting edits to the same record by last writer wins. Taken per record, an edit to one field undoes a concurrent edit to another: if Uptown corrects a Bean's country while Belmont, offline, adds tasting notes to it, the later edit replaces the whole Bean and the other change is lost. So the server compares each edit with the version its tablet last had (ADR-0006 keeps that per tablet) and applies only the fields the edit changed. Two edits conflict only when both changed the same field without seeing each other. The later one wins, and the other is kept as a Conflict, which the management interface shows with where and when it was made until someone uses its value or dismisses it. Each piece of per-Location state (whether a Profile is shown, whether a Bean Batch is at a Location and its remaining weight there, each steam, hot water and rinse setting) is a field of its own. Decaid's update endpoints already change only the fields they are sent.
+ADR-0003 resolves conflicting edits to the same record by last writer wins. Taken per record, an edit to one field undoes a concurrent edit to another: if Uptown corrects a Bean's country while Belmont, offline, adds tasting notes to it, the later edit replaces the whole Bean and the other change is lost. So the server compares each edit with the version its tablet last had (ADR-0006 keeps that per tablet) and applies only the fields the edit changed. Two edits conflict only when both changed the same field without seeing each other. The later one wins, and the other is kept as a Conflict, which the management interface shows with where and when it was made until someone uses its value or dismisses it. Each piece of per-Location state (whether a Profile is shown, whether a Bean Batch is at a Location and its remaining weight there) is a field of its own. Decaid's update endpoints already change only the fields they are sent.
 
-This amends ADR-0003 and ADR-0014.
+This amends ADR-0003, and amended ADR-0014 until it was superseded.
 
 ## Consequences
 
