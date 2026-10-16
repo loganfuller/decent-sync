@@ -289,6 +289,17 @@ export function withoutOwnEdits(
   );
 }
 
+/**
+ * Whether a tablet's record of a recipe (`reported`) is a save of DYE2's
+ * editor over the one known (`known`): DYE2 stamps `capturedAt` anew on each
+ * save, but not as it records the Workflow into the recipe it has selected
+ * (ADR-0005), so a save is the barista's edit of the Recipe, which no
+ * Workflow holds yet, rather than a recording of one.
+ */
+export function savedInEditor(known: Readonly<Record<string, unknown>>, reported: Readonly<Record<string, unknown>>): boolean {
+  return !sameValue(known.capturedAt ?? null, reported.capturedAt ?? null);
+}
+
 /** A new Recipe's content from a tablet's record: every field a barista edits, a field it holds no value for left out. */
 export function recipeContent(view: Readonly<RecipeView>, context: IntakeContext): Record<string, unknown> {
   const values = libraryValues(view, EDITED_PATHS, {}, context);

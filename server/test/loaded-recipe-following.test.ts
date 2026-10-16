@@ -177,6 +177,25 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(variables(inSlot(c, "1")).rpm).toBe(0);
   });
 
+  it("writes an RPM and dose saved in DYE2's editor on A, which has the Recipe loaded, into A's Workflow too, where they stay", async () => {
+    const { a, c, one } = await lab("Editor", 48161);
+    // DYE2's editor saves the fields changed over a fresh read, stamping `capturedAt` anew (decentespresso/dye2#28).
+    const saved = records(a).map((record) =>
+      record.id === "1" ? { ...record, capturedAt: new Date().toISOString(), dashboardVariables: { ...variables(record), rpm: 1333, dose: 19.5 } } : record,
+    );
+    expect((await a.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, saved)).status).toBe(200);
+    await expect.poll(async () => (await recipe(one)).content, { timeout: 15_000 }).toMatchObject({ rpm: 1333, dose: 19.5 });
+    for (const tablet of [a, c]) {
+      await expect.poll(() => [extras(tablet).rpm, context(tablet).targetDoseWeight], { timeout: 15_000 }).toEqual([1333, 19.5]);
+    }
+    // A's next change of the Workflow, which DYE2 records, keeps them.
+    await a.changeSettings({ context: { grinderSetting: "3.3" } });
+    await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(3.3);
+    await settle();
+    expect((await recipe(one)).content).toMatchObject({ rpm: 1333, dose: 19.5 });
+    expect([extras(c).rpm, context(c).targetDoseWeight]).toEqual([1333, 19.5]);
+  });
+
   it("changes nothing of a Recipe holding no RPM or Basket as they change on its Machine, as DYE2 records neither into it", async () => {
     const { machines, a, c, one, two, load } = await lab("Unheld", 48131);
     await patch(two, { rpm: null, basketId: null });

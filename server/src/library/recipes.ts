@@ -35,6 +35,7 @@ import {
   recipeContent,
   recipeRecord,
   recipeView,
+  savedInEditor,
   tabletIds,
   withoutOwnEdits,
 } from "./recipe-intake.js";
@@ -311,8 +312,11 @@ export async function takeInRecipes(
       if (!joining && recipe) {
         const edits = editedContent(knownView, view, known.beforeWrite);
         // What DYE2 recorded from the Workflow of a Machine with the Recipe loaded that is stale is no edit (ADR-0022). One a
-        // stale save's rule takes as unchanged is still what the Workflow holds, which the Recipe's is written back over.
-        for (const path of await recordedByDye2(tx, tablet, itemId, recipe.content, recipe.fieldEdits, editedContent(knownView, view, null))) delete edits[path];
+        // stale save's rule takes as unchanged is still what the Workflow holds, which the Recipe's is written back over. A
+        // save of DYE2's editor is no recording: its values are written into that Workflow too.
+        if (!savedInEditor(known.record, record.record)) {
+          for (const path of await recordedByDye2(tx, tablet, itemId, recipe.content, recipe.fieldEdits, editedContent(knownView, view, null))) delete edits[path];
+        }
         const paths = editedPaths(edits);
         if (paths.length > 0) {
           const values = withoutOwnEdits(libraryValues(view, paths, recipe.content, await context(view)), recipe.content, recipe.fieldEdits, tablet.tabletId);
@@ -415,7 +419,7 @@ export async function recordRecipeWritten(
       const answered = answeredEquipment(recipeView(known.record), view, written, known.beforeWrite, await recordFor(tx, ids, content, localId, itemId));
       // What DYE2 recorded into the record just before the plugin's read of the list, which its post kept, is judged as a
       // report's is (ADR-0022).
-      const recorded = here ? await recordedByDye2(tx, tablet, itemId, content, item.fieldEdits, answered.values) : new Set<string>();
+      const recorded = here && !savedInEditor(known.record, record) ? await recordedByDye2(tx, tablet, itemId, content, item.fieldEdits, answered.values) : new Set<string>();
       for (const path of recorded) delete answered.values[path];
       const paths = editedPaths(answered.values);
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
