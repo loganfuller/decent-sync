@@ -2822,7 +2822,7 @@ var __decentSync = (() => {
       __publicField(this, "reportedAt", now());
       /**
        * How many of the plugin's writes into the Workflow are under way: the
-       * shared settings (`LibraryWrites`), whose answers the server reads first,
+       * server's (`LibraryWrites`), whose answers the server reads first,
        * and a Loaded Recipe's (`LoadedRecipes`), whose echo is no change of the
        * tablet's. A change Decaid reports meanwhile is sent once none is.
        */
@@ -3745,8 +3745,8 @@ var __decentSync = (() => {
       __publicField(this, "sentHardware", null);
       /**
        * Set once the machine this connection's `hello` reported is seen gone:
-       * no hardware read, or Decaid refusing a write of the shared settings as
-       * no machine is connected. Decaid refuses those while it is gone, and the
+       * no hardware read, or Decaid refusing a Loaded Recipe's hot water as no
+       * machine is connected. Decaid refuses those while it is gone, and the
        * server skips such a write until it changes or the tablet reconnects, so
        * once the same machine is back the plugin reconnects, and is written it
        * again.

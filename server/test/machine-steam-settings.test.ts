@@ -177,7 +177,8 @@ describe("Steam and flush settings are each Machine's own", { timeout: 120_000 }
   });
 
   it("maps none of the Location settings endpoints, which answer 404", async () => {
-    const { here, machines } = await lab("Gone", 49031);
+    const here = await api.createLocation("Gone lab", "America/Chicago");
+    const machines = { a: await api.createMachine("Gone lab A", here.id) };
     const routes = [...server.output().matchAll(/Mapped \{(\/\S+), (\w+)\} route/g)].map(([, path, method]) => `${method} ${path}`);
     const gone = [
       ["GET", `/locations/${here.id}/settings`, "GET /api/locations/:id/settings"],

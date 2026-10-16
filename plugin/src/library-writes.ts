@@ -183,8 +183,8 @@ const ROUTES = {
 
 /**
  * Each kind the server writes, described once: the Library's kinds
- * (`LIBRARY_ITEM_KINDS`), a Location's shared settings, the clearing of a
- * Workflow's grinder, batch and Basket, and a Workflow's Loaded Recipe.
+ * (`LIBRARY_ITEM_KINDS`), the clearing of a Workflow's grinder, batch and
+ * Basket, and a Workflow's Loaded Recipe.
  */
 const WRITERS: { readonly [K in WrittenKind]: K extends LibraryKind ? LibraryKindWriter : KindWriter } = {
   bean: recordWriter("bean", ROUTES.bean),
@@ -286,11 +286,11 @@ export class LibraryAccess {
  * report read before a write before that write's answer, and never reads an
  * item the plugin wrote as deleted from a report that predates it (ADR-0019).
  *
- * Decaid refuses to change the shared settings while no machine is
+ * Decaid refuses to change a Loaded Recipe's hot water while no machine is
  * connected (500, `DeviceNotConnectedException`), which `machineMissing` is
- * told of. Decaid sends the plugin the Workflow a write of the shared
- * settings changed (`workflowUpdated`), around when it answers the write. That change
- * is held back until the answer is queued, so the server takes in the answer
+ * told of. Decaid sends the plugin the Workflow a write into it changed
+ * (`workflowUpdated`), around when it answers the write. That change is
+ * held back until the answer is queued, so the server takes in the answer
  * first and finds the change is the plugin's own write, not the tablet's
  * edit (ADR-0003).
  */
@@ -304,7 +304,7 @@ export class LibraryWrites {
     private readonly workflow: WorkflowChanges,
     /** The Machine's Loaded Recipe, which the server's writes of it, and moves of it to another slot, keep in step with DYE2's selection. */
     loaded: LoadedRecipeWrites,
-    /** Told when Decaid refuses a write of the shared settings as no machine is connected. */
+    /** Told when Decaid refuses a write into the Workflow as no machine is connected. */
     private readonly machineMissing: () => void,
     private readonly log: (message: string) => void,
     /** Told of each post of one of DYE2's lists Decaid took. */
