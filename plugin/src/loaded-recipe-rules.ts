@@ -7,7 +7,6 @@ import {
   dye2GlobalIdOf,
   isSlotId,
   loadedRecipeOf,
-  profileAtBrewTemperature,
   workflowValueAt,
 } from "@decent-sync/protocol";
 
@@ -124,17 +123,9 @@ export function recipeSetUp(record: Record<string, unknown>): { grinder: string 
   return { grinder: textOf(variables.grinderId), bean: textOf(record.beanId) };
 }
 
-/**
- * What a load writes besides the record: the recipe's full Profile, as
- * applying it loads one; the step temperatures of the tablet's record of
- * that Profile, which a brew temperature shifts (`shiftedTemperatures`), or
- * null where the tablet holds none; and its Bean Batch as the tablet holds
- * it, with its Bean's name and roaster.
- */
+/** What a load writes besides the record: the recipe's full Profile at its brew temperature, as applying it loads one. */
 export interface LoadContext {
   profile: Record<string, unknown> | null;
-  baseTemperatures: readonly unknown[] | null;
-  batch: { id: string; coffeeName: string | null; coffeeRoaster: string | null } | null;
 }
 
 /** A load's write into the Workflow, and what each part it changes held before it and holds once written (`WorkflowDelivery.loadBefore`). */
@@ -146,16 +137,17 @@ export interface LoadWrite {
 /**
  * What a load of the recipe writes into the Workflow, through `PUT
  * /workflow`, which Decaid merges into it: what the Workflow holds otherwise
- * of the recipe's current dose, yield, grind setting, grinder, RPM, Basket
- * and Profile, as DYE2 applies them; of its brew temperature, as
- * Streamline's Brew tile sets one, the Profile's shape kept
- * (`profileAtBrewTemperature`); of its Bean Batch, which applying a DYE2 recipe
- * never sets; and of its four hot water settings, which it keeps in its own
- * field (RECIPE_FIELD); and the recipe's global id (LOADED_RECIPE_KEY). A
- * value the recipe holds none of is left as the Workflow has it, and so is
- * one `omit` names. Null if the Workflow holds all of it already. With it,
- * each part it changes, by its name in LOADED_RECIPE_PARTS, with what the
- * Workflow held of it and what it writes, but the Profile.
+ * of the recipe's current dose, yield, grind setting, grinder, RPM, Basket,
+ * Bean Batch with its Bean's name and roaster, and Profile, as DYE2 applies
+ * them, a stale copy having applied others; of its four hot water settings,
+ * which it keeps in its own field (RECIPE_FIELD); and the recipe's global
+ * id (LOADED_RECIPE_KEY). Its brew temperature is DYE2's and Streamline's to
+ * apply, and so is the Profile at it, which is written only where the
+ * Workflow holds another. A value the recipe holds none of is left as the
+ * Workflow has it, and so is one `omit` names. Null if the Workflow holds
+ * all of it already. With it, each part it changes, by its name in
+ * LOADED_RECIPE_PARTS, with what the Workflow held of it and what it
+ * writes, but the Profile.
  */
 export function loadWrite(
   workflow: Record<string, unknown>,
@@ -194,10 +186,11 @@ export function loadWrite(
     extrasWrite.basketId = basket;
     if (textOf(variables.basketName) !== null) extrasWrite.basketName = variables.basketName;
   }
-  if (load.batch !== null && load.batch.id !== textOf(context.beanBatchId) && changes("batch", load.batch.id)) {
-    contextWrite.beanBatchId = load.batch.id;
-    if (load.batch.coffeeName !== null) contextWrite.coffeeName = load.batch.coffeeName;
-    if (load.batch.coffeeRoaster !== null) contextWrite.coffeeRoaster = load.batch.coffeeRoaster;
+  const batch = textOf(record.beanBatchId);
+  if (batch !== null && batch !== textOf(context.beanBatchId) && changes("batch", batch)) {
+    contextWrite.beanBatchId = batch;
+    if (textOf(record.beanName) !== null) contextWrite.coffeeName = record.beanName;
+    if (textOf(record.beanRoaster) !== null) contextWrite.coffeeRoaster = record.beanRoaster;
   }
   if (loadedRecipeOf(workflow) !== globalId) extrasWrite[LOADED_RECIPE_KEY] = globalId;
   if (Object.keys(extrasWrite).length > 0) contextWrite.extras = extrasWrite;
@@ -205,15 +198,7 @@ export function loadWrite(
   const write: Record<string, unknown> = {};
   if (Object.keys(contextWrite).length > 0) write.context = contextWrite;
   const key = profileKey(load.profile);
-  const profile = !omit.has("profile") && key !== null && key !== profileKey(workflow.profile) ? load.profile! : null;
-  const temperature = numberOf(variables.brewC);
-  const shifted = temperature === null || omit.has("brewTemperature") ? null : profileAtBrewTemperature(profile ?? workflow.profile, temperature, load.baseTemperatures);
-  if (shifted !== null) {
-    const held = workflowValueAt(workflow, LOADED_RECIPE_PARTS.brewTemperature[0]);
-    if (!sameNumber(numberOf(held), temperature)) before.brewTemperature = { before: held ?? null, written: temperature };
-  }
-  if (shifted !== null && (profile !== null || !sameValue(shifted, workflow.profile))) write.profile = shifted;
-  else if (profile !== null) write.profile = profile;
+  if (!omit.has("profile") && key !== null && key !== profileKey(workflow.profile)) write.profile = load.profile;
   const own = isObject(record[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
   const hotWater = isObject(own.hotWaterData) ? own.hotWaterData : {};
   const held = isObject(workflow.hotWaterData) ? workflow.hotWaterData : {};
@@ -257,11 +242,6 @@ function sameGrind(a: string | null, b: string | null): boolean {
   if (a === null || b === null) return a === b;
   const [x, y] = [numberOf(a), numberOf(b)];
   return x !== null && y !== null ? sameNumber(x, y) : a.trim() === b.trim();
-}
-
-/** Whether two values are the same as JSON, keys in any order. */
-function sameValue(a: unknown, b: unknown): boolean {
-  return stableJson(a) === stableJson(b);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

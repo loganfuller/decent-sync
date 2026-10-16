@@ -32,6 +32,8 @@ const RECIPE_PATHS = [
   "drinker",
   "beanId",
   "beanName",
+  "beanBatchId",
+  "beanRoaster",
   "profileId",
   "profileTitle",
   "profileSnapshot",
@@ -85,6 +87,7 @@ const EDITED: Readonly<Record<string, string>> = {
 export const EDITED_PATHS: ReadonlySet<string> = new Set([
   ...Object.keys(EDITED),
   "beanId",
+  "beanBatchId",
   "profileId",
   "profileSnapshot",
   `${DV}.hotWaterMl`,
@@ -173,7 +176,7 @@ export interface IntakeContext {
   ids: TabletIds;
   /** The Grinders of the Recipe's Location, not Archived: a Recipe names only one of them. */
   grinders: ReadonlySet<string>;
-  /** Each Bean Batch's Bean, for the Recipe's batch now. */
+  /** Each Bean Batch's Bean, for the Recipe's batch now and the batch a record holds. */
   batchBeans: ReadonlyMap<string, string>;
   /** Each Bean's batch most recently added at the Recipe's Location, still there, or null where none is. */
   latestBatches: ReadonlyMap<string, string | null>;
@@ -186,7 +189,9 @@ export interface IntakeContext {
  * record (`fields`) set, in the Library's terms, as edits of `current`, its
  * content now (empty for a new one):
  *
- * - its Bean, by the tablet's map, with the Recipe's Bean Batch kept where
+ * - its Bean and Bean Batch, by the tablet's map: the batch the record
+ *   holds with its Bean, as DYE2's editor saves one picked with it; or, for
+ *   a record holding none, or one of another Bean, the Recipe's kept where
  *   it is of that Bean, and otherwise that Bean's batch most recently added
  *   at the Location, or none (ADR-0005);
  * - its Profile, by `profileId`, or else the Library Profile its
@@ -208,11 +213,14 @@ export function libraryValues(view: Readonly<RecipeView>, fields: Iterable<strin
   const values: Record<string, unknown> = {};
   const changed = new Set(fields);
   for (const [path, field] of Object.entries(EDITED)) if (changed.has(path)) values[field] = view[path] ?? null;
-  if (changed.has("beanId")) {
+  if (changed.has("beanId") || changed.has("beanBatchId")) {
     const beanId = typeof view.beanId === "string" ? (ids.item("bean", view.beanId) ?? null) : null;
-    values.beanId = beanId;
+    if (changed.has("beanId")) values.beanId = beanId;
+    // The batch DYE2 holds with its Bean, as its editor's picker chose it (decentespresso/dye2#27).
+    const picked = typeof view.beanBatchId === "string" ? (ids.item("beanBatch", view.beanBatchId) ?? null) : null;
     const kept = typeof current.beanBatchId === "string" && beanId !== null && context.batchBeans.get(current.beanBatchId) === beanId;
-    values.beanBatchId = kept ? current.beanBatchId : beanId === null ? null : (context.latestBatches.get(beanId) ?? null);
+    if (picked !== null && beanId !== null && context.batchBeans.get(picked) === beanId) values.beanBatchId = picked;
+    else values.beanBatchId = kept ? current.beanBatchId : beanId === null ? null : (context.latestBatches.get(beanId) ?? null);
   }
   if (changed.has("profileId") || (changed.has("profileSnapshot") && typeof view.profileId !== "string")) {
     const named = typeof view.profileId === "string" && view.profileId !== "" ? view.profileId : context.snapshotProfile;
@@ -344,6 +352,8 @@ export interface WriteContext {
   ids: TabletIds;
   /** Each Bean's name, by its global id. */
   beanNames: ReadonlyMap<string, string | null>;
+  /** Each Bean's roaster, by its global id. */
+  beanRoasters: ReadonlyMap<string, string | null>;
   /** Each Grinder's model. */
   grinderModels: ReadonlyMap<string, string | null>;
   /** Each Basket's name. */
@@ -356,18 +366,16 @@ export interface WriteContext {
 
 /**
  * The record a tablet holds of a Recipe in a slot, by the paths the server
- * writes (`RECIPE_PATHS`): its content, naming its Bean, Grinder, Basket and
- * Tools by the tablet's ids, and its Profile by Decaid's, each left out where
- * the tablet holds no record of it, and the names DYE2 copies from them; its
- * full Profile in `profileSnapshot`, so it applies where the Profile is
- * hidden, at the Recipe's brew temperature (`profileAtBrewTemperature`), as
- * DYE2 and Streamline apply a recipe's profile as it is; its brew
- * temperature, its Profile's first step's where it holds none, which DYE2
- * records into only a record holding one (ADR-0022); a blank barista and
- * drinker; the hot water value of its mode,
- * with all four and its Bean Batch, by the tablet's id, in the record's own
- * field (RECIPE_FIELD); and `title`, `subtitle` and the embedded `workflow`
- * as DYE2 derives them (`recipeWorkflow`).
+ * writes (`RECIPE_PATHS`): its content, naming its Bean, Bean Batch,
+ * Grinder, Basket and Tools by the tablet's ids, and its Profile by
+ * Decaid's, each left out where the tablet holds no record of it, and the
+ * names DYE2 copies from them; its full Profile in `profileSnapshot`, so it
+ * applies where the Profile is hidden; its brew temperature, its Profile's
+ * first step's where it holds none, which DYE2 records into only a record
+ * holding one, and applies (ADR-0022); a blank barista and drinker; the hot
+ * water value of its mode, with all four in the record's own field
+ * (RECIPE_FIELD); and `title`, `subtitle` and the embedded `workflow` as
+ * DYE2 derives them (`recipeWorkflow`).
  */
 export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: number, context: WriteContext, recipeId: string): RecipeView {
   const { ids } = context;
@@ -378,11 +386,8 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
   const profileId = id("profileId");
   const grinderId = id("grinderId");
   const basketId = id("basketId");
-  const stored = profileId === null ? undefined : context.profiles.get(profileId);
-  // At the Recipe's brew temperature, or else its Profile's own, as DYE2 and Streamline apply a recipe's profile as it is
-  // (decentespresso/dye2#26).
-  const brewTemperature = typeof content.brewTemperature === "number" ? content.brewTemperature : firstStepTemperature(stored);
-  const profile = stored && brewTemperature !== null ? (profileAtBrewTemperature(stored, brewTemperature, null) ?? stored) : stored;
+  const profile = profileId === null ? undefined : context.profiles.get(profileId);
+  const brewTemperature = typeof content.brewTemperature === "number" ? content.brewTemperature : firstStepTemperature(profile);
   const tools = (Array.isArray(content.toolIds) ? (content.toolIds as unknown[]) : []).filter((tool): tool is string => typeof tool === "string");
   const held = tools.filter((tool) => ids.local("tool", tool) !== undefined);
   const attributes = isObject(content.toolAttributes) ? content.toolAttributes : {};
@@ -401,6 +406,8 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
     drinker: "",
     beanId: local("bean", beanId),
     beanName: named(context.beanNames, beanId),
+    beanBatchId: local("beanBatch", id("beanBatchId")),
+    beanRoaster: named(context.beanRoasters, beanId),
     profileId,
     profileTitle: profile && typeof profile.title === "string" ? profile.title : null,
     profileSnapshot: profile ?? null,
@@ -425,7 +432,6 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
     [`${DV}.equipmentNames`]: held.map((tool) => context.toolNames.get(tool) ?? null),
     [`${DV}.equipmentCustom`]: custom,
     [RECIPE_FIELD]: {
-      beanBatchId: local("beanBatch", id("beanBatchId")),
       hotWaterData: {
         targetTemperature: value("hotWaterTemperature"),
         duration: value("hotWaterDuration"),
@@ -452,12 +458,17 @@ function firstStepTemperature(profile: unknown): number | null {
 /**
  * The Workflow DYE2 embeds in a recipe, which Streamline applies, built as
  * DYE2's `buildRecipeWorkflow` builds it (dye2:dye2-plugin/src/utils/dev-api.ts
- * at v0.1.19) from the record's fields: its dose, yield (or its dose times
+ * at 2cf631c) from the record's fields: its dose, yield (or its dose times
  * its ratio), grind setting, RPM, Grinder and Basket by the tablet's ids,
- * coffee, barista and drinker, each only where the record holds one, and its
- * full Profile where it names one; and the Recipe's global id
- * (LOADED_RECIPE_KEY), which DYE2's own does not hold, so a Workflow
- * Streamline applies it to names its Recipe (ADR-0022).
+ * barista and drinker, each only where the record holds one; its coffee,
+ * roaster and Bean Batch together where it names a Bean, each null where it
+ * holds none, so applying it clears a batch the Workflow held; and its full
+ * Profile where it names one, at its brew temperature, as Streamline
+ * applies the profile as it is (`profileAtBrewTemperature`,
+ * decentespresso/dye2#26); and the Recipe's global id (LOADED_RECIPE_KEY),
+ * which DYE2's own does not hold, so a Workflow Streamline applies it to
+ * names its Recipe (ADR-0022). DYE2's flags of the fields it sets, and the
+ * machine settings Streamline does not apply from it, are left out.
  */
 export function recipeWorkflow(view: Readonly<RecipeView>, recipeId: string): Record<string, unknown> {
   const at = (field: string) => view[`${DV}.${field}`];
@@ -476,13 +487,19 @@ export function recipeWorkflow(view: Readonly<RecipeView>, recipeId: string): Re
   // So a recipe applied from Streamline's strip names its Recipe at once (decentespresso/dye2#20).
   extras[LOADED_RECIPE_KEY] = recipeId;
   context.extras = extras;
-  if (view.beanName) context.coffeeName = view.beanName;
+  if (view.beanId || view.beanName) {
+    context.coffeeName = view.beanName || null;
+    context.coffeeRoaster = view.beanRoaster || null;
+    context.beanBatchId = view.beanBatchId || null;
+  }
   if (view.barista) context.baristaName = view.barista;
   if (view.drinker) context.drinkerName = view.drinker;
   const workflow: Record<string, unknown> = { context };
   if (view.profileId || view.profileTitle) {
     const snapshot = view.profileSnapshot;
-    workflow.profile = isObject(snapshot) && Array.isArray(snapshot.steps) ? snapshot : { id: view.profileId, title: view.profileTitle };
+    const brewTemperature = at("brewC");
+    const shifted = isObject(snapshot) && typeof brewTemperature === "number" ? profileAtBrewTemperature(snapshot, brewTemperature) : null;
+    workflow.profile = isObject(snapshot) && Array.isArray(snapshot.steps) ? (shifted ?? snapshot) : { id: view.profileId, title: view.profileTitle };
   }
   return workflow;
 }

@@ -270,19 +270,23 @@ deliveries.
   answers 404, the plugin reads the Workflow and writes into it, in one
   `PUT /workflow`, which Decaid merges into it, what it holds otherwise of
   the recipe's current dose, yield (its dose times its ratio where it holds
-  none), grind setting, grinder, RPM, Basket and Profile (whole, from its
+  none), grind setting, grinder, RPM, Basket and Profile (whole, at the
+  recipe's brew temperature, from its embedded Workflow, else its
   `profileSnapshot` or the tablet's record of its `profileId`, only where
-  its `profileKey` differs), its brew temperature, its Bean Batch, read from
-  the tablet's records with its Bean's name and roaster as `coffeeName` and
+  its `profileKey` differs), its Bean Batch (`beanBatchId`) with its Bean's
+  name and roaster (`beanName`, `beanRoaster`) as `coffeeName` and
   `coffeeRoaster`, all four hot water settings from the record's own field
-  (RECIPE_FIELD), and the Recipe's global id (`loadWrite`). A brew
-  temperature is written as Streamline's Brew tile writes one
-  (`profileAtBrewTemperature` in `protocol/`, after `shiftedTemperatures` in
-  `streamline-js:src/modules/brew-temp.js`): the first step goes to it and
-  every other moves by the same amount, from the tablet's record of the
-  Profile's own step temperatures, so the profile keeps its shape however
-  often it is moved; nothing for a profile with no usable first step
-  temperature. Decaid refuses to change the hot water settings while no
+  (RECIPE_FIELD), and the Recipe's global id (`loadWrite`). It writes no
+  brew temperature: DYE2's dashboard applies a recipe's, moving its profile
+  as Streamline's Brew tile does (`shiftedTemperatures` in
+  `streamline-js:src/modules/brew-temp.js`), the first step to it and every
+  other by the same amount, and Streamline's strip applies the record's
+  embedded Workflow, which holds its profile so moved
+  (decentespresso/dye2#26). Both apply its batch too
+  (decentespresso/dye2#27), so the load write writes it only over a stale
+  copy, and a stale copy's brew temperature is written by the server's
+  Loaded Recipe write after the load (To every Machine that has it loaded,
+  below). Decaid refuses to change the hot water settings while no
   machine is connected, so the rest is then written without them. With the
   write, the plugin attaches to the next Workflow delivery queued
   (`WorkflowDelivery.loadBefore`) each part it changed but the Profile, what
@@ -301,11 +305,12 @@ deliveries.
   key to null to clear it, as Decaid merges `extras` key by key: a DYE2
   page sends back the Workflow it read as it opened, with whatever id it
   held then.
-- **An unload on a change of grinder or Bean.** DYE2 clears its selection
+- **An unload on a change of grinder or batch.** DYE2 clears its selection
   itself on a change of the Workflow's batch or grinder, a clear of either
-  included (decentespresso/dye2#19), so its clear unloads the Recipe first;
-  the plugin's own unload and clear, standing in for that until it did, stay
-  until #188. So where the
+  included, another batch of the Recipe's Bean too (decentespresso/dye2#19),
+  so its clear unloads the Recipe first, and the Recipe keeps its batch: a
+  Recipe is the dial-in for one roast. The plugin's own unload and clear,
+  standing in for that until DYE2 did, stay until #188. So where the
   Recipe's record names a grinder, a change of the Workflow's grinder to
   another, and where it names a Bean, a change of its Bean Batch to one of
   another Bean (its batch's Bean, read from the tablet's batch record),
@@ -416,8 +421,8 @@ Shot, and the plugin resends the state on every welcome.
 
 ### Following the Recipe
 
-Tickets [#146](https://github.com/loganfuller/decent-sync/issues/146) and
-#177 have a Machine follow its Loaded Recipe both ways (ADR-0022). The parts
+Tickets [#146](https://github.com/loganfuller/decent-sync/issues/146),
+#177 and #187 have a Machine follow its Loaded Recipe both ways (ADR-0022). The parts
 of a Workflow that follow it are its Profile, Grinder, dose, yield, grind
 setting, RPM, Basket, Bean Batch, four hot water settings and brew
 temperature, its profile's first step's (`LOADED_RECIPE_PARTS` in
@@ -435,41 +440,42 @@ tablet's edit. The pure `server/src/library/loaded-recipe-intake.ts` maps
 the parts to the Recipe's content both ways.
 
 - **What DYE2 records.** DYE2 records a change of the Workflow's dose,
-  yield, grind setting, brew temperature, and the hot water value of the
-  Recipe's mode (its temperature for `temp`, its volume otherwise), into
-  the recipe's record (`recordedParts`), which the plugin reports with
-  DYE2's recipes: the tablet's change of the record, taken in as any is
-  (`LIBRARY.md`, Taking in a tablet's recipes). The Workflow's change of
-  them is no edit: DYE2 is their only recorder, so the change is one edit.
-  Each value recorded is held as the Workflow's (`recordedByDye2`). DYE2 at
-  `2cf631c` records the RPM, Basket and the other hot water value too, which
-  the Workflow still edits (below): DYE2's record of one is judged stale the
+  yield, grind setting, RPM, Basket, brew temperature, and the hot water
+  value of the Recipe's mode (its temperature for `temp`, its volume
+  otherwise), into the recipe's record (`recordedParts`,
+  decentespresso/dye2#21), which the plugin reports with DYE2's recipes:
+  the tablet's change of the record, taken in as any is (`LIBRARY.md`,
+  Taking in a tablet's recipes). It records only a field the record holds,
+  so a Recipe with no RPM or Basket gains one only by an edit in DYE2's
+  editor or the management interface. The Workflow's change of them is no
+  edit: DYE2 is their only recorder, so the change is one edit. Each value
+  recorded is held as the Workflow's (`recordedByDye2`), one a stale save's
+  rule takes as unchanged (`before_write`) too, as it is still what the
+  Workflow holds. DYE2 records the other hot water value too, which the
+  Workflow still edits (below): DYE2's record of it is judged stale the
   same way, but is not held as the Workflow's, which the Workflow's own
   report keeps. So is a recording the plugin's read of the list caught just
   before its post, as the answer to the post carries it
-  (`recordRecipeWritten`). Its
+  (`recordRecipeWritten`). DYE2 never records a batch: another batch on the
+  Machine, of the Recipe's Bean or not, unloads it (A load, above). Its
   steam and flush values are no edit, recorded or in the Workflow: they
   stay the Machine's own (`LIBRARY.md`, Steam and rinse settings).
 - **What the Workflow edits.** A Workflow delivery naming the Recipe its
   Machine went on having loaded, not as it joins its Location, is the
-  tablet's edit of the Recipe in each of its RPM, Basket, Bean Batch and
-  hot water settings but the one DYE2 records (`workflowEditedParts`,
-  decentespresso/dye2#21 and #27), each it holds otherwise than it last did, timed when the plugin observed it, merged
+  tablet's edit of the Recipe in each of its hot water settings but the one
+  DYE2 records (`workflowEditedParts`), until a Recipe holds them as DYE2's
+  recipe does (#173), each it holds otherwise than it last did, timed when
+  the plugin observed it, merged
   with what the Workflow had seen of the Recipe's edits (ADR-0020), from the
   Machine's tablet, whatever app made it. What the Workflow has seen is,
   from a load, what the tablet's record of the Recipe had seen, and from the
   answer to a write of it, the latest edit of the Recipe the write carried,
   once the Workflow holds every part of the Recipe but one naming an item
   its Location no longer offers the tablet, as a Basket Archived there
-  (`holdsWhole`). A dose, yield, RPM, hot water setting or brew temperature
-  is the Recipe's as it is, and a grind setting as the number DYE2 keeps;
-  DYE2's ratio is kept only while the yield is the dose times it. A Basket,
-  and a Bean Batch of the Recipe's Bean, are read through the tablet's map,
-  which moves the Recipe to that batch; one the map does not hold yet, as a
-  bag added and picked at once, waits, and is taken in, timed when it was
-  observed, as the report of the tablet's batches or baskets maps it
-  (`settlePendingParts`). A batch of another Bean is none of the Recipe's,
-  as the plugin unloads it then. A value the Recipe holds already is no
+  (`holdsWhole`). A hot water setting is the Recipe's as it is (`partEdits`,
+  which reads a dose, yield, RPM or brew temperature as it is too, and a
+  grind setting as the number DYE2 keeps, keeping DYE2's ratio only while
+  the yield is the dose times it). A value the Recipe holds already is no
   edit.
 - **Kept in the Workflow.** While DYE2 has a recipe selected, Streamline's
   clear after each Shot leaves the batch, coffee, grinder, Basket and RPM,
@@ -507,7 +513,8 @@ the parts to the Recipe's content both ways.
 - **The same edit once.** A field of the tablet's record that sets the
   Recipe's value its own latest edit set already is no edit
   (`withoutOwnEdits` in `recipe-intake.ts`), so a change the Workflow
-  brought, which DYE2 records too, as the RPM and Basket, is one edit.
+  brought, which DYE2 records too, as the hot water volume of a Recipe by
+  temperature, is one edit.
 - **To every Machine that has it loaded.** An edit of a Recipe from
   anywhere, a tablet, the management interface or a Conflict's value used,
   commits with a `NOTIFY` on `library_changes` naming its Location, and
@@ -521,7 +528,7 @@ the parts to the Recipe's content both ways.
   its Profile's first step's where the Recipe holds none), with any Profile
   written (`partsWrite`). The plugin judges a change of the Workflow's
   Grinder or Bean by the tablet's record, and DYE2 records the Workflow's
-  dial into the record, so the dial and the batch wait until the tablet's
+  dial, RPM and Basket into the record, so they and the batch wait until the tablet's
   record of the Recipe, written first, holds them (`heldByRecord`); the rest
   of the write goes ahead. The plugin writes nothing unless the Workflow
   still names the Recipe and DYE2 still has its slot selected, or answers

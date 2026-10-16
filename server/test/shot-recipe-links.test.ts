@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, LOADED_RECIPE_KEY, RECIPE_FIELD, dye2GlobalIdOf } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, LOADED_RECIPE_KEY, dye2GlobalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { syncingTablet } from "./support/loaded-tablets.js";
@@ -201,10 +201,7 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     await loads(machine, null);
 
     // Slot 2 applied from Streamline's strip while capture-only, whose record's embedded Workflow names its Recipe, stays
-    // selected there, its id in the Workflow, but is not its Loaded Recipe: the plugin writes nothing there. The strip leaves
-    // the Workflow's batch, which DYE2 clears its selection on once it moves, so it is on slot 2's already (ADR-0022, the
-    // transitional gap until #187 and #188).
-    await tablet.changeSettings({ context: { beanBatchId: (inSlot(tablet, "2")?.[RECIPE_FIELD] as Record_ | undefined)?.beanBatchId } });
+    // selected there, its id in the Workflow, but is not its Loaded Recipe: the plugin writes nothing there.
     expect((await (await startStreamline(tablet)).applyRecipe("2")).selection?.status).toBe(200);
     await expect.poll(() => named(tablet)).toBe(two);
     await settle();

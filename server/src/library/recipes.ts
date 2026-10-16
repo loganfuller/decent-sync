@@ -90,6 +90,7 @@ async function writeContext(tx: Prisma.TransactionClient, ids: TabletIds, conten
   return {
     ids,
     beanNames: await names("beans", "name", named("beanId")),
+    beanRoasters: await names("beans", "roaster", named("beanId")),
     grinderModels: await names("grinders", "model", named("grinderId")),
     basketNames: await names("baskets", "name", named("basketId")),
     toolNames: await names("tools", "name", tools),
@@ -139,7 +140,9 @@ async function intakeContext(
 ): Promise<(view: RecipeView) => Promise<IntakeContext>> {
   const grinders = await tx.$queryRaw<{ id: string }[]>`
     SELECT id::text AS id FROM grinders WHERE location_id = ${locationId}::uuid AND NOT archived`;
-  const batches = current.flatMap((content) => (typeof content.beanBatchId === "string" ? [content.beanBatchId] : []));
+  // The Recipes' batches, and those the records hold, as DYE2's editor picks one with its Bean.
+  const picked = views.flatMap((view) => (typeof view.beanBatchId === "string" ? [ids.item("beanBatch", view.beanBatchId)] : [])).filter((id): id is string => id !== undefined);
+  const batches = [...current.flatMap((content) => (typeof content.beanBatchId === "string" ? [content.beanBatchId] : [])), ...picked];
   const batchBeans = await tx.$queryRaw<{ id: string; beanId: string }[]>`
     SELECT id::text AS id, bean_id::text AS "beanId" FROM bean_batches WHERE id = ANY(${uuids(batches)}::uuid[])`;
   const beans = [...new Set(views.flatMap((view) => (typeof view.beanId === "string" ? [ids.item("bean", view.beanId)] : [])))].filter((id): id is string => id !== undefined);
@@ -307,8 +310,9 @@ export async function takeInRecipes(
       const knownView = recipeView(known.record);
       if (!joining && recipe) {
         const edits = editedContent(knownView, view, known.beforeWrite);
-        // What DYE2 recorded from the Workflow of a Machine with the Recipe loaded that is stale is no edit (ADR-0022).
-        for (const path of await recordedByDye2(tx, tablet, itemId, recipe.content, recipe.fieldEdits, edits)) delete edits[path];
+        // What DYE2 recorded from the Workflow of a Machine with the Recipe loaded that is stale is no edit (ADR-0022). One a
+        // stale save's rule takes as unchanged is still what the Workflow holds, which the Recipe's is written back over.
+        for (const path of await recordedByDye2(tx, tablet, itemId, recipe.content, recipe.fieldEdits, editedContent(knownView, view, null))) delete edits[path];
         const paths = editedPaths(edits);
         if (paths.length > 0) {
           const values = withoutOwnEdits(libraryValues(view, paths, recipe.content, await context(view)), recipe.content, recipe.fieldEdits, tablet.tabletId);

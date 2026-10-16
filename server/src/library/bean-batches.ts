@@ -24,7 +24,6 @@ import { standing } from "./join-plan.js";
 import { currentEntry, takenIn } from "./joining.js";
 import { leaveOut, leftOutIds, offersAny, screenLeftOut } from "./left-out.js";
 import { listedIds } from "./listed.js";
-import { settlePendingParts } from "../machine-events/loaded-recipes.js";
 import { addBatchAt, deletedAt, enterRemainingWeight, finishBatchAt, lockLocation, transactionTime } from "./location-state.js";
 import { changedFields } from "./merge.js";
 
@@ -170,8 +169,6 @@ export async function takeInBatches(
     if (batch.globalId !== batchId) writesDue = true;
   }
   if (writesDue) await notify(tx, "library_changes", locationId);
-  // A batch the Workflow named before the map held it follows its Loaded Recipe now (ADR-0022), under the Location's lock.
-  if (!joining) await settlePendingParts(tx, tablet, locationId);
   return takenInAt;
 }
 

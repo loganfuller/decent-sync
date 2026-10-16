@@ -45,11 +45,14 @@ applied from Streamline's strip
 a profile with a step limiter of 0, such as Adaptive v3, applied from DYE2's
 dashboard, a yield or dose set on Streamline's tiles still unloads the Recipe
 ([decentespresso/dye2#32](https://github.com/decentespresso/dye2/issues/32)).
-And until the server writes each recipe's batch where DYE2 applies it
-([#187](https://github.com/loganfuller/decent-sync/issues/187)), a change made
-on DYE2's dashboard right after applying a Recipe there, or its Done, unloads
-the Recipe: dial in from Streamline's tiles, or open the dashboard again
-([ADR-0022](docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md)).
+
+DYE2 now holds each Recipe's batch, and applies it with the Recipe's brew
+temperature. A batch picked in DYE2's recipe editor becomes the Recipe's,
+but picking another batch on a Machine, of the Recipe's Bean or not, unloads
+the Recipe there rather than moving it to that batch: a Recipe is the
+dial-in for one roast. An RPM or Basket changed on a Machine becomes the
+Recipe's only where the Recipe holds one already; give a Recipe one in DYE2's
+editor or the management interface first.
 
 ### Approve the plugin update on every tablet
 

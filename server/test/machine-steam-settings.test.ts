@@ -1,4 +1,4 @@
-import { RECIPE_FIELD, dye2GlobalIdOf } from "@decent-sync/protocol";
+import { dye2GlobalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { syncingTablet } from "./support/loaded-tablets.js";
@@ -81,7 +81,7 @@ describe("Steam and flush settings are each Machine's own", { timeout: 120_000 }
     const c = syncingTablet(machines.c, other, { api: dye2NeverUsed(String(serial + 1)), dye2: dye2.c });
     await api.waitForOnline(machines.c);
     await expect
-      .poll(() => ["1", "2"].map((slot) => [dye2GlobalIdOf(inSlot(c, slot)), (inSlot(c, slot)?.[RECIPE_FIELD] as Record_ | undefined)?.beanBatchId ?? null]).flat(), { timeout: 15_000 })
+      .poll(() => ["1", "2"].map((slot) => [dye2GlobalIdOf(inSlot(c, slot)), inSlot(c, slot)?.beanBatchId ?? null]).flat(), { timeout: 15_000 })
       .not.toContain(null);
     const one = dye2GlobalIdOf(inSlot(a, "1"))!;
     for (const [tablet, machine] of [

@@ -1,4 +1,4 @@
-import { DYE2_NAMESPACE, LOADED_RECIPE_KEY, RECIPE_FIELD, dye2Records, loadedRecipeOf } from "@decent-sync/protocol";
+import { DYE2_NAMESPACE, LOADED_RECIPE_KEY, dye2Records, loadedRecipeOf } from "@decent-sync/protocol";
 import { type Answer, request } from "./decaid.js";
 import {
   Dye2Pushes,
@@ -826,24 +826,17 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   }
 
   /**
-   * What a load of the recipe writes besides its record: its full Profile,
-   * as applying it loads one, the tablet's record of that Profile's step
-   * temperatures, and its Bean Batch as the tablet holds it.
+   * What a load of the recipe writes besides its record: its full Profile at
+   * its brew temperature, as the Workflow DYE2 embeds in the record holds it
+   * (decentespresso/dye2#26), or else as its snapshot or the tablet's record
+   * of that Profile does.
    */
   private async loadContext(record: Record<string, unknown>): Promise<LoadContext> {
+    const steps = (profile: unknown) => (isObject(profile) && Array.isArray(profile.steps) ? profile : null);
+    const embedded = steps(isObject(record.workflow) ? record.workflow.profile : null) ?? steps(record.profileSnapshot);
+    if (embedded !== null) return { profile: embedded };
     const stored = typeof record.profileId === "string" && record.profileId !== "" ? await this.readRecord(`/profiles/${encodeURIComponent(record.profileId)}`) : null;
-    const library = isObject(stored) && isObject(stored.profile) && Array.isArray(stored.profile.steps) ? stored.profile : null;
-    const snapshot = record.profileSnapshot;
-    const profile = isObject(snapshot) && Array.isArray(snapshot.steps) ? snapshot : library;
-    const baseTemperatures = library ? (library.steps as unknown[]).map((step) => (isObject(step) ? step.temperature : undefined)) : null;
-    const kept = isObject(record[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
-    const batchId = typeof kept.beanBatchId === "string" ? kept.beanBatchId : null;
-    if (batchId === null) return { profile, baseTemperatures, batch: null };
-    const beanId = await this.beanOf(batchId);
-    if (beanId === null) return { profile, baseTemperatures, batch: null };
-    const bean = await this.readRecord(`/beans/${encodeURIComponent(beanId)}`);
-    const text = (field: string) => (isObject(bean) && typeof bean[field] === "string" ? (bean[field] as string) : null);
-    return { profile, baseTemperatures, batch: { id: batchId, coffeeName: text("name"), coffeeRoaster: text("roaster") } };
+    return { profile: isObject(stored) ? steps(stored.profile) : null };
   }
 
   /** The Workflow as Decaid holds it now. Throws if Decaid does not answer with one. */

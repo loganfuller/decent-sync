@@ -753,7 +753,7 @@ function loadedRecipePatch(fields: Readonly<Record<string, unknown>>, workflow: 
   const { [BREW_TEMPERATURE_FIELD]: temperature, ...rest } = fields;
   const patch = workflowPatch(rest);
   if (typeof temperature === "number") {
-    const shifted = profileAtBrewTemperature(isObject(patch.profile) ? patch.profile : workflow.profile, temperature, null);
+    const shifted = profileAtBrewTemperature(isObject(patch.profile) ? patch.profile : workflow.profile, temperature);
     if (shifted !== null) patch.profile = shifted;
   }
   return patch;

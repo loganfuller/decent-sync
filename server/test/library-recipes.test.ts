@@ -190,6 +190,8 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
       subtitle: "Saved Fixture Brazil",
       beanId: await ids.bean(),
       beanName: "Saved Fixture Brazil",
+      // Its batch beside its Bean, as DYE2 holds one (decentespresso/dye2#27).
+      beanBatchId: await ids.batch(),
       profileId: CLASSIC,
       profileTitle: "Classic Italian espresso",
       barista: "",
@@ -207,7 +209,7 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
         hotWaterMode: "vol",
         hotWaterMl: 150,
       },
-      [RECIPE_FIELD]: { beanBatchId: await ids.batch(), hotWaterData: { volume: 150, targetTemperature: null, duration: null, flow: null } },
+      [RECIPE_FIELD]: { hotWaterData: { volume: 150, targetTemperature: null, duration: null, flow: null } },
     });
     const written = inSlot(two, "2")!;
     expect(variables(written).equipmentIds).toEqual([await ids.tool()]);
@@ -223,6 +225,7 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
         grinderId: await ids.grinder(),
         grinderModel: "Fixture Grinder 64",
         coffeeName: "Saved Fixture Brazil",
+        beanBatchId: await ids.batch(),
         extras: { rpm: 1100, basketId: await ids.basket(), basketName: "Fixture 20g High-flow" },
       },
       profile: { title: "Classic Italian espresso" },
@@ -404,7 +407,7 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     }
   });
 
-  it("gives a Recipe whose Bean is picked in DYE2 that Bean's batch most recently added at the Location", async () => {
+  it("gives a Recipe whose Bean is picked in DYE2 that Bean's batch most recently added at the Location, and takes a batch picked with it", async () => {
     // The tablet's batches created well before the test runs, whatever day the recording was made.
     const tablet = recordedDye2Tablet("42041", "Picked");
     const brought = { ...tablet, "/bean-batches": (tablet["/bean-batches"] as Record_[]).map((batch) => ({ ...batch, createdAt: "2026-10-01T09:00:00.000000", updatedAt: "2026-10-01T09:00:00.000000" })) };
@@ -422,12 +425,30 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     await editInDye2(one, "1", { beanId: RECORDED.brazil, beanName: "Picked Fixture Brazil" });
     await expect.poll(async () => (await recipe(saved!.id)).content.beanId).toBe(brazil);
     expect((await recipe(saved!.id)).content.beanBatchId).toBe(latest);
-    // Each tablet holds that batch in the record's own field, by its id for it, once it holds the batch.
+    // Each tablet holds that batch beside the Bean, as DYE2 does, by its id for it, once it holds the batch.
     for (const tablet of [one, two]) {
       await expect.poll(() => localId(tablet, "/bean-batches", latest)).toEqual(expect.any(String));
-      await expect.poll(async () => (inSlot(tablet, "1")?.[RECIPE_FIELD] as Record_ | undefined)?.beanBatchId).toBe(await localId(tablet, "/bean-batches", latest));
+      await expect.poll(() => inSlot(tablet, "1")?.beanBatchId).toBe(await localId(tablet, "/bean-batches", latest));
       await expect.poll(() => inSlot(tablet, "1")?.beanId).toBe(await localId(tablet, "/beans", brazil));
     }
+
+    // DYE2's editor picks the Brazil's earlier batch, which the tablet brought (decentespresso/dye2#27): it is the Recipe's.
+    const earlier = ((await one.callApi("GET", `/bean-batches/${RECORDED.brazilBatch}`)).body as { extras: Record_ }).extras[GLOBAL_ID_KEY] as string;
+    expect(earlier).not.toBe(latest);
+    await editInDye2(one, "1", { beanBatchId: RECORDED.brazilBatch });
+    await expect.poll(async () => (await recipe(saved!.id)).content.beanBatchId).toBe(earlier);
+    expect((await recipe(saved!.id)).content.beanId).toBe(brazil);
+    await expect.poll(() => inSlot(two, "1")?.beanBatchId).toBe(await localId(two, "/bean-batches", earlier));
+  });
+
+  it("takes a field DYE2's editor saves as 0 as 0, not as blank (decentespresso/dye2#29)", async () => {
+    const { here, one, two } = await lab("Zero", 42111);
+    await saveInDye2(one, recipes.saveSlot1);
+    await expect.poll(() => inSlot(two, "1")?.[GLOBAL_ID_KEY], { timeout: 15_000 }).toEqual(expect.any(String));
+    const [saved] = await recipesAt(here);
+    await editInDye2(one, "1", { "dashboardVariables.rpm": 0, "dashboardVariables.grind": 0 });
+    await expect.poll(async () => (await recipe(saved!.id)).content, { timeout: 15_000 }).toMatchObject({ rpm: 0, grindSetting: 0 });
+    await expect.poll(() => variables(inSlot(two, "1")!), { timeout: 15_000 }).toMatchObject({ rpm: 0, grind: 0 });
   });
 
   it("writes a recipe's full Profile where the Profile is hidden, which applying it the DYE2 way and the Streamline way loads", async () => {
@@ -438,9 +459,10 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     expect((await api.call("PUT", `/profiles/${encodeURIComponent(ADAPTIVE)}/locations/${here.id}`, { shown: false })).status).toBe(200);
     expect(asList((await two.callApi("GET", "/profiles?includeHidden=true")).body).map((profile) => profile.id)).not.toContain(ADAPTIVE);
     const stored = (await api.get<{ profile: { content: { profile: Record_ } } }>(`/profiles/${encodeURIComponent(ADAPTIVE)}`)).profile.content.profile;
-    // At the recipe's brew temperature, slot 1's 92 °C, its steps moved by the same amount (ADR-0022, decentespresso/dye2#26).
-    const library = profileAtBrewTemperature(stored, 92, null)!;
-    expect(inSlot(two, "1")!.profileSnapshot).toEqual(library);
+    // As the Library holds it, and in the embedded Workflow Streamline applies at the recipe's brew temperature, slot 1's
+    // 92 °C, its steps moved by the same amount, as DYE2's dashboard applies it (ADR-0022, decentespresso/dye2#26).
+    const library = profileAtBrewTemperature(stored, 92)!;
+    expect(inSlot(two, "1")!.profileSnapshot).toEqual(stored);
     expect((inSlot(two, "1")!.workflow as Record_).profile).toEqual(library);
 
     // Another Profile loaded, applying the recipe DYE2's way loads its own.

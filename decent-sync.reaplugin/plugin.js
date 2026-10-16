@@ -315,11 +315,10 @@ var __decentSync = (() => {
   }
   var LOADED_RECIPE_KIND = "loadedRecipe";
   var BREW_TEMPERATURE_FIELD = "profile.steps.0.temperature";
-  function profileAtBrewTemperature(profile, temperature, base) {
+  function profileAtBrewTemperature(profile, temperature) {
     if (!isObject(profile) || !Array.isArray(profile.steps)) return null;
     const steps = profile.steps;
-    const own = steps.map((step) => isObject(step) ? step.temperature : void 0);
-    const temperatures = shiftedTemperatures(base !== null && base.length === steps.length ? base : own, temperature);
+    const temperatures = shiftedTemperatures(steps.map((step) => isObject(step) ? step.temperature : void 0), temperature);
     if (temperatures === null) return null;
     return { ...profile, steps: steps.map((step, index) => isObject(step) ? { ...step, temperature: temperatures[index] } : step) };
   }
@@ -881,25 +880,18 @@ var __decentSync = (() => {
       extrasWrite.basketId = basket;
       if (textOf(variables.basketName) !== null) extrasWrite.basketName = variables.basketName;
     }
-    if (load.batch !== null && load.batch.id !== textOf(context.beanBatchId) && changes("batch", load.batch.id)) {
-      contextWrite.beanBatchId = load.batch.id;
-      if (load.batch.coffeeName !== null) contextWrite.coffeeName = load.batch.coffeeName;
-      if (load.batch.coffeeRoaster !== null) contextWrite.coffeeRoaster = load.batch.coffeeRoaster;
+    const batch = textOf(record.beanBatchId);
+    if (batch !== null && batch !== textOf(context.beanBatchId) && changes("batch", batch)) {
+      contextWrite.beanBatchId = batch;
+      if (textOf(record.beanName) !== null) contextWrite.coffeeName = record.beanName;
+      if (textOf(record.beanRoaster) !== null) contextWrite.coffeeRoaster = record.beanRoaster;
     }
     if (loadedRecipeOf(workflow) !== globalId) extrasWrite[LOADED_RECIPE_KEY] = globalId;
     if (Object.keys(extrasWrite).length > 0) contextWrite.extras = extrasWrite;
     const write = {};
     if (Object.keys(contextWrite).length > 0) write.context = contextWrite;
     const key = profileKey(load.profile);
-    const profile = !omit.has("profile") && key !== null && key !== profileKey(workflow.profile) ? load.profile : null;
-    const temperature = numberOf(variables.brewC);
-    const shifted = temperature === null || omit.has("brewTemperature") ? null : profileAtBrewTemperature(profile ?? workflow.profile, temperature, load.baseTemperatures);
-    if (shifted !== null) {
-      const held2 = workflowValueAt(workflow, LOADED_RECIPE_PARTS.brewTemperature[0]);
-      if (!sameNumber(numberOf(held2), temperature)) before.brewTemperature = { before: held2 ?? null, written: temperature };
-    }
-    if (shifted !== null && (profile !== null || !sameValue2(shifted, workflow.profile))) write.profile = shifted;
-    else if (profile !== null) write.profile = profile;
+    if (!omit.has("profile") && key !== null && key !== profileKey(workflow.profile)) write.profile = load.profile;
     const own = isObject2(record[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
     const hotWater = isObject2(own.hotWaterData) ? own.hotWaterData : {};
     const held = isObject2(workflow.hotWaterData) ? workflow.hotWaterData : {};
@@ -932,9 +924,6 @@ var __decentSync = (() => {
     if (a === null || b === null) return a === b;
     const [x, y] = [numberOf(a), numberOf(b)];
     return x !== null && y !== null ? sameNumber(x, y) : a.trim() === b.trim();
-  }
-  function sameValue2(a, b) {
-    return stableJson(a) === stableJson(b);
   }
   function isObject2(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -1684,24 +1673,17 @@ var __decentSync = (() => {
       return record;
     }
     /**
-     * What a load of the recipe writes besides its record: its full Profile,
-     * as applying it loads one, the tablet's record of that Profile's step
-     * temperatures, and its Bean Batch as the tablet holds it.
+     * What a load of the recipe writes besides its record: its full Profile at
+     * its brew temperature, as the Workflow DYE2 embeds in the record holds it
+     * (decentespresso/dye2#26), or else as its snapshot or the tablet's record
+     * of that Profile does.
      */
     async loadContext(record) {
+      const steps = (profile) => isObject4(profile) && Array.isArray(profile.steps) ? profile : null;
+      const embedded = steps(isObject4(record.workflow) ? record.workflow.profile : null) ?? steps(record.profileSnapshot);
+      if (embedded !== null) return { profile: embedded };
       const stored = typeof record.profileId === "string" && record.profileId !== "" ? await this.readRecord(`/profiles/${encodeURIComponent(record.profileId)}`) : null;
-      const library = isObject4(stored) && isObject4(stored.profile) && Array.isArray(stored.profile.steps) ? stored.profile : null;
-      const snapshot = record.profileSnapshot;
-      const profile = isObject4(snapshot) && Array.isArray(snapshot.steps) ? snapshot : library;
-      const baseTemperatures = library ? library.steps.map((step) => isObject4(step) ? step.temperature : void 0) : null;
-      const kept = isObject4(record[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
-      const batchId = typeof kept.beanBatchId === "string" ? kept.beanBatchId : null;
-      if (batchId === null) return { profile, baseTemperatures, batch: null };
-      const beanId = await this.beanOf(batchId);
-      if (beanId === null) return { profile, baseTemperatures, batch: null };
-      const bean = await this.readRecord(`/beans/${encodeURIComponent(beanId)}`);
-      const text = (field) => isObject4(bean) && typeof bean[field] === "string" ? bean[field] : null;
-      return { profile, baseTemperatures, batch: { id: batchId, coffeeName: text("name"), coffeeRoaster: text("roaster") } };
+      return { profile: isObject4(stored) ? steps(stored.profile) : null };
     }
     /** The Workflow as Decaid holds it now. Throws if Decaid does not answer with one. */
     async workflowNow() {
@@ -2189,7 +2171,7 @@ var __decentSync = (() => {
     const { [BREW_TEMPERATURE_FIELD]: temperature, ...rest } = fields;
     const patch = workflowPatch(rest);
     if (typeof temperature === "number") {
-      const shifted = profileAtBrewTemperature(isObject5(patch.profile) ? patch.profile : workflow.profile, temperature, null);
+      const shifted = profileAtBrewTemperature(isObject5(patch.profile) ? patch.profile : workflow.profile, temperature);
       if (shifted !== null) patch.profile = shifted;
     }
     return patch;

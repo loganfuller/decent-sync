@@ -5,9 +5,10 @@ import { ratioValues } from "./recipe-intake.js";
 // How the parts of a Workflow that follow its Loaded Recipe (ADR-0022,
 // LOADED_RECIPE_PARTS) map to the Recipe's content, both ways: a change of
 // one on the Recipe's Machine that DYE2 does not record is an edit of the
-// Recipe, but of its Grinder or Profile, which unloads it instead (the
-// plugin's loaded-recipes.ts), and a field of the Recipe's that the Workflow
-// holds otherwise is written into it. A Workflow names its Grinder, Basket
+// Recipe, but of its Grinder, Bean Batch or Profile, which unloads it
+// instead (DYE2 clears its selection, and the plugin's loaded-recipes.ts
+// follows), and a field of the Recipe's that the Workflow holds otherwise is
+// written into it. A Workflow names its Grinder, Basket
 // and Bean Batch by the tablet's ids, holds its Profile whole, its brew
 // temperature as its first step's, and keeps its grind setting as text, as
 // Decaid does; a Recipe names them by their global ids, its Profile by
@@ -25,26 +26,26 @@ const HOT_WATER_PARTS = ["targetTemperature", "duration", "volume", "flow"] as c
  * The parts DYE2 records into the Loaded Recipe's record as they change in
  * the Workflow, so a change of them on the Machine reaches the server as the
  * tablet's change of the record, not of the Workflow: its dose, yield,
- * grind setting and brew temperature, and the hot water value of the
- * Recipe's mode, its temperature for `temp` and its volume otherwise, as its
- * record holds that one alone (`itemPatch` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts). DYE2 records the RPM and
- * Basket too where the record holds one, which the server still also takes
- * from the Workflow (`workflowEditedParts`), the same value either way.
+ * grind setting, RPM, Basket and brew temperature, and the hot water value
+ * of the Recipe's mode, its temperature for `temp` and its volume otherwise,
+ * as its record holds that one alone (`itemPatch` in
+ * dye2:dye2-plugin/src/utils/workflow-record.ts, decentespresso/dye2#21).
+ * DYE2 records each only where the record holds one, so a change of one a
+ * Recipe holds none of stays on the Machine.
  */
 export function recordedParts(content: Readonly<Record<string, unknown>>): LoadedRecipePart[] {
-  return ["dose", "yield", "grind", "brewTemperature", content.hotWaterMode === "temp" ? "targetTemperature" : "volume"];
+  return ["dose", "yield", "grind", "rpm", "basket", "brewTemperature", content.hotWaterMode === "temp" ? "targetTemperature" : "volume"];
 }
 
 /**
  * The parts a change of the Workflow on the Machine edits the Recipe in,
- * those DYE2 does not record: its RPM, Basket, Bean Batch and every hot
- * water setting but the one DYE2 records (decentespresso/dye2#21 and #27).
- * Not its Grinder or Profile, a change of which unloads it.
+ * those DYE2 does not record: every hot water setting but the one DYE2
+ * records, until a Recipe holds the rest as DYE2's recipe does (#173). Not
+ * its Grinder, Bean Batch or Profile, a change of which unloads it.
  */
 export function workflowEditedParts(content: Readonly<Record<string, unknown>>): LoadedRecipePart[] {
   const recorded = recordedParts(content);
-  return ["rpm", "basket", "batch", ...HOT_WATER_PARTS.filter((part) => !recorded.includes(part))];
+  return HOT_WATER_PARTS.filter((part) => !recorded.includes(part));
 }
 
 /**
@@ -146,14 +147,6 @@ export function setBackToLoad(part: LoadedRecipePart, held: PartValue, loadBefor
   return samePart(part, replaced.before, held) && !samePart(part, replaced.written, held);
 }
 
-/** What reading a Workflow's parts into its Loaded Recipe looks up. */
-export interface PartLookups {
-  /** The Library item the tablet's record with that id is, by its map; undefined where the map holds none. */
-  item(kind: "basket" | "beanBatch", localId: string): string | undefined;
-  /** The Bean of a Bean Batch, by its global id; undefined where the Library has none. */
-  beanOf(batchId: string): string | undefined;
-}
-
 /**
  * What tells a part set back by a stale copy of a Recipe (`partEdits`): what
  * its tablet's record of it held just before the server's latest write of
@@ -182,8 +175,6 @@ export interface PartEdits {
   values: Record<string, unknown>;
   /** The parts the Workflow is held to hold from now on, as it holds them now: those that are edits, or no change of the Recipe, or set back by a stale copy. */
   taken: LoadedRecipePart[];
-  /** The parts naming a Basket or batch the tablet's map does not hold yet, which are taken in as it gains them. */
-  unmapped: LoadedRecipePart[];
 }
 
 /**
@@ -193,14 +184,8 @@ export interface PartEdits {
  *
  * - a dose, yield, RPM or hot water setting is the Recipe's, and a grind
  *   setting that reads as a number is, as that number, as DYE2 keeps one;
- * - a Basket is the Library's the tablet's map says, and one it does not
- *   hold yet waits for it (`unmapped`);
- * - a Bean Batch is the Recipe's only where it is of the Recipe's Bean,
- *   which moves the Recipe to it; one of another Bean, or of a Recipe naming
- *   none, is none of its, as the plugin unloads a Recipe naming a Bean then, and the
- *   Workflow is not held to hold it, but where it is the batch the load
- *   replaced, set back before the first espresso since (`setBackToLoad`),
- *   which the plugin unloads nothing for, and which is written back;
+ * - a Grinder, Basket, Bean Batch or Profile is none of its: DYE2 records
+ *   the Basket, and a change of the rest unloads the Recipe;
  * - a value the Recipe holds already is no edit, as when Streamline saves
  *   the change into the recipe too, and its report arrived first;
  * - a value set back to what the tablet's record of the Recipe held just
@@ -219,41 +204,15 @@ export interface PartEdits {
  *   (`ratioValues`), the Workflow's yield kept as the Recipe's where it held
  *   none, the yield worked out from the ratio.
  */
-export function partEdits(
-  parts: readonly LoadedRecipePart[],
-  now: WorkflowParts,
-  content: Readonly<Record<string, unknown>>,
-  lookups: PartLookups,
-  stale: StaleCheck = NO_STALE_CHECK,
-): PartEdits {
-  const edits: PartEdits = { values: {}, taken: [], unmapped: [] };
+export function partEdits(parts: readonly LoadedRecipePart[], now: WorkflowParts, content: Readonly<Record<string, unknown>>, stale: StaleCheck = NO_STALE_CHECK): PartEdits {
+  const edits: PartEdits = { values: {}, taken: [] };
   for (const part of parts) {
     const held = now[part];
-    if (held === null) continue;
+    if (held === null || ITEM_PARTS[part] !== undefined || part === "profile") continue;
     const field = RECIPE_FIELDS[part];
-    const kind = ITEM_PARTS[part];
-    // A Grinder or Profile changed unloads the Recipe rather than edits it.
-    if (kind === "grinder" || part === "profile") continue;
-    let value: unknown;
-    if (kind !== undefined) {
-      value = lookups.item(kind, String(held));
-      if (value === undefined) {
-        edits.unmapped.push(part);
-        continue;
-      }
-      const bean = content.beanId;
-      if (kind === "beanBatch" && (typeof bean !== "string" || lookups.beanOf(value as string) !== bean)) {
-        // Set back to what the load replaced, as by DYE2's dashboard copy: held, so the Recipe's batch is written back.
-        if (setBackToLoad(part, held, stale.loadBefore ?? null, stale.ownSinceLoad ?? new Set())) edits.taken.push(part);
-        continue;
-      }
-    } else if (part === "grind") {
-      value = numberOf(held);
-      // A grind setting that is not a number is no Recipe's, which DYE2 keeps as one.
-      if (value === null) continue;
-    } else {
-      value = held;
-    }
+    // A grind setting that is not a number is no Recipe's, which DYE2 keeps as one.
+    const value = part === "grind" ? numberOf(held) : held;
+    if (value === null) continue;
     edits.taken.push(part);
     if (sameValue(content[field] ?? null, value) || setBack(part, held, value, content[field], stale) || setBackToLoad(part, held, stale.loadBefore ?? null, stale.ownSinceLoad ?? new Set())) continue;
     edits.values[field] = value;
@@ -280,8 +239,8 @@ function setBack(part: LoadedRecipePart, held: PartValue, value: unknown, curren
 
 /**
  * The values a recipe record's `before_write` keeps of a part: its own of
- * the record's `dashboardVariables`, and its Bean Batch and hot water in the
- * record's own field (RECIPE_FIELD), each only where the server wrote it.
+ * the record's `dashboardVariables`, and its hot water in the record's own
+ * field (RECIPE_FIELD), each only where the server wrote it.
  */
 function recordValues(part: LoadedRecipePart, beforeWrite: Readonly<Record<string, unknown>>): unknown[] {
   const has = (path: string) => Object.prototype.hasOwnProperty.call(beforeWrite, path);
@@ -289,7 +248,6 @@ function recordValues(part: LoadedRecipePart, beforeWrite: Readonly<Record<strin
   if (has(RECIPE_FIELD)) {
     const own = isObject(beforeWrite[RECIPE_FIELD]) ? beforeWrite[RECIPE_FIELD] : {};
     const hotWater = isObject(own.hotWaterData) ? own.hotWaterData : {};
-    if (part === "batch") values.push(own.beanBatchId ?? null);
     if (part in HOT_WATER_NAMES) values.push(hotWater[part] ?? null);
   }
   return values;
@@ -347,9 +305,9 @@ export function recipeParts(
  * The parts of a Recipe the Workflow is to hold (`target`, as `recipeParts`
  * reads it) that wait for the tablet's record of the Recipe (`record`, as
  * the server last knew it) to hold them too: its dial (Profile, Grinder,
- * dose, yield, grind setting and brew temperature) and its Bean Batch, as
- * the record is written first. The plugin judges whether a change of the
- * Workflow's Grinder or Bean unloads it by the tablet's record
+ * dose, yield, grind setting, RPM, Basket and brew temperature) and its Bean
+ * Batch, as the record is written first. The plugin judges whether a change
+ * of the Workflow's Grinder or Bean unloads it by the tablet's record
  * (loaded-recipes.ts), so one written into the Workflow before the record,
  * as when the tablet refused the record's write, would unload the Recipe;
  * and DYE2 records the Workflow's dial into the record, so a dial written
@@ -362,7 +320,6 @@ export function heldByRecord(
   record: Readonly<Record<string, unknown>> | null,
 ): Record<LoadedRecipePart, PartValue | undefined> {
   const variables = isObject(record?.dashboardVariables) ? record.dashboardVariables : {};
-  const own = isObject(record?.[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
   const [dose, ratio] = [numberOf(variables.dose), numberOf(variables.ratio)];
   const holds: Partial<Record<LoadedRecipePart, unknown>> = {
     profile: record?.profileId ?? null,
@@ -370,11 +327,13 @@ export function heldByRecord(
     dose,
     yield: numberOf(variables.drink) ?? (dose !== null && ratio !== null ? Math.round(dose * ratio * 10) / 10 : null),
     grind: variables.grind ?? null,
-    batch: own.beanBatchId ?? null,
+    rpm: numberOf(variables.rpm),
+    basket: variables.basketId ?? null,
+    batch: record?.beanBatchId ?? null,
     brewTemperature: numberOf(variables.brewC),
   };
   const parts = { ...target };
-  for (const part of ["profile", "grinder", "dose", "yield", "grind", "batch", "brewTemperature"] as const) {
+  for (const part of ["profile", "grinder", "dose", "yield", "grind", "rpm", "basket", "batch", "brewTemperature"] as const) {
     if (parts[part] !== null && parts[part] !== undefined && (record === null || !samePart(part, holds[part], parts[part]))) parts[part] = undefined;
   }
   return parts;

@@ -35,6 +35,9 @@ const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 /** All four hot water settings slot 1's Recipe is given in the management interface. */
 const HOT_WATER = { targetTemperature: 85, duration: 40, volume: 120, flow: 7.5 };
 
+/** The recording's tablet's id for its batch of the Brazil, slot 2's Bean. */
+const RECORDED_BRAZIL_BATCH = "837c5af9-aa43-44ed-a857-5009969e3217";
+
 /** The recording's Workflow's profile, and slot 2's, and slot 1's, `Adaptive v3`, by their ids. */
 const ADAPTIVE = "profile:98fa00c191551b435845";
 
@@ -94,26 +97,30 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     const edit = async (recipeId: string, content: Record_) => expect((await api.call("PATCH", `/recipes/${recipeId}`, { content })).status).toBe(200);
     await edit(one, { hotWaterVolume: HOT_WATER.volume, hotWaterTemperature: HOT_WATER.targetTemperature, hotWaterDuration: HOT_WATER.duration, hotWaterFlow: HOT_WATER.flow });
     await expect.poll(() => (inSlot(tablet, "1")?.[RECIPE_FIELD] as Record_ | undefined)?.hotWaterData).toEqual(HOT_WATER);
-    /**
-     * Takes slot 1's Recipe's batch away, so its load writes none: DYE2 clears its selection where the Workflow's batch moves
-     * off the one it was selected on, or the first it saw since, so a dashboard send of its copy, which holds none, after a
-     * load that wrote one unloads the Recipe (ADR-0022, the transitional gap until #187 and #188).
-     */
-    const withoutBatch = async () => {
-      await edit(one, { beanBatchId: null });
-      await expect.poll(() => (inSlot(tablet, "1")?.[RECIPE_FIELD] as Record_ | undefined)?.beanBatchId ?? null).toBeNull();
-    };
-    return { here, machine, tablet, dye2, one, two, edit, withoutBatch };
+    return { here, machine, tablet, dye2, one, two, edit };
   }
 
-  it("loads a recipe applied the DYE2 way, writing its brew temperature with the profile's shape kept, its batch, grinder, Basket, RPM, hot water and id, which a Shot pulled then carries", async () => {
+  /** The plugin's writes into the tablet's Workflow from now on, as it sent them. */
+  const workflowWrites = (tablet: SimulatedTablet) => {
+    const writes: Record_[] = [];
+    tablet.refuseWrites = ({ method, route, body }) => {
+      if (method === "PUT" && route === "/workflow") writes.push(body as Record_);
+      return undefined;
+    };
+    return writes;
+  };
+
+  it("loads a recipe applied the DYE2 way, which applies its batch, RPM and brew temperature, writing its Basket, hot water and id, which a Shot pulled then carries", async () => {
     const { machine, tablet, one } = await lab("Dashboard", 47001);
     const record = inSlot(tablet, "1")!;
     const variables = record.dashboardVariables as Record_;
-    const batch = (record[RECIPE_FIELD] as Record_).beanBatchId;
+    const batch = record.beanBatchId;
     expect(batch).toEqual(expect.any(String));
     expect(await loadedRecipe(machine)).toBeNull();
+    // Another batch, of the Recipe's Bean or not, is in the Workflow as it is applied.
+    await tablet.changeSettings({ context: { beanBatchId: RECORDED_BRAZIL_BATCH } });
 
+    const writes = workflowWrites(tablet);
     const dashboard = await openDye2Dashboard(tablet);
     const applied = await dashboard.applyRecipe("1");
     expect([applied.workflow.status, applied.selection?.status]).toEqual([200, 200]);
@@ -121,9 +128,12 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect(context(tablet)).toMatchObject({ beanBatchId: batch, grinderId: variables.grinderId, targetDoseWeight: variables.dose, targetYield: variables.drink });
     expect(extras(tablet)).toMatchObject({ basketId: variables.basketId, rpm: variables.rpm });
     expect(tablet.workflow().hotWaterData).toEqual(HOT_WATER);
-    // Adaptive v3 at the Recipe's 92 °C: its first step at 92, every other a degree cooler than its own.
+    // Adaptive v3 at the Recipe's 92 °C: its first step at 92, every other a degree cooler than its own, as DYE2 applies it
+    // (decentespresso/dye2#26). The plugin's load write writes no profile, and DYE2's selection stands.
     expect(temperatures(tablet).slice(0, 3)).toEqual([92, 92, 87]);
     await loads(machine, one);
+    expect(writes.some((write) => "profile" in write)).toBe(false);
+    expect(writes.some((write) => "beanBatchId" in ((write.context as Record_ | undefined) ?? {}))).toBe(false);
     expect(await history(machine)).toMatchObject({ total: 1, entries: [{ recipe: { id: one, slot: 1, archived: false }, unloadedAt: null }] });
 
     tablet.pullShot(shotOf(tablet, "loaded-recipe-shot-47001", 47001));
@@ -131,11 +141,11 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect((await api.get<{ shot: { recipe: { id: string } | null } }>("/shots/loaded-recipe-shot-47001")).shot.recipe?.id).toBe(one);
   });
 
-  it("loads a recipe applied the Streamline way on a tablet on the other instance, which names it at once", async () => {
+  it("loads a recipe applied the Streamline way on a tablet on the other instance, which names it at once and applies its batch and brew temperature", async () => {
     const { machine, tablet, two } = await lab("Strip", 47011, { instance: other });
-    // The strip leaves the Workflow's batch, which DYE2 clears its selection on once it moves: so on the Recipe's already
-    // (ADR-0022, the transitional gap until #187 and #188).
-    await tablet.changeSettings({ context: { beanBatchId: (inSlot(tablet, "2")![RECIPE_FIELD] as Record_).beanBatchId } });
+    // The Workflow on another batch than the Recipe's, which the strip applies from the record's embedded Workflow.
+    expect(context(tablet).beanBatchId).not.toBe(inSlot(tablet, "2")!.beanBatchId);
+    const writes = workflowWrites(tablet);
     const streamline = await startStreamline(tablet);
     const workflows: Record_[] = [];
     tablet.onWorkflowChange((workflow) => workflows.push(workflow));
@@ -147,12 +157,14 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     const variables = inSlot(tablet, "2")!.dashboardVariables as Record_;
     expect(extras(tablet)).toMatchObject({ basketId: variables.basketId, rpm: variables.rpm });
     expect(temperatures(tablet)[0]).toBe(variables.brewC);
-    expect(context(tablet).beanBatchId).toBe((inSlot(tablet, "2")![RECIPE_FIELD] as Record_).beanBatchId);
+    expect(context(tablet).beanBatchId).toBe(inSlot(tablet, "2")!.beanBatchId);
+    expect(writes.some((write) => "profile" in write)).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect((await loadedRecipe(machine))?.recipe.id).toBe(two);
   });
 
   it("keeps the Recipe loaded through a dial tap and Done on DYE2's dashboard, which send back the page's copy, the tap's dial change the Recipe's", async () => {
-    const { machine, tablet, one, withoutBatch } = await lab("Copy", 47021);
-    await withoutBatch();
+    const { machine, tablet, one } = await lab("Copy", 47021);
     // The tablet's Workflow holds the other Recipe's Basket as the page opens, which DYE2's apply leaves.
     const brazil = inSlot(tablet, "2")!;
     await tablet.changeSettings({ context: { extras: { basketId: (brazil.dashboardVariables as Record_).basketId } } });
@@ -171,50 +183,34 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect(context(tablet).grinderSetting).toBe("2.6");
     expect((await loadedRecipe(machine))?.recipe.id).toBe(one);
     expect(named(tablet)).toBe(one);
+    // The page's copy holds the batch its apply set, as DYE2 applies a recipe's (decentespresso/dye2#27).
+    expect(context(tablet).beanBatchId).toBe(inSlot(tablet, "1")!.beanBatchId);
     expect((await recipe(one)).content.basketId).toEqual(expect.any(String));
     // Nor is the page's hot water volume, which DYE2 records too, the Recipe's.
     expect((await recipe(one)).content.hotWaterVolume).toBe(HOT_WATER.volume);
   });
 
-  it("unloads the Recipe on a dial tap on DYE2's dashboard after a load that wrote its batch, as the page's copy sends the batch cleared", async () => {
-    const { machine, tablet, dye2, one } = await lab("Copy batch", 47131);
-    const dashboard = await openDye2Dashboard(tablet);
-    await dashboard.applyRecipe("1");
-    await loads(machine, one);
-    const grind = (await recipe(one)).content.grindSetting;
-    expect(context(tablet).beanBatchId).toBe((inSlot(tablet, "1")![RECIPE_FIELD] as Record_).beanBatchId);
-    // The page applied the recipe's Bean with no batch, so its copy holds none (ADR-0022, the transitional gap until #187).
-    expect((await dashboard.tap("grind", 2.6)).status).toBe(200);
-    await expect.poll(() => dye2.selected(), { timeout: 15_000 }).toBeNull();
-    await loads(machine, null);
-    expect((await recipe(one)).content.grindSetting).toBe(grind);
-  });
-
-  it("delivers a dashboard tap held during the plugin's writes before an espresso started then, so its pre-load Basket is written back", async () => {
-    // DYE2 records the tap's Basket too, which reaches the server only with the tablet's recipes at the plugin's poll, after
-    // the espresso, and is then an edit (ADR-0022's gap until #189): a poll that never comes leaves it out here.
-    const { machine, tablet, one, withoutBatch } = await lab("Espresso", 47031, { pollSeconds: 3600 });
-    await withoutBatch();
+  it("delivers a dashboard tap held during the plugin's writes before an espresso started then, so its pre-load hot water duration is written back", async () => {
+    const { machine, tablet, one } = await lab("Espresso", 47031, { pollSeconds: 3600 });
     tablet.connectMachine();
-    const basket2 = (inSlot(tablet, "2")!.dashboardVariables as Record_).basketId;
-    await tablet.changeSettings({ context: { extras: { basketId: basket2 } } });
+    const hotWater = () => tablet.workflow().hotWaterData as Record_;
+    const before = hotWater().duration;
+    expect(before).not.toBe(HOT_WATER.duration);
     const dashboard = await openDye2Dashboard(tablet);
     await dashboard.applyRecipe("1");
     await loads(machine, one);
-    const basket = extras(tablet).basketId;
-    expect(basket).not.toBe(basket2);
-    const recipeBasket = (await recipe(one)).content.basketId;
-    // The tap's Workflow, held while the plugin decides on it, and the espresso started at once.
+    await expect.poll(() => hotWater().duration).toBe(HOT_WATER.duration);
+    // The tap's Workflow, its copy's pre-load duration, held while the plugin decides on it, and the espresso started at once.
     expect((await dashboard.tap("dose", 18.2)).status).toBe(200);
     tablet.reportState("espresso", "preinfusion");
-    await expect.poll(() => extras(tablet).basketId, { timeout: 15_000 }).toBe(basket);
-    expect((await recipe(one)).content.basketId).toBe(recipeBasket);
+    await expect.poll(() => hotWater().duration, { timeout: 15_000 }).toBe(HOT_WATER.duration);
+    expect((await recipe(one)).content.hotWaterDuration).toBe(HOT_WATER.duration);
     expect((await loadedRecipe(machine))?.recipe.id).toBe(one);
-    // After that espresso, a Basket set back is the barista's, and the Recipe's.
+    // After that espresso, a duration set back is the barista's, and the Recipe's.
     tablet.reportState("idle", "ready");
-    await tablet.changeSettings({ context: { extras: { basketId: basket2 } } });
-    await expect.poll(async () => (await recipe(one)).content.basketId, { timeout: 15_000 }).not.toBe(recipeBasket);
-    expect(extras(tablet).basketId).toBe(basket2);
+    await tablet.changeSettings({ hotWaterData: { duration: before } });
+    await expect.poll(async () => (await recipe(one)).content.hotWaterDuration, { timeout: 15_000 }).toBe(before);
+    expect(hotWater().duration).toBe(before);
     expect((await loadedRecipe(machine))?.recipe.id).toBe(one);
   });
 
@@ -239,8 +235,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
   });
 
   it("counts an espresso running as a Recipe is loaded, reported again and again and through its substates, as none started since the load", async () => {
-    const { machine, tablet, one, withoutBatch } = await lab("Running", 47111);
-    await withoutBatch();
+    const { machine, tablet, one } = await lab("Running", 47111);
     tablet.connectMachine();
     const before = { extras: { basketId: (inSlot(tablet, "2")!.dashboardVariables as Record_).basketId } };
     await tablet.changeSettings({ context: before });
@@ -341,7 +336,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     const { machine, tablet, dye2, one } = await lab("Bean", 47081);
     await (await openDye2Dashboard(tablet)).applyRecipe("1");
     await loads(machine, one);
-    const brazilBatch = (inSlot(tablet, "2")![RECIPE_FIELD] as Record_).beanBatchId;
+    const brazilBatch = inSlot(tablet, "2")!.beanBatchId;
     tablet.connectMachine();
     tablet.reportState("espresso", "pour");
     tablet.reportState("idle", "ready");
