@@ -335,7 +335,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("writes a batch picked in DYE2's editor on A, and a grinder set in the management interface, into A's and C's Workflows, which keep the Recipe selected and recording", async () => {
-    const { here, machines, dye2, a, c, one } = await lab("New roast", 48171);
+    const { here, machines, dye2, a, c, one } = await lab("New roast", 48501);
     const bean = (await recipe(one)).content.beanId as string;
     const created = await api.call("POST", "/bean-batches", { beanId: bean, content: { roastDate: "2026-10-12" }, locations: [{ locationId: here.id }] });
     expect(created.status).toBe(201);
@@ -376,7 +376,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("selects the Recipe again after its grinder is written into A's Workflow only while A's barista has not picked another batch since, which unloads it", async () => {
-    const { here, machines, dye2, a, c, one } = await lab("Switched since", 48181);
+    const { here, machines, dye2, a, c, one } = await lab("Switched since", 48511);
     const grinder = (await api.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: here.id, content: { model: "Switched since Grinder 2" } }, 201)).grinder.id;
     for (const tablet of [a, c]) await expect.poll(() => localId(tablet, "/grinders", grinder), { timeout: 15_000 }).toEqual(expect.any(String));
     // Decaid refuses the plugin's selection on A for now, so its selection again after the write is still to be made.
@@ -400,7 +400,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("selects nothing again after a grinder written into A's Workflow while A's DYE2 answers 404, over a batch A's barista picked meanwhile, which unloads it", async () => {
-    const { here, machines, dye2, a, c, one } = await lab("Away switch", 48191);
+    const { here, machines, dye2, a, c, one } = await lab("Away switch", 48521);
     const grinder = (await api.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: here.id, content: { model: "Away switch Grinder 2" } }, 201)).grinder.id;
     for (const tablet of [a, c]) await expect.poll(() => localId(tablet, "/grinders", grinder), { timeout: 15_000 }).toEqual(expect.any(String));
     dye2.a.unload();
