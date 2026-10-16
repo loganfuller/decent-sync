@@ -57,7 +57,7 @@ A Location's time zone is an IANA name spelled as PostgreSQL's `pg_timezone_name
 | Capture, extraction, database | `AI_STORAGE_NOTES.md`; ADR-0007; spec's Capture, Record extraction and Schema outline sections |
 | Accounts, Locations, management interface | Spec's Server modules and Management interface sections; ADR-0011 |
 | The Library and sharing | `LIBRARY.md`; ADR-0003, ADR-0006, ADR-0008, ADR-0014, ADR-0016, ADR-0018 to ADR-0021; milestone 2's spec (#77) |
-| Recipes, Baskets and Tools (milestone 3) | ADR-0005, ADR-0008, ADR-0014, ADR-0018, ADR-0019, ADR-0021, ADR-0022; milestone 3's spec (#134); `LIBRARY.md`, Taking in a tablet's baskets and tools, and Taking in a tablet's recipes; DYE2 and Streamline on a simulated tablet: `server/test/support/simulated-dye2.ts` and `server/test/fixtures/decaid/dye2-v0.1.19/README.md` |
+| Recipes, Baskets and Tools (milestone 3) | ADR-0005, ADR-0008, ADR-0014, ADR-0018, ADR-0019, ADR-0021, ADR-0022; milestone 3's spec (#134); `LIBRARY.md`, Taking in a tablet's baskets and tools, and Taking in a tablet's recipes; DYE2 and Streamline on a simulated tablet: `server/test/support/simulated-dye2.ts` (DYE2 v0.1.20 running beside the plugin, `SimulatedDye2`, with its selection, recording, pushes, restore and dashboard, and the v0.1.19 replays) and `simulated-streamline.ts` (Streamline v0.2.14's DYE strip, Drink and Dose tiles, post-Shot clear and wake), with `server/test/fixtures/decaid/dye2-v0.1.20/README.md` and `dye2-v0.1.19/README.md` |
 
 For upstream paths and checkout conventions, see `AGENTS.md` External sources. Verify Decaid payload fields in its source at the relevant version; the local runtime note identifies useful entry points.
 
