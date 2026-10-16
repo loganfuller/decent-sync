@@ -1089,7 +1089,7 @@ async function postList({ path, key, posted }: ListPath, records: Record<string,
   if (answer.ok) {
     posted(key);
     if (key === "recipes") posted.loaded?.posted(ordered);
-  }
+  } else if (key === "recipes") posted.loaded?.notPosted(before);
   return answer;
 }
 

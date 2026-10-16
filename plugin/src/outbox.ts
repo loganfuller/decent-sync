@@ -203,8 +203,10 @@ export class Outbox {
    * ahead of the newer one, it is found already handled, or waited for, so
    * it can never be stored after the newer one.
    */
-  supersede(id: string): void {
-    if (!this.handed.has(id)) this.forget(id);
+  supersede(id: string): boolean {
+    if (this.handed.has(id)) return false;
+    this.forget(id);
+    return true;
   }
 
   /**

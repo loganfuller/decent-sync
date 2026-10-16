@@ -78,11 +78,15 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
    * and slot 1's Recipe is given all four hot water settings (`HOT_WATER`)
    * in the management interface.
    */
-  async function lab(scenario: string, serial: number, options: { instance?: TestServer; pollSeconds?: number; dye2?: SimulatedDye2 } = {}) {
+  async function lab(
+    scenario: string,
+    serial: number,
+    options: { instance?: TestServer; pollSeconds?: number; dye2?: SimulatedDye2; apiDelayMs?: (method: string, path: string) => number } = {},
+  ) {
     const here: LocationView = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machine = await api.createMachine(`${scenario} lab 1`, here.id);
     const dye2 = options.dye2 ?? new SimulatedDye2();
-    const tablet = syncingTablet(machine, options.instance ?? server, { api: recordedDye2V020Tablet(String(serial), scenario), dye2, pollSeconds: options.pollSeconds });
+    const tablet = syncingTablet(machine, options.instance ?? server, { api: recordedDye2V020Tablet(String(serial), scenario), dye2, pollSeconds: options.pollSeconds, apiDelayMs: options.apiDelayMs });
     await api.waitForOnline(machine);
     await expect.poll(() => ["1", "2"].map((slot) => dye2GlobalIdOf(inSlot(tablet, slot))), { timeout: 15_000 }).not.toContain(null);
     const listed = (await api.get<{ recipes: { id: string; slot: number | null }[] }>(`/locations/${here.id}/recipes`)).recipes;
@@ -180,6 +184,26 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     await tablet.changeSettings({ context: before });
     await loads(machine, null);
     expect(context(tablet).beanBatchId).toBe(before.beanBatchId);
+  });
+
+  it("unloads a Recipe whose grinder a barista switches while the plugin's load write is under way", async () => {
+    let slow = false;
+    // 25 s at the tablet's pace, within Decaid's 30 s fetch timeout: half a second here.
+    const { machine, tablet, dye2 } = await lab("Switched", 47101, { apiDelayMs: (method, path) => (slow && method === "PUT" && path === "/workflow" ? 25_000 : 0) });
+    const other = ((await tablet.callApi("POST", "/grinders", { model: "Switched Grinder 2", settingType: "numeric" })).body as Record_).id as string;
+    slow = true;
+    const reads = tablet.requests.filter((route) => route === "/workflow").length;
+    await (await openDye2Dashboard(tablet)).applyRecipe("1");
+    // The plugin's write, slowed, lands after the barista's switch, which it leaves as the write sets no grinder.
+    await expect.poll(() => tablet.requests.filter((route) => route === "/workflow").length).toBeGreaterThan(reads);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await tablet.changeSettings({ context: { grinderId: other, grinderModel: "Switched Grinder 2" } });
+    slow = false;
+    await expect.poll(() => dye2.selected(), { timeout: 15_000 }).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    expect(named(tablet)).toBeNull();
+    expect(await loadedRecipe(machine)).toBeNull();
+    expect(context(tablet).grinderId).toBe(other);
   });
 
   it("loads nothing for a Recipe's dial dialled in by hand, with nothing selected", async () => {

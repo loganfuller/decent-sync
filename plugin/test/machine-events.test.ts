@@ -16,6 +16,8 @@ function events() {
   const queued: { id: string; workflow: Workflow }[] = [];
   const deliveries: (WorkflowDelivery | MachineStateDelivery)[] = [];
   const superseded = new Set<string>();
+  /** The deliveries handed to a connection, which the outbox does not drop. */
+  const sent = new Set<string>();
   const outbox: EventOutbox = {
     nextId: () => `delivery-${++next}`,
     enqueue: (delivery) => {
@@ -23,12 +25,14 @@ function events() {
       if (delivery.type === "workflow") queued.push({ id: delivery.id, workflow: delivery.workflow as Workflow });
     },
     supersede: (id) => {
+      if (sent.has(id)) return false;
       superseded.add(id);
+      return true;
     },
   };
   /** The Workflows queued that are still to be sent. */
   const kept = () => queued.filter(({ id }) => !superseded.has(id)).map(({ workflow }) => workflow);
-  return { machineEvents: new MachineEvents(outbox), queued: () => queued.map(({ workflow }) => workflow), kept, deliveries, superseded };
+  return { machineEvents: new MachineEvents(outbox), queued: () => queued.map(({ workflow }) => workflow), kept, deliveries, superseded, sent };
 }
 
 const state = (name: string) => ({ state: { state: name, substate: "ready" } });
@@ -99,5 +103,15 @@ describe("Workflow changes held while the plugin writes into the Workflow", () =
     machineEvents.welcome();
     expect(superseded.has(deliveries[1]!.id)).toBe(true);
     expect(deliveries[2]).toMatchObject({ loadBefore: { basket: { before: "k0", written: "k1" } } });
+  });
+
+  it("does not carry a load's values into a resend replacing a delivery already sent, which the server took them from", () => {
+    const { machineEvents, deliveries, sent } = events();
+    machineEvents.workflowUpdated(dosed(18));
+    machineEvents.attach({ loadBefore: { basket: { before: "k0", written: "k1" } } });
+    machineEvents.welcome();
+    sent.add(deliveries[1]!.id);
+    machineEvents.welcome();
+    expect(deliveries[2]).not.toHaveProperty("loadBefore");
   });
 });

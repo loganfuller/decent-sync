@@ -46,8 +46,8 @@ export function mergeExtra(earlier: WorkflowExtra, later: WorkflowExtra): Workfl
 export interface EventOutbox {
   nextId(): string;
   enqueue(delivery: WorkflowDelivery | MachineStateDelivery): void;
-  /** Drops a delivery that is no longer needed, unless it was ever sent. */
-  supersede(id: string): void;
+  /** Drops a delivery that is no longer needed, unless it was ever sent: whether it dropped it. */
+  supersede(id: string): boolean;
 }
 
 /**
@@ -59,8 +59,9 @@ export interface EventOutbox {
  * stored last, so sending one again is harmless.
  */
 export class MachineEvents implements WorkflowChanges {
-  /** The latest Workflow Decaid reported. */
+  /** The latest Workflow Decaid reported, and when. */
   private workflow: Record<string, unknown> | undefined;
+  private reportedAt = now();
   /**
    * How many of the plugin's writes into the Workflow are under way: the
    * shared settings (`LibraryWrites`), whose answers the server reads first,
@@ -106,6 +107,7 @@ export class MachineEvents implements WorkflowChanges {
     const workflow = object(payload);
     if (!workflow) return;
     this.workflow = workflow;
+    this.reportedAt = now();
     this.observe(workflow);
     if (this.holds > 0) {
       this.heldChange = true;
@@ -119,9 +121,10 @@ export class MachineEvents implements WorkflowChanges {
   }
 
   /**
-   * Once no write is under way, sends the latest Workflow, observed now, if
-   * it changed while held: that holds the plugin's own writes, and any
-   * change a barista made meanwhile.
+   * Once no write is under way, sends the latest Workflow, observed when
+   * Decaid reported it, or now for a resend alone, if it changed while held:
+   * that holds the plugin's own writes, and any change a barista made
+   * meanwhile.
    */
   release(): void {
     this.holds = Math.max(0, this.holds - 1);
@@ -130,7 +133,8 @@ export class MachineEvents implements WorkflowChanges {
       this.heldChange = false;
       const resend = this.heldResend && !this.heldReport;
       const extra = this.extra;
-      const id = this.queueWorkflow(this.workflow);
+      // A change held back keeps the time it was reported, so a Shot pulled after it is not taken for one before it.
+      const id = this.queueWorkflow(this.workflow, resend ? now() : this.reportedAt);
       if (resend) {
         this.resent = id;
         this.resentExtra = extra;
@@ -153,7 +157,7 @@ export class MachineEvents implements WorkflowChanges {
     if (this.holds > 0) {
       this.heldChange = true;
       this.heldReport = true;
-    } else this.queueWorkflow(this.workflow);
+    } else this.queueWorkflow(this.workflow, this.reportedAt);
   }
 
   /**
@@ -199,11 +203,9 @@ export class MachineEvents implements WorkflowChanges {
    */
   resend(): void {
     if (!this.workflow) return;
-    if (this.resent !== undefined) {
-      this.outbox.supersede(this.resent);
-      // Carried into the delivery that replaces it, which may be the one sent if it was not.
-      this.extra = mergeExtra(this.resentExtra, this.extra);
-    }
+    // What it carried is carried into the delivery that replaces it, only where it was dropped unsent: one sent may have
+    // reached the server, which takes what it carried once, and an espresso since may have closed it.
+    if (this.resent !== undefined && this.outbox.supersede(this.resent)) this.extra = mergeExtra(this.resentExtra, this.extra);
     this.resent = undefined;
     this.resentExtra = {};
     // Sent once the writes under way are answered, which they may hold already.
@@ -217,10 +219,10 @@ export class MachineEvents implements WorkflowChanges {
   }
 
   /** Queues the Workflow as observed now, with what is attached to the next delivery (`attach`), returning its delivery's id. */
-  private queueWorkflow(workflow: Record<string, unknown>): string {
+  private queueWorkflow(workflow: Record<string, unknown>, observedAt = now()): string {
     const extra = this.extra;
     this.extra = {};
-    const delivery: WorkflowDelivery = { type: "workflow", id: this.outbox.nextId(), observedAt: now(), workflow, ...extra };
+    const delivery: WorkflowDelivery = { type: "workflow", id: this.outbox.nextId(), observedAt, workflow, ...extra };
     this.outbox.enqueue(delivery);
     return delivery.id;
   }
