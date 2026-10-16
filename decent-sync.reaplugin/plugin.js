@@ -1088,6 +1088,8 @@ var __decentSync = (() => {
       __publicField(this, "answer", "unread");
       /** The recipe DYE2's selection last named, and the fingerprint of the profile it was selected on. */
       __publicField(this, "selected", null);
+      /** The selection to be made again that a server write changing the profile set (`profileChanging`), until it is answered. */
+      __publicField(this, "profileWrite", null);
       /** A selection of the plugin's still to be made: tried again until DYE2 answers, unless a barista selects something else first. */
       __publicField(this, "pendingSelect", null);
       /** Slots whose clearing from DYE2's selection is still to be made, each with whether `{}` is kept after it. */
@@ -1246,6 +1248,11 @@ var __decentSync = (() => {
       const slot = this.slotOf(globalId);
       if (this.captureOnly || slot === null || this.loaded !== globalId) return;
       this.pendingSelect = { slot, globalId };
+      this.profileWrite = this.pendingSelect;
+    }
+    profileUnchanged(globalId) {
+      if (this.profileWrite?.globalId === globalId && this.pendingSelect === this.profileWrite) this.pendingSelect = null;
+      this.profileWrite = null;
     }
     written(globalId, before, after) {
       this.latest = after;
@@ -2228,6 +2235,7 @@ var __decentSync = (() => {
       if ("profile" in patch && dye2Fingerprint(patch.profile) !== dye2Fingerprint(workflow.profile)) posted.loaded?.profileChanging(globalId);
       const answer = await request("PUT", "/workflow", patch);
       const updated = answer.ok ? parsed5(answer.text) : void 0;
+      if (!isObject5(updated)) posted.loaded?.profileUnchanged(globalId);
       if (isObject5(updated)) {
         if (clearing) posted.loaded?.cleared(globalId);
         else posted.loaded?.written(globalId, workflow, updated);

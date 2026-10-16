@@ -69,6 +69,8 @@ export interface LoadedRecipeWrites {
    * barista's.
    */
   profileChanging(globalId: string): void;
+  /** After that write, where Decaid refused it: the profile stayed, so nothing is to be selected again for it. */
+  profileUnchanged(globalId: string): void;
   /** After it: the profile it changed, which DYE2 clears its selection on, is selected again. */
   written(globalId: string, before: Record<string, unknown>, after: Record<string, unknown>): void;
   /** After the server's clearing of a Loaded Recipe: its slot is cleared from DYE2's selection, and that kept. */
@@ -108,6 +110,8 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   private answer: LastAnswer = "unread";
   /** The recipe DYE2's selection last named, and the fingerprint of the profile it was selected on. */
   private selected: { slot: number; fingerprint: string | null } | null = null;
+  /** The selection to be made again that a server write changing the profile set (`profileChanging`), until it is answered. */
+  private profileWrite: { slot: number; globalId: string } | null = null;
   /** A selection of the plugin's still to be made: tried again until DYE2 answers, unless a barista selects something else first. */
   private pendingSelect: { slot: number; globalId: string } | null = null;
   /** Slots whose clearing from DYE2's selection is still to be made, each with whether `{}` is kept after it. */
@@ -291,6 +295,13 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     const slot = this.slotOf(globalId);
     if (this.captureOnly || slot === null || this.loaded !== globalId) return;
     this.pendingSelect = { slot, globalId };
+    this.profileWrite = this.pendingSelect;
+  }
+
+  profileUnchanged(globalId: string): void {
+    // A clear DYE2 makes from now on is the barista's, which a selection still to be made would undo.
+    if (this.profileWrite?.globalId === globalId && this.pendingSelect === this.profileWrite) this.pendingSelect = null;
+    this.profileWrite = null;
   }
 
   written(globalId: string, before: Record<string, unknown>, after: Record<string, unknown>): void {

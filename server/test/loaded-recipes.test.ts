@@ -225,6 +225,28 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect((await loadedRecipe(machine))?.recipe.id).toBe(one);
   });
 
+  it("does not select the Recipe again over a barista's profile after Decaid refused the server's write of its Profile", async () => {
+    const { machine, tablet, dye2, one } = await lab("Refused profile", 47121, { pollSeconds: 3600 });
+    await (await openDye2Dashboard(tablet)).applyRecipe("1");
+    await loads(machine, one);
+    // Decaid refuses the Workflow write carrying the Recipe's new Profile.
+    tablet.refuseWrites = ({ method, route, body }) =>
+      method === "PUT" && route === "/workflow" && typeof body === "object" && body !== null && "profile" in body ? { status: 400, body: { error: "refused" } } : undefined;
+    const classic = "profile:39e939592679fb194706";
+    expect((await api.call("PATCH", `/recipes/${one}`, { content: { profileId: classic } })).status).toBe(200);
+    await expect.poll(() => tablet.writes.filter((write) => write === "PUT /workflow").length, { timeout: 15_000 }).toBeGreaterThan(0);
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    tablet.refuseWrites = undefined;
+    // The barista's own profile, which DYE2 clears its selection on.
+    const own = { ...(tablet.workflow().profile as Record_), title: "Barista's own" };
+    expect((await tablet.callApi("PUT", "/workflow", { profile: own })).status).toBe(200);
+    expect(dye2.selected()).toBeNull();
+    await loads(machine, null);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(dye2.selected()).toBeNull();
+    expect(named(tablet)).toBeNull();
+  });
+
   it("loads nothing for a Recipe's dial dialled in by hand, with nothing selected", async () => {
     const { machine, tablet, dye2 } = await lab("Hand", 47041);
     const variables = inSlot(tablet, "1")!.dashboardVariables as Record_;
