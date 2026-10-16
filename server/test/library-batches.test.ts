@@ -649,17 +649,17 @@ describe("Bean Batches at Locations", () => {
     const bean = (await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Roux", name: "Undone Guji" } }, 201)).bean;
     const addBatch = async () =>
       (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean.id, content: {}, locations: [{ locationId: cafe.id }] }, 201)).batch;
-    let undone: string | undefined;
-    let deleted = false;
-    // A barista deletes the batch the moment Decaid creates it, before the plugin has its answer or reads the list again.
+    /** The batch the tablet keeps, once it holds it: the barista deletes the next one written, the moment Decaid creates it. */
+    let keptId: string | undefined;
+    let deleted: Record_ | undefined;
+    // Armed before that batch is created, as the server may write it before the create's response arrives here.
     const tablet: SimulatedTablet = load(machine, "16301", {
       answerOnArrival: true,
       apiDelayMs: (method, path) => {
-        const record = undone && method === "POST" && /^\/beans\/[^/]+\/batches$/.test(path) ? heldBatch(tablet, undone)[0] : undefined;
-        if (record && !deleted) {
-          deleted = true;
-          void tablet.callApi("DELETE", `/bean-batches/${String(record.id)}`);
-        }
+        if (keptId === undefined || deleted || method !== "POST" || !/^\/beans\/[^/]+\/batches$/.test(path)) return 0;
+        // Decaid carried out the create on arrival; the plugin has neither its answer nor read the list since.
+        deleted = tablet.batches().find((record) => globalIdOf(record) !== keptId);
+        if (deleted) void tablet.callApi("DELETE", `/bean-batches/${String(deleted.id)}`);
         return 0;
       },
     });
@@ -671,9 +671,9 @@ describe("Bean Batches at Locations", () => {
       (await api.get<{ collection: { value: Record_[] } | null }>(`/machines/${machine.machine.id}/collections/beanBatches`)).collection?.value ?? [];
     await expect.poll(async () => (await reported()).map((record) => record.id)).toEqual([keptRecord.id]);
 
+    keptId = kept.id;
     const batch = await addBatch();
-    undone = batch.id;
-    await expect.poll(() => deleted).toBe(true);
+    await expect.poll(() => deleted && globalIdOf(deleted)).toBe(batch.id);
     await expect.poll(() => whereAt(batch.id)).toEqual([]);
     expect(await whereAt(kept.id)).toEqual([["Undone cafe", null]]);
     expect(heldBatch(tablet, batch.id)).toEqual([]);
