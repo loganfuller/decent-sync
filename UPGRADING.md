@@ -38,9 +38,13 @@ Basket and RPM from the Workflow, and, with Streamline's DYE2 switch on, a
 wake onto the Loaded Recipe's profile leaves its dial alone, so a wake
 profile no longer needs to be left unset. With that switch off, waking onto
 it still sends the dose, yield, grind and brew temperature Streamline saved
-for the profile, which become the Recipe's: set no wake profile there. On
+for the profile, which become the Recipe's: set no wake profile there. So
+does a wake onto a profile with a step limiter of 0, such as Adaptive v3,
+applied from Streamline's strip
+([decentespresso/streamline-js#158](https://github.com/decentespresso/streamline-js/issues/158)). On
 a profile with a step limiter of 0, such as Adaptive v3, applied from DYE2's
-dashboard, a yield or dose set on Streamline's tiles still unloads the Recipe.
+dashboard, a yield or dose set on Streamline's tiles still unloads the Recipe
+([decentespresso/dye2#32](https://github.com/decentespresso/dye2/issues/32)).
 And until the server writes each recipe's batch where DYE2 applies it
 ([#187](https://github.com/loganfuller/decent-sync/issues/187)), a change made
 on DYE2's dashboard right after applying a Recipe there, or its Done, unloads
