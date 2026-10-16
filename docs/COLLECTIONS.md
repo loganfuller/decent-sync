@@ -62,12 +62,8 @@ as empty.
 
 DYE2's recipes, baskets and tools are written by the plugin too, through
 the Library (`LIBRARY.md`, Taking in a tablet's baskets and tools, and
-Taking in a tablet's recipes). After the plugin writes any of the Library's
-lists, Decaid's or DYE2's, its next read is sent whatever it holds: it may
-read as last sent, as when a barista deletes a batch the server has just
-created before the plugin reads the list again, since Decaid's ETag is a
-hash of the list's content, or another app rewriting one of DYE2's lists at
-the same moment put it back as last sent. `pairedDevices` keeps Decaid's inventory entries as sent, leaving
+Taking in a tablet's recipes); after it writes one, its next read is sent
+whatever it holds, as below. `pairedDevices` keeps Decaid's inventory entries as sent, leaving
 out those whose `state` is `discovered`: devices nearby come and go and may
 belong to another Machine at the same Location. Connected and connecting
 devices, and those Decaid remembers (`disconnected`, and not `available` while
@@ -88,6 +84,14 @@ tests (`plugin/test/change-detection.test.ts`):
   hash of its JSON does. The library's lists are read with the last ETag in
   `If-None-Match`; Decaid's 304 sends nothing. While disconnected it does not
   poll.
+- After it carries out one of the server's writes to a Library list,
+  Decaid's or DYE2's, or is refused one (a write refused once its request
+  timed out may still have been carried out), the next read of that list is
+  sent whatever it holds. The list may read as last sent though the server's
+  write changed what it knows of it: a barista may delete a batch the server
+  has just created before the plugin reads the list again, and Decaid's ETag
+  is a hash of the list's content; or another app may rewrite one of DYE2's
+  lists at the same moment, putting it back as it was and losing the write.
 - On every `welcome`, it reads every collection again, without
   `If-None-Match`, and sends each, unavailable ones included, whether or not it
   changed. That also covers whatever changed while it was disconnected. It
