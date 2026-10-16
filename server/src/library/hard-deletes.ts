@@ -8,16 +8,21 @@ import { KINDS, idSql, idsSql } from "./kinds.js";
 import { lockLocation } from "./location-state.js";
 
 // Hard deletes (ADR-0003, ADR-0019): an Admin removes a Bean, Bean Batch,
-// Grinder or Profile no Shot names from the Library and from every tablet that
-// holds it, the one thing the server deletes from tablets. A Bean goes with
-// its batches, as Decaid refuses to delete a bean that has any. A Shot names a
-// batch or Grinder by its id on the tablet that pulled it, so an item whose
-// record has that id on any tablet's map is named, as is one a Shot is linked
-// to (shots/links.ts), whose record may have left the map since; a Bean is
-// named when one of its batches is. A Shot names a Profile by the steps it
-// executed, which its Workflow records with the rest of its profile, or by
-// the profile id a skin recorded there. Decaid's bundled Profiles, which
-// every tablet has and Decaid refuses to delete, are never deleted.
+// Grinder, Profile, Basket, Tool or Recipe no Shot names from the Library and
+// from every tablet that holds it, the one thing the server deletes from
+// tablets, and a Basket or Tool only where no Recipe names it either (#147). A
+// Bean goes with its batches, as Decaid refuses to delete a bean that has any.
+// A Shot names a batch or Grinder by its id on the tablet that pulled it, so
+// an item whose record has that id on any tablet's map is named, as is one a
+// Shot is linked to (shots/links.ts), whose record may have left the map
+// since; a Bean is named when one of its batches is. A Shot names a Profile by
+// the steps it executed, which its Workflow records with the rest of its
+// profile, or by the profile id a skin recorded there. A Basket is named as a
+// batch is, and a Tool the same way among the Tools DYE2 recorded; a Recipe
+// only by a Shot linked to it, pulled while its Machine had it loaded
+// (shots/links.ts), whose storage holds the Recipe's row for key share.
+// Decaid's bundled Profiles, which every tablet has and Decaid refuses to
+// delete, are never deleted.
 //
 // The item is gone from the Library at once, with its versions, Conflicts
 // and each Location's state of it. Its global id is kept (`deleted_items`),
@@ -102,6 +107,13 @@ async function deleteOnce(tx: Prisma.TransactionClient, kind: DeletedKind, id: s
   // Read under the tablets' locks, which every change to their maps takes, and which linking a Shot to one waits for.
   const [named] = await tx.$queryRaw<{ named: boolean }[]>`SELECT (${Prisma.join(byKind.map(({ kind, ids }) => kind.shotsNameSql(ids)), " OR ")}) AS named`;
   if (named?.named) throw new ConflictException(`A Shot names ${KINDS[kind].namedAs}, so it cannot be deleted. Archive it instead.`);
+  // Read under the items' locks, which a Recipe's edit naming one takes (recipe-edits.service.ts), and the tablets', which a
+  // tablet's report of its recipes takes as it names one by its record there.
+  const byRecipes = byKind.flatMap(({ kind, ids }) => (kind.recipesNameSql ? [kind.recipesNameSql(ids)] : []));
+  if (byRecipes.length > 0) {
+    const [inRecipes] = await tx.$queryRaw<{ named: boolean }[]>`SELECT (${Prisma.join(byRecipes, " OR ")}) AS named`;
+    if (inRecipes?.named) throw new ConflictException(`A Recipe names ${KINDS[kind].namedAs}, so it cannot be deleted. Take it out of the Recipe, or Archive it instead.`);
+  }
 
   for (const item of items) await KINDS[item.kind].keepDeletion(tx, item.id);
   for (const { kind: description, ids } of byKind) {

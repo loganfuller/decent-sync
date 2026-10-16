@@ -3,7 +3,8 @@ import { Link, useSearchParams } from "react-router";
 import { LibraryNav } from "@/components/bean-batches";
 import { ItemConflictsCard, ItemHistoryCard, attributePairs } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
-import { ArchiveButton, BASKET_FIELDS, ContentForm, NewEquipmentDialog, TOOL_FIELDS } from "@/components/library-forms";
+import { ItemShotsCard } from "@/components/item-shots";
+import { ArchiveButton, BASKET_FIELDS, ContentForm, DeleteButton, NewEquipmentDialog, TOOL_FIELDS } from "@/components/library-forms";
 import { formatTime, useLocations } from "@/components/machines";
 import { ANY, NONE } from "@/components/record-lists";
 import { OrNone } from "@/components/records";
@@ -314,6 +315,7 @@ export function EquipmentDetails({ kind, id }: { kind: EquipmentKind; id: string
       </div>
       <div className="flex flex-wrap items-start gap-2">
         <ArchiveButton path={path} name={title} archived={item.archived} effect="removed from every tablet's DYE2 list" onDone={changed} />
+        <DeleteButton path={path} name={title} back={pages} deletable={`a ${name} no Shot or Recipe names`} />
       </div>
 
       <ItemConflictsCard kind={kind} id={id} onResolved={changed} />
@@ -397,6 +399,8 @@ export function EquipmentDetails({ kind, id }: { kind: EquipmentKind; id: string
           </CardContent>
         </Card>
       </div>
+
+      {kind === "basket" && <ItemShotsCard kind="basket" id={id} />}
 
       <ItemHistoryCard key={changes} kind={kind} id={id} />
     </section>

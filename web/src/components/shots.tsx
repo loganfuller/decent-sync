@@ -4,6 +4,7 @@ import { grinderName } from "@/components/grinders";
 import { profilePath } from "@/components/profiles";
 import { OrNone, recordTime, round } from "@/components/records";
 import type { ShotSummary } from "@/lib/api";
+import { LIBRARY_KINDS } from "@/lib/library-kinds";
 
 // Pieces the Shots list and Shot page share; `records.tsx` has those Steam Records share too.
 
@@ -42,6 +43,17 @@ export function ShotBatch({ shot }: { shot: Pick<ShotSummary, "beanBatch"> }) {
 /** The Library's Grinder the Shot used. */
 export function ShotGrinder({ shot }: { shot: Pick<ShotSummary, "grinder"> }) {
   return <LibraryLink to={shot.grinder && `/library/grinders/${shot.grinder.id}`}>{shot.grinder ? grinderName(shot.grinder) : undefined}</LibraryLink>;
+}
+
+/** The Library's Recipe the Shot was pulled with, as its Machine had it loaded; none where it had none loaded. */
+export function ShotRecipe({ shot }: { shot: Pick<ShotSummary, "recipe"> }) {
+  if (shot.recipe === null) return <OrNone>{undefined}</OrNone>;
+  return <LibraryLink to={`${LIBRARY_KINDS.recipe.pages}/${shot.recipe.id}`}>{shot.recipe.name ?? "Unnamed Recipe"}</LibraryLink>;
+}
+
+/** The Library's Basket the Shot used, as DYE2 recorded it. */
+export function ShotBasket({ shot }: { shot: Pick<ShotSummary, "basket"> }) {
+  return <LibraryLink to={shot.basket && `${LIBRARY_KINDS.basket.pages}/${shot.basket.id}`}>{shot.basket ? (shot.basket.name ?? "Unnamed Basket") : undefined}</LibraryLink>;
 }
 
 /** The profile the Shot recorded, linked to the Library's Profile it was pulled with, if the Library has it. */

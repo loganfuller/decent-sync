@@ -5,7 +5,8 @@ import { batchName } from "@/components/bean-batches";
 import { ItemConflictsCard, ItemHistoryCard, attributePairs } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
 import { grinderName } from "@/components/grinders";
-import { ArchiveButton, type Attribute, FormError, failure, useMayChangeAt } from "@/components/library-forms";
+import { ItemShotsCard } from "@/components/item-shots";
+import { ArchiveButton, type Attribute, DeleteButton, FormError, failure, useMayChangeAt } from "@/components/library-forms";
 import { ConfirmButton, formatTime, useLocations } from "@/components/machines";
 import { profilePath, profileTitle } from "@/components/profiles";
 import { OrNone } from "@/components/records";
@@ -1291,6 +1292,12 @@ export function RecipeDetails({ id }: { id: string }) {
             </>
           )}
           {mayCopy && <CopyRecipeDialog recipe={recipe} choices={choices} />}
+          <DeleteButton
+            path={path}
+            name={title}
+            back={location ? `/locations/${location.id}` : "/locations"}
+            deletable="a Recipe no Shot was pulled with"
+          />
         </div>
       )}
       {!mayChange && <p className="text-sm text-muted-foreground">Only Admins, and Staff working at {location?.name ?? "its Location"}, change its Recipes.</p>}
@@ -1389,6 +1396,8 @@ export function RecipeDetails({ id }: { id: string }) {
           </Fields>
         </CardContent>
       </Card>
+
+      <ItemShotsCard kind="recipe" id={id} />
 
       <ItemHistoryCard key={changes} kind="recipe" id={id} names={names} />
     </section>

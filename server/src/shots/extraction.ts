@@ -1,4 +1,4 @@
-import { MAX_HARDWARE_LENGTH, realHardware, type Hardware } from "@decent-sync/protocol";
+import { MAX_HARDWARE_LENGTH, loadedRecipeOf, realHardware, type Hardware } from "@decent-sync/protocol";
 
 /** Analytics are a projection; missing or unfamiliar Decaid fields never invalidate a record. */
 export function extractShot(record: unknown) {
@@ -10,6 +10,9 @@ export function extractShot(record: unknown) {
   return {
     beanBatchId: string(context.beanBatchId),
     grinderId: string(context.grinderId),
+    basketId: shotBasketId(annotations, context),
+    toolIds: shotToolIds(annotations, context),
+    recipeId: loadedRecipeOf(workflow),
     coffeeName: string(context.coffeeName),
     coffeeRoaster: string(context.coffeeRoaster),
     profileTitle: string(profile.title),
@@ -21,6 +24,34 @@ export function extractShot(record: unknown) {
     enjoyment: number(annotations.enjoyment),
     barista: string(context.baristaName),
   };
+}
+
+/**
+ * The Basket DYE2 recorded for a Shot, by its id on the tablet, as DYE2 reads
+ * it (`shotBasketRpm` in dye2:dye2-plugin/src/utils/recorded-shot.ts): its
+ * Edit Shot page's, in the annotations' extras, wherever that page set a
+ * Basket, or else the Workflow's as the Shot was pulled, in its context's
+ * extras.
+ */
+function shotBasketId(annotations: Record<string, unknown>, context: Record<string, unknown>): string | null {
+  const edited = object(annotations.extras);
+  const recorded = edited.basketId != null || edited.basketName != null ? edited : object(context.extras);
+  return string(recorded.basketId) || null;
+}
+
+/**
+ * The Tools DYE2 recorded for a Shot, by their ids on the tablet: its Edit
+ * Shot page's, in the annotations' extras, as a list or a single id, as
+ * that page reads them (`equipmentArrays` in
+ * dye2:dye2-plugin/src/pages/edit-shot.ts), and the Workflow's, in its
+ * context's extras, read the same way. Both are kept, as they only keep a
+ * Tool from being hard-deleted.
+ */
+function shotToolIds(annotations: Record<string, unknown>, context: Record<string, unknown>): string[] {
+  const ids = (extras: Record<string, unknown>) =>
+    Array.isArray(extras.equipmentIds) ? extras.equipmentIds : extras.equipmentId != null ? [extras.equipmentId] : [];
+  const all = [...ids(object(annotations.extras)), ...ids(object(context.extras))];
+  return [...new Set(all.filter((id): id is string => typeof id === "string" && id !== ""))];
 }
 
 /**

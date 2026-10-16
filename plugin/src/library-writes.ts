@@ -305,18 +305,19 @@ export class LibraryWrites {
     private readonly posted: ListPosted,
   ) {
     outbox.watch((delivery) => {
-      if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shot);
+      if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shotId, delivery.shot);
     });
   }
 
   /**
-   * The batch, Grinder and profile records the Shots this plugin queued since
-   * it loaded name, as `kind:id`: a few per batch, Grinder and profile used.
-   * A profile is named by its steps (`stepsKey`), as a skin sets the
-   * Workflow's profile's targets for the Shot, and by the id a skin recorded,
-   * if one did.
+   * The batch, Grinder, profile, basket and tool records each Shot this
+   * plugin queued since it loaded names, by its id, as `kind:id`, as its
+   * latest record names them, with that record's edit time (`editOrder`):
+   * a few per Shot. A profile is named by its steps (`stepsKey`), as a skin
+   * sets the Workflow's profile's targets for the Shot, and by the id a skin
+   * recorded, if one did.
    */
-  private readonly shotsName = new Set<string>();
+  private readonly shotsName = new Map<string, { version: string; names: Set<string> }>();
   /** The Shots still to be sent that `namedByShot` read. */
   private readonly shotsRead = new Set<string>();
 
@@ -339,23 +340,44 @@ export class LibraryWrites {
     for (const id of unread) {
       const shot = await readShot(id);
       this.shotsRead.add(id);
-      if (shot) this.noteShot(shot);
+      if (shot) this.noteShot(id, shot);
     }
-    return [...ids].some((id) => this.shotsName.has(`${kind}:${id}`));
+    const named = [...ids].map((id) => `${kind}:${id}`);
+    return [...this.shotsName.values()].some(({ names }) => named.some((name) => names.has(name)));
   }
 
-  /** Notes the batch, Grinder and profile records a Shot names. */
-  private noteShot(shot: Record<string, unknown>): void {
-    const workflow = shot.workflow;
-    if (!isObject(workflow)) return;
+  /**
+   * Notes the batch, Grinder, profile, basket and tool records a Shot names,
+   * in place of what an older record of it named, as the server keeps a
+   * Shot's latest metadata by its edit time: so an edit naming another
+   * basket, say, no longer keeps the one it named before, and a record read
+   * before that edit but noted after it, as one whose read was slow, changes
+   * nothing. A record of the same edit time adds what it names, as keeping
+   * more records is the safe side.
+   */
+  private noteShot(id: string, shot: Record<string, unknown>): void {
+    const version = editOrder(shot.updatedAt);
+    const noted = this.shotsName.get(id);
+    if (noted && version < noted.version) return;
+    const names = noted && version === noted.version ? noted.names : new Set<string>();
+    this.shotsName.set(id, { version, names });
+    const workflow = isObject(shot.workflow) ? shot.workflow : {};
     const steps = stepsKey(isObject(workflow.profile) ? workflow.profile.steps : undefined);
-    if (steps !== null) this.shotsName.add(`profile:${steps}`);
-    const context = workflow.context;
-    if (!isObject(context)) return;
-    if (typeof context.beanBatchId === "string") this.shotsName.add(`beanBatch:${context.beanBatchId}`);
-    if (typeof context.grinderId === "string") this.shotsName.add(`grinder:${context.grinderId}`);
-    const skin = isObject(context.extras) ? context.extras.workflowSkin : undefined;
-    if (isObject(skin) && typeof skin.selectedProfileId === "string") this.shotsName.add(`profile:${skin.selectedProfileId}`);
+    if (steps !== null) names.add(`profile:${steps}`);
+    const context = isObject(workflow.context) ? workflow.context : {};
+    const extras = isObject(context.extras) ? context.extras : {};
+    if (typeof context.beanBatchId === "string") names.add(`beanBatch:${context.beanBatchId}`);
+    if (typeof context.grinderId === "string") names.add(`grinder:${context.grinderId}`);
+    if (isObject(extras.workflowSkin) && typeof extras.workflowSkin.selectedProfileId === "string") names.add(`profile:${extras.workflowSkin.selectedProfileId}`);
+    // DYE2's Edit Shot page records the basket and tools in the annotations' extras, its basket over the Workflow's, as
+    // the server reads them (shots/extraction.ts).
+    const edited = isObject(shot.annotations) && isObject(shot.annotations.extras) ? shot.annotations.extras : {};
+    const basket = edited.basketId != null || edited.basketName != null ? edited.basketId : extras.basketId;
+    if (typeof basket === "string") names.add(`basket:${basket}`);
+    for (const recorded of [edited, extras]) {
+      const tools = Array.isArray(recorded.equipmentIds) ? recorded.equipmentIds : [recorded.equipmentId];
+      for (const id of tools) if (typeof id === "string") names.add(`tool:${id}`);
+    }
   }
 
   /** Removes a record from one of DYE2's lists once the reads and writes before it are done, and queues its answer. It never rejects. */
@@ -486,6 +508,17 @@ async function purgeProfile(remove: LibraryDelete, namedByShot: NamedByShot): Pr
   const answer = await request("DELETE", `${path}/purge`);
   // Decaid answers a purge of a profile it no longer holds, as one replaced since it was read, with 400.
   return answer.ok || (answer.status === 400 && answer.text.includes("Profile not found")) ? deleted(remove) : refused(remove, answer.status, answer.text);
+}
+
+/**
+ * A Shot's edit time, `updatedAt` in UTC as Decaid writes it, as text that
+ * sorts in time order, to the microsecond and beyond, as the server compares
+ * them; empty, sorting first, for a record without one, which the server
+ * ignores.
+ */
+function editOrder(updatedAt: unknown): string {
+  const parts = typeof updatedAt === "string" ? /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?Z$/.exec(updatedAt) : null;
+  return parts ? `${parts[1]}.${(parts[2] ?? "").padEnd(12, "0")}` : "";
 }
 
 /** Why a delete is refused while a Shot this plugin queued, or has yet to send, may name its record or one of its batches. */
@@ -956,8 +989,14 @@ function dye2Writer(key: Dye2Key): LibraryKindWriter {
   return {
     list: path,
     write: (write, _log, posted) => (key === "recipes" ? writeRecipe(list(posted), write) : writeInList(list(posted), write)),
-    // A hard-deleted item's record is removed as one its Location no longer shows is: no Shot names it by its id here.
-    remove: async (remove, _namedByShot, posted) => {
+    // A hard-deleted item's record is removed as one its Location no longer shows is. A Shot names a basket or tool by its
+    // id here, so one a Shot this plugin has yet to send names is kept, as a batch is (`deleteRecord`); none names a recipe
+    // by its id here, its slot.
+    remove: async (remove, namedByShot, posted) => {
+      if (key !== "recipes") {
+        const named = await namedByShot(key === "baskets" ? "basket" : "tool", new Set([remove.localId]));
+        if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
+      }
       const answer = await removeFromList(list(posted), remove);
       return answer.type === "removed" ? { ...answer, type: "deleted" } : answer;
     },

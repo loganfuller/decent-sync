@@ -63,7 +63,12 @@ use by each tablet's own ids (Taking in a tablet's recipes, below); ticket
 management interface create and edit them, move them between slots, and
 Archive and restore them, and ticket
 [#144](https://github.com/loganfuller/decent-sync/issues/144) copy one to a
-Location (Editing in the management interface, below). It
+Location (Editing in the management interface, below). Ticket
+[#147](https://github.com/loganfuller/decent-sync/issues/147) links each
+Shot to the Recipe its Machine had loaded and the Basket DYE2 recorded
+(`SHOTS.md`, Links to the Library), and lets an Admin hard-delete a Recipe
+no Shot was pulled with, and a Basket or Tool no Shot or Recipe names (Hard
+deletes, below). It
 follows ADR-0003, ADR-0005, ADR-0006, ADR-0008, ADR-0014, ADR-0016,
 ADR-0018, ADR-0019, ADR-0020 and ADR-0021.
 
@@ -553,8 +558,8 @@ tablets, below).
   put in a slot. Each change locks the Location, then the Recipe's row, as a
   tablet's report does, and commits with a `NOTIFY` naming the Location, so
   a Recipe moved is removed from its old slot on each tablet there and
-  written in its new one (`recipeWrites` in `holdings.ts`). Hard deletes come
-  with the Shots linked to them.
+  written in its new one (`recipeWrites` in `holdings.ts`). An Admin
+  hard-deletes one no Shot was pulled with (Hard deletes, below).
 - **Copying a Recipe.** A Recipe is copied to another Location than its own
   (never its own, where the slot chosen could be the Recipe's, which the copy
   would take from it, 400) as a new Recipe there (`POST /api/recipes/:id/copies`), a starting point
@@ -603,13 +608,19 @@ tablets, below).
 
 ### Hard deletes
 
-An Admin hard-deletes a Bean, Bean Batch, Grinder or Profile no Shot names
-(ADR-0003, `hard-deletes.ts`): it is gone from the Library at once, with its
-versions, Conflicts and each Location's state of it, and from every tablet
-that holds it, the one thing the server deletes from tablets. A Bean goes
-with its batches, as Decaid refuses to delete a bean that has any. Decaid's
-bundled Profiles are never deleted (409): every tablet has them, and Decaid
-refuses to delete one; they are hidden at Locations or Archived instead.
+An Admin hard-deletes a Bean, Bean Batch, Grinder, Profile, Basket, Tool or
+Recipe no Shot names (ADR-0003, `hard-deletes.ts`), and a Basket or Tool
+only where no Recipe names it either (ticket #147): it is gone from the
+Library at once, with its versions, Conflicts and each Location's state of
+it, and from every tablet that holds it, the one thing the server deletes
+from tablets. A Bean goes with its batches, as Decaid refuses to delete a
+bean that has any. Decaid's bundled Profiles are never deleted (409): every
+tablet has them, and Decaid refuses to delete one; they are hidden at
+Locations or Archived instead. A Recipe goes from its slot, so from every
+tablet's DYE2 recipes at its Location, and from each Machine's Loaded
+Recipe history; a Workflow still naming it is cleared of it, as of a
+Recipe taken out of its slot (`WORKFLOW-AND-STATE.md`, Following the
+Recipe).
 
 - **Named by a Shot.** A Shot names its batch and Grinder by their ids on the
   tablet that pulled it (`shots.bean_batch_id` and `shots.grinder_id`, from
@@ -624,7 +635,17 @@ refuses to delete one; they are hidden at Locations or Archived instead.
   and a step's limiter of value 0 as none, as a skin overrides or sends them
   (`SHOTS.md`, Links to the Library), or by
   the profile id a skin recorded in its Workflow (`shots.profile_id`);
-  Decaid itself records none. Only the steps are compared, not the rest of
+  Decaid itself records none. A Shot names a Basket as it names a batch, by
+  the id DYE2 recorded (`shots.basket_id`) or its link, and a Tool the same
+  way, by its id on the tablet among the Tools DYE2 recorded
+  (`shots.tool_ids`) or its link (`shots.library_tool_ids`), so one
+  Archived or hidden, whose record has left every tablet, stays named. A Recipe is named only by a Shot linked to it, one
+  pulled while its Machine had it loaded (`SHOTS.md`, Links to the
+  Library): a Capture-only Machine's Shots name one by its global id that
+  was never their Machine's Loaded Recipe, and leave it deletable. Storing
+  a Shot holds the row of the Recipe it names for key share, so a delete
+  waits for it and then finds it linked, or deletes the Recipe first, the
+  Shot then linked to none. Only the steps are compared, not the rest of
   what Decaid hashes for a Profile's id: a skin sets the Workflow's
   profile's target weight to the Shot's yield, so a Shot pulled with a
   Profile can hold other targets, and refusing a delete is the safe side.
@@ -633,14 +654,26 @@ refuses to delete one; they are hidden at Locations or Archived instead.
   on its tablet, out of the Library, and so does the record of that batch's
   Bean there, which the plugin would delete with its batches. The plugin
   also refuses to delete a record a Shot it queued since it loaded, or has
-  yet to read and send, names, as the server may have planned the delete
+  yet to read and send, names (by that Shot's latest record, by its edit
+  time, so an edit naming another record releases the first, and a record
+  read before the edit but noted after it changes nothing), as the server may have planned the delete
   before it had that Shot; the server keeps the record once it has it. It
   reads at most 20 Shots still to be read for this, and refuses any delete
   while more are, as during a backfill (`SHOTS_STILL_TO_READ`): the
   writer then leaves that delete out for two heartbeat intervals and asks
   again on the same connection, until the Shots have been sent. A
   Shot the plugin finds only later, from its index once it has reloaded, can
-  come too late to keep it.
+  come too late to keep it. Baskets and Tools are kept on tablets the same
+  way, by the ids a Shot recorded; a Recipe's record is not, as no Shot
+  names its id there, its slot.
+- **Named by a Recipe.** A Basket a Recipe names (`basketId`), or a Tool
+  among its `toolIds`, Archived Recipes included, is not deleted (409): take
+  it out of the Recipe, or Archive it, instead. Recipes are read under the
+  items' row locks, which a Recipe's edit naming one takes, and the locks
+  of the tablets that hold them, which a tablet's report of its recipes
+  takes as it names one by its record there. Other kinds a Recipe names
+  are deleted, and the Recipe left naming one the Library no longer has, as
+  before.
 - **Tablets.** Each tablet's record of the item, read from its map, is kept
   as a delete due there (`tablet_deletions`), and the item's global id is
   kept (`deleted_items`). Each tablet's writer deletes its records, a bean's
@@ -1484,8 +1517,9 @@ tablet's list of batches to show it does not.
   Staff move a Recipe, take it out of its slot, Archive it, or hide a Basket
   or Tool there, is not lost with the record. Such a refusal is not kept
   with the tablet's refusals: the removal shows as waiting meanwhile. A record of one an Admin hard-deleted is
-  removed the same way, and one the Library leaves out too, answered as set
-  aside. Each is timed by the plugin's clock, as DYE2's records carry none.
+  removed the same way, but a basket or tool a Shot it queued since it
+  loaded, or has yet to read and send, names, which it keeps as it keeps a
+  batch; and one the Library leaves out too, answered as set aside. Each is timed by the plugin's clock, as DYE2's records carry none.
   Its next read of the list it wrote is reported whatever it holds, so a
   write another app's rewrite of the list lost at the same moment shows up
   there (ADR-0005); the server then writes it again.
@@ -1965,9 +1999,11 @@ Every endpoint requires the account session; Staff read them as Admins do.
   Staff showing or hiding one at a Location they do not work at. They
   Archive and restore any.
 - `DELETE /api/beans/:id`, `DELETE /api/bean-batches/:id`, `DELETE
-  /api/grinders/:id` and `DELETE /api/profiles/:id` hard-delete one, a Bean
-  with its batches, and answer 204: Admins only. 409 if a Shot names it, or
-  one of a Bean's batches, or it is one of Decaid's bundled Profiles.
+  /api/grinders/:id`, `DELETE /api/profiles/:id`, `DELETE /api/baskets/:id`,
+  `DELETE /api/tools/:id` and `DELETE /api/recipes/:id` hard-delete one, a
+  Bean with its batches, and answer 204: Admins only. 409 if a Shot names
+  it, or one of a Bean's batches, or a Recipe names a Basket or Tool, or it
+  is one of Decaid's bundled Profiles.
 - `GET /api/baskets` and `GET /api/tools` return `{ baskets }` and
   `{ tools }`, each `{ id, name, archived, shownAt, createdAt,
   createdLocation, content }`, by name, ignoring case; `shownAt` as a
@@ -2041,8 +2077,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   of it; and when the server took it in, by PostgreSQL's clock. The first is
   the item joining the Library. 404 if the Library does not have the item.
 - Each item's Shots are the Shots list's, filtered by it: `GET
-  /api/shots?beanId=`, `beanBatchId=`, `grinderId=` or `profileId=`
-  (`SHOTS.md`).
+  /api/shots?beanId=`, `beanBatchId=`, `grinderId=`, `profileId=`,
+  `recipeId=` or `basketId=` (`SHOTS.md`). A Tool lists none, as Shots are
+  not linked to their Tools.
 - `GET /api/conflicts` returns `{ conflicts }`, the open Conflicts, the
   latest first, each `{ id, item, field, value, location, source, editedAt,
   createdAt, state, current, resolvable }`: the item `{ kind, id, name }`,

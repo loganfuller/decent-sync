@@ -380,6 +380,10 @@ export interface ShotSummary {
   grinder: GrinderLink | null;
   /** The Library's Profile it was pulled with: the one its Workflow's profile hashes to, as Decaid's ids do. */
   profile: ProfileLink | null;
+  /** The Library's Recipe it was pulled with: the one its Workflow named as loaded, where its Machine had it loaded then. */
+  recipe: NamedLink | null;
+  /** The Library's Basket DYE2 recorded for it, through its tablet's ids, as the Bean Batch is. */
+  basket: NamedLink | null;
 }
 
 /** A Library Bean Batch a Shot is linked to: its Bean and roast date, as the Bean Batches list names them. */
@@ -399,6 +403,12 @@ export interface GrinderLink {
 export interface ProfileLink {
   id: string;
   title: string | null;
+}
+
+/** A Library Recipe a Shot was pulled with, or a Basket it used, by its name. */
+export interface NamedLink {
+  id: string;
+  name: string | null;
 }
 
 /** One page of a Shots list, and how many Shots the whole list has. */
@@ -425,6 +435,10 @@ export interface ShotFilterOptions {
   beanBatches: (BatchLink | null)[];
   /** The Library's Grinders listed Shots are linked to, each with its Location; null stands for Shots linked to none. */
   grinders: ((GrinderLink & { location: Location | null }) | null)[];
+  /** The Library's Recipes listed Shots are linked to, each with its Location; null stands for Shots linked to none. */
+  recipes: ((NamedLink & { location: Location | null }) | null)[];
+  /** The Library's Baskets listed Shots are linked to; null stands for Shots linked to none. */
+  baskets: (NamedLink | null)[];
 }
 
 /** A Steam Record as the Steam Records list shows it: what it measured and how it was credited, without its record or curves. */

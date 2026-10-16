@@ -1247,17 +1247,18 @@ var __decentSync = (() => {
       __publicField(this, "log", log);
       __publicField(this, "posted", posted);
       /**
-       * The batch, Grinder and profile records the Shots this plugin queued since
-       * it loaded name, as `kind:id`: a few per batch, Grinder and profile used.
-       * A profile is named by its steps (`stepsKey`), as a skin sets the
-       * Workflow's profile's targets for the Shot, and by the id a skin recorded,
-       * if one did.
+       * The batch, Grinder, profile, basket and tool records each Shot this
+       * plugin queued since it loaded names, by its id, as `kind:id`, as its
+       * latest record names them, with that record's edit time (`editOrder`):
+       * a few per Shot. A profile is named by its steps (`stepsKey`), as a skin
+       * sets the Workflow's profile's targets for the Shot, and by the id a skin
+       * recorded, if one did.
        */
-      __publicField(this, "shotsName", /* @__PURE__ */ new Set());
+      __publicField(this, "shotsName", /* @__PURE__ */ new Map());
       /** The Shots still to be sent that `namedByShot` read. */
       __publicField(this, "shotsRead", /* @__PURE__ */ new Set());
       outbox.watch((delivery) => {
-        if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shot);
+        if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shotId, delivery.shot);
       });
     }
     /** Deletes a record of a hard-deleted item once the reads and writes before it are done, and queues its answer. It never rejects. */
@@ -1277,22 +1278,41 @@ var __decentSync = (() => {
       for (const id of unread) {
         const shot = await readShot(id);
         this.shotsRead.add(id);
-        if (shot) this.noteShot(shot);
+        if (shot) this.noteShot(id, shot);
       }
-      return [...ids].some((id) => this.shotsName.has(`${kind}:${id}`));
+      const named = [...ids].map((id) => `${kind}:${id}`);
+      return [...this.shotsName.values()].some(({ names }) => named.some((name) => names.has(name)));
     }
-    /** Notes the batch, Grinder and profile records a Shot names. */
-    noteShot(shot) {
-      const workflow = shot.workflow;
-      if (!isObject3(workflow)) return;
+    /**
+     * Notes the batch, Grinder, profile, basket and tool records a Shot names,
+     * in place of what an older record of it named, as the server keeps a
+     * Shot's latest metadata by its edit time: so an edit naming another
+     * basket, say, no longer keeps the one it named before, and a record read
+     * before that edit but noted after it, as one whose read was slow, changes
+     * nothing. A record of the same edit time adds what it names, as keeping
+     * more records is the safe side.
+     */
+    noteShot(id, shot) {
+      const version = editOrder(shot.updatedAt);
+      const noted = this.shotsName.get(id);
+      if (noted && version < noted.version) return;
+      const names = noted && version === noted.version ? noted.names : /* @__PURE__ */ new Set();
+      this.shotsName.set(id, { version, names });
+      const workflow = isObject3(shot.workflow) ? shot.workflow : {};
       const steps = stepsKey(isObject3(workflow.profile) ? workflow.profile.steps : void 0);
-      if (steps !== null) this.shotsName.add(`profile:${steps}`);
-      const context = workflow.context;
-      if (!isObject3(context)) return;
-      if (typeof context.beanBatchId === "string") this.shotsName.add(`beanBatch:${context.beanBatchId}`);
-      if (typeof context.grinderId === "string") this.shotsName.add(`grinder:${context.grinderId}`);
-      const skin = isObject3(context.extras) ? context.extras.workflowSkin : void 0;
-      if (isObject3(skin) && typeof skin.selectedProfileId === "string") this.shotsName.add(`profile:${skin.selectedProfileId}`);
+      if (steps !== null) names.add(`profile:${steps}`);
+      const context = isObject3(workflow.context) ? workflow.context : {};
+      const extras = isObject3(context.extras) ? context.extras : {};
+      if (typeof context.beanBatchId === "string") names.add(`beanBatch:${context.beanBatchId}`);
+      if (typeof context.grinderId === "string") names.add(`grinder:${context.grinderId}`);
+      if (isObject3(extras.workflowSkin) && typeof extras.workflowSkin.selectedProfileId === "string") names.add(`profile:${extras.workflowSkin.selectedProfileId}`);
+      const edited = isObject3(shot.annotations) && isObject3(shot.annotations.extras) ? shot.annotations.extras : {};
+      const basket = edited.basketId != null || edited.basketName != null ? edited.basketId : extras.basketId;
+      if (typeof basket === "string") names.add(`basket:${basket}`);
+      for (const recorded of [edited, extras]) {
+        const tools = Array.isArray(recorded.equipmentIds) ? recorded.equipmentIds : [recorded.equipmentId];
+        for (const id2 of tools) if (typeof id2 === "string") names.add(`tool:${id2}`);
+      }
     }
     /** Removes a record from one of DYE2's lists once the reads and writes before it are done, and queues its answer. It never rejects. */
     drop(remove) {
@@ -1382,6 +1402,10 @@ var __decentSync = (() => {
     if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
     const answer = await request("DELETE", `${path}/purge`);
     return answer.ok || answer.status === 400 && answer.text.includes("Profile not found") ? deleted(remove) : refused(remove, answer.status, answer.text);
+  }
+  function editOrder(updatedAt) {
+    const parts = typeof updatedAt === "string" ? /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?Z$/.exec(updatedAt) : null;
+    return parts ? `${parts[1]}.${(parts[2] ?? "").padEnd(12, "0")}` : "";
   }
   var SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches";
   var MAX_SHOTS_READ = 20;
@@ -1675,8 +1699,14 @@ var __decentSync = (() => {
     return {
       list: path,
       write: (write, _log, posted) => key === "recipes" ? writeRecipe(list(posted), write) : writeInList(list(posted), write),
-      // A hard-deleted item's record is removed as one its Location no longer shows is: no Shot names it by its id here.
-      remove: async (remove, _namedByShot, posted) => {
+      // A hard-deleted item's record is removed as one its Location no longer shows is. A Shot names a basket or tool by its
+      // id here, so one a Shot this plugin has yet to send names is kept, as a batch is (`deleteRecord`); none names a recipe
+      // by its id here, its slot.
+      remove: async (remove, namedByShot, posted) => {
+        if (key !== "recipes") {
+          const named = await namedByShot(key === "baskets" ? "basket" : "tool", /* @__PURE__ */ new Set([remove.localId]));
+          if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
+        }
         const answer = await removeFromList(list(posted), remove);
         return answer.type === "removed" ? { ...answer, type: "deleted" } : answer;
       },

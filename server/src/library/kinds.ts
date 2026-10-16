@@ -13,7 +13,7 @@ import {
 } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import type { PrismaService } from "../prisma.service.js";
-import { shotLinkedSql, stepsKeySql } from "../shots/links.js";
+import { shotLinkedSql, shotLinkedToRecipesSql, stepsKeySql } from "../shots/links.js";
 import { batchContent } from "./batch-intake.js";
 import { recordBatchWritten, takeInBatches } from "./bean-batches.js";
 import { beanContent } from "./bean-intake.js";
@@ -211,6 +211,8 @@ export interface LibraryKindDescription extends VersionedKindDescription {
   shotsNameSql(ids: readonly string[]): Prisma.Sql;
   /** What a hard delete refused as a Shot names it says it named. */
   namedAs: string;
+  /** Whether a Recipe names one of these items, which a hard delete refuses too, for a Basket or Tool; absent for a kind whose Recipes are left naming one deleted. */
+  recipesNameSql?(ids: readonly string[]): Prisma.Sql;
   /** Why the item cannot be hard-deleted at all, as one of Decaid's bundled Profiles, or null. */
   undeletable(tx: Prisma.TransactionClient, id: string): Promise<string | null>;
   /** Keeps each tablet's record of a hard-deleted item as due to be deleted there (`tablet_deletions`), and its global id (`deleted_items`) if its records carry one. */
@@ -646,8 +648,10 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     plan: (offer, held) => recipeWrites(offer, held),
     offersAnySql: (locationId) => Prisma.sql`SELECT 1 FROM recipes WHERE location_id = ${locationId}::uuid AND slot IS NOT NULL AND NOT archived LIMIT 1`,
     stateLocationsSql: (ids) => Prisma.sql`SELECT location_id::text AS id FROM recipes WHERE id = ANY(${ids}::uuid[]) AND location_id IS NOT NULL`,
-    // No Shot is linked to one yet (#147): until it is, none is hard-deleted, as one may be named.
-    shotsNameSql: () => Prisma.sql`true`,
+    // A Shot names a Recipe by its global id, which it is linked by only where its Machine had the Recipe loaded
+    // (shots/links.ts): a Capture-only Machine's Shots name one it never had. A record of one a Shot names is never held
+    // back on a tablet: its id there is its slot, which no Shot names.
+    shotsNameSql: (ids) => shotLinkedToRecipesSql(ids),
     namedAs: "this Recipe",
     undeletable: async () => null,
     keepDeletion: (tx, id) => keepRecordDeletions(tx, "recipe", id),
@@ -669,8 +673,9 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
  * A kind DYE2 keeps in a list of Decaid's store, Baskets or Tools (ADR-0005):
  * in the Library, and shown or hidden at each Location as a Profile is
  * (ADR-0008), its records carrying their global id in a top-level field of
- * their own. Neither belongs to a Location, nor is named by Shots the server
- * links yet.
+ * their own. Neither belongs to a Location. A Shot names each by its id on
+ * the tablet that pulled it, a Basket linked to it as a batch is (#147), its
+ * Tools not; and a Recipe names each by its global id.
  */
 function equipmentKind(
   kind: EquipmentKind,
@@ -721,12 +726,33 @@ function equipmentKind(
     plan: (offer, held) => equipmentWrites(kind, offer, held),
     offersAnySql: (locationId) => Prisma.sql`SELECT 1 FROM ${table} AS items ${shownHere(locationId)} WHERE NOT items.archived LIMIT 1`,
     stateLocationsSql: (ids) => Prisma.sql`SELECT location_id::text AS id FROM ${shown} WHERE ${column} = ANY(${ids}::uuid[])`,
-    // No Shot is linked to one yet, nor read for the ids DYE2 records: until it is, none is hard-deleted, as one may be named.
-    shotsNameSql: () => Prisma.sql`true`,
+    ...(kind === "basket" ? { shotLink: { local: "basket_id", link: "library_basket_id" } } : {}),
+    // A Shot names one by its id on the tablet that pulled it, so one whose record has that id on any tablet's map is named,
+    // as is one a Shot is linked to, whose record may have left the map since, as one Archived or hidden there.
+    shotsNameSql: (ids) =>
+      kind === "basket"
+        ? Prisma.sql`(
+            EXISTS (SELECT 1 FROM shots JOIN tablet_baskets AS held ON held.local_id = shots.basket_id WHERE held.basket_id = ANY(${ids}::uuid[]))
+            OR ${shotLinkedSql("basket", ids)}
+          )`
+        : Prisma.sql`(
+            EXISTS (SELECT 1 FROM tablet_tools AS held JOIN shots ON shots.tool_ids @> ARRAY[held.local_id] WHERE held.tool_id = ANY(${ids}::uuid[]))
+            OR EXISTS (SELECT 1 FROM shots WHERE shots.library_tool_ids && ${ids.map((id) => id.toLowerCase())}::text[])
+          )`,
     namedAs: `this ${name}`,
+    recipesNameSql: (ids) =>
+      kind === "basket"
+        ? Prisma.sql`EXISTS (SELECT 1 FROM recipes WHERE lower(content ->> 'basketId') = ANY(${ids}::text[]))`
+        : Prisma.sql`EXISTS (
+            SELECT 1 FROM recipes, jsonb_array_elements_text(CASE WHEN jsonb_typeof(content -> 'toolIds') = 'array' THEN content -> 'toolIds' ELSE '[]' END) AS tool(id)
+            WHERE lower(tool.id) = ANY(${ids}::text[])
+          )`,
     undeletable: async () => null,
     keepDeletion: (tx, id) => keepRecordDeletions(tx, kind, id),
-    deleteHeldSql: () => Prisma.sql`false`,
+    deleteHeldSql: (due) =>
+      kind === "basket"
+        ? Prisma.sql`EXISTS (SELECT 1 FROM shots WHERE shots.basket_id = ${due}.local_id)`
+        : Prisma.sql`EXISTS (SELECT 1 FROM shots WHERE shots.tool_ids @> ARRAY[${due}.local_id])`,
     state: {
       fields: ["shown"],
       current: async (db, wanted) => {
