@@ -180,7 +180,7 @@ export interface TabletChange {
   kind: ItemKind | "workflow" | "loadedRecipe";
   /** The item, named as Conflicts name it, a Loaded Recipe as its Recipe; null for a record set aside, which is none of the Library's, or an item deleted since. */
   item: { kind: ItemKind | "workflow" | "loadedRecipe"; id: string; name: string | null } | null;
-  /** Decaid's id for the tablet's record; null for a create, the settings and the Workflow. */
+  /** Decaid's id for the tablet's record; null for a create, a Workflow or a Loaded Recipe. */
   localId: string | null;
 }
 

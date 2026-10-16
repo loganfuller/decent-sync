@@ -1625,7 +1625,10 @@ keeping nothing (ADR-0016).
 DYE2's recipes still hold a steam time or flow and a flush time, which
 applying one merges into the Workflow. The server neither takes them in nor
 writes them, so each tablet's records keep their own, and applying one sets
-them on that Machine alone (Taking in a tablet's recipes, above).
+them on that Machine alone (Taking in a tablet's recipes, above). A Recipe's
+steam mode is still its own field, so a switch of it on one tablet reaches
+the others, whose records may then hold no value of the new mode until
+#173 writes the Recipe's.
 
 Streamline, a skin, remembers what the barista last set for some of the
 steam, hot water and rinse settings in Decaid's store, under
