@@ -427,11 +427,11 @@ temperature, its profile's first step's (`LOADED_RECIPE_PARTS` in
 `protocol/`). Its Grinder is `grinderId` and `grinderModel`, as DYE2 applies a
 recipe's, not the grinder's burrs: Decaid copies onto each Shot it stores
 the burrs of the grinder the Shot names (`PersistenceController.persistShot`
-in `decaid:lib/src/controllers/persistence_controller.dart`), so Shots are
-right, and only the Workflow may show the previous grinder's burrs until
-then. The Workflow's Profile is held as the Library Profile it is,
-found as a Shot's is (`profileOfSql`). The server keeps, per tablet, the
-Recipe its Workflow last named and those parts as the Workflow held them,
+in `decaid:lib/src/controllers/persistence_controller.dart`) and leaves the
+Workflow's alone, so Shots record the burrs of the grinder loaded, while the
+Workflow may go on showing a previous grinder's. The Workflow's Profile is
+held as the Library Profile it is, found as a Shot's is (`profileOfSql`).
+The server keeps, per tablet, the Recipe its Workflow last named and those parts as the Workflow held them,
 reported, recorded by DYE2, or as Decaid returned the plugin's write of
 them (`tablet_loaded_recipes`), as it keeps the shared settings
 (`tablet_settings`), so the plugin's own write is never read as the
