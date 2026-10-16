@@ -417,10 +417,12 @@ export async function recordRecipeWritten(
     if (known) {
       const answered = answeredEquipment(recipeView(known.record), view, written, known.beforeWrite, await recordFor(tx, ids, content, localId, itemId));
       // What DYE2 recorded into the record just before the plugin's read of the list, which its post kept, is judged as a
-      // report's is (ADR-0022).
+      // report's is (ADR-0022): every field the write did not set, one a stale save's rule takes as unchanged included, as
+      // that is still what the Workflow holds, which the Recipe's is written back over.
       const saved = savedInEditor(known.record, record);
       if (here && saved) await heldAfterEditorSave(tx, tablet, itemId, content);
-      const recorded = here && !saved ? await recordedByDye2(tx, tablet, itemId, content, item.fieldEdits, answered.values) : new Set<string>();
+      const unwritten = Object.fromEntries(Object.entries(editedContent(recipeView(known.record), view, null)).filter(([path]) => !written.has(path)));
+      const recorded = here && !saved ? await recordedByDye2(tx, tablet, itemId, content, item.fieldEdits, unwritten) : new Set<string>();
       for (const path of recorded) delete answered.values[path];
       const paths = editedPaths(answered.values);
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
