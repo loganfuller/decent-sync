@@ -108,12 +108,17 @@ and Grinder are kept by their ids on the tablet that pulled it
 an Admin's hard delete of a Library item a Shot names is refused
 (`LIBRARY.md`, Hard deletes). A Shot names the Profile it used by its
 Workflow's `profile`'s steps, indexed by hash, or by the `profile_id` a skin
-recorded in its Workflow, indexed too.
+recorded in its Workflow, indexed too. It keeps the Basket and Tools DYE2
+recorded by their ids on its tablet (`basket_id`, and `tool_ids`, indexed
+by GIN), and the Recipe its Workflow named as loaded by its global id
+(`recipe_id`), each indexed.
 
 ## Links to the Library
 
 Ticket [#92](https://github.com/loganfuller/decent-sync/issues/92) links each
-Shot to the Library's Bean Batch, Grinder and Profile it used
+Shot to the Library's Bean Batch, Grinder and Profile it used, and ticket
+[#147](https://github.com/loganfuller/decent-sync/issues/147) to the Recipe
+its Machine had loaded and the Basket DYE2 recorded
 (`server/src/shots/links.ts`):
 
 - **Bean Batch and Grinder.** A Shot keeps the tablet that reported the
@@ -172,6 +177,40 @@ Shot to the Library's Bean Batch, Grinder and Profile it used
   Profile's title edited since leaves its earlier Shots naming the old one,
   so once a second Profile matches them their overrides decide between the
   two.
+- **Basket.** DYE2 records a Shot's Basket by its id on the tablet: one its
+  Edit Shot page set, in the annotations' extras, wherever that page set a
+  Basket or its name, or else the Workflow's as the Shot was pulled, in its
+  context's extras, as DYE2 reads it (`shotBasketRpm` in
+  `dye2:dye2-plugin/src/utils/recorded-shot.ts`). It is linked through the
+  reporting tablet's map (`tablet_baskets`) as the batch and Grinder are
+  (`library_basket_id`), as the Shot is stored or as the map gains the id,
+  and a Shot edited on DYE2's Edit Shot page is linked again by the
+  Basket it sets. Shots stored before this keep none of these ids until
+  they are stored again; Shots that reach the server later, as from a
+  tablet's backfill, link their Basket where the tablet's map has its id.
+- **Recipe.** The plugin writes the Loaded Recipe's global id into the
+  Workflow's context (`decentSyncRecipeId`, ADR-0022), which Decaid copies
+  onto each Shot pulled with it. A Shot is linked to that Recipe where its
+  Machine had it loaded as it was pulled, by the Machine's Loaded Recipes
+  (`loaded_recipes`, `WORKFLOW-AND-STATE.md`, The Loaded Recipe), not by the
+  id alone: a Capture-only Machine's Workflow names the recipe DYE2 has
+  selected there, which is not its Loaded Recipe, and its Shots stay
+  unlinked, even once sharing is back on. Pulled means from the Shot's
+  start to its last sample, both by the tablet's clock, as the Loaded
+  Recipes are timed; so a Shot started as the plugin's write of the id
+  landed, before the plugin reported the Workflow holding it, is still
+  linked. The link is read, not stored (`shotRecipeSql`), so it follows the
+  Loaded Recipes as their deliveries arrive, those of a tablet that was
+  offline included, and the Shot's credit, as an adoption changes it. A
+  Shot whose time is unknown, or that only a Pending Machine holds, is
+  linked to none. Shots pulled before the plugin wrote the id, as those
+  captured before this milestone, name none; ADR-0022 accepts that a Shot
+  started between a recipe applied from DYE2's dashboard and the plugin's
+  write carries the Recipe loaded before it, or none.
+- **Tools** are not linked: a Shot's page shows the names DYE2 stored. Their
+  ids (`tool_ids`), from the annotations' extras and the Workflow's, as
+  DYE2's Edit Shot page reads them, only keep a Tool from being
+  hard-deleted.
 - **The skin's profile id is not used.** The profile id the WorkFlow skin
   (`Sabotage1/WorkFlow-Skin`) records in the Workflow
   (`context.extras.workflowSkin.selectedProfileId`, kept as `profile_id`)
@@ -208,8 +247,9 @@ All endpoints require a signed-in account, Admin or Staff.
   inferred Machine. Correcting the Machine's Location History changes these,
   never the stored record. Each row names the Library items it is linked to
   (Links to the Library, above), each null when none: `beanBatch` (`{ id,
-  bean: { id, roaster, name }, roastDate }`), `grinder` (`{ id, model }`)
-  and `profile` (`{ id, title }`).
+  bean: { id, roaster, name }, roastDate }`), `grinder` (`{ id, model }`),
+  `profile` (`{ id, title }`), `recipe` (`{ id, name }`) and `basket` (`{
+  id, name }`).
 - Filters, each given at most once and combined with AND
   (`server/src/shots/filters.ts`; the Machine, Location and date filters are
   `server/src/record-filters.ts`, which Steam Records lists share):
@@ -224,8 +264,10 @@ All endpoints require a signed-in account, Admin or Staff.
     they recorded, so a batch is compared across Machines and Locations;
     `none` for Shots linked to none. `beanId`: Shots linked to any of that
     Bean's batches. `profileId`: Shots pulled with that Library Profile.
-    Each item's page lists its Shots through these. A malformed id is a
-    404.
+    `recipeId`: Shots pulled with that Recipe loaded on their Machine, or
+    `none` for Shots linked to none. `basketId`: Shots linked to that
+    Basket, or `none`. Each item's page lists its Shots through these. A
+    malformed id is a 404.
   - `from` and `to`: a local date (`2026-10-05`) or date and time
     (`2026-10-05T06:00`) without an offset, read on each Shot's own
     Location's wall clock, or UTC for a Shot with no Location. `from` is the
@@ -234,13 +276,14 @@ All endpoints require a signed-in account, Admin or Staff.
     across a daylight-saving change, and an hour the clocks repeat is listed
     twice. Shots whose time is unknown match no time filter.
 - `GET /api/shots/filters` returns `{ beans, baristas, profiles,
-  beanBatches, grinders }`: the distinct Beans (`{ coffeeRoaster, coffeeName
-  }`), Baristas and profile titles listed Shots recorded, sorted ignoring
-  case, with null for Shots that recorded none; and the Library's Bean
-  Batches (`{ id, bean: { id, roaster, name }, roastDate }`, as the Bean
-  Batches list orders them) and Grinders (`{ id, model, location }`, by
-  model, then Location) listed Shots are linked to, with null last for
-  Shots linked to none.
+  beanBatches, grinders, recipes, baskets }`: the distinct Beans (`{
+  coffeeRoaster, coffeeName }`), Baristas and profile titles listed Shots
+  recorded, sorted ignoring case, with null for Shots that recorded none;
+  and the Library's Bean Batches (`{ id, bean: { id, roaster, name },
+  roastDate }`, as the Bean Batches list orders them), Grinders (`{ id,
+  model, location }`, by model, then Location), Recipes (`{ id, name,
+  location }`, by name, then Location) and Baskets (`{ id, name }`, by name)
+  listed Shots are linked to, with null last for Shots linked to none.
 - `GET /api/shots/:id` returns `{ shot }`, including the stored Decaid metadata
   in `shot.record`, without measurements, and `shot.previousShot`
   (`{ id, pulledAt }` or null): the listed Shot just before it on the same
@@ -266,19 +309,22 @@ daylight-saving changes, and previous Shots.
 ## Management interface
 
 `/shots` lists Shots with the REST filters in its address, so a filtered
-list can be shared or reloaded, the Bean Batch and Grinder among them;
-`/shots/:id` shows a Shot's curves (pressure,
+list can be shared or reloaded, the Bean Batch, Grinder, Recipe and Basket
+among them; `/shots/:id` shows a Shot's curves (pressure,
 flow, weight and basket temperature, with the targets its profile set),
-everything its record holds, its credit, the Library's Bean Batch, Grinder
-and Profile it is linked to, each linking to its page, and a comparison with
-its previous Shot. Each Bean's, Bean Batch's, Grinder's and Profile's page
-lists its Shots, ten at a time (`web/src/components/item-shots.tsx`).
+everything its record holds, the Basket's and Tools' names DYE2 stored
+among it, its credit, the Library's Recipe, Bean Batch, Grinder, Basket
+and Profile it is linked to, each linking to its page, and a comparison
+with its previous Shot. Each Bean's, Bean Batch's, Grinder's, Profile's,
+Recipe's and Basket's page lists its Shots, ten at a time
+(`web/src/components/item-shots.tsx`).
 Times are shown in each Shot's Location's time zone, or UTC, labelled, for a
 Shot with no Location. `web/src/lib/curves.ts` turns Decaid's
 measurements into curves, counting time as `elapsedSeconds` does.
 `e2e/shots.spec.ts` covers them with Shots seeded through simulated tablets,
-and `e2e/shot-links.spec.ts` a batch's Shots and the Bean Batch and Grinder
-filters.
+`e2e/shot-links.spec.ts` a batch's Shots and the Bean Batch and Grinder
+filters, and `e2e/shot-recipe-links.spec.ts` a Recipe's and a Basket's
+Shots, their filters, and the hard deletes they decide.
 
 `server/test/shots.test.ts` verifies the built plugin through Seam 1, REST
 reads, and two server instances sharing PostgreSQL. It includes 205-record
@@ -290,4 +336,7 @@ replays, precise version ordering, restart, hardware attribution, dismissal
 and adoption, identity mismatch, transient and persistent API failures, ignored
 legacy imports, incompatible records and their warnings, and lists while the measurements
 table is locked. `server/test/shot-links.test.ts` covers the links to the
-Library the same way, at two Locations on two instances.
+Library the same way, at two Locations on two instances, and
+`server/test/shot-recipe-links.test.ts` the Recipe and Basket links, a
+Shot pulled offline and one on a Capture-only Machine included, and the
+hard deletes of Recipes, Baskets and Tools.

@@ -344,8 +344,11 @@ export class LibraryWrites {
     return [...ids].some((id) => this.shotsName.has(`${kind}:${id}`));
   }
 
-  /** Notes the batch, Grinder and profile records a Shot names. */
+  /** Notes the batch, Grinder, profile, basket and tool records a Shot names. */
   private noteShot(shot: Record<string, unknown>): void {
+    // DYE2's Edit Shot page records the basket and tools in the annotations' extras, as the server reads them (shots/extraction.ts).
+    const edited = isObject(shot.annotations) && isObject(shot.annotations.extras) ? shot.annotations.extras : {};
+    this.noteEquipment(edited);
     const workflow = shot.workflow;
     if (!isObject(workflow)) return;
     const steps = stepsKey(isObject(workflow.profile) ? workflow.profile.steps : undefined);
@@ -356,6 +359,14 @@ export class LibraryWrites {
     if (typeof context.grinderId === "string") this.shotsName.add(`grinder:${context.grinderId}`);
     const skin = isObject(context.extras) ? context.extras.workflowSkin : undefined;
     if (isObject(skin) && typeof skin.selectedProfileId === "string") this.shotsName.add(`profile:${skin.selectedProfileId}`);
+    if (isObject(context.extras)) this.noteEquipment(context.extras);
+  }
+
+  /** Notes the basket and tools that extras DYE2 keeps on a Shot name, each one the server may count as named. */
+  private noteEquipment(extras: Record<string, unknown>): void {
+    if (typeof extras.basketId === "string") this.shotsName.add(`basket:${extras.basketId}`);
+    const tools = Array.isArray(extras.equipmentIds) ? extras.equipmentIds : [extras.equipmentId];
+    for (const id of tools) if (typeof id === "string") this.shotsName.add(`tool:${id}`);
   }
 
   /** Removes a record from one of DYE2's lists once the reads and writes before it are done, and queues its answer. It never rejects. */
@@ -956,8 +967,14 @@ function dye2Writer(key: Dye2Key): LibraryKindWriter {
   return {
     list: path,
     write: (write, _log, posted) => (key === "recipes" ? writeRecipe(list(posted), write) : writeInList(list(posted), write)),
-    // A hard-deleted item's record is removed as one its Location no longer shows is: no Shot names it by its id here.
-    remove: async (remove, _namedByShot, posted) => {
+    // A hard-deleted item's record is removed as one its Location no longer shows is. A Shot names a basket or tool by its
+    // id here, so one a Shot this plugin has yet to send names is kept, as a batch is (`deleteRecord`); none names a recipe
+    // by its id here, its slot.
+    remove: async (remove, namedByShot, posted) => {
+      if (key !== "recipes") {
+        const named = await namedByShot(key === "baskets" ? "basket" : "tool", new Set([remove.localId]));
+        if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
+      }
       const answer = await removeFromList(list(posted), remove);
       return answer.type === "removed" ? { ...answer, type: "deleted" } : answer;
     },

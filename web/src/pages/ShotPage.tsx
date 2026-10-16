@@ -13,7 +13,7 @@ import {
   numberText,
   secondsText,
 } from "@/components/records";
-import { ShotBatch, ShotGrinder, ShotProfile, beanText, gramsText, shotTime } from "@/components/shots";
+import { ShotBasket, ShotBatch, ShotGrinder, ShotProfile, ShotRecipe, beanText, gramsText, shotTime } from "@/components/shots";
 import { amount, present, record, text, workflowFields } from "@/components/workflow";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -156,6 +156,9 @@ function ShotDetails({ id }: { id: string }) {
               <Field term="Location">
                 <LocationCredit record={shot} />
               </Field>
+              <Field term="Recipe">
+                <ShotRecipe shot={shot} />
+              </Field>
               <Field term="Profile">
                 <ShotProfile shot={shot} />
               </Field>
@@ -167,6 +170,9 @@ function ShotDetails({ id }: { id: string }) {
               </Field>
               <Field term="Grinder">
                 <ShotGrinder shot={shot} />
+              </Field>
+              <Field term="Basket">
+                <ShotBasket shot={shot} />
               </Field>
               <Field term="Dose">
                 <OrNone>{gramsText(shot.actualDose, shot.targetDose)}</OrNone>
@@ -283,11 +289,18 @@ function shotWorkflowFields(shot: Record<string, unknown>): [string, string][] {
   if (!workflow) return [];
   const context = record(workflow.context);
   const extras = record(context?.extras);
+  // DYE2's Edit Shot page records the Basket and Tools in the annotations' extras, over the Workflow's (`shotBasketRpm` in DYE2).
+  const edited = record(record(shot.annotations)?.extras);
+  const basket = edited?.basketId != null || edited?.basketName != null ? edited : extras;
+  const toolNames = (from: Record<string, unknown> | undefined) =>
+    Array.isArray(from?.equipmentNames) ? from.equipmentNames : from?.equipmentName != null ? [from.equipmentName] : [];
+  const tools = [...toolNames(edited), ...toolNames(extras)].filter((name): name is string => typeof name === "string" && name !== "");
   return [
     ...workflowFields(workflow),
     ...present([
       ["Drinker", text(context?.drinkerName)],
-      ["Basket", text(extras?.basketName)],
+      ["Basket", text(basket?.basketName)],
+      ["Tools", tools.length > 0 ? [...new Set(tools)].join(", ") : undefined],
       ["Bean Batch, by its tablet's id", text(context?.beanBatchId)],
     ]),
   ];

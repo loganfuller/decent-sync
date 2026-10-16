@@ -490,6 +490,23 @@ model Shot {
   libraryBatch     BeanBatch?        @relation(fields: [libraryBatchId], references: [id], onDelete: SetNull)
   libraryGrinderId String?           @map("library_grinder_id") @db.Uuid
   libraryGrinder   Grinder?          @relation(fields: [libraryGrinderId], references: [id], onDelete: SetNull)
+  /// The Basket DYE2 recorded, by its id on that tablet: its Edit Shot
+  /// page's, in the annotations' extras, or else the Workflow's, in its
+  /// context's extras. A Basket whose record has that id on any tablet is
+  /// named by the Shot, and is never hard-deleted.
+  basketId         String?           @map("basket_id")
+  /// The Library's Basket it resolves to through that tablet's map, as the
+  /// batch and Grinder are.
+  libraryBasketId  String?           @map("library_basket_id") @db.Uuid
+  libraryBasket    Basket?           @relation(fields: [libraryBasketId], references: [id], onDelete: SetNull)
+  /// The Tools DYE2 recorded, by their ids on that tablet, which name them,
+  /// so none is hard-deleted; a Shot is not linked to its Tools.
+  toolIds          String[]          @default([]) @map("tool_ids")
+  /// The global id of the Recipe its Workflow named as loaded
+  /// (`decentSyncRecipeId`, ADR-0022). The Shot is linked to it only where
+  /// its Machine had it loaded as it was pulled (server/src/shots/links.ts),
+  /// which is read, not stored.
+  recipeId         String?           @map("recipe_id") @db.Uuid
   coffeeName       String?           @map("coffee_name")
   coffeeRoaster    String?           @map("coffee_roaster")
   profileTitle     String?           @map("profile_title")
@@ -514,6 +531,10 @@ model Shot {
   @@index([profileId])
   @@index([libraryBatchId])
   @@index([libraryGrinderId])
+  @@index([basketId])
+  @@index([libraryBasketId])
+  @@index([recipeId])
+  @@index([toolIds], type: Gin)
   /// The migration also indexes the steps of its Workflow's profile, by
   /// hash, which a Profile's hard delete looks for, and the ids of the Shots
   /// not linked yet, partially; Prisma cannot express either.
@@ -1067,6 +1088,7 @@ model Basket {
 
   locations BasketLocation[]
   tablets   TabletBasket[]
+  shots     Shot[]
 
   @@index([matchKey])
   @@map("baskets")

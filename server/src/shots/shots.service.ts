@@ -8,7 +8,7 @@ import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
 import { extractCurves, extractShot, object, shotHardware, shotVersion, string } from "./extraction.js";
 import { type ShotFilters, shotFilterSql } from "./filters.js";
-import { claimListed, resolveLinks, shotProfileSql } from "./links.js";
+import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
 const SHOT_LOCK = 4_000_003;
@@ -55,6 +55,8 @@ export class ShotsService {
       const credit = full && !stored?.hasFullRecord ? await this.credit(tx, incoming, reporter) : null;
       // Its ids are the reporting tablet's, so they resolve through its map, after the Machine's row lock credit takes.
       const links = reported ? { tabletId: reporter.tabletId, ...(await resolveLinks(tx, reporter.tabletId, message.shotId, metadata)) } : null;
+      // The Recipe it names is not hard-deleted until the Shot is stored, which the delete then finds linked to it, if it is.
+      if (reported && metadata.recipeId !== null) await tx.$queryRaw`SELECT 1 FROM recipes WHERE id = ${metadata.recipeId}::uuid FOR KEY SHARE`;
       const data = {
         ...metadata,
         ...links,
@@ -137,14 +139,15 @@ export class ShotsService {
 
   /**
    * The Beans, Baristas and profiles listed Shots recorded, for choosing
-   * filters, each as recorded and sorted ignoring case, and the Bean Batches
-   * and Grinders they are linked to. Null stands for the Shots that recorded
-   * none, or are linked to none: a Bean names neither roaster nor name.
+   * filters, each as recorded and sorted ignoring case, and the Bean
+   * Batches, Grinders, Recipes and Baskets they are linked to. Null stands
+   * for the Shots that recorded none, or are linked to none: a Bean names
+   * neither roaster nor name.
    */
   async filterOptions() {
     return this.prisma.$transaction(
       async (tx) => {
-        const [beans, baristas, profiles, batchIds, grinderIds] = await Promise.all([
+        const [beans, baristas, profiles, batchIds, grinderIds, recipeIds, basketIds] = await Promise.all([
           tx.$queryRaw<{ coffeeRoaster: string | null; coffeeName: string | null }[]>`
             SELECT nullif(s.coffee_roaster, '') AS "coffeeRoaster", nullif(s.coffee_name, '') AS "coffeeName"
             FROM shots s ${listedJoins} WHERE ${listed} GROUP BY 1, 2
@@ -153,12 +156,16 @@ export class ShotsService {
           distinct(tx, Prisma.raw("nullif(s.profile_title, '')")),
           distinct(tx, Prisma.raw("s.library_batch_id::text")),
           distinct(tx, Prisma.raw("s.library_grinder_id::text")),
+          distinct(tx, Prisma.sql`(${shotRecipeSql("s")})::text`),
+          distinct(tx, Prisma.raw("s.library_basket_id::text")),
         ]);
         const linked = (rows: { value: string | null }[]) => rows.flatMap((row) => (row.value === null ? [] : [row.value]));
         const unlinked = (rows: { value: string | null }[]) => (rows.some((row) => row.value === null) ? [null] : []);
-        const [batches, grinders] = await Promise.all([
+        const [batches, grinders, recipes, baskets] = await Promise.all([
           tx.beanBatch.findMany({ where: { id: { in: linked(batchIds) } }, select: batchLink }),
           tx.grinder.findMany({ where: { id: { in: linked(grinderIds) } }, select: { ...grinderLink, location: true } }),
+          tx.recipe.findMany({ where: { id: { in: linked(recipeIds) } }, select: { ...recipeLink, location: true } }),
+          tx.basket.findMany({ where: { id: { in: linked(basketIds) } }, select: basketLink }),
         ]);
         return {
           beans,
@@ -171,6 +178,13 @@ export class ShotsService {
               .sort((a, b) => compareText(a.model, b.model) || compareText(a.location?.name ?? null, b.location?.name ?? null) || a.id.localeCompare(b.id)),
             ...unlinked(grinderIds),
           ],
+          recipes: [
+            ...recipes
+              .map((recipe) => ({ ...viewRecipeLink(recipe), location: recipe.location ? viewLocation(recipe.location) : null }))
+              .sort((a, b) => compareText(a.name, b.name) || compareText(a.location?.name ?? null, b.location?.name ?? null) || a.id.localeCompare(b.id)),
+            ...unlinked(recipeIds),
+          ],
+          baskets: [...baskets.map(viewBasketLink).sort((a, b) => compareText(a.name, b.name) || a.id.localeCompare(b.id)), ...unlinked(basketIds)],
         };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
@@ -226,15 +240,18 @@ const listed = Prisma.sql`s.has_full_record AND (s.machine_id IS NOT NULL OR (p.
 const listedJoins = Prisma.sql`LEFT JOIN pending_machines p ON p.id = s.pending_machine_id LEFT JOIN locations l ON l.id = s.location_id`;
 const batchLink = { id: true, content: true, bean: { select: { id: true, content: true } } } as const satisfies Prisma.BeanBatchSelect;
 const grinderLink = { id: true, content: true } as const satisfies Prisma.GrinderSelect;
+const basketLink = { id: true, content: true } as const satisfies Prisma.BasketSelect;
+const recipeLink = { id: true, content: true } as const satisfies Prisma.RecipeSelect;
 const creditView = {
   machine: { select: { id: true, name: true } },
   pendingMachine: { select: { id: true, model: true, serial: true } },
   location: { select: { id: true, name: true, timeZone: true } },
   libraryBatch: { select: batchLink },
   libraryGrinder: { select: grinderLink },
+  libraryBasket: { select: basketLink },
 } as const;
 /** The columns behind a Shot's links, which it shows as the items they link to. */
-const linkColumns = { tabletId: true, libraryBatchId: true, libraryGrinderId: true } as const;
+const linkColumns = { tabletId: true, libraryBatchId: true, libraryGrinderId: true, libraryBasketId: true, recipeId: true } as const;
 const listOmitted = { record: true, versionAt: true, hasFullRecord: true, ...linkColumns } as const;
 
 /** A Library Bean Batch a Shot is linked to: its Bean and roast date, as the Bean Batches list names them. */
@@ -256,6 +273,12 @@ export interface ProfileLink {
   title: string | null;
 }
 
+/** The Library Recipe a Shot was pulled with, or a Basket it used, by its name. */
+export interface NamedLink {
+  id: string;
+  name: string | null;
+}
+
 function viewBatchLink(batch: Prisma.BeanBatchGetPayload<{ select: typeof batchLink }>): BatchLink {
   const bean = object(batch.bean.content);
   return { id: batch.id, bean: { id: batch.bean.id, roaster: string(bean.roaster), name: string(bean.name) }, roastDate: string(object(batch.content).roastDate) };
@@ -265,24 +288,56 @@ function viewGrinderLink(grinder: Prisma.GrinderGetPayload<{ select: typeof grin
   return { id: grinder.id, model: string(object(grinder.content).model) };
 }
 
+function viewBasketLink(basket: Prisma.BasketGetPayload<{ select: typeof basketLink }>): NamedLink {
+  return { id: basket.id, name: string(object(basket.content).name) };
+}
+
+function viewRecipeLink(recipe: Prisma.RecipeGetPayload<{ select: typeof recipeLink }>): NamedLink {
+  return { id: recipe.id, name: string(object(recipe.content).name) };
+}
+
 /**
  * The Shots with the Library items they are linked to (links.ts): their
- * Bean Batch and Grinder, stored, and the Profile they were pulled with.
+ * Bean Batch, Grinder and Basket, stored, and the Profile and Recipe they
+ * were pulled with.
  */
-async function withLinks<T extends { id: string; libraryBatch: Prisma.BeanBatchGetPayload<{ select: typeof batchLink }> | null; libraryGrinder: Prisma.GrinderGetPayload<{ select: typeof grinderLink }> | null }>(
+async function withLinks<
+  T extends {
+    id: string;
+    libraryBatch: Prisma.BeanBatchGetPayload<{ select: typeof batchLink }> | null;
+    libraryGrinder: Prisma.GrinderGetPayload<{ select: typeof grinderLink }> | null;
+    libraryBasket: Prisma.BasketGetPayload<{ select: typeof basketLink }> | null;
+  },
+>(
   db: Prisma.TransactionClient,
   shots: T[],
-): Promise<(Omit<T, "libraryBatch" | "libraryGrinder"> & { beanBatch: BatchLink | null; grinder: GrinderLink | null; profile: ProfileLink | null })[]> {
+): Promise<
+  (Omit<T, "libraryBatch" | "libraryGrinder" | "libraryBasket"> & {
+    beanBatch: BatchLink | null;
+    grinder: GrinderLink | null;
+    basket: NamedLink | null;
+    profile: ProfileLink | null;
+    recipe: NamedLink | null;
+  })[]
+> {
   const ids = shots.map((shot) => shot.id);
-  const profiles = await db.$queryRaw<{ shotId: string; id: string; title: string | null }[]>`
-    SELECT s.id AS "shotId", p.id, p.content -> 'profile' ->> 'title' AS title
-    FROM shots AS s JOIN profiles AS p ON p.id = ${shotProfileSql("s")} WHERE s.id = ANY(${ids}::text[])`;
-  const byShot = new Map(profiles.map(({ shotId, ...profile }) => [shotId, profile]));
-  return shots.map(({ libraryBatch, libraryGrinder, ...shot }) => ({
+  const [profiles, recipes] = await Promise.all([
+    db.$queryRaw<{ shotId: string; id: string; title: string | null }[]>`
+      SELECT s.id AS "shotId", p.id, p.content -> 'profile' ->> 'title' AS title
+      FROM shots AS s JOIN profiles AS p ON p.id = ${shotProfileSql("s")} WHERE s.id = ANY(${ids}::text[])`,
+    db.$queryRaw<{ shotId: string; id: string; name: string | null }[]>`
+      SELECT s.id AS "shotId", r.id::text AS id, r.content ->> 'name' AS name
+      FROM shots AS s JOIN recipes AS r ON r.id = ${shotRecipeSql("s")} WHERE s.id = ANY(${ids}::text[])`,
+  ]);
+  const profileOf = new Map(profiles.map(({ shotId, ...profile }) => [shotId, profile]));
+  const recipeOf = new Map(recipes.map(({ shotId, ...recipe }) => [shotId, recipe]));
+  return shots.map(({ libraryBatch, libraryGrinder, libraryBasket, ...shot }) => ({
     ...shot,
     beanBatch: libraryBatch ? viewBatchLink(libraryBatch) : null,
     grinder: libraryGrinder ? viewGrinderLink(libraryGrinder) : null,
-    profile: byShot.get(shot.id) ?? null,
+    basket: libraryBasket ? viewBasketLink(libraryBasket) : null,
+    profile: profileOf.get(shot.id) ?? null,
+    recipe: recipeOf.get(shot.id) ?? null,
   }));
 }
 

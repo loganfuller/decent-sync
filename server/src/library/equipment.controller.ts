@@ -1,10 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post, Put } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from "@nestjs/common";
 import { AllowStaff, CurrentScope, CurrentSession } from "../accounts/guards.js";
 import type { Scope } from "../accounts/scope.js";
 import type { SignedIn } from "../accounts/sessions.service.js";
 import { readLocationId } from "../locations/input.js";
+import { PrismaService } from "../prisma.service.js";
 import type { EquipmentKind } from "./equipment.js";
 import { type EquipmentSummary, type EquipmentView, EquipmentService, readEquipmentId } from "./equipment.service.js";
+import { hardDelete } from "./hard-deletes.js";
 import { type ConflictView, HistoryService, type VersionView } from "./history.service.js";
 import { readArchived, readContentEdit, readNewEquipment, readShown } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
@@ -14,7 +16,7 @@ import { LibraryEditsService } from "./library-edits.service.js";
  * (ADR-0005, ADR-0008). Staff read them, edit them, and Archive and restore
  * them, as Admins do, but create them and show and hide them only at their
  * own Locations. They join the Library from tablets, or are created here.
- * Hard deletes come with the Shots that name them.
+ * Only an Admin hard-deletes one, which no Shot or Recipe names.
  */
 abstract class EquipmentController {
   constructor(
@@ -22,6 +24,7 @@ abstract class EquipmentController {
     private readonly equipment: EquipmentService,
     private readonly history: HistoryService,
     private readonly edits: LibraryEditsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   protected list(): Promise<EquipmentSummary[]> {
@@ -59,6 +62,11 @@ abstract class EquipmentController {
     return this.equipment.get(this.kind, itemId);
   }
 
+  /** Deletes it from the Library and from every tablet that holds it, unless a Shot or a Recipe names it. */
+  protected remove(id: string): Promise<void> {
+    return hardDelete(this.prisma, this.kind, readEquipmentId(this.kind, id));
+  }
+
   /** Its versions, the latest taken in first (ADR-0020). */
   protected versions(id: string, scope: Scope): Promise<VersionView[]> {
     return this.history.versions({ kind: this.kind, id: readEquipmentId(this.kind, id) }, scope);
@@ -73,8 +81,8 @@ abstract class EquipmentController {
 /** The Library's Baskets: DYE2's baskets, one for each model of basket at every Location. */
 @Controller("api/baskets")
 export class BasketsController extends EquipmentController {
-  constructor(equipment: EquipmentService, history: HistoryService, edits: LibraryEditsService) {
-    super("basket", equipment, history, edits);
+  constructor(equipment: EquipmentService, history: HistoryService, edits: LibraryEditsService, prisma: PrismaService) {
+    super("basket", equipment, history, edits, prisma);
   }
 
   @AllowStaff()
@@ -113,6 +121,13 @@ export class BasketsController extends EquipmentController {
     return { basket: await this.show(id, locationId, body, session) };
   }
 
+  /** Admins only. */
+  @Delete(":id")
+  @HttpCode(204)
+  async discard(@Param("id") id: string): Promise<void> {
+    await this.remove(id);
+  }
+
   @AllowStaff()
   @Get(":id/history")
   async versionsOf(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ versions: VersionView[] }> {
@@ -129,8 +144,8 @@ export class BasketsController extends EquipmentController {
 /** The Library's Tools: DYE2's equipment, such as a WDT tool or puck screen. */
 @Controller("api/tools")
 export class ToolsController extends EquipmentController {
-  constructor(equipment: EquipmentService, history: HistoryService, edits: LibraryEditsService) {
-    super("tool", equipment, history, edits);
+  constructor(equipment: EquipmentService, history: HistoryService, edits: LibraryEditsService, prisma: PrismaService) {
+    super("tool", equipment, history, edits, prisma);
   }
 
   @AllowStaff()
@@ -167,6 +182,13 @@ export class ToolsController extends EquipmentController {
   @Put(":id/locations/:locationId")
   async place(@Param("id") id: string, @Param("locationId") locationId: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ tool: EquipmentView }> {
     return { tool: await this.show(id, locationId, body, session) };
+  }
+
+  /** Admins only. */
+  @Delete(":id")
+  @HttpCode(204)
+  async discard(@Param("id") id: string): Promise<void> {
+    await this.remove(id);
   }
 
   @AllowStaff()

@@ -441,8 +441,23 @@ export function ArchiveButton({
   );
 }
 
-/** An Admin's hard delete: the item is gone from the Library and every tablet that holds it, refused while a Shot names it. */
-export function DeleteButton({ path, name, what, back }: { path: string; name: string; what?: string; back: string }) {
+/**
+ * An Admin's hard delete: the item is gone from the Library and every tablet
+ * that holds it, refused while a Shot names it, or what `deletable` says.
+ */
+export function DeleteButton({
+  path,
+  name,
+  what,
+  back,
+  deletable = "an item no Shot names",
+}: {
+  path: string;
+  name: string;
+  what?: string;
+  back: string;
+  deletable?: string;
+}) {
   const isAdmin = useIsAdmin();
   const navigate = useNavigate();
   const [error, setError] = useState<string>();
@@ -463,7 +478,7 @@ export function DeleteButton({ path, name, what, back }: { path: string; name: s
         label="Delete"
         variant="destructive"
         title={`Delete ${name}?`}
-        description={`${what === undefined ? "" : `${what} `}It is deleted from every tablet that holds it, now or once it connects, and cannot be restored. Only an item no Shot names can be deleted; Archive one that is.`}
+        description={`${what === undefined ? "" : `${what} `}It is deleted from every tablet that holds it, now or once it connects, and cannot be restored. Only ${deletable} can be deleted; Archive any other.`}
         confirmLabel="Delete"
         onConfirm={() => void remove()}
       />

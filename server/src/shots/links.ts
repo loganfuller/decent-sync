@@ -2,9 +2,9 @@ import type { LibraryKind } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { KINDS } from "../library/kinds.js";
 
-// Shots linked to the Library (ticket #92). A Shot names its Bean Batch and
-// Grinder by their ids on the tablet that reported it, which resolve to the
-// Library's items through that tablet's map (ADR-0006). A Shot stored before
+// Shots linked to the Library (tickets #92 and #147). A Shot names its Bean
+// Batch, Grinder and Basket by their ids on the tablet that reported it,
+// which resolve to the Library's items through that tablet's map (ADR-0006). A Shot stored before
 // Shots kept their tablet takes the tablet whose index lists it, as only a
 // tablet holding the Shot lists it (`claimListed`), and is linked then: so
 // once each tablet's plugin loads again, but for Shots no tablet holds any
@@ -31,6 +31,16 @@ import { KINDS } from "../library/kinds.js";
 // which stays as it was when another skin loads another profile, as Decaid
 // merges a Workflow's changes into it.
 //
+// A Shot's Recipe is the one its Workflow named as loaded
+// (`decentSyncRecipeId`, ADR-0022), where its Machine had that Recipe loaded
+// as it was pulled, by its Loaded Recipes (`loaded_recipes`): a
+// Capture-only Machine's Workflow names a recipe DYE2 has selected that is
+// not its Loaded Recipe. That is read, not stored (`shotRecipeSql`), so it
+// follows the Loaded Recipes as their deliveries arrive, those of a tablet
+// that was offline included, and the Shot's credit as it changes. Shots
+// pulled before the plugin wrote the id name none, and stay unlinked. A
+// Shot's Tools are not linked: its page shows the names DYE2 stored.
+//
 // Every change to a tablet's map holds the tablet's row lock, and links the
 // Shots it can then (`linkShots`); storing a Shot's metadata holds that row
 // for share as it resolves its ids (`resolveLinks`). So either the map's
@@ -53,8 +63,10 @@ function shotLinkOf(kind: LibraryKind): { local: string; link: string } {
 interface ShotLinks {
   beanBatchId: string | null;
   grinderId: string | null;
+  basketId: string | null;
   libraryBatchId: string | null;
   libraryGrinderId: string | null;
+  libraryBasketId: string | null;
 }
 
 /**
@@ -70,22 +82,24 @@ export async function resolveLinks(
   tx: Prisma.TransactionClient,
   tabletId: string,
   shotId: string,
-  ids: { beanBatchId: string | null; grinderId: string | null },
-): Promise<{ libraryBatchId: string | null; libraryGrinderId: string | null }> {
+  ids: { beanBatchId: string | null; grinderId: string | null; basketId: string | null },
+): Promise<{ libraryBatchId: string | null; libraryGrinderId: string | null; libraryBasketId: string | null }> {
   await tx.$queryRaw`SELECT 1 FROM tablets WHERE id = ${tabletId}::uuid FOR SHARE`;
-  const [resolved] = await tx.$queryRaw<{ batch: string | null; grinder: string | null }[]>`
+  const [resolved] = await tx.$queryRaw<{ batch: string | null; grinder: string | null; basket: string | null }[]>`
     SELECT
       (SELECT batch_id::text FROM tablet_bean_batches WHERE tablet_id = ${tabletId}::uuid AND local_id = ${ids.beanBatchId}) AS batch,
-      (SELECT grinder_id::text FROM tablet_grinders WHERE tablet_id = ${tabletId}::uuid AND local_id = ${ids.grinderId}) AS grinder`;
+      (SELECT grinder_id::text FROM tablet_grinders WHERE tablet_id = ${tabletId}::uuid AND local_id = ${ids.grinderId}) AS grinder,
+      (SELECT basket_id::text FROM tablet_baskets WHERE tablet_id = ${tabletId}::uuid AND local_id = ${ids.basketId}) AS basket`;
   const [stored] = await tx.$queryRaw<ShotLinks[]>`
-    SELECT bean_batch_id AS "beanBatchId", grinder_id AS "grinderId",
-      library_batch_id::text AS "libraryBatchId", library_grinder_id::text AS "libraryGrinderId"
+    SELECT bean_batch_id AS "beanBatchId", grinder_id AS "grinderId", basket_id AS "basketId",
+      library_batch_id::text AS "libraryBatchId", library_grinder_id::text AS "libraryGrinderId", library_basket_id::text AS "libraryBasketId"
     FROM shots WHERE id = ${shotId}`;
   const kept = (id: string | null, before: string | null | undefined, link: string | null | undefined) =>
     id !== null && id === before ? (link ?? null) : null;
   return {
     libraryBatchId: resolved?.batch ?? kept(ids.beanBatchId, stored?.beanBatchId, stored?.libraryBatchId),
     libraryGrinderId: resolved?.grinder ?? kept(ids.grinderId, stored?.grinderId, stored?.libraryGrinderId),
+    libraryBasketId: resolved?.basket ?? kept(ids.basketId, stored?.basketId, stored?.libraryBasketId),
   };
 }
 
@@ -114,13 +128,43 @@ export async function claimListed(tx: Prisma.TransactionClient, tabletId: string
   await tx.$executeRaw`
     UPDATE shots AS s SET tablet_id = ${tabletId}::uuid,
       library_batch_id = (SELECT batch_id FROM tablet_bean_batches WHERE tablet_id = ${tabletId}::uuid AND local_id = s.bean_batch_id),
-      library_grinder_id = (SELECT grinder_id FROM tablet_grinders WHERE tablet_id = ${tabletId}::uuid AND local_id = s.grinder_id)
+      library_grinder_id = (SELECT grinder_id FROM tablet_grinders WHERE tablet_id = ${tabletId}::uuid AND local_id = s.grinder_id),
+      library_basket_id = (SELECT basket_id FROM tablet_baskets WHERE tablet_id = ${tabletId}::uuid AND local_id = s.basket_id)
     WHERE s.id = ANY(${shotIds}::text[]) AND s.tablet_id IS NULL`;
 }
 
 /** Whether a Shot is linked to any of the items, under the locks of the tablets whose maps hold them. */
 export function shotLinkedSql(kind: LibraryKind, ids: readonly string[]): Prisma.Sql {
   return Prisma.sql`EXISTS (SELECT 1 FROM shots WHERE ${Prisma.raw(shotLinkOf(kind).link)} = ANY(${[...ids]}::uuid[]))`;
+}
+
+/**
+ * Whether the Shot of `shots` aliased `alias` is linked to the Recipe its
+ * Workflow named as loaded: its Machine had that Recipe loaded at some time
+ * while the Shot was pulled, from its start to its last sample, by the
+ * tablet's clock, as both are. A Shot started as the plugin's write of the
+ * id landed, before the plugin reported the Workflow holding it, is still
+ * pulled with it. A Shot whose time is unknown, or that no Machine has, is
+ * linked to none.
+ */
+export function shotRecipeLinkedSql(alias: string): Prisma.Sql {
+  const shot = Prisma.raw(alias);
+  return Prisma.sql`(${shot}.recipe_id IS NOT NULL AND EXISTS (
+    SELECT 1 FROM loaded_recipes AS loaded
+    WHERE loaded.machine_id = ${shot}.machine_id AND loaded.recipe_id = ${shot}.recipe_id
+      AND loaded.loaded_at <= ${shot}.pulled_at + make_interval(secs => coalesce(${shot}.duration, 0))
+      AND (loaded.unloaded_at IS NULL OR loaded.unloaded_at > ${shot}.pulled_at)
+  ))`;
+}
+
+/** The id of the Recipe the Shot of `shots` aliased `alias` is linked to (`shotRecipeLinkedSql`), or null. */
+export function shotRecipeSql(alias: string): Prisma.Sql {
+  return Prisma.sql`CASE WHEN ${shotRecipeLinkedSql(alias)} THEN ${Prisma.raw(alias)}.recipe_id END`;
+}
+
+/** Whether a Shot is linked to any of the Recipes (`shotRecipeLinkedSql`). */
+export function shotLinkedToRecipesSql(ids: readonly string[]): Prisma.Sql {
+  return Prisma.sql`EXISTS (SELECT 1 FROM shots AS linked WHERE linked.recipe_id = ANY(${[...ids]}::uuid[]) AND ${shotRecipeLinkedSql("linked")})`;
 }
 
 /**

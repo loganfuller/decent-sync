@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { api, type ShotFilterOptions, type ShotPage } from "@/lib/api";
 
 /** The list's query parameters, which are the REST API's: the page's address is a list anyone can share. */
-const FILTERS = [...RECORD_FILTERS, "coffeeRoaster", "coffeeName", "barista", "profileTitle", "beanBatchId", "grinderId"] as const;
+const FILTERS = [...RECORD_FILTERS, "coffeeRoaster", "coffeeName", "barista", "profileTitle", "beanBatchId", "grinderId", "recipeId", "basketId"] as const;
 
 /**
  * Every Shot, newest first, across every Location, with filters. Times are
@@ -130,7 +130,7 @@ function beanChoice(roaster: string | null, name: string | null): string {
   return JSON.stringify([roaster, name]);
 }
 
-/** The filters every record list has, those by what Shots recorded: Bean, Barista and profile, and those by the Library's Bean Batch and Grinder they are linked to. */
+/** The filters every record list has, those by what Shots recorded: Bean, Barista and profile, and those by the Library's Bean Batch, Grinder, Recipe and Basket they are linked to. */
 function ShotFilters({ list }: { list: RecordList<ShotPage> }) {
   const id = useId();
   const [options, setOptions] = useState<ShotFilterOptions>();
@@ -197,6 +197,24 @@ function ShotFilters({ list }: { list: RecordList<ShotPage> }) {
         value={params.get("grinderId")}
         options={options?.grinders.map((grinder) => grinder && { id: grinder.id, name: `${grinderName(grinder)}${grinder.location ? `, ${grinder.location.name}` : ""}` })}
         onChange={(grinderId) => list.filter({ grinderId })}
+      />
+      <LinkFilter
+        id={`${id}-recipe`}
+        label="Recipe"
+        any="Any Recipe"
+        none="Pulled with no Recipe loaded"
+        value={params.get("recipeId")}
+        options={options?.recipes.map((recipe) => recipe && { id: recipe.id, name: `${recipe.name ?? "Unnamed Recipe"}${recipe.location ? `, ${recipe.location.name}` : ""}` })}
+        onChange={(recipeId) => list.filter({ recipeId })}
+      />
+      <LinkFilter
+        id={`${id}-basket`}
+        label="Basket"
+        any="Any Basket"
+        none="Not linked to a Basket"
+        value={params.get("basketId")}
+        options={options?.baskets.map((basket) => basket && { id: basket.id, name: basket.name ?? "Unnamed Basket" })}
+        onChange={(basketId) => list.filter({ basketId })}
       />
       <TextFilter
         id={`${id}-barista`}

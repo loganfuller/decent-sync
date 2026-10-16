@@ -8,9 +8,9 @@ interface LibraryKindView {
   pages: string;
   /** Where the REST API has its items, each under its id. */
   api: string;
-  /** The Shots list's filter by an item of the kind; null for a kind no Shot is linked to yet, as Baskets and Tools until #147. */
+  /** The Shots list's filter by an item of the kind; null for a kind no Shot is linked to, as Tools, whose names Shots show as DYE2 stored them. */
   shotsFilter: string | null;
-  /** Whether the Shots list offers that filter, as it does for Bean Batches and Grinders, so an item's page links to it. */
+  /** Whether the Shots list offers that filter, as it does for Bean Batches, Grinders, Recipes and Baskets, so an item's page links to it. */
   filteredInShotsList: boolean;
 }
 
@@ -23,9 +23,9 @@ export const LIBRARY_KINDS = {
   beanBatch: { name: "Bean Batch", list: { name: "beanBatches", title: "Bean Batches" }, pages: "/library/bean-batches", api: "/bean-batches", shotsFilter: "beanBatchId", filteredInShotsList: true },
   grinder: { name: "Grinder", list: { name: "grinders", title: "Grinders" }, pages: "/library/grinders", api: "/grinders", shotsFilter: "grinderId", filteredInShotsList: true },
   profile: { name: "Profile", list: { name: "profiles", title: "Profiles" }, pages: "/library/profiles", api: "/profiles", shotsFilter: "profileId", filteredInShotsList: false },
-  basket: { name: "Basket", list: { name: "dye2Baskets", title: "Baskets (DYE2)" }, pages: "/library/baskets", api: "/baskets", shotsFilter: null, filteredInShotsList: false },
+  basket: { name: "Basket", list: { name: "dye2Baskets", title: "Baskets (DYE2)" }, pages: "/library/baskets", api: "/baskets", shotsFilter: "basketId", filteredInShotsList: true },
   tool: { name: "Tool", list: { name: "dye2Equipment", title: "Tools (DYE2's equipment)" }, pages: "/library/tools", api: "/tools", shotsFilter: null, filteredInShotsList: false },
-  recipe: { name: "Recipe", list: { name: "dye2Recipes", title: "Recipes (DYE2)" }, pages: "/library/recipes", api: "/recipes", shotsFilter: null, filteredInShotsList: false },
+  recipe: { name: "Recipe", list: { name: "dye2Recipes", title: "Recipes (DYE2)" }, pages: "/library/recipes", api: "/recipes", shotsFilter: "recipeId", filteredInShotsList: true },
 } as const satisfies Readonly<Record<string, LibraryKindView>>;
 
 /** The kinds of Library item. */

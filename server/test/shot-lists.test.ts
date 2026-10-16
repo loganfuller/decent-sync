@@ -272,9 +272,11 @@ describe("Shots lists", () => {
       ],
       baristas: ["Ann", "Ben", "Cat", "Dee", "Fixture Barista", null],
       profiles: ["Blooming", "Londonium"],
-      // These Shots' tablets hold no Library batch or Grinder.
+      // These Shots' tablets hold no Library batch, Grinder or Basket, and none named a Recipe.
       beanBatches: [null],
       grinders: [null],
+      recipes: [null],
+      baskets: [null],
     });
   });
 
