@@ -1,10 +1,19 @@
-import { type LibraryList, WORKFLOW_KIND, parentList } from "@decent-sync/protocol";
+import {
+  type LibraryList,
+  WORKFLOW_BASKET,
+  WORKFLOW_BATCH,
+  WORKFLOW_GRINDER,
+  WORKFLOW_KIND,
+  equipmentMatchKey,
+  parentList,
+  workflowValueAt,
+} from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import type { PlannedWrite } from "./holdings.js";
 import { type AnswerRecorded, type AnsweringTablet, INTAKE_TRANSACTION, type ReportingTablet, lockHeldMachine, lockTablet } from "./intake.js";
-import { type CurrentEntry, type Offered, clearStillDue, joins, sameSharing, workflowClear } from "./join-plan.js";
+import { type CurrentEntry, type Offered, type WorkflowOffers, clearStillDue, joins, sameSharing, workflowClear } from "./join-plan.js";
 import { offersAny } from "./left-out.js";
 import { isObject } from "./listed.js";
 import { lockLocation } from "./location-state.js";
@@ -20,11 +29,11 @@ import { lockLocation } from "./location-state.js";
 // none of yet, whose items it brings, and what the Library leaves out is
 // set aside on the tablet (left-out.ts). The tablet is written what the
 // Location offers, and what it does not offer is archived or hidden on it,
-// as for any tablet there (holdings.ts); its Workflow's grinder and batch
-// are cleared if the Location does not offer them (`workflow_clears`), and
-// its settings give way to the Location's (location-settings.ts). Under the
-// locks of the report that takes it in: the Machine's row, then the
-// tablet's.
+// as for any tablet there (holdings.ts); its Workflow's grinder, batch and
+// Basket are cleared if the Location does not offer them
+// (`workflow_clears`), and its settings give way to the Location's
+// (location-settings.ts). Under the locks of the report that takes it in:
+// the Machine's row, then the tablet's.
 
 /** The reports a tablet's Library is taken in from: its Library lists (LIBRARY_LISTS), and its Workflow. */
 export type TakenInReport = LibraryList | "workflow";
@@ -97,16 +106,19 @@ export async function forgetReports(tx: Prisma.TransactionClient, machineId: str
 }
 
 /**
- * Takes in what a Workflow the tablet reported means for its grinder and
- * batch, under its Machine's and tablet's row locks: reported as the tablet
- * joins the Location (`joining`), those the Location does not offer are to
- * be cleared (`workflowClear`), judged under the Location's lock against
- * the tablet's map, which holds what it held before joining. One the map
- * does not hold is not offered if the Library leaves it out, or will as the
- * Location offers items of its kind already (left-out.ts), a batch's bean
- * included; otherwise it joins the Library there, and stays. Otherwise a clear still due keeps
- * only what the Workflow still holds as it was (`clearStillDue`). Tells
- * every instance when one is due.
+ * Takes in what a Workflow the tablet reported means for its grinder, batch
+ * and Basket, under its Machine's and tablet's row locks: reported as the
+ * tablet joins the Location (`joining`), those the Location does not offer
+ * are to be cleared (`workflowClear`), judged under the Location's lock
+ * against the tablet's map, which holds what it held before joining. One the
+ * map does not hold is not offered if the Library leaves it out, or will as
+ * the Location offers items of its kind already (left-out.ts), a batch's
+ * bean included; otherwise it joins the Library there, and stays. But a
+ * Basket the map does not hold whose name is a Library Basket's, as the
+ * tablet's record of it is linked to that Basket as it joins (ADR-0018), is
+ * offered where that Basket is shown. Otherwise a clear still due keeps only
+ * what the Workflow still holds as it was (`clearStillDue`). Tells every
+ * instance when one is due.
  */
 export async function takeInWorkflowContext(
   tx: Prisma.TransactionClient,
@@ -122,16 +134,27 @@ export async function takeInWorkflowContext(
     if (pending) await saveClear(tx, tablet.tabletId, pending.locationId, clearStillDue(pending.expected, context));
     return;
   }
-  const ids = isObject(context) ? context : {};
-  const grinderId = typeof ids.grinderId === "string" ? ids.grinderId : null;
-  const batchId = typeof ids.beanBatchId === "string" ? ids.beanBatchId : null;
-  if (grinderId === null && batchId === null) return saveClear(tx, tablet.tabletId, locationId, null);
+  const text = (value: unknown) => (typeof value === "string" ? value : null);
+  const grinderId = text(workflowValueAt(workflow, WORKFLOW_GRINDER[0]));
+  const batchId = text(workflowValueAt(workflow, WORKFLOW_BATCH[0]));
+  const basketId = text(workflowValueAt(workflow, WORKFLOW_BASKET[0]));
+  if (grinderId === null && batchId === null && basketId === null) return saveClear(tx, tablet.tabletId, locationId, null);
   await lockLocation(tx, locationId);
   // Unknown to the map, one is left out, or will be, unless the Location offers none of its kind; a batch is with its bean.
   const unknownGrinder: Offered = grinderId !== null && (await offersAny(tx, locationId, "grinder")) ? "notOffered" : "unknown";
   const unknownBatch: Offered =
     batchId !== null && ((await offersAny(tx, locationId, "beanBatch")) || (await offersAny(tx, locationId, "bean"))) ? "notOffered" : "unknown";
-  const [offer] = await tx.$queryRaw<{ grinder: Offered; batch: Offered }[]>`
+  // A Basket is linked by its name to the oldest Basket of that name not Archived, so offered where that one is shown.
+  const basketName = text(workflowValueAt(workflow, WORKFLOW_BASKET[1]));
+  const unknownBasket: Offered = basketId !== null && (await offersAny(tx, locationId, "basket")) ? "notOffered" : "unknown";
+  const namedBasket =
+    unknownBasket === "notOffered" && basketName !== null
+      ? Prisma.sql`(
+          SELECT ${basketOfferedSql(locationId)} FROM baskets AS items
+          WHERE items.match_key = ${equipmentMatchKey(basketName)} AND NOT items.archived ORDER BY items.created_at, items.id LIMIT 1
+        )`
+      : Prisma.sql`NULL`;
+  const [offer] = await tx.$queryRaw<WorkflowOffers[]>`
     SELECT
       COALESCE((
         SELECT CASE WHEN grinders.location_id = ${locationId}::uuid AND NOT grinders.archived THEN 'offered' ELSE 'notOffered' END
@@ -146,14 +169,25 @@ export async function takeInWorkflowContext(
         JOIN beans AS bean ON bean.id = batch.bean_id
         LEFT JOIN batch_locations AS here ON here.batch_id = batch.id AND here.location_id = ${locationId}::uuid
         WHERE held.tablet_id = ${tablet.tabletId}::uuid AND held.local_id = ${batchId}
-      ), ${leftOutSql(tablet.tabletId, "beanBatch", batchId)}, ${unknownBatch}) AS batch`;
-  const expected = workflowClear(context, offer!.grinder, offer!.batch);
+      ), ${leftOutSql(tablet.tabletId, "beanBatch", batchId)}, ${unknownBatch}) AS batch,
+      COALESCE((
+        SELECT ${basketOfferedSql(locationId)} FROM tablet_baskets AS held JOIN baskets AS items ON items.id = held.basket_id
+        WHERE held.tablet_id = ${tablet.tabletId}::uuid AND held.local_id = ${basketId}
+      ), ${leftOutSql(tablet.tabletId, "basket", basketId)}, ${namedBasket}, ${unknownBasket}) AS basket`;
+  const expected = workflowClear(context, offer!);
   await saveClear(tx, tablet.tabletId, locationId, expected);
   if (expected !== null) await notify(tx, "library_changes", locationId);
 }
 
+/** Whether the Location shows the Basket `items` names and it is not Archived, as SQL: 'offered' or 'notOffered'. */
+function basketOfferedSql(locationId: string): Prisma.Sql {
+  return Prisma.sql`CASE WHEN NOT items.archived AND EXISTS (
+    SELECT 1 FROM basket_locations AS here WHERE here.basket_id = items.id AND here.location_id = ${locationId}::uuid AND here.shown
+  ) THEN 'offered' ELSE 'notOffered' END`;
+}
+
 /** 'notOffered' if the Library leaves out the tablet's record of that kind and id, as SQL; otherwise null. */
-function leftOutSql(tabletId: string, kind: "grinder" | "beanBatch", localId: string | null): Prisma.Sql {
+function leftOutSql(tabletId: string, kind: "grinder" | "beanBatch" | "basket", localId: string | null): Prisma.Sql {
   return Prisma.sql`(
     SELECT 'notOffered' FROM tablet_left_out WHERE tablet_id = ${tabletId}::uuid AND kind = ${kind} AND local_id = ${localId}
   )`;
@@ -171,7 +205,7 @@ async function saveClear(tx: Prisma.TransactionClient, tabletId: string, locatio
 }
 
 /**
- * The write that clears the tablet's Workflow's grinder or batch, if one is
+ * The write that clears the tablet's Workflow's grinder, batch or Basket, if one is
  * due at the Location its Machine is at, read in the snapshot that
  * `tabletDue` reads: each field cleared, expecting the value the Workflow
  * held. Named by the tablet's id.
@@ -186,7 +220,7 @@ export async function workflowClearDue(tx: Prisma.TransactionClient, tabletId: s
 
 /**
  * Records the Workflow's `context` Decaid returned for the plugin's write
- * clearing its grinder or batch (`record`): what of the clear due the
+ * clearing its grinder, batch or Basket (`record`): what of the clear due the
  * Workflow still holds as it was is still due (`clearStillDue`), which is
  * nothing once the write cleared it or a barista picked another. Recorded
  * only while the answering connection holds its Machine, under the

@@ -718,20 +718,27 @@ export const SETTINGS_KIND = "settings";
 
 /**
  * What the server writes to a tablet as its Machine joins a Location that
- * does not offer the grinder or batch its Workflow names: that Workflow's
- * grinder and batch, cleared (ADR-0008). A `write` of this kind carries them.
+ * does not offer the grinder, batch or Basket its Workflow names: that
+ * Workflow's grinder, batch and Basket, cleared (ADR-0008). A `write` of
+ * this kind carries them.
  */
 export const WORKFLOW_KIND = "workflow";
 
 /**
- * The fields of a Workflow's `context` naming its grinder, and its batch,
- * which a write of WORKFLOW_KIND clears together, as Decaid's
- * `WorkflowContext.clearGrinder` and `clearBeanBatch` do
- * (decaid:lib/src/models/data/workflow_context.dart), and as DYE2 sets them:
- * the grinder's setting stays, and so do the profile, dose and yield.
+ * The fields of a Workflow naming its grinder, its batch, and its Basket, by
+ * their paths, each group's id first, which a write of WORKFLOW_KIND clears
+ * together: the grinder and batch as Decaid's `WorkflowContext.clearGrinder`
+ * and `clearBeanBatch` do (decaid:lib/src/models/data/workflow_context.dart),
+ * and the Basket as Streamline's `clearDyeWorkflowContext` does
+ * (streamline-js:src/modules/dyeStrip.js), all as DYE2 sets them: the
+ * grinder's setting and the RPM stay, and so do the profile, dose and yield.
  */
 export const WORKFLOW_GRINDER = ["context.grinderId", "context.grinderModel"] as const;
 export const WORKFLOW_BATCH = ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"] as const;
+export const WORKFLOW_BASKET = ["context.extras.basketId", "context.extras.basketName"] as const;
+
+/** The groups of fields a write of WORKFLOW_KIND clears, each whole. */
+export const WORKFLOW_CLEARED = [WORKFLOW_GRINDER, WORKFLOW_BATCH, WORKFLOW_BASKET] as const;
 
 /**
  * The key in a Workflow's `context.extras` holding its Loaded Recipe's global
@@ -1042,15 +1049,16 @@ export function settingsParts(fields: Readonly<Record<string, unknown>>): Record
  * is connected. The plugin's own write is not sent back as a change of the
  * tablet's Workflow ahead of its answer, so the server never reads it as one.
  *
- * A write of WORKFLOW_KIND clears the grinder and batch of the tablet's
- * Workflow, as its Machine joins a Location that does not offer them
- * (ADR-0008): `globalId` is the tablet's id, `localId` null, and `fields`
- * names WORKFLOW_GRINDER, WORKFLOW_BATCH or both, each null, with `expected`
- * the values the Workflow held for them as the tablet last reported it. The
- * plugin reads the tablet's Workflow and clears, through `PUT /workflow`,
- * the grinder, and the batch, each whole, only while it still names it by
- * the id expected (`context.grinderId`, `context.beanBatchId`): a barista
- * who picked another grinder or batch since keeps it.
+ * A write of WORKFLOW_KIND clears the grinder, batch and Basket of the
+ * tablet's Workflow, as its Machine joins a Location that does not offer
+ * them (ADR-0008): `globalId` is the tablet's id, `localId` null, and
+ * `fields` names one or more of WORKFLOW_CLEARED's groups, each field null,
+ * with `expected` the values the Workflow held for them as the tablet last
+ * reported it. The plugin reads the tablet's Workflow and clears, through
+ * `PUT /workflow` (`workflowPatch`), each group whole, only while it still
+ * names it by the id expected (`context.grinderId`, `context.beanBatchId`,
+ * `context.extras.basketId`): a barista who picked another grinder, batch
+ * or Basket since keeps it.
  * Decaid needs no machine for this. Its answer's `record` is the Workflow's
  * `context` as Decaid returned it, timed as a settings write's is, and the
  * Workflow change it causes is sent after the answer, as a settings write's

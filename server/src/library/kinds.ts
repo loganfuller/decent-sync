@@ -57,7 +57,7 @@ import { heldRecipes, offeredRecipes, recordRecipeWritten, takeInRecipes } from 
 // Adding a Library kind): the Library's kinds, Beans, Bean Batches, Grinders,
 // Profiles, Baskets, Tools and Recipes, in the order of LIBRARY_ITEM_KINDS (protocol/), and a
 // Location's steam and rinse settings and the clearing of a
-// Workflow's grinder and batch. What the server does to every kind alike
+// Workflow's grinder, batch and Basket. What the server does to every kind alike
 // (its versions and Conflicts, the edits of its content, what a tablet is
 // due, its hard deletes, what a joining tablet brings) reads each kind's
 // table, columns, content and SQL from here, and what only one kind does is
@@ -800,10 +800,10 @@ const SETTINGS: VersionedKindDescription = {
     recordSettingsWritten(prisma, tablet, answer.globalId, answer.written, answer.record, answer.updatedAt, answer.contentSeen),
 };
 
-/** The clearing of a tablet's Workflow's grinder and batch as its Machine joins a Location that does not offer them (joining.ts), named by the tablet's id. */
+/** The clearing of a tablet's Workflow's grinder, batch and Basket as its Machine joins a Location that does not offer them (joining.ts), named by the tablet's id. */
 const WORKFLOW: WrittenKindDescription = {
   name: "Workflow",
-  itemNames: async (_db, ids) => new Map(ids.map((id) => [id, "Grinder and batch"])),
+  itemNames: async (_db, ids) => new Map(ids.map((id) => [id, "Grinder, batch and Basket"])),
   recordWritten: (prisma, tablet, answer) => recordWorkflowCleared(prisma, tablet, answer.globalId, answer.record),
 };
 

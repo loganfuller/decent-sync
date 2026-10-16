@@ -68,7 +68,12 @@ Location (Editing in the management interface, below). Ticket
 Shot to the Recipe its Machine had loaded and the Basket DYE2 recorded
 (`SHOTS.md`, Links to the Library), and lets an Admin hard-delete a Recipe
 no Shot was pulled with, and a Basket or Tool no Shot or Recipe names (Hard
-deletes, below). It
+deletes, below). Ticket [#148](https://github.com/loganfuller/decent-sync/issues/148)
+has a Machine joining a Location take on its Recipes in their slots, the
+slots it leaves empty emptied, and drop its own recipes, baskets and tools
+unless the Location has none of their kind yet, its Workflow losing a
+Basket the Location does not show and a Loaded Recipe of another Location,
+cleared from DYE2's selection too (Joining a Location, below). It
 follows ADR-0003, ADR-0005, ADR-0006, ADR-0008, ADR-0014, ADR-0016,
 ADR-0018, ADR-0019, ADR-0020 and ADR-0021.
 
@@ -316,8 +321,8 @@ can hide nothing (Taking in a tablet's baskets and tools, below).
   and never in `deleted_items` (Hard deletes, below).
 - `tablet_reports`, `workflow_clears` and `tablet_left_out`: where each
   of a tablet's reports was last taken in, and when its Machine's sharing
-  had last been turned back on then, the Workflow grinder and batch still
-  to be cleared on a joining tablet, and each record a joining tablet held
+  had last been turned back on then, the Workflow grinder, batch and
+  Basket still to be cleared on a joining tablet, and each record a joining tablet held
   that the Library leaves out, by kind and its id there, with whether it
   is archived or hidden there yet (Joining a Location, below).
 - `machines.sharing` and `machines.sharing_since`: whether a Machine takes
@@ -1170,7 +1175,8 @@ never matched (ADR-0018).
   Recipe the map holds is written over, or removed if its Location does not
   have it in that slot; the rest are left out, removed from the list, and not
   kept. A Location with no Recipes in its slots takes the joining tablet's in
-  their slots. #148 builds the rest of joining with Recipes.
+  their slots. The Workflow's Loaded Recipe is cleared as the tablet joins
+  another Location, DYE2's selection with it (Joining a Location, below).
 
 **Writing.** Each sharing tablet holds its Location's slotted Recipes, in
 slot order, under their slot numbers (`recipeWrites` in `holdings.ts`); one
@@ -1844,43 +1850,78 @@ it.
   Location than its tablet's latest reports, and asks the plugin for them
   afresh, its Workflow first (Writing to tablets, above). Once they are
   taken in there, the tablet is written what the Location offers, its shown
-  Profiles, Baskets and Tools, the batches at it and their Beans, and its
-  Grinders, and what it does not offer is archived or hidden on the tablet,
-  never deleted, but for a Basket or Tool, removed from DYE2's list. The
+  Profiles, Baskets and Tools, the batches at it and their Beans, its
+  Grinders, and its Recipes in their slots, and what it does not offer is
+  archived or hidden on the tablet, never deleted, but for a Basket, Tool
+  or recipe, removed from DYE2's list: so the slots the Location leaves
+  empty are emptied, and another Location's Recipes leave its list (Taking
+  in a tablet's recipes, above). The
   Workflow taken in as the tablet joins has had none of the Location's
   steam and rinse settings, so it sets only those the Location has not set
   yet, and is written the others, unless the Machine's sharing of them is
   turned off (Steam and rinse settings, below). Its hot water stays its own.
-- **Its Workflow's grinder and batch.** The Workflow taken in as the tablet
-  joins is judged against the tablet's map, which still holds what the
-  tablet held before (`takeInWorkflowContext`), under the Location's lock:
-  the Grinder its `context.grinderId` names there is cleared if the
-  Location does not offer it, as one belonging to another Location or
-  Archived, and so is the batch its `context.beanBatchId` names if it is not
-  at the Location, or is Archived, or its Bean is. Cleared are
-  `grinderId` and `grinderModel`, and `beanBatchId`, `coffeeName` and
-  `coffeeRoaster`, as Decaid's `clearGrinder` and `clearBeanBatch` clear
-  them (`WORKFLOW_GRINDER`, `WORKFLOW_BATCH` in `protocol/`); the profile,
-  dose, yield and grinder setting stay. A grinder or batch the map does not
-  hold, one of the tablet's own, is cleared if the Library leaves it out,
-  or will, as the Location offers Grinders, or batches or Beans, already
-  (What it holds of its own, below); otherwise it joins the Library at
-  the Location with its reports there, and stays. The Workflow is judged
-  before the lists are taken in, so a batch whose bean is then linked to
-  one of the Location's, and that joins the Library as the Location offers
-  no batch yet, is cleared all the same. The clear is kept (`workflow_clears`) and
-  written whether or not the Machine shares the settings, as a `write` of
-  the `workflow` kind, after the settings and before anything else: the
-  plugin clears the grinder, and the batch, each whole, only while the
-  Workflow still names it by the id the tablet reported, so one a skin
-  relabelled is still cleared, and a Workflow naming another since,
-  reported or in the write's answer, drops that part of the clear
-  (`clearStillDue`), which otherwise expects what the Workflow holds now.
-  It is due only as the tablet joins: a batch finished at the Location
-  later leaves the Workflow as it is (ADR-0014). A clear the plugin is
-  carrying out as its Machine moves back, within one write, to a Location
-  that offers the grinder or batch is not called back: the Workflow's next
-  join there finds it cleared already.
+- **Its Workflow's grinder, batch and Basket.** The Workflow taken in as
+  the tablet joins is judged against the tablet's map, which still holds
+  what the tablet held before (`takeInWorkflowContext`), under the
+  Location's lock: the Grinder its `context.grinderId` names there is
+  cleared if the Location does not offer it, as one belonging to another
+  Location or Archived, the batch its `context.beanBatchId` names if it is
+  not at the Location, or is Archived, or its Bean is, and the Basket its
+  `context.extras.basketId` names if the Location does not show it, or it
+  is Archived. Cleared are `grinderId` and `grinderModel`, `beanBatchId`,
+  `coffeeName` and `coffeeRoaster`, as Decaid's `clearGrinder` and
+  `clearBeanBatch` clear them, and `extras.basketId` and
+  `extras.basketName`, as Streamline's `clearDyeWorkflowContext` clears
+  them (`WORKFLOW_GRINDER`, `WORKFLOW_BATCH`, `WORKFLOW_BASKET` in
+  `protocol/`); the profile, dose, yield, grinder setting, RPM and hot water
+  stay. A grinder, batch or Basket the map does not hold, one of the
+  tablet's own, is cleared if the Library leaves it out, or will, as the
+  Location offers Grinders, or batches or Beans, or shows Baskets, already
+  (What it holds of its own, below); otherwise it joins the Library at the
+  Location with its reports there, and stays. But a Basket the map does not
+  hold whose name is a Library Basket's, ignoring case and white space at
+  either end, which the tablet's record of it is linked to as it joins, is
+  that Basket: kept where the Location shows it, the Workflow's
+  `basketName` read for its record's, as DYE2 copies it. The Workflow is
+  judged before the lists are taken in, so a batch whose bean is then
+  linked to one of the Location's, and that joins the Library as the
+  Location offers no batch yet, is cleared all the same. The clear is kept
+  (`workflow_clears`) and written whether or not the Machine shares the
+  settings, as a `write` of the `workflow` kind, after the settings and
+  before anything else: the plugin clears the grinder, the batch and the
+  Basket, each whole, only while the Workflow still names it by the id the
+  tablet reported, so one a skin relabelled is still cleared, and a
+  Workflow naming another since, reported or in the write's answer, drops
+  that part of the clear (`clearStillDue`), which otherwise expects what
+  the Workflow holds now. It is due only as the tablet joins: a batch
+  finished at the Location later leaves the Workflow as it is (ADR-0014).
+  A clear the plugin is carrying out as its Machine moves back, within one
+  write, to a Location that offers the grinder, batch or Basket is not
+  called back: the Workflow's next join there finds it cleared already.
+- **Its Loaded Recipe.** A Workflow naming a Recipe that is not one of the
+  Location's in its slots, as one of the Location the Machine left, is
+  not its Loaded Recipe there, and the server has the plugin clear it from
+  the Workflow and from DYE2's selection (`WORKFLOW-AND-STATE.md`, Unloads
+  the server decides). DYE2 keeps its selection through its recipe's
+  removal from the list, and would record the Workflow's changes into the
+  recipe the writer then puts in that slot, or have the plugin load it. So
+  before the plugin posts a list that removes the recipe in a slot DYE2 has
+  selected, or replaces it with another Recipe's record, as the writer
+  removes a joining tablet's own recipes or another Location's Recipes and
+  writes the Location's in their slots, it clears DYE2's selection, and
+  keeps `{}` as DYE2's stored selection (`vacatedSlots`, ADR-0022). A
+  Machine turned back to sharing at the Location it was capture-only at
+  has the recipe DYE2 has selected there loaded, where its slot holds one
+  of the Location's Recipes, as the Location offers it.
+- **Its recipes, baskets and tools** are judged as any record the tablet
+  holds (below, and Taking in a tablet's baskets and tools, and Taking in
+  a tablet's recipes, above), what joining does with each decided by the
+  pure `joiningRecord` in `join-plan.ts`: its records of another
+  Location's Recipes, and of Baskets and Tools the Library has, by their
+  global ids or matched by name, are those items, written the Location's
+  state, and removed if it does not offer them; its own are removed from
+  DYE2's lists and not kept, as DYE2 can neither archive nor hide one,
+  unless the Location has none of the kind yet (below).
 - **What it holds of its own** (ADR-0018). A report that is part of
   joining takes nothing of the tablet's into the Library: the Location's
   state wins. Its records of items the Library has are those items: one
@@ -1903,7 +1944,10 @@ it.
     Machine joins it, takes the joining tablet's own items of that kind,
     as a Location with no settings yet takes its settings: its Beans if
     it offers no Bean, its batches if no batch, its Grinders if no
-    Grinder, and its Profiles if it shows no user's Profile. They join
+    Grinder, its Profiles if it shows no user's Profile, its Baskets if it
+    shows no Basket, its Tools if no Tool, and its recipes in their slots
+    if it has no Recipe in a slot, each a new Recipe there; a Basket or
+    Tool matched by name to one the Library has is shown there. They join
     the Library there as any new record does (Taking in a tablet's beans,
     and those after it). Those archived or hidden on the tablet are left
     out as above, so a record left out at one Location does not reach the
@@ -2162,7 +2206,7 @@ Every endpoint requires the account session; Staff read them as Admins do.
   are still due, the latest refused first (Sharing status, above), each `{ change, kind, item,
   localId }`: `change` is `write`, `delete`, `remove` or `leaveOut`; `kind` a Library
   kind, `settings` or `workflow`; `item` the item, `{ kind, id, name }`,
-  named as a Conflict's is, or for the Workflow "Grinder and batch", null
+  named as a Conflict's is, or for the Workflow "Grinder, batch and Basket", null
   for a record set aside, which is none of the Library's, or an item
   deleted since; and `localId` Decaid's id for the record, null for a
   create, the settings and the Workflow. `lastApplied` adds `appliedAt`,

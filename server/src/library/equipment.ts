@@ -20,7 +20,7 @@ import {
   seenAtSql,
   sharingLocation,
 } from "./intake.js";
-import { standing } from "./join-plan.js";
+import { joiningRecord, standing } from "./join-plan.js";
 import { currentEntry, takenIn } from "./joining.js";
 import { leaveOut, offersAny, screenLeftOut } from "./left-out.js";
 import { listedIds } from "./listed.js";
@@ -173,8 +173,10 @@ export async function takeInEquipment(
       continue;
     }
     const { reported: record } = step;
+    /** What joining does with the record, as the tablet joins the Location (`joiningRecord`). */
+    const joined = joining ? joiningRecord(step.kind, bringing) : null;
     // A joining tablet brings its own only to a Location that shows none of the kind yet.
-    if (step.kind === "add" && joining && !bringing) {
+    if (joined === "leftOut") {
       writesDue = (await leaveOut(tx, tablet.tabletId, kind, { localId: record.localId, setAside: false })) || writesDue;
       continue;
     }
@@ -199,7 +201,7 @@ export async function takeInEquipment(
       // A linked record takes the item's content: each field it held otherwise is kept as a Conflict (ADR-0018), but as the
       // tablet joins the Location, whose state wins, and which shows it only if it shows none of the kind yet.
       if (!joining) await recordLinked(tx, { kind, id: itemId }, equipmentContent(record.record), record.updatedAt, source);
-      if (bringing || !joining) decided = await showAt(tx, kind, itemId, locationId, source, true, record.updatedAt, null);
+      if (joined === null || joined === "shown") decided = await showAt(tx, kind, itemId, locationId, source, true, record.updatedAt, null);
       writesDue = true;
     } else if (step.kind === "map" || (step.kind === "update" && joining)) {
       // The tablet holds it as the Location has it, or is written so: what it changed before it joined is written over.

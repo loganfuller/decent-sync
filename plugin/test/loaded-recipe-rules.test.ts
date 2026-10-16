@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { LOADED_RECIPE_KEY, RECIPE_FIELD, profileAtBrewTemperature, shiftedTemperatures } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { dye2Fingerprint, loadWrite, profileKey, recipeSetUp, targetsOnlyDiffer } from "../src/loaded-recipe-rules.js";
+import { dye2Fingerprint, loadWrite, profileKey, recipeSetUp, targetsOnlyDiffer, vacatedSlots } from "../src/loaded-recipe-rules.js";
 
 // Module tests for what the plugin writes into the Workflow as DYE2's
 // selection loads a Recipe (ADR-0022), and how it reads DYE2's fingerprint of
@@ -172,5 +172,25 @@ describe("what a recipe names that a change of grinder or Bean is judged by", ()
     const record = recipe("1");
     expect(recipeSetUp(record)).toEqual({ grinder: (record.dashboardVariables as Record_).grinderId, bean: record.beanId });
     expect(recipeSetUp({})).toEqual({ grinder: null, bean: null });
+  });
+});
+
+describe("the slots a post of DYE2's recipes vacates", () => {
+  const LAB = "1b3d5f7a-9c1e-4a3b-8d5f-7a9c1e3b5d7f";
+  const UPTOWN = "3d5f7b9c-2e4a-4c6d-8f9b-9c2e4a6d8f1b";
+  /** One of the recording's recipes in a slot, carrying a Recipe's global id or none. */
+  const inSlot = (slot: string, globalId: string | null = null): Record_ => ({ ...keys.recipes[0], id: slot, ...(globalId === null ? {} : { decentSyncId: globalId }) });
+
+  it("names each slot whose recipe the post removes, or replaces with another Recipe's, as a Machine joining another Location", () => {
+    // The tablet's own recipe in slot 1 removed, and the lab's Recipe in slot 2 replaced with Uptown's.
+    expect(vacatedSlots([inSlot("1"), inSlot("2", LAB)], [inSlot("2", UPTOWN)])).toEqual([1, 2]);
+    expect(vacatedSlots([inSlot("2", LAB)], [])).toEqual([2]);
+  });
+
+  it("names none the post keeps, writes, gives its global id or fills", () => {
+    expect(vacatedSlots([inSlot("2", LAB)], [{ ...inSlot("2", LAB), name: "Renamed" }])).toEqual([]);
+    // A Location taking the tablet's own recipe in writes its global id into it: the same recipe.
+    expect(vacatedSlots([inSlot("1")], [inSlot("1", UPTOWN)])).toEqual([]);
+    expect(vacatedSlots([], [inSlot("3", UPTOWN)])).toEqual([]);
   });
 });
