@@ -1229,10 +1229,13 @@ var __decentSync = (() => {
       this.listeners.push(listener);
     }
     /**
-     * The plugin wrote one of DYE2's lists, whose reports are compared by
-     * content: its next read is reported whatever it holds, so one another app
-     * rewrote at the same moment, losing the write, is reported though it reads
-     * as it was last reported (ADR-0005).
+     * The plugin wrote one of the Library's lists: its next read is reported
+     * whatever it holds, though it reads as it was last reported. Decaid's
+     * ETags, like the content hashes DYE2's lists are compared by, follow the
+     * list's content, so one a barista put back as it was before the write,
+     * such as by deleting a batch the server had just created, or another app
+     * rewrote at the same moment, losing the write (ADR-0005), would otherwise
+     * not be reported until the next welcome.
      */
     wrote(list) {
       for (const listener of this.listeners) listener(list);
@@ -1318,9 +1321,9 @@ var __decentSync = (() => {
     drop(remove) {
       return this.library.run(async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutRemove(remove, this.posted))));
     }
-    /** Has the next read of the kind's list reported whatever it holds, if it is one of DYE2's, which the plugin may just have written; returns the answer. */
+    /** Has the next read of the kind's list, which the plugin may just have written, reported whatever it holds; returns the answer. */
     wrote(kind, answer) {
-      if (isLibraryKind(kind) && dye2Key(kind) !== void 0) this.library.wrote(LIBRARY_ITEM_KINDS[kind].list);
+      if (isLibraryKind(kind)) this.library.wrote(LIBRARY_ITEM_KINDS[kind].list);
       return answer;
     }
     /** Sets aside a record the Library leaves out once the reads and writes before it are done, and queues its answer. It never rejects. */

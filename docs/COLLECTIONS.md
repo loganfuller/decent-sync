@@ -62,9 +62,12 @@ as empty.
 
 DYE2's recipes, baskets and tools are written by the plugin too, through
 the Library (`LIBRARY.md`, Taking in a tablet's baskets and tools, and
-Taking in a tablet's recipes): after it writes one of those lists, its next
-read is sent whatever it holds, as another app rewriting the list at the same
-moment may have put it back as last sent. `pairedDevices` keeps Decaid's inventory entries as sent, leaving
+Taking in a tablet's recipes). After the plugin writes any of the Library's
+lists, Decaid's or DYE2's, its next read is sent whatever it holds: it may
+read as last sent, as when a barista deletes a batch the server has just
+created before the plugin reads the list again, since Decaid's ETag is a
+hash of the list's content, or another app rewriting one of DYE2's lists at
+the same moment put it back as last sent. `pairedDevices` keeps Decaid's inventory entries as sent, leaving
 out those whose `state` is `discovered`: devices nearby come and go and may
 belong to another Machine at the same Location. Connected and connecting
 devices, and those Decaid remembers (`disconnected`, and not `available` while
