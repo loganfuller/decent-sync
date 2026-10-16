@@ -132,12 +132,13 @@ recorded in its Workflow, indexed too. It keeps the Basket and Tools DYE2
 recorded by their ids on its tablet (`basket_id`, and `tool_ids`, indexed
 by GIN), and the Recipe its Workflow named as loaded by its global id
 (`recipe_id`), each indexed. It keeps its Grinder's burrs as its Workflow's
-context recorded them (`grinder_burrs`, not indexed, and no list filters by it), for
-analytics by Library Grinder and burrs: Decaid v0.9.0 copies onto each new
-Shot the burrs of the grinder its `grinderId` names
+context recorded them (`grinder_burrs`, not indexed, and no list filters by
+it), for analytics by Library Grinder and burrs: Decaid v0.9.0 copies onto
+each Shot it pulls the burrs of the grinder its `grinderId` names
 (`PersistenceController.persistShot`), replacing whatever the Workflow held,
 null where that grinder records none, and a Shot naming no grinder keeps
-the Workflow's. Shots stored before this keep none until they are stored
+the Workflow's. A Shot imported, from a backup, the de1app or a Shot file,
+keeps the burrs it carries. Shots stored before this keep none until they are stored
 again. Decaid keeps the previous grinder's burrs when `PUT
 /api/v1/shots/{id}` changes a Shot's `grinderId`, as DYE2's Edit Shot page
 does (seen on v0.9.0 on 2026-10-16, decentespresso/decaid#1005).

@@ -425,7 +425,7 @@ of a Workflow that follow it are its Profile, Grinder, dose, yield, grind
 setting, RPM, Basket, Bean Batch, four hot water settings and brew
 temperature, its profile's first step's (`LOADED_RECIPE_PARTS` in
 `protocol/`). Its Grinder is `grinderId` and `grinderModel`, as DYE2 applies a
-recipe's, not the grinder's burrs: Decaid copies onto each Shot it stores
+recipe's, not the grinder's burrs: Decaid copies onto each Shot it pulls
 the burrs of the grinder the Shot names (`PersistenceController.persistShot`
 in `decaid:lib/src/controllers/persistence_controller.dart`) and leaves the
 Workflow's alone, so Shots record the burrs of the grinder loaded, while the

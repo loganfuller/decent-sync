@@ -734,7 +734,7 @@ export const WORKFLOW_KIND = "workflow";
  * as DYE2 sets them: the grinder's setting and the RPM stay, and so do the
  * profile, dose and yield. A Workflow holds burrs only as a repeated Shot
  * brings them; Decaid replaces them with its grinder's as it stores a Shot
- * naming one, but keeps them on a Shot naming none.
+ * pulled naming one, but keeps them on a Shot pulled naming none.
  */
 export const WORKFLOW_GRINDER = ["context.grinderId", "context.grinderModel", "context.grinderBurrs"] as const;
 export const WORKFLOW_BATCH = ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"] as const;
