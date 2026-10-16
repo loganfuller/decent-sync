@@ -37,9 +37,9 @@ Decaid's simulated Bengle, against a scratch server: it backfilled and
 captured Steam Records live, each placed at the right UTC instant, so QuickJS
 on Linux reads local time in the process's time zone. On an Android tablet it
 reads local time in the zone Decaid wrote it in, by the sources (checked on
-2026-10-07):
+2026-10-07, and at v0.9.0 on 2026-10-16):
 
-- Decaid v0.8.7 and v0.8.8 run plugins in QuickJS 2026-06-04, through
+- Decaid v0.8.7, v0.8.8 and v0.9.0 run plugins in QuickJS 2026-06-04, through
   [tadelv/dart_js](https://github.com/tadelv/dart_js/blob/d6e8849210c0081d19c78be97628947e6e2976e2/android/CMakeLists.txt)
   (`flutter_js` at `d6e8849` in `decaid:pubspec.lock`), whose Android build
   compiles the same QuickJS as its Linux one. QuickJS takes local time from
@@ -68,7 +68,7 @@ notes, would remove the dependence.
 Decaid has no plugin event for Steam Records, so the plugin polls: every poll
 interval while a connection is welcomed, and at once on each `welcome`, which
 leaves the intervals as they were. A poll reads `GET /steams/latest` (Decaid
-v0.8.7 and later): the newest Steam Record by its time, without measurements,
+v0.9.0 and later): the newest Steam Record by its time, without measurements,
 or `null` while there are none. The plugin reads only its `id`, so a poll's work does
 not grow with history. If the plugin has not seen that id in this load, it
 requests the record from its outbox, ahead of backfill. While no connection
@@ -137,7 +137,7 @@ or DYE2 edits them.
 `SteamRecordsService` stores a Steam Record once, by its Decaid id, whichever
 tablet sends it: a stored record is never replaced, so repeated deliveries,
 from any instance or Machine, change nothing. A record without a measurements
-array, which Decaid v0.8.7 and later always send, is acknowledged and ignored,
+array, which Decaid v0.9.0 and later always send, is acknowledged and ignored,
 and logged as a warning naming the Machine, the Steam Record's id (quoted,
 with anything that could end or restyle the line escaped) and what it lacks,
 with no field's value. One whose id the server cannot store

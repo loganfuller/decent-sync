@@ -11,6 +11,16 @@ section).
 
 ## Unreleased
 
+### Update Decaid to v0.9.0 on every tablet
+
+The server now refuses a tablet running a Decaid older than v0.9.0, with
+`decaid_too_old`, and its Machine's page says why; the plugin stops until
+Decaid is updated. Update Decaid on every tablet before upgrading the
+server. Decaid v0.9.0 tells the plugin of every Shot it stores or changes,
+those a backup import adds or overwrites included, and copies the burrs of a
+Shot's grinder onto it, which the server now keeps with each Shot. Shots
+stored before the upgrade keep no burrs until they are stored again.
+
 ### Approve the plugin update on every tablet
 
 The plugin now tells Streamline when it has written a tablet's DYE2

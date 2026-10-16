@@ -31,7 +31,9 @@ package, which left that one's clock on UTC whatever its `TZ`. The two user
 profiles, their titles, notes, author and metadata were made up for the
 recording, as was the id no profile has; the bundled ones are Decaid's own.
 Nothing names real hardware. `ProfileHandler`, `ProfileController`,
-`ProfileRecord`, `Profile` and `ProfileHash` are unchanged in v0.8.8.
+`ProfileRecord`, `Profile` and `ProfileHash` are unchanged in v0.8.8 and
+v0.9.0, as are the bundled profiles (`assets/defaultProfiles`), so v0.9.0
+answers these requests the same.
 
 Posting a profile whose id Decaid holds answers 201 with the record it holds,
 whatever its visibility, so a client that wants it shown sets its visibility

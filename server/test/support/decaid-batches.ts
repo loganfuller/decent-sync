@@ -1,11 +1,11 @@
 import { type DecaidAnswer, castError, decaidNow } from "./decaid-beans.js";
 
-// Decaid v0.8.7's bean batches API, as the simulated tablet answers writes to
+// Decaid v0.9.0's bean batches API, as the simulated tablet answers writes to
 // it: the batch routes of `BeansHandler` in
 // decaid:lib/src/services/webserver/beans_handler.dart, `BeanBatch` in
 // lib/src/models/data/bean.dart and `BeanDao` in
-// lib/src/services/database/daos/bean_dao.dart, unchanged in v0.8.8. What it
-// answers was recorded on Decaid's Linux release
+// lib/src/services/database/daos/bean_dao.dart, unchanged since v0.8.7. What it
+// answers was recorded on v0.8.7 on Decaid's Linux release
 // (fixtures/decaid/bean-batch-writes-v0.8.7/), and
 // server/test/simulated-batch-writes.test.ts replays those requests here.
 //

@@ -2,7 +2,7 @@ import { COLLECTION_NAMES } from "@decent-sync/protocol";
 import { expect as baseExpect, type Locator, test } from "@playwright/test";
 import {
   SimulatedTablet,
-  de1ProOnDecaid087,
+  de1ProOnDecaid090,
   settingsFor,
   simulatedDevices,
   simulatedDevicesSwitchedOff,
@@ -33,7 +33,7 @@ test.afterAll(async () => {
 
 test("the Machine page shows paired devices, settings and the library, and follows a machine and scale switched off", async ({ page }) => {
   const { machine: { id }, token } = await createMachine(page, "Bar 2");
-  const served = { ...de1ProOnDecaid087(), ...simulatedLibrary(), ...simulatedDevices() };
+  const served = { ...de1ProOnDecaid090(), ...simulatedLibrary(), ...simulatedDevices() };
   // Polls every 5 s of the tablet's time, which runs five times faster here.
   const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api: served, timeScale: 5 });
   tablets.push(tablet);

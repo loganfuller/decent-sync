@@ -41,10 +41,18 @@ archived the first bean, the older batch and the grinder, and
 The profiles are trimmed to `Default` and two other bundled ones.
 
 The mock scale is not one of the scales that report device information
-(only `Skale2Scale` does in v0.8.7), so `/scale/info` answers `{}` while it is
+(only `Skale2Scale` does in v0.8.7; v0.9.0 adds scale plugins that publish
+it), so `/scale/info` answers `{}` while it is
 connected, and `503` with `{"error":"No scale connected"}` while none is, as
 `de1pro-v0.8.7/scale-info-no-scale.json` shows. Sensor manifests list their
 channels as `data`, not `dataChannels` as `rest_v1.yml` documents. The
 simulated devices name no real hardware, so nothing is scrubbed. Decaid does
 not remember simulated devices (`RememberedDevice`), so a disconnected one is
 still listed as `available`.
+
+Decaid v0.9.0 answers these endpoints the same with the same devices, but for
+`/settings`, which gains `preferredGrinderDeviceId`: `settings.json` is
+superseded by `../simulated-devices-v0.9.0/settings.json`, which the simulated
+tablet (`simulatedDevices()` in `server/test/support/simulated-tablet.ts`)
+answers instead. `scale-info.json` is still `{}`, as `MockScale` still reports
+no device information.

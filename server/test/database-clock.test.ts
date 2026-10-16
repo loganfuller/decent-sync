@@ -88,7 +88,7 @@ describe("times stored by an instance whose clock is two days ahead", () => {
   });
 
   it("records a refusal for a Decaid too old at the database's time", async () => {
-    await expectRefused(await connect(helloWith(lab.token, { machine: de1Pro("10001"), decaidVersion: "0.8.6+2800" })), "decaid_too_old");
+    await expectRefused(await connect(helloWith(lab.token, { machine: de1Pro("10001"), decaidVersion: "0.8.8+2900" })), "decaid_too_old");
     await refusalOf(lab);
   });
 

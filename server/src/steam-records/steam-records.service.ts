@@ -21,7 +21,7 @@ export class SteamRecordsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Stores a Steam Record delivery, unless it is not a record Decaid v0.8.7
+   * Stores a Steam Record delivery, unless it is not a record Decaid v0.9.0
    * or later sends: then it is ignored, and what it lacks is returned, to be
    * logged. Returns null otherwise, including for an id the server cannot
    * store, which is ignored too, as the plugin never sends one.

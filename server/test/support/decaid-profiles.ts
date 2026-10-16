@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import { type DecaidAnswer, castError, decaidNow } from "./decaid-beans.js";
 
-// Decaid v0.8.7's profiles API, as the simulated tablet answers it:
+// Decaid v0.9.0's profiles API, as the simulated tablet answers it:
 // `ProfileHandler` in decaid:lib/src/services/webserver/profile_handler.dart,
 // `ProfileController` in lib/src/controllers/profile_controller.dart,
 // `ProfileRecord`, `Profile` and `ProfileHash` in lib/src/models/data/, and
 // `ProfileDao` in lib/src/services/database/daos/profile_dao.dart, unchanged
-// in v0.8.8. What it answers was recorded on Decaid's Linux release
+// since v0.8.7. What it answers was recorded on Decaid v0.8.7's Linux release
 // (fixtures/decaid/profile-writes-v0.8.7/), and
 // server/test/simulated-profile-writes.test.ts replays those requests here.
 //

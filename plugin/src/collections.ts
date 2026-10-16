@@ -25,7 +25,7 @@ interface Source {
 }
 
 /**
- * Where each collection is read, in Decaid v0.8.7's API (rest_v1.yml): the
+ * Where each collection is read, in Decaid v0.9.0's API (rest_v1.yml): the
  * Library's lists first, each where its kind's records are written
  * (`libraryListPath`), DYE2's baskets, tools and recipes among them, in its
  * lists in Decaid's store (ADR-0005). Decaid's own lists send ETags; the rest

@@ -1,7 +1,8 @@
-// Decaid's Workflow writes, as v0.8.7 carries them out
+// Decaid's Workflow writes, as v0.9.0 carries them out
 // (`WorkflowHandler._updateWorkflow` in
 // decaid:lib/src/services/webserver/workflow_handler.dart), learned from
-// fixtures/decaid/workflow-writes-v0.8.7/: the body is deep-merged into the
+// fixtures/decaid/workflow-writes-v0.8.7/, unchanged since, and
+// workflow-writes-v0.9.0/, for the grinder's burrs v0.9.0 added: the body is deep-merged into the
 // Workflow, which is rebuilt from the result, dropping fields Decaid does not
 // know, its profile's included, and fields of its `context` merged in as
 // null, and its steam, hot water and rinse settings, where they changed, are
@@ -41,6 +42,7 @@ const CONTEXT: Readonly<Record<string, "double" | "string" | "object">> = {
   targetWaterVolume: "double",
   grinderId: "string",
   grinderModel: "string",
+  grinderBurrs: "string",
   grinderSetting: "string",
   beanBatchId: "string",
   coffeeName: "string",

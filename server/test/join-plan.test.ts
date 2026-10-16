@@ -18,6 +18,7 @@ const CONTEXT = {
   targetYield: 36,
   grinderId: "grinder-1",
   grinderModel: "Niche Zero",
+  grinderBurrs: "Stock",
   grinderSetting: "12",
   beanBatchId: "batch-1",
   coffeeName: "Guji Hambela",
@@ -25,7 +26,7 @@ const CONTEXT = {
   baristaName: "Ana",
   extras: { basketId: "basket-1", basketName: "18g Precision", rpm: 1200 },
 };
-const GRINDER = { "context.grinderId": "grinder-1", "context.grinderModel": "Niche Zero" };
+const GRINDER = { "context.grinderId": "grinder-1", "context.grinderModel": "Niche Zero", "context.grinderBurrs": "Stock" };
 const BATCH = { "context.beanBatchId": "batch-1", "context.coffeeName": "Guji Hambela", "context.coffeeRoaster": "Roux" };
 const BASKET = { "context.extras.basketId": "basket-1", "context.extras.basketName": "18g Precision" };
 
@@ -116,7 +117,7 @@ describe("A joining tablet's Workflow", () => {
     expect(workflowClear({ targetDoseWeight: 18, extras: { basketId: null, rpm: 1200 } }, offers())).toBeNull();
     expect(workflowClear(undefined, offers())).toBeNull();
     // DYE2 sets a grinder's model with its id, and a Basket's name with its id, but another skin may not.
-    expect(workflowClear({ grinderId: "grinder-1" }, offers({ batch: "unknown" }))).toEqual({ "context.grinderId": "grinder-1", "context.grinderModel": null });
+    expect(workflowClear({ grinderId: "grinder-1" }, offers({ batch: "unknown" }))).toEqual({ "context.grinderId": "grinder-1", "context.grinderModel": null, "context.grinderBurrs": null });
     expect(workflowClear({ extras: { basketId: "basket-1" } }, offers())).toEqual({ "context.extras.basketId": "basket-1", "context.extras.basketName": null });
   });
 

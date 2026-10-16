@@ -6,8 +6,8 @@ import { type EditableContent, KINDS } from "./kinds.js";
 // Grinder's, a Basket's, a Tool's and a Recipe's content, as each kind's
 // description lists it (`editable` in kinds.ts): Decaid's record fields, each
 // of the type Decaid takes (`Bean`, `BeanBatch` and `Grinder` in
-// decaid:lib/src/models/data/, v0.8.7), so a tablet never refuses a write of
-// them (server/test/fixtures/decaid/*-writes-v0.8.7/), and DYE2's, each as
+// decaid:lib/src/models/data/, v0.9.0), so a tablet never refuses a write of
+// them (server/test/fixtures/decaid/*-writes-v0.8.7/, unchanged in v0.9.0), and DYE2's, each as
 // its pages save it (`submitForm` in dye2:dye2-plugin/src/pages/baskets.ts
 // and equipment.ts, `getCurrentRecipeData` in recipe-edit.ts, v0.1.19), a
 // Recipe's in the Library's terms (`recipeContent` in recipe-intake.ts),

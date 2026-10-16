@@ -303,7 +303,7 @@ var __decentSync = (() => {
   var REMOVAL_ORDER = LIBRARY_KINDS.filter((kind) => parentKind(kind) === void 0).flatMap((kind) => [...childKinds(kind), kind]);
   var SETTINGS_KIND = "settings";
   var WORKFLOW_KIND = "workflow";
-  var WORKFLOW_GRINDER = ["context.grinderId", "context.grinderModel"];
+  var WORKFLOW_GRINDER = ["context.grinderId", "context.grinderModel", "context.grinderBurrs"];
   var WORKFLOW_BATCH = ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"];
   var WORKFLOW_BASKET = ["context.extras.basketId", "context.extras.basketName"];
   var WORKFLOW_CLEARED = [WORKFLOW_GRINDER, WORKFLOW_BATCH, WORKFLOW_BASKET];
@@ -3432,8 +3432,6 @@ var __decentSync = (() => {
       __publicField(this, "scanned", false);
       __publicField(this, "stopped", false);
       __publicField(this, "timer");
-      /** The Shots Decaid reported stored or edited while a summary pass runs. */
-      __publicField(this, "reported");
     }
     welcome() {
       if (!this.scanned && !this.scanning && this.timer === void 0) void this.scan();
@@ -3446,7 +3444,6 @@ var __decentSync = (() => {
       const event = object2(payload);
       if (this.stopped || !event || !isCaptured(event.id)) return;
       const id = event.id;
-      this.reported?.add(id);
       if (type === "shot") {
         this.outbox.request("shot", [id], { first: true });
         return;
@@ -3479,7 +3476,6 @@ var __decentSync = (() => {
         }, 5e3);
       } finally {
         this.scanning = false;
-        this.reported = void 0;
       }
     }
     /**
@@ -3491,21 +3487,18 @@ var __decentSync = (() => {
      * time it was read with: every unedited Shot older than that one sorts
      * after it, so none that existed throughout the pass is missed. Every
      * Decaid edit gives a Shot a new edit time, and an edit to its time can
-     * move it anywhere. One moved from the part of the list not yet read into
-     * the part already read is missed; Decaid's edit API reports it in
-     * `shotUpdated`, but an import that overwrites it reports nothing. So a
-     * pass that reaches the end checks it has read or been told of as many
-     * Shots as the tablet holds; one deleted while another was moved that way
-     * goes unnoticed. Returns true once the pass reaches the end with that
-     * count, or the capture stops, and false if the count falls short, if no
-     * Shot read with its current edit time reappears, as when more than the
+     * move it anywhere, but one moved from the part of the list not yet read
+     * into the part already read needs no reading: Decaid v0.9.0 and later
+     * report every Shot they store or edit, imports included, in `shotStored`
+     * or `shotUpdated`, which reach the server on their own. Returns true once
+     * the pass reaches the end, or the capture stops, and false if no Shot
+     * read with its current edit time reappears, as when more than the
      * overlap were deleted between two pages, or if the list grows past what
      * the first page's total allows: the pass may have missed Shots, so it is
      * repeated.
      */
     async scanPass() {
       const read = /* @__PURE__ */ new Map();
-      const reported = this.reported = /* @__PURE__ */ new Set();
       let remaining = 1;
       for (let offset = 0; remaining > 0; remaining--) {
         await this.outbox.waitForRoom();
@@ -3529,10 +3522,7 @@ var __decentSync = (() => {
           return [{ id: summary.id, updatedAt: summary.updatedAt }];
         });
         if (shots.length > 0) this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots });
-        if (page.items.length < PAGE_SIZE) {
-          for (const id of read.keys()) reported.add(id);
-          return reported.size >= page.total;
-        }
+        if (page.items.length < PAGE_SIZE) return true;
         offset += page.items.length - OVERLAP;
       }
       return false;

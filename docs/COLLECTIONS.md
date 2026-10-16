@@ -33,7 +33,7 @@ reload a record is first read then. A record without a string id has null.
 
 ## Collections
 
-Each is read from Decaid v0.8.7's API (`decaid:assets/api/rest_v1.yml`):
+Each is read from Decaid v0.9.0's API (`decaid:assets/api/rest_v1.yml`):
 
 | Name | Read from | Compared by |
 |---|---|---|
@@ -175,8 +175,11 @@ Machine that takes their hardware over. Staff read them as Admins do.
   come from `scaleInfo` and belong to a connected primary scale, joined only
   while the latest inventory read succeeded: `scaleInfo` names no scale, so
   against an older inventory it could describe a scale that replaced the one
-  listed. In Decaid v0.8.7 only Skale2 scales report them, so other scales
-  answer `{}`.
+  listed. In Decaid v0.9.0 only Skale2 scales and scale plugins that publish
+  them (`context.publishInfo`, a battery level only with the `battery`
+  capability) report them, so other scales answer `{}`; `/devices` entries
+  carry neither. A device's `type` is `machine`, `scale`, `sensor` or, for a
+  plugin's grinder, `grinder`, which the Machine page shows as a Grinder.
   Sensors are those in the inventory, and, while the latest inventory read
   succeeded, those `/sensors` lists that it leaves out, such as a Bengle's milk
   probe, each with its manifest's name and vendor. So every device shown is as

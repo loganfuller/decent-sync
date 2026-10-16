@@ -1,9 +1,9 @@
 import { type DecaidAnswer, castError, decaidNow } from "./decaid-beans.js";
 
-// Decaid v0.8.7's grinders API, as the simulated tablet answers writes to
+// Decaid v0.9.0's grinders API, as the simulated tablet answers writes to
 // it: `GrindersHandler` in decaid:lib/src/services/webserver/grinders_handler.dart
-// and `Grinder` in lib/src/models/data/grinder.dart. What it answers was
-// recorded on Decaid's Linux release (fixtures/decaid/grinder-writes-v0.8.7/),
+// and `Grinder` in lib/src/models/data/grinder.dart, unchanged since v0.8.7.
+// What it answers was recorded on Decaid v0.8.7's Linux release (fixtures/decaid/grinder-writes-v0.8.7/),
 // and server/test/simulated-grinder-writes.test.ts replays those requests
 // here.
 //

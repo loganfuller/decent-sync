@@ -37,7 +37,13 @@ simulated machine reports no serial here, and the Workflow carries no
 `machine` field, so there was nothing to scrub; nothing names real hardware.
 `WorkflowHandler`, `Workflow`, `WorkflowContext`, `deepMergeJson`, the parse
 helpers in `utils.dart` and
-`De1Controller.updateWorkflowSettings` are unchanged in v0.8.8.
+`De1Controller.updateWorkflowSettings` are unchanged in v0.8.8. In v0.9.0
+`WorkflowHandler`, `deepMergeJson`, the parse helpers and
+`De1Controller.updateWorkflowSettings` are unchanged, and
+v0.9.0 answers both files' requests the same, but `Workflow` and
+`WorkflowContext` know the grinder's burrs (`grinderBurrs`), which
+`clearGrinder` clears with the grinder: `../workflow-writes-v0.9.0/` records
+those writes.
 
 Decaid deep-merges the body into the current Workflow, rebuilds the Workflow
 from the result, and answers the whole Workflow. Rebuilding it drops any field

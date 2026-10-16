@@ -6,6 +6,15 @@ export function shotFixture(): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(new URL("../fixtures/decaid/de1pro-v0.8.7/shot-espresso.json", import.meta.url), "utf8"));
 }
 
+/**
+ * A Shot Decaid v0.9.0 recorded from its simulated machine, with the burrs it
+ * copied from the record of the Grinder its Workflow named
+ * (simulated-devices-v0.9.0/).
+ */
+export function burrsShotFixture(): Record<string, unknown> {
+  return JSON.parse(fs.readFileSync(new URL("../fixtures/decaid/simulated-devices-v0.9.0/shot-grinder-burrs.json", import.meta.url), "utf8"));
+}
+
 export function withShots(api: DecaidApi, shots: Record<string, unknown>[]): DecaidApi {
   return { ...api, ...Object.fromEntries(shots.map((shot) => [`/shots/${encodeURIComponent(String(shot.id))}`, shot])) };
 }

@@ -468,8 +468,8 @@ describe("Tablets", () => {
     const refused = await api.createMachine("Refused");
     const raw = await RawConnection.open(server.url);
     connections.push(raw);
-    raw.send(helloWith(refused.token, { decaidVersion: "0.8.6+2801" }));
+    raw.send(helloWith(refused.token, { decaidVersion: "0.8.8+2900" }));
     await raw.closed;
-    expect(await machine(refused.machine.id)).toMatchObject({ lastRefusal: { reason: expect.stringContaining("0.8.6") }, tablet: null, earlierTablets: [] });
+    expect(await machine(refused.machine.id)).toMatchObject({ lastRefusal: { reason: expect.stringContaining("0.8.8") }, tablet: null, earlierTablets: [] });
   });
 });

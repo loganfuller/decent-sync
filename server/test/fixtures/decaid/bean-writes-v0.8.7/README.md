@@ -26,7 +26,7 @@ no `tzdata` package, so its `TZ` did not apply (the times are later than the
 commit that added them, read as Chicago's). The names, global ids and the
 other plugin's key (`bcUuid`, as DYE2 keeps a Beanconqueror id) were made up
 for the recording; nothing names real hardware. `BeansHandler` and `Bean` are
-unchanged in v0.8.8.
+unchanged in v0.8.8 and v0.9.0, so v0.9.0 answers these requests the same.
 
 Decaid lists beans with the most recently updated first. A refused write
 answers 400 with Dart's error message, or 404 for an unknown bean.

@@ -27,11 +27,11 @@ export const OLDEST_SUPPORTED_PROTOCOL_VERSION = 1;
 
 /**
  * The oldest Decaid release the server accepts, always a release rather than
- * a pre-release. Before v1 it is 0.8.7. From v1, each release sets it to the
+ * a pre-release. Before v1 it is 0.9.0. From v1, each release sets it to the
  * second Decaid release tag before the newest, so tablets may run the newest
  * or either of the two before it (ADR-0017).
  */
-export const OLDEST_SUPPORTED_DECAID = "0.8.7";
+export const OLDEST_SUPPORTED_DECAID = "0.9.0";
 
 /** The path of the server's sync endpoint, under its public URL's host. */
 export const SYNC_PATH = "/sync";
@@ -234,7 +234,7 @@ export interface Hello {
   protocolVersion: number;
   token: string;
   pluginVersion: string;
-  /** Decaid's full version, such as 0.8.7+2847. */
+  /** Decaid's full version, such as 0.9.0+2977. */
   decaidVersion: string;
   /**
    * The tablet's id (ADR-0006): a random UUID the plugin made on its first
@@ -729,11 +729,14 @@ export const WORKFLOW_KIND = "workflow";
  * their paths, each group's id first, which a write of WORKFLOW_KIND clears
  * together: the grinder and batch as Decaid's `WorkflowContext.clearGrinder`
  * and `clearBeanBatch` do (decaid:lib/src/models/data/workflow_context.dart),
- * and the Basket as Streamline's `clearDyeWorkflowContext` does
- * (streamline-js:src/modules/dyeStrip.js), all as DYE2 sets them: the
- * grinder's setting and the RPM stay, and so do the profile, dose and yield.
+ * the grinder with its burrs, and the Basket as Streamline's
+ * `clearDyeWorkflowContext` does (streamline-js:src/modules/dyeStrip.js), all
+ * as DYE2 sets them: the grinder's setting and the RPM stay, and so do the
+ * profile, dose and yield. A Workflow holds burrs only as a repeated Shot
+ * brings them; Decaid replaces them with its grinder's as it stores a Shot
+ * naming one, but keeps them on a Shot naming none.
  */
-export const WORKFLOW_GRINDER = ["context.grinderId", "context.grinderModel"] as const;
+export const WORKFLOW_GRINDER = ["context.grinderId", "context.grinderModel", "context.grinderBurrs"] as const;
 export const WORKFLOW_BATCH = ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"] as const;
 export const WORKFLOW_BASKET = ["context.extras.basketId", "context.extras.basketName"] as const;
 
@@ -1731,7 +1734,7 @@ interface DecaidRelease {
 
 /**
  * The release a Decaid `fullVersion` names: the tag it was built from, then
- * `+` and a build number, such as 0.8.7+2847 or 0.8.8-beta.2+2860.
+ * `+` and a build number, such as 0.9.0+2977 or 0.9.0-beta.2+2970.
  */
 function decaidRelease(version: string): DecaidRelease | null {
   const match = /^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.exec(version);

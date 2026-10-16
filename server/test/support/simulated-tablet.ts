@@ -17,7 +17,7 @@ import { opened } from "./test-scope.js";
 
 // Seam 1's simulated tablet: runs the built decent-sync.reaplugin/plugin.js
 // (`npm run build` first) in a stand-in for Decaid's plugin host, the way
-// Decaid v0.8.7 does (decaid:lib/src/plugins/plugin_manager.dart and
+// Decaid v0.9.0 does (decaid:lib/src/plugins/plugin_manager.dart and
 // plugin_transport_service.dart):
 //
 // - The source is pasted into a function body with `host`, `fetch`,
@@ -161,7 +161,7 @@ interface DeclaredEndpoint {
   type: "http" | "websocket";
 }
 
-/** The endpoints a manifest declares; throws for an entry Decaid v0.8.7 could not read, so would not load the plugin with. */
+/** The endpoints a manifest declares; throws for an entry Decaid v0.9.0 could not read, so would not load the plugin with. */
 export function declaredEndpoints(manifest: Record<string, unknown>): DeclaredEndpoint[] {
   const api = manifest.api ?? [];
   if (!Array.isArray(api)) throw new Error("The manifest's api must be a list");
@@ -207,18 +207,20 @@ export class Refusal {
 }
 
 /**
- * The test tablet's DE1Pro on Decaid 0.8.7, with its hardware ids replaced
- * (see the fixtures' README): its library, settings and paired devices
- * included. Its scale is off, so `/scale/info` answers 503, and DYE2 has
+ * The test tablet's DE1Pro, with its hardware ids replaced (see the
+ * fixtures' READMEs): its library, settings and paired devices included, as
+ * Decaid 0.8.7 answered them (de1pro-v0.8.7/), and unchanged in 0.9.0, but
+ * its version and app settings as Decaid 0.9.0 answers them
+ * (de1pro-v0.9.0/). Its scale is off, so `/scale/info` answers 503, and DYE2 has
  * never written its equipment, which therefore answers `null`. Its DYE2
  * recipes and baskets are in an older DYE2's shape than simulated-dye2.ts
  * replays.
  */
-export function de1ProOnDecaid087(): DecaidApi {
+export function de1ProOnDecaid090(): DecaidApi {
   return {
-    "/info": readFixture("info.json"),
+    "/info": readFixture("info.json", "de1pro-v0.9.0"),
     "/machine/info": readFixture("machine-info.json"),
-    "/settings": readFixture("settings.json"),
+    "/settings": readFixture("settings.json", "de1pro-v0.9.0"),
     "/workflow": readFixture("workflow.json"),
     "/machine/state": readFixture("machine-state.json"),
     "/beans": readFixture("beans.json"),
@@ -236,15 +238,16 @@ export function de1ProOnDecaid087(): DecaidApi {
 }
 
 /**
- * Decaid's own simulated devices (simulated-devices-v0.8.7/): a connected
- * scale, which reports no firmware or battery level, two sensors, and a
- * second machine only discovered nearby, with the app settings recorded
- * beside them, which prefer that scale and name that machine's connection
- * id. Merge it into a tablet's API.
+ * Decaid's own simulated devices (simulated-devices-v0.8.7/, unchanged in
+ * v0.9.0): a connected scale, which reports no firmware or battery level,
+ * two sensors, and a second machine only discovered nearby, with the app
+ * settings Decaid v0.9.0 answered beside them (simulated-devices-v0.9.0/),
+ * which prefer that scale and name that machine's connection id. Merge it
+ * into a tablet's API.
  */
 export function simulatedDevices(): DecaidApi {
   return {
-    "/settings": readFixture("settings.json", "simulated-devices-v0.8.7"),
+    "/settings": readFixture("settings.json", "simulated-devices-v0.9.0"),
     "/devices": readFixture("devices.json", "simulated-devices-v0.8.7"),
     "/sensors": readFixture("sensors.json", "simulated-devices-v0.8.7"),
     "/scale/info": readFixture("scale-info.json", "simulated-devices-v0.8.7"),
@@ -357,14 +360,14 @@ function machineSnapshot(state: string, substate: string): Record<string, unknow
 export const NO_DYE2_LISTS: DecaidApi = { "/store/dye2.reaplugin/recipes": [], "/store/dye2.reaplugin/baskets": [], "/store/dye2.reaplugin/equipment": [] };
 
 /**
- * Derived from de1ProOnDecaid087(): the same responses, with the machine's
+ * Derived from de1ProOnDecaid090(): the same responses, with the machine's
  * reported model and serial, the preferred machine's connection id, or
- * Decaid's version (such as 0.8.6+2801, split into its version and build
+ * Decaid's version (such as 0.8.8+2900, split into its version and build
  * number as Decaid reports them too) changed. Every other field is as Decaid
  * sent it.
  */
 export function derivedDe1Pro(changes: { model?: string; serial?: string; connectionId?: string; decaidVersion?: string }): DecaidApi {
-  const api = de1ProOnDecaid087();
+  const api = de1ProOnDecaid090();
   const info = api["/info"] as Record<string, unknown>;
   const machineInfo = api["/machine/info"] as Record<string, unknown>;
   const settings = api["/settings"] as Record<string, unknown>;
@@ -394,7 +397,7 @@ export function helloWith(token: string, extra: Record<string, unknown> = {}): R
     protocolVersion: PROTOCOL_VERSION,
     token,
     pluginVersion: "0.1.0",
-    decaidVersion: "0.8.7+2847",
+    decaidVersion: "0.9.0+2977",
     tabletId: randomUUID(),
     connectionId: "00:00:5E:00:53:01",
     ...extra,
@@ -506,7 +509,7 @@ export interface SimulatedTabletOptions {
    * empty one, as on a new tablet.
    */
   storage?: PluginStorage;
-  /** Decaid's API responses; defaults to de1ProOnDecaid087(). */
+  /** Decaid's API responses; defaults to de1ProOnDecaid090(). */
   api?: DecaidApi;
   /** Whether a machine is connected to the tablet; while not, /machine/info fails. Defaults to true. */
   machineConnected?: boolean;
@@ -710,7 +713,7 @@ export class SimulatedTablet {
   }
 
   private constructor(options: SimulatedTabletOptions) {
-    this.api = options.api ?? de1ProOnDecaid087();
+    this.api = options.api ?? de1ProOnDecaid090();
     this.machineConnected = options.machineConnected ?? true;
     this.timeScale = options.timeScale ?? 1;
     const apiDelayMs = options.apiDelayMs ?? 0;

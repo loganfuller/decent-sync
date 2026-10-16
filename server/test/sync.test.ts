@@ -210,7 +210,7 @@ describe("Machines and the sync connection", () => {
       const tablet = loadTablet(settingsFor(unread));
       tablet.failNextApiReads("/info", 1);
       await tablet.waitForLog(/^Disconnected: could not read Decaid's version from its API\. Reconnecting in 1 s\.$/);
-      expect(await waitForMachine("Version unread", (machine) => machine.online)).toMatchObject({ decaidVersion: "0.8.7+2847" });
+      expect(await waitForMachine("Version unread", (machine) => machine.online)).toMatchObject({ decaidVersion: "0.9.0+2977" });
     });
 
     it("connects while earlier attempts the server never answered still hold their transports", async () => {
@@ -404,9 +404,9 @@ describe("Machines and the sync connection", () => {
       expect(await raw.closed).toEqual({ code: CLOSE_CODES.hardware_dismissed, reason: "hardware_dismissed" });
 
       for (const line of [
-        `Machine Forged hello connected from 127.0.0.1: plugin ${quoted("0.1.0")}, Decaid "0.8.7+2847", bound to ${quoted("DE1Pro")} serial ${quoted("20001")}`,
-        `Machine Forged hello was taken over by tablet ${secondTablet} from 127.0.0.1, from tablet ${firstTablet} at 127.0.0.1: plugin ${quoted("0.1.0")}, Decaid "0.8.7+2847", which was still connected`,
-        `Machine Forged hello connected from 127.0.0.1: plugin "0.1.0", Decaid "0.8.7+2847", reports ${quoted("DE1XL")} serial ${quoted("20002")}, not the hardware its token is bound to`,
+        `Machine Forged hello connected from 127.0.0.1: plugin ${quoted("0.1.0")}, Decaid "0.9.0+2977", bound to ${quoted("DE1Pro")} serial ${quoted("20001")}`,
+        `Machine Forged hello was taken over by tablet ${secondTablet} from 127.0.0.1, from tablet ${firstTablet} at 127.0.0.1: plugin ${quoted("0.1.0")}, Decaid "0.9.0+2977", which was still connected`,
+        `Machine Forged hello connected from 127.0.0.1: plugin "0.1.0", Decaid "0.9.0+2977", reports ${quoted("DE1XL")} serial ${quoted("20002")}, not the hardware its token is bound to`,
         `Closing the sync connection of Machine Forged hello (127.0.0.1): An Admin dismissed ${escaped("DE1XL")} serial ${escaped("20002")}, which a tablet reported with this Machine's token`,
       ]) {
         await expect.poll(() => server.output()).toContain(line);

@@ -26,7 +26,8 @@ up as `bean-writes-v0.8.7`'s was, without the `tzdata` package, which left
 that one's clock on UTC whatever its `TZ`. The models, global ids, the other
 plugin's key (`otherPluginId`) and the ids no record has were made up for the
 recording; nothing names real hardware. `GrindersHandler`, `Grinder`,
-`GrinderDao` and the grinders table are unchanged in v0.8.8.
+`GrinderDao` and the grinders table are unchanged in v0.8.8 and v0.9.0, so
+v0.9.0 answers these requests the same.
 
 `POST /grinders` takes no `archived`. Decaid lists grinders with the most
 recently updated first; without `includeArchived=true`, `GET /grinders`

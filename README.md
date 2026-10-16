@@ -274,7 +274,7 @@ custom domain, set `PUBLIC_URL` to it.
 
 ## Installing the plugin
 
-The plugin needs Decaid v0.8.7 or newer. The server refuses a tablet running
+The plugin needs Decaid v0.9.0 or newer. The server refuses a tablet running
 an older Decaid, and the Machine's page says why. Before version 1.0, run the
 plugin and server from the same release. From 1.0, the server supports the
 current and previous plugin release, and the newest Decaid release and the two

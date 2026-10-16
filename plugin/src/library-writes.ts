@@ -154,7 +154,7 @@ export interface ListPosted {
 /** Whether a Shot this plugin queued since it loaded, or has yet to send, names one of a kind's records (`LibraryWrites.namedByShot`). */
 type NamedByShot = (kind: LibraryKind, ids: ReadonlySet<string>) => Promise<boolean | "tooMany">;
 
-/** Where the kinds whose records the plugin writes as they are live in Decaid's API (v0.8.7, rest_v1.yml). */
+/** Where the kinds whose records the plugin writes as they are live in Decaid's API (v0.9.0, rest_v1.yml). */
 const ROUTES = {
   bean: {
     list: "/beans?includeArchived=true",

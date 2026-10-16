@@ -29,6 +29,12 @@ machine and scale (in `settings.json` and `devices.json`), and the tablet's
 LAN address are replaced with made-up values (serial `10001`, addresses from the `00:00:5E:00:53:xx` documentation
 range, IP from `192.0.2.0/24`). Everything else is as Decaid sent it.
 
+Decaid v0.9.0 answers these endpoints as v0.8.7 did, but for `/info`, which
+reports its version, and `/settings`, which gains `preferredGrinderDeviceId`.
+Those two are superseded by `../de1pro-v0.9.0/`: the simulated tablet
+(`de1ProOnDecaid090` in `server/test/support/simulated-tablet.ts`) answers
+`/info` and `/settings` from there, and everything else from here.
+
 `workflow.json` is what Decaid's `workflowUpdated` event carries, and
 `machine-state.json` what its `stateUpdate` event carries: both events send
 the same `toJson()` as these endpoints (`PluginManager` in
@@ -48,7 +54,10 @@ and drinker names are replaced with `Fixture Barista`; notes, plugin upload
 bookkeeping and the deprecated metadata mirror are scrubbed. Machine serials
 are replaced with `10001`.
 
-v0.8.7 is the oldest Decaid that Decent Sync supports. Seam 1 Shot variants
+The Shot was pulled on v0.8.7, which recorded no grinder's burrs; v0.9.0
+serves a Shot as it was stored, so it still has none
+(`../simulated-devices-v0.9.0/shot-grinder-burrs.json` has a Shot with
+burrs). Seam 1 Shot variants
 change ids, times, hardware, annotations or unknown fields explicitly in
 tests. Their measurement samples still come from this record; one Playwright
 Shot in `e2e/shots.spec.ts` also changes its samples' pressure targets, and

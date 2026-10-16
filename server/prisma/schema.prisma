@@ -478,6 +478,10 @@ model Shot {
   /// named by the Shot, and is never hard-deleted.
   beanBatchId      String?           @map("bean_batch_id")
   grinderId        String?           @map("grinder_id")
+  /// The burrs fitted to that Grinder as the Shot was pulled, as Decaid
+  /// v0.9.0 and later copy them from its record onto the Shot, so a later
+  /// change of burrs leaves the Shot's alone; null where it records none.
+  grinderBurrs     String?           @map("grinder_burrs")
   /// The tablet that reported the metadata stored, whose ids `beanBatchId`
   /// and `grinderId` are; null for a Shot stored before Shots kept it, until
   /// a tablet's index lists it, as only a tablet holding it does.
