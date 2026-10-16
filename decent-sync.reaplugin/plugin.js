@@ -1100,11 +1100,18 @@ var __decentSync = (() => {
        * in the old one.
        */
       __publicField(this, "relocating", null);
-      /** Whether keeping a cleared selection in DYE2's storage failed, to be tried again at the next read (`keepCleared`). */
-      __publicField(this, "keepPending", false);
+      /**
+       * The selection cleared whose keeping as cleared in DYE2's storage is
+       * still to be done (`keepCleared`), as when Decaid failed it, tried again at
+       * the next read, while DYE2 is unavailable too; should DYE2 restore that
+       * selection meanwhile, it is cleared again rather than loaded.
+       */
+      __publicField(this, "keepPending", null);
+      /** How many espressos have started since the plugin loaded: a load's write made before one is followed by it. */
+      __publicField(this, "espressos", 0);
       /** Whether Decaid reported a change of the Workflow during a write of the plugin's (`ownWrite`). */
       __publicField(this, "reportedDuringWrite", false);
-      /** The latest load: its Recipe, the Bean Batch its write replaced, and whether an espresso has started since. */
+      /** The latest load: its Recipe, the Bean Batch its write replaced, and how many espressos had started as its write was sent (`espressos`). */
       __publicField(this, "load", null);
       __publicField(this, "dye2", "unknown");
       /** When DYE2 was first seen not loaded, since it was last loaded. */
@@ -1171,7 +1178,7 @@ var __decentSync = (() => {
       }
       this.observed++;
       this.holdUntilRead(workflow);
-      const load = this.load && { ...this.load };
+      const load = this.load && { ...this.load, espresso: this.espressos > this.load.espressos };
       if (before) this.enqueue(() => this.changed(before, workflow, load));
       this.readSoon();
     }
@@ -1188,7 +1195,7 @@ var __decentSync = (() => {
     }
     /** Decaid's `stateUpdate`, a change of state: the first espresso since a load closes the window in which a batch set back to the one it replaced is no change of Bean. */
     stateChanged(state) {
-      if (state === "espresso" && this.load) this.load.espresso = true;
+      if (state === "espresso") this.espressos++;
     }
     /**
      * DYE2's recipes as a read of them found them, whoever read them: the
@@ -1202,7 +1209,19 @@ var __decentSync = (() => {
       this.recipes = new Map(loadable(records).map(({ globalId, slot, record }) => [slot, { globalId, record }]));
       for (const [slot, { globalId }] of this.recipes) this.lastSlots.set(globalId, slot);
       const moving = this.relocating;
-      if (moving !== null && moving.posted && this.pendingSelect === null) {
+      if (moving?.posted === "unknown") {
+        const slot = this.slotOf(moving.globalId);
+        if (slot === null || moving.left.has(slot)) {
+          this.relocating = null;
+          if (slot !== null && this.loaded === moving.globalId) {
+            this.pendingSelect = { slot, globalId: moving.globalId };
+            this.enqueue(() => this.check());
+          }
+          return;
+        }
+        moving.posted = true;
+      }
+      if (moving !== null && moving.posted === true && this.pendingSelect === null) {
         const slot = this.slotOf(moving.globalId);
         if (slot !== null && !moving.left.has(slot)) {
           this.pendingSelect = { slot, globalId: moving.globalId };
@@ -1242,12 +1261,16 @@ var __decentSync = (() => {
       const [was, is] = [slots(before), slots(after)];
       if (was.size === is.size && [...was].every((slot) => is.has(slot))) return;
       const left = new Set([...was].filter((slot) => !is.has(slot)));
+      if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
       this.relocating = { globalId, left: /* @__PURE__ */ new Set([...this.relocating?.globalId === globalId ? this.relocating.left : [], ...left]), posted: false };
       for (const slot of left) await this.clearSlot(slot, false);
     }
     posted(records) {
       if (this.relocating) this.relocating.posted = true;
       this.sawRecipes(records);
+    }
+    postUnsettled() {
+      if (this.relocating && this.relocating.posted === false) this.relocating.posted = "unknown";
     }
     notPosted(records) {
       const moving = this.relocating;
@@ -1348,8 +1371,11 @@ var __decentSync = (() => {
             await this.unload("unavailable");
             if (!this.keptUnavailable) {
               this.keptUnavailable = true;
-              await this.keepCleared();
+              await this.keepCleared(this.selected);
             }
+          } else if (this.keepPending) {
+            await storeSelection({});
+            this.keepPending = null;
           }
           return;
         }
@@ -1381,7 +1407,13 @@ var __decentSync = (() => {
      * selection after them.
      */
     async tryPending(answer) {
-      if (this.keepPending && answer.kind !== "unavailable") await this.keepCleared();
+      const kept = this.keepPending;
+      if (kept && answer.kind !== "unavailable") {
+        if (answer.kind === "recipe" && answer.slot === kept.slot && answer.fingerprint === kept.fingerprint && await postSelection(null) === "done") {
+          answer = { kind: "none" };
+        }
+        await this.keepCleared(kept);
+      }
       for (const [slot, keep] of [...this.pendingClears]) {
         if (answer.kind === "unavailable") break;
         this.pendingClears.delete(slot);
@@ -1429,9 +1461,10 @@ var __decentSync = (() => {
           await this.tryPending({ kind: "none" });
           return;
         }
+        const cleared = this.selected;
         this.selected = null;
         if (loaded !== null) await this.unload("selection");
-        if (previous === "recipe") await this.keepCleared();
+        if (previous === "recipe") await this.keepCleared(cleared);
         return;
       }
       if (answer.kind === "favourite") {
@@ -1468,6 +1501,7 @@ var __decentSync = (() => {
         const workflow = await this.workflowNow();
         const context = await this.loadContext(recipe.record);
         let planned = loadWrite(workflow, recipe.record, globalId, context);
+        const espressos = this.espressos;
         let answer;
         if (planned !== null) {
           answer = await request("PUT", "/workflow", planned.write);
@@ -1480,7 +1514,7 @@ var __decentSync = (() => {
         const after = answer ? parsed3(answer.text) : workflow;
         if (planned && Object.keys(planned.before).length > 0) this.changes.attach({ loadBefore: planned.before });
         this.loaded = globalId;
-        this.load = { globalId, batchBefore: planned?.before.batch?.before, espresso: false };
+        this.load = { globalId, batchBefore: planned?.before.batch?.before, espressos };
         if (dye2Fingerprint(workflow.profile) !== dye2Fingerprint(isObject4(after) ? after.profile : workflow.profile)) this.pendingSelect = { slot, globalId };
         return { read: workflow, answered: isObject4(after) ? after : void 0 };
       });
@@ -1536,7 +1570,7 @@ var __decentSync = (() => {
         }
         this.answer = "none";
         this.selected = null;
-        if (keep) await this.keepCleared();
+        if (keep) await this.keepCleared({ slot, fingerprint: answer.fingerprint });
       } catch (error) {
         this.pendingClears.set(slot, keep);
         throw error;
@@ -1548,12 +1582,12 @@ var __decentSync = (() => {
      * again over a Bean switched meanwhile (decentespresso/dye2#22). Should
      * DYE2 have selected something meanwhile, that is kept instead.
      */
-    async keepCleared() {
-      this.keepPending = true;
+    async keepCleared(cleared) {
+      this.keepPending = cleared ?? this.keepPending ?? { slot: null, fingerprint: null };
       await storeSelection({});
       const answer = await readSelection();
       if (answer.kind === "recipe" || answer.kind === "favourite") await storeSelection(answer.selection);
-      this.keepPending = false;
+      this.keepPending = null;
     }
     /**
      * Runs a write of the plugin's into the Workflow, its changes held back
@@ -1589,7 +1623,7 @@ var __decentSync = (() => {
         this.readSoon();
       }
       this.changes.release();
-      if (reported && wrote && this.latest) await this.changed(wrote.read, this.latest, this.load && { ...this.load });
+      if (reported && wrote && this.latest) await this.changed(wrote.read, this.latest, this.load && { ...this.load, espresso: this.espressos > this.load.espressos });
     }
     /** The slot a Recipe is in on the tablet now, or null. */
     slotOf(globalId) {
@@ -2363,7 +2397,13 @@ var __decentSync = (() => {
   async function postList({ path, key, posted }, records, before) {
     const ordered = key === "recipes" ? [...records].sort((a, b) => Number(a.id) - Number(b.id)) : records;
     if (key === "recipes") await posted.loaded?.moving(before, ordered);
-    const answer = await request("POST", path, ordered);
+    let answer;
+    try {
+      answer = await request("POST", path, ordered);
+    } catch (error) {
+      if (key === "recipes") posted.loaded?.postUnsettled();
+      throw error;
+    }
     if (answer.ok) {
       posted(key);
       if (key === "recipes") posted.loaded?.posted(ordered);

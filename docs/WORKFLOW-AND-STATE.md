@@ -324,7 +324,8 @@ deliveries.
   recorded that differs from the Recipe, but a brew temperature at the
   Recipe's Profile's own first step temperature: the Drink tile sends its
   copy of the profile at those (decentespresso/streamline-js#155), so the
-  Recipe's is written back. A wake profile Streamline sends with another
+  Recipe's is written back, as it is over a wake's saved brew temperature
+  that is the profile's own, which looks the same. A wake profile Streamline sends with another
   yield is taken in the same way (decentespresso/streamline-js#153).
 - **A cleared selection kept cleared.** DYE2 restores its stored selection
   as it loads, and stores a cleared one as `null`, which Decaid's store does

@@ -72,6 +72,8 @@ export interface LoadedRecipeWrites {
   posted(records: readonly Record<string, unknown>[]): void;
   /** After a post of DYE2's recipes Decaid refused, with the list as it still is: a move is undone, its old slot selected again. */
   notPosted(records: readonly Record<string, unknown>[]): void;
+  /** After a post of DYE2's recipes Decaid did not answer: whether a move landed is told by the next read of the list. */
+  postUnsettled(): void;
 }
 
 /** What DYE2's selection last answered, as the plugin takes it. */
@@ -110,13 +112,20 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * once that post was taken, as a read of the list before it finds it still
    * in the old one.
    */
-  private relocating: { globalId: string; left: ReadonlySet<number>; posted: boolean } | null = null;
-  /** Whether keeping a cleared selection in DYE2's storage failed, to be tried again at the next read (`keepCleared`). */
-  private keepPending = false;
+  private relocating: { globalId: string; left: ReadonlySet<number>; posted: boolean | "unknown" } | null = null;
+  /**
+   * The selection cleared whose keeping as cleared in DYE2's storage is
+   * still to be done (`keepCleared`), as when Decaid failed it, tried again at
+   * the next read, while DYE2 is unavailable too; should DYE2 restore that
+   * selection meanwhile, it is cleared again rather than loaded.
+   */
+  private keepPending: Cleared | null = null;
+  /** How many espressos have started since the plugin loaded: a load's write made before one is followed by it. */
+  private espressos = 0;
   /** Whether Decaid reported a change of the Workflow during a write of the plugin's (`ownWrite`). */
   private reportedDuringWrite = false;
-  /** The latest load: its Recipe, the Bean Batch its write replaced, and whether an espresso has started since. */
-  private load: { globalId: string; batchBefore: string | null | undefined; espresso: boolean } | null = null;
+  /** The latest load: its Recipe, the Bean Batch its write replaced, and how many espressos had started as its write was sent (`espressos`). */
+  private load: { globalId: string; batchBefore: string | null | undefined; espressos: number } | null = null;
   private dye2: Dye2State | "unknown" = "unknown";
   /** When DYE2 was first seen not loaded, since it was last loaded. */
   private notLoadedSince: number | null = null;
@@ -197,7 +206,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     this.observed++;
     this.holdUntilRead(workflow);
     // Whether an espresso started since the load, as the change was reported: one reported after it is decided after it.
-    const load = this.load && { ...this.load };
+    const load = this.load && { ...this.load, espresso: this.espressos > this.load.espressos };
     if (before) this.enqueue(() => this.changed(before, workflow, load));
     this.readSoon();
   }
@@ -216,7 +225,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
 
   /** Decaid's `stateUpdate`, a change of state: the first espresso since a load closes the window in which a batch set back to the one it replaced is no change of Bean. */
   stateChanged(state: string): void {
-    if (state === "espresso" && this.load) this.load.espresso = true;
+    if (state === "espresso") this.espressos++;
   }
 
   /**
@@ -231,7 +240,20 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     this.recipes = new Map(loadable(records).map(({ globalId, slot, record }) => [slot, { globalId, record }]));
     for (const [slot, { globalId }] of this.recipes) this.lastSlots.set(globalId, slot);
     const moving = this.relocating;
-    if (moving !== null && moving.posted && this.pendingSelect === null) {
+    if (moving?.posted === "unknown") {
+      const slot = this.slotOf(moving.globalId);
+      if (slot === null || moving.left.has(slot)) {
+        // The post did not land: the Recipe is selected again where it still is, or left to the server, gone from its slots.
+        this.relocating = null;
+        if (slot !== null && this.loaded === moving.globalId) {
+          this.pendingSelect = { slot, globalId: moving.globalId };
+          this.enqueue(() => this.check());
+        }
+        return;
+      }
+      moving.posted = true;
+    }
+    if (moving !== null && moving.posted === true && this.pendingSelect === null) {
       const slot = this.slotOf(moving.globalId);
       if (slot !== null && !moving.left.has(slot)) {
         this.pendingSelect = { slot, globalId: moving.globalId };
@@ -277,6 +299,8 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     const [was, is] = [slots(before), slots(after)];
     if (was.size === is.size && [...was].every((slot) => is.has(slot))) return;
     const left = new Set([...was].filter((slot) => !is.has(slot)));
+    // A selection of its old slot still to be made would select it there: its new slot is selected once posted.
+    if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
     this.relocating = { globalId, left: new Set([...(this.relocating?.globalId === globalId ? this.relocating.left : []), ...left]), posted: false };
     // Cleared before the list is posted, so DYE2 never records into a recipe put in the old slot; no `{}` is kept for it.
     for (const slot of left) await this.clearSlot(slot, false);
@@ -285,6 +309,11 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   posted(records: readonly Record<string, unknown>[]): void {
     if (this.relocating) this.relocating.posted = true;
     this.sawRecipes(records);
+  }
+
+  postUnsettled(): void {
+    // Decaid did not answer: the next read of the list tells whether it took the post (`sawRecipes`).
+    if (this.relocating && this.relocating.posted === false) this.relocating.posted = "unknown";
   }
 
   notPosted(records: readonly Record<string, unknown>[]): void {
@@ -347,7 +376,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * nor is a batch set back to the one the load replaced, before the first
    * espresso since, which the server writes back (ADR-0022, Stale values).
    */
-  private async changed(before: Record<string, unknown>, after: Record<string, unknown>, load: LoadedRecipes["load"]): Promise<void> {
+  private async changed(before: Record<string, unknown>, after: Record<string, unknown>, load: (LoadedRecipes["load"] & { espresso: boolean }) | null): Promise<void> {
     const globalId = this.loaded;
     if (globalId === null || this.captureOnly || this.relocating !== null) return;
     const slot = this.slotOf(globalId);
@@ -397,8 +426,12 @@ export class LoadedRecipes implements LoadedRecipeWrites {
           await this.unload("unavailable");
           if (!this.keptUnavailable) {
             this.keptUnavailable = true;
-            await this.keepCleared();
+            await this.keepCleared(this.selected);
           }
+        } else if (this.keepPending) {
+          // DYE2 restores what its storage holds as it comes back: kept as none meanwhile.
+          await storeSelection({});
+          this.keepPending = null;
         }
         return;
       }
@@ -432,8 +465,15 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * selection after them.
    */
   private async tryPending(answer: SelectionAnswer): Promise<SelectionAnswer> {
-    // A cleared selection whose keeping in DYE2's storage failed: kept now, or what DYE2 selected since.
-    if (this.keepPending && answer.kind !== "unavailable") await this.keepCleared();
+    // A cleared selection whose keeping in DYE2's storage failed: kept now, or what DYE2 selected since. One DYE2 restored
+    // meanwhile, from its storage, is cleared again rather than loaded.
+    const kept = this.keepPending;
+    if (kept && answer.kind !== "unavailable") {
+      if (answer.kind === "recipe" && answer.slot === kept.slot && answer.fingerprint === kept.fingerprint && (await postSelection(null)) === "done") {
+        answer = { kind: "none" };
+      }
+      await this.keepCleared(kept);
+    }
     for (const [slot, keep] of [...this.pendingClears]) {
       if (answer.kind === "unavailable") break;
       this.pendingClears.delete(slot);
@@ -487,9 +527,10 @@ export class LoadedRecipes implements LoadedRecipeWrites {
         await this.tryPending({ kind: "none" });
         return;
       }
+      const cleared = this.selected;
       this.selected = null;
       if (loaded !== null) await this.unload("selection");
-      if (previous === "recipe") await this.keepCleared();
+      if (previous === "recipe") await this.keepCleared(cleared);
       return;
     }
     if (answer.kind === "favourite") {
@@ -528,6 +569,8 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       const workflow = await this.workflowNow();
       const context = await this.loadContext(recipe.record);
       let planned = loadWrite(workflow, recipe.record, globalId, context);
+      // An espresso started once the write is sent is after the load, however late Decaid answers it.
+      const espressos = this.espressos;
       let answer: Answer | undefined;
       if (planned !== null) {
         answer = await request("PUT", "/workflow", planned.write);
@@ -540,7 +583,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       const after = answer ? parsed(answer.text) : workflow;
       if (planned && Object.keys(planned.before).length > 0) this.changes.attach({ loadBefore: planned.before });
       this.loaded = globalId;
-      this.load = { globalId, batchBefore: planned?.before.batch?.before as string | null | undefined, espresso: false };
+      this.load = { globalId, batchBefore: planned?.before.batch?.before as string | null | undefined, espressos };
       if (dye2Fingerprint(workflow.profile) !== dye2Fingerprint(isObject(after) ? after.profile : workflow.profile)) this.pendingSelect = { slot, globalId };
       return { read: workflow, answered: isObject(after) ? after : undefined };
     });
@@ -600,7 +643,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       }
       this.answer = "none";
       this.selected = null;
-      if (keep) await this.keepCleared();
+      if (keep) await this.keepCleared({ slot, fingerprint: answer.fingerprint });
     } catch (error) {
       this.pendingClears.set(slot, keep);
       throw error;
@@ -613,12 +656,12 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * again over a Bean switched meanwhile (decentespresso/dye2#22). Should
    * DYE2 have selected something meanwhile, that is kept instead.
    */
-  private async keepCleared(): Promise<void> {
-    this.keepPending = true;
+  private async keepCleared(cleared: Cleared | null): Promise<void> {
+    this.keepPending = cleared ?? this.keepPending ?? { slot: null, fingerprint: null };
     await storeSelection({});
     const answer = await readSelection();
     if (answer.kind === "recipe" || answer.kind === "favourite") await storeSelection(answer.selection);
-    this.keepPending = false;
+    this.keepPending = null;
   }
 
   /**
@@ -655,7 +698,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       this.readSoon();
     }
     this.changes.release();
-    if (reported && wrote && this.latest) await this.changed(wrote.read, this.latest, this.load && { ...this.load });
+    if (reported && wrote && this.latest) await this.changed(wrote.read, this.latest, this.load && { ...this.load, espresso: this.espressos > this.load.espressos });
   }
 
   /** The slot a Recipe is in on the tablet now, or null. */
@@ -723,6 +766,9 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     return workflow;
   }
 }
+
+/** A selection the plugin cleared, or saw cleared, by its slot and the fingerprint it was made on, null for a slot not known. */
+type Cleared = { slot: number | null; fingerprint: string | null };
 
 /** Whether Decaid refused a Workflow change as no machine is connected, which it needs to change the hot water settings. */
 export function machineMissing(answer: Answer): boolean {

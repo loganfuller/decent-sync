@@ -1085,7 +1085,13 @@ async function postList({ path, key, posted }: ListPath, records: Record<string,
   // The Loaded Recipe moving to another slot is cleared from DYE2's selection first, so DYE2 never records into a recipe
   // put in its old slot, and selected in its new one after (ADR-0022).
   if (key === "recipes") await posted.loaded?.moving(before, ordered);
-  const answer = await request("POST", path, ordered);
+  let answer: Answer;
+  try {
+    answer = await request("POST", path, ordered);
+  } catch (error) {
+    if (key === "recipes") posted.loaded?.postUnsettled();
+    throw error;
+  }
   if (answer.ok) {
     posted(key);
     if (key === "recipes") posted.loaded?.posted(ordered);
