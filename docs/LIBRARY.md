@@ -1882,7 +1882,12 @@ it.
   hold whose name is a Library Basket's, ignoring case and white space at
   either end, which the tablet's record of it is linked to as it joins, is
   that Basket: kept where the Location shows it, the Workflow's
-  `basketName` read for its record's, as DYE2 copies it. The Workflow is
+  `basketName` read for its record's, as DYE2 copies it, and one another
+  of the tablet's records is already passed over, as the intake passes it
+  over. A basket renamed in DYE2 since the Workflow named it is judged by
+  its old name, as the Workflow is taken in before the tablet's lists: it
+  may be kept though its record is removed, or cleared though it is kept.
+  The Workflow is
   judged before the lists are taken in, so a batch whose bean is then
   linked to one of the Location's, and that joins the Library as the
   Location offers no batch yet, is cleared all the same. The clear is kept

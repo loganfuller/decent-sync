@@ -873,8 +873,8 @@ export type VersionedKind = LibraryKind | typeof SETTINGS_KIND;
 
 /**
  * What a `write` writes: a Library item of one of LIBRARY_KINDS, the shared
- * settings, a Workflow's grinder and batch, cleared, or its Loaded Recipe's
- * fields.
+ * settings, a Workflow's grinder, batch and Basket, cleared, or its Loaded
+ * Recipe's fields.
  */
 export type WrittenKind = LibraryKind | typeof SETTINGS_KIND | typeof WORKFLOW_KIND | typeof LOADED_RECIPE_KIND;
 

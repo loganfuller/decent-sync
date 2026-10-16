@@ -144,14 +144,17 @@ export async function takeInWorkflowContext(
   const unknownGrinder: Offered = grinderId !== null && (await offersAny(tx, locationId, "grinder")) ? "notOffered" : "unknown";
   const unknownBatch: Offered =
     batchId !== null && ((await offersAny(tx, locationId, "beanBatch")) || (await offersAny(tx, locationId, "bean"))) ? "notOffered" : "unknown";
-  // A Basket is linked by its name to the oldest Basket of that name not Archived, so offered where that one is shown.
+  // A Basket is linked by its name to the oldest Basket of that name not Archived that none of the tablet's records is
+  // already, as `planEquipmentIntake` links one, so offered where that one is shown.
   const basketName = text(workflowValueAt(workflow, WORKFLOW_BASKET[1]));
   const unknownBasket: Offered = basketId !== null && (await offersAny(tx, locationId, "basket")) ? "notOffered" : "unknown";
   const namedBasket =
     unknownBasket === "notOffered" && basketName !== null
       ? Prisma.sql`(
           SELECT ${basketOfferedSql(locationId)} FROM baskets AS items
-          WHERE items.match_key = ${equipmentMatchKey(basketName)} AND NOT items.archived ORDER BY items.created_at, items.id LIMIT 1
+          WHERE items.match_key = ${equipmentMatchKey(basketName)} AND NOT items.archived
+            AND NOT EXISTS (SELECT 1 FROM tablet_baskets AS mine WHERE mine.tablet_id = ${tablet.tabletId}::uuid AND mine.basket_id = items.id)
+          ORDER BY items.created_at, items.id LIMIT 1
         )`
       : Prisma.sql`NULL`;
   const [offer] = await tx.$queryRaw<WorkflowOffers[]>`
