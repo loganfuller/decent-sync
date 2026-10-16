@@ -424,9 +424,14 @@ Tickets [#146](https://github.com/loganfuller/decent-sync/issues/146) and
 of a Workflow that follow it are its Profile, Grinder, dose, yield, grind
 setting, RPM, Basket, Bean Batch, four hot water settings and brew
 temperature, its profile's first step's (`LOADED_RECIPE_PARTS` in
-`protocol/`). The Workflow's Profile is held as the Library Profile it is,
-found as a Shot's is (`profileOfSql`). The server keeps, per tablet, the
-Recipe its Workflow last named and those parts as the Workflow held them,
+`protocol/`). Its Grinder is `grinderId` and `grinderModel`, as DYE2 applies a
+recipe's, not the grinder's burrs: Decaid copies onto each Shot it pulls
+the burrs of the grinder the Shot names (`PersistenceController.persistShot`
+in `decaid:lib/src/controllers/persistence_controller.dart`) and leaves the
+Workflow's alone, so Shots record the burrs of the grinder loaded, while the
+Workflow may go on showing a previous grinder's. The Workflow's Profile is
+held as the Library Profile it is, found as a Shot's is (`profileOfSql`).
+The server keeps, per tablet, the Recipe its Workflow last named and those parts as the Workflow held them,
 reported, recorded by DYE2, or as Decaid returned the plugin's write of
 them (`tablet_loaded_recipes`), as it keeps the shared settings
 (`tablet_settings`), so the plugin's own write is never read as the
@@ -596,7 +601,8 @@ that takes their hardware over. Staff read them as Admins do.
   `{ id, state, substate, observedAt, receivedAt }`. Limit is 1–100.
 
 The Machines list shows each Machine's state and last Shot; the Machine page
-also shows its current Workflow, loaded every 30 s rather than every 5 s as
+also shows its current Workflow, its fields as a Shot's page shows them
+(`web/src/components/workflow.tsx`), loaded every 30 s rather than every 5 s as
 the state is, and its Loaded Recipe with its history, loaded again as the
 Loaded Recipe changes. Each Location's page lists its Machines and the
 Recipe each has loaded.

@@ -32,7 +32,7 @@ interface SettingsView {
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
 /** The fields of a Workflow's `context` that name its grinder and its batch, which joining a Location may clear. */
-const GRINDER_AND_BATCH = ["grinderId", "grinderModel", "beanBatchId", "coffeeName", "coffeeRoaster"];
+const GRINDER_AND_BATCH = ["grinderId", "grinderModel", "grinderBurrs", "beanBatchId", "coffeeName", "coffeeRoaster"];
 
 /** The test tablet's Workflow with its settings changed as given, and its context as given in place of the test tablet's. */
 function workflowWith(parts: Parts, context?: Record_): Record_ {
@@ -213,7 +213,8 @@ describe("Joining a Location", () => {
     const belmont = await api.createLocation("Moving Belmont", "America/Chicago");
     const labMachine = await api.createMachine("Moving lab 1", lab.id);
     const belmontMachine = await api.createMachine("Moving Belmont 1", belmont.id);
-    const labTablet = load(labMachine, "23011");
+    // Its Workflow holds the burrs a repeated Shot brought, which Decaid keeps on a Shot naming no grinder.
+    const labTablet = load(labMachine, "23011", { parts: { context: { grinderBurrs: "SSP MP" } } });
     const belmontTablet = load(belmontMachine, "23012", { instance: other, fresh: true, parts: { steamSettings: { flow: 0.9 }, hotWaterData: { volume: 140 } } });
     await online(labMachine, belmontMachine);
     // Belmont's own coffee, batch, grinder and Profile, entered on its tablet.
@@ -229,7 +230,7 @@ describe("Joining a Location", () => {
     const belmontValues = await settingsOf(belmont);
     const labWorkflow = labTablet.workflow();
     expect(hotWater(labTablet)).not.toEqual(hotWater(belmontTablet));
-    expect(context(labTablet)).toMatchObject({ grinderModel: "DF64 v2", coffeeName: "Ethiopia Generic 100g Sample" });
+    expect(context(labTablet)).toMatchObject({ grinderModel: "DF64 v2", grinderBurrs: "SSP MP", coffeeName: "Ethiopia Generic 100g Sample" });
 
     expect((await move(labMachine, belmont)).status).toBe(201);
     await expect.poll(() => offered(labTablet)).toEqual(belmontOffers);

@@ -24,8 +24,6 @@ export class ShotCapture {
   private scanned = false;
   private stopped = false;
   private timer?: number;
-  /** The Shots Decaid reported stored or edited while a summary pass runs. */
-  private reported?: Set<string>;
 
   constructor(
     private readonly outbox: Outbox,
@@ -45,7 +43,6 @@ export class ShotCapture {
     const event = object(payload);
     if (this.stopped || !event || !isCaptured(event.id)) return;
     const id = event.id;
-    this.reported?.add(id);
     if (type === "shot") {
       // Its measurements make a Shot tens of KB, so it is read only as it is about to be sent.
       this.outbox.request("shot", [id], { first: true });
@@ -79,7 +76,6 @@ export class ShotCapture {
       if (!this.stopped) this.timer = setTimeout(() => { this.timer = undefined; void this.scan(); }, 5_000);
     } finally {
       this.scanning = false;
-      this.reported = undefined;
     }
   }
 
@@ -92,14 +88,12 @@ export class ShotCapture {
    * time it was read with: every unedited Shot older than that one sorts
    * after it, so none that existed throughout the pass is missed. Every
    * Decaid edit gives a Shot a new edit time, and an edit to its time can
-   * move it anywhere. One moved from the part of the list not yet read into
-   * the part already read is missed; Decaid's edit API reports it in
-   * `shotUpdated`, but an import that overwrites it reports nothing. So a
-   * pass that reaches the end checks it has read or been told of as many
-   * Shots as the tablet holds; one deleted while another was moved that way
-   * goes unnoticed. Returns true once the pass reaches the end with that
-   * count, or the capture stops, and false if the count falls short, if no
-   * Shot read with its current edit time reappears, as when more than the
+   * move it anywhere, but one moved from the part of the list not yet read
+   * into the part already read needs no reading: Decaid v0.9.0 and later
+   * report every Shot they store or edit, imports included, in `shotStored`
+   * or `shotUpdated`, which reach the server on their own. Returns true once
+   * the pass reaches the end, or the capture stops, and false if no Shot
+   * read with its current edit time reappears, as when more than the
    * overlap were deleted between two pages, or if the list grows past what
    * the first page's total allows: the pass may have missed Shots, so it is
    * repeated.
@@ -107,7 +101,6 @@ export class ShotCapture {
   private async scanPass(): Promise<boolean> {
     /** Each Shot this pass has read, with the edit time it was read with. */
     const read = new Map<string, unknown>();
-    const reported = this.reported = new Set<string>();
     // The first page sets how many requests the pass may make.
     let remaining = 1;
     for (let offset = 0; remaining > 0; remaining--) {
@@ -128,15 +121,12 @@ export class ShotCapture {
       const shots = items.slice(resume).flatMap((summary) => {
         if (typeof summary?.id !== "string" || summary.id === "") return [];
         read.set(summary.id, summary.updatedAt);
-        // Decaid v0.8.7 and later give every Shot an edit time; a record without one is ignored.
+        // Decaid gives every Shot an edit time; a record without one is ignored.
         if (!isCaptured(summary.id) || typeof summary.updatedAt !== "string") return [];
         return [{ id: summary.id, updatedAt: summary.updatedAt }];
       });
       if (shots.length > 0) this.outbox.enqueue({ type: "shotIndex", id: this.outbox.nextId(), shots });
-      if (page.items.length < PAGE_SIZE) {
-        for (const id of read.keys()) reported.add(id);
-        return reported.size >= page.total;
-      }
+      if (page.items.length < PAGE_SIZE) return true;
       offset += page.items.length - OVERLAP;
     }
     return false;

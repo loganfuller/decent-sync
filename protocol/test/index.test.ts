@@ -69,7 +69,7 @@ const hello: Hello = {
   protocolVersion: PROTOCOL_VERSION,
   token,
   pluginVersion: "0.1.0",
-  decaidVersion: "0.8.7+2847",
+  decaidVersion: "0.9.0+2977",
   tabletId,
   connectionId: "00:00:5E:00:53:01",
   machine: { model: "DE1Pro", serial: "10001", firmware: "1333" },
@@ -92,7 +92,7 @@ describe("decodePluginMessage", () => {
   });
 
   it("accepts a hello without hardware or connection id", () => {
-    const bare = { type: "hello", protocolVersion: PROTOCOL_VERSION, token, pluginVersion: "0.1.0", decaidVersion: "0.8.7+2847", tabletId };
+    const bare = { type: "hello", protocolVersion: PROTOCOL_VERSION, token, pluginVersion: "0.1.0", decaidVersion: "0.9.0+2977", tabletId };
     expect(decodePluginMessage(frame(bare))).toEqual({ ok: true, message: bare });
     for (const missing of [{ machine: null }, { connectionId: null }]) {
       expect(decodePluginMessage(frame({ ...bare, ...missing })).ok).toBe(true);
@@ -200,32 +200,32 @@ describe("decodePluginMessage", () => {
     }
   });
 
-  it("accepts Decaid 0.8.7 and later releases, and pre-releases of later ones", () => {
-    for (const decaidVersion of ["0.8.7+2847", "0.8.7", "0.8.8-beta.1+2849", "0.8.10+2900", "0.9.0+3000", "1.0.0-rc.1+4000"]) {
+  it("accepts Decaid 0.9.0 and later releases, and pre-releases of later ones", () => {
+    for (const decaidVersion of ["0.9.0+2977", "0.9.0", "0.9.1-beta.1+2990", "0.9.10+3200", "0.10.0+3300", "1.0.0-rc.1+4000"]) {
       expect(decodePluginMessage(frame({ ...hello, decaidVersion }))).toEqual({ ok: true, message: { ...hello, decaidVersion } });
     }
   });
 
   it("tells a tablet on an older Decaid to update it, keeping the token so its Machine can say why", () => {
     const refusals: [string, string][] = [
-      ["0.8.6+2801", "This tablet runs Decaid 0.8.6"],
-      ["0.7.12+2000", "This tablet runs Decaid 0.7.12"],
-      ["0.8.7-beta.2+2840", "This tablet runs a pre-release of Decaid 0.8.7"],
+      ["0.8.8+2900", "This tablet runs Decaid 0.8.8"],
+      ["0.8.10+2950", "This tablet runs Decaid 0.8.10"],
+      ["0.9.0-beta.2+2970", "This tablet runs a pre-release of Decaid 0.9.0"],
       // Decaid built without its tags.
       ["0.0.0-dev+0", "This tablet runs a pre-release of Decaid 0.0.0"],
-      ["v0.8.7+2847", "This tablet's Decaid reports no release version"],
+      ["v0.9.0+2977", "This tablet's Decaid reports no release version"],
       ["unknown", "This tablet's Decaid reports no release version"],
     ];
     for (const [decaidVersion, runs] of refusals) {
       expect(decodePluginMessage(frame({ ...hello, decaidVersion }))).toEqual({
         ok: false,
         error: "decaid_too_old",
-        problem: `${runs}, but this server needs 0.8.7 or newer: update Decaid`,
+        problem: `${runs}, but this server needs 0.9.0 or newer: update Decaid`,
         token,
       });
     }
     // Only the release numbers are repeated.
-    for (const decaidVersion of [token, `0.8.6-${token}`, `0.8.6+${token}`]) {
+    for (const decaidVersion of [token, `0.8.8-${token}`, `0.8.8+${token}`]) {
       const result = decodePluginMessage(frame({ ...hello, decaidVersion }));
       expect(result).toMatchObject({ ok: false, error: "decaid_too_old" });
       expect(result.ok || result.problem).not.toContain(token);

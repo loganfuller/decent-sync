@@ -11,7 +11,7 @@ import {
   replayWrites,
   saveInDye2,
 } from "./support/simulated-dye2.js";
-import { SimulatedTablet, de1ProOnDecaid087 } from "./support/simulated-tablet.js";
+import { SimulatedTablet, de1ProOnDecaid090 } from "./support/simulated-tablet.js";
 import { runAsSteps } from "./support/steps.js";
 
 // The simulated tablet's plugin storage, and the helpers that act as DYE2
@@ -50,7 +50,7 @@ describe("The simulated tablet's plugin storage", () => {
 
   it("keeps a POST to DYE2's recipes, replacing the value, and answers null for DYE2's keys never written", async () => {
     // Served the test tablet's recipes, in an older DYE2's shape, which the POST replaces.
-    const tablet = load({ ...dye2Library(), "/store/dye2.reaplugin/recipes": de1ProOnDecaid087()["/store/dye2.reaplugin/recipes"] });
+    const tablet = load({ ...dye2Library(), "/store/dye2.reaplugin/recipes": de1ProOnDecaid090()["/store/dye2.reaplugin/recipes"] });
     const recipes = dye2Keys().recipes;
     expect(await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", recipes)).toEqual({ status: 200, body: {} });
     expect(await tablet.callApi("GET", "/store/dye2.reaplugin/recipes")).toEqual({ status: 200, body: recipes });

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
-import { RawConnection, type SimulatedTablet, type SimulatedTabletOptions, de1ProOnDecaid087, derivedProfile, helloWith } from "./support/simulated-tablet.js";
+import { RawConnection, type SimulatedTablet, type SimulatedTabletOptions, de1ProOnDecaid090, derivedProfile, helloWith } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #82: Profiles shown per Location. A Profile keeps
@@ -36,7 +36,7 @@ type Record_ = Record<string, unknown>;
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
 /** Decaid's bundled Profiles on the test tablet: every tablet on Decaid v0.8.7 has them. */
-const bundled = () => (de1ProOnDecaid087()["/profiles"] as Record_[]).filter((record) => record.isDefault === true);
+const bundled = () => (de1ProOnDecaid090()["/profiles"] as Record_[]).filter((record) => record.isDefault === true);
 const BUNDLED = "profile:990c28a4ecac8e5bf6ba";
 const BUNDLED_HIDDEN = "profile:729d284747718d27c93a";
 

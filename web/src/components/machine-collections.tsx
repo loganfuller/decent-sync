@@ -232,6 +232,8 @@ function otherRole(device: PairedDevice): string {
       return "Other scale";
     case "sensor":
       return "Sensor";
+    case "grinder":
+      return "Grinder";
     default:
       return "Device";
   }

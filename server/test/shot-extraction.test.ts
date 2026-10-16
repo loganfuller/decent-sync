@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { MAX_HARDWARE_LENGTH } from "@decent-sync/protocol";
 import { extractCurves, extractShot, shotHardware, shotVersion } from "../src/shots/extraction.js";
-import { shotFixture } from "./support/shot-fixtures.js";
+import { burrsShotFixture, shotFixture } from "./support/shot-fixtures.js";
 
 // A scrubbed real tablet record, in the layout of Decaid v0.8.7's Workflow and
-// ShotRecord serializers.
+// ShotRecord serializers, which Decaid v0.9.0 still serves as it was stored,
+// and one Decaid v0.9.0 recorded from its simulated machine.
 describe("Shot extraction", () => {
   it("extracts a real native espresso including curves and tablet-local library names", () => {
     const shot = shotFixture();
@@ -18,6 +19,13 @@ describe("Shot extraction", () => {
     const longest = "9".repeat(MAX_HARDWARE_LENGTH);
     const workflow = shot.workflow as Record<string, unknown>;
     expect(shotHardware({ ...shot, workflow: { ...workflow, machine: { model: "DE1Pro", serialNumber: longest } } })).toEqual({ model: "DE1Pro", serial: longest });
+  });
+
+  it("extracts the burrs Decaid copied onto the Shot from its Grinder's record, over those its Workflow held", () => {
+    // Its Workflow held "Inherited burrs", as one a repeated Shot brought would (shot-grinder-burrs-setup.json).
+    expect(extractShot(burrsShotFixture())).toMatchObject({ grinderId: "1629e825-59e0-46b6-a3db-2346fcfd90b5", grinderBurrs: "Fixture 64mm flat" });
+    // Pulled on Decaid v0.8.7, which recorded no burrs.
+    expect(extractShot(shotFixture()).grinderBurrs).toBeNull();
   });
 
   it("places Decaid's offset-free local times using the UTC createdAt saved after the last sample", () => {

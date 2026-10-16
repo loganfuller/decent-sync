@@ -1576,9 +1576,10 @@ The plugin's next report then holds the record as written, which changes
 nothing (ADR-0003). If the connection drops before the answer arrives, the
 tablet's next report shows the record carrying its global id, which maps it.
 
-Decaid v0.8.7 refuses to delete a bean that still has batches, archived ones
+Decaid v0.9.0 refuses to delete a bean that still has batches, archived ones
 included, failing SQLite's foreign key with 500 and deleting nothing
-(`server/test/fixtures/decaid/bean-batch-writes-v0.8.7/`). A barista deletes
+(`server/test/fixtures/decaid/bean-batch-writes-v0.8.7/`, unchanged in
+v0.9.0). A barista deletes
 one through DYE2, which deletes its batches first, then the bean
 (`dye2:dye2-plugin/src/utils/bean-delete.ts`); the server reads the batches
 and the bean gone from the tablet's next reports.
@@ -1868,9 +1869,10 @@ it.
   Location or Archived, the batch its `context.beanBatchId` names if it is
   not at the Location, or is Archived, or its Bean is, and the Basket its
   `context.extras.basketId` names if the Location does not show it, or it
-  is Archived. Cleared are `grinderId` and `grinderModel`, `beanBatchId`,
-  `coffeeName` and `coffeeRoaster`, as Decaid's `clearGrinder` and
-  `clearBeanBatch` clear them, and `extras.basketId` and
+  is Archived. Cleared are the grinder's `grinderId`, `grinderModel` and
+  `grinderBurrs`, and the batch's `beanBatchId`, `coffeeName` and
+  `coffeeRoaster`, as Decaid's `clearGrinder` and `clearBeanBatch` clear
+  them (v0.9.0 added the burrs), and `extras.basketId` and
   `extras.basketName`, as Streamline's `clearDyeWorkflowContext` clears
   them (`WORKFLOW_GRINDER`, `WORKFLOW_BATCH`, `WORKFLOW_BASKET` in
   `protocol/`); the profile, dose, yield, grinder setting, RPM and hot water
@@ -2327,8 +2329,8 @@ under another id (`_retireStaleDefaults` in
 `decaid:lib/src/controllers/profile_controller.dart`). So once tablets at one
 Location run Decaid releases that bundle different Profiles, the first to
 upgrade hides the old one at the Location, on the others too, which lack the
-new one: bundled Profiles are never written. v0.8.7 and v0.8.8 bundle the same
-Profiles.
+new one: bundled Profiles are never written. v0.8.7, v0.8.8 and v0.9.0 bundle
+the same Profiles.
 
 `server/test/library-beans.test.ts`, `server/test/library-batches.test.ts`,
 `server/test/library-grinders.test.ts`,
@@ -2357,7 +2359,8 @@ the pure modules;
 against those recorded on Decaid's Linux release
 (`server/test/fixtures/decaid/bean-writes-v0.8.7/`,
 `bean-batch-writes-v0.8.7/`, `grinder-writes-v0.8.7/`,
-`profile-writes-v0.8.7/` and `workflow-writes-v0.8.7/`); and
+`profile-writes-v0.8.7/`, `workflow-writes-v0.8.7/` and
+`workflow-writes-v0.9.0/`); and
 `e2e/library.spec.ts`, `e2e/library-management.spec.ts`,
 `e2e/profile-management.spec.ts`, `e2e/conflicts.spec.ts`,
 `e2e/location-settings.spec.ts`, `e2e/capture-only.spec.ts`,

@@ -24,6 +24,7 @@ interface Recorded {
   barista?: string;
   profile?: string;
   grinderSetting?: string;
+  grinderBurrs?: string;
 }
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
@@ -41,7 +42,7 @@ test("Shots from every Location are listed newest first, at their Location's tim
   const ethiopia = { roaster: "Roux Bakehouse", bean: "Ethiopia Guji" };
 
   await adopt(page, "Lab 1", lab1, lab.id, [
-    shotAt("lab-espresso", "2026-02-10T13:30:00Z", { hardware: lab1, ...ethiopia, barista: "Ann", profile: "Londonium", grinderSetting: "7.5" }),
+    shotAt("lab-espresso", "2026-02-10T13:30:00Z", { hardware: lab1, ...ethiopia, barista: "Ann", profile: "Londonium", grinderSetting: "7.5", grinderBurrs: "SSP MP" }),
     shotAt("lab-dial-in", "2026-02-10T13:00:00Z", { hardware: lab1, ...ethiopia, barista: "Ann", profile: "Londonium", grinderSetting: "8" }),
     // Recorded on hardware no Machine has, before this tablet moved onto Lab 1.
     shotAt("held-shot", "2026-01-20T15:00:00Z", { hardware: { model: "Bengle", serial: "10029" }, roaster: "Roux Bakehouse", bean: "Kenya Nyeri", barista: "Ben" }),
@@ -146,6 +147,7 @@ test("a Shot's page shows its curves and everything recorded, and compares it wi
   await expect(curves.getByText("Previous Shot", { exact: true })).toHaveCount(0);
   await expect(field(page.getByRole("region", { name: "Machine at the time" }), "Serial")).toHaveText("10021");
   await expect(field(page.getByRole("region", { name: "Workflow" }), "Grind setting")).toHaveText("7.5");
+  await expect(field(page.getByRole("region", { name: "Workflow" }), "Burrs")).toHaveText("SSP MP");
   await expect(field(page.getByRole("region", { name: "Annotations" }), "Yield weighed")).toHaveText("35.9 g");
 
   await curves.getByRole("checkbox", { name: "Compare with the previous Shot on Lab 1" }).check();
@@ -299,6 +301,7 @@ function shotAt(id: string, pulledAt: string, recorded: Recorded): Record<string
         ...(recorded.bean === undefined ? {} : { coffeeName: recorded.bean }),
         ...(recorded.barista === undefined ? {} : { baristaName: recorded.barista }),
         ...(recorded.grinderSetting === undefined ? {} : { grinderSetting: recorded.grinderSetting }),
+        ...(recorded.grinderBurrs === undefined ? {} : { grinderBurrs: recorded.grinderBurrs }),
       },
       profile: recorded.profile === undefined ? profile : { ...profile, title: recorded.profile },
       ...(recorded.hardware ? { machine: { ...machine, model: recorded.hardware.model, serialNumber: recorded.hardware.serial } } : {}),

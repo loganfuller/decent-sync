@@ -42,6 +42,14 @@ fresh install. Container port 8080 was published to the host and forwarded to
 the host's `localhost:8080`, since Streamline calls Decaid at its page's host
 on port 8080.
 
+Decaid v0.9.0 answers these requests the same: its store, Workflow writes and
+Shot edits are unchanged (`KvStoreHandler`, `WorkflowHandler` and
+`ShotsHandler`'s merge), and the Workflow knows `grinderBurrs` only as a
+field none of these requests set. But a Shot pulled now also carries its
+grinder's burrs: the one pulled here would have `grinderBurrs` `Fixture 64mm
+flat`, `Fixture Grinder 64`'s, in its Workflow's context
+(`PersistenceController.persistShot`).
+
 - **DYE2** v0.1.19 was installed over the bundled v0.1.4 with `POST
   /api/v1/plugins/install/github-release` and
   `{"repo":"decentespresso/dye2"}`, which installs the latest release, then
@@ -112,7 +120,7 @@ UTC with a `Z`.
   key never written or deleted answers `null`, and `DELETE` answers `{}`
   whether or not the key is held (`KvStoreHandler` in
   `decaid:lib/src/services/webserver/kv_store_handler.dart`, unchanged in
-  v0.8.8).
+  v0.8.8 and v0.9.0).
 - **DYE2 applying a recipe** sends the whole Workflow it read, with the
   recipe's dose, yield, grind setting (as a number, which Decaid keeps as
   text), RPM, grinder and Profile, its steam, hot water and flush values of

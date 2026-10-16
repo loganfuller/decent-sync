@@ -1,0 +1,129 @@
+[
+  {
+    "request": {
+      "method": "POST",
+      "path": "/grinders",
+      "body": {
+        "model": "Fixture Flat",
+        "burrs": "Fixture 64mm flat"
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "id": "1629e825-59e0-46b6-a3db-2346fcfd90b5",
+        "model": "Fixture Flat",
+        "burrs": "Fixture 64mm flat",
+        "archived": false,
+        "settingType": "numeric",
+        "createdAt": "2026-10-16T07:55:32.124343",
+        "updatedAt": "2026-10-16T07:55:32.124343"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/grinders",
+      "body": {
+        "model": "Fixture Conical",
+        "burrs": "Fixture 83mm conical"
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "id": "953d6c01-3775-45b5-9e83-8ed443cab379",
+        "model": "Fixture Conical",
+        "burrs": "Fixture 83mm conical",
+        "archived": false,
+        "settingType": "numeric",
+        "createdAt": "2026-10-16T07:55:32.129211",
+        "updatedAt": "2026-10-16T07:55:32.129211"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "context": {
+          "grinderId": "1629e825-59e0-46b6-a3db-2346fcfd90b5",
+          "grinderModel": "Fixture Flat",
+          "grinderBurrs": "Inherited burrs",
+          "grinderSetting": "12"
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "123897b4-fbeb-4760-a3d8-a4c0386fad81",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36,
+          "grinderId": "1629e825-59e0-46b6-a3db-2346fcfd90b5",
+          "grinderModel": "Fixture Flat",
+          "grinderBurrs": "Inherited burrs",
+          "grinderSetting": "12"
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 50,
+          "flow": 0.8,
+          "stopAtTemperature": 0
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 90,
+          "duration": 10,
+          "flow": 6
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/machine/state/espresso"
+    },
+    "response": {
+      "status": 200,
+      "body": null
+    }
+  }
+]

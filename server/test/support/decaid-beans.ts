@@ -1,7 +1,7 @@
-// Decaid v0.8.7's beans API, as the simulated tablet answers writes to it:
+// Decaid v0.9.0's beans API, as the simulated tablet answers writes to it:
 // `BeansHandler` in decaid:lib/src/services/webserver/beans_handler.dart and
-// `Bean` in lib/src/models/data/bean.dart, unchanged in v0.8.8. What it
-// answers was recorded on Decaid's Linux release
+// `Bean` in lib/src/models/data/bean.dart, unchanged since v0.8.7. What it
+// answers was recorded on v0.8.7 on Decaid's Linux release
 // (fixtures/decaid/bean-writes-v0.8.7/), and
 // server/test/simulated-bean-writes.test.ts replays those requests here.
 //

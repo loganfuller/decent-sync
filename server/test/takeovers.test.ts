@@ -142,8 +142,8 @@ describe("Takeovers", () => {
       const pluginVersion = String(readBuiltPlugin().manifest.version);
       expect(viewed.takeover).toEqual({
         at: expect.any(String),
-        replaced: { tabletId: firstId, remoteAddress: "127.0.0.1", connectionId: "00:00:5E:00:53:B1", pluginVersion, decaidVersion: "0.8.7+2847" },
-        replacement: { tabletId: secondId, remoteAddress: "127.0.0.1", connectionId: "00:00:5E:00:53:B2", pluginVersion, decaidVersion: "0.8.7+2847" },
+        replaced: { tabletId: firstId, remoteAddress: "127.0.0.1", connectionId: "00:00:5E:00:53:B1", pluginVersion, decaidVersion: "0.9.0+2977" },
+        replacement: { tabletId: secondId, remoteAddress: "127.0.0.1", connectionId: "00:00:5E:00:53:B2", pluginVersion, decaidVersion: "0.9.0+2977" },
       });
       takeover = viewed.takeover!;
       // Both by PostgreSQL's clock: the takeover during the transaction whose start first saw the second tablet. That

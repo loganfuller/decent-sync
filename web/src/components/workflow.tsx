@@ -18,6 +18,7 @@ export function workflowFields(workflow: Record<string, unknown>): [string, stri
     ["Bean", text(context?.coffeeName)],
     ["Roaster", text(context?.coffeeRoaster)],
     ["Grinder", text(context?.grinderModel)],
+    ["Burrs", text(context?.grinderBurrs)],
     ["Grind setting", text(context?.grinderSetting)],
     ["Barista", text(context?.baristaName)],
     ["Steam", list(amount(steam?.targetTemperature, "°C"), amount(steam?.duration, "s"), amount(steam?.flow, "ml/s"))],

@@ -43,3 +43,8 @@ as Decaid writes them, presumably UTC: the containers later set up the same
 way had no `tzdata` package, which left their clocks on UTC whatever their
 `TZ`. The records name no hardware; the simulated Bengle reports serial
 `mock-bengle`.
+
+Decaid's steaming, its Steam Records and the simulated Bengle and milk probe
+are unchanged in v0.9.0 (`SteamSequencer`, `SteamRecord`, `SteamsHandler`,
+the Bengle bridges and `MockBengle`); of `MockDe1`, which `MockBengle`
+extends, only its simulated hot water changed.

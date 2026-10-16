@@ -26,7 +26,8 @@ up as `bean-writes-v0.8.7`'s was, without the `tzdata` package, which left
 that one's clock on UTC whatever its `TZ`. The names, global ids, the other
 plugin's key (`bcUuid`) and the ids no record has were made up for the
 recording; nothing names real hardware. `BeansHandler`, `BeanBatch` and
-`BeanDao` are unchanged in v0.8.8.
+`BeanDao` are unchanged in v0.8.8 and v0.9.0, as is Decaid's database, so
+v0.9.0 answers these requests the same.
 
 `POST /beans/{id}/batches` takes neither `archived` nor `weightRemaining`,
 and sets `weightRemaining` to `weight`. Decaid lists batches with the most

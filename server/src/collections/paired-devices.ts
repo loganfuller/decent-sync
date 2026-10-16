@@ -9,7 +9,7 @@
 export interface PairedDeviceView {
   /** Decaid's id for it, such as a Bluetooth address. */
   id: string;
-  /** Decaid's kind of device: machine, scale or sensor. */
+  /** Decaid's kind of device: machine, scale, sensor or grinder. */
   type: string | null;
   /** As Decaid names it, which names its model, such as Bookoo Mini Scale. */
   model: string | null;
@@ -17,7 +17,7 @@ export interface PairedDeviceView {
   vendor: string | null;
   /** Decaid's connection state when last reported, such as connected or disconnected. */
   state: string | null;
-  /** Reported by a connected scale that reports it; Decaid v0.8.7 reads it only from Skale2 scales. */
+  /** Reported by a connected scale that reports it; Decaid v0.9.0 reads it only from Skale2 scales and from a scale plugin that publishes it. */
   firmware: string | null;
   /** A percentage, reported as the firmware is. */
   batteryLevel: number | null;

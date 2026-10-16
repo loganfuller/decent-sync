@@ -34,6 +34,11 @@ machine and scale connected, and its data new. Container port 8080 was
 published to the host and forwarded to the host's `localhost:8080`, since
 Streamline calls Decaid at its page's host on port 8080.
 
+Decaid v0.9.0 keeps these the same: its store, Workflow writes and the
+`workflowUpdated` event are unchanged, as `../dye2-v0.1.19/README.md` says,
+but a Shot pulled now naming `Fixture Grinder 64` also carries its burrs,
+`Fixture 64mm flat`, as `grinderBurrs` in its Workflow's context.
+
 - **DYE2** v0.1.20 was installed over the bundled v0.1.4 with `POST
   /api/v1/plugins/install/github-release` and `{"repo":"decentespresso/dye2"}`,
   which installs the latest release; `GET /api/v1/plugins` confirmed the

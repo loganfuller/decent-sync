@@ -10,6 +10,7 @@ export function extractShot(record: unknown) {
   return {
     beanBatchId: string(context.beanBatchId),
     grinderId: string(context.grinderId),
+    grinderBurrs: string(context.grinderBurrs),
     basketId: shotBasketId(annotations, context),
     toolIds: shotToolIds(annotations, context),
     recipeId: loadedRecipeOf(workflow),
@@ -56,7 +57,7 @@ function shotToolIds(annotations: Record<string, unknown>, context: Record<strin
 
 /**
  * A Shot's edit time, as sent, so PostgreSQL compares Decaid's microseconds.
- * Decaid v0.8.7 and later write it on every Shot, in UTC with a Z; null marks
+ * Decaid v0.9.0 and later write it on every Shot, in UTC with a Z; null marks
  * a record without one, which is ignored.
  */
 export function shotVersion(record: unknown): string | null {

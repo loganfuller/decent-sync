@@ -11,9 +11,10 @@ version 1 with these messages, defined and validated in `protocol/`:
 | Server to plugin | `requestShots` | `shotIds`, at most 100 ids |
 | Server to plugin | `ack` | `id` (the logical delivery id) |
 
-Decent Sync supports Decaid v0.8.7 and later. A `shotUpdated` carries the
-complete metadata from Decaid's `shotUpdated` event (`ShotsHandler._updateShot`),
-which has no measurements, so a newer edit replaces the stored metadata whole,
+Decent Sync supports Decaid v0.9.0 and later. A `shotUpdated` carries the
+complete metadata from Decaid's `shotUpdated` event, which
+`PersistenceController.updateShot` raises and `decaid:lib/main.dart`
+broadcasts, and which has no measurements, so a newer edit replaces the stored metadata whole,
 cleared fields included, and preserves stored measurements. A full `shot` is
 a complete record; unknown inner fields are accepted and retained. A record
 without a UTC `updatedAt` ending in `Z`, or a full record without a measurements array, is
@@ -30,7 +31,16 @@ NUL in a string, is set aside as received and acknowledged as stored, and the
 Shot counts as known to that Machine's indexes from then on
 (`AI_PROTOCOL_NOTES.md`, Deliveries set aside).
 
-Decaid's `shotStored` event names a new Shot. The plugin requests it from its
+Decaid v0.9.0 reports every Shot it writes. `shotStored` names a new Shot,
+pulled or imported: `PersistenceController.storeShot`, which only inserts,
+raises it for a Shot a backup import adds (`ShotExportSection` in
+`decaid:lib/src/services/webserver/data_export/shot_export_section.dart`),
+and for those the de1app importer, as onboarding runs it, and the Shot file
+import (`ShotImporter`) add. `shotUpdated` names a changed one: an edit
+through `PUT /api/v1/shots/{id}` or on Decaid's history page, and a backup
+import that overwrites a Shot whose content changed (`notifyPlugins:
+contentChanged`); an overwrite that changes nothing keeps the Shot's
+`updatedAt` and reports nothing. The plugin requests a new Shot from its
 outbox by id, ahead of backfill, and fetches it with `GET /shots/{id}` only
 when the outbox is about to send it, as it fetches backfill. With its
 measurements a Shot is tens of KB, so while the server is unreachable the
@@ -45,12 +55,14 @@ sending each page's ids and edit times. Offsets shift when Shots are deleted
 or added during the scan, so each page after the first repeats the previous
 page's last 10 positions and resumes after the last Shot already read whose
 edit time is unchanged, so Shots that exist for the whole scan are all
-indexed. An edit to a Shot's time can move it from the part not yet read into
-the part already read: Decaid's edit API reports that Shot in `shotUpdated`,
-but an import that overwrites it reports nothing, so a scan that reaches the
-end checks it has read or been told of as many Shots as `total` says the
-tablet holds. (A Shot deleted while another moved that way goes unnoticed.)
-If that count falls short, no Shot already read reappears (more than the
+indexed. An edit or import that changes a Shot's time can move it from the
+part not yet read into the part already read. That needs no reading, as
+Decaid reports it in `shotUpdated` (above), so the scan does not compare
+the Shots it read with `total`. A Shot moved that way that the server does
+not hold yet reaches it only as its metadata, stored as an early edit; its
+full record is requested at the next load's index, which the server answers
+with `requestShots` for the Shots it lacks, holds without a full record, or
+holds at an older version. If no Shot already read reappears (more than the
 overlap were deleted between two pages), or the list grows past what the
 first page's `total` allows, the scan starts again. After
 three passes it logs and leaves the rest to the next load. The index is sent
@@ -86,6 +98,14 @@ incomplete Shot and acknowledged only after commit, or once set aside. Its full 
 requested and adds its measurements without rolling back the edit. Incomplete
 Shots are hidden from REST reads and Machine status.
 
+Decent Sync assumes a Shot's curves never change once it was pulled. A
+backup import that changes a Shot's measurements, alone or with its
+metadata, is reported in `shotUpdated` with the metadata only and a new
+`updatedAt`: the server stores that version, and never requests the full
+record again, so it keeps the old curves. Decaid offers no way to edit
+curves (`PUT /api/v1/shots/{id}` refuses `measurements`), so this needs a
+backup holding a different copy of the same Shot. An accepted gap.
+
 First full records resolve credit from their own hardware (ADR-0015), or the
 session's reporting identity when inferred. A recorded model or serial longer
 than `MAX_HARDWARE_LENGTH`, which a `hello` may not report either, names no
@@ -111,7 +131,17 @@ Workflow's `profile`'s steps, indexed by hash, or by the `profile_id` a skin
 recorded in its Workflow, indexed too. It keeps the Basket and Tools DYE2
 recorded by their ids on its tablet (`basket_id`, and `tool_ids`, indexed
 by GIN), and the Recipe its Workflow named as loaded by its global id
-(`recipe_id`), each indexed.
+(`recipe_id`), each indexed. It keeps its Grinder's burrs as its Workflow's
+context recorded them (`grinder_burrs`, not indexed, and no list filters by
+it), for analytics by Library Grinder and burrs: Decaid v0.9.0 copies onto
+each Shot it pulls the burrs of the grinder its `grinderId` names
+(`PersistenceController.persistShot`), replacing whatever the Workflow held,
+null where that grinder records none, and a Shot naming no grinder keeps
+the Workflow's. A Shot imported from a backup, the de1app or a Shot file
+keeps the burrs it carries. Shots stored before this keep none until they
+are stored again. Decaid keeps the previous grinder's burrs when `PUT
+/api/v1/shots/{id}` changes a Shot's `grinderId`, as DYE2's Edit Shot page
+does (seen on v0.9.0 on 2026-10-16, decentespresso/decaid#1005).
 
 ## Links to the Library
 
@@ -327,7 +357,7 @@ list can be shared or reloaded, the Bean Batch, Grinder, Recipe and Basket
 among them; `/shots/:id` shows a Shot's curves (pressure,
 flow, weight and basket temperature, with the targets its profile set),
 everything its record holds, the Basket's and Tools' names DYE2 stored
-among it, its credit, the Library's Recipe, Bean Batch, Grinder, Basket
+and its Grinder's burrs, after the Grinder, among it, its credit, the Library's Recipe, Bean Batch, Grinder, Basket
 and Profile it is linked to, each linking to its page, and a comparison
 with its previous Shot. Each Bean's, Bean Batch's, Grinder's, Profile's,
 Recipe's and Basket's page lists its Shots, ten at a time

@@ -185,15 +185,22 @@ describe("Shot capture and reconciliation", () => {
     expect(tablet.shotPageRequests).toEqual(pages(0, 90));
   }, 300_000);
 
-  it("rescans when an import moves a Shot not yet read among those already read, reporting nothing", async () => {
+  it("takes an import that moves a Shot not yet read among those already read from its shotUpdated, without rescanning", async () => {
     const machine = await api.createMachine("Imported mid-scan");
     const history = timeline("imported-mid-scan", 150);
     const tablet = load(machine, history);
-    // The oldest Shot, overwritten by an import with a time newer than every other: Decaid gives it a new edit time and fires no event.
+    // The oldest Shot, overwritten by an import with a time newer than every other: Decaid v0.9.0 gives it a new
+    // edit time and reports it in shotUpdated, its metadata without curves, as it does an edit.
     const imported = { timestamp: "2026-02-01T00:00:00.000Z", updatedAt: "2026-11-01T12:00:00.000000Z" };
-    changeShotsBeforePages(tablet, machine, history, [[1, (shots) => shots.map((shot) => (shot.id === "imported-mid-scan-0" ? { ...shot, ...imported } : shot))]]);
-    await stored(machine.machine.id, history.map((shot) => String(shot.id)));
-    expect(tablet.shotPageRequests).toEqual(pages(0, 90, 0, 90));
+    changeShotsBeforePages(tablet, machine, history, [[1, (shots) => shots.map((shot) => {
+      if (shot.id !== "imported-mid-scan-0") return shot;
+      const { measurements: _, ...metadata }: Record<string, unknown> = { ...shot, ...imported };
+      tablet.fire("shotUpdated", { id: shot.id, shot: metadata, patch: { timestamp: imported.timestamp } });
+      return { ...shot, ...imported };
+    })]]);
+    await stored(machine.machine.id, history.map((shot) => String(shot.id)).filter((id) => id !== "imported-mid-scan-0"));
+    await expect.poll(() => tablet.sent.some((frame) => (frame as Frame).type === "shotUpdated" && (frame as Frame).shotId === "imported-mid-scan-0")).toBe(true);
+    expect(tablet.shotPageRequests).toEqual(pages(0, 90));
   }, 300_000);
 
   it("rescans when more Shots than the pages overlap are deleted between two pages", async () => {

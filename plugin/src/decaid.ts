@@ -117,7 +117,7 @@ async function readRecord(collection: "shots" | "steams", id: string): Promise<R
  * Has Decaid's store API read this plugin's storage, for the side effect
  * alone, and says whether it answered. Decaid's backup (`GET
  * /api/v1/data/export`) holds only the stores that API has opened since
- * Decaid started (KvStoreExportSection, in v0.8.7 and v0.8.8), and
+ * Decaid started (KvStoreExportSection, as of v0.9.0), and
  * `host.storage` reaches the same storage without opening it there, so
  * until this read is answered a backup leaves out the tablet's id.
  */

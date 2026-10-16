@@ -11,7 +11,7 @@ import { type DecaidApi, NO_DYE2_LISTS, SimulatedTablet, type SimulatedTabletOpt
 /**
  * Loads the built plugin on a tablet set up for the Machine with the server
  * instance given, polling every `pollSeconds` (5 by default), with
- * `timeScale` 50 by default. Its Decaid answers `api`, de1ProOnDecaid087() by
+ * `timeScale` 50 by default. Its Decaid answers `api`, de1ProOnDecaid090() by
  * default.
  */
 export function syncingTablet(

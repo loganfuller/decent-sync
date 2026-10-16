@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { shotFixture } from "./support/shot-fixtures.js";
 import { syncingTablet, emptyLibrary } from "./support/loaded-tablets.js";
-import { type SimulatedTablet, de1ProOnDecaid087, derivedProfile } from "./support/simulated-tablet.js";
+import { type SimulatedTablet, de1ProOnDecaid090, derivedProfile } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 and the REST API for ticket #88: Profiles shown and hidden at
@@ -58,7 +58,7 @@ describe("Profiles in the management interface", () => {
     instance: TestServer = server,
     options: { bundled?: boolean; apiDelayMs?: (method: string, path: string) => number; stallUpload?: (frame: unknown) => boolean } = {},
   ): SimulatedTablet {
-    const profiles = options.bundled ? (de1ProOnDecaid087()["/profiles"] as Record_[]).filter((record) => record.isDefault === true) : [];
+    const profiles = options.bundled ? (de1ProOnDecaid090()["/profiles"] as Record_[]).filter((record) => record.isDefault === true) : [];
     return syncingTablet(machine, instance, { api: { ...emptyLibrary(serial), "/profiles": profiles }, apiDelayMs: options.apiDelayMs, stallUpload: options.stallUpload });
   }
 
