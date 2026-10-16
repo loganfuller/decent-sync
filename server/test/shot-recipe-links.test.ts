@@ -1,9 +1,10 @@
-import { LOADED_RECIPE_KEY, dye2GlobalIdOf } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, LOADED_RECIPE_KEY, dye2GlobalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { syncingTablet } from "./support/loaded-tablets.js";
 import { shotFixture } from "./support/shot-fixtures.js";
 import {
+  DYE2_NAMESPACE,
   type Dye2Key,
   applyInDye2,
   dye2List,
@@ -341,6 +342,35 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
 
     expect((await api.call("DELETE", `/baskets/${picked}`)).status).toBe(204);
     for (const each of [tablet, neverUsed]) await expect.poll(() => recordOf(each, "baskets", picked)).toBeUndefined();
+  });
+
+  it("keeps a Tool named by a Shot stored before its tablet reported it, through the Shot's edits, once Archived, until an edit drops it", async () => {
+    const { tablet, neverUsed } = await lab("Late Tool", 49081);
+    // A Shot names a tool DYE2's equipment page saves only afterwards, before the plugin reports it.
+    const shot = pull(tablet, "tool-named-late", 49081, { annotations: { extras: { equipmentIds: ["eqp-late-wdt"], equipmentNames: ["Late Tool WDT"] } } });
+    await storedShot(shot.id as string);
+    const { [GLOBAL_ID_KEY]: _globalId, ...shape } = list(tablet, "equipment")[0]!;
+    const route = `/store/${DYE2_NAMESPACE}/equipment`;
+    expect((await tablet.callApi("POST", route, [...list(tablet, "equipment"), { ...shape, id: "eqp-late-wdt", name: "Late Tool WDT" }])).status).toBe(200);
+    const libraryTool = async () => (await api.get<{ tools: { id: string; name: string }[] }>("/tools")).tools.find((tool) => tool.name === "Late Tool WDT")?.id;
+    await expect.poll(libraryTool).toBeDefined();
+    const tool = (await libraryTool())!;
+
+    // Archived, it leaves both tablets, and the Shot still names it.
+    expect((await api.call("PUT", `/tools/${tool}/archived`, { archived: true })).status).toBe(200);
+    for (const each of [tablet, neverUsed]) await expect.poll(() => list(each, "equipment").some((record) => record.id === "eqp-late-wdt")).toBe(false);
+    expect((await api.call("DELETE", `/tools/${tool}`)).status).toBe(409);
+
+    // An edit that still names it keeps its link; one that drops it lets it go.
+    const { measurements: _measurements, ...metadata } = shot;
+    const edit = async (updatedAt: string, equipmentIds: string[]) => {
+      tablet.fire("shotUpdated", { id: shot.id, shot: { ...metadata, updatedAt, annotations: { extras: { equipmentIds } } } });
+      await expect.poll(() => tablet.acknowledgedSome((frame: Record_) => frame.type === "shotUpdated" && (frame.shot as Record_).updatedAt === updatedAt)).toBe(true);
+    };
+    await edit("2026-11-01T12:01:00Z", ["eqp-another", "eqp-late-wdt"]);
+    expect((await api.call("DELETE", `/tools/${tool}`)).status).toBe(409);
+    await edit("2026-11-01T12:02:00Z", ["eqp-another"]);
+    expect((await api.call("DELETE", `/tools/${tool}`)).status).toBe(204);
   });
 
   it("hard-deletes a Basket or Tool no Shot or Recipe names from every tablet, and refuses one either names", async () => {
