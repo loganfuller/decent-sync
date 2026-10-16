@@ -63,8 +63,10 @@ as empty.
 DYE2's recipes, baskets and tools are written by the plugin too, through
 the Library (`LIBRARY.md`, Taking in a tablet's baskets and tools, and
 Taking in a tablet's recipes); after it writes one, its next read is sent
-whatever it holds, as below. `pairedDevices` keeps Decaid's inventory entries as sent, leaving
-out those whose `state` is `discovered`: devices nearby come and go and may
+whatever it holds, as below.
+
+`pairedDevices` keeps Decaid's inventory entries as sent, leaving out those
+whose `state` is `discovered`: devices nearby come and go and may
 belong to another Machine at the same Location. Connected and connecting
 devices, and those Decaid remembers (`disconnected`, and not `available` while
 out of range), stay. A remembered device in range but not connected is listed
