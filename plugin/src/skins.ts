@@ -1,3 +1,4 @@
+import { postSelection, readSelectedName } from "./dye2-selection.js";
 import type { HttpAnswer, HttpRequest, PluginHost } from "./host.js";
 import type { ListPosted } from "./library-writes.js";
 
@@ -10,28 +11,128 @@ import type { ListPosted } from "./library-writes.js";
 // anything but `{"what":"skin"}` has it read the Workflow again, and its DYE
 // strip DYE2's recipes (streamline-js:docs/plugin-surfaces.md,
 // decentespresso/streamline-js#120 and #127, checked on `main` at 07be2b3).
-// The plugin shows nothing on the dashboard, so it answers with no surfaces,
-// and pushes once it has written DYE2's recipes. Decaid sends a push only to
-// the sockets open at the time, so a skin without one catches up as it does
-// without the plugin.
+// The plugin pushes once it has written DYE2's recipes. Decaid sends a push
+// only to the sockets open at the time, so a skin without one catches up as
+// it does without the plugin.
+//
+// Streamline's DYE strip has no way to unload what DYE2 has selected, so a
+// one-off change, as hot water at another temperature, is recorded into the
+// recipe and shared with every Machine at the Location. While DYE2 has a
+// recipe or favourite selected, the plugin's answer holds a Clear button for
+// Streamline's top bar, on any Machine, Capture-only ones too, as it only
+// talks to DYE2. A header button can only open the plugin's `ui` page, so a
+// tap opens it as a page, which clears DYE2's selection, as Streamline does
+// as its DYE2 switch is turned off, and returns to the dashboard at once,
+// whose reload has the strip read DYE2's stored selection again. A clear
+// that fails is not tried again, as it could unload a recipe the barista
+// applied since: the button still showing tells them. The plugin pushes
+// `{"what":"skin"}` on each push from DYE2, which pushes on every change of
+// which item it has selected, after each Workflow change it records into
+// it, and after refreshing its recent favourites, so the button shows and
+// hides at once. Streamline at c006dac re-reads every plugin's `skin` on any
+// plugin's push, DYE2's included, so it does already; the plugin's push
+// keeps it so, whichever plugins a skin reads again on a push.
+// Interim, until Streamline unloads it itself (decentespresso/streamline-js#159,
+// ADR-0022). Streamline draws one plugin header button, the first plugin's
+// in Decaid's list whose `skin` read succeeds.
 
 /** The plugin's HTTP endpoint a skin asks what to show (manifest.json). */
 const SKIN_ENDPOINT = "skin";
 
+/** The plugin's HTTP endpoint for pages a skin opens (manifest.json): the Clear button's. */
+const UI_ENDPOINT = "ui";
+
+/** The view of `ui` the Clear button opens, which clears DYE2's selection. */
+const CLEAR_VIEW = "clear";
+
 /** The plugin's WebSocket endpoint a skin listens on for changes (manifest.json). */
 const CHANGED_ENDPOINT = "changed";
-
-/** What the plugin answers `skin` with: no surfaces, and where to listen for changes. */
-const SKIN_ANSWER = { version: 1, surfaces: [], live: { endpoint: CHANGED_ENDPOINT } } as const;
 
 /** The push that has a skin read the Workflow and DYE2's recipes again; `{"what":"skin"}` would have it read only `skin`. */
 const RECIPES_CHANGED = { what: "workflow" } as const;
 
-/** Answers a request to one of the plugin's HTTP endpoints: `skin` to a GET, and nothing else. */
-export function answerHttp(request: HttpRequest): HttpAnswer {
-  if (request.endpoint !== SKIN_ENDPOINT) return json(404, { error: "Not found" });
+/** The push that has a skin read only `skin`, as the Clear button shows or hides. */
+const SKIN_CHANGED = { what: "skin" } as const;
+
+/** How long `skin` waits for DYE2's selection before answering without the Clear button: Streamline waits 2 s for the whole answer. */
+const SKIN_READ_MS = 1_000;
+
+/** How long the Clear button's page waits for DYE2 to clear its selection before returning to the dashboard anyway. */
+const CLEAR_MS = 3_000;
+
+/** The longest text Streamline shows on a header button (`CAPS.text` in streamline-js:src/modules/plugin-surfaces.js). */
+const TEXT_MAX = 40;
+
+/**
+ * Answers a request to one of the plugin's HTTP endpoints: `skin` and `ui`
+ * to a GET, and nothing else. `ui` has no page but the Clear button's: any
+ * other view, as Streamline's settings card opens with its Open button,
+ * which it shows for every plugin declaring `ui`, goes straight back.
+ */
+export async function answerHttp(request: HttpRequest, log: (message: string) => void): Promise<HttpAnswer> {
+  if (request.endpoint !== SKIN_ENDPOINT && request.endpoint !== UI_ENDPOINT) return json(404, { error: "Not found" });
   if (request.method !== "GET") return { ...json(405, { error: "Only GET is answered" }), headers: { "Content-Type": "application/json", Allow: "GET" } };
-  return json(200, SKIN_ANSWER);
+  if (request.endpoint === SKIN_ENDPOINT) return json(200, { version: 1, surfaces: await clearButton(), live: { endpoint: CHANGED_ENDPOINT } });
+  const returnTo = request.query.returnTo;
+  const back = typeof returnTo === "string" && isPageUrl(returnTo) ? returnTo : null;
+  if (request.query.view !== CLEAR_VIEW) return back === null ? json(404, { error: "Not found" }) : goBack(back);
+  await clearSelection(log);
+  // No page to go back to: the browser stays where it is.
+  return back === null ? { status: 204, headers: { "Cache-Control": "no-store" }, body: "" } : goBack(back);
+}
+
+/** Sends the browser back to the skin's page, leaving nothing in its history or cache to open the plugin's page again. */
+function goBack(returnTo: string): HttpAnswer {
+  return { status: 303, headers: { Location: returnTo, "Cache-Control": "no-store" }, body: "" };
+}
+
+/** The Clear button while DYE2 has a recipe or favourite selected, as a list of surfaces; none where it has none, answers 404, or fails or is slow to answer. */
+async function clearButton(): Promise<unknown[]> {
+  const name = await within(SKIN_READ_MS, readSelectedName().catch(() => null), null);
+  if (name === null) return [];
+  // By code point, so a character outside the Basic Multilingual Plane is never cut in half.
+  const text = Array.from(`Unload ${name}`);
+  return [
+    {
+      id: "clear",
+      kind: "header-button",
+      label: "Clear",
+      text: text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX - 1).join("")}…` : text.join(""),
+      action: { type: "open", view: CLEAR_VIEW, presentation: "page" },
+    },
+  ];
+}
+
+/** Clears DYE2's selection, whatever it names, once: a 404, a refusal or no answer in time is logged, and not tried again. */
+async function clearSelection(log: (message: string) => void): Promise<void> {
+  const cleared = postSelection(null).then(
+    (done) => (done === "done" ? null : "DYE2 is not loaded"),
+    (error: unknown) => (error instanceof Error ? error.message : String(error)),
+  );
+  const problem = await within(CLEAR_MS, cleared, `DYE2 did not answer within ${CLEAR_MS / 1000} s`);
+  if (problem !== null) log(`Could not clear DYE2's selection for the Clear button: ${problem}`);
+}
+
+/** Resolves as the work does, or with `late` once `ms` pass first or the work fails. */
+function within<T>(ms: number, work: Promise<T>, late: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(late), ms);
+    const settle = (value: T) => {
+      clearTimeout(timer);
+      resolve(value);
+    };
+    work.then(settle, () => settle(late));
+  });
+}
+
+/**
+ * Whether a skin's `returnTo` is a page to go back to: an `http:` or
+ * `https:` URL with no credentials, as Streamline sends (`pluginUiUrl` in
+ * streamline-js:src/settings/plugin-view.js), in printable ASCII, as a
+ * URL's `href` is, so nothing in it can break the `Location` header.
+ */
+function isPageUrl(url: string): boolean {
+  return /^[!-~]+$/.test(url) && /^https?:\/\/[^/?#@]+([/?#]|$)/i.test(url);
 }
 
 function json(status: number, body: unknown): HttpAnswer {
@@ -51,6 +152,21 @@ export function tellSkins(host: PluginHost, log: (message: string) => void): Lis
       host.emit(CHANGED_ENDPOINT, RECIPES_CHANGED);
     } catch (error) {
       log(`Could not tell skins that DYE2's recipes changed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+}
+
+/**
+ * Tells the skins listening on `changed` to read `skin` again, on each push
+ * from DYE2: the Clear button may show or hide. A push Decaid refuses is
+ * logged.
+ */
+export function tellSkinsOfSelection(host: PluginHost, log: (message: string) => void): () => void {
+  return () => {
+    try {
+      host.emit(CHANGED_ENDPOINT, SKIN_CHANGED);
+    } catch (error) {
+      log(`Could not tell skins that DYE2's selection changed: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 }

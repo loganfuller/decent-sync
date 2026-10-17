@@ -395,7 +395,12 @@ tablet ([ADR-0022](docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md))
 so a Machine that follows Recipes needs DYE2 built from `main` at `2cf631c` or
 later, and streamline-js from `main` at `c006dac` or later where Streamline is
 its skin. These untagged builds are the minimums until tagged releases contain
-them ([ADR-0017](docs/adr/0017-supported-versions.md)).
+them ([ADR-0017](docs/adr/0017-supported-versions.md)). While DYE2 has a recipe
+or favourite selected, the plugin adds a **Clear** button to Streamline's top
+bar, which unloads it, so a one-off change, such as hot water at another
+temperature, isn't recorded into the Recipe. Streamline shows one plugin
+button there, the first in Decaid's plugin list to offer one; no other plugin
+does today.
 
 | Setting | |
 |---|---|
