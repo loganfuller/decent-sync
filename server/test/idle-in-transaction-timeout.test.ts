@@ -70,7 +70,7 @@ describe("the idle-in-transaction timeout", () => {
     const database = await connect(server);
 
     const { rows } = await database.query(
-      "SELECT finished_at FROM _prisma_migrations WHERE migration_name = '20261006020933_idle_in_transaction_timeout'",
+      "SELECT finished_at FROM _prisma_migrations WHERE migration_name = '20261016000000_init'",
     );
     expect(rows).toEqual([{ finished_at: expect.any(Date) }]);
     expect(await timeoutOf(database)).toEqual({ timeout: "0", source: "default" });

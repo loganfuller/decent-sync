@@ -11,7 +11,7 @@ protocol version 1 with these messages, defined and validated in `protocol/`:
 
 `ack` acknowledges both, as it does Shots (`SHOTS.md`). The server sends
 `requestSteams` only in answer to a `steamIndex`. The protocol version stays
-1, as it does for any change until v1 (ADR-0017).
+1, as it does for any change (ADR-0017).
 
 ## Time
 

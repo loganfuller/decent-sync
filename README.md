@@ -15,8 +15,8 @@ business with a roastery lab and several cafes.
 
 ## Status
 
-**Milestones 1 and 2 are built, and released in
-[v0.3.0](https://github.com/loganfuller/decent-sync/releases/tag/v0.3.0).**
+**Milestones 1 to 3 are built, and released in
+[v1.0.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.0.0).**
 Admins sign in, manage Locations, and adopt Machines, which are identified by
 their hardware and record where they were in a Location History. Adopted
 tablets send their Shots and Steam Records, which the REST API serves, each
@@ -66,8 +66,16 @@ and machine state transitions a tablet has yet to deliver are kept in Decaid's
 plugin storage, so unloading the plugin loses none. Everything else is
 captured without being written to tablets.
 
-Releases publish the server image and the plugin ZIP, starting with
-[v0.1.0](https://github.com/loganfuller/decent-sync/releases/tag/v0.1.0).
+[Milestone 3](https://github.com/loganfuller/decent-sync/issues/134) ([GitHub
+milestone](https://github.com/loganfuller/decent-sync/milestone/3)) shares
+each Location's DYE2 recipes, baskets and tools as Recipes, in their Recipe
+Slots, Baskets and Tools, and follows each Machine's Loaded Recipe, which its
+Workflow follows and which follows the changes made on it, its steam, hot
+water and flush settings included. Each Shot is linked to its Recipe and
+Basket.
+
+Releases publish the server image and the plugin ZIP. v1.0.0 starts the
+database afresh; nothing from earlier releases carries over.
 
 ## Design
 
@@ -118,9 +126,9 @@ The server needs only PostgreSQL 14 or newer. Each release publishes a Docker
 image of the server and the built management interface to
 `ghcr.io/loganfuller/decent-sync`, tagged with its version (`0.1.0`), its minor
 series (`0.1`) and `latest`. On startup the server applies any pending database
-migrations, so upgrading is running a newer image. Before version 1.0, a
-release may change the database incompatibly: stop the running server before
-starting a new version, and expect to recreate the database.
+migrations, so upgrading is running a newer image. A release may change the
+database incompatibly: stop the running server before starting a new version,
+and read its upgrade notes, which say when to recreate the database.
 
 ### Docker Compose
 
@@ -225,9 +233,9 @@ tested through the pooled URL, and it listens for PostgreSQL notifications,
 which the pooler drops in transaction mode.
 
 Save a `fly.toml` like this one, with your app's name and the image version to
-run, then deploy one machine. Before version 1.0, a new version must not run
-beside the old one, and fly.io deploys to several machines one at a time, so
-skip its default second machine for now:
+run, then deploy one machine. A new version must not run beside the old
+one, and fly.io deploys to several machines one at a time, so skip its
+default second machine:
 
 ```bash
 fly deploy --ha=false
@@ -272,10 +280,8 @@ custom domain, set `PUBLIC_URL` to it.
 ## Installing the plugin
 
 The plugin needs Decaid v0.9.0 or newer. The server refuses a tablet running
-an older Decaid, and the Machine's page says why. Before version 1.0, run the
-plugin and server from the same release. From 1.0, the server supports the
-current and previous plugin release, and the newest Decaid release and the two
-before it ([ADR-0017](docs/adr/0017-supported-versions.md)).
+an older Decaid, and the Machine's page says why. Run the plugin and server
+from the same release ([ADR-0017](docs/adr/0017-supported-versions.md)).
 
 Decaid installs the plugin from this repo's GitHub releases by repo name. On
 the tablet, open Decaid's Settings, then Plugins; choose **Install Plugin**,
@@ -294,10 +300,8 @@ itself only when it asks for no new permissions. One that does waits under
 Plugins, saying it needs approval and which permissions it adds, until someone
 at that tablet presses **Review**, then **Approve and update**, or sends
 `POST /api/v1/plugins/decent-sync.reaplugin/update/approve` to the tablet's API.
-Each tablet needs its own approval. The update that gives each tablet an id
-is one: it adds `pluginStorage`, the permission to keep that id in Decaid's
-plugin storage. Its server refuses the plugin before it, so until a tablet's
-update is approved, that tablet stays disconnected and its Machine offline.
+Each tablet needs its own approval. Until a tablet's update is approved, it
+runs the plugin it has, which a newer server may refuse.
 [UPGRADING.md](UPGRADING.md) lists what each release needs.
 
 Then enter the server URL and the Machine's token in the plugin's settings.

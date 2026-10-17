@@ -17,19 +17,16 @@ export * from "./chunking.js";
 export const PROTOCOL_VERSION = 1;
 
 /**
- * The oldest protocol version the server accepts. Before v1 both stay 1: a
- * wire change needs only the plugin and server of the same commit, so it
- * raises neither, and a plugin from before it fails validation. From v1 a
- * change the previous release's plugin can't follow raises PROTOCOL_VERSION,
- * and this is the version that plugin speaks (ADR-0017).
+ * The oldest protocol version the server accepts. Both stay 1: a wire change
+ * needs only the plugin and server of the same commit, so it raises neither,
+ * and a plugin from before it fails validation (ADR-0017).
  */
 export const OLDEST_SUPPORTED_PROTOCOL_VERSION = 1;
 
 /**
  * The oldest Decaid release the server accepts, always a release rather than
- * a pre-release. Before v1 it is 0.9.0. From v1, each release sets it to the
- * second Decaid release tag before the newest, so tablets may run the newest
- * or either of the two before it (ADR-0017).
+ * a pre-release. A release that relies on a newer Decaid raises it
+ * (ADR-0017).
  */
 export const OLDEST_SUPPORTED_DECAID = "0.9.0";
 

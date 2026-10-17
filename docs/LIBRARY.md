@@ -1675,11 +1675,7 @@ Decaid calls the flush settings `rinseData`; Decent Sync calls them flush
 everywhere else. Ticket #86 shared steam, hot water and rinse settings
 between a Location's Machines, ticket #137 had hot water follow the Loaded
 Recipe instead, and ticket #190 took the rest out (ADR-0014, superseded),
-each Machine's own until #173. Ticket #190's migration
-(`server/prisma/migrations/20261022000000_location_settings_removed`)
-dropped each Location's settings, each tablet's as it last had them and
-each Machine's sharing of them, and deleted their versions and Conflicts,
-keeping nothing (ADR-0016).
+each Machine's own until #173.
 
 The settings are written into, and taken in from, DYE2's fields of a
 recipe record, and each held one into the record's embedded Workflow
