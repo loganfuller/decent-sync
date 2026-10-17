@@ -417,6 +417,19 @@ follows the selection, writing nothing of it into the Workflow.
   once it is queued: an unload of the plugin while one is held loses it.
 - **When Decaid fails.** A read or write Decaid fails is logged once until
   one succeeds, and tried again at the next read, push or poll.
+- **The Clear button** (ticket
+  [#203](https://github.com/loganfuller/decent-sync/issues/203), interim
+  until decentespresso/streamline-js#159, ADR-0022). Streamline's DYE strip
+  cannot unload what DYE2 has selected, so while DYE2 has a recipe or
+  favourite selected, on any Machine, Capture-only ones too, the plugin
+  offers a Clear button in Streamline's top bar (`plugin/src/skins.ts`,
+  `AI_RUNTIME_NOTES.md`, Skins). Its page clears DYE2's selection once,
+  whatever it names then, as Streamline's DYE2 switch turned off does, and
+  returns to the dashboard. Nothing is restored: DYE2 writes its field, and
+  the server unloads the Recipe as for any clear. A clear DYE2 answers 404
+  to, refuses or is slow to answer is logged and never tried again, unlike
+  the plugin's own clears, as it could unload a recipe applied since; the
+  button still showing tells the barista.
 
 Known limits: Decaid has no conditional write, so a barista's change of a
 field a write sets, made in the moment between the plugin's read and its
@@ -424,8 +437,11 @@ write, is written over (ADR-0021); and a barista
 selecting another recipe in the moment between the plugin's check of the
 selection and its write has the write land there. A held change of state
 is lost if the plugin stops meanwhile; the window for a part set back
-(below) then stays open to the next espresso. ADR-0022 lists the gaps
-accepted until DYE2 and Streamline fix them upstream.
+(below) then stays open to the next espresso. A barista's clear, from the
+Clear button or Streamline's DYE2 switch, made while the plugin is still to
+select the slot again after its own write, is undone by that selection.
+ADR-0022 lists the gaps accepted until DYE2 and Streamline fix them
+upstream.
 
 ### Server
 

@@ -109,6 +109,10 @@ _Avoid_: Recipe number, index
 The recipe a barista last applied on a machine, while they are still dialling it in. It is part of the machine's state: a change to the recipe reaches that machine's workflow at once.
 _Avoid_: Active recipe, current recipe
 
+**Unload**:
+A machine stops having a Loaded Recipe, as when the recipe DYE2 has selected is cleared or replaced. Its workflow stays as it is; only later changes stop reaching the recipe.
+_Avoid_: Deselect, eject
+
 **Workflow**:
 What a machine is set up to do next: its current profile, dose, yield, bean batch, grinder and setting, and basket, plus its steam, hot water and flush settings, which loading a recipe sets, so machines at one location with different recipes loaded steam differently. Turning steam off never changes a recipe.
 _Avoid_: Recipe (a recipe is saved; a workflow is current); rinse settings (Decaid's name for the flush settings)

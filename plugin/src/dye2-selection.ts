@@ -49,6 +49,28 @@ export async function readSelection(): Promise<SelectionAnswer> {
 }
 
 /**
+ * The name of the recipe or favourite DYE2 has selected now, as Streamline's
+ * DYE strip labels it (`recipeLabel` and `favLabel` in
+ * streamline-js:src/modules/dyeStrip.js), from DYE2's list of them; null
+ * where it has none selected, or answers 404. Throws if Decaid answers
+ * otherwise, or does not answer.
+ */
+export async function readSelectedName(): Promise<string | null> {
+  const answer = await request("GET", SELECTION);
+  if (answer.status === 404) return null;
+  const value = answer.ok ? parsed(answer.text) : undefined;
+  if (value === undefined) throw new Error(`Decaid answered ${answer.status} reading DYE2's selection`);
+  if (!isObject(value) || (value.kind !== "recipe" && value.kind !== "favourite")) return null;
+  const list = await request("GET", `/store/${DYE2_NAMESPACE}/${value.kind === "recipe" ? "recipes" : "autoFavourites"}`);
+  const items = list.ok ? parsed(list.text) : undefined;
+  const item = Array.isArray(items) ? items.find((candidate: unknown) => isObject(candidate) && String(candidate.id) === String(value.id)) : undefined;
+  const named = isObject(item) ? item : {};
+  if (value.kind === "recipe") return textOf(named.title) ?? textOf(named.name) ?? "Recipe";
+  const snapshot = isObject(named.snapshot) ? named.snapshot : {};
+  return textOf(named.title) ?? textOf(named.subtitle) ?? textOf(snapshot.coffeeName) ?? "Favourite";
+}
+
+/**
  * Has DYE2 select the recipe in that slot, as its dashboard does as it
  * applies one, or clear its selection (null), as Streamline does as its
  * strip is switched off: "done", or "unavailable" where DYE2 answers 404.

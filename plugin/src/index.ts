@@ -36,6 +36,6 @@ export function createPlugin(host: PluginHost): Plugin {
       if (event?.name === "storageRead" || event?.name === "storageWrite") connection?.storageEvent(event.name, event.payload);
     },
     // Answered whether or not the plugin connects: a skin asks every loaded plugin.
-    __httpRequestHandler: answerHttp,
+    __httpRequestHandler: (request) => answerHttp(request, (message) => host.log(message)),
   };
 }

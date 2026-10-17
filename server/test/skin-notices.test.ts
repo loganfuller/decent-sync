@@ -28,7 +28,8 @@ afterAll(() => tablets.unloadAll());
 
 describe("The plugin's skin endpoint", () => {
   it("answers a GET of skin with no surfaces and its changed endpoint to listen on, and nothing else", async () => {
-    // Without settings the plugin does not connect, and still answers: a skin asks every loaded plugin.
+    // Without settings the plugin does not connect, and still answers: a skin asks every loaded plugin. Without DYE2 there is
+    // nothing to clear, so no Clear button (clear-button.test.ts).
     const tablet = tablets.load({ settings: {} });
 
     const answer = await tablet.callEndpoint("skin");
@@ -37,7 +38,7 @@ describe("The plugin's skin endpoint", () => {
     expect(JSON.parse(answer.body)).toEqual({ version: 1, surfaces: [], live: { endpoint: "changed" } });
     expect((await tablet.callEndpoint("skin", { method: "POST", body: {} })).status).toBe(405);
     // Decaid answers these itself: one not declared, and the WebSocket endpoint.
-    expect((await tablet.callEndpoint("ui")).status).toBe(404);
+    expect((await tablet.callEndpoint("main")).status).toBe(404);
     expect((await tablet.callEndpoint("changed")).status).toBe(400);
     expect(tablet.pushes("changed")).toEqual([]);
   });

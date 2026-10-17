@@ -177,8 +177,11 @@ export class LoadedRecipes implements LoadedRecipeWrites {
      * server reads the Workflow a recording followed, as a load's, first.
      */
     private readonly pushed: () => void = () => {},
+    /** Told at once of each push from DYE2, which pushes on every change of which item it has selected: the Clear button may show or hide (skins.ts). */
+    heard: () => void = () => {},
   ) {
     this.pushes = new Dye2Pushes(transports, () => {
+      heard();
       if (this.holding !== null || this.writing > 0) this.recipesDue = true;
       else pushed();
       this.enqueue(() => this.check());

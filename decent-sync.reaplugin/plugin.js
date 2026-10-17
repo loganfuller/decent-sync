@@ -983,6 +983,20 @@ var __decentSync = (() => {
     }
     return { kind: "favourite" };
   }
+  async function readSelectedName() {
+    const answer = await request("GET", SELECTION);
+    if (answer.status === 404) return null;
+    const value = answer.ok ? parsed(answer.text) : void 0;
+    if (value === void 0) throw new Error(`Decaid answered ${answer.status} reading DYE2's selection`);
+    if (!isObject3(value) || value.kind !== "recipe" && value.kind !== "favourite") return null;
+    const list = await request("GET", `/store/${DYE2_NAMESPACE}/${value.kind === "recipe" ? "recipes" : "autoFavourites"}`);
+    const items = list.ok ? parsed(list.text) : void 0;
+    const item = Array.isArray(items) ? items.find((candidate) => isObject3(candidate) && String(candidate.id) === String(value.id)) : void 0;
+    const named = isObject3(item) ? item : {};
+    if (value.kind === "recipe") return textOf2(named.title) ?? textOf2(named.name) ?? "Recipe";
+    const snapshot = isObject3(named.snapshot) ? named.snapshot : {};
+    return textOf2(named.title) ?? textOf2(named.subtitle) ?? textOf2(snapshot.coffeeName) ?? "Favourite";
+  }
   async function postSelection(slot) {
     const answer = await request("POST", SELECTION, slot === null ? {} : { kind: "recipe", id: String(slot) });
     if (answer.status === 404) return "unavailable";
@@ -1088,6 +1102,7 @@ var __decentSync = (() => {
   var MAX_HOLD_MS = 1e4;
   var LoadedRecipes = class {
     constructor(changes, log, transports, pollMs, pushed = () => {
+    }, heard = () => {
     }) {
       __publicField(this, "changes", changes);
       __publicField(this, "log", log);
@@ -1148,6 +1163,7 @@ var __decentSync = (() => {
       __publicField(this, "recipesDue", false);
       __publicField(this, "pushes");
       this.pushes = new Dye2Pushes(transports, () => {
+        heard();
         if (this.holding !== null || this.writing > 0) this.recipesDue = true;
         else pushed();
         this.enqueue(() => this.check());
@@ -3459,13 +3475,57 @@ var __decentSync = (() => {
 
   // src/skins.ts
   var SKIN_ENDPOINT = "skin";
+  var UI_ENDPOINT = "ui";
+  var CLEAR_VIEW = "clear";
   var CHANGED_ENDPOINT = "changed";
-  var SKIN_ANSWER = { version: 1, surfaces: [], live: { endpoint: CHANGED_ENDPOINT } };
   var RECIPES_CHANGED = { what: "workflow" };
-  function answerHttp(request2) {
-    if (request2.endpoint !== SKIN_ENDPOINT) return json(404, { error: "Not found" });
+  var SKIN_CHANGED = { what: "skin" };
+  var SKIN_READ_MS = 1e3;
+  var CLEAR_MS = 3e3;
+  var TEXT_MAX = 40;
+  async function answerHttp(request2, log) {
+    if (request2.endpoint !== SKIN_ENDPOINT && request2.endpoint !== UI_ENDPOINT) return json(404, { error: "Not found" });
     if (request2.method !== "GET") return { ...json(405, { error: "Only GET is answered" }), headers: { "Content-Type": "application/json", Allow: "GET" } };
-    return json(200, SKIN_ANSWER);
+    if (request2.endpoint === SKIN_ENDPOINT) return json(200, { version: 1, surfaces: await clearButton(), live: { endpoint: CHANGED_ENDPOINT } });
+    if (request2.query.view !== CLEAR_VIEW) return json(404, { error: "Not found" });
+    await clearSelection(log);
+    const returnTo = request2.query.returnTo;
+    if (typeof returnTo !== "string" || !isPageUrl(returnTo)) return { status: 204, headers: { "Cache-Control": "no-store" }, body: "" };
+    return { status: 303, headers: { Location: returnTo, "Cache-Control": "no-store" }, body: "" };
+  }
+  async function clearButton() {
+    const name = await within(SKIN_READ_MS, readSelectedName().catch(() => null), null);
+    if (name === null) return [];
+    const text = `Unload ${name}`;
+    return [
+      {
+        id: "clear",
+        kind: "header-button",
+        label: "Clear",
+        text: text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX - 1)}…` : text,
+        action: { type: "open", view: CLEAR_VIEW, presentation: "page" }
+      }
+    ];
+  }
+  async function clearSelection(log) {
+    const cleared = postSelection(null).then(
+      (done) => done === "done" ? null : "DYE2 is not loaded",
+      (error) => error instanceof Error ? error.message : String(error)
+    );
+    const problem = await within(CLEAR_MS, cleared, `DYE2 did not answer within ${CLEAR_MS / 1e3} s`);
+    if (problem !== null) log(`Could not clear DYE2's selection for the Clear button: ${problem}`);
+  }
+  function within(ms, work, late) {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(late), ms);
+      void work.then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      });
+    });
+  }
+  function isPageUrl(url) {
+    return /^[!-~]+$/.test(url) && /^https?:\/\/[^/?#@]+([/?#]|$)/i.test(url);
   }
   function json(status, body) {
     return { status, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
@@ -3477,6 +3537,15 @@ var __decentSync = (() => {
         host.emit(CHANGED_ENDPOINT, RECIPES_CHANGED);
       } catch (error) {
         log(`Could not tell skins that DYE2's recipes changed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+  }
+  function tellSkinsOfSelection(host, log) {
+    return () => {
+      try {
+        host.emit(CHANGED_ENDPOINT, SKIN_CHANGED);
+      } catch (error) {
+        log(`Could not tell skins that DYE2's selection changed: ${error instanceof Error ? error.message : String(error)}`);
       }
     };
   }
@@ -3848,7 +3917,8 @@ var __decentSync = (() => {
           close: (handle) => this.closeTransport(handle)
         },
         settings.pollSeconds * 1e3,
-        () => this.collections.readRecipes()
+        () => this.collections.readRecipes(),
+        tellSkinsOfSelection(host, log)
       );
       this.machineEvents = new MachineEvents(this.outbox, (workflow) => this.loadedRecipes.observe(workflow));
       const library = new LibraryAccess();
@@ -4304,7 +4374,7 @@ var __decentSync = (() => {
         if (event?.name === "storageRead" || event?.name === "storageWrite") connection?.storageEvent(event.name, event.payload);
       },
       // Answered whether or not the plugin connects: a skin asks every loaded plugin.
-      __httpRequestHandler: answerHttp
+      __httpRequestHandler: (request2) => answerHttp(request2, (message) => host.log(message))
     };
   }
   return __toCommonJS(index_exports);
