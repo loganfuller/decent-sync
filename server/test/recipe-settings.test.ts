@@ -272,6 +272,33 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     expect(await editsOf(one, "steamTemperature")).toBe(edits);
   });
 
+  it("keeps Streamline's remembered steam temperature at an edit made while C was offline with steam off, where DYE2 recorded steam off again meanwhile", async () => {
+    const { machines, a, c, one, load } = await lab("Missed", 49111, { loadC: false });
+    const streamline = await startStreamline(c, { "last-steam-temp": 140 });
+    await load(c, machines.c, "1", one);
+    await expect.poll(() => streamline.remembered("last-steam-temp"), { timeout: 15_000 }).toBe(150);
+    await streamline.set("last-steam-duration", 0);
+    await expect.poll(() => recorded(c, "steamTemperature"), { timeout: 15_000 }).toBe(150);
+
+    // Offline, C's next change has DYE2 record steam off again, and the Recipe's steam temperature is edited meanwhile.
+    c.loseNetwork();
+    await c.changeSettings({ hotWaterData: { volume: 130 } });
+    await expect.poll(() => recorded(c, "steamTemperature"), { timeout: 15_000 }).toBe(0);
+    await patch(one, { steamTemperature: 160 });
+    await expect.poll(() => setting(a, "steamTemperature"), { timeout: 15_000 }).toBe(160);
+    c.restoreNetwork();
+    await expect.poll(() => recorded(c, "steamTemperature"), { timeout: 15_000 }).toBe(160);
+    await expect.poll(() => streamline.remembered("last-steam-temp"), { timeout: 15_000 }).toBe(160);
+    expect(setting(c, "steamTemperature")).toBe(0);
+    const edits = await editsOf(one, "steamTemperature");
+
+    // Turned back on from Streamline's dashboard, at the Recipe's: no edit.
+    await streamline.set("last-steam-duration", 30);
+    await expect.poll(() => setting(c, "steamTemperature"), { timeout: 15_000 }).toBe(160);
+    await settle();
+    expect([(await recipe(one)).content.steamTemperature, await editsOf(one, "steamTemperature")]).toEqual([160, edits]);
+  });
+
   it("takes a steam temperature of Off saved in DYE2's editor as no edit, writing the Recipe's back into the record", async () => {
     const { c, one } = await lab("Editor", 49061);
     const edits = await editsOf(one, "steamTemperature");

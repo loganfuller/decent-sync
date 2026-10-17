@@ -425,8 +425,10 @@ export async function recordedByDye2(
     held[part] = recordedValue;
     if (part === "steamTemperature" && isOff(recordedValue)) {
       // Steam turned off, which no Recipe holds. The plugin writes no steam temperature into a Workflow whose steam is off,
-      // so the Workflow is held as holding the Recipe's, which Streamline keeps to turn steam back on at.
-      if (recipeValue !== null && !isOff(recipeValue)) held[part] = recipeValue;
+      // so one held as holding the Recipe's already stays so. Otherwise, as after an edit the tablet missed while it was
+      // offline, it is held as recorded, so the write is planned, and the plugin keeps the Recipe's as the one Streamline
+      // turns steam back on at (`takeInWritten`).
+      if (recipeValue !== null && !isOff(recipeValue) && samePart(part, known.held[part], recipeValue)) held[part] = recipeValue;
       stale.add(path);
       continue;
     }

@@ -535,8 +535,11 @@ the parts to the Recipe's content both ways.
   dashboard turns steam off with a steam time and temperature of 0, and
   DYE2 records the time alone where the recipe holds no steam temperature
   (interim, until decentespresso/dye2#30). A recorded steam-off temperature
-  is held as the Recipe's in `tablet_loaded_recipes`, so no write of it into
-  the Workflow is planned. While a Machine's steam is off, each of its
+  leaves `tablet_loaded_recipes` holding the Recipe's where it held it
+  already, so no write of it is planned; otherwise, as after an edit the
+  tablet missed while offline, a write is planned, which the plugin leaves
+  out of the Workflow but keeps for Streamline to turn steam back on at.
+  While a Machine's steam is off, each of its
   Workflow changes makes DYE2 record the off values again, and the server
   write the record back.
 - **Kept in the Workflow.** While DYE2 has a recipe selected, Streamline's
