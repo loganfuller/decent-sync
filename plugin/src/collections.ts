@@ -48,15 +48,28 @@ const SOURCES: readonly Source[] = [
  */
 const WRITTEN_LISTS: ReadonlySet<CollectionName> = new Set(LIBRARY_LISTS);
 
+/**
+ * The machine's own settings, which Decaid v0.9.0 keeps no copy of: it
+ * answers each by reading the machine's values one at a time over its
+ * Bluetooth or USB connection, 15 reads for the two, on the link the scale
+ * also uses (`de1handler.dart`).
+ */
+const MACHINE_SETTINGS: ReadonlySet<CollectionName> = new Set(["machineSettings", "advancedSettings"]);
+/** How often the machine's own settings are read while connected, unless the poll interval is longer. */
+const MACHINE_SETTINGS_MS = 60_000;
 
 /**
  * The tablet's library, settings and paired devices, through the outbox.
  * Decaid has no event for them, so while connected the plugin reads each one
  * every poll interval and sends it, whole, when it changed
- * (change-detection.ts). On every welcome it reads every one again and
- * sends it whatever it is, which also covers whatever changed while the
- * plugin was disconnected. Reads run one at a time, one collection after
- * another, and a read asked for while one runs waits for it.
+ * (change-detection.ts), but for the machine's own settings
+ * (`MACHINE_SETTINGS`), read every 60 s, or every poll interval if longer,
+ * and whenever a Workflow change wrote them (`readMachineSettings`).
+ * On every welcome it reads every one again and sends it whatever it is,
+ * which also covers whatever changed while the plugin was disconnected, and
+ * counts as a read of the machine's settings for their interval. Reads run
+ * one at a time, one collection after another, and a read asked for while
+ * one runs waits for it.
  *
  * A Library list the server writes to is read, and its report queued,
  * between the server's writes to the tablet (`LibraryAccess`), so a report
@@ -76,9 +89,14 @@ export class CollectionCapture {
   private wanted: "changes" | "full" | undefined;
   /** Whether DYE2's recipes alone are to be read, as after DYE2 pushes (`readRecipes`). */
   private recipesWanted = false;
+  /** Whether the machine's own settings are to be read, on their interval or after the Workflow wrote them (`readMachineSettings`). */
+  private machineSettingsWanted = false;
   private reading = false;
   private stopped = false;
   private pollTimer?: number;
+  private machineSettingsTimer?: number;
+  /** How often the machine's own settings are read while connected. */
+  private readonly machineSettingsMs: number;
 
   constructor(
     private readonly outbox: Outbox,
@@ -89,15 +107,18 @@ export class CollectionCapture {
   ) {
     // One of DYE2's lists the plugin wrote is reported on its next read, as it may read as last reported, its write lost.
     library.onWrite((list) => this.last.delete(list));
+    this.machineSettingsMs = Math.max(MACHINE_SETTINGS_MS, pollMs);
   }
 
   start(): void {
     this.schedulePoll();
+    this.scheduleMachineSettings();
   }
 
   stop(): void {
     this.stopped = true;
     if (this.pollTimer !== undefined) clearTimeout(this.pollTimer);
+    if (this.machineSettingsTimer !== undefined) clearTimeout(this.machineSettingsTimer);
   }
 
   /** Every collection, read again and sent in full, as on every welcome and whenever the server asks. */
@@ -117,6 +138,19 @@ export class CollectionCapture {
     void this.run();
   }
 
+  /**
+   * The machine's own settings, read again and sent if they changed, while
+   * connected: after a Workflow change of its steam, hot water or flush
+   * settings, which Decaid writes to the machine before it reports the
+   * Workflow (`MachineEvents`), so the change reaches the server then, not
+   * only on their interval.
+   */
+  readMachineSettings(): void {
+    if (this.stopped || !this.outbox.connected) return;
+    this.machineSettingsWanted = true;
+    void this.run();
+  }
+
   private schedulePoll(): void {
     this.pollTimer = setTimeout(() => {
       this.pollTimer = undefined;
@@ -124,6 +158,17 @@ export class CollectionCapture {
       if (this.outbox.connected) this.read("changes");
       if (!this.stopped) this.schedulePoll();
     }, this.pollMs);
+  }
+
+  /** Reads the machine's own settings once their interval has passed since the end of their latest read. */
+  private scheduleMachineSettings(): void {
+    if (this.machineSettingsTimer !== undefined) clearTimeout(this.machineSettingsTimer);
+    this.machineSettingsTimer = setTimeout(() => {
+      this.machineSettingsTimer = undefined;
+      // While disconnected, they wait for the next welcome, which reads everything.
+      if (this.outbox.connected) this.readMachineSettings();
+      else if (!this.stopped) this.scheduleMachineSettings();
+    }, this.machineSettingsMs);
   }
 
   private read(kind: "changes" | "full"): void {
@@ -136,20 +181,35 @@ export class CollectionCapture {
     if (this.reading) return;
     this.reading = true;
     try {
-      while ((this.wanted !== undefined || this.recipesWanted) && !this.stopped) {
+      while ((this.wanted !== undefined || this.recipesWanted || this.machineSettingsWanted) && !this.stopped) {
         const full = this.wanted === "full";
-        // Every collection read reads DYE2's recipes too.
-        const sources = this.wanted === undefined ? SOURCES.filter((source) => source.name === "dye2Recipes") : SOURCES;
+        // A poll reads DYE2's recipes too.
+        const polled = this.wanted !== undefined;
+        const recipes = polled || this.recipesWanted;
         this.wanted = undefined;
         this.recipesWanted = false;
+        let machineSettings = false;
         const sentLists = new Set<CollectionName>();
-        for (const source of sources) {
+        for (const source of SOURCES) {
           if (this.stopped) return;
+          if (MACHINE_SETTINGS.has(source.name)) {
+            // Read on a full read or when wanted, decided as the pass reaches them, which may be long after it began, behind
+            // the server's writes: so any read asked for until then is this one. Their interval waits meanwhile.
+            if (!machineSettings && (full || this.machineSettingsWanted)) {
+              machineSettings = true;
+              this.machineSettingsWanted = false;
+              if (this.machineSettingsTimer !== undefined) clearTimeout(this.machineSettingsTimer);
+              this.machineSettingsTimer = undefined;
+            }
+            if (!machineSettings) continue;
+          } else if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
           const parent = isLibraryList(source.name) ? parentList(source.name) : undefined;
           const sent = await (WRITTEN_LISTS.has(source.name)
             ? this.library.run(() => this.capture(source, full || (parent !== undefined && sentLists.has(parent))))
             : this.capture(source, full));
           if (sent) sentLists.add(source.name);
+          // Their interval runs from the end of their latest read, so a slow read of one shortens neither's.
+          if (MACHINE_SETTINGS.has(source.name) && !this.stopped) this.scheduleMachineSettings();
         }
       }
     } finally {

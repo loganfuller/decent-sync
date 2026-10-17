@@ -1,4 +1,11 @@
-import { type LoadBefore, type MachineStateDelivery, type WorkflowDelivery, dye2SelectionOf } from "@decent-sync/protocol";
+import {
+  type LoadBefore,
+  MACHINE_SETTING_PARTS,
+  type MachineStateDelivery,
+  type WorkflowDelivery,
+  dye2SelectionOf,
+  sameValue,
+} from "@decent-sync/protocol";
 
 /**
  * Holds back the changes of the tablet's Workflow the plugin sends while it
@@ -105,12 +112,21 @@ export class MachineEvents implements WorkflowChanges {
     private readonly outbox: EventOutbox,
     /** Told of each Workflow Decaid reports before it is queued, so it may hold it back (`LoadedRecipes`). */
     private readonly observe: (workflow: Record<string, unknown>) => void = () => {},
+    /**
+     * Told of each Workflow Decaid reports whose steam, hot water or flush
+     * settings differ from the last one's (`machineSettingsDiffer`), once it
+     * is queued or held back, so the machine's own settings are read again
+     * (`CollectionCapture.readMachineSettings`). The first Workflow after the
+     * plugin loads is compared with nothing.
+     */
+    private readonly machineSettingsChanged: () => void = () => {},
   ) {}
 
   /** Decaid's `workflowUpdated`: the whole Workflow, sent on every load and every change. */
   workflowUpdated(payload: unknown): void {
     const workflow = object(payload);
     if (!workflow) return;
+    const previous = this.workflow;
     this.workflow = workflow;
     this.reportedAt = now();
     this.observe(workflow);
@@ -118,6 +134,7 @@ export class MachineEvents implements WorkflowChanges {
       this.heldChange = true;
       this.heldReport = true;
     } else this.queueWorkflow(workflow);
+    if (previous && machineSettingsDiffer(previous, workflow)) this.machineSettingsChanged();
   }
 
   /** Holds back the Workflow's changes, as one of the plugin's writes into it begins. */
@@ -228,6 +245,18 @@ export class MachineEvents implements WorkflowChanges {
     this.outbox.enqueue(delivery);
     return delivery.id;
   }
+}
+
+/**
+ * Whether a Workflow's steam, hot water or flush settings
+ * (MACHINE_SETTING_PARTS) differ from an earlier one's. Decaid writes those
+ * parts to the machine as they change, and reports the Workflow only once
+ * the machine holds them (`WorkflowHandler`'s `PUT /workflow` awaits
+ * `De1Controller.updateWorkflowSettings` before it sets the Workflow), so
+ * the machine's own settings read then are the ones written.
+ */
+export function machineSettingsDiffer(earlier: Record<string, unknown>, later: Record<string, unknown>): boolean {
+  return MACHINE_SETTING_PARTS.some((part) => !sameValue(earlier[part], later[part]));
 }
 
 /** Now, by the tablet's clock, in UTC. */

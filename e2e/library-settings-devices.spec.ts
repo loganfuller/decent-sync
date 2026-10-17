@@ -34,8 +34,8 @@ test.afterAll(async () => {
 test("the Machine page shows paired devices, settings and the library, and follows a machine and scale switched off", async ({ page }) => {
   const { machine: { id }, token } = await createMachine(page, "Bar 2");
   const served = { ...de1ProOnDecaid090(), ...simulatedLibrary(), ...simulatedDevices() };
-  // Polls every 5 s of the tablet's time, which runs five times faster here.
-  const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api: served, timeScale: 5 });
+  // Polls every 5 s of the tablet's time, and reads the machine's own settings every 60 s, which runs fifty times faster here.
+  const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api: served, timeScale: 50 });
   tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
   // The page loads what the tablet reported every 30 s, so it opens once the server holds all of it.

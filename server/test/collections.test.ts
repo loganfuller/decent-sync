@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { COLLECTION_NAMES } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
-import { LoadedTablets } from "./support/loaded-tablets.js";
+import { LoadedTablets, type syncingTablet } from "./support/loaded-tablets.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
 import {
   type DecaidApi,
@@ -13,10 +13,12 @@ import {
   derivedDe1Pro,
   helloWith,
   manyProfiles,
+  settingsFor,
   simulatedDevices,
   simulatedDevicesSwitchedOff,
   simulatedLibrary,
 } from "./support/simulated-tablet.js";
+import { StandInServer } from "./support/stand-in-server.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #14: the built plugin in a simulated tablet, or raw
@@ -67,7 +69,7 @@ describe("Library, settings and paired devices", () => {
   });
 
   /** A simulated tablet with the Machine's token, polling every 5 s (0.1 s here), its machine reporting hardware of its own unless given an API. */
-  function load(machine: CreatedMachine, options: Omit<SimulatedTabletOptions, "settings"> = {}) {
+  function load(machine: CreatedMachine, options: Parameters<typeof syncingTablet>[2] = {}) {
     return tablets.syncing(machine, server, { api: derivedDe1Pro({ serial: machine.machine.id.replaceAll("-", "").slice(0, 12) }), ...options });
   }
   const summaries = async (machine: CreatedMachine, at = api) =>
@@ -91,11 +93,22 @@ describe("Library, settings and paired devices", () => {
     Object.fromEntries(COLLECTION_NAMES.map((name) => [name, deliveries(tablet, name).length]));
   /** Resolves once the server has acknowledged every collection delivery the plugin sent. */
   const allAcknowledged = (tablet: SimulatedTablet) => expect.poll(() => tablet.acknowledgedEvery((frame) => frameType(frame) === "collection")).toBe(true);
-  /** Resolves once the plugin has read `route` at least `count` more times: that many polls have run. */
-  async function polls(tablet: SimulatedTablet, count: number, route = "/machine/settings") {
+  /**
+   * Resolves once the plugin has read `route` at least `count` more times:
+   * by default the sensors, which each poll reads last, so that many polls
+   * have run; for the machine's own settings, that many of their reads.
+   */
+  async function polls(tablet: SimulatedTablet, count: number, route = "/sensors") {
     const before = tablet.requests.filter((request) => request === route).length;
     await expect.poll(() => tablet.requests.filter((request) => request === route).length).toBeGreaterThanOrEqual(before + count);
   }
+  /** When the plugin read `route`, by the tablet's clock, in order. */
+  const readTimes = (tablet: SimulatedTablet, route: string) =>
+    tablet.requests.flatMap((request, index) => (request === route ? [tablet.requestedAt[index]!] : []));
+  /** The time between each of the times given and the next. */
+  const gaps = (times: number[]) => times.slice(1).map((time, index) => time - times[index]!);
+  /** Where the machine's own settings are read, which Decaid reads from the machine itself on each request. */
+  const MACHINE_SETTINGS_ROUTES = ["/machine/settings", "/machine/settings/advanced"];
 
   async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
     return RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
@@ -169,7 +182,7 @@ describe("Library, settings and paired devices", () => {
     const initial = sentCounts(tablet);
     expect(Object.values(initial).every((count) => count === 1)).toBe(true);
 
-    // Derived: the tablet's machine settings recalibrated, and its DYE2 recipe renamed in DYE2.
+    // Derived: the tablet's machine settings recalibrated, read on their own interval, and its DYE2 recipe renamed in DYE2.
     const recalibrated = { ...(served["/machine/settings"] as object), steamFlow: 1.5 };
     const recipes = (served["/store/dye2.reaplugin/recipes"] as Record<string, unknown>[]).map((recipe) => ({ ...recipe, name: "Sep 26th Eth, coarser" }));
     served = { ...served, "/machine/settings": recalibrated, "/store/dye2.reaplugin/recipes": recipes };
@@ -520,36 +533,36 @@ describe("Library, settings and paired devices", () => {
     const tablet = load(machine, {
       api: served,
       apiDelayMs: 1_000,
-      stallUpload: (frame) => stalled && frameType(frame) === "collection" && (frame as Frame).name === "machineSettings",
+      stallUpload: (frame) => stalled && frameType(frame) === "collection" && (frame as Frame).name === "appSettings",
     });
     await expect.poll(() => allReported(machine)).toBe(true);
     await allAcknowledged(tablet);
 
-    // Derived: the tablet's machine settings with two fan thresholds, one after the other.
-    const settings = served["/machine/settings"] as Record<string, unknown>;
-    const older = { ...settings, fan: 40 };
-    const newer = { ...settings, fan: 45 };
+    // Derived: the tablet's app settings with two log levels, one after the other.
+    const settings = served["/settings"] as Record<string, unknown>;
+    const older = { ...settings, logLevel: "FINE" };
+    const newer = { ...settings, logLevel: "WARNING" };
     stalled = true;
-    tablet.serve({ ...served, "/machine/settings": older });
-    await expect.poll(() => deliveries(tablet, "machineSettings").length).toBe(2);
-    const unacknowledged = deliveries(tablet, "machineSettings")[1]!;
+    tablet.serve({ ...served, "/settings": older });
+    await expect.poll(() => deliveries(tablet, "appSettings").length).toBe(2);
+    const unacknowledged = deliveries(tablet, "appSettings")[1]!;
     expect(unacknowledged.value).toEqual(older);
 
     // As a poll starts reading, its connection drops, and the next takes a while: the poll reads the
     // newer settings while disconnected, after the older delivery was sent and before it is sent again.
     await polls(tablet, 1, "/beans");
-    tablet.serve({ ...served, "/machine/settings": newer });
+    tablet.serve({ ...served, "/settings": newer });
     tablet.failNextApiReads("/info", 4);
     tablet.dropConnections();
     stalled = false;
     await tablet.waitForLogs(/^Connected to /, 2, 20_000);
-    await expect.poll(async () => (await collection(machine, "machineSettings"))?.value).toEqual(newer);
+    await expect.poll(async () => (await collection(machine, "appSettings"))?.value).toEqual(newer);
     await allAcknowledged(tablet);
-    const sent = deliveries(tablet, "machineSettings").slice(2);
+    const sent = deliveries(tablet, "appSettings").slice(2);
     expect(sent[0]).toEqual(unacknowledged);
     expect(sent.length).toBeGreaterThanOrEqual(2);
     expect(sent.slice(1).every((frame) => JSON.stringify(frame.value) === JSON.stringify(newer))).toBe(true);
-    expect((await collection(machine, "machineSettings"))!.value).toEqual(newer);
+    expect((await collection(machine, "appSettings"))!.value).toEqual(newer);
   });
 
   it("keeps a value read while the outbox was busy ahead of a later read that found the collection unavailable", async () => {
@@ -571,9 +584,9 @@ describe("Library, settings and paired devices", () => {
     // Derived: the machine recalibrated, read and queued behind it; then the machine is switched off.
     const recalibrated = { ...(served["/machine/settings"] as object), steamFlow: 1.5 };
     tablet.serve({ ...served, "/store/dye2.reaplugin/baskets": baskets, "/machine/settings": recalibrated });
-    await polls(tablet, 1);
+    await polls(tablet, 1, "/machine/settings");
     tablet.machineConnected = false;
-    await polls(tablet, 1);
+    await polls(tablet, 1, "/machine/settings");
     stalled = false;
 
     await expect.poll(async () => (await collection(machine, "machineSettings"))?.available).toBe(false);
@@ -618,6 +631,132 @@ describe("Library, settings and paired devices", () => {
 
     await raw.deliver(report("pairedDevices", inventory));
     expect(await pairedDevices(machine)).toMatchObject({ sensors: listedSensors, scale: { firmware: "1.2.0", batteryLevel: 80 } });
+  });
+
+  describe("The machine's own settings, which Decaid reads from the machine on each request", () => {
+    it("are read every 60 s while connected, every other collection, Steam Records and the hardware check every poll interval", async () => {
+      const machine = await api.createMachine("Machine settings polled");
+      const tablet = load(machine);
+      await expect.poll(() => allReported(machine)).toBe(true);
+      // The welcome's read of them, and two on their interval.
+      await expect.poll(() => readTimes(tablet, "/machine/settings").length).toBeGreaterThanOrEqual(3);
+      const read = readTimes(tablet, "/machine/settings");
+      for (const route of MACHINE_SETTINGS_ROUTES) {
+        // Their interval runs from the end of each read of them, so a minute passes between two.
+        for (const gap of gaps(readTimes(tablet, route))) expect(gap).toBeGreaterThan(55_000);
+      }
+      // Over at least two minutes, 24 polls of 5 s: at least 10, however late the tablet's timers run.
+      const polled = ["/beans", "/store/dye2.reaplugin/recipes", "/settings", "/devices", "/scale/info", "/sensors", "/steams/latest", "/machine/info"];
+      for (const route of polled) {
+        expect(readTimes(tablet, route).filter((time) => time > read[0]! && time < read.at(-1)!).length).toBeGreaterThanOrEqual(10);
+      }
+    });
+
+    it("are read every poll interval where that is longer than 60 s, and no more often", async () => {
+      const machine = await api.createMachine("Machine settings polled slowly");
+      const tablet = load(machine, { pollSeconds: 90 });
+      await expect.poll(() => allReported(machine)).toBe(true);
+      await expect.poll(() => readTimes(tablet, "/machine/settings").length).toBeGreaterThanOrEqual(3);
+      for (const route of MACHINE_SETTINGS_ROUTES) {
+        for (const gap of gaps(readTimes(tablet, route))) expect(gap).toBeGreaterThan(85_000);
+      }
+    });
+
+    it("count a full read that reaches them late or reads them slowly as their read, their interval running from its end", async () => {
+      const machine = await api.createMachine("Machine settings read late");
+      // As when the server's writes hold up the reads of the Library's lists: the first reads of the beans, bean batches
+      // and grinders take 25 s each, so the welcome's full read reaches the machine's settings past their interval. Then
+      // the first read of the machine's settings takes 25 s, and the advanced settings are read after it.
+      const slow = new Set(["/beans", "/bean-batches", "/grinders", "/machine/settings"]);
+      const tablet = load(machine, {
+        apiDelayMs: (_method, path) => (slow.delete(path.split("?")[0]!) ? 25_000 : 0),
+      });
+      await expect.poll(() => allReported(machine)).toBe(true);
+      await expect.poll(() => readTimes(tablet, "/machine/settings").length).toBeGreaterThanOrEqual(3);
+      // Over 70 s after the plugin read Decaid's version as it connected.
+      expect(readTimes(tablet, "/machine/settings")[0]).toBeGreaterThan(readTimes(tablet, "/info")[0]! + 70_000);
+      for (const route of MACHINE_SETTINGS_ROUTES) {
+        for (const gap of gaps(readTimes(tablet, route))) expect(gap).toBeGreaterThan(55_000);
+      }
+    });
+
+    it("are read again at once after a Workflow change of the steam, hot water or flush settings, which Decaid wrote to the machine, and after no other", async () => {
+      const machine = await api.createMachine("Machine settings written");
+      // Its timers run only twice as fast, so their interval of a minute is 30 s, longer than a poll waits.
+      const tablet = load(machine, { timeScale: 2 });
+      await expect.poll(() => allReported(machine)).toBe(true);
+      await allAcknowledged(tablet);
+
+      // A barista changes the steam flow, which Decaid writes to the machine before it reports the Workflow. The new
+      // value reaches the server before the poll gives up, which their interval, from the welcome's read, would not do.
+      const changedAt = tablet.readClock();
+      await tablet.changeSettings({ steamSettings: { flow: 1.5 } });
+      await expect.poll(async () => (await collection(machine, "machineSettings"))?.value).toMatchObject({ steamFlow: 1.5 });
+      for (const route of MACHINE_SETTINGS_ROUTES) expect(readTimes(tablet, route).filter((time) => time > changedAt).length).toBeGreaterThanOrEqual(1);
+      expect(deliveries(tablet, "machineSettings")).toHaveLength(2);
+
+      // Its dose, which Decaid does not write to the machine: nothing reads them but their interval, a minute after their last read.
+      await allAcknowledged(tablet);
+      const last = Object.fromEntries(MACHINE_SETTINGS_ROUTES.map((route) => [route, readTimes(tablet, route).at(-1)!]));
+      const dosedAt = tablet.readClock();
+      expect((await tablet.callApi("PUT", "/workflow", { context: { targetDoseWeight: 19 } })).status).toBe(200);
+      await polls(tablet, 2);
+      for (const route of MACHINE_SETTINGS_ROUTES) {
+        for (const time of readTimes(tablet, route).filter((time) => time > dosedAt)) expect(time).toBeGreaterThan(last[route]! + 55_000);
+      }
+    });
+
+    it("are not read while disconnected, on their interval or after a Workflow change, and are sent on the next welcome", async () => {
+      const machine = await api.createMachine("Machine settings offline");
+      const tablet = load(machine);
+      await expect.poll(() => allReported(machine)).toBe(true);
+      await allAcknowledged(tablet);
+
+      // The connection drops, and the next cannot read Decaid's version for a while.
+      tablet.failNextApiReads("/info", 1_000);
+      tablet.dropConnections();
+      await tablet.waitForLog(/^Disconnected: /);
+      const since = tablet.requests.length;
+      const from = tablet.readClock();
+      await tablet.changeSettings({ steamSettings: { flow: 1.5 } });
+      await expect.poll(() => tablet.readClock()).toBeGreaterThan(from + 130_000);
+      const meanwhile = tablet.requests.slice(since);
+      expect(meanwhile.filter((route) => MACHINE_SETTINGS_ROUTES.includes(route))).toEqual([]);
+      expect(meanwhile).toContain("/machine/info");
+
+      tablet.failNextApiReads("/info", 0);
+      await tablet.waitForLogs(/^Connected to /, 2);
+      await expect.poll(async () => (await collection(machine, "machineSettings"))?.value).toMatchObject({ steamFlow: 1.5 });
+    });
+
+    it("are read and sent, changed or not, whenever the server asks for everything, which restarts their interval", async () => {
+      const standIn = await StandInServer.start();
+      try {
+        const tablet = tablets.load({
+          settings: { ...settingsFor({ token: "stand-in token 32001", serverUrl: standIn.url }), PollSeconds: 5 },
+          api: derivedDe1Pro({ serial: "32001" }),
+          // Ten times faster, so a minute is 6 s.
+          timeScale: 10,
+        });
+        const sent = (name: string) => standIn.received.filter((message) => message.type === "collection" && message.name === name).length;
+        await expect.poll(() => [sent("machineSettings"), sent("advancedSettings")]).toEqual([1, 1]);
+        const [welcomed] = readTimes(tablet, "/machine/settings");
+
+        // A third of the way to their next read, which is then 4 s away.
+        await expect.poll(() => tablet.readClock()).toBeGreaterThan(welcomed! + 20_000);
+        const askedAt = tablet.readClock();
+        standIn.send({ type: "requestCollections" });
+        await expect.poll(() => [sent("machineSettings"), sent("advancedSettings")]).toEqual([2, 2]);
+        // Their next read comes a minute after that one, not after the welcome's, and finds them unchanged.
+        const since = () => readTimes(tablet, "/machine/settings").filter((time) => time > askedAt);
+        await expect.poll(() => since().length).toBeGreaterThanOrEqual(2);
+        expect(since()[1]! - since()[0]!).toBeGreaterThan(55_000);
+        await polls(tablet, 1);
+        expect([sent("machineSettings"), sent("advancedSettings")]).toEqual([2, 2]);
+      } finally {
+        await standIn.stop();
+      }
+    });
   });
 
   it("acknowledges and ignores a collection it does not know", async () => {
