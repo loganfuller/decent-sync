@@ -408,7 +408,6 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
       return localTool === undefined ? [] : [[localTool, value]];
     }),
   );
-  const hotWaterMode = content.hotWaterMode ?? null;
   const value = (key: string) => content[key] ?? null;
   const view: RecipeView = {
     name: value("name"),
@@ -429,7 +428,9 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
     // Held whatever the Recipe holds, as DYE2 records a brew temperature only into a record holding one.
     [`${DV}.brewC`]: brewTemperature,
     [`${DV}.steamMode`]: value("steamMode"),
-    [`${DV}.hotWaterMode`]: hotWaterMode,
+    // By volume where it names none, as the management interface shows it: DYE2's editor shows a record holding a
+    // temperature and no mode by temperature.
+    [`${DV}.hotWaterMode`]: value("hotWaterMode") ?? "vol",
     // Both, as DYE2 holds each once it moves in the Workflow, so the server never writes one out that DYE2 records back.
     [`${DV}.hotWaterMl`]: value("hotWaterVolume"),
     [`${DV}.hotWaterTempC`]: value("hotWaterTemperature"),
@@ -513,6 +514,31 @@ export function recipeWorkflow(view: Readonly<RecipeView>, recipeId: string): Re
     workflow.profile = isObject(snapshot) && Array.isArray(snapshot.steps) ? (shifted ?? snapshot) : { id: view.profileId, title: view.profileTitle };
   }
   return workflow;
+}
+
+/**
+ * A record's view (`recipeRecord`) with the machine settings and field
+ * flags DYE2 keeps in the tablet's record of it (`held`) carried into its
+ * embedded `workflow`: DYE2 copies each steam, hot water and flush setting
+ * it records there, and its editor's save adds them and its flags of the
+ * fields it sets (`extras.dye`), none of which the server derives, as
+ * Streamline applies only the embedded Workflow's context and profile. So
+ * the server neither takes them for a change of the record nor writes them
+ * out, which DYE2 would add back at its next recording or save.
+ */
+export function withHeldWorkflowSettings(view: Readonly<RecipeView>, held: Readonly<Record<string, unknown>> | null): RecipeView {
+  const derived = view.workflow;
+  const kept = isObject(held?.workflow) ? held.workflow : null;
+  if (!isObject(derived) || kept === null) return { ...view };
+  const workflow: Record<string, unknown> = { ...derived };
+  for (const group of ["steamSettings", "hotWaterData", "rinseData"]) if (kept[group] !== undefined) workflow[group] = kept[group];
+  const keptContext = isObject(kept.context) ? kept.context : {};
+  const flags = isObject(keptContext.extras) ? keptContext.extras.dye : undefined;
+  if (flags !== undefined && isObject(derived.context)) {
+    const extras = isObject(derived.context.extras) ? derived.context.extras : {};
+    workflow.context = { ...derived.context, extras: { ...extras, dye: flags } };
+  }
+  return { ...view, workflow };
 }
 
 /** Whether a tablet's record holds a Recipe's content as written to it (`recipeRecord`): every path a barista edits the same. */

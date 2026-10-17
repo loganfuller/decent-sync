@@ -454,8 +454,10 @@ the parts to the Recipe's content both ways.
   just before its post, as the answer to the post carries it
   (`recordRecipeWritten`). The server writes both the hot water volume and
   temperature into each record, whatever the Recipe's mode, as DYE2 holds
-  each once it moves, so no write of the server's takes out one DYE2 then
-  records back: that kept a read and post of the list under way at nearly
+  each once it moves, and carries into the embedded Workflow it writes the
+  steam, hot water and flush settings and field flags DYE2 copies there
+  (`withHeldWorkflowSettings`), so no write of the server's takes out one
+  DYE2 then records back: that kept a read and post of the list under way at nearly
   every recording, and DYE2's recording at risk of being lost to it
   (ADR-0005). A save of DYE2's editor, which stamps the
   record's `capturedAt` anew where a recording keeps it (`savedInEditor`),
@@ -468,7 +470,7 @@ the parts to the Recipe's content both ways.
   which the plugin writes all the same, so its answer has it held. DYE2
   applies no save to the Workflow, so a change of that Workflow before the
   save is reported has DYE2 record its old values back over the save, which
-  the server never sees (an accepted gap, ADR-0022). DYE2 never records a batch: another batch on the
+  the server never sees (an accepted gap, ADR-0022, decentespresso/dye2#33). DYE2 never records a batch: another batch on the
   Machine, of the Recipe's Bean or not, unloads it (A load, above). Where
   the Recipe holds no batch, DYE2 takes the first one picked as the one it
   was applied with (decentespresso/dye2#19), so the Recipe stays loaded,

@@ -1185,7 +1185,8 @@ written (`recipeRecord` in `recipe-intake.ts`) holds:
   (`decentSyncRecipe`, RECIPE_FIELD in `protocol/`), and its volume and
   temperature in `dashboardVariables`, both whatever its mode, as DYE2
   holds each once it moves in the Workflow, so no write takes out one DYE2
-  records back;
+  records back; a mode of volume where it names none, as the management
+  interface shows it;
 - the names DYE2 copies, the Bean's roaster among them, and `title`,
   `subtitle` and the embedded `workflow`, built as DYE2's
   `buildRecipeWorkflow` builds them, with the Bean's name, roaster and batch
@@ -1193,7 +1194,10 @@ written (`recipeRecord` in `recipe-intake.ts`) holds:
   grinder id, so DYE2 and Streamline apply it the same way, and the Recipe's
   global id in its `context.extras` (`decentSyncRecipeId`), so a recipe
   Streamline applies names its Recipe at once (ADR-0022,
-  decentespresso/dye2#20);
+  decentespresso/dye2#20), and the steam, hot water and flush settings and
+  field flags (`extras.dye`) DYE2 copies into the tablet's record of it
+  there, which the server does not derive and Streamline does not apply
+  from it (`withHeldWorkflowSettings`);
 - the full Profile in `profileSnapshot`, as the Library holds it, so it
   applies where the Profile is hidden, or the tablet lacks it, and in the
   embedded `workflow` at the Recipe's brew temperature, its first step at it

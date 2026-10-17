@@ -141,9 +141,9 @@ describe("Steam and flush settings are each Machine's own", { timeout: 120_000 }
     expect(parts(a)).toMatchObject({ steamSettings: { duration: 27, flow: 1.6 }, rinseData: { duration: 7 } });
     expect(steamAndFlush(a, "1")).toMatchObject({ steamMode: "time", steamTimeS: 27, flushS: 7 });
     expect({ parts: parts(c), recipe: steamAndFlush(c, "1") }).toEqual(elsewhere);
-    // The server may write slot 1's embedded Workflow, which DYE2 rebuilt as it recorded, as it derives it, but no steam or
-    // flush value; and nothing to the other Machine.
-    expect([ofSteamOrFlush(writesTo(a, received.a)), writesTo(c, received.c)]).toEqual([[], []]);
+    // The server writes no steam or flush value, nor slot 1's record again for the settings DYE2 copied into its embedded
+    // Workflow as it recorded; and nothing to the other Machine.
+    expect([ofSteamOrFlush(writesTo(a, received.a)), writesTo(a, received.a).filter((write) => write.kind === "recipe"), writesTo(c, received.c)]).toEqual([[], [], []]);
     expect((await recipe(one)).content).toEqual(content);
     expect((await versions(one)).length).toBe(history);
     expect((await conflicts()).length).toBe(open);
