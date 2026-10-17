@@ -124,8 +124,8 @@ together, at one version for the whole repo.
 
 The server needs only PostgreSQL 14 or newer. Each release publishes a Docker
 image of the server and the built management interface to
-`ghcr.io/loganfuller/decent-sync`, tagged with its version (`0.1.0`), its minor
-series (`0.1`) and `latest`. On startup the server applies any pending database
+`ghcr.io/loganfuller/decent-sync`, tagged with its version (`1.0.0`), its minor
+series (`1.0`) and `latest`. On startup the server applies any pending database
 migrations, so upgrading is running a newer image. A release may change the
 database incompatibly: stop the running server before starting a new version,
 and read its upgrade notes, which say when to recreate the database.
@@ -156,7 +156,7 @@ in the `db-data` volume. These variables in `.env` configure the stack:
 | Variable | |
 |---|---|
 | `PUBLIC_URL` | the `http(s)://` address people and tablets use to reach the server (default `http://localhost:3000`, which a tablet cannot reach) |
-| `DECENT_SYNC_VERSION` | the image tag to run (default `latest`); pin a version such as `0.1.0` to upgrade deliberately |
+| `DECENT_SYNC_VERSION` | the image tag to run (default `latest`); pin a version such as `1.0.0` to upgrade deliberately |
 | `DECENT_SYNC_PORT` | the host port the server is published on (default 3000); keep `PUBLIC_URL` in step |
 | `POSTGRES_PASSWORD` | the database password (default `decent_sync`); letters and digits only, since it goes into a URL. It takes effect only when the volume is first created |
 | `POSTGRES_PORT` | the loopback port PostgreSQL is published on, for backups and inspection (default 5432) |
@@ -177,7 +177,7 @@ environment variables (see [Development](#development)):
 docker run -d -p 3000:3000 \
   -e DATABASE_URL=postgresql://user:password@db.example.com:5432/decent_sync \
   -e PUBLIC_URL=https://sync.example.com \
-  ghcr.io/loganfuller/decent-sync:0.1.0
+  ghcr.io/loganfuller/decent-sync:1.0.0
 ```
 
 The user in `DATABASE_URL` should own its database: a migration sets the
@@ -247,7 +247,7 @@ app = "my-decent-sync"
 primary_region = "ord"
 
 [build]
-  image = "ghcr.io/loganfuller/decent-sync:0.1.0"
+  image = "ghcr.io/loganfuller/decent-sync:1.0.0"
 
 [env]
   PUBLIC_URL = "https://my-decent-sync.fly.dev"
@@ -458,8 +458,8 @@ holding its spec, tickets and pull requests.
    pages, Shot filters and comparison, and Machine Location history.
 2. **[Shared library](https://github.com/loganfuller/decent-sync/milestone/2).**
    Beans, Bean Batches, Grinders and Profiles shared with each Location's
-   Machines, each Location offering its own part, plus shared steam, hot water
-   and rinse settings, Conflicts and history in the management interface, Shots
+   Machines, each Location offering its own part, Conflicts and history in
+   the management interface, Shots
    linked to the Library, and a durable outbox. Spec:
    [#77](https://github.com/loganfuller/decent-sync/issues/77).
 3. **[Recipes and equipment](https://github.com/loganfuller/decent-sync/milestone/3).**
