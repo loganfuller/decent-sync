@@ -662,11 +662,12 @@ describe("Library, settings and paired devices", () => {
       }
     });
 
-    it("count a full read that reaches them late, behind the Library's lists, as their read, and are not read again at once", async () => {
+    it("count a full read that reaches them late or reads them slowly as their read, their interval running from its end", async () => {
       const machine = await api.createMachine("Machine settings read late");
       // As when the server's writes hold up the reads of the Library's lists: the first reads of the beans, bean batches
-      // and grinders take 25 s each, so the welcome's full read reaches the machine's settings past their interval.
-      const slow = new Set(["/beans", "/bean-batches", "/grinders"]);
+      // and grinders take 25 s each, so the welcome's full read reaches the machine's settings past their interval. Then
+      // the first read of the machine's settings takes 25 s, and the advanced settings are read after it.
+      const slow = new Set(["/beans", "/bean-batches", "/grinders", "/machine/settings"]);
       const tablet = load(machine, {
         apiDelayMs: (_method, path) => (slow.delete(path.split("?")[0]!) ? 25_000 : 0),
       });

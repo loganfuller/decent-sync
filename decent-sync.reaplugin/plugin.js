@@ -2625,7 +2625,7 @@ var __decentSync = (() => {
         if (!this.stopped) this.schedulePoll();
       }, this.pollMs);
     }
-    /** Reads the machine's own settings once their interval passes without a read of them, which restarts it. */
+    /** Reads the machine's own settings once their interval has passed since the end of their latest read. */
     scheduleMachineSettings() {
       if (this.machineSettingsTimer !== void 0) clearTimeout(this.machineSettingsTimer);
       this.machineSettingsTimer = setTimeout(() => {
@@ -2657,13 +2657,15 @@ var __decentSync = (() => {
               if (!machineSettings && (full || this.machineSettingsWanted)) {
                 machineSettings = true;
                 this.machineSettingsWanted = false;
-                this.scheduleMachineSettings();
+                if (this.machineSettingsTimer !== void 0) clearTimeout(this.machineSettingsTimer);
+                this.machineSettingsTimer = void 0;
               }
               if (!machineSettings) continue;
             } else if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
             const parent = isLibraryList(source.name) ? parentList(source.name) : void 0;
             const sent = await (WRITTEN_LISTS.has(source.name) ? this.library.run(() => this.capture(source, full || parent !== void 0 && sentLists.has(parent))) : this.capture(source, full));
             if (sent) sentLists.add(source.name);
+            if (MACHINE_SETTINGS.has(source.name) && !this.stopped) this.scheduleMachineSettings();
           }
         }
       } finally {

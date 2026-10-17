@@ -160,7 +160,7 @@ export class CollectionCapture {
     }, this.pollMs);
   }
 
-  /** Reads the machine's own settings once their interval passes without a read of them, which restarts it. */
+  /** Reads the machine's own settings once their interval has passed since the end of their latest read. */
   private scheduleMachineSettings(): void {
     if (this.machineSettingsTimer !== undefined) clearTimeout(this.machineSettingsTimer);
     this.machineSettingsTimer = setTimeout(() => {
@@ -194,11 +194,12 @@ export class CollectionCapture {
           if (this.stopped) return;
           if (MACHINE_SETTINGS.has(source.name)) {
             // Read on a full read or when wanted, decided as the pass reaches them, which may be long after it began, behind
-            // the server's writes: so any read asked for meanwhile is this one, and their interval runs from it.
+            // the server's writes: so any read asked for until then is this one. Their interval waits meanwhile.
             if (!machineSettings && (full || this.machineSettingsWanted)) {
               machineSettings = true;
               this.machineSettingsWanted = false;
-              this.scheduleMachineSettings();
+              if (this.machineSettingsTimer !== undefined) clearTimeout(this.machineSettingsTimer);
+              this.machineSettingsTimer = undefined;
             }
             if (!machineSettings) continue;
           } else if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
@@ -207,6 +208,8 @@ export class CollectionCapture {
             ? this.library.run(() => this.capture(source, full || (parent !== undefined && sentLists.has(parent))))
             : this.capture(source, full));
           if (sent) sentLists.add(source.name);
+          // Their interval runs from the end of their latest read, so a slow read of one shortens neither's.
+          if (MACHINE_SETTINGS.has(source.name) && !this.stopped) this.scheduleMachineSettings();
         }
       }
     } finally {

@@ -86,9 +86,9 @@ tests (`plugin/test/change-detection.test.ts`):
   read with the last ETag in `If-None-Match`; Decaid's 304 sends nothing.
   While disconnected it does not poll.
 - It reads the machine's own settings (`machineSettings` and
-  `advancedSettings`) on their own interval, 60 s from their last read, or the
-  poll interval where that is longer, as Decaid answers them by reading the
-  machine (below). Nothing needs them fresher: the server only stores them,
+  `advancedSettings`) on their own interval, 60 s from the end of their last
+  read, or the poll interval where that is longer, as Decaid answers them by
+  reading the machine (below). Nothing needs them fresher: the server only stores them,
   and a Machine's page in the management interface loads them every 30 s.
   While connected it also reads them at once after a `workflowUpdated` whose
   steam, hot water or flush settings (`steamSettings`, `hotWaterData` or
