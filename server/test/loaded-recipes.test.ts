@@ -1,4 +1,4 @@
-import { RECIPE_FIELD, dye2GlobalIdOf, dye2SelectionOf } from "@decent-sync/protocol";
+import { dye2GlobalIdOf, dye2SelectionOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { selectedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
@@ -12,7 +12,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // (ADR-0022) is the recipe DYE2 has selected on its tablet. Applying a
 // recipe, the DYE2 way or the Streamline way, selects it, which DYE2 names in
 // the Workflow, and the plugin loads it, writing into the Workflow what
-// applying it leaves out, its Basket and hot water, but no Recipe id; the
+// applying it leaves out, its Basket and the settings Streamline's strip does
+// not apply yet (#173), but no Recipe id; the
 // server reads the Loaded Recipe from DYE2's field in the Workflow it
 // delivers (#189). A selection cleared or of anything else unloads it, as
 // DYE2 clears it on a change of grinder or batch; one restored over such a
@@ -102,7 +103,12 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     const [one, two] = [1, 2].map((slot) => listed.find((entry) => entry.slot === slot)!.id) as [string, string];
     const edit = async (recipeId: string, content: Record_) => expect((await api.call("PATCH", `/recipes/${recipeId}`, { content })).status).toBe(200);
     await edit(one, { hotWaterVolume: HOT_WATER.volume, hotWaterTemperature: HOT_WATER.targetTemperature, hotWaterDuration: HOT_WATER.duration, hotWaterFlow: HOT_WATER.flow });
-    await expect.poll(() => (inSlot(tablet, "1")?.[RECIPE_FIELD] as Record_ | undefined)?.hotWaterData).toEqual(HOT_WATER);
+    await expect
+      .poll(() => {
+        const variables = (inSlot(tablet, "1")?.dashboardVariables ?? {}) as Record_;
+        return { targetTemperature: variables.hotWaterTempC, duration: variables.hotWaterTimeS, volume: variables.hotWaterMl, flow: variables.hotWaterFlowMls };
+      })
+      .toEqual(HOT_WATER);
     return { here, machine, tablet, dye2, one, two, edit };
   }
 
@@ -116,7 +122,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     return writes;
   };
 
-  it("loads a recipe applied the DYE2 way, which applies its batch, RPM and brew temperature and names it in the Workflow, writing its Basket and hot water, which a Shot pulled then carries", async () => {
+  it("loads a recipe applied the DYE2 way, which applies its batch, RPM, brew temperature and hot water and names it in the Workflow, with its Basket, which a Shot pulled then carries", async () => {
     const { machine, tablet, one } = await lab("Dashboard", 47001);
     const record = inSlot(tablet, "1")!;
     const variables = record.dashboardVariables as Record_;
@@ -138,8 +144,9 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     // Adaptive v3 at the Recipe's 92 °C: its first step at 92, every other a degree cooler than its own, as DYE2 applies it
     // (decentespresso/dye2#26). The plugin's load write writes no profile, and DYE2's selection stands.
     expect(temperatures(tablet).slice(0, 3)).toEqual([92, 92, 87]);
-    // Nothing writes a Recipe id of its own into the Workflow: DYE2's selection names the Recipe.
-    expect(writes.length).toBeGreaterThan(0);
+    // Nothing writes a Recipe id of its own into the Workflow: DYE2's selection names the Recipe. DYE2 applies every setting
+    // the recipe holds, so the plugin's load writes none of them.
+    expect(writes.some((write) => "hotWaterData" in write)).toBe(false);
     expect(JSON.stringify([writes, tablet.workflow(), dye2List(tablet, "recipes")])).not.toContain("decentSyncRecipeId");
     expect(writes.some((write) => "profile" in write)).toBe(false);
     expect(writes.some((write) => "beanBatchId" in ((write.context as Record_ | undefined) ?? {}))).toBe(false);
@@ -200,30 +207,6 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect((await recipe(one)).content.basketId).toEqual(expect.any(String));
     // Nor is the page's hot water volume, which DYE2 records too, the Recipe's.
     expect((await recipe(one)).content.hotWaterVolume).toBe(HOT_WATER.volume);
-  });
-
-  it("delivers a dashboard tap held during the plugin's writes before an espresso started then, so its pre-load hot water duration is written back", async () => {
-    const { machine, tablet, one } = await lab("Espresso", 47031, { pollSeconds: 3600 });
-    tablet.connectMachine();
-    const hotWater = () => tablet.workflow().hotWaterData as Record_;
-    const before = hotWater().duration;
-    expect(before).not.toBe(HOT_WATER.duration);
-    const dashboard = await openDye2Dashboard(tablet);
-    await dashboard.applyRecipe("1");
-    await loads(machine, one);
-    await expect.poll(() => hotWater().duration).toBe(HOT_WATER.duration);
-    // The tap's Workflow, its copy's pre-load duration, held while the plugin decides on it, and the espresso started at once.
-    expect((await dashboard.tap("dose", 18.2)).status).toBe(200);
-    tablet.reportState("espresso", "preinfusion");
-    await expect.poll(() => hotWater().duration, { timeout: 15_000 }).toBe(HOT_WATER.duration);
-    expect((await recipe(one)).content.hotWaterDuration).toBe(HOT_WATER.duration);
-    expect((await loadedRecipe(machine))?.recipe.id).toBe(one);
-    // After that espresso, a duration set back is the barista's, and the Recipe's.
-    tablet.reportState("idle", "ready");
-    await tablet.changeSettings({ hotWaterData: { duration: before } });
-    await expect.poll(async () => (await recipe(one)).content.hotWaterDuration, { timeout: 15_000 }).toBe(before);
-    expect(hotWater().duration).toBe(before);
-    expect((await loadedRecipe(machine))?.recipe.id).toBe(one);
   });
 
   it("unloads a Recipe whose grinder a barista switches while the plugin's load write is under way", async () => {

@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, RECIPE_FIELD, profileAtBrewTemperature } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, profileAtBrewTemperature } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import { beforeWriteAfter, editedContent, heldBefore } from "../src/library/equipment-intake.js";
 import {
@@ -18,16 +18,17 @@ import {
   recipeView,
   recipeWorkflow,
   recordOf,
+  steamOffPaths,
   tabletIds,
-  withHeldWorkflowSettings,
+  withHeldFieldFlags,
 } from "../src/library/recipe-intake.js";
 import { dye2Keys, dye2Library } from "./support/simulated-dye2.js";
 
 // How a DYE2 recipe record maps to a Recipe, both ways (ADR-0005): its
 // fields in the Library's terms, read through the tablet's map, and the
 // record a tablet is to hold of a Recipe, under its own ids, with what DYE2
-// derives regenerated, its hot water value of its mode, and the steam and
-// rinse settings it mirrors; and what a report of a tablet's recipes
+// derives regenerated, and the steam, hot water and flush settings it holds,
+// a steam temperature turning steam off no edit; and what a report of a tablet's recipes
 // changes, by slot. Through the pure module's
 // interface. Records are DYE2 2cf631c's, as it saved them
 // (fixtures/decaid/dye2-2cf631c/keys.json), with made-up global ids.
@@ -126,7 +127,9 @@ const slot1Content = {
   brewTemperature: 92,
   steamMode: "time",
   hotWaterMode: "temp",
+  steamDuration: 30,
   hotWaterTemperature: 88,
+  flushDuration: 5,
   grindSetting: 2.7,
   rpm: 900,
   grinderId: GLOBAL.grinder,
@@ -204,13 +207,23 @@ describe("DYE2's recipes as Recipes", () => {
     expect(libraryValues(recipeView({ ...slot1, beanId: "bean-of-its-own" }), ["beanId"], {}, intake())).toEqual({ beanId: null, beanBatchId: null });
   });
 
-  it("changes only the hot water value of the record's mode, and keeps a Recipe's Tools the tablet holds no record of", () => {
-    // Saved by temperature, the record leaves its volume out, which stays as it is.
+  it("takes each steam, hot water and flush setting a record holds, a blank one holding none, but no steam turned off, and keeps a Recipe's Tools the tablet holds no record of", () => {
+    // Saved by temperature, the record leaves its volume out, which the Recipe then holds none of.
     const byTemperature = recipeView(slot1);
     expect(libraryValues(byTemperature, ["dashboardVariables.hotWaterMl", "dashboardVariables.hotWaterTempC", "dashboardVariables.hotWaterMode"], {}, intake())).toEqual({
       hotWaterMode: "temp",
       hotWaterTemperature: 88,
+      hotWaterVolume: null,
     });
+    // A steam temperature below 135 °C is steam off, as DYE2's editor saves "Off" as 0: no edit, so it is written back.
+    const steaming = (steamTempC: number) => recipeView({ ...slot1, dashboardVariables: { ...(slot1.dashboardVariables as Record_), steamTempC, steamStopAtTempC: 0 } });
+    expect(libraryValues(steaming(150), ["dashboardVariables.steamTempC", "dashboardVariables.steamStopAtTempC"], {}, intake())).toEqual({ steamTemperature: 150, steamStopTemperature: 0 });
+    for (const off of [0, 120]) {
+      expect(libraryValues(steaming(off), ["dashboardVariables.steamTempC", "dashboardVariables.steamStopAtTempC"], {}, intake())).toEqual({ steamStopTemperature: 0 });
+      expect(steamOffPaths(editedContent(recipeView(slot1), steaming(off), null))).toEqual(["dashboardVariables.steamTempC"]);
+    }
+    expect(steamOffPaths(editedContent(recipeView(slot1), steaming(150), null))).toEqual([]);
+    expect(recipeContent(steaming(0), intake())).not.toHaveProperty("steamTemperature");
     // A tablet that holds no record of the WDT Tool could never name it: picking another Tool keeps it, where it was.
     const other = recipeView({ ...slot1, dashboardVariables: { ...(slot1.dashboardVariables as Record_), equipmentIds: ["other-puck-screen"], equipmentCustom: {} } });
     const current = { toolIds: [GLOBAL.wdtTool], toolAttributes: { [GLOBAL.wdtTool]: [{ key: "Needles", value: "12" }] } };
@@ -231,7 +244,7 @@ describe("DYE2's recipes as Recipes", () => {
     expect(libraryValues(picked, ["dashboardVariables.basketId"], { basketId: GLOBAL.basket20 }, intake({ ids: otherIds }))).toEqual({ basketId: GLOBAL.basket18 });
   });
 
-  it("writes a Recipe to a tablet under its own ids, with its full Profile, a blank barista, its hot water volume and temperature, and what DYE2 derives, its embedded Workflow's Profile at its brew temperature", () => {
+  it("writes a Recipe to a tablet under its own ids, with its full Profile, a blank barista, the settings it holds, and what DYE2 derives, its embedded Workflow's Profile at its brew temperature", () => {
     const view = recipeRecord(slot1Content, 1, writing(), GLOBAL.recipe);
     // Adaptive v3 starts at 93 °C: at the Recipe's 92, every step is a degree cooler.
     const adaptiveAt92 = profileAtBrewTemperature(adaptive, 92);
@@ -257,8 +270,18 @@ describe("DYE2's recipes as Recipes", () => {
       "dashboardVariables.brewC": 92,
       "dashboardVariables.steamMode": "time",
       "dashboardVariables.hotWaterMode": "temp",
-      "dashboardVariables.hotWaterMl": null,
+      // A setting the Recipe holds none of is blank, so applying it leaves the Machine's own.
+      "dashboardVariables.steamTempC": null,
+      "dashboardVariables.steamTimeS": 30,
+      "dashboardVariables.steamFlowMls": null,
+      "dashboardVariables.steamStopAtTempC": null,
       "dashboardVariables.hotWaterTempC": 88,
+      "dashboardVariables.hotWaterTimeS": null,
+      "dashboardVariables.hotWaterMl": null,
+      "dashboardVariables.hotWaterFlowMls": null,
+      "dashboardVariables.flushTempC": null,
+      "dashboardVariables.flushS": 5,
+      "dashboardVariables.flushFlowMls": null,
       "dashboardVariables.grind": 2.7,
       "dashboardVariables.rpm": 900,
       "dashboardVariables.grinderId": "other-grinder",
@@ -269,7 +292,6 @@ describe("DYE2's recipes as Recipes", () => {
       "dashboardVariables.equipmentIds": ["other-puck-screen"],
       "dashboardVariables.equipmentNames": ["Fixture Puck Screen"],
       "dashboardVariables.equipmentCustom": {},
-      [RECIPE_FIELD]: { hotWaterData: { targetTemperature: 88, duration: null, volume: null, flow: null } },
       title: "Fixture Ethiopia Espresso",
       subtitle: "Fixture Ethiopia",
       workflow: {
@@ -288,46 +310,54 @@ describe("DYE2's recipes as Recipes", () => {
         },
         // Streamline's strip applies it as it is.
         profile: adaptiveAt92,
+        // Only the settings it holds, as partial parts.
+        steamSettings: { duration: 30 },
+        hotWaterData: { targetTemperature: 88 },
+        rinseData: { duration: 5 },
       },
     });
     // Its batch is named by the tablet's id where it holds it; a nameless one is called by its slot; hot water by volume
-    // keeps the temperature too, as DYE2 holds both once each moves.
+    // keeps the temperature too, whatever the mode, which affects no load.
     const recorded = recipeRecord({ ...slot1Content, beanBatchId: GLOBAL.ethiopiaBatch, name: "", hotWaterMode: "vol", hotWaterVolume: 120 }, 4, writing(recordedIds), GLOBAL.recipe);
     expect(recorded.beanBatchId).toEqual(LOCAL.ethiopiaBatch);
     expect((recorded.workflow as { context: Record_ }).context.beanBatchId).toEqual(LOCAL.ethiopiaBatch);
-    expect(recorded[RECIPE_FIELD]).toEqual({ hotWaterData: { targetTemperature: 88, duration: null, volume: 120, flow: null } });
     expect([recorded.title, recorded["dashboardVariables.hotWaterMl"], recorded["dashboardVariables.hotWaterTempC"]]).toEqual(["Recipe 4", 120, 88]);
+    expect((recorded.workflow as Record_).hotWaterData).toEqual({ targetTemperature: 88, volume: 120 });
   });
 
   it("builds a recipe's embedded Workflow as DYE2 2cf631c does, from its yield or its dose times its ratio, with a Profile's id and title where it has no steps", () => {
     const keptWorkflow = slot1.workflow as Record_;
-    // DYE2's own, as it saved slot 1, holds the same dial, grinder, Basket, coffee, roaster, batch, people and Profile at
-    // the recipe's brew temperature. It holds its field flags and machine settings too, which Streamline does not apply.
+    // DYE2's own, as it saved slot 1, holds the same dial, grinder, Basket, coffee, roaster, batch, people, Profile at
+    // the recipe's brew temperature, and settings it holds. It holds its field flags too.
     const view = recipeView(slot1);
     const { context } = keptWorkflow as { context: Record_ };
     const { dye: _flags, ...extras } = context.extras as Record_;
-    expect(recipeWorkflow({ ...view, profileSnapshot: adaptive })).toEqual({ profile: keptWorkflow.profile, context: { ...context, extras } });
+    expect(recipeWorkflow({ ...view, profileSnapshot: adaptive })).toEqual({ ...keptWorkflow, context: { ...context, extras } });
     const ratio = recipeWorkflow({ ...view, "dashboardVariables.drink": null, "dashboardVariables.ratio": 2.2, profileSnapshot: null });
     expect(ratio).toMatchObject({ context: { targetDoseWeight: 18.5, targetYield: 40.7 }, profile: { id: ADAPTIVE, title: "Adaptive v3" } });
     expect(recipeWorkflow(recipeView(blank))).not.toHaveProperty("profile");
   });
 
-  it("keeps the machine settings and field flags DYE2 copied into a tablet's record's embedded Workflow, but the hot water the server writes", () => {
+  it("keeps the field flags DYE2 saved into a tablet's record's embedded Workflow, but derives its settings from the Recipe's", () => {
     const view = recipeRecord({ ...slot1Content, hotWaterVolume: 250 }, 1, writing(), GLOBAL.recipe);
     const held = {
       workflow: {
         context: { extras: { dye: { v: 1, coffeeName: true } } },
-        steamSettings: { duration: 30 },
+        steamSettings: { duration: 30, targetTemperature: 0 },
         hotWaterData: { targetTemperature: 80, duration: 40, volume: 200, flow: 7.5 },
         rinseData: { duration: 5 },
       },
     };
-    const kept = withHeldWorkflowSettings(view, held).workflow as Record_;
-    expect(kept).toMatchObject({ steamSettings: { duration: 30 }, rinseData: { duration: 5 }, hotWaterData: { targetTemperature: 88, duration: 40, volume: 250, flow: 7.5 } });
+    const kept = withHeldFieldFlags(view, held).workflow as Record_;
+    // The settings the Recipe holds, as DYE2 embeds them, none of the tablet's own.
+    expect(kept).toMatchObject({ steamSettings: { duration: 30 }, rinseData: { duration: 5 }, hotWaterData: { targetTemperature: 88, volume: 250 } });
+    expect(kept.hotWaterData).toEqual({ targetTemperature: 88, volume: 250 });
+    expect(kept.steamSettings).toEqual({ duration: 30 });
     expect(((kept.context as Record_).extras as Record_).dye).toEqual({ v: 1, coffeeName: true });
     expect((kept.context as Record_).coffeeRoaster).toBe("Fixture Roasters");
-    // A record the tablet does not hold yet is written as derived.
-    expect(withHeldWorkflowSettings(view, null)).toEqual(view);
+    // A record the tablet does not hold yet, or one with no flags, is written as derived.
+    expect(withHeldFieldFlags(view, null)).toEqual(view);
+    expect(withHeldFieldFlags(view, { workflow: { ...held.workflow, context: {} } })).toEqual(view);
   });
 
   it("writes a record a tablet holds where it differs, and takes back as written what the server wrote it", () => {
@@ -377,22 +407,50 @@ describe("DYE2's recipes as Recipes", () => {
     expect(heldBeforeReplaced(earlier, earlier)).toBeNull();
   });
 
-  it("neither writes nor takes in a recipe's steam and flush values, which are the tablet's own, but keeps its steam mode", () => {
-    const steamAndFlush = ["dashboardVariables.steamTimeS", "dashboardVariables.steamFlowMls", "dashboardVariables.flushS"];
-    // Written, a record holds none of them, so the plugin's write leaves those the tablet's record holds.
-    const written = recipeRecord(slot1Content, 1, writing(recordedIds), GLOBAL.recipe);
-    for (const path of steamAndFlush) expect(written).not.toHaveProperty(path);
-    expect(written["dashboardVariables.steamMode"]).toBe("time");
-    expect(recordOf(written).dashboardVariables).not.toHaveProperty("flushS");
-    // Reported, they are no part of the record's view, and a change of one is no edit of the Recipe.
+  it("writes and takes in every steam, hot water and flush setting, and the modes, which choose only what DYE2's editor shows", () => {
+    const settings = {
+      steamTemperature: 150,
+      steamDuration: 25,
+      steamFlow: 1.3,
+      steamStopTemperature: 0,
+      hotWaterTemperature: 85,
+      hotWaterDuration: 30,
+      hotWaterVolume: 150,
+      hotWaterFlow: 4,
+      flushTemperature: 90,
+      flushDuration: 3,
+      flushFlow: 6,
+    };
+    const written = recipeRecord({ ...slot1Content, ...settings, steamMode: "flow" }, 1, writing(recordedIds), GLOBAL.recipe);
+    expect(recordOf(written).dashboardVariables).toMatchObject({
+      steamMode: "flow",
+      steamTempC: 150,
+      steamTimeS: 25,
+      steamFlowMls: 1.3,
+      steamStopAtTempC: 0,
+      hotWaterTempC: 85,
+      hotWaterTimeS: 30,
+      hotWaterMl: 150,
+      hotWaterFlowMls: 4,
+      flushTempC: 90,
+      flushS: 3,
+      flushFlowMls: 6,
+    });
+    // As DYE2's record builder embeds them; a milk stop of 0 is off, a value.
+    expect(recipeWorkflow(written)).toMatchObject({
+      steamSettings: { targetTemperature: 150, duration: 25, flow: 1.3, stopAtTemperature: 0 },
+      hotWaterData: { targetTemperature: 85, duration: 30, volume: 150, flow: 4 },
+      rinseData: { targetTemperature: 90, duration: 3, flow: 6 },
+    });
+    // Reported back, the record is the Recipe, and each setting changed there is an edit of it, the mode included.
     const record = recordOf(written);
-    const steamed = recipeView({ ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), steamTimeS: 25, steamFlowMls: 1.3, flushS: 3 } });
-    for (const path of steamAndFlush) expect(steamed).not.toHaveProperty(path);
-    expect(editedContent(written, steamed, null)).toEqual({});
-    expect(holdsRecipe(steamed, written)).toBe(true);
-    // Nor are they part of what DYE2 embeds, nor of a new Recipe's content.
-    expect(recipeWorkflow(written)).not.toHaveProperty("steamSettings");
-    expect(recipeContent(recipeView(blank), intake())).not.toHaveProperty("flushS");
+    expect(recipeContent(recipeView(record), intake())).toEqual({ ...slot1Content, ...settings, steamMode: "flow", beanBatchId: GLOBAL.laterEthiopiaBatch });
+    const changed = recipeView({ ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), flushS: 6, steamMode: "time" } });
+    expect(editedPaths(editedContent(written, changed, null)).sort()).toEqual(["dashboardVariables.flushS", "dashboardVariables.steamMode"]);
+    expect(holdsRecipe(changed, written)).toBe(false);
+    // A Recipe holding none embeds none of them.
+    expect(recipeWorkflow(recipeView(blank))).not.toHaveProperty("steamSettings");
+    expect(recipeContent(recipeView(blank), intake())).not.toHaveProperty("flushDuration");
   });
 
   it("decides a report by slot: an edit of the Recipe in it, a new Recipe in an empty one, and a removal that takes one out", () => {

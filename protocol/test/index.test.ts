@@ -24,7 +24,9 @@ import {
   MAX_ID_LENGTH,
   MAX_RECORD_ID_LENGTH,
   MAX_SLOT,
-  RECIPE_FIELD,
+  RECIPE_SETTINGS,
+  LOADED_RECIPE_PARTS,
+  steamOff,
   MAX_REFUSAL_LENGTH,
   MAX_WRITTEN_FIELDS,
   PROTOCOL_VERSION,
@@ -714,7 +716,18 @@ describe("Library writes", () => {
     }
     for (const id of ["1", "5", "6", "42"]) expect(isSlotId(id)).toBe(true);
     expect(isSlotId(3)).toBe(false);
-    expect(RECIPE_FIELD).toBe("decentSyncRecipe");
+  });
+
+  it("names each steam, hot water and flush setting a Recipe may hold by DYE2's name and the Workflow's, a Loaded Recipe part of its own", () => {
+    expect(Object.keys(RECIPE_SETTINGS)).toHaveLength(11);
+    expect(RECIPE_SETTINGS.flushDuration).toEqual({ dye2: "flushS", workflow: "rinseData.duration", whole: true });
+    expect(RECIPE_SETTINGS.steamStopTemperature).toEqual({ dye2: "steamStopAtTempC", workflow: "steamSettings.stopAtTemperature", whole: false });
+    for (const [setting, { workflow }] of Object.entries(RECIPE_SETTINGS)) expect(LOADED_RECIPE_PARTS[setting as keyof typeof LOADED_RECIPE_PARTS]).toEqual([workflow]);
+    // Steam is off below 135 °C, as Decaid judges it; a Workflow saying nothing of it has it on.
+    expect(steamOff({ steamSettings: { targetTemperature: 0 } })).toBe(true);
+    expect(steamOff({ steamSettings: { targetTemperature: 134 } })).toBe(true);
+    expect(steamOff({ steamSettings: { targetTemperature: 135 } })).toBe(false);
+    expect(steamOff({})).toBe(false);
   });
 
   it("matches Baskets and Tools by name, ignoring case and white space at either end", () => {

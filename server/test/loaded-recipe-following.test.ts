@@ -8,12 +8,12 @@ import { startStreamline } from "./support/simulated-streamline.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
-// Seam 1 for tickets #146, #177, #187, #188 and #189: a Machine follows its Loaded
+// Seam 1 for tickets #146, #173, #177, #187, #188 and #189: a Machine follows its Loaded
 // Recipe both ways (ADR-0022). DYE2 records a change on one Machine of the
-// dose, yield, grind setting, RPM, Basket, brew temperature and hot water
-// value of the Recipe's mode into the Recipe's record, where it holds one,
-// an edit of the Recipe from that Machine's tablet, once; a change of its
-// other hot water settings is one through the Workflow; another batch, of
+// dose, yield, grind setting, RPM, Basket, brew temperature and steam, hot
+// water and flush settings into the Recipe's record, where it holds one, or
+// for a setting once it moves, an edit of the Recipe from that Machine's
+// tablet, once (recipe-settings.test.ts has the settings); another batch, of
 // its Bean or not, unloads it through DYE2's own clear; and an edit of the
 // Recipe from anywhere is written into the Workflow of every Machine that
 // has it loaded, its brew temperature as on a load, the plugin selecting the
@@ -166,7 +166,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 
-  it("takes an RPM and Basket change on A that DYE2 records into the Recipe, and a hot water duration change through the Workflow, and writes them into C's", async () => {
+  it("takes an RPM, Basket and hot water duration change on A that DYE2 records into the Recipe, the duration one it held none of, and writes them into C's", async () => {
     const { dye2, a, c, one, two } = await lab("Workflow", 48011);
     const basket20 = (await recipe(two)).content.basketId as string;
     const basket = (dye2List(a, "baskets") as Record_[]).find((record) => dye2GlobalIdOf(record) === basket20)!.id;
@@ -174,7 +174,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(async () => (await recipe(one)).content, { timeout: 15_000 }).toMatchObject({ rpm: 950, hotWaterDuration: 33 });
     expect((await recipe(one)).content.basketId).toBe(basket20);
     await expect.poll(() => [extras(c).rpm, hotWater(c).duration], { timeout: 15_000 }).toEqual([950, 33]);
-    expect(dye2.a.recorded.map((recorded) => recorded.patch)).toContainEqual(expect.objectContaining({ rpm: 950, basketId: basket }));
+    expect(dye2.a.recorded.map((recorded) => recorded.patch)).toContainEqual(expect.objectContaining({ rpm: 950, basketId: basket, hotWaterTimeS: 33 }));
   });
 
   it("takes an RPM DYE2 records as 0 as 0, not as blank (decentespresso/dye2#29), and writes it into C's", async () => {

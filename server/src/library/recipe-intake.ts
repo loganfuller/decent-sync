@@ -1,4 +1,14 @@
-import { RECIPE_FIELD, dye2GlobalIdOf, dye2Records, isSlotId, profileAtBrewTemperature, sameValue } from "@decent-sync/protocol";
+import {
+  RECIPE_SETTINGS,
+  RECIPE_SETTING_NAMES,
+  STEAM_ON_FROM,
+  dye2GlobalIdOf,
+  dye2Records,
+  isSlotId,
+  profileAtBrewTemperature,
+  sameValue,
+  workflowPatch,
+} from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
 import { type FieldEdits, changedFields } from "./merge.js";
 
@@ -8,19 +18,18 @@ import { type FieldEdits, changedFields } from "./merge.js";
 //
 // A Recipe's content is kept in the Library's terms: its Bean, Bean Batch,
 // Grinder, Basket and Tools by their global ids, its Profile by Decaid's id,
-// and its dial and hot water settings. A tablet's record names those items
-// by its own ids, nests its dial in `dashboardVariables`, keeps one hot
-// water value, chosen by its mode, and copies names and a Workflow from the
-// items it names. So the server compares and writes a record by its fields'
+// its dial, and the steam, hot water and flush settings it holds
+// (RECIPE_SETTINGS). A tablet's record names those items by its own ids,
+// nests its dial and settings in `dashboardVariables`, and copies names and
+// a Workflow from the items it names. So the server compares and writes a record by its fields'
 // paths (`recipeView`), a field of its `dashboardVariables` as
 // `dashboardVariables.dose`: the paths it writes are the record's view, and
 // those a barista edits are taken in as edits of the Recipe's content
 // (`libraryValues`), each read through the tablet's map. The rest DYE2
 // derives (`title`, `subtitle`, the embedded `workflow`, the names it copies
 // and `profileSnapshot`), and the barista and drinker, which a Recipe never
-// carries, are written but never taken in. Its steam and flush values are
-// each Machine's own until a Recipe holds them (#173): the server neither
-// writes nor takes them in, so a record keeps those the tablet holds.
+// carries, are written but never taken in. A setting the Recipe holds none
+// of is written blank, so applying the record leaves the Machine's own.
 
 const DV = "dashboardVariables";
 
@@ -44,8 +53,7 @@ const RECIPE_PATHS = [
   `${DV}.brewC`,
   `${DV}.steamMode`,
   `${DV}.hotWaterMode`,
-  `${DV}.hotWaterMl`,
-  `${DV}.hotWaterTempC`,
+  ...RECIPE_SETTING_NAMES.map((setting) => `${DV}.${RECIPE_SETTINGS[setting].dye2}`),
   `${DV}.grind`,
   `${DV}.rpm`,
   `${DV}.grinderId`,
@@ -58,8 +66,7 @@ const RECIPE_PATHS = [
   "title",
   "subtitle",
   "workflow",
-  RECIPE_FIELD,
-] as const;
+];
 
 /** A recipe record's fields the server writes, by their paths (`RECIPE_PATHS`). */
 export type RecipeView = Record<string, unknown>;
@@ -81,7 +88,11 @@ const EDITED: Readonly<Record<string, string>> = {
   [`${DV}.hotWaterMode`]: "hotWaterMode",
   [`${DV}.grind`]: "grindSetting",
   [`${DV}.rpm`]: "rpm",
+  ...Object.fromEntries(RECIPE_SETTING_NAMES.map((setting) => [`${DV}.${RECIPE_SETTINGS[setting].dye2}`, setting])),
 };
+
+/** The path of a recipe record holding its steam temperature, which DYE2 records and saves as 0 for steam off. */
+const STEAM_TEMPERATURE_PATH = `${DV}.${RECIPE_SETTINGS.steamTemperature.dye2}`;
 
 /** The paths a barista edits, which are taken in as edits of the Recipe: but those DYE2 derives, the barista and drinker, and the server's own field. */
 export const EDITED_PATHS: ReadonlySet<string> = new Set([
@@ -90,8 +101,6 @@ export const EDITED_PATHS: ReadonlySet<string> = new Set([
   "beanBatchId",
   "profileId",
   "profileSnapshot",
-  `${DV}.hotWaterMl`,
-  `${DV}.hotWaterTempC`,
   `${DV}.grinderId`,
   `${DV}.basketId`,
   `${DV}.equipmentIds`,
@@ -202,9 +211,11 @@ export interface IntakeContext {
  *   of it and names none; and its Tools with their attributes, keeping those
  *   of the Recipe's the tablet holds no record of, which it was never
  *   written, where they were;
- * - its hot water volume and temperature, a value the record leaves out
- *   changing none;
- * - and the rest of its dial as it is.
+ * - its steam temperature, but one below STEAM_ON_FROM, which is steam
+ *   off, as DYE2's editor saves "Off" as 0 and DYE2 records a Machine's
+ *   steam turned off: steam on and off is each Machine's own (`steamOffPaths`);
+ * - and the rest of its dial and settings as they are, one the record holds
+ *   none of holding none.
  *
  * A record the map does not hold, or one of the tablet's own, names none.
  */
@@ -227,9 +238,7 @@ export function libraryValues(view: Readonly<RecipeView>, fields: Iterable<strin
     // A profile read from the Workflow that is no Library Profile names none the Library knows: the Recipe's stays.
     if (named !== null || !isObject(view.profileSnapshot)) values.profileId = named;
   }
-  // A record leaving a hot water value out leaves it as it is.
-  if (changed.has(`${DV}.hotWaterMl`) && view[`${DV}.hotWaterMl`] !== null) values.hotWaterVolume = view[`${DV}.hotWaterMl`];
-  if (changed.has(`${DV}.hotWaterTempC`) && view[`${DV}.hotWaterTempC`] !== null) values.hotWaterTemperature = view[`${DV}.hotWaterTempC`];
+  if (steamOffPaths({ [STEAM_TEMPERATURE_PATH]: view[STEAM_TEMPERATURE_PATH] }).length > 0) delete values.steamTemperature;
   if (changed.has(`${DV}.grinderId`)) {
     const local = view[`${DV}.grinderId`];
     const grinderId = typeof local === "string" ? (ids.item("grinder", local) ?? null) : null;
@@ -271,9 +280,9 @@ export function libraryValues(view: Readonly<RecipeView>, fields: Iterable<strin
  * The values of an edit of a Recipe read from the tablet's record of it
  * (`values`, as `libraryValues` reads them), but each the Recipe holds
  * already (`content`) by that tablet's own latest edit of it (`fieldEdits`):
- * the same edit reaching the server twice, as when Streamline saves into the
- * recipe a change the barista made in the Workflow of a Machine that has it
- * loaded, which the Workflow brought first (ADR-0022).
+ * the same edit reaching the server twice, as in a report of the record and
+ * in the answer to a write of it the plugin made from a read before that
+ * report.
  */
 export function withoutOwnEdits(
   values: Readonly<Record<string, unknown>>,
@@ -304,6 +313,18 @@ export function savedInEditor(known: Readonly<Record<string, unknown>>, reported
 export function recipeContent(view: Readonly<RecipeView>, context: IntakeContext): Record<string, unknown> {
   const values = libraryValues(view, EDITED_PATHS, {}, context);
   return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== null));
+}
+
+/**
+ * The paths of a tablet's changes of its record (`changed`, its paths with
+ * their values) that turn steam off, which is no edit of the Recipe: a steam
+ * temperature below STEAM_ON_FROM, as DYE2's editor saves for "Off" and
+ * DYE2 records as a Machine's steam is turned off. The Recipe's is written
+ * back over it (ADR-0022).
+ */
+export function steamOffPaths(changed: Readonly<Record<string, unknown>>): string[] {
+  const value = changed[STEAM_TEMPERATURE_PATH];
+  return typeof value === "number" && value < STEAM_ON_FROM ? [STEAM_TEMPERATURE_PATH] : [];
 }
 
 /** The paths a barista edited, of those `changed` names (`editedContent` in equipment-intake.ts), that are edits of the Recipe. */
@@ -383,10 +404,10 @@ export interface WriteContext {
  * names DYE2 copies from them; its full Profile in `profileSnapshot`, so it
  * applies where the Profile is hidden; its brew temperature, its Profile's
  * first step's where it holds none, which DYE2 records into only a record
- * holding one, and applies (ADR-0022); a blank barista and drinker; its hot
- * water volume and temperature, with all four in the record's own field
- * (RECIPE_FIELD); and `title`, `subtitle` and the embedded `workflow` as
- * DYE2 derives them (`recipeWorkflow`).
+ * holding one, and applies (ADR-0022); a blank barista and drinker; each
+ * steam, hot water and flush setting it holds, blank where it holds none;
+ * and `title`, `subtitle` and the embedded `workflow` as DYE2 derives them
+ * (`recipeWorkflow`).
  */
 export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: number, context: WriteContext, recipeId: string): RecipeView {
   const { ids } = context;
@@ -431,9 +452,7 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
     // By volume where it names none, as the management interface shows it: DYE2's editor shows a record holding a
     // temperature and no mode by temperature.
     [`${DV}.hotWaterMode`]: value("hotWaterMode") ?? "vol",
-    // Both, as DYE2 holds each once it moves in the Workflow, so the server never writes one out that DYE2 records back.
-    [`${DV}.hotWaterMl`]: value("hotWaterVolume"),
-    [`${DV}.hotWaterTempC`]: value("hotWaterTemperature"),
+    ...Object.fromEntries(RECIPE_SETTING_NAMES.map((setting) => [`${DV}.${RECIPE_SETTINGS[setting].dye2}`, value(setting)])),
     [`${DV}.grind`]: value("grindSetting"),
     [`${DV}.rpm`]: value("rpm"),
     [`${DV}.grinderId`]: local("grinder", grinderId),
@@ -443,14 +462,6 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
     [`${DV}.equipmentIds`]: held.map((tool) => ids.local("tool", tool)!),
     [`${DV}.equipmentNames`]: held.map((tool) => context.toolNames.get(tool) ?? null),
     [`${DV}.equipmentCustom`]: custom,
-    [RECIPE_FIELD]: {
-      hotWaterData: {
-        targetTemperature: value("hotWaterTemperature"),
-        duration: value("hotWaterDuration"),
-        volume: value("hotWaterVolume"),
-        flow: value("hotWaterFlow"),
-      },
-    },
   };
   const name = typeof view.name === "string" ? view.name : "";
   view.title = name !== "" ? name : `Recipe ${slot}`;
@@ -477,8 +488,10 @@ function firstStepTemperature(profile: unknown): number | null {
  * holds none, so applying it clears a batch the Workflow held; and its full
  * Profile where it names one, at its brew temperature, as Streamline
  * applies the profile as it is (`profileAtBrewTemperature`,
- * decentespresso/dye2#26). DYE2's flags of the fields it sets, and the
- * machine settings Streamline does not apply from it, are left out.
+ * decentespresso/dye2#26); and each steam, hot water and flush setting the
+ * record holds, in partial `steamSettings`, `hotWaterData` and `rinseData`,
+ * none where it holds none of them (`recipeMachineSettings`). DYE2's flags
+ * of the fields it sets are left out.
  */
 export function recipeWorkflow(view: Readonly<RecipeView>): Record<string, unknown> {
   const at = (field: string) => view[`${DV}.${field}`];
@@ -509,42 +522,32 @@ export function recipeWorkflow(view: Readonly<RecipeView>): Record<string, unkno
     const shifted = isObject(snapshot) && typeof brewTemperature === "number" ? profileAtBrewTemperature(snapshot, brewTemperature) : null;
     workflow.profile = isObject(snapshot) && Array.isArray(snapshot.steps) ? (shifted ?? snapshot) : { id: view.profileId, title: view.profileTitle };
   }
-  return workflow;
+  const settings = RECIPE_SETTING_NAMES.flatMap((setting) => (present(at(RECIPE_SETTINGS[setting].dye2)) ? [[RECIPE_SETTINGS[setting].workflow, at(RECIPE_SETTINGS[setting].dye2)]] : []));
+  return { ...workflow, ...workflowPatch(Object.fromEntries(settings)) };
 }
 
 /**
- * A record's view (`recipeRecord`) with the machine settings and field
- * flags DYE2 keeps in the tablet's record of it (`held`) carried into its
- * embedded `workflow`: DYE2 copies each steam, hot water and flush setting
- * it records there, and its editor's save adds them and its flags of the
- * fields it sets (`extras.dye`), none of which the server derives, as
- * Streamline applies only the embedded Workflow's context and profile. So
- * the server neither takes them for a change of the record nor writes them
- * out, which DYE2 would add back at its next recording or save.
+ * A record's view (`recipeRecord`) with the field flags DYE2 keeps in the
+ * tablet's record of it (`held`) carried into its embedded `workflow`: its
+ * editor's save adds its flags of the fields it sets (`extras.dye`), which
+ * the server does not derive. So the server neither takes them for a change
+ * of the record nor writes them out, which DYE2 would add back at its next
+ * save. The steam, hot water and flush settings DYE2 copies there it derives
+ * as DYE2 does (`recipeWorkflow`).
  */
-export function withHeldWorkflowSettings(view: Readonly<RecipeView>, held: Readonly<Record<string, unknown>> | null): RecipeView {
+export function withHeldFieldFlags(view: Readonly<RecipeView>, held: Readonly<Record<string, unknown>> | null): RecipeView {
   const derived = view.workflow;
   const kept = isObject(held?.workflow) ? held.workflow : null;
-  if (!isObject(derived) || kept === null) return { ...view };
-  const workflow: Record<string, unknown> = { ...derived };
-  for (const group of ["steamSettings", "hotWaterData", "rinseData"]) if (kept[group] !== undefined) workflow[group] = kept[group];
-  // Its hot water volume and temperature as the record holds them, which the server writes, as DYE2 keeps them in step.
-  if (isObject(workflow.hotWaterData)) {
-    const [volume, temperature] = [view[`${DV}.hotWaterMl`], view[`${DV}.hotWaterTempC`]];
-    workflow.hotWaterData = { ...workflow.hotWaterData, ...(volume == null ? {} : { volume }), ...(temperature == null ? {} : { targetTemperature: temperature }) };
-  }
-  const keptContext = isObject(kept.context) ? kept.context : {};
+  const keptContext = isObject(kept?.context) ? kept.context : {};
   const flags = isObject(keptContext.extras) ? keptContext.extras.dye : undefined;
-  if (flags !== undefined && isObject(derived.context)) {
-    const extras = isObject(derived.context.extras) ? derived.context.extras : {};
-    workflow.context = { ...derived.context, extras: { ...extras, dye: flags } };
-  }
-  return { ...view, workflow };
+  if (flags === undefined || !isObject(derived) || !isObject(derived.context)) return { ...view };
+  const extras = isObject(derived.context.extras) ? derived.context.extras : {};
+  return { ...view, workflow: { ...derived, context: { ...derived.context, extras: { ...extras, dye: flags } } } };
 }
 
 /** Whether a tablet's record holds a Recipe's content as written to it (`recipeRecord`): every path a barista edits the same. */
 export function holdsRecipe(view: Readonly<RecipeView>, written: Readonly<RecipeView>): boolean {
-  return editedPaths(changedFields(written, view)).length === 0 && sameValue(view[RECIPE_FIELD], written[RECIPE_FIELD]);
+  return editedPaths(changedFields(written, view)).length === 0;
 }
 
 /** One thing a report of a tablet's recipes changes. */

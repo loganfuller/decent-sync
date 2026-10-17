@@ -20,9 +20,12 @@ export interface RecipeView {
    * `beanBatchId`, `profileId`, `grinderId`, `basketId`, `toolIds` and
    * `toolAttributes` (a Tool's attributes for this Recipe, by the Tool's id),
    * `dose`, `yield`, `ratio`, `grindSetting`, `rpm`, `brewTemperature`,
-   * `showOnDashboard`, `hotWaterVolume`, `hotWaterTemperature`,
-   * `hotWaterDuration`, `hotWaterFlow`, `steamMode` and `hotWaterMode`, each
-   * left out where it holds none.
+   * `showOnDashboard`, the steam, hot water and flush settings it holds
+   * (RECIPE_SETTINGS: `steamTemperature`, `steamDuration`, `steamFlow`,
+   * `steamStopTemperature`, `hotWaterTemperature`, `hotWaterDuration`,
+   * `hotWaterVolume`, `hotWaterFlow`, `flushTemperature`, `flushDuration`
+   * and `flushFlow`), and DYE2's display modes `steamMode` and
+   * `hotWaterMode`, each left out where it holds none.
    */
   content: Record<string, unknown>;
   /** The items its content names, each with what the management interface names it by (`RecipeUses`). */

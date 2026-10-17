@@ -2,20 +2,24 @@ import { STEAM_ON_FROM } from "@decent-sync/protocol";
 import { request } from "./decaid.js";
 
 // Streamline (streamline-js), a skin for Decaid, remembers what the barista
-// last set for some of the steam, hot water and rinse settings in Decaid's
+// last set for some of the steam, hot water and flush settings in Decaid's
 // store, under its namespace `streamline-app`, and adopts a Workflow change
 // made elsewhere (ADR-0021), its steam temperature included since `main` at
-// 98b6b90 (decentespresso/streamline-js#143). Nothing calls
-// `keepStreamlineSteamTemperature` for now: steam settings are each
-// Machine's own, and the plugin writes none. It stays for #173, which keeps
-// `last-steam-temp` at the Recipe's steam temperature on each load and
-// Loaded Recipe edit until Streamline does (decentespresso/streamline-js#156).
+// 98b6b90 (decentespresso/streamline-js#143). But it turns steam back on at
+// the steam temperature it remembers (`last-steam-temp`), which is out of
+// date where the Recipe's changed while steam was off. So each load, and
+// each write of the server's for a Loaded Recipe, carrying a steam
+// temperature sets it there, written into the Workflow or not, as the plugin
+// writes none into a Workflow whose steam is off (ADR-0022), until
+// Streamline turns steam back on at the selected recipe's
+// (decentespresso/streamline-js#156).
 
 const PATH = "/store/streamline-app/last-steam-temp";
 
 /**
- * Sets the steam temperature Streamline remembers to the one Decaid has just
- * taken into the Workflow, as a JSON number, as Streamline's
+ * Sets the steam temperature Streamline remembers to a Recipe's, which
+ * Decaid has just taken into the Workflow, or which the plugin left out of
+ * one whose steam is off, as a JSON number, as Streamline's
  * `persistSharedValue` does: only one that turns steam on, as Streamline keeps
  * no other, and only where the key holds a number. Decaid answers null for a
  * key never set, so a tablet that never ran Streamline is written nothing.

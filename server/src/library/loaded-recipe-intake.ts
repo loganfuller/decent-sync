@@ -1,14 +1,13 @@
-import { BREW_TEMPERATURE_FIELD, LOADED_RECIPE_PARTS, type LoadedRecipePart, RECIPE_FIELD, sameValue, workflowValueAt } from "@decent-sync/protocol";
+import { BREW_TEMPERATURE_FIELD, LOADED_RECIPE_PARTS, type LoadedRecipePart, RECIPE_SETTING_NAMES, type RecipeSetting, sameValue, workflowValueAt } from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
-import { ratioValues } from "./recipe-intake.js";
 
 // How the parts of a Workflow that follow its Loaded Recipe (ADR-0022,
-// LOADED_RECIPE_PARTS) map to the Recipe's content, both ways: a change of
-// one on the Recipe's Machine that DYE2 does not record is an edit of the
-// Recipe, but of its Grinder, Bean Batch or Profile, which unloads it
-// instead (DYE2 clears its selection, and the plugin's loaded-recipes.ts
-// follows), and a field of the Recipe's that the Workflow holds otherwise is
-// written into it. A Workflow names its Grinder, Basket
+// LOADED_RECIPE_PARTS) map to the Recipe's content, both ways: DYE2 records
+// a change of one on the Recipe's Machine into the Recipe's record, but of
+// its Grinder, Bean Batch or Profile, which unloads it instead (DYE2 clears
+// its selection, and the plugin's loaded-recipes.ts follows), and a field of
+// the Recipe's that the Workflow holds otherwise is written into it. A
+// Workflow names its Grinder, Basket
 // and Bean Batch by the tablet's ids, holds its Profile whole, its brew
 // temperature as its first step's, and keeps its grind setting as text, as
 // Decaid does; a Recipe names them by their global ids, its Profile by
@@ -24,22 +23,15 @@ export const PARTS = Object.keys(LOADED_RECIPE_PARTS) as LoadedRecipePart[];
  * the Workflow, so a change of them on the Machine reaches the server as the
  * tablet's change of the record, not of the Workflow: its dose, yield,
  * grind setting, RPM, Basket and brew temperature, where the record holds
- * one, and its hot water volume and temperature, which every record the
- * server writes holds where the Recipe does, and DYE2 records once they
- * move otherwise (`itemPatch` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts, decentespresso/dye2#21).
- * A change of a dial part a Recipe holds none of stays on the Machine.
+ * one, and its steam, hot water and flush settings, each where the record
+ * holds it, or once it moves off the value the Workflow held as the recipe
+ * was selected (`itemPatch` in dye2:dye2-plugin/src/utils/workflow-record.ts,
+ * decentespresso/dye2#21, #23). Every part but the Grinder, Bean Batch and
+ * Profile, a change of which unloads the Recipe: so nothing of the Workflow
+ * itself edits the Recipe. A change of a dial part a Recipe holds none of
+ * stays on the Machine.
  */
-export const RECORDED_PARTS: readonly LoadedRecipePart[] = ["dose", "yield", "grind", "rpm", "basket", "brewTemperature", "volume", "targetTemperature"];
-
-/**
- * The parts a change of the Workflow on the Machine edits the Recipe in,
- * those whose record field the server does not take in: its hot water
- * duration and flow, until a Recipe holds them as DYE2's recipe does
- * (#173). Not its Grinder, Bean Batch or Profile, a change of which unloads
- * it.
- */
-export const WORKFLOW_EDITED_PARTS: readonly LoadedRecipePart[] = ["duration", "flow"];
+export const RECORDED_PARTS: readonly LoadedRecipePart[] = ["dose", "yield", "grind", "rpm", "basket", "brewTemperature", ...RECIPE_SETTING_NAMES];
 
 /**
  * A part's value as a Workflow holds it: a number, a grind setting's text,
@@ -61,11 +53,9 @@ export const RECIPE_FIELDS: Readonly<Record<LoadedRecipePart, string>> = {
   rpm: "rpm",
   basket: "basketId",
   batch: "beanBatchId",
-  targetTemperature: "hotWaterTemperature",
-  duration: "hotWaterDuration",
-  volume: "hotWaterVolume",
-  flow: "hotWaterFlow",
   brewTemperature: "brewTemperature",
+  // Each setting's part is named as the Recipe's field.
+  ...(Object.fromEntries(RECIPE_SETTING_NAMES.map((setting) => [setting, setting])) as Record<RecipeSetting, string>),
 };
 
 /** The parts naming a Library item, each with its kind, by the tablet's id for it. */
@@ -101,17 +91,6 @@ export function samePart(part: LoadedRecipePart, a: unknown, b: unknown): boolea
   return sameValue(a ?? null, b ?? null);
 }
 
-/**
- * The parts of those given (`parts`) the Workflow holds now (`now`)
- * otherwise than it last did (`held`): a part it holds none of now is no
- * change, as Streamline clears the batch, Basket and RPM after a Shot
- * stored while DYE2 has no recipe selected, so they do not label the next
- * one, and the Recipe keeps them.
- */
-export function changedParts(held: WorkflowParts, now: WorkflowParts, parts: readonly LoadedRecipePart[]): LoadedRecipePart[] {
-  return parts.filter((part) => now[part] !== null && !samePart(part, held[part], now[part]));
-}
-
 /** What the plugin's write of a load replaced, by part (`WorkflowDelivery.loadBefore`), as stored with the load: known parts only. */
 export type LoadBefore = Partial<Record<LoadedRecipePart, { before: PartValue; written: PartValue }>>;
 
@@ -139,132 +118,6 @@ export function setBackToLoad(part: LoadedRecipePart, held: PartValue, loadBefor
   if (replaced === undefined || part === "grinder" || held === null || own.has(RECIPE_FIELDS[part])) return false;
   return samePart(part, replaced.before, held) && !samePart(part, replaced.written, held);
 }
-
-/**
- * What tells a part set back by a stale copy of a Recipe (`partEdits`): what
- * its tablet's record of it held just before the server's latest write of
- * its fields, each of the Recipe's fields before its current value, and the
- * fields whose latest edit was that tablet's own.
- */
-export interface StaleCheck {
-  /** The record's `before_write`, by its paths (recipe-intake.ts); null for none. */
-  beforeWrite: Readonly<Record<string, unknown>> | null;
-  /** The value each field of the Recipe held just before its current one, by field; absent where none is known. */
-  previous: Readonly<Record<string, unknown>>;
-  /** The fields of the Recipe whose latest edit the tablet made itself. */
-  own: ReadonlySet<string>;
-  /** What the plugin's write of the load replaced, until the Machine's first espresso since (`setBackToLoad`); null for none. */
-  loadBefore?: LoadBefore | null;
-  /** The fields of the Recipe whose latest edit the tablet made itself since the load, which a set-back to what the load replaced undoes. */
-  ownSinceLoad?: ReadonlySet<string>;
-}
-
-/** No stale copy to tell: what a part is judged by where the tablet's record of the Recipe is not known. */
-export const NO_STALE_CHECK: StaleCheck = { beforeWrite: null, previous: {}, own: new Set() };
-
-/** What a change of a Workflow's parts makes of its Loaded Recipe (`partEdits`). */
-export interface PartEdits {
-  /** The fields of the Recipe's content the change sets, with their values: an edit of it, empty for none. */
-  values: Record<string, unknown>;
-  /** The parts the Workflow is held to hold from now on, as it holds them now: those that are edits, or no change of the Recipe, or set back by a stale copy. */
-  taken: LoadedRecipePart[];
-}
-
-/**
- * What a change of the parts given (`parts`, as `changedParts` finds them),
- * which the Workflow holds now (`now`), makes of its Loaded Recipe, whose
- * content is `content`:
- *
- * - a dose, yield, RPM or hot water setting is the Recipe's, and a grind
- *   setting that reads as a number is, as that number, as DYE2 keeps one;
- * - a Grinder, Basket, Bean Batch or Profile is none of its: DYE2 records
- *   the Basket, and a change of the rest unloads the Recipe;
- * - a value the Recipe holds already is no edit, as when Streamline saves
- *   the change into the recipe too, and its report arrived first;
- * - a value set back to what the tablet's record of the Recipe held just
- *   before the server's latest write of it, which was the Recipe's before its
- *   current one, set by another tablet or in the management interface
- *   (`stale`), is a recipe applied from a copy read before that write, as a
- *   DYE2 page or Streamline strip opened before it, or DYE2's dashboard
- *   sending back the Workflow it read as it opened: no edit, as for a stale
- *   save (ADR-0005), and the Recipe's value is written back. One set back
- *   over the tablet's own latest edit of the field is its barista undoing a
- *   tweak, and an edit;
- * - a value set back to what the plugin's write of the load replaced, before
- *   the Machine's first espresso since (`setBackToLoad`), is no edit either,
- *   and the Recipe's value is written back;
- * - DYE2's ratio is kept only while the yield is the dose times it
- *   (`ratioValues`), the Workflow's yield kept as the Recipe's where it held
- *   none, the yield worked out from the ratio.
- */
-export function partEdits(parts: readonly LoadedRecipePart[], now: WorkflowParts, content: Readonly<Record<string, unknown>>, stale: StaleCheck = NO_STALE_CHECK): PartEdits {
-  const edits: PartEdits = { values: {}, taken: [] };
-  for (const part of parts) {
-    const held = now[part];
-    if (held === null || ITEM_PARTS[part] !== undefined || part === "profile") continue;
-    const field = RECIPE_FIELDS[part];
-    // A grind setting that is not a number is no Recipe's, which DYE2 keeps as one.
-    const value = part === "grind" ? numberOf(held) : held;
-    if (value === null) continue;
-    edits.taken.push(part);
-    if (sameValue(content[field] ?? null, value) || setBack(part, held, value, content[field], stale) || setBackToLoad(part, held, stale.loadBefore ?? null, stale.ownSinceLoad ?? new Set())) continue;
-    edits.values[field] = value;
-  }
-  if ("dose" in edits.values && typeof content.yield !== "number" && !("yield" in edits.values) && typeof now.yield === "number") {
-    edits.values.yield = now.yield;
-  }
-  Object.assign(edits.values, ratioValues(content, edits.values));
-  return edits;
-}
-
-/**
- * Whether a part's value (`held` as the Workflow holds it, `value` as the
- * Recipe would) sets it back to what the tablet's record of the Recipe held
- * just before the server's latest write of it, which was the Recipe's value
- * before its current one (`current`), set by another than the tablet itself.
- */
-function setBack(part: LoadedRecipePart, held: PartValue, value: unknown, current: unknown, stale: StaleCheck): boolean {
-  const field = RECIPE_FIELDS[part];
-  if (stale.beforeWrite === null || stale.own.has(field) || !Object.prototype.hasOwnProperty.call(stale.previous, field)) return false;
-  if (!sameValue(stale.previous[field], value) || sameValue(current ?? null, value)) return false;
-  return recordValues(part, stale.beforeWrite).some((before) => samePart(part, before, held));
-}
-
-/**
- * The values a recipe record's `before_write` keeps of a part: its own of
- * the record's `dashboardVariables`, and its hot water in the record's own
- * field (RECIPE_FIELD), each only where the server wrote it.
- */
-function recordValues(part: LoadedRecipePart, beforeWrite: Readonly<Record<string, unknown>>): unknown[] {
-  const has = (path: string) => Object.prototype.hasOwnProperty.call(beforeWrite, path);
-  const values = DASHBOARD_PATHS[part].filter(has).map((path) => beforeWrite[path]);
-  if (has(RECIPE_FIELD)) {
-    const own = isObject(beforeWrite[RECIPE_FIELD]) ? beforeWrite[RECIPE_FIELD] : {};
-    const hotWater = isObject(own.hotWaterData) ? own.hotWaterData : {};
-    if (part in HOT_WATER_NAMES) values.push(hotWater[part] ?? null);
-  }
-  return values;
-}
-
-/** The paths of a recipe record's `dashboardVariables` holding each part. */
-const DASHBOARD_PATHS: Readonly<Record<LoadedRecipePart, readonly string[]>> = {
-  profile: [],
-  grinder: [],
-  dose: ["dashboardVariables.dose"],
-  yield: ["dashboardVariables.drink"],
-  grind: ["dashboardVariables.grind"],
-  rpm: ["dashboardVariables.rpm"],
-  basket: ["dashboardVariables.basketId"],
-  batch: [],
-  targetTemperature: ["dashboardVariables.hotWaterTempC"],
-  duration: [],
-  volume: ["dashboardVariables.hotWaterMl"],
-  flow: [],
-  brewTemperature: ["dashboardVariables.brewC"],
-};
-
-/** The hot water parts, as a recipe record's own field keeps all four. */
-const HOT_WATER_NAMES = { targetTemperature: true, duration: true, volume: true, flow: true } as const;
 
 /**
  * What the Workflow is to hold of each part of a Recipe with this content,

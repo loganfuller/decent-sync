@@ -70,6 +70,15 @@ export interface Dye2Recordings {
   recipes: Record<"saveSlot1" | "saveSlot2" | "editSlot1" | "saveBlankSlot3", Dye2Exchange[]>;
   /** DYE2's dashboard: applying, and so selecting, each recipe, slot 1 again, then picking a basket for the next Shot. */
   "dye2-applies": Record<"applySlot1" | "applySlot2" | "applyBlankSlot3" | "applySlot1Again" | "pickBasket", Dye2Step>;
+  /**
+   * Recorded on a Decaid of its own (`library`): DYE2's recipe editor saving
+   * slot 1 with every machine setting, then editing them, switching a mode
+   * alone, setting the steam temperature Off and back on, and blanking the
+   * milk stop; the Workflow's steam turned off, slot 1 applied on DYE2's
+   * dashboard, and a Workflow change once it is selected.
+   */
+  "machine-settings": Record<"saveMachineSettings" | "editMachineSettings" | "switchModeOnly" | "steamOff" | "steamBackOn" | "clearMilkStopTyped" | "clearMilkStop", Dye2Exchange[]> &
+    Record<"steamOffInWorkflow" | "applyMachineSettings" | "changeAfterApply", Dye2Step> & { library: Record_ };
 }
 
 const fixtures = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../fixtures/decaid/dye2-2cf631c");
@@ -111,6 +120,25 @@ export function dye2Library(): DecaidApi {
     "/grinders": library.grinders,
     "/profiles": library.profiles,
     "/workflow": library.workflow,
+  };
+}
+
+/**
+ * The library and Workflow of the tablet machine-settings.json was recorded
+ * on, a Decaid of its own, before DYE2 wrote anything: its beans, batches and
+ * grinders, made as for the other files but under ids of their own,
+ * `Adaptive v3`, Decaid's default Workflow and the simulated machine's
+ * settings. Merge it into a tablet's API.
+ */
+export function dye2MachineSettingsLibrary(): DecaidApi {
+  const { library } = dye2Recording("machine-settings");
+  return {
+    "/beans": library.beans,
+    "/bean-batches": library.beanBatches,
+    "/grinders": library.grinders,
+    "/profiles": library.profiles,
+    "/workflow": library.workflow,
+    "/machine/settings": library.machineSettings,
   };
 }
 

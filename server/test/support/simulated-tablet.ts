@@ -10,7 +10,7 @@ import { batchesOf, createBatch, deleteBatch, deleteBean, listedBatches, updateB
 import { type DecaidAnswer, createBean, listedBeans, updateBean, withDecaidClock } from "./decaid-beans.js";
 import { createGrinder, deleteGrinder, listedGrinders, updateGrinder } from "./decaid-grinders.js";
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
-import { updateWorkflow } from "./decaid-workflow.js";
+import { machineSettingsWritten, updateWorkflow } from "./decaid-workflow.js";
 import type { SimulatedDye2 } from "./simulated-dye2.js";
 import { rememberSecret, watchLog } from "./secrets.js";
 import { opened } from "./test-scope.js";
@@ -559,6 +559,16 @@ export interface SimulatedTabletOptions {
    */
   upgradeAtTabletPace?: boolean;
   /**
+   * Whether the machine keeps the flush settings Decaid writes to it from a
+   * Workflow change, as a DE1 does (`UnifiedDe1.setFlushTemperature` writes
+   * its MMR, which `GET /machine/settings` reads back), so DYE2 reads them
+   * there. True by default; Decaid's simulated machine, which the recordings
+   * of fixtures/decaid/dye2-2cf631c/ were made on, keeps none
+   * (`MockDe1.setFlushTemperature` does nothing), so replays of them set it
+   * false.
+   */
+  keepsFlushSettings?: boolean;
+  /**
    * Stalls the network at the first queued frame, parsed, that this matches:
    * that frame and the ones behind it stay pending, unwritten, for as long as
    * it matches. Nothing stalls by default.
@@ -678,6 +688,7 @@ export class SimulatedTablet {
   private readonly apiDelayMs: (method: string, path: string) => number;
   private readonly answerOnArrival: boolean;
   private readonly decaidClockOffsetMs: number;
+  private readonly keepsFlushSettings: boolean;
   private readonly steamIdsLimitBytes: number;
   private readonly uploadBytesPerSecond: number | undefined;
   private readonly stallUpload: ((frame: unknown) => boolean) | undefined;
@@ -713,6 +724,7 @@ export class SimulatedTablet {
   private constructor(options: SimulatedTabletOptions) {
     this.api = options.api ?? de1ProOnDecaid090();
     this.machineConnected = options.machineConnected ?? true;
+    this.keepsFlushSettings = options.keepsFlushSettings ?? true;
     this.timeScale = options.timeScale ?? 1;
     const apiDelayMs = options.apiDelayMs ?? 0;
     this.apiDelayMs = typeof apiDelayMs === "number" ? () => apiDelayMs : apiDelayMs;
@@ -1504,12 +1516,23 @@ export class SimulatedTablet {
    * takes is sent to the plugin in a `workflowUpdated` event before Decaid
    * answers, as its PluginManager broadcasts the change as the Workflow is
    * set, so the plugin hears of its own write while it awaits the answer.
+   * The steam, hot water and flush settings it writes to the machine are the
+   * machine's settings from then on, as `GET /machine/settings` answers them
+   * (`machineSettingsWritten`), the flush time and temperature only on a
+   * machine that keeps them (`keepsFlushSettings`).
    */
   private writeWorkflow(body: unknown): DecaidAnswer {
     const current = this.api["/workflow"];
     if (typeof current !== "object" || current === null || Array.isArray(current)) throw new Error("The simulated tablet has no Workflow to write to");
     const { answer, workflow } = updateWorkflow(current as Record<string, unknown>, typeof body === "string" ? JSON.parse(body) : body, this.machineConnected);
-    if (workflow) this.setWorkflow(workflow);
+    if (workflow) {
+      const settings = this.api["/machine/settings"];
+      const written = machineSettingsWritten(current as Record<string, unknown>, workflow, this.keepsFlushSettings);
+      if (typeof settings === "object" && settings !== null && !Array.isArray(settings) && Object.keys(written).length > 0) {
+        this.api = { ...this.api, "/machine/settings": { ...settings, ...written } };
+      }
+      this.setWorkflow(workflow);
+    }
     return answer;
   }
 

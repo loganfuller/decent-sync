@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, RECIPE_FIELD, profileAtBrewTemperature } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, profileAtBrewTemperature } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
 import { syncingTablet } from "./support/loaded-tablets.js";
@@ -162,7 +162,9 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
         showOnDashboard: true,
         steamMode: "flow",
         hotWaterMode: "vol",
+        steamFlow: 1.2,
         hotWaterVolume: 150,
+        flushDuration: 4,
       }),
     );
     // Its brew temperature was left blank, which DYE2's editor saves as none.
@@ -207,10 +209,12 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
         basketName: "Fixture 20g High-flow",
         equipmentNames: ["Fixture Puck Screen"],
         hotWaterMode: "vol",
+        steamFlowMls: 1.2,
         hotWaterMl: 150,
+        flushS: 4,
       },
-      [RECIPE_FIELD]: { hotWaterData: { volume: 150, targetTemperature: null, duration: null, flow: null } },
     });
+    expect(Object.keys(inSlot(two, "2")!)).not.toContain("decentSyncRecipe");
     const written = inSlot(two, "2")!;
     expect(variables(written).equipmentIds).toEqual([await ids.tool()]);
     for (const id of [written.beanId, variables(written).grinderId, variables(written).basketId, ...(variables(written).equipmentIds as string[])]) {
@@ -320,7 +324,7 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     // Another app on the second tablet removes the recipe, taking it out of its slot, so it is removed from the first tablet
     // too; the second tablet then saves a new recipe in the slot, which the first is written in its place.
     await expect.poll(() => reportedSlots(machines[1])).toContain("1");
-    const { [GLOBAL_ID_KEY]: _, [RECIPE_FIELD]: __, ...held } = inSlot(two, "1")!;
+    const { [GLOBAL_ID_KEY]: _, ...held } = inSlot(two, "1")!;
     const others = records(two, "recipes").filter((record) => record.id !== "1");
     expect((await two.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, others)).status).toBe(200);
     await expect.poll(async () => (await recipe(earlier!.id)).slot).toBeNull();
@@ -365,7 +369,7 @@ describe("Recipes in their slots reach every tablet at their Location", { timeou
     // Another app on the second tablet removes the recipe, and that tablet saves a new one in the slot, with the same hot
     // water temperature, which the first is written in its place.
     await expect.poll(() => reportedSlots(machines[1])).toContain("1");
-    const { [GLOBAL_ID_KEY]: _, [RECIPE_FIELD]: __, ...held } = inSlot(two, "1")!;
+    const { [GLOBAL_ID_KEY]: _, ...held } = inSlot(two, "1")!;
     const others = records(two, "recipes").filter((record) => record.id !== "1");
     expect((await two.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, others)).status).toBe(200);
     await expect.poll(() => inSlot(one, "1")).toBeUndefined();

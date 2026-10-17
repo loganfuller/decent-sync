@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, RECIPE_FIELD, globalIdOf } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
@@ -138,7 +138,6 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
       basketId: basket.id,
       toolIds: [tool.id],
       toolAttributes: { [tool.id]: [{ key: "Needles", value: "10" }] },
-      hotWaterMode: "temp",
       hotWaterVolume: 120,
       hotWaterTemperature: 85,
       hotWaterDuration: 30,
@@ -150,7 +149,7 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
       slot: 6,
       archived: false,
       batchFinished: false,
-      content: { beanId: bean.id, beanBatchId: batch.id, steamMode: "flow", hotWaterMode: "temp", showOnDashboard: false },
+      content: { beanId: bean.id, beanBatchId: batch.id, steamMode: "flow", hotWaterMode: "vol", showOnDashboard: false },
       uses: {
         bean: { id: bean.id, name: "Created Guji" },
         beanBatch: { id: batch.id, atLocation: true },
@@ -191,17 +190,18 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
           grind: 2.5,
           rpm: 1000,
           brewC: 92,
-          hotWaterMode: "temp",
+          hotWaterMode: "vol",
           hotWaterTempC: 85,
+          hotWaterTimeS: 30,
+          hotWaterMl: 120,
+          hotWaterFlowMls: 6,
           grinderId: localId(tablet.grinders(), grinder.id),
           basketId: localId(baskets, basket.id),
           equipmentIds: [toolId],
           equipmentCustom: { [toolId]: [{ key: "Needles", value: "10" }] },
         },
-        [RECIPE_FIELD]: {
-          hotWaterData: { targetTemperature: 85, duration: 30, volume: 120, flow: 6 },
-        },
       });
+      expect(slotOn(tablet, 6)).not.toHaveProperty("decentSyncRecipe");
     }
     expect(slotsOn(cafe.tablets[0]!)).toEqual([]);
 
@@ -635,13 +635,94 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     // Items the Library does not have, and values DYE2 would not take.
     expect(await refusal({ basketId: "00000000-0000-4000-8000-000000000000" })).toBe(400);
     expect(await refusal({ profileId: "profile:none" })).toBe(400);
-    expect(await refusal({ hotWaterMode: "steam" })).toBe(400);
+    expect(await refusal({ hotWaterMode: "temp" })).toBe(400);
     expect(await refusal({ steamMode: "time" })).toBe(400);
     expect(await refusal({ dose: -1 })).toBe(400);
     expect((await api.call("POST", "/recipes", { locationId: lab.id, slot: 0, content: {} })).status).toBe(400);
     // A slot beyond what PostgreSQL's integer holds.
     expect((await api.call("POST", "/recipes", { locationId: lab.id, slot: 2_147_483_648, content: {} })).status).toBe(400);
     expect(await recipesAt(lab)).toEqual([]);
+  });
+
+  /** The steam, hot water and flush settings a Recipe may hold, each with a value in its range. */
+  const SETTINGS: Record_ = {
+    steamTemperature: 150,
+    steamDuration: 40,
+    steamFlow: 1.5,
+    steamStopTemperature: 65,
+    hotWaterTemperature: 80,
+    hotWaterDuration: 30,
+    hotWaterVolume: 200,
+    hotWaterFlow: 6,
+    flushTemperature: 90,
+    flushDuration: 10,
+    flushFlow: 4.5,
+  };
+
+  it("holds each steam, hot water and flush setting or none, set and cleared through REST, a new Recipe none", async () => {
+    const lab = await api.createLocation("Settings recipe lab", "America/Chicago");
+    const created = await create(lab, 1, { name: "Settings Espresso" });
+    // DYE2's display modes are kept, but a new Recipe holds none of the settings: each Machine keeps its own.
+    expect(created.content).toMatchObject({ steamMode: "flow", hotWaterMode: "vol", showOnDashboard: true });
+    for (const field of Object.keys(SETTINGS)) expect(created.content, field).not.toHaveProperty(field);
+
+    expect((await edit(created.id, SETTINGS)).content).toMatchObject(SETTINGS);
+    expect((await recipe(created.id)).content).toMatchObject(SETTINGS);
+    expect((await versions(created.id))[0]!.fields).toEqual(SETTINGS);
+
+    // 0 is a value: a steam time of 0, and a milk stop of 0, which is off.
+    expect((await edit(created.id, { steamDuration: 0, steamStopTemperature: 0, flushDuration: 0 })).content).toMatchObject({
+      steamDuration: 0,
+      steamStopTemperature: 0,
+      flushDuration: 0,
+    });
+
+    // Null or empty text clears each, leaving the Machine's own.
+    const fields = Object.keys(SETTINGS);
+    const cleared = await edit(created.id, Object.fromEntries(fields.map((field, index) => [field, index % 2 === 0 ? null : ""])));
+    for (const field of fields) expect(cleared.content, field).not.toHaveProperty(field);
+    expect(cleared.content).toMatchObject({ name: "Settings Espresso", steamMode: "flow", hotWaterMode: "vol" });
+
+    // A new Recipe takes the settings it is given.
+    expect((await create(lab, 2, { name: "Settings Lungo", ...SETTINGS })).content).toMatchObject(SETTINGS);
+  });
+
+  it("refuses a steam, hot water or flush setting outside the range DYE2's editor offers, naming the field and the range", async () => {
+    const lab = await api.createLocation("Ranged recipe lab", "America/Chicago");
+    const created = await create(lab, 1, { name: "Ranged Espresso", ...SETTINGS });
+    const refusal = async (content: Record_) => {
+      const response = await api.call("PATCH", `/recipes/${created.id}`, { content });
+      return { status: response.status, message: ((await response.json()) as { message?: unknown }).message };
+    };
+    const refused = (field: string, range: string) => ({ status: 400, message: [`${field} must be ${range}`] });
+    // A range with no "Off", and a whole number where Decaid's field is an int.
+    expect(await refusal({ steamTemperature: 0 })).toEqual(refused("steamTemperature", "a whole number from 135 to 170"));
+    expect(await refusal({ steamTemperature: 171 })).toEqual(refused("steamTemperature", "a whole number from 135 to 170"));
+    expect(await refusal({ steamTemperature: 150.5 })).toEqual(refused("steamTemperature", "a whole number from 135 to 170"));
+    // 0 or more, whole or not.
+    expect(await refusal({ steamDuration: -1 })).toEqual(refused("steamDuration", "a whole number of 0 or more"));
+    expect(await refusal({ hotWaterVolume: 200.5 })).toEqual(refused("hotWaterVolume", "a whole number of 0 or more"));
+    expect(await refusal({ steamFlow: -0.1 })).toEqual(refused("steamFlow", "a number of 0 or more"));
+    // 0 for off, or within the range.
+    expect(await refusal({ steamStopTemperature: 20 })).toEqual(refused("steamStopTemperature", "0 (off) or a number from 30 to 80"));
+    expect(await refusal({ steamStopTemperature: 81 })).toEqual(refused("steamStopTemperature", "0 (off) or a number from 30 to 80"));
+    // A range, whole or not.
+    expect(await refusal({ hotWaterDuration: 4 })).toEqual(refused("hotWaterDuration", "a whole number from 5 to 120"));
+    expect(await refusal({ hotWaterFlow: 0.4 })).toEqual(refused("hotWaterFlow", "a number from 0.5 to 8"));
+    expect(await refusal({ flushTemperature: 96 })).toEqual(refused("flushTemperature", "a whole number from 5 to 95"));
+    expect(await refusal({ flushFlow: 8.5 })).toEqual(refused("flushFlow", "a number from 1 to 8"));
+    // Not a number at all.
+    expect(await refusal({ flushDuration: "10" })).toEqual(refused("flushDuration", "a whole number of 0 or more"));
+    // DYE2's display modes are not set here.
+    expect(await refusal({ hotWaterMode: "temp", steamMode: "time" })).toEqual({
+      status: 400,
+      message: ["hotWaterMode is not a field this can set", "steamMode is not a field this can set"],
+    });
+    expect((await api.call("POST", "/recipes", { locationId: lab.id, slot: 2, content: { flushFlow: 0 } })).status).toBe(400);
+    // The edges of each range are taken; nothing refused was kept.
+    const edges = { steamTemperature: 135, steamStopTemperature: 80, hotWaterDuration: 120, hotWaterFlow: 0.5, flushTemperature: 5, flushFlow: 8 };
+    expect((await edit(created.id, edges)).content).toMatchObject({ ...SETTINGS, ...edges });
+    expect(await recipesAt(lab)).toHaveLength(1);
   });
 
   it("puts one Recipe in a slot when two are created in it at once through two instances, and two created in the next free slot in two", async () => {

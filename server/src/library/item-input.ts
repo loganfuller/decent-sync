@@ -22,7 +22,8 @@ import { type EditableContent, KINDS } from "./kinds.js";
  * names a Library item by its global id (`id`), its Tools by theirs (`ids`),
  * its Profile by Decaid's id (`profileId`), and each Tool's attributes for it
  * by the Tool's global id (`toolAttributes`), as DYE2's `equipmentCustom`
- * holds them by its own; its hot water mode is one DYE2's editor offers.
+ * holds them by its own. A number DYE2's recipe editor takes only within a
+ * range is read against it (`NumberRange`).
  */
 export type FieldType =
   | "text"
@@ -39,13 +40,23 @@ export type FieldType =
   | "ids"
   | "profileId"
   | "toolAttributes"
-  | "hotWaterMode";
+  | NumberRange;
+
+/**
+ * A number taken only within a range, as DYE2's recipe editor offers it: from
+ * `min`, up to `max` where there is one, a whole number where `whole`, as
+ * Decaid's field is an int, and 0 besides where `offAtZero`, as DYE2's milk
+ * stop is off at 0.
+ */
+export interface NumberRange {
+  readonly min: number;
+  readonly max?: number;
+  readonly whole?: boolean;
+  readonly offAtZero?: boolean;
+}
 
 /** The sizes DYE2's baskets page offers. */
 const BASKET_SIZES: readonly string[] = ["single", "double", "triple", "bottomless", "other"];
-
-/** The hot water modes DYE2's recipe editor offers: by volume, or by temperature. */
-const HOT_WATER_MODES: readonly string[] = ["vol", "temp"];
 
 /** What the management interface may set of a kind's content, as its description says (`editable` in kinds.ts). */
 function editable(kind: LibraryKind): EditableContent {
@@ -113,6 +124,7 @@ function readValue(type: FieldType, value: unknown): { value: unknown } | string
     if (type === "flag") return "must be true or false";
     return { value: null };
   }
+  if (typeof type === "object") return readInRange(type, value);
   switch (type) {
     case "name":
       return typeof value === "string" && value.trim() !== "" ? { value: value.trim() } : "must be text";
@@ -144,9 +156,18 @@ function readValue(type: FieldType, value: unknown): { value: unknown } | string
       return typeof value === "string" && value.trim() !== "" ? { value: value.trim() } : "must be the Profile's id";
     case "toolAttributes":
       return readToolAttributes(value);
-    case "hotWaterMode":
-      return typeof value === "string" && HOT_WATER_MODES.includes(value) ? { value } : `must be one of ${HOT_WATER_MODES.join(", ")}`;
   }
+}
+
+/** A number within its range, or what the range is, such as "must be a whole number from 135 to 170". */
+function readInRange(range: NumberRange, value: unknown): { value: number } | string {
+  if (typeof value === "number" && Number.isFinite(value) && (!range.whole || Number.isInteger(value))) {
+    if (range.offAtZero && value === 0) return { value };
+    if (value >= range.min && (range.max === undefined || value <= range.max)) return { value };
+  }
+  const number = range.whole ? "a whole number" : "a number";
+  const span = range.max === undefined ? `${number} of ${range.min} or more` : `${number} from ${range.min} to ${range.max}`;
+  return `must be ${range.offAtZero ? `0 (off) or ${span}` : span}`;
 }
 
 /**

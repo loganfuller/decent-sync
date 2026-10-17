@@ -2,9 +2,12 @@ import {
   LOADED_RECIPE_PARTS,
   type LoadBefore,
   type LoadedRecipePart,
-  RECIPE_FIELD,
+  RECIPE_SETTINGS,
+  RECIPE_SETTING_NAMES,
   dye2GlobalIdOf,
   isSlotId,
+  steamOff,
+  workflowPatch,
   workflowValueAt,
 } from "@decent-sync/protocol";
 
@@ -188,10 +191,13 @@ export interface LoadWrite {
  * /workflow`, which Decaid merges into it: what the Workflow holds otherwise
  * of the recipe's current dose, yield, grind setting, grinder, RPM, Basket,
  * Bean Batch with its Bean's name and roaster, and Profile, as DYE2 applies
- * them, a stale copy having applied others; of its four hot water settings,
- * which it keeps in its own field (RECIPE_FIELD). Its brew temperature is
- * DYE2's and Streamline's to apply, and so is the Profile at it, which is
- * written only where the Workflow holds another. A value the recipe holds none of is left as the
+ * them, a stale copy having applied others; and of each steam, hot water
+ * and flush setting it holds (RECIPE_SETTINGS), as DYE2's dashboard applies
+ * them and Streamline's strip does not yet (decentespresso/streamline-js#154),
+ * but a steam temperature into a Workflow whose steam is off (`steamOff`),
+ * which would turn steam on. Its brew temperature is DYE2's and Streamline's
+ * to apply, and so is the Profile at it, which is written only where the
+ * Workflow holds another. A value the recipe holds none of is left as the
  * Workflow has it, and so is one `omit` names. Null if the Workflow holds
  * all of it already. With it, each part it changes, by its name in
  * LOADED_RECIPE_PARTS, with what the Workflow held of it and what it
@@ -245,21 +251,16 @@ export function loadWrite(
   if (Object.keys(contextWrite).length > 0) write.context = contextWrite;
   const key = profileKey(load.profile);
   if (!omit.has("profile") && key !== null && key !== profileKey(workflow.profile)) write.profile = load.profile;
-  const own = isObject(record[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
-  const hotWater = isObject(own.hotWaterData) ? own.hotWaterData : {};
-  const held = isObject(workflow.hotWaterData) ? workflow.hotWaterData : {};
-  const hotWaterWrite = Object.fromEntries(
-    HOT_WATER.flatMap((field) => {
-      const value = numberOf(hotWater[field]);
-      return value !== null && !sameNumber(value, numberOf(held[field])) && changes(field, value) ? [[field, value]] : [];
-    }),
-  );
-  if (Object.keys(hotWaterWrite).length > 0) write.hotWaterData = hotWaterWrite;
+  const settings = RECIPE_SETTING_NAMES.flatMap((setting) => {
+    const { dye2, workflow: path } = RECIPE_SETTINGS[setting];
+    const value = numberOf(variables[dye2]);
+    if (value === null || sameNumber(value, numberOf(workflowValueAt(workflow, path)))) return [];
+    if (setting === "steamTemperature" && steamOff(workflow)) return [];
+    return changes(setting, value) ? [[path, value] as const] : [];
+  });
+  Object.assign(write, workflowPatch(Object.fromEntries(settings)));
   return Object.keys(write).length > 0 ? { write, before } : null;
 }
-
-/** A Workflow's hot water settings, as Decaid names them in its `hotWaterData`, which a Recipe holds all of. */
-export const HOT_WATER = ["targetTemperature", "duration", "volume", "flow"] as const;
 
 /** A number as Decaid reads one (`parseOptionalDouble`): a number, or text that reads as one; otherwise null. */
 function numberOf(value: unknown): number | null {

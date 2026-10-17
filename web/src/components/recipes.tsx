@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useIsAdmin, useStaffLocationIds } from "@/auth";
 import { batchName } from "@/components/bean-batches";
@@ -36,9 +36,11 @@ import { LIBRARY_KINDS } from "@/lib/library-kinds";
 
 // Each Location's Recipes, DYE2's recipes, in its Recipe Slots or none, and
 // each Recipe's page. An Admin, or Staff working at its Location, creates
-// and edits a Recipe there with every field DYE2 has but steam, flush, the
-// barista and the drinker, moves it between slots, takes it out of its slot,
-// and Archives and restores it; each change reaches every tablet there.
+// and edits a Recipe there with every field DYE2 has but the barista and the
+// drinker, and its steam and hot water modes, which are only what DYE2's
+// stepper shows, moves it between slots, takes it out of its slot, and
+// Archives and restores it; each change reaches every tablet there. Each
+// steam, hot water and flush setting it does not hold is each Machine's own.
 // Picking a Bean Batch, Profile, Basket or Tool its Location does not offer
 // offers it there, as the form says before saving. A Recipe is copied to a
 // Location as a new Recipe there, offering there what it uses.
@@ -247,8 +249,82 @@ const NONE = "none";
 /** Stands for a Recipe's Bean with no batch, as a Bean picked on a tablet with none at its Location leaves it: kept unless another is picked. */
 const BEAN_ONLY = "bean-only";
 
-/** The Recipe form's values: each field as its input holds it. */
-interface FormValues {
+/** A steam, hot water or flush setting a Recipe may hold, by its content field. */
+type SettingField =
+  | "steamTemperature"
+  | "steamDuration"
+  | "steamFlow"
+  | "steamStopTemperature"
+  | "hotWaterTemperature"
+  | "hotWaterDuration"
+  | "hotWaterVolume"
+  | "hotWaterFlow"
+  | "flushTemperature"
+  | "flushDuration"
+  | "flushFlow";
+
+/**
+ * A setting as the Recipe's page and form show it: its name, its unit, and
+ * the range the server takes (`RECIPE_FIELDS` in server/src/library/kinds.ts),
+ * from `min` to `max`, a whole number where `whole`, and 0 for off where
+ * `off`, which the form's input only hints at: the server refuses a value
+ * outside it, saying why.
+ */
+interface Setting {
+  readonly field: SettingField;
+  readonly term: string;
+  readonly unit: string;
+  readonly min: number;
+  readonly max?: number;
+  readonly whole?: boolean;
+  readonly off?: boolean;
+}
+
+/** The steam, hot water and flush settings, in DYE2's editor's groups. */
+const SETTING_GROUPS: readonly { readonly name: string; readonly settings: readonly Setting[] }[] = [
+  {
+    name: "Steam",
+    settings: [
+      { field: "steamTemperature", term: "Steam temperature", unit: "°C", min: 135, max: 170, whole: true },
+      { field: "steamDuration", term: "Steam time", unit: "s", min: 0, whole: true },
+      { field: "steamFlow", term: "Steam flow", unit: "ml/s", min: 0 },
+      { field: "steamStopTemperature", term: "Milk stop", unit: "°C", min: 30, max: 80, off: true },
+    ],
+  },
+  {
+    name: "Hot water",
+    settings: [
+      { field: "hotWaterTemperature", term: "Hot water temperature", unit: "°C", min: 0, whole: true },
+      { field: "hotWaterDuration", term: "Hot water time", unit: "s", min: 5, max: 120, whole: true },
+      { field: "hotWaterVolume", term: "Hot water volume", unit: "ml", min: 0, whole: true },
+      { field: "hotWaterFlow", term: "Hot water flow", unit: "ml/s", min: 0.5, max: 8 },
+    ],
+  },
+  {
+    name: "Flush",
+    settings: [
+      { field: "flushTemperature", term: "Flush temperature", unit: "°C", min: 5, max: 95, whole: true },
+      { field: "flushDuration", term: "Flush time", unit: "s", min: 0, whole: true },
+      { field: "flushFlow", term: "Flush flow", unit: "ml/s", min: 1, max: 8 },
+    ],
+  },
+];
+
+const SETTINGS: readonly Setting[] = SETTING_GROUPS.flatMap((group) => group.settings);
+
+/** A setting's label in the form, such as "Steam time (s)". */
+function settingLabel(setting: Setting): string {
+  return `${setting.term} (${setting.unit})`;
+}
+
+/** A setting a Recipe holds, such as "30 s" or a milk stop's "Off", or none where each Machine keeps its own. */
+function settingText(setting: Setting, value: unknown): string | undefined {
+  if (setting.off && value === 0) return "Off";
+  return numberText(value, ` ${setting.unit}`);
+}
+
+/** The Recipe form's values: each field as its input holds it, each setting as text, empty for none held. */
+interface FormValues extends Record<SettingField, string> {
   name: string;
   beverage: string;
   beanBatchId: string;
@@ -263,11 +339,6 @@ interface FormValues {
   toolIds: string[];
   /** Each picked Tool's attributes for this Recipe, by the Tool's id. */
   toolAttributes: Record<string, Attribute[]>;
-  hotWaterMode: string;
-  hotWaterVolume: string;
-  hotWaterTemperature: string;
-  hotWaterDuration: string;
-  hotWaterFlow: string;
   showOnDashboard: boolean;
 }
 
@@ -278,10 +349,6 @@ const NUMBERS = [
   ["grindSetting", "Grind setting"],
   ["rpm", "RPM"],
   ["brewTemperature", "Brew temperature (°C)"],
-  ["hotWaterVolume", "Hot water volume (ml)"],
-  ["hotWaterTemperature", "Hot water temperature (°C)"],
-  ["hotWaterDuration", "Hot water duration (s)"],
-  ["hotWaterFlow", "Hot water flow (ml/s)"],
 ] as const satisfies readonly (readonly [keyof FormValues, string])[];
 
 type NumberField = (typeof NUMBERS)[number][0];
@@ -311,12 +378,8 @@ function valuesOf(content: Record<string, unknown>): FormValues {
     basketId: id("basketId"),
     toolIds: Array.isArray(content.toolIds) ? content.toolIds.filter((tool): tool is string => typeof tool === "string") : [],
     toolAttributes: attributes,
-    hotWaterMode: content.hotWaterMode === "temp" ? "temp" : "vol",
-    hotWaterVolume: number("hotWaterVolume"),
-    hotWaterTemperature: number("hotWaterTemperature"),
-    hotWaterDuration: number("hotWaterDuration"),
-    hotWaterFlow: number("hotWaterFlow"),
     showOnDashboard: content.showOnDashboard !== false,
+    ...(Object.fromEntries(SETTINGS.map((setting) => [setting.field, number(setting.field)])) as Record<SettingField, string>),
   };
 }
 
@@ -327,8 +390,9 @@ function toolDefaults(tool: EquipmentSummary | undefined): Attribute[] {
 
 /**
  * The content the form's values set, each field as the server takes it, null
- * to clear it: a number entered that is not one is refused, so nothing typed
- * is lost unseen. A Tool's attributes are kept only where they differ from
+ * to clear it, as an empty setting is: a number entered that is not one is
+ * refused, so nothing typed is lost unseen, and a setting outside its range
+ * is the server's to refuse. A Tool's attributes are kept only where they differ from
  * the Tool's own, as DYE2's editor keeps those changed for a recipe.
  */
 function contentOf(values: FormValues, tools: EquipmentSummary[]): Record<string, unknown> {
@@ -348,7 +412,6 @@ function contentOf(values: FormValues, tools: EquipmentSummary[]): Record<string
         return pairs.length === 0 || JSON.stringify(pairs) === JSON.stringify(own) ? [] : [[tool, pairs]];
       }),
     ),
-    hotWaterMode: values.hotWaterMode,
     showOnDashboard: values.showOnDashboard,
   };
   for (const [field, label] of NUMBERS) {
@@ -360,6 +423,12 @@ function contentOf(values: FormValues, tools: EquipmentSummary[]): Record<string
     const value = Number(text);
     if (!Number.isFinite(value) || value < 0) throw new Error(`${label} must be a number of 0 or more`);
     content[field] = value;
+  }
+  for (const setting of SETTINGS) {
+    const text = values[setting.field].trim();
+    const value = Number(text);
+    if (text !== "" && !Number.isFinite(value)) throw new Error(`${settingLabel(setting)} must be a number`);
+    content[setting.field] = text === "" ? null : value;
   }
   return content;
 }
@@ -409,7 +478,9 @@ function SlotNotes({ slot, there, swappedTo, keptAt = "here" }: { slot: number |
 
 /**
  * Creates a Recipe at a Location, in a slot or none, or edits one: every field
- * DYE2 has but steam, flush, the barista and the drinker. It offers the
+ * DYE2 has but the barista, the drinker and the steam and hot water modes,
+ * each steam, hot water and flush setting left empty for the Machine's own,
+ * which clears one the Recipe held. It offers the
  * Location's Grinders only; a Bean Batch, Profile, Basket or Tool the
  * Location does not offer is offered there once saved, which it says first.
  */
@@ -476,11 +547,16 @@ function RecipeForm({
   onSaved(id: string): Promise<void>;
 }) {
   const { choices, error: choicesError } = useChoices();
-  const [initial] = useState(() => valuesOf(recipe?.content ?? { showOnDashboard: true, hotWaterMode: "vol" }));
+  const [initial] = useState(() => valuesOf(recipe?.content ?? { showOnDashboard: true }));
   const [values, setValues] = useState(initial);
   const [slotMode, setSlotMode] = useState<SlotMode>("next");
   const [slotText, setSlotText] = useState("");
   const [error, setError] = useState<ReactNode>();
+  // A refusal is shown above the form, out of view of its Save button, so it is scrolled into view.
+  const errorShown = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    errorShown.current?.scrollIntoView({ block: "nearest" });
+  }, [error]);
   const [saving, setSaving] = useState(false);
   const id = useId();
   const set = <K extends keyof FormValues>(field: K, value: FormValues[K]) => setValues((current) => ({ ...current, [field]: value }));
@@ -567,9 +643,31 @@ function RecipeForm({
     </div>
   );
 
+  const settingInput = (setting: Setting) => (
+    <div key={setting.field} className="grid gap-2">
+      <Label htmlFor={`${id}-${setting.field}`}>{settingLabel(setting)}</Label>
+      <Input
+        id={`${id}-${setting.field}`}
+        type="number"
+        inputMode={setting.whole ? "numeric" : "decimal"}
+        min={setting.off ? 0 : setting.min}
+        max={setting.max}
+        step={setting.whole ? 1 : "any"}
+        placeholder="Machine's own"
+        value={values[setting.field]}
+        onChange={(event) => set(setting.field, event.target.value)}
+      />
+    </div>
+  );
+
+  // The server checks each setting's range and its refusal is shown, so the browser's own checks are left out.
   return (
-    <form aria-label={label} className="grid gap-5" onSubmit={save}>
-      {error && <FormError error={error} />}
+    <form aria-label={label} className="grid gap-5" noValidate onSubmit={save}>
+      {error && (
+        <div ref={errorShown}>
+          <FormError error={error} />
+        </div>
+      )}
       {choicesError && <FormError error={choicesError} />}
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="grid gap-2">
@@ -740,27 +838,22 @@ function RecipeForm({
           })}
         </fieldset>
 
-        <div className="grid gap-2">
-          <Label htmlFor={`${id}-hot-water-mode`}>Hot water by</Label>
-          <Select value={values.hotWaterMode} onValueChange={(value) => set("hotWaterMode", value)}>
-            <SelectTrigger id={`${id}-hot-water-mode`} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="vol">Volume</SelectItem>
-              <SelectItem value="temp">Temperature</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        {numberInput("hotWaterVolume")}
-        {numberInput("hotWaterTemperature")}
-        {numberInput("hotWaterDuration")}
-        {numberInput("hotWaterFlow")}
-
-        <div className="flex items-center gap-2 self-end py-1.5">
+        <div className="flex items-center gap-2 py-1.5 sm:col-span-2">
           <Switch id={`${id}-dashboard`} checked={values.showOnDashboard} onCheckedChange={(checked) => set("showOnDashboard", checked)} />
           <Label htmlFor={`${id}-dashboard`}>Shown on the dashboard</Label>
         </div>
+      </div>
+
+      <div className="grid gap-4">
+        <p className="text-sm text-muted-foreground">
+          A Machine loading the Recipe takes each steam, hot water and flush setting it holds. Leave one empty for each Machine to keep its own.
+        </p>
+        {SETTING_GROUPS.map((group) => (
+          <fieldset key={group.name} className="grid gap-3 sm:grid-cols-2">
+            <legend className="mb-2 text-sm font-medium">{group.name}</legend>
+            {group.settings.map(settingInput)}
+          </fieldset>
+        ))}
       </div>
 
       {!recipe && (
@@ -1065,7 +1158,7 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
           <DialogTitle>Copy {recipeName(recipe)} to a Location</DialogTitle>
           <DialogDescription>
             A new Recipe there, as a starting point: its history starts with the copy, and this Recipe is not changed. It keeps its dial, grind
-            setting and hot water.
+            setting, and the steam, hot water and flush settings it holds.
           </DialogDescription>
         </DialogHeader>
         <form aria-label="Copy the Recipe" className="grid gap-4" onSubmit={copy}>
@@ -1376,24 +1469,13 @@ export function RecipeDetails({ id }: { id: string }) {
                 </ul>
               )}
             </Field>
-            <Field term="Hot water by">{content.hotWaterMode === "temp" ? "Temperature" : "Volume"}</Field>
-            <Field term="Hot water volume">
-              <OrNone>{numberText(content.hotWaterVolume, " ml")}</OrNone>
-            </Field>
-            <Field term="Hot water temperature">
-              <OrNone>{numberText(content.hotWaterTemperature, " °C")}</OrNone>
-            </Field>
-            <Field term="Hot water duration">
-              <OrNone>{numberText(content.hotWaterDuration, " s")}</OrNone>
-            </Field>
-            <Field term="Hot water flow">
-              <OrNone>{numberText(content.hotWaterFlow, " ml/s")}</OrNone>
-            </Field>
             <Field term="Shown on the dashboard">{content.showOnDashboard === false ? "No" : "Yes"}</Field>
             <Field term="Joined">{formatTime(recipe.createdAt)}</Field>
           </Fields>
         </CardContent>
       </Card>
+
+      <RecipeSettingsCard content={content} />
 
       <ItemShotsCard kind="recipe" id={id} />
 
@@ -1425,5 +1507,33 @@ function TakeOutButton({ recipe, onDone }: { recipe: Recipe; onDone(): void }) {
         onConfirm={() => void takeOut()}
       />
     </div>
+  );
+}
+
+/** A Recipe's steam, hot water and flush settings, each it does not hold shown as the Machine's own. */
+function RecipeSettingsCard({ content }: { content: Record<string, unknown> }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          <h2>Steam, hot water and flush</h2>
+        </CardTitle>
+        <CardDescription>What a Machine loading it takes. A setting it does not hold is left as each Machine has it.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-6 sm:grid-cols-3">
+        {SETTING_GROUPS.map((group) => (
+          <section key={group.name} className="grid content-start gap-2">
+            <h3 className="text-sm font-medium">{group.name}</h3>
+            <Fields label={group.name}>
+              {group.settings.map((setting) => (
+                <Field key={setting.field} term={setting.term}>
+                  {settingText(setting, content[setting.field]) ?? <span className="text-muted-foreground">Machine's own</span>}
+                </Field>
+              ))}
+            </Fields>
+          </section>
+        ))}
+      </CardContent>
+    </Card>
   );
 }

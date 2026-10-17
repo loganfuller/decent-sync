@@ -110,12 +110,41 @@ export function updateWorkflow(current: Json, body: unknown, machineConnected: b
 
 /** Whether Decaid writes the change to the machine (`De1Controller.updateWorkflowSettings`). */
 function needsMachine(previous: Json, updated: Json): boolean {
+  return Object.values(changedParts(previous, updated)).some(Boolean);
+}
+
+/** Which of the parts Decaid writes to the machine the change changed (`De1Controller.updateWorkflowSettings`). */
+function changedParts(previous: Json, updated: Json): Record<"steamSettings" | "hotWaterData" | "rinseData", boolean> {
   const changed = (part: string, fields: readonly string[]) => fields.some((field) => partOf(previous, part)[field] !== partOf(updated, part)[field]);
-  return (
-    changed("steamSettings", STEAM_WRITTEN) ||
-    changed("hotWaterData", Object.keys(PARTS.hotWaterData!)) ||
-    changed("rinseData", Object.keys(PARTS.rinseData!))
-  );
+  return {
+    steamSettings: changed("steamSettings", STEAM_WRITTEN),
+    hotWaterData: changed("hotWaterData", Object.keys(PARTS.hotWaterData!)),
+    rinseData: changed("rinseData", Object.keys(PARTS.rinseData!)),
+  };
+}
+
+/**
+ * The machine's settings, by their `GET /machine/settings` names, that
+ * Decaid sets as it writes each changed part to the machine
+ * (`De1Controller.updateWorkflowSettings`): the steam flow, hot water flow
+ * and flush flow, and, on a machine that keeps them (`keepsFlush`), as a
+ * DE1 does in its MMR (`UnifiedDe1.setFlushTemperature`), the flush time and
+ * temperature. Decaid's simulated machine keeps neither
+ * (`MockDe1.setFlushTimeout` and `setFlushTemperature` do nothing), and
+ * answers 10 and 25 whatever was written, as recorded
+ * (dye2-2cf631c/machine-settings.json).
+ */
+export function machineSettingsWritten(previous: Json, updated: Json, keepsFlush: boolean): Json {
+  const parts = changedParts(previous, updated);
+  const written: Json = {};
+  if (parts.steamSettings) written.steamFlow = partOf(updated, "steamSettings").flow;
+  if (parts.hotWaterData) written.hotWaterFlow = partOf(updated, "hotWaterData").flow;
+  if (parts.rinseData) {
+    const rinse = partOf(updated, "rinseData");
+    written.flushFlow = rinse.flow;
+    if (keepsFlush) Object.assign(written, { flushTemp: rinse.targetTemperature, flushTimeout: rinse.duration });
+  }
+  return written;
 }
 
 function partOf(workflow: Json, part: string): Json {

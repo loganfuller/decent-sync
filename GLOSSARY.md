@@ -98,7 +98,7 @@ A program the machine follows while pulling a shot, such as a pressure or flow c
 _Avoid_: Recipe (a recipe is more than a profile)
 
 **Recipe**:
-A named, saved dial-in for a coffee, such as the day's recipe for one roast: its bean batch, profile, dose, yield, grinder and grind setting, basket and tools, and its hot water settings. It belongs to one location, where any machine can load it, and baristas keep it current as they adjust the dial through the day.
+A named, saved dial-in for a coffee, such as the day's recipe for one roast: its bean batch, profile, dose, yield, grinder and grind setting, basket and tools, and any steam, hot water and flush settings it holds (a machine loading it keeps its own for the rest). It belongs to one location, where any machine can load it, and baristas keep it current as they adjust the dial through the day.
 _Avoid_: Stored workflow, preset, favourite
 
 **Recipe Slot**:
@@ -110,8 +110,8 @@ The recipe a barista last applied on a machine, while they are still dialling it
 _Avoid_: Active recipe, current recipe
 
 **Workflow**:
-What a machine is set up to do next: its current profile, dose, yield, bean batch, grinder and setting, and basket, plus its steam, hot water and rinse settings. Each machine has its own profile, dose, yield, batch, grinder, basket and hot water settings, which loading a recipe sets.
-_Avoid_: Recipe (a recipe is saved; a workflow is current)
+What a machine is set up to do next: its current profile, dose, yield, bean batch, grinder and setting, and basket, plus its steam, hot water and flush settings, which loading a recipe sets, so machines at one location with different recipes loaded steam differently. Turning steam off never changes a recipe.
+_Avoid_: Recipe (a recipe is saved; a workflow is current); rinse settings (Decaid's name for the flush settings)
 
 **Shot**:
 One extraction recorded on a machine: its measurements over time, what was used, and how it turned out.

@@ -2,7 +2,7 @@ import { LIBRARY_KINDS, recordGlobalId, sameValue } from "@decent-sync/protocol"
 import type { DeletedKind, LibraryKind, WrittenKind } from "@decent-sync/protocol";
 import { weightOf } from "./batch-intake.js";
 import { KINDS } from "./kinds.js";
-import { withHeldWorkflowSettings } from "./recipe-intake.js";
+import { withHeldFieldFlags } from "./recipe-intake.js";
 import { isObject } from "./listed.js";
 
 // What a tablet should hold for its Location (ADR-0008), and the writes that
@@ -381,7 +381,7 @@ export function recipeWrites(offer: LocationOffer, held: TabletHoldings): (Plann
   for (const recipe of offer.recipes) {
     const record = inSlot.get(recipe.id);
     if (record) {
-      pushUpdate(writes, "recipe", recipe.id, { ...record, content: withHeldWorkflowSettings(recipe.record, record.record), contentDecidedAt: recipe.contentDecidedAt }, {}, null);
+      pushUpdate(writes, "recipe", recipe.id, { ...record, content: withHeldFieldFlags(recipe.record, record.record), contentDecidedAt: recipe.contentDecidedAt }, {}, null);
     } else {
       writes.push({ kind: "recipe", globalId: recipe.id, localId: null, fields: { ...recipe.record, id: String(recipe.slot) }, decidedAt: null, contentDecidedAt: recipe.contentDecidedAt });
     }
