@@ -79,18 +79,33 @@ Workflow events share; large ones are chunked like any delivery. Whether to
 send is decided by `plugin/src/change-detection.ts`, a pure module with module
 tests (`plugin/test/change-detection.test.ts`):
 
-- While connected, every poll interval the plugin reads each collection, one
-  after another, and sends one that changed since it was last queued: it
-  became available or unavailable, or its ETag differs, or, without one, a
-  hash of its JSON does. The library's lists are read with the last ETag in
-  `If-None-Match`; Decaid's 304 sends nothing. While disconnected it does not
-  poll.
+- While connected, every poll interval the plugin reads each collection but
+  the machine's own settings, one after another, and sends one that changed
+  since it was last queued: it became available or unavailable, or its ETag
+  differs, or, without one, a hash of its JSON does. The library's lists are
+  read with the last ETag in `If-None-Match`; Decaid's 304 sends nothing.
+  While disconnected it does not poll.
+- It reads the machine's own settings (`machineSettings` and
+  `advancedSettings`) on their own interval, 60 s from their last read, or the
+  poll interval where that is longer, as Decaid answers them by reading the
+  machine (below). Nothing needs them fresher: the server only stores them,
+  and a Machine's page in the management interface loads them every 30 s.
+  While connected it also reads them at once after a `workflowUpdated` whose
+  steam, hot water or flush settings (`steamSettings`, `hotWaterData` or
+  `rinseData`, `MACHINE_SETTING_PARTS`) differ from the last Workflow's, as
+  after a Loaded Recipe's write or a barista's change on the tablet: Decaid
+  writes those parts to the machine, and reports the Workflow only once the
+  machine holds them (`AI_RUNTIME_NOTES.md`). The first Workflow after the
+  plugin loads is compared with nothing, as the welcome's read covers it. A
+  change made outside the Workflow, as Streamline's settings page makes with
+  `POST /machine/settings`, reaches the server by their next interval.
 - On every `welcome`, it reads every collection again, without
   `If-None-Match`, and sends each, unavailable ones included, whether or not it
   changed. That also covers whatever changed while it was disconnected. It
   does the same when the server sends `requestCollections`, as it does when
   the Machine's Location changes, after sending its latest Workflow again
-  (`LIBRARY.md`, Joining a Location).
+  (`LIBRARY.md`, Joining a Location). Either counts as a read of the
+  machine's own settings for their interval.
 - Whenever it sends the beans, it sends the bean batches in full after them,
   changed or not, as the server takes in a batch only once it knows the
   batch's bean (`LIBRARY.md`). The library's lists the server writes to (the
@@ -109,7 +124,9 @@ Decaid's plugin `fetch` passes request headers and gives response headers
 through `headers.get` (`PluginManager` in
 `decaid:lib/src/plugins/plugin_manager.dart`). Decaid answers the machine and
 advanced settings by reading each one from the machine's memory over its
-Bluetooth or USB connection (`UnifiedDe1`), fifteen reads per poll.
+Bluetooth or USB connection (`UnifiedDe1`), fifteen reads each time, on the
+link the scale also uses, which is why the plugin reads them less often than
+the rest.
 
 ## Server
 

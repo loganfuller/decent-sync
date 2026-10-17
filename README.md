@@ -401,7 +401,7 @@ them ([ADR-0017](docs/adr/0017-supported-versions.md)).
 |---|---|
 | Server URL | the server's `PUBLIC_URL`, such as `https://sync.example.com` |
 | Token | the Machine's token (stored securely by Decaid) |
-| Poll interval | seconds between checks for machine, library, settings and device changes (default 30, at least 5) |
+| Poll interval | seconds between checks for changes to the library, app settings, paired devices, scale, sensors and Steam Records (default 30, at least 5); the machine's own settings are read every 60 s, or this often if longer, and whenever a Workflow change writes them |
 
 ## Development
 

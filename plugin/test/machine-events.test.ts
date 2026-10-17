@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MachineStateDelivery, WorkflowDelivery } from "@decent-sync/protocol";
-import { type EventOutbox, MachineEvents } from "../src/machine-events.js";
+import { type EventOutbox, MachineEvents, machineSettingsDiffer } from "../src/machine-events.js";
 
 // How the plugin's Workflow deliveries are held while its writes into the
 // Workflow are under way, and which of them a welcome's resend replaces:
@@ -10,7 +10,11 @@ import { type EventOutbox, MachineEvents } from "../src/machine-events.js";
 
 type Workflow = Record<string, unknown>;
 
-/** MachineEvents on an outbox recording each Workflow queued, and the deliveries it was told to supersede. */
+/**
+ * MachineEvents on an outbox recording each Workflow queued, and the
+ * deliveries it was told to supersede, counting the times it said the
+ * machine's own settings changed.
+ */
 function events() {
   let next = 0;
   const queued: { id: string; workflow: Workflow }[] = [];
@@ -32,7 +36,9 @@ function events() {
   };
   /** The Workflows queued that are still to be sent. */
   const kept = () => queued.filter(({ id }) => !superseded.has(id)).map(({ workflow }) => workflow);
-  return { machineEvents: new MachineEvents(outbox), queued: () => queued.map(({ workflow }) => workflow), kept, deliveries, superseded, sent };
+  const machineSettings = { changes: 0 };
+  const machineEvents = new MachineEvents(outbox, () => {}, () => machineSettings.changes++);
+  return { machineEvents, queued: () => queued.map(({ workflow }) => workflow), kept, deliveries, superseded, sent, machineSettings };
 }
 
 const state = (name: string) => ({ state: { state: name, substate: "ready" } });
@@ -143,5 +149,49 @@ describe("DYE2 absent", () => {
     expect(queued()).toEqual([dosed(18)]);
     machineEvents.workflowUpdated(dosed(19));
     expect(deliveries.at(-1)).toMatchObject({ workflow: dosed(19), dye2Absent: true });
+  });
+});
+
+describe("The machine's own settings read again on a Workflow change", () => {
+  // The test tablet's steam, hot water and flush settings (server/test/fixtures/decaid/de1pro-v0.8.7/workflow.json).
+  const steam = { targetTemperature: 160, duration: 120, flow: 2.500000000000001, stopAtTemperature: 0 };
+  const hotWater = { targetTemperature: 65, duration: 30, volume: 100, flow: 10 };
+  const rinse = { targetTemperature: 90, duration: 5, flow: 6 };
+  const workflow = (changes: Workflow = {}): Workflow => ({
+    context: { targetDoseWeight: 18 },
+    steamSettings: steam,
+    hotWaterData: hotWater,
+    rinseData: rinse,
+    ...changes,
+  });
+
+  it("tells only of a change of the steam, hot water or flush settings, whatever their fields' order", () => {
+    expect(machineSettingsDiffer(workflow(), workflow())).toBe(false);
+    expect(machineSettingsDiffer(workflow(), workflow({ context: { targetDoseWeight: 19 }, profile: { title: "Londonium" } }))).toBe(false);
+    expect(machineSettingsDiffer(workflow(), workflow({ steamSettings: { stopAtTemperature: 0, flow: 2.500000000000001, duration: 120, targetTemperature: 160 } }))).toBe(false);
+    expect(machineSettingsDiffer(workflow(), workflow({ steamSettings: { ...steam, flow: 1.5 } }))).toBe(true);
+    expect(machineSettingsDiffer(workflow(), workflow({ hotWaterData: { ...hotWater, volume: 120 } }))).toBe(true);
+    expect(machineSettingsDiffer(workflow(), workflow({ rinseData: { ...rinse, targetTemperature: 92 } }))).toBe(true);
+    const { rinseData: _rinse, ...withoutRinse } = workflow();
+    expect(machineSettingsDiffer(workflow(), withoutRinse)).toBe(true);
+  });
+
+  it("compares each Workflow with the last one reported, held or not, the first one after loading with nothing", () => {
+    const { machineEvents, machineSettings } = events();
+    machineEvents.workflowUpdated(workflow());
+    expect(machineSettings.changes).toBe(0);
+    machineEvents.workflowUpdated(workflow({ context: { targetDoseWeight: 19 } }));
+    expect(machineSettings.changes).toBe(0);
+    machineEvents.workflowUpdated(workflow({ steamSettings: { ...steam, flow: 1.5 } }));
+    expect(machineSettings.changes).toBe(1);
+    // As while the plugin writes a Loaded Recipe into the Workflow.
+    machineEvents.hold();
+    machineEvents.workflowUpdated(workflow({ steamSettings: { ...steam, flow: 1.5 }, rinseData: { ...rinse, flow: 4 } }));
+    expect(machineSettings.changes).toBe(2);
+    machineEvents.release();
+    // A welcome sends the Workflow again, and reads the machine's settings itself.
+    machineEvents.welcome();
+    machineEvents.workflowUpdated(workflow({ steamSettings: { ...steam, flow: 1.5 }, rinseData: { ...rinse, flow: 4 } }));
+    expect(machineSettings.changes).toBe(2);
   });
 });

@@ -636,6 +636,8 @@ export class SimulatedTablet {
   readonly storage: PluginStorage;
   /** The Decaid API routes the plugin requested, in order, such as "/machine/info". */
   readonly requests: string[] = [];
+  /** When the plugin made each of `requests`, by the tablet's clock (`readClock`). */
+  readonly requestedAt: number[] = [];
   /** The plugin's requests that could change the tablet's data (any method but GET), such as "POST /beans". */
   readonly writes: string[] = [];
   /** The plugin's writes to Decaid's store API that Decaid carried out, in order, each with the value written. */
@@ -1335,6 +1337,7 @@ export class SimulatedTablet {
     if (!url.startsWith(`${API_ORIGIN}/api/v1/`)) return Promise.reject(new Error(`The simulated tablet has no network for ${url}`));
     const route = url.slice(`${API_ORIGIN}/api/v1`.length).split("?")[0]!;
     this.requests.push(route);
+    this.requestedAt.push(this.now());
     // Decaid's fetch sends a request's method, headers and body as given (plugin_manager.dart).
     const { method = "GET", headers = {}, body } = (init ?? {}) as { method?: string; headers?: Record<string, string>; body?: unknown };
     if (method.toUpperCase() !== "GET") {

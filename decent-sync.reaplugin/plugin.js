@@ -2553,6 +2553,8 @@ var __decentSync = (() => {
     { name: "sensors", path: "/sensors" }
   ];
   var WRITTEN_LISTS = new Set(LIBRARY_LISTS);
+  var MACHINE_SETTINGS = /* @__PURE__ */ new Set(["machineSettings", "advancedSettings"]);
+  var MACHINE_SETTINGS_MS = 6e4;
   var CollectionCapture = class {
     constructor(outbox, library, pollMs, sawRecipes = () => {
     }) {
@@ -2569,17 +2571,25 @@ var __decentSync = (() => {
       __publicField(this, "wanted");
       /** Whether DYE2's recipes alone are to be read, as after DYE2 pushes (`readRecipes`). */
       __publicField(this, "recipesWanted", false);
+      /** Whether the machine's own settings are to be read, on their interval or after the Workflow wrote them (`readMachineSettings`). */
+      __publicField(this, "machineSettingsWanted", false);
       __publicField(this, "reading", false);
       __publicField(this, "stopped", false);
       __publicField(this, "pollTimer");
+      __publicField(this, "machineSettingsTimer");
+      /** How often the machine's own settings are read while connected. */
+      __publicField(this, "machineSettingsMs");
       library.onWrite((list) => this.last.delete(list));
+      this.machineSettingsMs = Math.max(MACHINE_SETTINGS_MS, pollMs);
     }
     start() {
       this.schedulePoll();
+      this.scheduleMachineSettings();
     }
     stop() {
       this.stopped = true;
       if (this.pollTimer !== void 0) clearTimeout(this.pollTimer);
+      if (this.machineSettingsTimer !== void 0) clearTimeout(this.machineSettingsTimer);
     }
     /** Every collection, read again and sent in full, as on every welcome and whenever the server asks. */
     sendAll() {
@@ -2596,12 +2606,33 @@ var __decentSync = (() => {
       this.recipesWanted = true;
       void this.run();
     }
+    /**
+     * The machine's own settings, read again and sent if they changed, while
+     * connected: after a Workflow change of its steam, hot water or flush
+     * settings, which Decaid writes to the machine before it reports the
+     * Workflow (`MachineEvents`), so the change reaches the server then, not
+     * only on their interval.
+     */
+    readMachineSettings() {
+      if (this.stopped || !this.outbox.connected) return;
+      this.machineSettingsWanted = true;
+      void this.run();
+    }
     schedulePoll() {
       this.pollTimer = setTimeout(() => {
         this.pollTimer = void 0;
         if (this.outbox.connected) this.read("changes");
         if (!this.stopped) this.schedulePoll();
       }, this.pollMs);
+    }
+    /** Reads the machine's own settings once their interval passes without a read of them, which restarts it. */
+    scheduleMachineSettings() {
+      if (this.machineSettingsTimer !== void 0) clearTimeout(this.machineSettingsTimer);
+      this.machineSettingsTimer = setTimeout(() => {
+        this.machineSettingsTimer = void 0;
+        if (this.outbox.connected) this.readMachineSettings();
+        else if (!this.stopped) this.scheduleMachineSettings();
+      }, this.machineSettingsMs);
     }
     read(kind) {
       if (this.stopped) return;
@@ -2612,11 +2643,18 @@ var __decentSync = (() => {
       if (this.reading) return;
       this.reading = true;
       try {
-        while ((this.wanted !== void 0 || this.recipesWanted) && !this.stopped) {
+        while ((this.wanted !== void 0 || this.recipesWanted || this.machineSettingsWanted) && !this.stopped) {
           const full = this.wanted === "full";
-          const sources = this.wanted === void 0 ? SOURCES.filter((source) => source.name === "dye2Recipes") : SOURCES;
+          const polled = this.wanted !== void 0;
+          const recipes = polled || this.recipesWanted;
+          const machineSettings = full || this.machineSettingsWanted;
+          const sources = SOURCES.filter(
+            (source) => MACHINE_SETTINGS.has(source.name) ? machineSettings : source.name === "dye2Recipes" ? recipes : polled
+          );
           this.wanted = void 0;
           this.recipesWanted = false;
+          this.machineSettingsWanted = false;
+          if (machineSettings) this.scheduleMachineSettings();
           const sentLists = /* @__PURE__ */ new Set();
           for (const source of sources) {
             if (this.stopped) return;
@@ -2848,9 +2886,11 @@ var __decentSync = (() => {
   }
   var MachineEvents = class {
     constructor(outbox, observe = () => {
+    }, machineSettingsChanged = () => {
     }) {
       __publicField(this, "outbox", outbox);
       __publicField(this, "observe", observe);
+      __publicField(this, "machineSettingsChanged", machineSettingsChanged);
       /** The latest Workflow Decaid reported, and when. */
       __publicField(this, "workflow");
       __publicField(this, "reportedAt", now());
@@ -2894,6 +2934,7 @@ var __decentSync = (() => {
     workflowUpdated(payload) {
       const workflow = object(payload);
       if (!workflow) return;
+      const previous = this.workflow;
       this.workflow = workflow;
       this.reportedAt = now();
       this.observe(workflow);
@@ -2901,6 +2942,7 @@ var __decentSync = (() => {
         this.heldChange = true;
         this.heldReport = true;
       } else this.queueWorkflow(workflow);
+      if (previous && machineSettingsDiffer(previous, workflow)) this.machineSettingsChanged();
     }
     /** Holds back the Workflow's changes, as one of the plugin's writes into it begins. */
     hold() {
@@ -3000,6 +3042,9 @@ var __decentSync = (() => {
       return delivery.id;
     }
   };
+  function machineSettingsDiffer(earlier, later) {
+    return MACHINE_SETTING_PARTS.some((part) => !sameValue(earlier[part], later[part]));
+  }
   function now() {
     return (/* @__PURE__ */ new Date()).toISOString();
   }
@@ -3850,7 +3895,11 @@ var __decentSync = (() => {
         settings.pollSeconds * 1e3,
         () => this.collections.readRecipes()
       );
-      this.machineEvents = new MachineEvents(this.outbox, (workflow) => this.loadedRecipes.observe(workflow));
+      this.machineEvents = new MachineEvents(
+        this.outbox,
+        (workflow) => this.loadedRecipes.observe(workflow),
+        () => this.collections.readMachineSettings()
+      );
       const library = new LibraryAccess();
       this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1e3, (value) => this.loadedRecipes.sawRecipes(value));
       this.writes = new LibraryWrites(

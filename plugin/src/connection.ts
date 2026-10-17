@@ -203,7 +203,11 @@ export class SyncConnection {
       settings.pollSeconds * 1000,
       () => this.collections.readRecipes(),
     );
-    this.machineEvents = new MachineEvents(this.outbox, (workflow) => this.loadedRecipes.observe(workflow));
+    this.machineEvents = new MachineEvents(
+      this.outbox,
+      (workflow) => this.loadedRecipes.observe(workflow),
+      () => this.collections.readMachineSettings(),
+    );
     const library = new LibraryAccess();
     this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1000, (value) => this.loadedRecipes.sawRecipes(value));
     this.writes = new LibraryWrites(

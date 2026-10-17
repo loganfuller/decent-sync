@@ -31,7 +31,7 @@
       "type": "number",
       "label": "Poll interval (seconds)",
       "default": 30,
-      "description": "How often to check the machine, library, settings and paired devices for changes. At least 5."
+      "description": "How often to check the library, app settings, paired devices, scale, sensors and Steam Records for changes. The machine's own settings are read every 60 s, or this often if longer, and whenever a Workflow change writes them. At least 5."
     }
   },
   "api": [
