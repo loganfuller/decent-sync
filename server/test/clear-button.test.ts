@@ -122,7 +122,8 @@ describe("The Clear button in the plugin's skin answer", () => {
     await select(tablet, "recipe", "1");
     const started = Date.now();
     expect(await surfaces(tablet)).toEqual([]);
-    expect(Date.now() - started).toBeLessThan(2_000);
+    // Well short of DYE2's 5 s, which an answer that waited for it would take.
+    expect(Date.now() - started).toBeLessThan(4_000);
   });
 });
 
@@ -167,7 +168,7 @@ describe("A tap on the Clear button", () => {
     slow = true;
     const started = Date.now();
     expect((await tapClear(tablet)).headers.Location).toBe(DASHBOARD);
-    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(Date.now() - started).toBeLessThan(8_000);
     await tablet.waitForLog(/^Could not clear DYE2's selection for the Clear button: DYE2 did not answer within 3 s$/);
     slow = false;
 

@@ -27,7 +27,11 @@ import type { ListPosted } from "./library-writes.js";
 // that fails is not tried again, as it could unload a recipe the barista
 // applied since: the button still showing tells them. The plugin pushes
 // `{"what":"skin"}` on each push from DYE2, which pushes on every change of
-// which item it has selected, so the button shows and hides at once.
+// which item it has selected, after each Workflow change it records into
+// it, and after refreshing its recent favourites, so the button shows and
+// hides at once. Streamline at c006dac re-reads every plugin's `skin` on any
+// plugin's push, DYE2's included, so it does already; the plugin's push
+// keeps it so, whichever plugins a skin reads again on a push.
 // Interim, until Streamline unloads it itself (decentespresso/streamline-js#159,
 // ADR-0022). Streamline draws one plugin header button, the first plugin's
 // in Decaid's list whose `skin` read succeeds.
@@ -101,14 +105,15 @@ async function clearSelection(log: (message: string) => void): Promise<void> {
   if (problem !== null) log(`Could not clear DYE2's selection for the Clear button: ${problem}`);
 }
 
-/** Resolves as the work does, or with `late` once `ms` pass first. */
+/** Resolves as the work does, or with `late` once `ms` pass first or the work fails. */
 function within<T>(ms: number, work: Promise<T>, late: T): Promise<T> {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(late), ms);
-    void work.then((value) => {
+    const settle = (value: T) => {
       clearTimeout(timer);
       resolve(value);
-    });
+    };
+    work.then(settle, () => settle(late));
   });
 }
 

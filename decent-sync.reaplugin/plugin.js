@@ -3518,10 +3518,11 @@ var __decentSync = (() => {
   function within(ms, work, late) {
     return new Promise((resolve) => {
       const timer = setTimeout(() => resolve(late), ms);
-      void work.then((value) => {
+      const settle = (value) => {
         clearTimeout(timer);
         resolve(value);
-      });
+      };
+      work.then(settle, () => settle(late));
     });
   }
   function isPageUrl(url) {
