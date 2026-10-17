@@ -99,6 +99,9 @@ describe("The Clear button in the plugin's skin answer", () => {
     await tablet.callApi("POST", FAVOURITES, [{ id: "favourite-long", title: "Ethiopia Yirgacheffe Natural, Lot 7, for milk" }]);
     await select(tablet, "favourite", "favourite-long");
     expect(await surfaces(tablet)).toEqual([clearButton("Unload Ethiopia Yirgacheffe Natural, Lo…")]);
+    // Cut by code point: a character outside the Basic Multilingual Plane at the cut is left whole or out, never halved.
+    await tablet.callApi("POST", FAVOURITES, [{ id: "favourite-long", title: "Ethiopia Yirgacheffe Natural, L\u{1F525}\u{1F525} for milk" }]);
+    expect(await surfaces(tablet)).toEqual([clearButton("Unload Ethiopia Yirgacheffe Natural, L\u{1F525}…")]);
   });
 
   it("does not show while DYE2 is not loaded or absent", async () => {
@@ -177,7 +180,7 @@ describe("A tap on the Clear button", () => {
     await tablet.waitForLog(/^Could not clear DYE2's selection for the Clear button: DYE2 is not loaded$/);
   });
 
-  it("goes back only to an http or https page, and answers nothing else", async () => {
+  it("goes back only to an http or https page, sends any other view straight back, and answers nothing else", async () => {
     const { tablet, dye2 } = unconnected(51013);
     for (const returnTo of [null, "", "javascript:alert(1)", "http://user:secret@localhost:8080/", "http://localhost:8080/\r\nSet-Cookie: x=1", "/streamline/index.html"]) {
       await select(tablet, "recipe", "2");
@@ -190,8 +193,14 @@ describe("A tap on the Clear button", () => {
 
     const asked = dye2.asked.length;
     expect((await tablet.callEndpoint("ui", { method: "POST", query: { view: "clear", returnTo: DASHBOARD } })).status).toBe(405);
-    expect((await tablet.callEndpoint("ui", { query: { returnTo: DASHBOARD } })).status).toBe(404);
-    expect((await tablet.callEndpoint("ui", { query: { view: "main", returnTo: DASHBOARD } })).status).toBe(404);
+    // Streamline's settings card opens `ui` with no view from its Open button: straight back, clearing nothing.
+    const settings = "http://localhost:13999/?page=settings";
+    for (const query of [{ returnTo: settings }, { view: "main", returnTo: settings }] as Record<string, string>[]) {
+      const answer = await tablet.callEndpoint("ui", { query });
+      expect([answer.status, answer.headers.Location, answer.headers["Cache-Control"]]).toEqual([303, settings, "no-store"]);
+    }
+    expect((await tablet.callEndpoint("ui")).status).toBe(404);
+    expect((await tablet.callEndpoint("ui", { query: { view: "main", returnTo: "javascript:alert(1)" } })).status).toBe(404);
     expect(dye2.asked.length).toBe(asked);
   });
 });

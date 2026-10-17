@@ -65,17 +65,24 @@ const TEXT_MAX = 40;
 
 /**
  * Answers a request to one of the plugin's HTTP endpoints: `skin` and `ui`
- * to a GET, and nothing else.
+ * to a GET, and nothing else. `ui` has no page but the Clear button's: any
+ * other view, as Streamline's settings card opens with its Open button,
+ * which it shows for every plugin declaring `ui`, goes straight back.
  */
 export async function answerHttp(request: HttpRequest, log: (message: string) => void): Promise<HttpAnswer> {
   if (request.endpoint !== SKIN_ENDPOINT && request.endpoint !== UI_ENDPOINT) return json(404, { error: "Not found" });
   if (request.method !== "GET") return { ...json(405, { error: "Only GET is answered" }), headers: { "Content-Type": "application/json", Allow: "GET" } };
   if (request.endpoint === SKIN_ENDPOINT) return json(200, { version: 1, surfaces: await clearButton(), live: { endpoint: CHANGED_ENDPOINT } });
-  if (request.query.view !== CLEAR_VIEW) return json(404, { error: "Not found" });
-  await clearSelection(log);
   const returnTo = request.query.returnTo;
+  const back = typeof returnTo === "string" && isPageUrl(returnTo) ? returnTo : null;
+  if (request.query.view !== CLEAR_VIEW) return back === null ? json(404, { error: "Not found" }) : goBack(back);
+  await clearSelection(log);
   // No page to go back to: the browser stays where it is.
-  if (typeof returnTo !== "string" || !isPageUrl(returnTo)) return { status: 204, headers: { "Cache-Control": "no-store" }, body: "" };
+  return back === null ? { status: 204, headers: { "Cache-Control": "no-store" }, body: "" } : goBack(back);
+}
+
+/** Sends the browser back to the skin's page, leaving nothing in its history or cache to open the plugin's page again. */
+function goBack(returnTo: string): HttpAnswer {
   return { status: 303, headers: { Location: returnTo, "Cache-Control": "no-store" }, body: "" };
 }
 
@@ -83,13 +90,14 @@ export async function answerHttp(request: HttpRequest, log: (message: string) =>
 async function clearButton(): Promise<unknown[]> {
   const name = await within(SKIN_READ_MS, readSelectedName().catch(() => null), null);
   if (name === null) return [];
-  const text = `Unload ${name}`;
+  // By code point, so a character outside the Basic Multilingual Plane is never cut in half.
+  const text = Array.from(`Unload ${name}`);
   return [
     {
       id: "clear",
       kind: "header-button",
       label: "Clear",
-      text: text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX - 1)}…` : text,
+      text: text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX - 1).join("")}…` : text.join(""),
       action: { type: "open", view: CLEAR_VIEW, presentation: "page" },
     },
   ];

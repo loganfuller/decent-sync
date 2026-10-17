@@ -3487,22 +3487,25 @@ var __decentSync = (() => {
     if (request2.endpoint !== SKIN_ENDPOINT && request2.endpoint !== UI_ENDPOINT) return json(404, { error: "Not found" });
     if (request2.method !== "GET") return { ...json(405, { error: "Only GET is answered" }), headers: { "Content-Type": "application/json", Allow: "GET" } };
     if (request2.endpoint === SKIN_ENDPOINT) return json(200, { version: 1, surfaces: await clearButton(), live: { endpoint: CHANGED_ENDPOINT } });
-    if (request2.query.view !== CLEAR_VIEW) return json(404, { error: "Not found" });
-    await clearSelection(log);
     const returnTo = request2.query.returnTo;
-    if (typeof returnTo !== "string" || !isPageUrl(returnTo)) return { status: 204, headers: { "Cache-Control": "no-store" }, body: "" };
+    const back = typeof returnTo === "string" && isPageUrl(returnTo) ? returnTo : null;
+    if (request2.query.view !== CLEAR_VIEW) return back === null ? json(404, { error: "Not found" }) : goBack(back);
+    await clearSelection(log);
+    return back === null ? { status: 204, headers: { "Cache-Control": "no-store" }, body: "" } : goBack(back);
+  }
+  function goBack(returnTo) {
     return { status: 303, headers: { Location: returnTo, "Cache-Control": "no-store" }, body: "" };
   }
   async function clearButton() {
     const name = await within(SKIN_READ_MS, readSelectedName().catch(() => null), null);
     if (name === null) return [];
-    const text = `Unload ${name}`;
+    const text = Array.from(`Unload ${name}`);
     return [
       {
         id: "clear",
         kind: "header-button",
         label: "Clear",
-        text: text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX - 1)}…` : text,
+        text: text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX - 1).join("")}…` : text.join(""),
         action: { type: "open", view: CLEAR_VIEW, presentation: "page" }
       }
     ];
