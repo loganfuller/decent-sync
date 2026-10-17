@@ -219,32 +219,72 @@ fly.io example below.
 ### fly.io
 
 [fly.io](https://fly.io) can host the server on the internet for machines at
-several sites. This example deploys the published image with a PostgreSQL
-database on fly.io; any PostgreSQL 14 or newer that fly.io can reach works.
+several sites. This example deploys the published image with a database on
+Fly Managed Postgres; any PostgreSQL 14 or newer that fly.io can reach works.
+
+Create the app, a cluster, and a database and user for the server, then attach
+them, which sets the app's `DATABASE_URL` secret. The user needs the
+`schema_admin` role: migrations create tables, which a `writer` may not.
 
 ```bash
 fly apps create my-decent-sync
-fly mpg create                  # Fly Managed Postgres; note its direct connection URL
-fly secrets set --app my-decent-sync DATABASE_URL='postgresql://...'
+fly mpg create                  # note the cluster's id
+fly mpg databases create <cluster id> --name decent_sync
+fly mpg users create <cluster id> --username decent_sync --role schema_admin
+fly mpg attach <cluster id> --app my-decent-sync --database decent_sync --username decent_sync
 ```
 
-Use the database's direct URL, not the pooled one. The server has not yet been
-tested through the pooled URL, and it listens for PostgreSQL notifications,
-which the pooler drops in transaction mode.
+Two changes to that URL are needed:
 
-Save a `fly.toml` like this one, with your app's name and the image version to
-run, then deploy one machine. A new version must not run beside the old
-one, and fly.io deploys to several machines one at a time, so skip its
-default second machine:
+- `fly mpg attach` points it at the cluster's pooler,
+  `pgbouncer.<cluster id>.flympg.net`. Use the direct host,
+  `direct.<cluster id>.flympg.net`, instead. The server has not yet been tested
+  through the pooler, and it listens for PostgreSQL notifications, which a
+  pooler drops in transaction mode.
+- Managed Postgres's databases are owned by `postgres`, so the migration cannot
+  set the database's idle-in-transaction timeout (see above), and Managed
+  Postgres refuses role settings too. Send the timeout at connection startup
+  instead, by adding `options=-c idle_in_transaction_session_timeout=30s` to
+  the URL, which the direct host accepts. Without it the server warns at
+  startup.
+
+fly.io does not show a secret again. Either set the whole URL yourself, with
+the user's password:
+
+```bash
+fly secrets set --app my-decent-sync --stage \
+  DATABASE_URL='postgresql://decent_sync:<password>@direct.<cluster id>.flympg.net/decent_sync?options=-c+idle_in_transaction_session_timeout%3D30s'
+```
+
+Or, before the first deploy, rewrite the attached one on a temporary machine,
+which keeps the password out of your terminal. The machine removes itself
+after 10 minutes:
+
+```bash
+fly machine run ghcr.io/loganfuller/decent-sync:1.0.0 sleep 600 --app my-decent-sync --rm
+fly ssh console --app my-decent-sync -q -C 'node -e "const u = new URL(process.env.DATABASE_URL); u.hostname = u.hostname.replace(/^pgbouncer[.]/, \"direct.\"); u.searchParams.set(\"options\", \"-c idle_in_transaction_session_timeout=30s\"); console.log(\"DATABASE_URL=\" + u)"' \
+  | tr -d '\r' | fly secrets import --app my-decent-sync --stage
+```
+
+Save a `fly.toml` like this one, with your app's name, the region nearest the
+database and the image version to run, then deploy one machine. A new version
+must not run beside the old one, and fly.io deploys to several machines one at
+a time, so skip its default second machine:
 
 ```bash
 fly deploy --ha=false
+fly ips list --app my-decent-sync
 ```
+
+If the app has no addresses after its first deploy, as can happen when
+deploying from a script, allocate them with `fly ips allocate-v4 --shared` and
+`fly ips allocate-v6`. Once the app is reachable, anyone can open it and create
+the first Admin, so do that straight away.
 
 ```toml
 # fly.toml
 app = "my-decent-sync"
-primary_region = "ord"
+primary_region = "yyz"
 
 [build]
   image = "ghcr.io/loganfuller/decent-sync:1.0.0"
