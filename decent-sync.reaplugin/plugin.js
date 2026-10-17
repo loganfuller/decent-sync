@@ -1139,7 +1139,8 @@ var __decentSync = (() => {
       this.observed++;
       this.holdUntilRead(workflow);
       const load = this.load && { ...this.load, espresso: this.espressos > this.load.espressos };
-      if (before) this.enqueue(() => this.changed(before, workflow, load));
+      const loaded = this.loaded;
+      if (before) this.enqueue(() => this.changed(before, workflow, load, loaded));
       this.readSoon();
     }
     /**
@@ -1340,11 +1341,14 @@ var __decentSync = (() => {
      * it and clears DYE2's selection, which DYE2 keeps through either
      * (decentespresso/dye2#19). A grinder or batch cleared is no such change,
      * nor is a batch set back to the one the load replaced, before the first
-     * espresso since, which the server writes back (ADR-0022, Stale values).
+     * espresso since (ADR-0022, Stale values; #188). Nor is a change seen
+     * while another Recipe, or none, was loaded (`loaded`): a load decided
+     * after it, as on a read of DYE2's selection that came first, took the
+     * Workflow as it was then.
      */
-    async changed(before, after, load) {
+    async changed(before, after, load, loaded) {
       const globalId = this.loaded;
-      if (globalId === null || this.captureOnly || this.relocating !== null) return;
+      if (globalId === null || globalId !== loaded || this.captureOnly || this.relocating !== null) return;
       const slot = this.slotOf(globalId);
       const recipe = slot === null ? void 0 : this.recipes.get(slot);
       if (!recipe) return;
@@ -1638,7 +1642,7 @@ var __decentSync = (() => {
         this.readSoon();
       }
       this.changes.release();
-      if (reported && wrote && this.latest) await this.changed(wrote.read, this.latest, this.load && { ...this.load, espresso: this.espressos > this.load.espressos });
+      if (reported && wrote && this.latest) await this.changed(wrote.read, this.latest, this.load && { ...this.load, espresso: this.espressos > this.load.espressos }, this.loaded);
     }
     /** The slot a Recipe is in on the tablet now, or null. */
     slotOf(globalId) {

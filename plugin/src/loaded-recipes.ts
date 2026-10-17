@@ -226,7 +226,8 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     this.holdUntilRead(workflow);
     // Whether an espresso started since the load, as the change was reported: one reported after it is decided after it.
     const load = this.load && { ...this.load, espresso: this.espressos > this.load.espressos };
-    if (before) this.enqueue(() => this.changed(before, workflow, load));
+    const loaded = this.loaded;
+    if (before) this.enqueue(() => this.changed(before, workflow, load, loaded));
     this.readSoon();
   }
 
@@ -464,11 +465,19 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * it and clears DYE2's selection, which DYE2 keeps through either
    * (decentespresso/dye2#19). A grinder or batch cleared is no such change,
    * nor is a batch set back to the one the load replaced, before the first
-   * espresso since, which the server writes back (ADR-0022, Stale values).
+   * espresso since (ADR-0022, Stale values; #188). Nor is a change seen
+   * while another Recipe, or none, was loaded (`loaded`): a load decided
+   * after it, as on a read of DYE2's selection that came first, took the
+   * Workflow as it was then.
    */
-  private async changed(before: Record<string, unknown>, after: Record<string, unknown>, load: (LoadedRecipes["load"] & { espresso: boolean }) | null): Promise<void> {
+  private async changed(
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+    load: (LoadedRecipes["load"] & { espresso: boolean }) | null,
+    loaded: string | null,
+  ): Promise<void> {
     const globalId = this.loaded;
-    if (globalId === null || this.captureOnly || this.relocating !== null) return;
+    if (globalId === null || globalId !== loaded || this.captureOnly || this.relocating !== null) return;
     const slot = this.slotOf(globalId);
     const recipe = slot === null ? undefined : this.recipes.get(slot);
     // Gone from the tablet's slots: the server unloads it.
@@ -786,7 +795,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       this.readSoon();
     }
     this.changes.release();
-    if (reported && wrote && this.latest) await this.changed(wrote.read, this.latest, this.load && { ...this.load, espresso: this.espressos > this.load.espressos });
+    if (reported && wrote && this.latest) await this.changed(wrote.read, this.latest, this.load && { ...this.load, espresso: this.espressos > this.load.espressos }, this.loaded);
   }
 
   /** The slot a Recipe is in on the tablet now, or null. */

@@ -19,6 +19,7 @@ import {
   recipeWorkflow,
   recordOf,
   tabletIds,
+  withHeldWorkflowSettings,
 } from "../src/library/recipe-intake.js";
 import { dye2Keys, dye2Library } from "./support/simulated-dye2.js";
 
@@ -312,6 +313,24 @@ describe("DYE2's recipes as Recipes", () => {
     const ratio = recipeWorkflow({ ...view, "dashboardVariables.drink": null, "dashboardVariables.ratio": 2.2, profileSnapshot: null }, GLOBAL.recipe);
     expect(ratio).toMatchObject({ context: { targetDoseWeight: 18.5, targetYield: 40.7 }, profile: { id: ADAPTIVE, title: "Adaptive v3" } });
     expect(recipeWorkflow(recipeView(blank), GLOBAL.recipe)).not.toHaveProperty("profile");
+  });
+
+  it("keeps the machine settings and field flags DYE2 copied into a tablet's record's embedded Workflow, but the hot water the server writes", () => {
+    const view = recipeRecord({ ...slot1Content, hotWaterVolume: 250 }, 1, writing(), GLOBAL.recipe);
+    const held = {
+      workflow: {
+        context: { extras: { dye: { v: 1, coffeeName: true } } },
+        steamSettings: { duration: 30 },
+        hotWaterData: { targetTemperature: 80, duration: 40, volume: 200, flow: 7.5 },
+        rinseData: { duration: 5 },
+      },
+    };
+    const kept = withHeldWorkflowSettings(view, held).workflow as Record_;
+    expect(kept).toMatchObject({ steamSettings: { duration: 30 }, rinseData: { duration: 5 }, hotWaterData: { targetTemperature: 88, duration: 40, volume: 250, flow: 7.5 } });
+    expect(((kept.context as Record_).extras as Record_).dye).toEqual({ v: 1, coffeeName: true });
+    expect((kept.context as Record_).coffeeRoaster).toBe("Fixture Roasters");
+    // A record the tablet does not hold yet is written as derived.
+    expect(withHeldWorkflowSettings(view, null)).toEqual(view);
   });
 
   it("writes a record a tablet holds where it differs, and takes back as written what the server wrote it", () => {

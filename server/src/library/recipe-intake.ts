@@ -532,6 +532,11 @@ export function withHeldWorkflowSettings(view: Readonly<RecipeView>, held: Reado
   if (!isObject(derived) || kept === null) return { ...view };
   const workflow: Record<string, unknown> = { ...derived };
   for (const group of ["steamSettings", "hotWaterData", "rinseData"]) if (kept[group] !== undefined) workflow[group] = kept[group];
+  // Its hot water volume and temperature as the record holds them, which the server writes, as DYE2 keeps them in step.
+  if (isObject(workflow.hotWaterData)) {
+    const [volume, temperature] = [view[`${DV}.hotWaterMl`], view[`${DV}.hotWaterTempC`]];
+    workflow.hotWaterData = { ...workflow.hotWaterData, ...(volume == null ? {} : { volume }), ...(temperature == null ? {} : { targetTemperature: temperature }) };
+  }
   const keptContext = isObject(kept.context) ? kept.context : {};
   const flags = isObject(keptContext.extras) ? keptContext.extras.dye : undefined;
   if (flags !== undefined && isObject(derived.context)) {
