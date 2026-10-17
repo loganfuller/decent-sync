@@ -10,9 +10,8 @@ import { PrismaClient } from "./generated/prisma/client.js";
 const serverDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * The idle-in-transaction timeout that migration
- * `20261006020933_idle_in_transaction_timeout` sets on the database, and
- * explains.
+ * The idle-in-transaction timeout that migration `20261016000000_init` sets on
+ * the database, and explains.
  */
 const IDLE_IN_TRANSACTION_TIMEOUT = "30s";
 
