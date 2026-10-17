@@ -642,7 +642,7 @@ describe("Library, settings and paired devices", () => {
       await expect.poll(() => readTimes(tablet, "/machine/settings").length).toBeGreaterThanOrEqual(3);
       const read = readTimes(tablet, "/machine/settings");
       for (const route of MACHINE_SETTINGS_ROUTES) {
-        // Each read restarts their interval as it begins, a moment before it reaches Decaid.
+        // Their interval runs from the end of each read of them, so a minute passes between two.
         for (const gap of gaps(readTimes(tablet, route))) expect(gap).toBeGreaterThan(55_000);
       }
       // Over at least two minutes, 24 polls of 5 s: at least 10, however late the tablet's timers run.
