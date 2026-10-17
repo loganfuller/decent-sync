@@ -183,20 +183,25 @@ export class CollectionCapture {
     try {
       while ((this.wanted !== undefined || this.recipesWanted || this.machineSettingsWanted) && !this.stopped) {
         const full = this.wanted === "full";
-        // A poll reads DYE2's recipes too, and the machine's own settings are read only by a full read or their own.
+        // A poll reads DYE2's recipes too.
         const polled = this.wanted !== undefined;
         const recipes = polled || this.recipesWanted;
-        const machineSettings = full || this.machineSettingsWanted;
-        const sources = SOURCES.filter((source) =>
-          MACHINE_SETTINGS.has(source.name) ? machineSettings : source.name === "dye2Recipes" ? recipes : polled,
-        );
         this.wanted = undefined;
         this.recipesWanted = false;
-        this.machineSettingsWanted = false;
-        if (machineSettings) this.scheduleMachineSettings();
+        let machineSettings = false;
         const sentLists = new Set<CollectionName>();
-        for (const source of sources) {
+        for (const source of SOURCES) {
           if (this.stopped) return;
+          if (MACHINE_SETTINGS.has(source.name)) {
+            // Read on a full read or when wanted, decided as the pass reaches them, which may be long after it began, behind
+            // the server's writes: so any read asked for meanwhile is this one, and their interval runs from it.
+            if (!machineSettings && (full || this.machineSettingsWanted)) {
+              machineSettings = true;
+              this.machineSettingsWanted = false;
+              this.scheduleMachineSettings();
+            }
+            if (!machineSettings) continue;
+          } else if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
           const parent = isLibraryList(source.name) ? parentList(source.name) : undefined;
           const sent = await (WRITTEN_LISTS.has(source.name)
             ? this.library.run(() => this.capture(source, full || (parent !== undefined && sentLists.has(parent))))

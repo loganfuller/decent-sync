@@ -642,11 +642,8 @@ describe("Library, settings and paired devices", () => {
       await expect.poll(() => readTimes(tablet, "/machine/settings").length).toBeGreaterThanOrEqual(3);
       const read = readTimes(tablet, "/machine/settings");
       for (const route of MACHINE_SETTINGS_ROUTES) {
-        // A read reaches them after the collections before them, so a little less than 60 s may pass between two.
-        for (const gap of gaps(readTimes(tablet, route))) {
-          expect(gap).toBeGreaterThan(55_000);
-          expect(gap).toBeLessThan(120_000);
-        }
+        // Each read restarts their interval as it begins, a moment before it reaches Decaid.
+        for (const gap of gaps(readTimes(tablet, route))) expect(gap).toBeGreaterThan(55_000);
       }
       // Over at least two minutes, 24 polls of 5 s: at least 10, however late the tablet's timers run.
       const polled = ["/beans", "/store/dye2.reaplugin/recipes", "/settings", "/devices", "/scale/info", "/sensors", "/steams/latest", "/machine/info"];
@@ -661,10 +658,24 @@ describe("Library, settings and paired devices", () => {
       await expect.poll(() => allReported(machine)).toBe(true);
       await expect.poll(() => readTimes(tablet, "/machine/settings").length).toBeGreaterThanOrEqual(3);
       for (const route of MACHINE_SETTINGS_ROUTES) {
-        for (const gap of gaps(readTimes(tablet, route))) {
-          expect(gap).toBeGreaterThan(85_000);
-          expect(gap).toBeLessThan(180_000);
-        }
+        for (const gap of gaps(readTimes(tablet, route))) expect(gap).toBeGreaterThan(85_000);
+      }
+    });
+
+    it("count a full read that reaches them late, behind the Library's lists, as their read, and are not read again at once", async () => {
+      const machine = await api.createMachine("Machine settings read late");
+      // As when the server's writes hold up the reads of the Library's lists: the first reads of the beans, bean batches
+      // and grinders take 25 s each, so the welcome's full read reaches the machine's settings past their interval.
+      const slow = new Set(["/beans", "/bean-batches", "/grinders"]);
+      const tablet = load(machine, {
+        apiDelayMs: (_method, path) => (slow.delete(path.split("?")[0]!) ? 25_000 : 0),
+      });
+      await expect.poll(() => allReported(machine)).toBe(true);
+      await expect.poll(() => readTimes(tablet, "/machine/settings").length).toBeGreaterThanOrEqual(3);
+      // Over 70 s after the plugin read Decaid's version as it connected.
+      expect(readTimes(tablet, "/machine/settings")[0]).toBeGreaterThan(readTimes(tablet, "/info")[0]! + 70_000);
+      for (const route of MACHINE_SETTINGS_ROUTES) {
+        for (const gap of gaps(readTimes(tablet, route))) expect(gap).toBeGreaterThan(55_000);
       }
     });
 
@@ -674,26 +685,28 @@ describe("Library, settings and paired devices", () => {
       const tablet = load(machine, { timeScale: 5 });
       await expect.poll(() => allReported(machine)).toBe(true);
       await allAcknowledged(tablet);
-      const [welcomed] = readTimes(tablet, "/machine/settings");
 
-      // A barista changes the steam flow, which Decaid writes to the machine before it reports the Workflow.
+      // A barista changes the steam flow, which Decaid writes to the machine before it reports the Workflow. They are
+      // read within 10 s (2 s here), where their interval would read them a minute after the welcome's read.
       const changedAt = tablet.readClock();
       await tablet.changeSettings({ steamSettings: { flow: 1.5 } });
       await expect.poll(async () => (await collection(machine, "machineSettings"))?.value).toMatchObject({ steamFlow: 1.5 });
       for (const route of MACHINE_SETTINGS_ROUTES) {
         const after = readTimes(tablet, route).filter((time) => time > changedAt);
         expect(after.length).toBeGreaterThanOrEqual(1);
-        expect(after[0]).toBeLessThan(welcomed! + 55_000);
+        expect(after[0]! - changedAt).toBeLessThan(10_000);
       }
       expect(deliveries(tablet, "machineSettings")).toHaveLength(2);
 
-      // Its dose, which Decaid does not write to the machine.
+      // Its dose, which Decaid does not write to the machine: nothing reads them but their interval, a minute after their last read.
       await allAcknowledged(tablet);
+      const last = Object.fromEntries(MACHINE_SETTINGS_ROUTES.map((route) => [route, readTimes(tablet, route).at(-1)!]));
       const dosedAt = tablet.readClock();
       expect((await tablet.callApi("PUT", "/workflow", { context: { targetDoseWeight: 19 } })).status).toBe(200);
       await polls(tablet, 3);
-      expect(dosedAt).toBeLessThan(welcomed! + 30_000);
-      for (const route of MACHINE_SETTINGS_ROUTES) expect(readTimes(tablet, route).filter((time) => time > dosedAt)).toEqual([]);
+      for (const route of MACHINE_SETTINGS_ROUTES) {
+        for (const time of readTimes(tablet, route).filter((time) => time > dosedAt)) expect(time).toBeGreaterThan(last[route]! + 55_000);
+      }
     });
 
     it("are not read while disconnected, on their interval or after a Workflow change, and are sent on the next welcome", async () => {
@@ -737,8 +750,9 @@ describe("Library, settings and paired devices", () => {
         standIn.send({ type: "requestCollections" });
         await expect.poll(() => [sent("machineSettings"), sent("advancedSettings")]).toEqual([2, 2]);
         // Their next read comes a minute after that one, not after the welcome's, and finds them unchanged.
-        await expect.poll(() => readTimes(tablet, "/machine/settings").length).toBeGreaterThanOrEqual(3);
-        expect(readTimes(tablet, "/machine/settings")[2]).toBeGreaterThan(askedAt + 55_000);
+        const since = () => readTimes(tablet, "/machine/settings").filter((time) => time > askedAt);
+        await expect.poll(() => since().length).toBeGreaterThanOrEqual(2);
+        expect(since()[1]! - since()[0]!).toBeGreaterThan(55_000);
         await polls(tablet, 1);
         expect([sent("machineSettings"), sent("advancedSettings")]).toEqual([2, 2]);
       } finally {

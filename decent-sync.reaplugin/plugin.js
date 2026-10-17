@@ -2647,17 +2647,20 @@ var __decentSync = (() => {
           const full = this.wanted === "full";
           const polled = this.wanted !== void 0;
           const recipes = polled || this.recipesWanted;
-          const machineSettings = full || this.machineSettingsWanted;
-          const sources = SOURCES.filter(
-            (source) => MACHINE_SETTINGS.has(source.name) ? machineSettings : source.name === "dye2Recipes" ? recipes : polled
-          );
           this.wanted = void 0;
           this.recipesWanted = false;
-          this.machineSettingsWanted = false;
-          if (machineSettings) this.scheduleMachineSettings();
+          let machineSettings = false;
           const sentLists = /* @__PURE__ */ new Set();
-          for (const source of sources) {
+          for (const source of SOURCES) {
             if (this.stopped) return;
+            if (MACHINE_SETTINGS.has(source.name)) {
+              if (!machineSettings && (full || this.machineSettingsWanted)) {
+                machineSettings = true;
+                this.machineSettingsWanted = false;
+                this.scheduleMachineSettings();
+              }
+              if (!machineSettings) continue;
+            } else if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
             const parent = isLibraryList(source.name) ? parentList(source.name) : void 0;
             const sent = await (WRITTEN_LISTS.has(source.name) ? this.library.run(() => this.capture(source, full || parent !== void 0 && sentLists.has(parent))) : this.capture(source, full));
             if (sent) sentLists.add(source.name);
