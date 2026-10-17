@@ -1,4 +1,4 @@
-import { DYE2_NAMESPACE, LOADED_RECIPE_KEY, RECIPE_FIELD, dye2Records, loadedRecipeOf } from "@decent-sync/protocol";
+import { DYE2_NAMESPACE, LOADED_RECIPE_KEY, dye2Records, loadedRecipeOf } from "@decent-sync/protocol";
 import { type Answer, request } from "./decaid.js";
 import {
   Dye2Pushes,
@@ -226,7 +226,8 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     this.holdUntilRead(workflow);
     // Whether an espresso started since the load, as the change was reported: one reported after it is decided after it.
     const load = this.load && { ...this.load, espresso: this.espressos > this.load.espressos };
-    if (before) this.enqueue(() => this.changed(before, workflow, load));
+    const loaded = this.loaded;
+    if (before) this.enqueue(() => this.changed(before, workflow, load, loaded));
     this.readSoon();
   }
 
@@ -464,11 +465,19 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * it and clears DYE2's selection, which DYE2 keeps through either
    * (decentespresso/dye2#19). A grinder or batch cleared is no such change,
    * nor is a batch set back to the one the load replaced, before the first
-   * espresso since, which the server writes back (ADR-0022, Stale values).
+   * espresso since (ADR-0022, Stale values; #188). Nor is a change seen
+   * while another Recipe, or none, was loaded (`loaded`): a load decided
+   * after it, as on a read of DYE2's selection that came first, took the
+   * Workflow as it was then.
    */
-  private async changed(before: Record<string, unknown>, after: Record<string, unknown>, load: (LoadedRecipes["load"] & { espresso: boolean }) | null): Promise<void> {
+  private async changed(
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+    load: (LoadedRecipes["load"] & { espresso: boolean }) | null,
+    loaded: string | null,
+  ): Promise<void> {
     const globalId = this.loaded;
-    if (globalId === null || this.captureOnly || this.relocating !== null) return;
+    if (globalId === null || globalId !== loaded || this.captureOnly || this.relocating !== null) return;
     const slot = this.slotOf(globalId);
     const recipe = slot === null ? undefined : this.recipes.get(slot);
     // Gone from the tablet's slots: the server unloads it.
@@ -786,7 +795,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       this.readSoon();
     }
     this.changes.release();
-    if (reported && wrote && this.latest) await this.changed(wrote.read, this.latest, this.load && { ...this.load, espresso: this.espressos > this.load.espressos });
+    if (reported && wrote && this.latest) await this.changed(wrote.read, this.latest, this.load && { ...this.load, espresso: this.espressos > this.load.espressos }, this.loaded);
   }
 
   /** The slot a Recipe is in on the tablet now, or null. */
@@ -826,24 +835,17 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   }
 
   /**
-   * What a load of the recipe writes besides its record: its full Profile,
-   * as applying it loads one, the tablet's record of that Profile's step
-   * temperatures, and its Bean Batch as the tablet holds it.
+   * What a load of the recipe writes besides its record: its full Profile at
+   * its brew temperature, as the Workflow DYE2 embeds in the record holds it
+   * (decentespresso/dye2#26), or else as its snapshot or the tablet's record
+   * of that Profile does.
    */
   private async loadContext(record: Record<string, unknown>): Promise<LoadContext> {
+    const steps = (profile: unknown) => (isObject(profile) && Array.isArray(profile.steps) ? profile : null);
+    const embedded = steps(isObject(record.workflow) ? record.workflow.profile : null) ?? steps(record.profileSnapshot);
+    if (embedded !== null) return { profile: embedded };
     const stored = typeof record.profileId === "string" && record.profileId !== "" ? await this.readRecord(`/profiles/${encodeURIComponent(record.profileId)}`) : null;
-    const library = isObject(stored) && isObject(stored.profile) && Array.isArray(stored.profile.steps) ? stored.profile : null;
-    const snapshot = record.profileSnapshot;
-    const profile = isObject(snapshot) && Array.isArray(snapshot.steps) ? snapshot : library;
-    const baseTemperatures = library ? (library.steps as unknown[]).map((step) => (isObject(step) ? step.temperature : undefined)) : null;
-    const kept = isObject(record[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
-    const batchId = typeof kept.beanBatchId === "string" ? kept.beanBatchId : null;
-    if (batchId === null) return { profile, baseTemperatures, batch: null };
-    const beanId = await this.beanOf(batchId);
-    if (beanId === null) return { profile, baseTemperatures, batch: null };
-    const bean = await this.readRecord(`/beans/${encodeURIComponent(beanId)}`);
-    const text = (field: string) => (isObject(bean) && typeof bean[field] === "string" ? (bean[field] as string) : null);
-    return { profile, baseTemperatures, batch: { id: batchId, coffeeName: text("name"), coffeeRoaster: text("roaster") } };
+    return { profile: isObject(stored) ? steps(stored.profile) : null };
   }
 
   /** The Workflow as Decaid holds it now. Throws if Decaid does not answer with one. */

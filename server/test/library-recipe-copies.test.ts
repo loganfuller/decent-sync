@@ -160,6 +160,7 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
       expect(slotOn(tablet, 1)).toMatchObject({
         name: "Copied Espresso",
         beanId: localId(tablet.beans(), bean.id),
+        beanBatchId: localId(tablet.batches(), batch.id),
         profileId,
         dashboardVariables: {
           dose: 18,
@@ -172,7 +173,7 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
           equipmentIds: [toolId],
           equipmentCustom: { [toolId]: [{ key: "Needles", value: "10" }] },
         },
-        [RECIPE_FIELD]: { beanBatchId: localId(tablet.batches(), batch.id), hotWaterData: { targetTemperature: 85, duration: 30, volume: 120, flow: 6 } },
+        [RECIPE_FIELD]: { hotWaterData: { targetTemperature: 85, duration: 30, volume: 120, flow: 6 } },
       });
       expect(localId(tablet.grinders(), labGrinder.id)).toBeUndefined();
     }

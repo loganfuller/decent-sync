@@ -1,4 +1,4 @@
-import { RECIPE_FIELD, dye2GlobalIdOf } from "@decent-sync/protocol";
+import { dye2GlobalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { syncingTablet } from "./support/loaded-tablets.js";
@@ -81,7 +81,7 @@ describe("Steam and flush settings are each Machine's own", { timeout: 120_000 }
     const c = syncingTablet(machines.c, other, { api: dye2NeverUsed(String(serial + 1)), dye2: dye2.c });
     await api.waitForOnline(machines.c);
     await expect
-      .poll(() => ["1", "2"].map((slot) => [dye2GlobalIdOf(inSlot(c, slot)), (inSlot(c, slot)?.[RECIPE_FIELD] as Record_ | undefined)?.beanBatchId ?? null]).flat(), { timeout: 15_000 })
+      .poll(() => ["1", "2"].map((slot) => [dye2GlobalIdOf(inSlot(c, slot)), inSlot(c, slot)?.beanBatchId ?? null]).flat(), { timeout: 15_000 })
       .not.toContain(null);
     const one = dye2GlobalIdOf(inSlot(a, "1"))!;
     for (const [tablet, machine] of [
@@ -141,9 +141,9 @@ describe("Steam and flush settings are each Machine's own", { timeout: 120_000 }
     expect(parts(a)).toMatchObject({ steamSettings: { duration: 27, flow: 1.6 }, rinseData: { duration: 7 } });
     expect(steamAndFlush(a, "1")).toMatchObject({ steamMode: "time", steamTimeS: 27, flushS: 7 });
     expect({ parts: parts(c), recipe: steamAndFlush(c, "1") }).toEqual(elsewhere);
-    // The server may write slot 1's embedded Workflow, which DYE2 rebuilt as it recorded, as it derives it, but no steam or
-    // flush value; and nothing to the other Machine.
-    expect([ofSteamOrFlush(writesTo(a, received.a)), writesTo(c, received.c)]).toEqual([[], []]);
+    // The server writes no steam or flush value, nor slot 1's record again for the settings DYE2 copied into its embedded
+    // Workflow as it recorded; and nothing to the other Machine.
+    expect([ofSteamOrFlush(writesTo(a, received.a)), writesTo(a, received.a).filter((write) => write.kind === "recipe"), writesTo(c, received.c)]).toEqual([[], [], []]);
     expect((await recipe(one)).content).toEqual(content);
     expect((await versions(one)).length).toBe(history);
     expect((await conflicts()).length).toBe(open);

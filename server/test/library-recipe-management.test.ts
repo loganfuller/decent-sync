@@ -180,6 +180,7 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
         name: "Created Espresso",
         beverage: "Espresso",
         beanId: localId(tablet.beans(), bean.id),
+        beanBatchId: localId(tablet.batches(), batch.id),
         profileId,
         showOnStreamlineDashboard: false,
         barista: "",
@@ -198,7 +199,6 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
           equipmentCustom: { [toolId]: [{ key: "Needles", value: "10" }] },
         },
         [RECIPE_FIELD]: {
-          beanBatchId: localId(tablet.batches(), batch.id),
           hotWaterData: { targetTemperature: 85, duration: 30, volume: 120, flow: 6 },
         },
       });

@@ -19,6 +19,7 @@ import {
   recipeWorkflow,
   recordOf,
   tabletIds,
+  withHeldWorkflowSettings,
 } from "../src/library/recipe-intake.js";
 import { dye2Keys, dye2Library } from "./support/simulated-dye2.js";
 
@@ -102,6 +103,7 @@ const adaptive = (dye2Library()["/profiles"] as Record_[]).find((profile) => pro
 const writing = (ids = otherIds): WriteContext => ({
   ids,
   beanNames: new Map([[GLOBAL.ethiopia, "Fixture Ethiopia"]]),
+  beanRoasters: new Map([[GLOBAL.ethiopia, "Fixture Roasters"]]),
   grinderModels: new Map([[GLOBAL.grinder, "Fixture Grinder 64"]]),
   basketNames: new Map([[GLOBAL.basket18, "Fixture 18g Precision"]]),
   toolNames: new Map([
@@ -171,6 +173,23 @@ describe("DYE2's recipes as Recipes", () => {
     expect(recipeContent(recipeView(unmapped), intake()).toolIds).toEqual([GLOBAL.wdtTool]);
   });
 
+  it("takes the batch a record holds with its Bean, as DYE2's editor picks one, but none of another Bean", () => {
+    const withBatch = (batch: string | null, bean: string = LOCAL.ethiopia) => recipeView({ ...slot1, beanId: bean, beanBatchId: batch });
+    // Picked with the Ethiopia, or on its own for the same Bean.
+    expect(libraryValues(withBatch(LOCAL.ethiopiaBatch), ["beanId", "beanBatchId"], { beanBatchId: "brazil-batch" }, intake())).toEqual({
+      beanId: GLOBAL.ethiopia,
+      beanBatchId: GLOBAL.ethiopiaBatch,
+    });
+    expect(libraryValues(withBatch(LOCAL.ethiopiaBatch), ["beanBatchId"], { beanId: GLOBAL.ethiopia, beanBatchId: GLOBAL.laterEthiopiaBatch }, intake())).toEqual({
+      beanBatchId: GLOBAL.ethiopiaBatch,
+    });
+    // A batch of another Bean than the record's, or one the map does not hold, is none: the Bean's rule stands.
+    expect(libraryValues(withBatch(LOCAL.ethiopiaBatch, LOCAL.brazil), ["beanId", "beanBatchId"], {}, intake())).toEqual({ beanId: GLOBAL.brazil, beanBatchId: null });
+    expect(libraryValues(withBatch("batch-of-its-own"), ["beanBatchId"], { beanBatchId: GLOBAL.ethiopiaBatch }, intake())).toEqual({ beanBatchId: GLOBAL.ethiopiaBatch });
+    // A record holding no batch keeps the Recipe's of its Bean.
+    expect(libraryValues(withBatch(null), ["beanBatchId"], { beanBatchId: GLOBAL.ethiopiaBatch }, intake())).toEqual({ beanBatchId: GLOBAL.ethiopiaBatch });
+  });
+
   it("keeps a Recipe's batch of the Bean picked, or takes that Bean's batch most recently added at the Location, or none", () => {
     const view = recipeView(slot1);
     // The Recipe's batch is of the Ethiopia: picking the Ethiopia again keeps it.
@@ -212,10 +231,10 @@ describe("DYE2's recipes as Recipes", () => {
     expect(libraryValues(picked, ["dashboardVariables.basketId"], { basketId: GLOBAL.basket20 }, intake({ ids: otherIds }))).toEqual({ basketId: GLOBAL.basket18 });
   });
 
-  it("writes a Recipe to a tablet under its own ids, with its full Profile at its brew temperature, a blank barista, its hot water value of its mode, and what DYE2 derives", () => {
+  it("writes a Recipe to a tablet under its own ids, with its full Profile, a blank barista, its hot water volume and temperature, and what DYE2 derives, its embedded Workflow's Profile at its brew temperature", () => {
     const view = recipeRecord(slot1Content, 1, writing(), GLOBAL.recipe);
     // Adaptive v3 starts at 93 °C: at the Recipe's 92, every step is a degree cooler.
-    const adaptiveAt92 = profileAtBrewTemperature(adaptive, 92, null);
+    const adaptiveAt92 = profileAtBrewTemperature(adaptive, 92);
     expect((adaptiveAt92?.steps as Record_[]).map((step) => step.temperature)).toEqual([92, 92, 87, 87, 87, 87, 87]);
     expect(view).toEqual({
       name: "Fixture Ethiopia Espresso",
@@ -224,9 +243,13 @@ describe("DYE2's recipes as Recipes", () => {
       drinker: "",
       beanId: "other-ethiopia",
       beanName: "Fixture Ethiopia",
+      // The tablet holds no record of the Recipe's batch.
+      beanBatchId: null,
+      beanRoaster: "Fixture Roasters",
       profileId: ADAPTIVE,
       profileTitle: "Adaptive v3",
-      profileSnapshot: adaptiveAt92,
+      // DYE2 applies it at the Recipe's brew temperature (decentespresso/dye2#26).
+      profileSnapshot: adaptive,
       showOnStreamlineDashboard: true,
       "dashboardVariables.dose": 18.5,
       "dashboardVariables.drink": 36,
@@ -246,7 +269,7 @@ describe("DYE2's recipes as Recipes", () => {
       "dashboardVariables.equipmentIds": ["other-puck-screen"],
       "dashboardVariables.equipmentNames": ["Fixture Puck Screen"],
       "dashboardVariables.equipmentCustom": {},
-      [RECIPE_FIELD]: { beanBatchId: null, hotWaterData: { targetTemperature: 88, duration: null, volume: null, flow: null } },
+      [RECIPE_FIELD]: { hotWaterData: { targetTemperature: 88, duration: null, volume: null, flow: null } },
       title: "Fixture Ethiopia Espresso",
       subtitle: "Fixture Ethiopia",
       workflow: {
@@ -258,33 +281,56 @@ describe("DYE2's recipes as Recipes", () => {
           grinderModel: "Fixture Grinder 64",
           // So a Workflow Streamline applies it to names the Recipe.
           extras: { rpm: 900, basketId: "other-basket", basketName: "Fixture 18g Precision", decentSyncRecipeId: GLOBAL.recipe },
+          // Applying it clears a batch the Workflow held, as DYE2's dashboard does.
           coffeeName: "Fixture Ethiopia",
+          coffeeRoaster: "Fixture Roasters",
+          beanBatchId: null,
         },
+        // Streamline's strip applies it as it is.
         profile: adaptiveAt92,
       },
     });
     // Its batch is named by the tablet's id where it holds it; a nameless one is called by its slot; hot water by volume
-    // keeps the volume.
+    // keeps the temperature too, as DYE2 holds both once each moves.
     const recorded = recipeRecord({ ...slot1Content, beanBatchId: GLOBAL.ethiopiaBatch, name: "", hotWaterMode: "vol", hotWaterVolume: 120 }, 4, writing(recordedIds), GLOBAL.recipe);
-    expect(recorded[RECIPE_FIELD]).toEqual({ beanBatchId: LOCAL.ethiopiaBatch, hotWaterData: { targetTemperature: 88, duration: null, volume: 120, flow: null } });
-    expect([recorded.title, recorded["dashboardVariables.hotWaterMl"], recorded["dashboardVariables.hotWaterTempC"]]).toEqual(["Recipe 4", 120, null]);
+    expect(recorded.beanBatchId).toEqual(LOCAL.ethiopiaBatch);
+    expect((recorded.workflow as { context: Record_ }).context.beanBatchId).toEqual(LOCAL.ethiopiaBatch);
+    expect(recorded[RECIPE_FIELD]).toEqual({ hotWaterData: { targetTemperature: 88, duration: null, volume: 120, flow: null } });
+    expect([recorded.title, recorded["dashboardVariables.hotWaterMl"], recorded["dashboardVariables.hotWaterTempC"]]).toEqual(["Recipe 4", 120, 88]);
   });
 
-  it("builds a recipe's embedded Workflow as DYE2 v0.1.19 did, from its yield or its dose times its ratio, with a Profile's id and title where it has no steps", () => {
+  it("builds a recipe's embedded Workflow as DYE2 2cf631c does, from its yield or its dose times its ratio, with a Profile's id and title where it has no steps", () => {
     const keptWorkflow = slot1.workflow as Record_;
-    // DYE2's own, as it saved slot 1, holds the same dial, grinder, Basket, coffee, people and Profile. It holds its roaster,
-    // batch, field flags and machine settings too, which the server's leaves out until #187.
+    // DYE2's own, as it saved slot 1, holds the same dial, grinder, Basket, coffee, roaster, batch, people and Profile at
+    // the recipe's brew temperature. It holds its field flags and machine settings too, which Streamline does not apply.
     const view = recipeView(slot1);
-    const kept = keptWorkflow as { context: Record_ };
-    const { coffeeRoaster: _roaster, beanBatchId: _batch, ...context } = kept.context;
+    const { context } = keptWorkflow as { context: Record_ };
     const { dye: _flags, ...extras } = context.extras as Record_;
-    expect(recipeWorkflow({ ...view, profileSnapshot: (keptWorkflow as { profile: unknown }).profile }, GLOBAL.recipe)).toEqual({
+    expect(recipeWorkflow({ ...view, profileSnapshot: adaptive }, GLOBAL.recipe)).toEqual({
       profile: keptWorkflow.profile,
       context: { ...context, extras: { ...extras, decentSyncRecipeId: GLOBAL.recipe } },
     });
     const ratio = recipeWorkflow({ ...view, "dashboardVariables.drink": null, "dashboardVariables.ratio": 2.2, profileSnapshot: null }, GLOBAL.recipe);
     expect(ratio).toMatchObject({ context: { targetDoseWeight: 18.5, targetYield: 40.7 }, profile: { id: ADAPTIVE, title: "Adaptive v3" } });
     expect(recipeWorkflow(recipeView(blank), GLOBAL.recipe)).not.toHaveProperty("profile");
+  });
+
+  it("keeps the machine settings and field flags DYE2 copied into a tablet's record's embedded Workflow, but the hot water the server writes", () => {
+    const view = recipeRecord({ ...slot1Content, hotWaterVolume: 250 }, 1, writing(), GLOBAL.recipe);
+    const held = {
+      workflow: {
+        context: { extras: { dye: { v: 1, coffeeName: true } } },
+        steamSettings: { duration: 30 },
+        hotWaterData: { targetTemperature: 80, duration: 40, volume: 200, flow: 7.5 },
+        rinseData: { duration: 5 },
+      },
+    };
+    const kept = withHeldWorkflowSettings(view, held).workflow as Record_;
+    expect(kept).toMatchObject({ steamSettings: { duration: 30 }, rinseData: { duration: 5 }, hotWaterData: { targetTemperature: 88, duration: 40, volume: 250, flow: 7.5 } });
+    expect(((kept.context as Record_).extras as Record_).dye).toEqual({ v: 1, coffeeName: true });
+    expect((kept.context as Record_).coffeeRoaster).toBe("Fixture Roasters");
+    // A record the tablet does not hold yet is written as derived.
+    expect(withHeldWorkflowSettings(view, null)).toEqual(view);
   });
 
   it("writes a record a tablet holds where it differs, and takes back as written what the server wrote it", () => {

@@ -57,21 +57,20 @@ describe("a profile at a brew temperature", () => {
 
   it("moves its first step to it and every other by the same amount, as Streamline's Brew tile does", () => {
     expect(temperatures(adaptive).slice(0, 3)).toEqual([93, 93, 88]);
-    expect(temperatures(profileAtBrewTemperature(adaptive, 92, null)).slice(0, 3)).toEqual([92, 92, 87]);
+    expect(temperatures(profileAtBrewTemperature(adaptive, 92)).slice(0, 3)).toEqual([92, 92, 87]);
     expect(shiftedTemperatures([94, 90, 88], 92)).toEqual([92, 88, 86]);
     // A step without a temperature goes to it; rounding to 0.01 °C.
     expect(shiftedTemperatures([94, undefined, 88.333], 92.5)).toEqual([92.5, 92.5, 86.83]);
   });
 
-  it("moves from the Profile's own step temperatures where given, so moving it again keeps its shape", () => {
-    const moved = profileAtBrewTemperature(adaptive, 90, null)!;
-    const again = profileAtBrewTemperature(moved, 92, temperatures(adaptive));
-    expect(temperatures(again)).toEqual(temperatures(profileAtBrewTemperature(adaptive, 92, null)));
+  it("keeps its shape however often it is moved", () => {
+    const moved = profileAtBrewTemperature(adaptive, 90)!;
+    expect(temperatures(profileAtBrewTemperature(moved, 92))).toEqual(temperatures(profileAtBrewTemperature(adaptive, 92)));
   });
 
   it("is none for a profile with no usable first step temperature", () => {
-    expect(profileAtBrewTemperature({ title: "No steps" }, 92, null)).toBeNull();
-    expect(profileAtBrewTemperature({ steps: [{ name: "pour" }] }, 92, null)).toBeNull();
+    expect(profileAtBrewTemperature({ title: "No steps" }, 92)).toBeNull();
+    expect(profileAtBrewTemperature({ steps: [{ name: "pour" }] }, 92)).toBeNull();
     expect(shiftedTemperatures([], 92)).toBeNull();
   });
 });
@@ -80,7 +79,7 @@ describe("DYE2's fingerprint of a profile", () => {
   const profile = library.profiles[0]!.profile;
 
   it("leaves out each step's temperature, as DYE2's does, so a brew temperature change is no change of profile", () => {
-    expect(dye2Fingerprint(profileAtBrewTemperature(profile, 80, null))).toBe(dye2Fingerprint(profile));
+    expect(dye2Fingerprint(profileAtBrewTemperature(profile, 80))).toBe(dye2Fingerprint(profile));
     expect(dye2Fingerprint({ ...profile, title: "Another" })).not.toBe(dye2Fingerprint(profile));
     expect(dye2Fingerprint(null)).toBeNull();
   });
@@ -91,38 +90,37 @@ describe("DYE2's fingerprint of a profile", () => {
 });
 
 describe("recording a load", () => {
-  const batch = { id: "6f741a24-ceb9-4ec6-aa51-750c6e9fec26", coffeeName: "Fixture Ethiopia", coffeeRoaster: "Fixture Roasters" };
+  const batch = "6f741a24-ceb9-4ec6-aa51-750c6e9fec26";
   const hotWater = { targetTemperature: 85, duration: 40, volume: 120, flow: 7.5 };
-  /** Slot 1 as the server writes it: its Bean Batch and all four hot water settings in its own field. */
-  const written = (): Record_ => ({ ...recipe("1"), [RECIPE_FIELD]: { beanBatchId: batch.id, hotWaterData: hotWater } });
-  const profile = library.profiles[0]!.profile;
+  /** Slot 1 as the server writes it: its Bean Batch beside its Bean, as DYE2 holds one, and all four hot water settings in its own field. */
+  const written = (): Record_ => ({ ...recipe("1"), beanBatchId: batch, [RECIPE_FIELD]: { hotWaterData: hotWater } });
   const adaptive = library.profiles.find((candidate) => candidate.profile.title === "Adaptive v3")!.profile;
+  /** Slot 1's Profile at its brew temperature, as the Workflow embedded in its record holds it. */
+  const profile = profileAtBrewTemperature(adaptive, 92)!;
   const basket = (recipe("1").dashboardVariables as Record_).basketId as string;
   /**
-   * Slot 1 applied on DYE2's dashboard, which sets its brew temperature itself
-   * (decentespresso/dye2#26), but for the Profile at its own step
-   * temperatures, as from a copy read before the server wrote it at the
-   * recipe's.
+   * Slot 1 applied on DYE2's dashboard, but for the Profile at its own step
+   * temperatures, as a skin applying it from a copy read before its brew
+   * temperature changed.
    */
   const appliedAtOwnTemperatures = (): Record_ => ({ ...applied("dye2-applies", "applySlot1"), profile: structuredClone(adaptive) });
 
-  it("writes what the Workflow lacks of the recipe's current values, its brew temperature, batch, hot water and id, with what each part held", () => {
+  it("writes what the Workflow lacks of the recipe's current values, its batch, hot water and id, with what each part held, but no brew temperature", () => {
     const workflow = appliedAtOwnTemperatures();
-    const write = loadWrite(workflow, written(), ONE, { profile, baseTemperatures: temperatures(adaptive), batch })!;
+    const write = loadWrite(workflow, written(), ONE, { profile })!;
     expect(write.write.context).toEqual({
-      beanBatchId: batch.id,
+      beanBatchId: batch,
       coffeeName: "Fixture Ethiopia",
       coffeeRoaster: "Fixture Roasters",
       extras: { basketId: basket, basketName: "Fixture 18g Precision", [LOADED_RECIPE_KEY]: ONE },
     });
     expect(write.write.hotWaterData).toEqual(hotWater);
-    // Adaptive v3 at its own 93 °C; the recipe's is 92, the Profile's shape kept.
-    expect(temperatures(write.write.profile).slice(0, 3)).toEqual([92, 92, 87]);
+    // DYE2 and Streamline apply the recipe's brew temperature themselves (decentespresso/dye2#26): the profile's is left.
+    expect(write.write).not.toHaveProperty("profile");
     const context = workflow.context as Record_;
     expect(write.before).toEqual({
-      batch: { before: context.beanBatchId ?? null, written: batch.id },
+      batch: { before: context.beanBatchId ?? null, written: batch },
       basket: { before: (context.extras as Record_).basketId ?? null, written: basket },
-      brewTemperature: { before: 93, written: 92 },
       ...Object.fromEntries(
         Object.entries(hotWater)
           .filter(([field, value]) => (workflow.hotWaterData as Record_)[field] !== value)
@@ -131,37 +129,32 @@ describe("recording a load", () => {
     });
   });
 
-  it("writes the recipe's current dial over a stale copy's, and its Profile where the Workflow's is another, at the recipe's brew temperature", () => {
+  it("writes the recipe's current dial over a stale copy's, and its Profile at its brew temperature where the Workflow's is another", () => {
     const workflow = appliedAtOwnTemperatures();
     const record = written();
     Object.assign(record.dashboardVariables as Record_, { dose: 19.5, drink: 40, grind: 2.9, rpm: 950 });
-    const other = library.profiles.find((candidate) => candidate.profile.title !== "Adaptive v3")!.profile;
-    const write = loadWrite(workflow, record, ONE, { profile: other, baseTemperatures: temperatures(other), batch: null })!;
+    const other = profileAtBrewTemperature(library.profiles.find((candidate) => candidate.profile.title !== "Adaptive v3")!.profile, 92)!;
+    const write = loadWrite(workflow, record, ONE, { profile: other })!;
     expect(write.write.context).toMatchObject({ targetDoseWeight: 19.5, targetYield: 40, grinderSetting: "2.9", extras: { rpm: 950 } });
     expect(write.before).toMatchObject({ dose: { before: 18.5, written: 19.5 }, grind: { written: "2.9" }, rpm: { written: 950 } });
-    expect((write.write.profile as Record_).title).toBe(other.title);
-    expect(temperatures(write.write.profile)[0]).toBe(92);
-    // The same profile is moved to the recipe's brew temperature alone.
-    const same = loadWrite(workflow, record, ONE, { profile: adaptive, baseTemperatures: temperatures(adaptive), batch: null })!;
-    expect((same.write.profile as Record_).title).toBe("Adaptive v3");
+    expect(write.write.profile).toEqual(other);
   });
 
   it("writes nothing to a Workflow holding it all, and leaves a value the recipe holds none of", () => {
     const workflow = appliedAtOwnTemperatures();
     const record = written();
-    const first = loadWrite(workflow, record, ONE, { profile, baseTemperatures: null, batch })!.write;
+    const first = loadWrite(workflow, record, ONE, { profile })!.write;
     const after = structuredClone(workflow);
     after.context = { ...(after.context as Record_), ...(first.context as Record_), extras: { ...((after.context as Record_).extras as Record_), ...((first.context as Record_).extras as Record_) } };
     after.hotWaterData = { ...(after.hotWaterData as Record_), ...(first.hotWaterData as Record_) };
-    after.profile = first.profile;
-    expect(loadWrite(after, record, ONE, { profile, baseTemperatures: null, batch })).toBeNull();
-    const bare = { ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), brewC: undefined }, [RECIPE_FIELD]: { beanBatchId: null, hotWaterData: { targetTemperature: null, duration: null, volume: null, flow: null } } };
-    expect(loadWrite(after, bare, ONE, { profile, baseTemperatures: null, batch: null })).toBeNull();
+    expect(loadWrite(after, record, ONE, { profile })).toBeNull();
+    const bare = { ...record, beanBatchId: null, [RECIPE_FIELD]: { hotWaterData: { targetTemperature: null, duration: null, volume: null, flow: null } } };
+    expect(loadWrite(after, bare, ONE, { profile: null })).toBeNull();
   });
 
   it("leaves out what it is told to, as the hot water while Decaid refuses it for want of a machine", () => {
     const workflow = applied("dye2-applies", "applySlot1");
-    const write = loadWrite(workflow, written(), ONE, { profile, baseTemperatures: null, batch }, new Set(["targetTemperature", "duration", "volume", "flow"]))!;
+    const write = loadWrite(workflow, written(), ONE, { profile }, new Set(["targetTemperature", "duration", "volume", "flow"]))!;
     expect(write.write).not.toHaveProperty("hotWaterData");
     expect(Object.keys(write.before)).not.toContain("volume");
   });

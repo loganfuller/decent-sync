@@ -1326,10 +1326,6 @@ model TabletLoadedRecipe {
   /// Workflow held it: a number, the grind setting's text, or the tablet's id
   /// for its Basket or Bean Batch; null for none.
   held          Json      @db.JsonB
-  /// The parts naming a Basket or Bean Batch the tablet's map did not hold
-  /// yet, by part, with the tablet's id for it and when the plugin observed
-  /// the Workflow naming it: each is taken in as the map gains it.
-  pending       Json?     @db.JsonB
   /// The latest edit of the Recipe the Workflow has seen, as
   /// `TabletBean.contentSeenAt` (ADR-0020); null if none.
   contentSeenAt DateTime? @map("content_seen_at") @db.Timestamptz(3)

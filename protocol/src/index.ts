@@ -500,12 +500,11 @@ export function isSlotId(value: unknown): value is string {
 /**
  * The top-level field of a DYE2 recipe record holding what a Recipe keeps
  * that DYE2's recipe does not (ADR-0005), which DYE2 and Streamline keep when
- * they save, as they keep the global id's field: its Bean Batch, as the
- * tablet's id for its record (`beanBatchId`, null where the tablet holds
- * none), and all four of its hot water settings, by Decaid's names for them
- * in a Workflow's `hotWaterData` (`targetTemperature`, `duration`, `volume`
- * and `flow`), each null where the Recipe has none. DYE2 keeps one hot water
- * value, chosen by its mode.
+ * they save, as they keep the global id's field: all four of its hot water
+ * settings, by Decaid's names for them in a Workflow's `hotWaterData`
+ * (`targetTemperature`, `duration`, `volume` and `flow`), each null where the
+ * Recipe has none; DYE2's record holds the volume and temperature too. Its
+ * Bean Batch is DYE2's own `beanBatchId`, beside the Bean.
  */
 export const RECIPE_FIELD = "decentSyncRecipe";
 
@@ -766,18 +765,16 @@ export const BREW_TEMPERATURE_FIELD = "profile.steps.0.temperature";
 
 /**
  * A profile at a brew temperature, as Streamline's Brew tile sets one
- * (`profileAtBrewTemp` in streamline-js:src/modules/brew-temp.js): its first
- * step at that temperature, and every other moved by the same amount, from
- * the Profile's own step temperatures (`base`, the tablet's record of it)
- * where it holds as many steps, or else from the profile's own, so the
- * profile keeps its shape however often it is moved. Null for a profile
- * with no usable first step temperature, which is written none.
+ * (`profileAtBrewTemp` in streamline-js:src/modules/brew-temp.js) and DYE2
+ * applies a recipe's: its first step at that temperature, and every other
+ * moved by the same amount, so the profile keeps its shape however often it
+ * is moved. Null for a profile with no usable first step temperature, which
+ * is written none.
  */
-export function profileAtBrewTemperature(profile: unknown, temperature: number, base: readonly unknown[] | null): Record<string, unknown> | null {
+export function profileAtBrewTemperature(profile: unknown, temperature: number): Record<string, unknown> | null {
   if (!isObject(profile) || !Array.isArray(profile.steps)) return null;
   const steps = profile.steps as unknown[];
-  const own = steps.map((step) => (isObject(step) ? step.temperature : undefined));
-  const temperatures = shiftedTemperatures(base !== null && base.length === steps.length ? base : own, temperature);
+  const temperatures = shiftedTemperatures(steps.map((step) => (isObject(step) ? step.temperature : undefined)), temperature);
   if (temperatures === null) return null;
   return { ...profile, steps: steps.map((step, index) => (isObject(step) ? { ...step, temperature: temperatures[index] } : step)) };
 }
@@ -981,8 +978,10 @@ export const STEAM_ON_FROM = 135;
  * Recipe as loaded (`loadedRecipeOf`); otherwise it sets, through
  * `PUT /workflow` (`workflowPatch`), each part whose first field still holds
  * the value expected, or none, as Streamline clears the batch, Basket and
- * RPM once each Shot is stored, or that expects none: a part a barista
- * changed since is kept, which its Workflow change brings to the server.
+ * RPM once each Shot is stored, or the value written already, as one DYE2
+ * recorded that the server did not hold, or that expects none: a part a
+ * barista changed since is kept, which its Workflow change brings to the
+ * server.
  * Decaid refuses to change the hot water settings while no machine is
  * connected, so the rest is then written without them. Its answer's
  * `record` is the Workflow's `context`, `hotWaterData` and `profile` as

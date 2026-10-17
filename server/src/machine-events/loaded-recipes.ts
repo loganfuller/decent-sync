@@ -18,7 +18,6 @@ import {
   type ItemKind,
   NO_STALE_CHECK,
   PARTS,
-  type PartLookups,
   RECIPE_FIELDS,
   type StaleCheck,
   type WorkflowParts,
@@ -29,10 +28,10 @@ import {
   readLoadBefore,
   readParts,
   recipeParts,
-  recordedParts,
+  RECORDED_PARTS,
   samePart,
   setBackToLoad,
-  workflowEditedParts,
+  WORKFLOW_EDITED_PARTS,
   workflowParts,
 } from "../library/loaded-recipe-intake.js";
 import { lockLocation, transactionTime } from "../library/location-state.js";
@@ -46,12 +45,12 @@ import { profileOfSql } from "../shots/links.js";
 // global id (LOADED_RECIPE_KEY), so the server reads it from the Workflow
 // deliveries milestone 1 captures, keeping each Machine's current Loaded
 // Recipe and its history (`loaded_recipes`). A Machine follows its Loaded
-// Recipe both ways (tickets #146 and #177): DYE2 records a change on it of
-// the dose, yield, grind setting, brew temperature and the hot water value
-// of the Recipe's mode into the Recipe's record, which reaches the server as
-// the tablet's change of the record (`recordedByDye2`, recipes.ts); a change
-// of the Workflow's other parts that follow the Recipe (`workflowEditedParts`)
-// is an edit of it; and an edit of the Recipe from anywhere is written into
+// Recipe both ways (tickets #146, #177 and #187): DYE2 records a change on
+// it of the dose, yield, grind setting, RPM, Basket, brew temperature and
+// hot water volume and temperature into the Recipe's record, which reaches
+// the server as the tablet's change of the record (`recordedByDye2`,
+// recipes.ts); a change of its hot water duration or flow
+// (`WORKFLOW_EDITED_PARTS`) is an edit of it; and an edit of the Recipe from anywhere is written into
 // the Workflow of every Machine that has it loaded, each tablet's Workflow as
 // it last held them kept in `tablet_loaded_recipes`, so the plugin's own
 // write is never read as the tablet's edit (loaded-recipe-intake.ts). A part
@@ -167,28 +166,14 @@ interface FollowedRecipe {
 interface HeldLoadedRecipe {
   recipeId: string;
   held: WorkflowParts;
-  pending: Pending;
   contentSeenAt: Date | null;
 }
 
-/** The parts naming a Basket or Bean Batch the tablet's map did not hold yet, each with the tablet's id for it and when it was observed. */
-type Pending = Partial<Record<LoadedRecipePart, { localId: string; at: string }>>;
-
 async function heldLoadedRecipe(tx: Prisma.TransactionClient, tabletId: string): Promise<HeldLoadedRecipe | null> {
-  const [row] = await tx.$queryRaw<{ recipeId: string; held: unknown; pending: unknown; contentSeenAt: Date | null }[]>`
-    SELECT recipe_id::text AS "recipeId", held, pending, content_seen_at AS "contentSeenAt" FROM tablet_loaded_recipes WHERE tablet_id = ${tabletId}::uuid`;
+  const [row] = await tx.$queryRaw<{ recipeId: string; held: unknown; contentSeenAt: Date | null }[]>`
+    SELECT recipe_id::text AS "recipeId", held, content_seen_at AS "contentSeenAt" FROM tablet_loaded_recipes WHERE tablet_id = ${tabletId}::uuid`;
   if (!row) return null;
-  return { recipeId: row.recipeId, held: readParts(row.held), pending: readPending(row.pending), contentSeenAt: row.contentSeenAt };
-}
-
-function readPending(value: unknown): Pending {
-  if (!isObject(value)) return {};
-  const pending: Pending = {};
-  for (const part of PARTS) {
-    const kept = value[part];
-    if (isObject(kept) && typeof kept.localId === "string" && typeof kept.at === "string") pending[part] = { localId: kept.localId, at: kept.at };
-  }
-  return pending;
+  return { recipeId: row.recipeId, held: readParts(row.held), contentSeenAt: row.contentSeenAt };
 }
 
 /**
@@ -201,15 +186,13 @@ async function saveHeld(
   tabletId: string,
   recipeId: string,
   held: WorkflowParts,
-  pending: Pending,
   contentSeen: Date | null,
 ): Promise<void> {
-  const kept = Object.keys(pending).length === 0 ? null : JSON.stringify(pending);
   await tx.$executeRaw`
-    INSERT INTO tablet_loaded_recipes AS known (tablet_id, recipe_id, held, pending, content_seen_at)
-    VALUES (${tabletId}::uuid, ${recipeId}::uuid, ${JSON.stringify(held)}::jsonb, ${kept}::jsonb, ${contentSeen}::timestamptz)
+    INSERT INTO tablet_loaded_recipes AS known (tablet_id, recipe_id, held, content_seen_at)
+    VALUES (${tabletId}::uuid, ${recipeId}::uuid, ${JSON.stringify(held)}::jsonb, ${contentSeen}::timestamptz)
     ON CONFLICT (tablet_id) DO UPDATE SET
-      held = EXCLUDED.held, pending = EXCLUDED.pending,
+      held = EXCLUDED.held,
       content_seen_at = CASE WHEN known.recipe_id = EXCLUDED.recipe_id
         THEN GREATEST(known.content_seen_at, EXCLUDED.content_seen_at) ELSE EXCLUDED.content_seen_at END,
       recipe_id = EXCLUDED.recipe_id`;
@@ -262,17 +245,15 @@ async function followMachine(
       ? []
       : await tx.$queryRaw<{ contentSeenAt: Date | null }[]>`
           SELECT content_seen_at AS "contentSeenAt" FROM tablet_recipes WHERE tablet_id = ${tablet.tabletId}::uuid AND recipe_id = ${named}::uuid`;
-  await saveHeld(tx, tablet.tabletId, named, now, {}, record?.contentSeenAt ?? null);
+  await saveHeld(tx, tablet.tabletId, named, now, record?.contentSeenAt ?? null);
 }
 
 /**
  * Takes in the parts the Workflow holds (`now`) otherwise than the tablet's
  * Workflow last held them (`known`), but those `written`, as the tablet's
- * edit of its Loaded Recipe (`followed`), made at `at`, but for a part
- * naming a Basket or batch the map gained since it was observed, made then;
- * one the map does not hold yet waits for it. Saves what the Workflow holds
- * from now on, and tells every instance when the Location's tablets are to
- * be written.
+ * edit of its Loaded Recipe (`followed`), made at `at`. Saves what the
+ * Workflow holds from now on, and tells every instance when the Location's
+ * tablets are to be written.
  */
 async function takeInParts(
   tx: Prisma.TransactionClient,
@@ -284,38 +265,22 @@ async function takeInParts(
   written: ReadonlySet<LoadedRecipePart>,
 ): Promise<void> {
   // DYE2 records the rest into the Recipe's record.
-  const changed = changedParts(known.held, now, workflowEditedParts(followed.content)).filter((part) => !written.has(part));
+  const changed = changedParts(known.held, now, WORKFLOW_EDITED_PARTS).filter((part) => !written.has(part));
   const held: WorkflowParts = { ...known.held };
   for (const part of written) held[part] = now[part];
-  const pending: Pending = {};
   if (changed.length === 0) {
-    await saveHeld(tx, tablet.tabletId, followed.id, held, pending, null);
+    await saveHeld(tx, tablet.tabletId, followed.id, held, null);
     return;
   }
-  const lookups = await partLookups(tx, tablet.tabletId);
-  const stale = await staleCheck(tx, tablet, followed, changed);
-  const source = tabletSource(tablet);
-  // A part the map gained since the Workflow named it was changed when it was observed, decided before the rest.
-  const timed = changed.map((part) => {
-    const waiting = known.pending[part];
-    return { part, at: waiting !== undefined && waiting.localId === now[part] ? new Date(waiting.at) : at };
-  });
-  let writesDue = false;
-  let content = followed.content;
-  for (const time of [...new Set(timed.map((entry) => entry.at.getTime()))].sort((a, b) => a - b)) {
-    const parts = timed.filter((entry) => entry.at.getTime() === time).map((entry) => entry.part);
-    const edits = partEdits(parts, now, content, lookups, stale);
-    for (const part of edits.taken) held[part] = now[part];
-    for (const part of edits.unmapped) pending[part] = known.pending[part]?.localId === now[part] ? known.pending[part]! : { localId: String(now[part]), at: at.toISOString() };
-    if (edits.taken.length > 0) writesDue = true;
-    if (Object.keys(edits.values).length === 0) continue;
-    await editContent(tx, { kind: "recipe", id: followed.id }, { values: edits.values, at: new Date(time), seenAt: known.contentSeenAt }, source);
-    content = await recipeContent(tx, followed.id);
+  const edits = partEdits(changed, now, followed.content, await staleCheck(tx, tablet, followed, changed));
+  for (const part of edits.taken) held[part] = now[part];
+  if (Object.keys(edits.values).length > 0) {
+    await editContent(tx, { kind: "recipe", id: followed.id }, { values: edits.values, at, seenAt: known.contentSeenAt }, tabletSource(tablet));
   }
-  await saveHeld(tx, tablet.tabletId, followed.id, held, pending, null);
+  await saveHeld(tx, tablet.tabletId, followed.id, held, null);
   // Its other tablets are written the Recipe, and so are the Workflows that have it loaded, this one's included where a
   // part was set back by a stale copy or an edit lost.
-  if (writesDue) await notify(tx, "library_changes", followed.locationId);
+  if (edits.taken.length > 0) await notify(tx, "library_changes", followed.locationId);
 }
 
 /** The Library Profile a Workflow's profile is, found as a Shot's is (`profileOfSql`), or null. */
@@ -375,18 +340,6 @@ async function recipeContent(tx: Prisma.TransactionClient, recipeId: string): Pr
   return isObject(row?.content) ? row.content : {};
 }
 
-/** What the tablet's map and the Library say of the Baskets and Bean Batches a Workflow names (`PartLookups`). */
-async function partLookups(tx: Prisma.TransactionClient, tabletId: string): Promise<PartLookups> {
-  const rows = await tx.$queryRaw<{ kind: ItemKind; itemId: string; localId: string; beanId: string | null }[]>`
-    SELECT 'basket' AS kind, basket_id::text AS "itemId", local_id AS "localId", NULL::text AS "beanId" FROM tablet_baskets WHERE tablet_id = ${tabletId}::uuid
-    UNION ALL
-    SELECT 'beanBatch', held.batch_id::text, held.local_id, batch.bean_id::text
-    FROM tablet_bean_batches AS held JOIN bean_batches AS batch ON batch.id = held.batch_id WHERE held.tablet_id = ${tabletId}::uuid`;
-  const items = new Map(rows.map((row) => [`${row.kind}:${row.localId}`, row.itemId]));
-  const beans = new Map(rows.flatMap((row) => (row.beanId === null ? [] : [[row.itemId, row.beanId] as const])));
-  return { item: (kind, localId) => items.get(`${kind}:${localId}`), beanOf: (batchId) => beans.get(batchId) };
-}
-
 /**
  * What tells a part set back by a stale copy of the Recipe (`StaleCheck`):
  * what the tablet's record of it held just before the server's latest write
@@ -438,28 +391,6 @@ async function loadOf(tx: Prisma.TransactionClient, machineId: string, recipeId:
 /** The fields whose latest edit the tablet made, timed after `since`: a set-back of one undoes it. */
 function ownSince(fieldEdits: FieldEdits, tabletId: string, since: Date): Set<string> {
   return new Set(Object.entries(fieldEdits).flatMap(([field, latest]) => (latest.tabletId === tabletId && new Date(latest.at).getTime() > since.getTime() ? [field] : [])));
-}
-
-/**
- * Takes in the parts of the tablet's Workflow that name a Basket or Bean
- * Batch its map had not held when it was observed, now the map gains it,
- * under the tablet's lock and its Location's, as a report of its batches or
- * baskets taken in at that Location holds them: each the tablet's edit of
- * its Loaded Recipe, timed when it was observed (`takeInParts`).
- */
-export async function settlePendingParts(tx: Prisma.TransactionClient, tablet: ReportingTablet, locationId: string): Promise<void> {
-  const known = await heldLoadedRecipe(tx, tablet.tabletId);
-  if (known === null || Object.keys(known.pending).length === 0) return;
-  await lockLocation(tx, locationId);
-  const [row] = await tx.$queryRaw<FollowedRecipe[]>`
-    SELECT recipes.id::text AS id, recipes.location_id::text AS "locationId", recipes.content
-    FROM recipes JOIN loaded_recipes AS loaded ON loaded.recipe_id = recipes.id AND loaded.machine_id = ${tablet.machineId}::uuid AND loaded.unloaded_at IS NULL
-    WHERE recipes.id = ${known.recipeId}::uuid AND recipes.location_id = ${locationId}::uuid AND recipes.slot IS NOT NULL AND NOT recipes.archived
-    FOR NO KEY UPDATE OF recipes`;
-  if (!row) return;
-  const now: WorkflowParts = { ...known.held };
-  for (const [part, waiting] of Object.entries(known.pending) as [LoadedRecipePart, { localId: string }][]) now[part] = waiting.localId;
-  await takeInParts(tx, tablet, { ...row, content: isObject(row.content) ? row.content : {} }, known, now, new Date(), new Set());
 }
 
 /**
@@ -521,10 +452,8 @@ function firstStepTemperature(profile: unknown): number | null {
 
 /**
  * The paths of a recipe record DYE2 records into, each with the part of the
- * Workflow it records from: those of `recordedParts`, and the RPM, Basket
- * and other hot water value, which DYE2 records too, the hot water value
- * once it moves off the one the Workflow held as the recipe was selected
- * (`itemPatch` in dye2:dye2-plugin/src/utils/workflow-record.ts at 2cf631c).
+ * Workflow it records from (`RECORDED_PARTS`; `itemPatch` in
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at 2cf631c).
  */
 const RECORDED_PATHS: Readonly<Record<string, LoadedRecipePart>> = {
   "dashboardVariables.dose": "dose",
@@ -567,9 +496,6 @@ export async function recordedByDye2(
   if (!load) return stale;
   const { loadBefore } = load;
   const own = ownSince(readFieldEdits(fieldEdits), tablet.tabletId, load.loadedAt);
-  // The parts the Workflow also reports (`workflowEditedParts`) are held as it reports them, which can be later than the
-  // value DYE2 recorded: only those DYE2 alone records are held as recorded.
-  const recordedOnly = new Set(recordedParts(content));
   const locals = "dashboardVariables.basketId" in changed ? await tabletLocals(tx, tablet.tabletId) : undefined;
   const held: WorkflowParts = { ...known.held };
   for (const [path, value] of Object.entries(changed)) {
@@ -584,10 +510,31 @@ export async function recordedByDye2(
     const unwritten = recipeValue !== null && known.held[part] !== null && samePart(part, known.held[part], recordedValue) && !samePart(part, recipeValue, recordedValue);
     // A value that is the Recipe's already, as DYE2 records the plugin's own write, is no edit either.
     if (samePart(part, recipeValue, recordedValue) || setBackToLoad(part, recordedValue, loadBefore, own) || unwritten) stale.add(path);
-    if (recordedOnly.has(part)) held[part] = recordedValue;
+    held[part] = recordedValue;
   }
-  await saveHeld(tx, tablet.tabletId, recipeId, held, known.pending, null);
+  await saveHeld(tx, tablet.tabletId, recipeId, held, null);
   return stale;
+}
+
+/**
+ * After a save of DYE2's editor of a Recipe (`savedInEditor`), which DYE2
+ * does not apply to the Workflow, and which a report can bring with what
+ * DYE2 recorded before it: the parts DYE2 records are held as the tablet's
+ * latest Workflow holds them, while that Recipe is its Loaded Recipe, under
+ * the tablet's lock, which the report holds. So the save's values are
+ * written into that Workflow, as into the others that have the Recipe
+ * loaded, each expecting what it holds.
+ */
+export async function heldAfterEditorSave(tx: Prisma.TransactionClient, tablet: ReportingTablet, recipeId: string, content: Readonly<Record<string, unknown>>): Promise<void> {
+  const known = await heldLoadedRecipe(tx, tablet.tabletId);
+  if (known === null || known.recipeId !== recipeId) return;
+  const [latest] = await tx.$queryRaw<{ workflow: unknown }[]>`
+    SELECT workflow FROM workflow_events WHERE machine_id = ${tablet.machineId}::uuid ORDER BY id DESC LIMIT 1`;
+  if (!latest) return;
+  const now = workflowParts(latest.workflow);
+  const held: WorkflowParts = { ...known.held };
+  for (const part of RECORDED_PARTS) held[part] = now[part];
+  await saveHeld(tx, tablet.tabletId, recipeId, held, null);
 }
 
 /** The tablet's id for its record of a Grinder, Basket or Bean Batch, by the item's global id, by its map; undefined where it holds none. */
@@ -634,7 +581,7 @@ export async function recordLoadedRecipeWritten(
     const now = workflowParts(record, await libraryProfileOf(tx, record));
     // Cleared, or another loaded since: held as the Workflow holds it, as the one the plugin sends after it is.
     if (named === null) await tx.$executeRaw`DELETE FROM tablet_loaded_recipes WHERE tablet_id = ${tablet.tabletId}::uuid`;
-    else if (named !== known.recipeId) await saveHeld(tx, tablet.tabletId, named, now, {}, null);
+    else if (named !== known.recipeId) await saveHeld(tx, tablet.tabletId, named, now, null);
     if (named !== known.recipeId) return "recorded";
     const locationId = await sharingLocation(tx, tablet.machineId);
     if (locationId !== null) await lockLocation(tx, locationId);

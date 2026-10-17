@@ -1084,7 +1084,8 @@ never matched (ADR-0018).
   `dashboardVariables.dose`.
 - **What is no edit.** The fields DYE2 derives, `title`, `subtitle`, the
   embedded `workflow`, `capturedAt`, and the names it copies (`beanName`,
-  `profileTitle`, `grinderModel`, `basketName`, `equipmentNames`), are
+  `beanRoaster`, `profileTitle`, `grinderModel`, `basketName`,
+  `equipmentNames`), are
   written but never taken in, and so is `profileSnapshot`, but that a
   record naming no `profileId`, as DYE2 saves a Profile read from the
   Workflow, names the Library Profile its `profileSnapshot` is, found as a
@@ -1102,13 +1103,21 @@ never matched (ADR-0018).
   keeps those it holds, and applying it sets them on that Machine alone. The
   Recipe's steam mode (`steamMode`) is a field of its content, taken in as
   any is.
-- **Its Bean Batch.** DYE2 names a Bean, not a batch. A Bean picked in DYE2
+- **Its Bean Batch** is DYE2's `beanBatchId`, beside the Bean
+  (decentespresso/dye2#27). A batch picked with its Bean in DYE2's editor is
+  the Recipe's. A Bean picked with no batch, or with one of another Bean,
   keeps the Recipe's batch if it is of that Bean; otherwise the Recipe takes
   that Bean's batch most recently added at the Location, still there, or no
-  batch where the Bean has none there.
-- **Hot water.** DYE2 keeps one hot water value, of its mode: the volume by
-  `hotWaterMl`, the temperature by `hotWaterTempC`. A save that leaves the
-  others out changes none of them.
+  batch where the Bean has none there. A batch picked on a Machine is never
+  recorded into the recipe: where the Recipe holds one, DYE2 clears its
+  selection on it instead, which unloads the Recipe; where it holds none,
+  DYE2 takes the first one picked as the one it was applied with, and the
+  Recipe stays loaded without it (`WORKFLOW-AND-STATE.md`).
+- **A saved 0 is a value**, as a milk stop of 0 is off. DYE2 saves a blank
+  field as `null` (decentespresso/dye2#29), which holds none.
+- **Hot water.** A record holds the volume by `hotWaterMl` and the
+  temperature by `hotWaterTempC`, which DYE2's editor shows by the
+  Recipe's mode. A save that leaves one out changes none of them.
 - **Its Grinder** is one of its Location's: a record naming another, or one
   Archived, changes none. **Its Tools** the tablet holds no record of, which
   were never written to it, stay the Recipe's whatever the tablet's record
@@ -1128,7 +1137,11 @@ never matched (ADR-0018).
   known is an edit of each field of its content it changed, timed when the
   plugin first read it, merged per field (Edits, above), but for a field set
   back to its value before the server's latest write to it, as for baskets
-  and tools (`before_write`). A record the server creates in a slot it
+  and tools (`before_write`). DYE2's editor now saves only the fields changed
+  over a fresh read (decentespresso/dye2#28), but recipe records keep the
+  rule until its dashboard reads the Workflow again before each send
+  (decentespresso/dye2#31, #186): the Loaded Recipe's rule for a stale copy
+  reads the same `before_write` (`WORKFLOW-AND-STATE.md`, Stale values). A record the server creates in a slot it
   removed another record from, as one whose Recipe left the slot or whose
   Machine left the Location, takes each field that record held otherwise as
   what the tablet held there just before the write (`tablet_removed_recipes`,
@@ -1165,25 +1178,33 @@ of a Recipe taken out of its slot, or another Location's, or in another slot
 than its Recipe's now, is removed first, so its slot is free. Each record
 written (`recipeRecord` in `recipe-intake.ts`) holds:
 
-- the Recipe's content, naming its Bean, Grinder, Basket and Tools by the
-  tablet's own ids, each left out where the tablet holds no record of it,
-  and its Profile by Decaid's id;
-- its Bean Batch, by the tablet's id for it, and all four hot water
-  settings, in the record's own field (`decentSyncRecipe`, RECIPE_FIELD in
-  `protocol/`), and the hot water value of its mode in
-  `dashboardVariables`;
-- the names DYE2 copies, and `title`, `subtitle` and the embedded
-  `workflow`, built as DYE2's `buildRecipeWorkflow` builds them, with the full
-  Profile and the tablet's grinder id, so DYE2 and Streamline apply it the
-  same way, and the Recipe's global id in its `context.extras`
-  (`decentSyncRecipeId`), so a recipe Streamline applies names its Recipe at
-  once (ADR-0022, decentespresso/dye2#20);
-- the full Profile in `profileSnapshot` and the embedded `workflow`, so it
-  applies where the Profile is hidden, or the tablet lacks it, at the
-  Recipe's brew temperature, its first step at it and every other step moved
-  by the same amount, as Streamline's Brew tile sets one
-  (`profileAtBrewTemperature` in `protocol/`), since DYE2 and Streamline
-  apply a recipe's profile as it is (decentespresso/dye2#26);
+- the Recipe's content, naming its Bean, Bean Batch, Grinder, Basket and
+  Tools by the tablet's own ids, each left out where the tablet holds no
+  record of it, and its Profile by Decaid's id;
+- all four hot water settings in the record's own field
+  (`decentSyncRecipe`, RECIPE_FIELD in `protocol/`), and its volume and
+  temperature in `dashboardVariables`, both whatever its mode, as DYE2
+  holds each once it moves in the Workflow, so no write takes out one DYE2
+  records back; a mode of volume where it names none, as the management
+  interface shows it;
+- the names DYE2 copies, the Bean's roaster among them, and `title`,
+  `subtitle` and the embedded `workflow`, built as DYE2's
+  `buildRecipeWorkflow` builds them, with the Bean's name, roaster and batch
+  together, null where it holds none, the full Profile and the tablet's
+  grinder id, so DYE2 and Streamline apply it the same way, and the Recipe's
+  global id in its `context.extras` (`decentSyncRecipeId`), so a recipe
+  Streamline applies names its Recipe at once (ADR-0022,
+  decentespresso/dye2#20), and the steam, hot water and flush settings and
+  field flags (`extras.dye`) DYE2 copies into the tablet's record of it
+  there, which the server does not derive and Streamline does not apply
+  from it (`withHeldWorkflowSettings`);
+- the full Profile in `profileSnapshot`, as the Library holds it, so it
+  applies where the Profile is hidden, or the tablet lacks it, and in the
+  embedded `workflow` at the Recipe's brew temperature, its first step at it
+  and every other step moved by the same amount, as Streamline's Brew tile
+  sets one (`profileAtBrewTemperature` in `protocol/`): DYE2's dashboard
+  moves the snapshot so as it applies it, and Streamline's strip applies the
+  embedded one as it is (decentespresso/dye2#26);
 - its brew temperature in `dashboardVariables.brewC`, its Profile's first
   step's where the Recipe holds none, as DYE2 records a brew temperature
   only into a record holding one;
@@ -1201,13 +1222,14 @@ tablet, in DYE2's editor or recorded by DYE2, reaches every
 tablet there; and a recipe gone from a tablet's list empties its slot on the
 others. DYE2 records into the recipe it has selected the
 change a barista made in the Workflow of a Machine with it loaded, its dose,
-yield, grind setting, brew temperature and the hot water value of its mode,
-as the Machine's edit of its Loaded Recipe; the Workflow's change of those is
-no edit, but what DYE2 records stale is written back (`recordedByDye2`,
-`WORKFLOW-AND-STATE.md`, Following the Recipe). A field of a record that
-sets the Recipe's value its tablet's own latest edit set already is no edit
-(`withoutOwnEdits`), so a change the Workflow brought that DYE2 records
-too, as the RPM and Basket, is one edit. Recipes are read through the REST API (below), and managed in the
+yield, grind setting, RPM, Basket, brew temperature and hot water volume and
+temperature, each where the record holds one, as the Machine's edit of its
+Loaded Recipe; the Workflow's change of those is no edit, but what DYE2
+records stale is written back (`recordedByDye2`, `WORKFLOW-AND-STATE.md`,
+Following the Recipe). A field of a record that sets the Recipe's value its
+tablet's own latest edit set already is no edit (`withoutOwnEdits`), so a
+change the Workflow brought that DYE2 records too, as a hot water duration,
+is one edit. Recipes are read through the REST API (below), and managed in the
 management interface (Editing in the management interface, above).
 
 ## Writing to tablets
