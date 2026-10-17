@@ -1765,8 +1765,8 @@ it.
   before the plugin posts a list that removes the recipe in a slot DYE2 has
   selected, or replaces it with another Recipe's record, as the writer
   removes a joining tablet's own recipes or another Location's Recipes and
-  writes the Location's in their slots, it clears DYE2's selection, and
-  keeps `{}` as DYE2's stored selection (`vacatedSlots`, ADR-0022). A
+  writes the Location's in their slots, it clears DYE2's selection, which
+  DYE2 stores cleared (`vacatedSlots`, ADR-0022). A
   Machine turned back to sharing at the Location it was capture-only at
   has the recipe DYE2 has selected there loaded, where its slot holds one
   of the Location's Recipes, as the Location offers it.

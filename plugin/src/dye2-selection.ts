@@ -1,6 +1,7 @@
 import { DYE2_NAMESPACE } from "@decent-sync/protocol";
 import { request } from "./decaid.js";
 import type { TransportEvent } from "./host.js";
+import type { ArmedOn } from "./loaded-recipe-rules.js";
 
 // DYE2's selected recipe (ADR-0022). DYE2 keeps one selected
 // recipe or favourite on each tablet, which its dashboard and Streamline's
@@ -9,13 +10,11 @@ import type { TransportEvent } from "./host.js";
 // made it, but for its own applies (`workflow-record.ts` in
 // dye2:dye2-plugin/src/utils at 2cf631c). The Machine's Loaded Recipe is the
 // recipe it selects (loaded-recipes.ts). This module is how the plugin reads
-// and makes that selection, keeps a cleared one cleared in DYE2's storage,
-// tells whether DYE2 is there at all, and hears DYE2's pushes.
+// and makes that selection, tells whether DYE2 is there at all, and hears
+// DYE2's pushes. DYE2 keeps its selection in its own storage, a cleared one
+// as `{}` (decentespresso/dye2#22), which the plugin never writes.
 
 const SELECTION = `/plugins/${DYE2_NAMESPACE}/selection`;
-
-/** DYE2's storage key for its selection, which it restores as it loads, through Decaid's store API. */
-const STORED_SELECTION = `/store/${DYE2_NAMESPACE}/selection`;
 
 /** DYE2's WebSocket endpoint, on which it pushes `{"what":"workflow"}` as it selects, records and refreshes its recent favourites. */
 export const CHANGED_SOCKET = `ws://localhost:8080/ws/v1/plugins/${DYE2_NAMESPACE}/changed`;
@@ -25,9 +24,9 @@ export type SelectionAnswer =
   /** 404: DYE2 is not loaded, as while it reloads or updates. */
   | { kind: "unavailable" }
   | { kind: "none" }
-  /** A recipe, by its slot (null for an id that names none), with the fingerprint of the profile it was selected on, or null. */
-  | { kind: "recipe"; slot: number | null; fingerprint: string | null; selection: Record<string, unknown> }
-  | { kind: "favourite"; selection: Record<string, unknown> };
+  /** A recipe, by its slot (null for an id that names none), with what the Workflow held as it was selected (`ArmedOn`). */
+  | ({ kind: "recipe"; slot: number | null } & ArmedOn)
+  | { kind: "favourite" };
 
 /** DYE2's selection now. Throws if Decaid answers otherwise than with it or 404, or does not answer. */
 export async function readSelection(): Promise<SelectionAnswer> {
@@ -41,11 +40,12 @@ export async function readSelection(): Promise<SelectionAnswer> {
     return {
       kind: "recipe",
       slot: /^[1-9]\d*$/.test(id) ? Number(id) : null,
-      fingerprint: typeof value.profileFingerprint === "string" ? value.profileFingerprint : null,
-      selection: value,
+      fingerprint: textOf(value.profileFingerprint),
+      batch: textOf(value.armedBeanBatchId),
+      grinder: textOf(value.armedGrinderId),
     };
   }
-  return { kind: "favourite", selection: value };
+  return { kind: "favourite" };
 }
 
 /**
@@ -59,17 +59,6 @@ export async function postSelection(slot: number | null): Promise<"done" | "unav
   if (answer.status === 404) return "unavailable";
   if (!answer.ok) throw new Error(`Decaid answered ${answer.status} setting DYE2's selection`);
   return "done";
-}
-
-/**
- * Keeps a selection in DYE2's storage, which DYE2 restores as it next loads:
- * `{}`, which it restores as none, or a selection as its endpoint answered
- * it (decentespresso/dye2#22). Throws if Decaid refuses it, or does not
- * answer.
- */
-export async function storeSelection(value: Record<string, unknown>): Promise<void> {
-  const answer = await request("POST", STORED_SELECTION, value);
-  if (!answer.ok) throw new Error(`Decaid answered ${answer.status} keeping DYE2's selection`);
 }
 
 /**
@@ -157,6 +146,10 @@ function parsed(text: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+function textOf(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

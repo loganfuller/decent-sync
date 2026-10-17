@@ -830,6 +830,21 @@ var __decentSync = (() => {
   function workflowGrinder(workflow) {
     return isObject2(workflow.context) ? textOf(workflow.context.grinderId) : null;
   }
+  function selectedOn(armed, workflow) {
+    if (workflow === void 0) return false;
+    const fingerprint = dye2Fingerprint(workflow.profile);
+    if (armed.fingerprint !== null && fingerprint !== null && armed.fingerprint !== fingerprint) return false;
+    if (armed.batch !== null && armed.batch !== workflowBatch(workflow)) return false;
+    return armed.grinder === null || armed.grinder === workflowGrinder(workflow);
+  }
+  function armedOn(workflow) {
+    return { fingerprint: dye2Fingerprint(workflow.profile), batch: workflowBatch(workflow), grinder: workflowGrinder(workflow) };
+  }
+  function clearsSelection(workflow, write) {
+    const context = { ...isObject2(workflow.context) ? workflow.context : {}, ...isObject2(write.context) ? write.context : {} };
+    const after = { ...workflow, context, ...isObject2(write.profile) ? { profile: write.profile } : {} };
+    return dye2Fingerprint(workflow.profile) !== dye2Fingerprint(after.profile) || workflowBatch(workflow) !== workflowBatch(after) || workflowGrinder(workflow) !== workflowGrinder(after);
+  }
   function loadable(records) {
     return records.flatMap((record) => {
       const globalId = dye2GlobalIdOf(record);
@@ -844,10 +859,6 @@ var __decentSync = (() => {
       const is = now2.get(record.id);
       return is === void 0 || was !== null && dye2GlobalIdOf(is) !== was ? [Number(record.id)] : [];
     });
-  }
-  function recipeSetUp(record) {
-    const variables = isObject2(record.dashboardVariables) ? record.dashboardVariables : {};
-    return { grinder: textOf(variables.grinderId), bean: textOf(record.beanId) };
   }
   function loadWrite(workflow, record, globalId, load, omit = /* @__PURE__ */ new Set()) {
     const context = isObject2(workflow.context) ? workflow.context : {};
@@ -931,7 +942,6 @@ var __decentSync = (() => {
 
   // src/dye2-selection.ts
   var SELECTION = `/plugins/${DYE2_NAMESPACE}/selection`;
-  var STORED_SELECTION = `/store/${DYE2_NAMESPACE}/selection`;
   var CHANGED_SOCKET = `ws://localhost:8080/ws/v1/plugins/${DYE2_NAMESPACE}/changed`;
   async function readSelection() {
     const answer = await request("GET", SELECTION);
@@ -944,21 +954,18 @@ var __decentSync = (() => {
       return {
         kind: "recipe",
         slot: /^[1-9]\d*$/.test(id) ? Number(id) : null,
-        fingerprint: typeof value.profileFingerprint === "string" ? value.profileFingerprint : null,
-        selection: value
+        fingerprint: textOf2(value.profileFingerprint),
+        batch: textOf2(value.armedBeanBatchId),
+        grinder: textOf2(value.armedGrinderId)
       };
     }
-    return { kind: "favourite", selection: value };
+    return { kind: "favourite" };
   }
   async function postSelection(slot) {
     const answer = await request("POST", SELECTION, slot === null ? {} : { kind: "recipe", id: String(slot) });
     if (answer.status === 404) return "unavailable";
     if (!answer.ok) throw new Error(`Decaid answered ${answer.status} setting DYE2's selection`);
     return "done";
-  }
-  async function storeSelection(value) {
-    const answer = await request("POST", STORED_SELECTION, value);
-    if (!answer.ok) throw new Error(`Decaid answered ${answer.status} keeping DYE2's selection`);
   }
   async function readDye2State() {
     const answer = await request("GET", "/plugins");
@@ -1016,6 +1023,9 @@ var __decentSync = (() => {
       return void 0;
     }
   }
+  function textOf2(value) {
+    return typeof value === "string" && value !== "" ? value : null;
+  }
   function isObject3(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
@@ -1039,14 +1049,18 @@ var __decentSync = (() => {
       /** The slot each Recipe was last seen in, by global id, kept after the list loses it, so its selection can still be cleared. */
       __publicField(this, "lastSlots", /* @__PURE__ */ new Map());
       __publicField(this, "answer", "unread");
-      /** The recipe DYE2's selection last named, and the fingerprint of the profile it was selected on. */
-      __publicField(this, "selected", null);
-      /** The selection to be made again that a server write changing the profile set (`profileChanging`), until it is answered. */
-      __publicField(this, "profileWrite", null);
+      /** The selection to be made again that a server write DYE2 clears its selection on set (`selectionClearing`), until it is answered. */
+      __publicField(this, "clearingWrite", null);
       /** A selection of the plugin's still to be made: tried again until DYE2 answers, unless a barista selects something else first. */
       __publicField(this, "pendingSelect", null);
-      /** Slots whose clearing from DYE2's selection is still to be made, each with whether `{}` is kept after it. */
-      __publicField(this, "pendingClears", /* @__PURE__ */ new Map());
+      /**
+       * What the Loaded Recipe's selection was made on, as DYE2 last answered
+       * it, or as the plugin's selection again is to make it: a write of the
+       * plugin's over a Workflow that no longer holds it selects nothing again.
+       */
+      __publicField(this, "armed", null);
+      /** Slots whose clearing from DYE2's selection is still to be made. */
+      __publicField(this, "pendingClears", /* @__PURE__ */ new Set());
       /**
        * The Loaded Recipe while it moves to another slot, with the slots it left
        * and whether the post of the list moving it was taken: reads decide
@@ -1055,26 +1069,11 @@ var __decentSync = (() => {
        * in the old one.
        */
       __publicField(this, "relocating", null);
-      /**
-       * The selection cleared whose keeping as cleared in DYE2's storage is
-       * still to be done (`keepCleared`), as when Decaid failed it, tried again at
-       * the next read, while DYE2 is unavailable too; should DYE2 restore that
-       * selection meanwhile, it is cleared again rather than loaded.
-       */
-      __publicField(this, "keepPending", null);
-      /** How many espressos have started since the plugin loaded: a load's write made before one is followed by it. */
-      __publicField(this, "espressos", 0);
-      /** The machine's state last reported, so only a change into espresso counts as one starting. */
-      __publicField(this, "state");
       /** Whether Decaid reported a change of the Workflow during a write of the plugin's (`ownWrite`). */
       __publicField(this, "reportedDuringWrite", false);
-      /** The latest load: its Recipe, the Bean Batch its write replaced, and how many espressos had started as its write was sent (`espressos`). */
-      __publicField(this, "load", null);
       __publicField(this, "dye2", "unknown");
       /** When DYE2 was first seen not loaded, since it was last loaded. */
       __publicField(this, "notLoadedSince", null);
-      /** Whether `{}` was kept as DYE2 became unavailable with a Recipe loaded, since it was last loaded. */
-      __publicField(this, "keptUnavailable", false);
       __publicField(this, "captureOnly", false);
       __publicField(this, "chain", Promise.resolve());
       /** Whether a change of the Workflow is held back until a read decides on it, since when, and how many changes came by then. */
@@ -1086,8 +1085,6 @@ var __decentSync = (() => {
       __publicField(this, "pollTimer");
       __publicField(this, "stopped", false);
       __publicField(this, "failing", false);
-      /** The Bean of each of the tablet's Bean Batches read, by their ids there, null for one it does not hold: a batch's Bean never changes. */
-      __publicField(this, "beans", /* @__PURE__ */ new Map());
       __publicField(this, "pushes");
       this.pushes = new Dye2Pushes(transports, () => this.enqueue(() => this.check()));
     }
@@ -1119,13 +1116,12 @@ var __decentSync = (() => {
      * Decaid's `workflowUpdated`, before the Workflow is queued. The first
      * names the Loaded Recipe the plugin takes until it decides. While a
      * Recipe is loaded, or the Workflow names another, the change is held back
-     * until a read of DYE2's selection after it decides on it (`check`), and a
-     * change of grinder or Bean is decided at once (`changed`). A change during
-     * a write of the plugin's is that write's echo, which its write holds.
+     * until a read of DYE2's selection after it decides on it (`check`). A
+     * change during a write of the plugin's is that write's echo, which its
+     * write holds.
      */
     observe(workflow) {
       if (this.stopped) return;
-      const before = this.latest;
       this.latest = workflow;
       if (!this.initialised) {
         this.initialised = true;
@@ -1138,9 +1134,6 @@ var __decentSync = (() => {
       }
       this.observed++;
       this.holdUntilRead(workflow);
-      const load = this.load && { ...this.load, espresso: this.espressos > this.load.espressos };
-      const loaded = this.loaded;
-      if (before) this.enqueue(() => this.changed(before, workflow, load, loaded));
       this.readSoon();
     }
     /**
@@ -1153,11 +1146,6 @@ var __decentSync = (() => {
         this.holding = { since: Date.now(), observed: this.observed };
         this.changes.hold();
       } else if (this.holding) this.holding.observed = this.observed;
-    }
-    /** Decaid's `stateUpdate`, a change of state: the first espresso since a load closes the window in which a batch set back to the one it replaced is no change of Bean. */
-    stateChanged(state) {
-      if (state === "espresso" && this.state !== "espresso") this.espressos++;
-      this.state = state;
     }
     /**
      * DYE2's recipes as a read of them found them, whoever read them: the
@@ -1198,41 +1186,68 @@ var __decentSync = (() => {
       if (answer.kind === "recipe" && answer.slot !== null && this.recipes.get(answer.slot)?.globalId === globalId) return true;
       return answer.kind === "none" && this.pendingSelect?.globalId === globalId;
     }
-    profileChanging(globalId) {
+    selectionClearing(globalId) {
       const slot = this.slotOf(globalId);
       if (this.captureOnly || slot === null || this.loaded !== globalId) return;
+      if (this.pendingSelect?.globalId === globalId && this.pendingSelect.slot === slot) {
+        this.pendingSelect.on = void 0;
+        return;
+      }
       this.pendingSelect = { slot, globalId };
-      this.profileWrite = this.pendingSelect;
+      this.clearingWrite = this.pendingSelect;
     }
-    profileUnchanged(globalId) {
-      if (this.profileWrite?.globalId === globalId && this.pendingSelect === this.profileWrite) this.pendingSelect = null;
-      this.profileWrite = null;
+    selectionKept(globalId) {
+      if (this.clearingWrite?.globalId === globalId && this.pendingSelect === this.clearingWrite) this.pendingSelect = null;
+      this.clearingWrite = null;
     }
-    written(globalId, before, after) {
+    selectionUnsettled(globalId) {
+      if (this.clearingWrite?.globalId === globalId) this.clearingWrite = null;
+      this.enqueue(() => this.check());
+    }
+    written(globalId, before, after, clears) {
       this.latest = after;
-      if (this.captureOnly || dye2Fingerprint(before.profile) === dye2Fingerprint(after.profile)) return;
+      this.clearingWrite = null;
+      if (this.captureOnly || !clears) return;
       const slot = this.slotOf(globalId);
       if (slot === null || this.loaded !== globalId) return;
-      this.pendingSelect = { slot, globalId };
+      this.reselectAfter(globalId, slot, before, after);
       this.enqueue(() => this.check());
+    }
+    /**
+     * After a write of the plugin's that DYE2 clears its selection on, from
+     * `before` to `after`: the slot is to be selected again on the Workflow
+     * written, where the Workflow it wrote over still held what the selection
+     * was made on (`armed`). Where it did not, the barista changed the
+     * profile, batch or grinder first, as while DYE2 answered 404, which DYE2
+     * clears a selection on, and nothing is selected again.
+     */
+    reselectAfter(globalId, slot, before, after) {
+      const pending = this.pendingSelect?.globalId === globalId ? this.pendingSelect : null;
+      const made = pending?.on ?? this.armed;
+      if (made !== null && !selectedOn(made, before)) {
+        if (pending !== null) this.pendingSelect = null;
+        return;
+      }
+      this.armed = armedOn(after);
+      this.pendingSelect = { slot, globalId, on: this.armed };
     }
     cleared(globalId) {
       if (this.loaded === globalId) {
         this.loaded = null;
-        this.load = null;
+        this.armed = null;
       }
       if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
       if (this.relocating?.globalId === globalId) this.relocating = null;
       const slot = this.lastSlots.get(globalId);
       const now2 = slot === void 0 ? void 0 : this.recipes.get(slot)?.globalId;
-      if (slot !== void 0 && (now2 === void 0 || now2 === globalId)) this.enqueue(() => this.clearSlot(slot, true));
+      if (slot !== void 0 && (now2 === void 0 || now2 === globalId)) this.enqueue(() => this.clearSlot(slot));
     }
     async moving(before, after) {
       if (this.captureOnly) return;
       const left = await this.relocate(before, after);
       const vacated = vacatedSlots(before, after).filter((slot) => !left.has(slot));
       try {
-        for (const slot of vacated) await this.clearSlot(slot, true);
+        for (const slot of vacated) await this.clearSlot(slot);
       } catch (error) {
         for (const slot of vacated) this.pendingClears.delete(slot);
         if (left.size > 0) this.unmoved(left);
@@ -1242,12 +1257,8 @@ var __decentSync = (() => {
     /**
      * Before a post of DYE2's recipes moving the Loaded Recipe out of a slot:
      * the selection of each slot it leaves is cleared, so DYE2 never records
-     * into a recipe put there, and its new slot is selected once posted. A
-     * post leaving it in no slot keeps `{}`, as a selection DYE2 restored would
-     * name the recipe put in its slot: so does every move the server writes,
-     * which removes the record before it creates the new one, and the new
-     * slot's selection is stored as it is made. Resolves with the slots it
-     * leaves.
+     * into a recipe put there, and its new slot is selected once posted.
+     * Resolves with the slots it leaves.
      */
     async relocate(before, after) {
       const globalId = this.loaded;
@@ -1259,7 +1270,7 @@ var __decentSync = (() => {
       if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
       this.relocating = { globalId, left: /* @__PURE__ */ new Set([...this.relocating?.globalId === globalId ? this.relocating.left : [], ...left]), posted: false };
       try {
-        for (const slot of left) await this.clearSlot(slot, is.size === 0);
+        for (const slot of left) await this.clearSlot(slot);
       } catch (error) {
         this.unmoved(left);
         throw error;
@@ -1335,40 +1346,10 @@ var __decentSync = (() => {
       this.changes.release();
     }
     /**
-     * A change of the Workflow while a Recipe is loaded, on a Machine that is
-     * not capture-only, decided at once: one of grinder to one the Loaded
-     * Recipe does not name, or of Bean Batch to one of another Bean, unloads
-     * it and clears DYE2's selection, which DYE2 keeps through either
-     * (decentespresso/dye2#19). A grinder or batch cleared is no such change,
-     * nor is a batch set back to the one the load replaced, before the first
-     * espresso since (ADR-0022, Stale values; #188). Nor is a change seen
-     * while another Recipe, or none, was loaded (`loaded`): a load decided
-     * after it, as on a read of DYE2's selection that came first, took the
-     * Workflow as it was then.
-     */
-    async changed(before, after, load, loaded) {
-      const globalId = this.loaded;
-      if (globalId === null || globalId !== loaded || this.captureOnly || this.relocating !== null) return;
-      const slot = this.slotOf(globalId);
-      const recipe = slot === null ? void 0 : this.recipes.get(slot);
-      if (!recipe) return;
-      const named = recipeSetUp(recipe.record);
-      const grinder = workflowGrinder(after);
-      if (grinder !== null && grinder !== workflowGrinder(before) && named.grinder !== null && grinder !== named.grinder) {
-        await this.unload("changed");
-        return;
-      }
-      const batch = workflowBatch(after);
-      if (batch === null || batch === workflowBatch(before) || named.bean === null) return;
-      const bean = await this.beanOf(batch);
-      if (bean === null || bean === named.bean) return;
-      if (load?.globalId === globalId && !load.espresso && load.batchBefore === batch) return;
-      if (this.loaded === globalId) await this.unload("changed");
-    }
-    /**
      * Reads DYE2's selection, with whether DYE2 is loaded on the poll, and
      * decides: a selection of a recipe in a slot carrying a global id, made on
-     * the profile the Workflow holds, loads that Recipe; any other unloads the
+     * the Workflow as it holds it now (`selectedOn`), loads that Recipe; any
+     * other unloads the
      * Loaded Recipe. A 404 tells nothing, nor does a first answer of none
      * after the plugin loads or DYE2 answers 404, as DYE2 restores its stored
      * selection after its load: a later read confirms it. While a selection or
@@ -1383,26 +1364,16 @@ var __decentSync = (() => {
           this.dye2 = await readDye2State();
           if (this.dye2 === "loaded") {
             this.notLoadedSince = null;
-            this.keptUnavailable = false;
             this.pushes.keepOpen();
           } else this.notLoadedSince ?? (this.notLoadedSince = Date.now());
         }
         if (this.captureOnly) {
-          if (this.pendingClears.size > 0 || this.keepPending) await this.tryPending(await readSelection());
+          if (this.pendingClears.size > 0) await this.tryPending(await readSelection());
           return;
         }
         if (this.unavailable()) {
           this.pendingSelect = null;
-          if (this.loaded !== null) {
-            await this.unload("unavailable");
-            if (!this.keptUnavailable) {
-              this.keptUnavailable = true;
-              await this.keepCleared(this.selected);
-            }
-          } else if (this.keepPending) {
-            await storeSelection({});
-            this.keepPending = null;
-          }
+          await this.unload();
           return;
         }
         this.sawRecipes(await this.readRecipes());
@@ -1428,30 +1399,27 @@ var __decentSync = (() => {
      * Tries the plugin's clears and selection still to be made, in the light
      * of what DYE2 answered: a clear is made while DYE2 still has that slot
      * selected, and dropped once it has another, or none; a selection is made
-     * where DYE2 has none, or that slot, and dropped once a barista selected
-     * something else; a 404 leaves both to try again. Resolves with DYE2's
-     * selection after them.
+     * where DYE2 has none, or that slot made on another Workflow than it holds
+     * now (`selectedOn`), and dropped once a barista selected something else; a
+     * 404 leaves both to try again. Resolves with DYE2's selection after them.
      */
     async tryPending(answer) {
-      const kept = this.keepPending;
-      if (kept && answer.kind !== "unavailable") {
-        if (answer.kind === "recipe" && answer.slot === kept.slot && answer.fingerprint === kept.fingerprint && await postSelection(null) === "done") {
-          answer = { kind: "none" };
-        }
-        await this.keepCleared(kept);
-      }
-      for (const [slot, keep] of [...this.pendingClears]) {
+      for (const slot of [...this.pendingClears]) {
         if (answer.kind === "unavailable") break;
         this.pendingClears.delete(slot);
         if (answer.kind === "recipe" && answer.slot === slot) {
-          await this.clearSlot(slot, keep);
+          await this.clearSlot(slot);
           answer = await readSelection();
         }
       }
       const pending = this.pendingSelect;
       if (pending === null || answer.kind === "unavailable") return answer;
-      const fingerprint = dye2Fingerprint(this.latest?.profile);
-      if (answer.kind === "recipe" && answer.slot === pending.slot && (answer.fingerprint === null || answer.fingerprint === fingerprint)) {
+      if (pending.on !== void 0 && !selectedOn(pending.on, this.latest)) {
+        this.pendingSelect = null;
+        return answer;
+      }
+      if (pending === this.clearingWrite) return answer;
+      if (answer.kind === "recipe" && answer.slot === pending.slot && selectedOn(answer, this.latest)) {
         this.landed(pending);
         return answer;
       }
@@ -1478,27 +1446,22 @@ var __decentSync = (() => {
           return;
         }
         this.answer = "none";
-        const cleared = this.selected;
-        this.selected = null;
-        if (this.loaded !== null) await this.unload("selection");
-        if (previous === "recipe") await this.keepCleared(cleared);
+        await this.unload();
         return;
       }
       if (answer.kind === "favourite") {
         this.answer = "favourite";
-        this.selected = null;
-        if (this.loaded !== null) await this.unload("selection");
+        await this.unload();
         return;
       }
       this.answer = "recipe";
-      this.selected = answer.slot === null ? null : { slot: answer.slot, fingerprint: answer.fingerprint };
       const recipe = answer.slot === null ? void 0 : this.recipes.get(answer.slot);
-      const onProfile = answer.fingerprint === null || answer.fingerprint === dye2Fingerprint(this.latest?.profile);
-      if (!recipe || !onProfile) {
-        if (this.loaded !== null) await this.unload("selection");
+      if (!recipe || !selectedOn(answer, this.latest)) {
+        await this.unload();
         return;
       }
-      if (recipe.globalId !== this.loaded) await this.loadRecipe(recipe.globalId, answer.slot);
+      if (recipe.globalId === this.loaded) this.armed = { fingerprint: answer.fingerprint, batch: answer.batch, grinder: answer.grinder };
+      else await this.loadRecipe(recipe.globalId, answer.slot, { fingerprint: answer.fingerprint, batch: answer.batch, grinder: answer.grinder });
     }
     /**
      * Loads the Recipe in that slot: once DYE2 is found to have the slot still
@@ -1507,9 +1470,11 @@ var __decentSync = (() => {
      * server what it replaced, on the next Workflow delivery. Decaid refuses
      * to change the hot water settings while no machine is connected, so the
      * rest is then written without them. A write that changed the profile,
-     * which DYE2 clears its selection on, has the slot selected again.
+     * batch or grinder, which DYE2 clears its selection on, has the slot
+     * selected again, where the Workflow it wrote over still held what DYE2's
+     * selection was made on (`armed`, `reselectAfter`).
      */
-    async loadRecipe(globalId, slot) {
+    async loadRecipe(globalId, slot, armed) {
       const now2 = await readSelection();
       if (now2.kind !== "unavailable" && !(now2.kind === "recipe" && now2.slot === slot)) return;
       const recipe = this.recipes.get(slot);
@@ -1518,7 +1483,6 @@ var __decentSync = (() => {
         const workflow = await this.workflowNow();
         const context = await this.loadContext(recipe.record);
         let planned = loadWrite(workflow, recipe.record, globalId, context);
-        const espressos = this.espressos;
         let answer;
         if (planned !== null) {
           answer = await request("PUT", "/workflow", planned.write);
@@ -1531,30 +1495,20 @@ var __decentSync = (() => {
         const after = answer ? parsed2(answer.text) : workflow;
         if (planned && Object.keys(planned.before).length > 0) this.changes.attach({ loadBefore: planned.before });
         this.loaded = globalId;
-        this.load = { globalId, batchBefore: planned?.before.batch?.before, espressos };
-        if (dye2Fingerprint(workflow.profile) !== dye2Fingerprint(isObject4(after) ? after.profile : workflow.profile)) this.pendingSelect = { slot, globalId };
-        return { read: workflow, answered: isObject4(after) ? after : void 0 };
+        this.armed = armed;
+        if (planned !== null && isObject4(after) && clearsSelection(workflow, planned.write)) this.reselectAfter(globalId, slot, workflow, after);
+        return isObject4(after) ? after : void 0;
       });
       if (this.pendingSelect?.globalId === globalId) await this.tryPending(await readSelection());
     }
-    /**
-     * Unloads the Loaded Recipe: the Workflow names none. One unloaded on a
-     * change of grinder or Bean (`changed`) is cleared from DYE2's selection
-     * too, while DYE2 still has its slot selected, and that kept.
-     */
-    async unload(reason) {
+    /** Unloads the Loaded Recipe: the Workflow names none. */
+    async unload() {
       const globalId = this.loaded;
       if (globalId === null) return;
       this.loaded = null;
-      this.load = null;
+      this.armed = null;
       if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
-      const slot = reason === "changed" ? this.lastSlots.get(globalId) : void 0;
-      if (slot !== void 0) this.pendingClears.set(slot, true);
       await this.keepNamed();
-      if (slot !== void 0) {
-        this.pendingClears.delete(slot);
-        await this.clearSlot(slot, true);
-      }
     }
     /** Keeps the Workflow naming the Loaded Recipe, or none, as Decaid holds it now. */
     async keepNamed() {
@@ -1562,51 +1516,36 @@ var __decentSync = (() => {
       if (!latest || loadedRecipeOf(latest) === this.loaded) return;
       await this.ownWrite(async () => {
         const workflow = await this.workflowNow();
-        if (loadedRecipeOf(workflow) === this.loaded) return { read: workflow, answered: workflow };
+        if (loadedRecipeOf(workflow) === this.loaded) return workflow;
         const answer = await request("PUT", "/workflow", { context: { extras: { [LOADED_RECIPE_KEY]: this.loaded } } });
         if (!answer.ok) throw new Error(`Decaid answered ${answer.status} recording the Loaded Recipe: ${answer.text.slice(0, 200)}`);
         const after = parsed2(answer.text);
-        return { read: workflow, answered: isObject4(after) ? after : void 0 };
+        return isObject4(after) ? after : void 0;
       });
     }
     /**
      * Clears DYE2's selection while it still has that slot selected, leaving
-     * a favourite or another slot the barista selected since, and keeps none
-     * in DYE2's storage after (`keepCleared`) where `keep` says. One Decaid
-     * fails, or DYE2 answers 404 to, is tried again at the next read.
+     * a favourite or another slot the barista selected since. DYE2 stores the
+     * clear itself (decentespresso/dye2#22). One Decaid fails, or DYE2 answers
+     * 404 to, is tried again at the next read.
      */
-    async clearSlot(slot, keep) {
+    async clearSlot(slot) {
       try {
         const answer = await readSelection();
         if (answer.kind === "unavailable") {
-          this.pendingClears.set(slot, keep);
+          this.pendingClears.add(slot);
           return;
         }
         if (answer.kind !== "recipe" || answer.slot !== slot) return;
         if (await postSelection(null) === "unavailable") {
-          this.pendingClears.set(slot, keep);
+          this.pendingClears.add(slot);
           return;
         }
         this.answer = "none";
-        this.selected = null;
-        if (keep) await this.keepCleared({ slot, fingerprint: answer.fingerprint });
       } catch (error) {
-        this.pendingClears.set(slot, keep);
+        this.pendingClears.add(slot);
         throw error;
       }
-    }
-    /**
-     * Keeps no selection in DYE2's storage, which DYE2 restores as none as it
-     * next loads, rather than the one cleared, which would load the Recipe
-     * again over a Bean switched meanwhile (decentespresso/dye2#22). Should
-     * DYE2 have selected something meanwhile, that is kept instead.
-     */
-    async keepCleared(cleared) {
-      this.keepPending = cleared ?? this.keepPending ?? { slot: null, fingerprint: null };
-      await storeSelection({});
-      const answer = await readSelection();
-      if (answer.kind === "recipe" || answer.kind === "favourite") await storeSelection(answer.selection);
-      this.keepPending = null;
     }
     /**
      * Runs a write of the plugin's into the Workflow, its changes held back
@@ -1615,18 +1554,16 @@ var __decentSync = (() => {
      * a barista's change made in the moment around it, which Decaid's merge of
      * the write keeps where the write did not set the same field. So where
      * any was reported, the Workflow as last reported is held back in turn
-     * until a read of DYE2's selection decides on it, and a change of grinder
-     * or Bean since the Workflow the write read (`read`) is decided on at once
-     * (`changed`), the write's own values being the Recipe's. Where none was,
-     * the Workflow is as Decaid answered it.
+     * until a read of DYE2's selection decides on it. Where none was, the
+     * Workflow is as Decaid answered it (`work`'s answer).
      */
     async ownWrite(work) {
       this.writing++;
       this.reportedDuringWrite = false;
       this.changes.hold();
-      let wrote;
+      let answered;
       try {
-        wrote = await work();
+        answered = await work();
       } catch (error) {
         this.writing--;
         this.changes.release();
@@ -1635,14 +1572,13 @@ var __decentSync = (() => {
       this.writing--;
       const reported = this.reportedDuringWrite;
       this.reportedDuringWrite = false;
-      if (!reported && wrote?.answered) this.latest = wrote.answered;
+      if (!reported && answered) this.latest = answered;
       if (reported && this.latest) {
         this.observed++;
         this.holdUntilRead(this.latest);
         this.readSoon();
       }
       this.changes.release();
-      if (reported && wrote && this.latest) await this.changed(wrote.read, this.latest, this.load && { ...this.load, espresso: this.espressos > this.load.espressos }, this.loaded);
     }
     /** The slot a Recipe is in on the tablet now, or null. */
     slotOf(globalId) {
@@ -1659,14 +1595,6 @@ var __decentSync = (() => {
       const value = answer.ok ? parsed2(answer.text) : void 0;
       if (value === void 0) throw new Error(`Decaid answered ${answer.status} reading DYE2's recipes`);
       return value;
-    }
-    /** The Bean of the tablet's Bean Batch with that id, or null if it holds none. Throws if Decaid does not answer with it. */
-    async beanOf(batchId) {
-      if (this.beans.has(batchId)) return this.beans.get(batchId);
-      const record = await this.readRecord(`/bean-batches/${encodeURIComponent(batchId)}`);
-      const bean = isObject4(record) && typeof record.beanId === "string" ? record.beanId : null;
-      this.beans.set(batchId, bean);
-      return bean;
     }
     /** The record at that path of Decaid's API, or null if it holds none (404). Throws if Decaid answers otherwise. */
     async readRecord(path) {
@@ -2155,14 +2083,20 @@ var __decentSync = (() => {
       const fields = loadedRecipeFields(write, workflow, hotWater);
       if (Object.keys(fields).length === 0) return written(write, loadedRecipeParts(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
       const patch = loadedRecipePatch(fields, workflow);
-      const changesProfile = "profile" in patch && dye2Fingerprint(patch.profile) !== dye2Fingerprint(workflow.profile);
-      if (changesProfile) posted.loaded?.profileChanging(globalId);
-      const answer = await request("PUT", "/workflow", patch);
+      const clears = clearsSelection(workflow, patch);
+      if (clears) posted.loaded?.selectionClearing(globalId);
+      let answer;
+      try {
+        answer = await request("PUT", "/workflow", patch);
+      } catch (error) {
+        if (clears) posted.loaded?.selectionUnsettled(globalId);
+        throw error;
+      }
       const updated = answer.ok ? parsed3(answer.text) : void 0;
-      if (changesProfile && !isObject5(updated)) posted.loaded?.profileUnchanged(globalId);
+      if (clears && !isObject5(updated)) posted.loaded?.selectionKept(globalId);
       if (isObject5(updated)) {
         if (clearing) posted.loaded?.cleared(globalId);
-        else posted.loaded?.written(globalId, workflow, updated);
+        else posted.loaded?.written(globalId, workflow, updated, clears);
         return written(write, loadedRecipeParts(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
       }
       const ofHotWater = Object.keys(fields).filter((field) => field.startsWith("hotWaterData."));
@@ -3823,8 +3757,6 @@ var __decentSync = (() => {
      */
     stateUpdate(payload) {
       if (this.stopped) return;
-      const state = isObject6(payload) && isObject6(payload.state) ? payload.state.state : void 0;
-      if (typeof state === "string") this.loadedRecipes.stateChanged(state);
       this.machineEvents.stateUpdate(payload);
       this.checkHardwareSoon();
     }
@@ -4192,9 +4124,6 @@ var __decentSync = (() => {
   }
   function describe(error) {
     return error instanceof Error ? error.message : String(error);
-  }
-  function isObject6(value) {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
   // src/settings.ts

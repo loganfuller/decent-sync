@@ -8,14 +8,15 @@ import { startStreamline } from "./support/simulated-streamline.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
-// Seam 1 for tickets #145 and #177: each Machine's Loaded Recipe (ADR-0022)
+// Seam 1 for tickets #145, #177 and #188: each Machine's Loaded Recipe (ADR-0022)
 // is the recipe DYE2 has selected on its tablet. Applying a recipe, the DYE2
 // way or the Streamline way, selects it, and the plugin loads it, writing
 // into the Workflow what applying it leaves out, its brew temperature, Bean
 // Batch, Basket, RPM and hot water, and its global id; the server reads the
 // Loaded Recipe from the Workflow it delivers. A selection cleared or of
-// anything else unloads it, as does a change of grinder or Bean, which DYE2
-// clears its selection on too. Through the built plugin in simulated
+// anything else unloads it, as DYE2 clears it on a change of grinder or
+// batch, or one restored over such a change made while DYE2 was away loads
+// nothing (#188). Through the built plugin in simulated
 // tablets running DYE2 at 2cf631c and Streamline at c006dac as recorded
 // (fixtures/decaid/dye2-2cf631c/), on two server instances sharing one
 // database, with assertions through the REST API and what each simulated
@@ -71,8 +72,10 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
   const loads = (machine: CreatedMachine, recipeId: string | null) =>
     expect.poll(async () => (await loadedRecipe(machine))?.recipe.id ?? null, { timeout: 15_000 }).toBe(recipeId);
   const recipe = async (id: string) => (await api.get<{ recipe: { content: Record_ } }>(`/recipes/${id}`)).recipe;
-  /** The writes of DYE2's stored selection the plugin made, besides DYE2's own. */
+  /** The writes of DYE2's stored selection the plugin made, besides DYE2's own: none, as DYE2 stores its selection itself. */
   const storedByPlugin = (tablet: SimulatedTablet) => tablet.storeWrites.filter((write) => write.namespace === DYE2_NAMESPACE && write.key === "selection");
+  /** How many selections or clears the plugin posted to DYE2. */
+  const selectionPosts = (tablet: SimulatedTablet) => tablet.writes.filter((write) => write === `POST /plugins/${DYE2_NAMESPACE}/selection`).length;
 
   /**
    * A Location with a Machine whose tablet is the 2cf631c recording's, its
@@ -308,8 +311,9 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect(dye2.selected()).toBeNull();
     await loads(machine, null);
     expect(dye2.pushes.length).toBe(pushed + 1);
-    // The cleared selection is kept cleared in DYE2's storage.
+    // DYE2 keeps its cleared selection in its storage itself.
     await expect.poll(() => tablet.storeValue(DYE2_NAMESPACE, "selection")).toEqual({});
+    expect(storedByPlugin(tablet)).toEqual([]);
   });
 
   it("unloads the Recipe on DYE2's push as Streamline's strip is switched off, which changes no Workflow", async () => {
@@ -334,30 +338,61 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect((tablet.workflow().profile as Record_).title).toBe("Classic Italian espresso");
   });
 
-  it("unloads the Recipe on a change of Bean, clearing DYE2's selection, after which a grind change edits nothing, and DYE2 reloading loads nothing and leaves the Bean", async () => {
+  it("unloads the Recipe through DYE2's own clear on a change of grinder, a change of batch and a batch cleared, posting no clear itself", async () => {
     const { machine, tablet, dye2, one } = await lab("Bean", 47081);
-    await (await openDye2Dashboard(tablet)).applyRecipe("1");
-    await loads(machine, one);
+    const grinder = ((await tablet.callApi("POST", "/grinders", { model: "Bean Grinder 2", settingType: "numeric" })).body as Record_).id as string;
     const brazilBatch = inSlot(tablet, "2")!.beanBatchId;
-    tablet.connectMachine();
-    tablet.reportState("espresso", "pour");
-    tablet.reportState("idle", "ready");
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    await tablet.changeSettings({ context: { beanBatchId: brazilBatch } });
-    await loads(machine, null);
-    expect(dye2.selected()).toBeNull();
-    await expect.poll(() => tablet.storeValue(DYE2_NAMESPACE, "selection")).toEqual({});
+    const changes: Record_[] = [{ grinderId: grinder, grinderModel: "Bean Grinder 2" }, { beanBatchId: brazilBatch }, { beanBatchId: null }];
+    for (const change of changes) {
+      await (await openDye2Dashboard(tablet)).applyRecipe("1");
+      await loads(machine, one);
+      const posted = selectionPosts(tablet);
+      await tablet.changeSettings({ context: change });
+      expect(dye2.selected()).toBeNull();
+      await loads(machine, null);
+      expect(named(tablet)).toBeNull();
+      expect(selectionPosts(tablet)).toBe(posted);
+    }
+    // Unloaded, a grind change edits nothing.
     const grind = (await recipe(one)).content.grindSetting;
     await tablet.changeSettings({ context: { grinderSetting: "3.3" } });
     await new Promise((resolve) => setTimeout(resolve, 1_500));
     expect((await recipe(one)).content.grindSetting).toBe(grind);
+    expect(storedByPlugin(tablet)).toEqual([]);
+  });
 
-    // DYE2 reloads, restoring its stored selection, none, and pushes.
-    await dye2.reload();
-    await new Promise((resolve) => setTimeout(resolve, 1_500));
-    expect(dye2.selected()).toBeNull();
+  it("loads the Recipe DYE2 restores as it comes back, but not one restored over a Bean switched while it was away, writing back no batch", async () => {
+    const { machine, tablet, dye2, one } = await lab("Restored", 47131, { pollSeconds: 1 });
+    await (await openDye2Dashboard(tablet)).applyRecipe("1");
+    await loads(machine, one);
+    const batch = context(tablet).beanBatchId;
+    // Away for longer than twice the poll, so the plugin drops the Recipe; back, it restores its selection, which loads it.
+    dye2.unload();
+    await loads(machine, null);
+    await dye2.load();
+    await loads(machine, one);
+    expect(named(tablet)).toBe(one);
+
+    // Away again, and the Brazil's batch picked meanwhile: the selection DYE2 restores was made on the other batch.
+    dye2.unload();
+    await loads(machine, null);
+    const brazilBatch = inSlot(tablet, "2")!.beanBatchId;
+    expect(brazilBatch).not.toBe(batch);
+    await tablet.changeSettings({ context: { beanBatchId: brazilBatch } });
+    await dye2.load();
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
     expect(await loadedRecipe(machine)).toBeNull();
+    expect(named(tablet)).toBeNull();
     expect(context(tablet).beanBatchId).toBe(brazilBatch);
+    // DYE2 keeps it until the Workflow's next change, which it clears it on, recording nothing into it.
+    expect(dye2.selected()).toMatchObject({ kind: "recipe", id: "1" });
+    const dose = (await recipe(one)).content.dose;
+    await tablet.changeSettings({ context: { targetDoseWeight: 21.5 } });
+    expect(dye2.selected()).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    expect((await recipe(one)).content.dose).toBe(dose);
+    expect(await loadedRecipe(machine)).toBeNull();
+    expect(storedByPlugin(tablet)).toEqual([]);
   });
 
   it("unloads nothing and writes nothing to DYE2's storage while DYE2 answers 404 as it reloads, nor on its first answer of none before it restores its selection", async () => {
@@ -365,7 +400,6 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     await (await openDye2Dashboard(tablet)).applyRecipe("1");
     await loads(machine, one);
     await expect.poll(() => tablet.storeValue(DYE2_NAMESPACE, "selection")).toMatchObject({ kind: "recipe", id: "1" });
-    const stored = storedByPlugin(tablet).length;
     const release = dye2.holdRestore();
     dye2.unload();
     // 404 meanwhile, through a change of the Workflow and several reads.
@@ -381,7 +415,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     await new Promise((resolve) => setTimeout(resolve, 1_500));
     expect((await loadedRecipe(machine))?.recipe.id).toBe(one);
     expect(named(tablet)).toBe(one);
-    expect(storedByPlugin(tablet).length).toBe(stored);
+    expect(storedByPlugin(tablet)).toEqual([]);
   });
 });
 

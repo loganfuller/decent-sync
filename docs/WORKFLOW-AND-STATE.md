@@ -241,11 +241,16 @@ deliveries.
   /api/v1/plugins`. Each read reads DYE2's recipes too, and is one piece of
   work in one queue, in turn.
 - **What it decides.** A selection of a recipe in a Recipe Slot carrying a
-  Recipe's global id, made on the profile the Workflow holds (its
-  `profileFingerprint` equal to `dye2Fingerprint` of the Workflow's profile,
-  DYE2's own test, or none), loads that Recipe where the Workflow does not
-  name it already. Any other selection, a favourite, a recipe of no Recipe's
-  slot or made on another profile, or none, unloads the Loaded Recipe. A 404
+  Recipe's global id, made on the Workflow as it holds it now
+  (`selectedOn`), loads that Recipe where the Workflow does not name it
+  already. Made on it is DYE2's own test of a change off a selection
+  (`profileDrifted` and `contextDrifted`): its `profileFingerprint` equal
+  to `dye2Fingerprint` of the Workflow's profile, and its
+  `armedBeanBatchId` and `armedGrinderId` equal to the Workflow's batch and
+  grinder, each answered as none counting as no difference, as DYE2 then
+  takes the first one set. Any other selection, a favourite, a recipe of no
+  Recipe's slot or made on another profile, batch or grinder, or none,
+  unloads the Loaded Recipe. A 404
   tells nothing: DYE2 is not loaded, as while it reloads or updates, and
   records nothing. A first answer of none after the plugin loads, or after
   a 404, is taken only once a later read confirms it, at the latest on the
@@ -254,9 +259,9 @@ deliveries.
   plugins list has no DYE2, or one neither loaded nor to load at startup
   (`loaded` and `autoLoad` both false), at once, or one not loaded for
   longer than twice the poll interval: the plugin unloads it, drops a
-  selection of its own still to make, keeps a clear, and keeps `{}` as
-  DYE2's stored selection once (below). A loaded DYE2 counts whatever its
-  `autoLoad`. Dialling in a Recipe's values by hand loads nothing.
+  selection of its own still to make, and keeps a clear. A loaded DYE2
+  counts whatever its `autoLoad`. Dialling in a Recipe's values by hand
+  loads nothing.
 - **Holding the Workflow back.** While a Recipe is loaded, or the Workflow
   names one the plugin does not take as loaded, each change of the
   Workflow is held back (Held back, below) until a read of the selection
@@ -292,11 +297,13 @@ deliveries.
   (`WorkflowDelivery.loadBefore`) each part it changed but the Profile, what
   the Workflow held of it before and what it wrote, so the server can tell a part set
   back to its value before the load (Stale values, below). A write that
-  changed the profile, as one from a stale copy or of another Profile,
-  changes DYE2's fingerprint, and DYE2 clears its selection: the plugin
-  selects the slot again right after, as DYE2's dashboard does after an
-  apply, where DYE2 answers none or still that slot (Selecting again,
-  below). Selecting cancels a record DYE2 had pending, so a brew
+  changes what DYE2 clears its selection on, the profile, by DYE2's
+  fingerprint, as one from a stale copy or of another Profile, or the batch
+  or grinder, as one over a stale copy's (`clearsSelection`, judged by what
+  the write sets, not by Decaid's answer, which holds a barista's change made
+  meanwhile too), has DYE2 clear it: the plugin selects the slot again right
+  after, as DYE2's dashboard does after an apply, where DYE2 answers none or
+  still that slot (Selecting again, below). Selecting cancels a record DYE2 had pending, so a brew
   temperature changed in the 1.5 s before it is not recorded. Streamline
   adopts a Workflow change made elsewhere (ADR-0021), so it takes the hot
   water as its own, and the plugin sets none of its values.
@@ -306,54 +313,49 @@ deliveries.
   page sends back the Workflow it read as it opened, with whatever id it
   held then.
 - **An unload on a change of grinder or batch.** DYE2 clears its selection
-  itself on a change of the Workflow's batch or grinder, a clear of either
-  included, another batch of the Recipe's Bean too (decentespresso/dye2#19),
-  so its clear unloads the Recipe first, and the Recipe keeps its batch: a
-  Recipe is the dial-in for one roast. The plugin's own unload and clear,
-  standing in for that until DYE2 did, stay until #188. So where the
-  Recipe's record names a grinder, a change of the Workflow's grinder to
-  another, and where it names a Bean, a change of its Bean Batch to one of
-  another Bean (its batch's Bean, read from the tablet's batch record),
-  unloads the Recipe at once, and the plugin clears
-  DYE2's selection while it still names the slot, keeping `{}` after. A
-  grinder or batch cleared is no such change for the plugin, as Streamline
-  clears them after a Shot stored with no recipe selected, nor is a batch
-  set back to the one the load replaced, before the first espresso since
-  (`stateUpdate`), which the server would write back, though DYE2 clears its
-  selection on it all the same (ADR-0022, until #188); any other grinder
-  set back unloads it.
+  itself on a change of the Workflow's batch or grinder off the one it held
+  as the recipe was selected, a clear of either included, another batch of
+  the Recipe's Bean too (decentespresso/dye2#19), so its clear unloads the
+  Recipe, and the Recipe keeps its batch: a Recipe is the dial-in for one
+  roast. The plugin makes no unload or clear of its own for them, and looks
+  up no batch's Bean (#188). A batch or grinder set back to the one the load
+  replaced is such a change too, so nothing is written back.
 - **Selecting again.** A selection or clear of the plugin's that Decaid
   fails, or that DYE2 answers 404, is tried again at the next read once DYE2
   answers (unlike #176's, which took a 404 as done), and gives way to
-  something else DYE2 selected since. Until a selection of the plugin's
-  lands, its reads neither unload the Recipe nor keep `{}`.
-- **A cleared selection kept cleared.** DYE2 restores its stored selection
-  as it loads. It stores a cleared one as `{}` itself (decentespresso/dye2#22),
-  but keeps the one it had as it unloads, which it restores over a Bean or
-  grinder switched meanwhile (#188 checks that by the selection's own batch
-  and grinder instead). So where DYE2 answers none after a recipe, after the plugin's own clear, and
-  once as DYE2 becomes unavailable while a Recipe is loaded, the plugin
-  posts `{}` to `/api/v1/store/dye2.reaplugin/selection`, which DYE2
-  restores as none, then reads the selection again, and keeps that instead
-  should DYE2 have selected something meanwhile. A slot move's clear keeps
-  nothing.
+  something else DYE2 selected since. DYE2 answering that slot still, but
+  made on another Workflow than it holds now, as before it has handled the
+  write, has the slot selected again too. None is made while a write of
+  the server's it is for is yet to answer; one Decaid never answers may
+  have landed, so the slot is then selected again once DYE2 has none. A
+  write of the plugin's that DYE2 clears its selection on selects the slot
+  again only where the Workflow it wrote over still held what the selection
+  was made on, as DYE2 last answered it (`reselectAfter`): a barista who
+  changed the profile, batch or grinder first, as while DYE2 answered 404,
+  had DYE2 clear it, or will once DYE2 restores it. And a selection to be
+  made again is dropped once the Workflow moves off what the write left, as
+  a barista picking another batch before it was made. Until a selection of
+  the plugin's lands, its reads do not unload the Recipe.
+- **DYE2's stored selection.** DYE2 keeps its selection in its plugin
+  storage and restores it as it loads, storing a cleared one as `{}` itself
+  (decentespresso/dye2#22); the plugin never writes that store key. It keeps
+  the one it had as it unloads, which it restores over a Bean or grinder
+  switched meanwhile: made on another batch or grinder, that loads nothing
+  (What it decides, above), and DYE2 clears it at the Workflow's next
+  change. One restored over no such switch loads its Recipe again.
 - **Moving to another slot.** Before a post of DYE2's recipes the server's
   write makes that moves the Loaded Recipe out of its slot, the plugin clears
   DYE2's selection of the old slot, so DYE2 never records into a recipe put
   there; once it is posted in another, it selects the new slot. Reads decide
-  nothing meanwhile. A post that leaves it in no slot keeps `{}`, as a
-  selection DYE2 restored would name the recipe put there: so does every
-  move the server writes, which removes the record before it creates the
-  new one, and the new slot's selection is stored as it is made. The
-  server's clear of a Recipe that left every slot clears no slot holding
+  nothing meanwhile. The server's clear of a Recipe that left every slot clears no slot holding
   another Recipe's record by then, whose selection the barista made.
 - **A slot emptied or filled anew.** DYE2 keeps its selection through its
   recipe's removal from the list. So before a post of DYE2's recipes that
   removes the recipe in a slot DYE2 has selected, or replaces it with
   another Recipe's record (`vacatedSlots` in `loaded-recipe-rules.ts`), as
   the server's writes do as a Machine joins a Location (`LIBRARY.md`,
-  Joining a Location), the plugin clears that selection and keeps `{}`,
-  whether or not the recipe is the Loaded Recipe: DYE2 would otherwise
+  Joining a Location), the plugin clears that selection, which DYE2 stores
+  cleared, whether or not the recipe is the Loaded Recipe: DYE2 would otherwise
   record into the recipe put there, and the plugin load it. A record given
   its global id, as one a Location takes in, is the same recipe. A clear
   DYE2 answers 404 to is tried again once it answers.
@@ -471,11 +473,13 @@ the parts to the Recipe's content both ways.
   applies no save to the Workflow, so a change of that Workflow before the
   save is reported has DYE2 record its old values back over the save, which
   the server never sees (an accepted gap, ADR-0022, decentespresso/dye2#33). DYE2 never records a batch: another batch on the
-  Machine, of the Recipe's Bean or not, unloads it (A load, above). Where
-  the Recipe holds no batch, DYE2 takes the first one picked as the one it
-  was applied with (decentespresso/dye2#19), so the Recipe stays loaded,
-  and stays without one until an edit gives it one, which, written into
-  that Workflow, unloads it there until #188 (ADR-0022). Its
+  Machine, of the Recipe's Bean or not, unloads it (An unload on a change of
+  grinder or batch, above). Where the Recipe holds no batch, DYE2 takes the
+  first one picked as the one it was applied with
+  (decentespresso/dye2#19), so the Recipe stays loaded, and stays without
+  one until an edit gives it one, which, written into that Workflow, DYE2
+  clears its selection on, and the plugin selects it again (To every
+  Machine that has it loaded, below). Its
   steam and flush values are no edit, recorded or in the Workflow: they
   stay the Machine's own (`LIBRARY.md`, Steam and rinse settings).
 - **What the Workflow edits.** A Workflow delivery naming the Recipe its
@@ -516,7 +520,7 @@ the parts to the Recipe's content both ways.
     (`recordedByDye2`); or
   - what the plugin's write of the load replaced (`load_before`, `setBackToLoad`),
     before the Machine's first espresso since the load, for any part the
-    load changed but the Grinder, a change of which unloads it (interim for
+    load changed but the Grinder and batch, a change of which unloads it (interim for
     DYE2's dashboard copy, decentespresso/dye2#31): DYE2's dashboard reads the
     Workflow once, as it opens, and sends that whole copy back with each
     change made there and on Done. A part the apply set, which the load
@@ -544,20 +548,22 @@ the parts to the Recipe's content both ways.
   held, its Profile whole, expecting nothing, as a skin overrides parts of
   the one it loads, and its brew temperature (`profile.steps.0.temperature`,
   its Profile's first step's where the Recipe holds none), with any Profile
-  written (`partsWrite`). The plugin judges a change of the Workflow's
-  Grinder or Bean by the tablet's record, and DYE2 records the Workflow's
-  dial, RPM and Basket into the record, so they and the batch wait until the tablet's
-  record of the Recipe, written first, holds them (`heldByRecord`); the rest
-  of the write goes ahead. The plugin writes nothing unless the Workflow
-  still names the Recipe and DYE2 still has its slot selected, or answers
-  404, or has nothing selected while the plugin is still to select the slot
-  again after a write that changed the profile (it refuses the write otherwise, and the writer tries it again once it
-  changes), and sets a part only while it holds the value expected, the
-  value written or none, so a barista's change since is kept, and reaches the server in the answer,
+  written (`partsWrite`). DYE2 records the Workflow's dial, RPM and Basket
+  into the record, so they wait until the tablet's record of the Recipe,
+  written first, holds them (`heldByRecord`); the rest of the write goes
+  ahead, its Grinder and batch included. The plugin writes nothing unless
+  the Workflow still names the Recipe and DYE2 still has its slot selected,
+  or answers 404, or has nothing selected while the plugin is still to
+  select the slot again after a write of its own (it refuses the write
+  otherwise, and the writer tries it again once it changes), and sets a
+  part only while it holds the value expected, the value written or none,
+  so a barista's change since is kept, and reaches the server in the answer,
   where it is the tablet's edit, timed when the plugin had Decaid's answer;
   a brew temperature moves every step of the profile written, or else the
-  Workflow's, by the same amount. A write that changed the profile has the
-  slot selected again (Selecting again, above). The Workflow change the
+  Workflow's, by the same amount. A write that changed the profile, batch
+  or grinder, which DYE2 clears its selection on, has the slot selected
+  again (Selecting again, above), so an edit of the Recipe's batch or
+  grinder leaves it loaded on every Machine (#188). The Workflow change the
   write causes is sent after the answer, which records what Decaid returned
   as the Workflow's (`recordLoadedRecipeWritten`). Decaid refuses hot water
   while no machine is connected: the rest is written, and the hot water
@@ -571,7 +577,7 @@ the parts to the Recipe's content both ways.
   one the server last had as its Loaded Recipe as it was made capture-only,
   is due the same `write`, clearing the Workflow's Loaded Recipe
   (`LOADED_RECIPE_FIELD`, null) while it still names that Recipe; the plugin then clears DYE2's selection where
-  it still names the Recipe's slot, as last seen, and keeps `{}`. A Recipe
+  it still names the Recipe's slot, as last seen. A Recipe
   moved to another slot stays loaded. A Capture-only Machine's writer writes
   this, and nothing else, whatever its reports. The Workflow the plugin
   then sends names none, which unloads it on the server. A recipe selected
