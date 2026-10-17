@@ -1,4 +1,4 @@
-import type { LibraryKind } from "@decent-sync/protocol";
+import { DYE2_SELECTION_FIELD, type LibraryKind } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { KINDS } from "../library/kinds.js";
 
@@ -31,15 +31,22 @@ import { KINDS } from "../library/kinds.js";
 // which stays as it was when another skin loads another profile, as Decaid
 // merges a Workflow's changes into it.
 //
-// A Shot's Recipe is the one its Workflow named as loaded
-// (`decentSyncRecipeId`, ADR-0022), where its Machine had that Recipe loaded
-// as it was pulled, by its Loaded Recipes (`loaded_recipes`): a
+// A Shot's Recipe is the one its Workflow's DYE2 selection named
+// (`context.extras.dye.selection`, ADR-0022), by the slot of the recipe it
+// named, through its tablet's map of its recipes' slots, stored as its
+// other ids' links are (`recipe_id`), where its Machine had that Recipe
+// loaded as it was pulled, by its Loaded Recipes (`loaded_recipes`): a
 // Capture-only Machine's Workflow names a recipe DYE2 has selected that is
-// not its Loaded Recipe. That is read, not stored (`shotRecipeSql`), so it
-// follows the Loaded Recipes as their deliveries arrive, those of a tablet
-// that was offline included, and the Shot's credit as it changes. Shots
-// pulled before the plugin wrote the id name none, and stay unlinked. A
-// Shot's Tools are linked as its Basket is, each in its place among the ids
+// not its Loaded Recipe. A Shot whose selection named nothing
+// (`selection_named` false), as one pulled while the plugin selects the slot
+// again after its own write of a batch or grinder, which DYE2 clears its
+// selection on, is stored naming the Recipe its Machine had loaded latest by
+// its end, as the server knows its Loaded Recipes then (`nameLoadedRecipe`),
+// and linked to it where it still had it loaded as the Shot ended. Whether
+// the Machine had the Recipe loaded is read, not stored (`shotRecipeSql`), so
+// it follows the Loaded Recipes as their deliveries arrive, those of a tablet
+// that was offline included, and the Shot's credit as it changes. A Shot's
+// Tools are linked as its Basket is, each in its place among the ids
 // DYE2 recorded (`library_tool_ids`), only so a Tool a Shot used is never
 // hard-deleted once its record has left the tablet, as when it was Archived
 // or hidden there: its page shows the names DYE2 stored.
@@ -61,6 +68,9 @@ function shotLinkOf(kind: LibraryKind): { local: string; link: string } {
   if (!columns) throw new Error(`A Shot names no ${KINDS[kind].name}`);
   return columns;
 }
+
+/** The path of the id DYE2's selection names in a Shot's record, a recipe's its slot. */
+const DYE2_SELECTION_ID = `{workflow,${DYE2_SELECTION_FIELD.split(".").join(",")},id}`;
 
 /** A Shot's ids on its tablet, as its metadata names them, and its links. */
 interface ShotLinks {
@@ -87,20 +97,21 @@ export async function resolveLinks(
   tx: Prisma.TransactionClient,
   tabletId: string,
   shotId: string,
-  ids: { beanBatchId: string | null; grinderId: string | null; basketId: string | null; toolIds: readonly string[] },
-): Promise<{ libraryBatchId: string | null; libraryGrinderId: string | null; libraryBasketId: string | null; libraryToolIds: string[] }> {
+  ids: { beanBatchId: string | null; grinderId: string | null; basketId: string | null; toolIds: readonly string[]; recipeSlot: string | null },
+): Promise<{ libraryBatchId: string | null; libraryGrinderId: string | null; libraryBasketId: string | null; libraryToolIds: string[]; recipeId: string | null }> {
   await tx.$queryRaw`SELECT 1 FROM tablets WHERE id = ${tabletId}::uuid FOR SHARE`;
-  const [resolved] = await tx.$queryRaw<{ batch: string | null; grinder: string | null; basket: string | null }[]>`
+  const [resolved] = await tx.$queryRaw<{ batch: string | null; grinder: string | null; basket: string | null; recipe: string | null }[]>`
     SELECT
       (SELECT batch_id::text FROM tablet_bean_batches WHERE tablet_id = ${tabletId}::uuid AND local_id = ${ids.beanBatchId}) AS batch,
       (SELECT grinder_id::text FROM tablet_grinders WHERE tablet_id = ${tabletId}::uuid AND local_id = ${ids.grinderId}) AS grinder,
-      (SELECT basket_id::text FROM tablet_baskets WHERE tablet_id = ${tabletId}::uuid AND local_id = ${ids.basketId}) AS basket`;
+      (SELECT basket_id::text FROM tablet_baskets WHERE tablet_id = ${tabletId}::uuid AND local_id = ${ids.basketId}) AS basket,
+      (SELECT recipe_id::text FROM tablet_recipes WHERE tablet_id = ${tabletId}::uuid AND local_id = ${ids.recipeSlot}) AS recipe`;
   const tools = await tx.$queryRaw<{ localId: string; toolId: string }[]>`
     SELECT local_id AS "localId", tool_id::text AS "toolId" FROM tablet_tools WHERE tablet_id = ${tabletId}::uuid AND local_id = ANY(${[...ids.toolIds]}::text[])`;
-  const [stored] = await tx.$queryRaw<ShotLinks[]>`
+  const [stored] = await tx.$queryRaw<(ShotLinks & { recipeSlot: string | null; recipeId: string | null })[]>`
     SELECT bean_batch_id AS "beanBatchId", grinder_id AS "grinderId", basket_id AS "basketId", tool_ids AS "toolIds",
       library_batch_id::text AS "libraryBatchId", library_grinder_id::text AS "libraryGrinderId", library_basket_id::text AS "libraryBasketId",
-      library_tool_ids AS "libraryToolIds"
+      library_tool_ids AS "libraryToolIds", record #>> ${DYE2_SELECTION_ID} AS "recipeSlot", recipe_id::text AS "recipeId"
     FROM shots WHERE id = ${shotId}`;
   const kept = (id: string | null, before: string | null | undefined, link: string | null | undefined) =>
     id !== null && id === before ? (link ?? null) : null;
@@ -108,6 +119,8 @@ export async function resolveLinks(
     libraryBatchId: resolved?.batch ?? kept(ids.beanBatchId, stored?.beanBatchId, stored?.libraryBatchId),
     libraryGrinderId: resolved?.grinder ?? kept(ids.grinderId, stored?.grinderId, stored?.libraryGrinderId),
     libraryBasketId: resolved?.basket ?? kept(ids.basketId, stored?.basketId, stored?.libraryBasketId),
+    // A slot holds another Recipe once its own moves: the one the Shot was stored naming is kept while it names that slot.
+    recipeId: (ids.recipeSlot !== null && ids.recipeSlot === stored?.recipeSlot ? stored.recipeId : null) ?? resolved?.recipe ?? null,
     libraryToolIds: ids.toolIds.map((localId) => {
       const before = stored ? stored.toolIds.indexOf(localId) : -1;
       return tools.find((tool) => tool.localId === localId)?.toolId ?? (before === -1 ? NO_TOOL : (stored!.libraryToolIds[before] ?? NO_TOOL));
@@ -177,39 +190,57 @@ export function shotLinkedSql(kind: LibraryKind, ids: readonly string[]): Prisma
 }
 
 /**
- * Whether the Shot of `shots` aliased `alias` is linked to the Recipe its
- * Workflow named as loaded: its Machine had that Recipe loaded at some time
- * while the Shot was pulled, from its start to its last sample, by the
- * tablet's clock, as both are. A Shot started as the plugin's write of the
- * id landed, before the plugin reported the Workflow holding it, is still
- * pulled with it. A Shot whose time is unknown, or that no Machine has, is
- * linked to none. A Machine's Loaded Recipes follow one another, each loaded
- * no earlier than the one before was unloaded (loaded-recipes.ts), so of its
- * entries for the Recipe loaded by the Shot's end, the latest is the one
- * unloaded last: the Shot is pulled with it if that one was unloaded after
- * the Shot started, or not yet. That one entry is found through the index on
- * the Machine, the Recipe and when it was loaded, whatever the history's
- * length.
+ * The id of the Recipe the Shot of `shots` aliased `alias` is linked to, or
+ * null: the Recipe it names (`recipe_id`), where its Machine had that Recipe
+ * loaded at some time while the Shot was pulled, from its start to its last
+ * sample, by the tablet's clock, as both are; or, for a Shot whose selection
+ * named nothing (`selection_named`), which names the Recipe its Machine had
+ * loaded latest by its end as it was stored (`nameLoadedRecipe`), where that
+ * was still loaded at the Shot's end: its Loaded Recipes run on unbroken
+ * through the plugin's selecting the slot again after its own write, but one
+ * a barista unloaded, as DYE2 clears its selection, is unloaded before. A
+ * Shot started as DYE2 wrote its selection, before the plugin reported the
+ * Workflow holding it, is still pulled with it. A Shot whose time is
+ * unknown, or that no Machine has, is linked to none. A Machine's Loaded
+ * Recipes follow one another, each loaded no earlier than the one before was
+ * unloaded (loaded-recipes.ts), so of its entries for the Recipe loaded by
+ * the Shot's end, the latest is the one unloaded last: the Shot is pulled
+ * with it if that one was unloaded after the Shot started, or after it ended
+ * for a Shot naming nothing, or not yet. That one entry is found through the
+ * index on the Machine, the Recipe and when it was loaded, whatever the
+ * history's length.
  */
-export function shotRecipeLinkedSql(alias: string): Prisma.Sql {
-  const shot = Prisma.raw(alias);
-  return Prisma.sql`(${shot}.recipe_id IS NOT NULL AND coalesce((
-    SELECT loaded.unloaded_at IS NULL OR loaded.unloaded_at > ${shot}.pulled_at
-    FROM loaded_recipes AS loaded
-    WHERE loaded.machine_id = ${shot}.machine_id AND loaded.recipe_id = ${shot}.recipe_id
-      AND loaded.loaded_at <= ${shot}.pulled_at + make_interval(secs => coalesce(${shot}.duration, 0))
-    ORDER BY loaded.loaded_at DESC, loaded.id DESC LIMIT 1
-  ), false))`;
-}
-
-/** The id of the Recipe the Shot of `shots` aliased `alias` is linked to (`shotRecipeLinkedSql`), or null. */
 export function shotRecipeSql(alias: string): Prisma.Sql {
-  return Prisma.sql`CASE WHEN ${shotRecipeLinkedSql(alias)} THEN ${Prisma.raw(alias)}.recipe_id END`;
+  const shot = Prisma.raw(alias);
+  const end = Prisma.sql`${shot}.pulled_at + make_interval(secs => coalesce(${shot}.duration, 0))`;
+  return Prisma.sql`(CASE WHEN ${shot}.recipe_id IS NOT NULL THEN (
+    SELECT CASE WHEN latest.unloaded_at IS NULL OR latest.unloaded_at > (CASE WHEN ${shot}.selection_named THEN ${shot}.pulled_at ELSE ${end} END)
+      THEN latest.recipe_id END
+    FROM (
+      SELECT loaded.recipe_id, loaded.unloaded_at FROM loaded_recipes AS loaded
+      WHERE loaded.machine_id = ${shot}.machine_id AND loaded.recipe_id = ${shot}.recipe_id AND loaded.loaded_at <= ${end}
+      ORDER BY loaded.loaded_at DESC, loaded.id DESC LIMIT 1) AS latest) END)`;
 }
 
-/** Whether a Shot is linked to any of the Recipes (`shotRecipeLinkedSql`). */
+/**
+ * Has a Shot whose selection named nothing, once stored with its Machine and
+ * time, name the Recipe its Machine had loaded latest by its end, as the
+ * server knows its Loaded Recipes then, which `shotRecipeSql` links it to
+ * where that was still loaded at its end. Found through the index on the
+ * Machine and when each was loaded.
+ */
+export async function nameLoadedRecipe(tx: Prisma.TransactionClient, shotId: string): Promise<void> {
+  await tx.$executeRaw`
+    UPDATE shots AS s SET recipe_id = (
+      SELECT loaded.recipe_id FROM loaded_recipes AS loaded
+      WHERE loaded.machine_id = s.machine_id AND loaded.loaded_at <= s.pulled_at + make_interval(secs => coalesce(s.duration, 0))
+      ORDER BY loaded.loaded_at DESC, loaded.id DESC LIMIT 1)
+    WHERE s.id = ${shotId} AND NOT s.selection_named AND s.machine_id IS NOT NULL AND s.pulled_at IS NOT NULL`;
+}
+
+/** Whether a Shot is linked to any of the Recipes (`shotRecipeSql`), of those naming one of them, through the index on the Recipe they name. */
 export function shotLinkedToRecipesSql(ids: readonly string[]): Prisma.Sql {
-  return Prisma.sql`EXISTS (SELECT 1 FROM shots AS linked WHERE linked.recipe_id = ANY(${[...ids]}::uuid[]) AND ${shotRecipeLinkedSql("linked")})`;
+  return Prisma.sql`EXISTS (SELECT 1 FROM shots AS linked WHERE linked.recipe_id = ANY(${[...ids]}::uuid[]) AND ${shotRecipeSql("linked")} IS NOT NULL)`;
 }
 
 /**

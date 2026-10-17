@@ -1,3 +1,5 @@
+import { dye2GlobalIdOf, dye2SelectionOf } from "@decent-sync/protocol";
+import { dye2List } from "./simulated-dye2.js";
 import { type DecaidApi, NO_DYE2_LISTS, SimulatedTablet, type SimulatedTabletOptions, derivedDe1Pro, settingsFor } from "./simulated-tablet.js";
 
 // Simulated tablets as most Seam 1 tests load them: `syncingTablet()` sets
@@ -66,4 +68,17 @@ export function emptyLibrary(serial: string | number): DecaidApi {
  */
 export function localTime(written: unknown): number {
   return new Date(String(written).slice(0, 23)).getTime();
+}
+
+/**
+ * The Recipe the tablet's Workflow names as DYE2's selection
+ * (DYE2_SELECTION_FIELD), as the server reads it: the global id of DYE2's
+ * recipe in the slot it names, or null for none, a favourite, or a recipe
+ * carrying no global id.
+ */
+export function selectedInWorkflow(tablet: SimulatedTablet): string | null {
+  const { slot } = dye2SelectionOf(tablet.workflow());
+  const records = dye2List(tablet, "recipes");
+  const record: unknown = slot === null || !Array.isArray(records) ? undefined : records.find((entry: unknown) => (entry as { id?: unknown } | null)?.id === slot);
+  return record === undefined ? null : dye2GlobalIdOf(record);
 }

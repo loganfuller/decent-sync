@@ -78,7 +78,7 @@ export class MachineEventsService {
       if (reporter.identity.kind !== "mismatch" && credit.machineId === reporter.machineId) {
         const tablet = { machineId: reporter.machineId, tabletId: reporter.tabletId };
         return takeInWorkflow(tx, tablet, message.workflow, (entry, joining) =>
-          takeInLoadedRecipe(tx, tablet, message.workflow, message.observedAt, entry, joining, { loadBefore: message.loadBefore }),
+          takeInLoadedRecipe(tx, tablet, message.workflow, message.observedAt, entry, joining, { loadBefore: message.loadBefore, dye2Absent: message.dye2Absent }),
         );
       }
       return undefined;

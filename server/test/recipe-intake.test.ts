@@ -280,7 +280,7 @@ describe("DYE2's recipes as Recipes", () => {
           grinderId: "other-grinder",
           grinderModel: "Fixture Grinder 64",
           // So a Workflow Streamline applies it to names the Recipe.
-          extras: { rpm: 900, basketId: "other-basket", basketName: "Fixture 18g Precision", decentSyncRecipeId: GLOBAL.recipe },
+          extras: { rpm: 900, basketId: "other-basket", basketName: "Fixture 18g Precision" },
           // Applying it clears a batch the Workflow held, as DYE2's dashboard does.
           coffeeName: "Fixture Ethiopia",
           coffeeRoaster: "Fixture Roasters",
@@ -306,13 +306,10 @@ describe("DYE2's recipes as Recipes", () => {
     const view = recipeView(slot1);
     const { context } = keptWorkflow as { context: Record_ };
     const { dye: _flags, ...extras } = context.extras as Record_;
-    expect(recipeWorkflow({ ...view, profileSnapshot: adaptive }, GLOBAL.recipe)).toEqual({
-      profile: keptWorkflow.profile,
-      context: { ...context, extras: { ...extras, decentSyncRecipeId: GLOBAL.recipe } },
-    });
-    const ratio = recipeWorkflow({ ...view, "dashboardVariables.drink": null, "dashboardVariables.ratio": 2.2, profileSnapshot: null }, GLOBAL.recipe);
+    expect(recipeWorkflow({ ...view, profileSnapshot: adaptive })).toEqual({ profile: keptWorkflow.profile, context: { ...context, extras } });
+    const ratio = recipeWorkflow({ ...view, "dashboardVariables.drink": null, "dashboardVariables.ratio": 2.2, profileSnapshot: null });
     expect(ratio).toMatchObject({ context: { targetDoseWeight: 18.5, targetYield: 40.7 }, profile: { id: ADAPTIVE, title: "Adaptive v3" } });
-    expect(recipeWorkflow(recipeView(blank), GLOBAL.recipe)).not.toHaveProperty("profile");
+    expect(recipeWorkflow(recipeView(blank))).not.toHaveProperty("profile");
   });
 
   it("keeps the machine settings and field flags DYE2 copied into a tablet's record's embedded Workflow, but the hot water the server writes", () => {
@@ -394,7 +391,7 @@ describe("DYE2's recipes as Recipes", () => {
     expect(editedContent(written, steamed, null)).toEqual({});
     expect(holdsRecipe(steamed, written)).toBe(true);
     // Nor are they part of what DYE2 embeds, nor of a new Recipe's content.
-    expect(recipeWorkflow(written, GLOBAL.recipe)).not.toHaveProperty("steamSettings");
+    expect(recipeWorkflow(written)).not.toHaveProperty("steamSettings");
     expect(recipeContent(recipeView(blank), intake())).not.toHaveProperty("flushS");
   });
 

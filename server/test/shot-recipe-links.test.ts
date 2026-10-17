@@ -1,7 +1,7 @@
-import { GLOBAL_ID_KEY, LOADED_RECIPE_KEY, dye2GlobalIdOf } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, dye2GlobalIdOf, dye2SelectionOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { syncingTablet } from "./support/loaded-tablets.js";
+import { selectedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
 import { shotFixture } from "./support/shot-fixtures.js";
 import { startStreamline } from "./support/simulated-streamline.js";
 import {
@@ -20,10 +20,11 @@ import { waitForLockWaits } from "./support/lock-waits.js";
 import type { SimulatedTablet, SimulatedTabletOptions } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
-// Seam 1 for ticket #147: each Shot is linked to the Recipe its Machine had
-// loaded as it was pulled, a Shot pulled while the tablet was offline
-// included, and not to one its Workflow names that was not the Machine's
-// Loaded Recipe then, as on a Capture-only Machine; and to the Basket DYE2
+// Seam 1 for tickets #147 and #189: each Shot is linked to the Recipe in the
+// slot its DYE2 selection names, where its Machine had it loaded as it was
+// pulled, a Shot pulled while the tablet was offline included, and not to
+// one that was not the Machine's Loaded Recipe then, as on a Capture-only
+// Machine; and to the Basket DYE2
 // recorded, picked on its dashboard or set on its Edit Shot page, through
 // the reporting tablet's map. The Shots list filters by both, and an Admin
 // hard-deletes a Recipe no Shot is linked to, and a Basket or Tool no Shot or
@@ -79,8 +80,8 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
   /** The tablet's DYE2 record of the item, by the global id it carries. */
   const recordOf = (tablet: SimulatedTablet, key: Dye2Key, id: string) => list(tablet, key).find((record) => dye2GlobalIdOf(record) === id);
   const extras = (tablet: SimulatedTablet) => (((tablet.workflow().context ?? {}) as Record_).extras ?? {}) as Record_;
-  /** The Recipe id the tablet's Workflow names as loaded, or null. */
-  const named = (tablet: SimulatedTablet) => extras(tablet)[LOADED_RECIPE_KEY] ?? null;
+  /** The Recipe the tablet's Workflow names as DYE2's selection, or null. */
+  const named = selectedInWorkflow;
   const loadedRecipe = async ({ machine }: CreatedMachine) =>
     (await api.get<{ machine: { loadedRecipe: { recipe: { id: string } } | null } }>(`/machines/${machine.id}`)).machine.loadedRecipe?.recipe.id ?? null;
   /** Resolves once the server holds that Recipe as the Machine's Loaded Recipe, or none. */
@@ -166,9 +167,13 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     await api.waitForMachine(machine.machine.name, (viewed) => !viewed.online, 15_000);
     expect((await (await openDye2Dashboard(tablet)).applyRecipe("2")).selection?.status).toBe(200);
     await expect.poll(() => named(tablet)).toBe(two);
+    // The plugin observes DYE2's write of its field a moment after this does, and this Shot lasts only 0.3 s.
+    await new Promise((resolve) => setTimeout(resolve, 200));
     pull(tablet, "recipe-linked-offline", 49001);
     tablet.restoreNetwork();
     await loads(machine, two);
+    // The link is read from the Machine's Loaded Recipes, which the Workflow held back as the Shot was pulled brings.
+    await expect.poll(async () => (await storedShot("recipe-linked-offline")).recipe?.id, { timeout: 15_000 }).toBe(two);
     const offline = await storedShot("recipe-linked-offline");
     expect(offline.recipe).toMatchObject({ id: two, name: expect.any(String) });
     expect(offline.basket).toMatchObject({ id: (await recipe(two)).content.basketId });
@@ -200,13 +205,13 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     await expect.poll(() => named(tablet)).toBeNull();
     await loads(machine, null);
 
-    // Slot 2 applied from Streamline's strip while capture-only, whose record's embedded Workflow names its Recipe, stays
-    // selected there, its id in the Workflow, but is not its Loaded Recipe: the plugin writes nothing there.
+    // Slot 2 applied from Streamline's strip while capture-only stays selected there, DYE2's selection of it in the
+    // Workflow, but is not its Loaded Recipe: the plugin writes nothing there.
     expect((await (await startStreamline(tablet)).applyRecipe("2")).selection?.status).toBe(200);
     await expect.poll(() => named(tablet)).toBe(two);
     await settle();
     const shot = pull(tablet, "recipe-capture-only", 49011);
-    expect(((shot.workflow as Record_).context as Record_).extras).toMatchObject({ [LOADED_RECIPE_KEY]: two });
+    expect(dye2SelectionOf(shot.workflow)).toEqual({ named: true, slot: "2" });
     expect((await storedShot("recipe-capture-only")).recipe).toBeNull();
 
     // Sharing again, it is the Machine's Loaded Recipe from then on: the Shot pulled before stays unlinked.
@@ -216,6 +221,21 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     expect(await listed(`recipeId=${two}`)).not.toContain("recipe-capture-only");
     pull(tablet, "recipe-sharing-again", 49011);
     expect((await storedShot("recipe-sharing-again")).recipe).toMatchObject({ id: two });
+  });
+
+  it("keeps a Shot linked to its Recipe through an edit sent after another Recipe takes the slot it named", async () => {
+    const { machine, tablet, one, two } = await lab("Slot reused", 49091);
+    await load(tablet, machine, "1", one);
+    const shot = pull(tablet, "recipe-slot-reused", 49091);
+    expect((await storedShot("recipe-slot-reused")).recipe).toMatchObject({ id: one });
+    expect((await api.call("PUT", `/recipes/${one}/slot`, { slot: null })).status).toBe(200);
+    expect((await api.call("PUT", `/recipes/${two}/slot`, { slot: 1 })).status).toBe(200);
+    await expect.poll(() => dye2GlobalIdOf(inSlot(tablet, "1")), { timeout: 15_000 }).toBe(two);
+    // Rated on DYE2's Edit Shot page: the Shot still names slot 1, which holds the other Recipe now.
+    const { measurements: _measurements, ...metadata } = shot;
+    tablet.fire("shotUpdated", { id: shot.id, shot: { ...metadata, updatedAt: "2026-11-01T12:01:00Z", annotations: { enjoyment: 80 } } });
+    await expect.poll(() => tablet.acknowledgedSome((frame: Record_) => frame.type === "shotUpdated" && frame.shotId === shot.id)).toBe(true);
+    expect((await storedShot("recipe-slot-reused")).recipe).toMatchObject({ id: one });
   });
 
   it("links a Shot to the Basket picked for it on DYE2's dashboard, and to the one DYE2's Edit Shot page sets", async () => {

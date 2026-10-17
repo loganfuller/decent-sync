@@ -1,4 +1,4 @@
-import type { LoadBefore, MachineStateDelivery, WorkflowDelivery } from "@decent-sync/protocol";
+import { type LoadBefore, type MachineStateDelivery, type WorkflowDelivery, dye2SelectionOf } from "@decent-sync/protocol";
 
 /**
  * Holds back the changes of the tablet's Workflow the plugin sends while it
@@ -17,6 +17,13 @@ export interface WorkflowChanges {
    * come before one delivery.
    */
   attach(extra: WorkflowExtra): void;
+  /**
+   * Whether DYE2 is not there to select anything (`WorkflowDelivery.dye2Absent`),
+   * which every Workflow delivery queued from then on carries: the latest
+   * Workflow is sent again as it changes, where DYE2's field there names
+   * something, which the server reads otherwise then.
+   */
+  dye2Absent(absent: boolean): void;
 }
 
 /** What a Workflow delivery may carry besides the Workflow (`WorkflowDelivery`). */
@@ -91,6 +98,8 @@ export class MachineEvents implements WorkflowChanges {
   private extra: WorkflowExtra = {};
   /** What the delivery `resent` carries besides the Workflow, carried into the one that replaces it. */
   private resentExtra: WorkflowExtra = {};
+  /** Whether DYE2 is not there to select anything, as every Workflow delivery says (`dye2Absent`). */
+  private absent = false;
 
   constructor(
     private readonly outbox: EventOutbox,
@@ -145,6 +154,12 @@ export class MachineEvents implements WorkflowChanges {
 
   attach(extra: WorkflowExtra): void {
     this.extra = mergeExtra(this.extra, extra);
+  }
+
+  dye2Absent(absent: boolean): void {
+    if (this.absent === absent) return;
+    this.absent = absent;
+    if (this.workflow && dye2SelectionOf(this.workflow).named) this.resend();
   }
 
   /**
@@ -209,7 +224,7 @@ export class MachineEvents implements WorkflowChanges {
   private queueWorkflow(workflow: Record<string, unknown>, observedAt = now()): string {
     const extra = this.extra;
     this.extra = {};
-    const delivery: WorkflowDelivery = { type: "workflow", id: this.outbox.nextId(), observedAt, workflow, ...extra };
+    const delivery: WorkflowDelivery = { type: "workflow", id: this.outbox.nextId(), observedAt, workflow, ...extra, ...(this.absent ? { dye2Absent: true } : {}) };
     this.outbox.enqueue(delivery);
     return delivery.id;
   }

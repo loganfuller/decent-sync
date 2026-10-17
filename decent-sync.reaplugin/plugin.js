@@ -306,12 +306,12 @@ var __decentSync = (() => {
   var WORKFLOW_BATCH = ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"];
   var WORKFLOW_BASKET = ["context.extras.basketId", "context.extras.basketName"];
   var WORKFLOW_CLEARED = [WORKFLOW_GRINDER, WORKFLOW_BATCH, WORKFLOW_BASKET];
-  var LOADED_RECIPE_KEY = "decentSyncRecipeId";
-  function loadedRecipeOf(workflow) {
-    const context = isObject(workflow) ? workflow.context : void 0;
-    const extras = isObject(context) ? context.extras : void 0;
-    const id = isObject(extras) ? extras[LOADED_RECIPE_KEY] : void 0;
-    return isGlobalId(id) ? id.toLowerCase() : null;
+  var DYE2_SELECTION_FIELD = "context.extras.dye.selection";
+  function dye2SelectionOf(workflow) {
+    const selection = workflowValueAt(workflow, DYE2_SELECTION_FIELD);
+    if (!isObject(selection) || typeof selection.kind !== "string") return { named: false, slot: null };
+    const id = typeof selection.id === "number" ? String(selection.id) : selection.id;
+    return { named: true, slot: selection.kind === "recipe" && isSlotId(id) ? id : null };
   }
   var LOADED_RECIPE_KIND = "loadedRecipe";
   var BREW_TEMPERATURE_FIELD = "profile.steps.0.temperature";
@@ -344,7 +344,6 @@ var __decentSync = (() => {
     flow: ["hotWaterData.flow"],
     brewTemperature: [BREW_TEMPERATURE_FIELD]
   };
-  var LOADED_RECIPE_FIELD = `context.extras.${LOADED_RECIPE_KEY}`;
   function workflowValueAt(workflow, path) {
     let value = workflow;
     for (const name of path.split(".")) value = isObject(value) ? value[name] : Array.isArray(value) && /^\d+$/.test(name) ? value[Number(name)] : void 0;
@@ -386,6 +385,7 @@ var __decentSync = (() => {
         fields.instant("observedAt");
         fields.objectField("workflow");
         if (object3.loadBefore !== void 0) fields.objectField("loadBefore");
+        fields.optionalBoolean("dye2Absent");
       });
     }
     return check(object3, "machineState", (fields) => {
@@ -860,7 +860,7 @@ var __decentSync = (() => {
       return is === void 0 || was !== null && dye2GlobalIdOf(is) !== was ? [Number(record.id)] : [];
     });
   }
-  function loadWrite(workflow, record, globalId, load, omit = /* @__PURE__ */ new Set()) {
+  function loadWrite(workflow, record, load, omit = /* @__PURE__ */ new Set()) {
     const context = isObject2(workflow.context) ? workflow.context : {};
     const extras = isObject2(context.extras) ? context.extras : {};
     const variables = isObject2(record.dashboardVariables) ? record.dashboardVariables : {};
@@ -897,7 +897,6 @@ var __decentSync = (() => {
       if (textOf(record.beanName) !== null) contextWrite.coffeeName = record.beanName;
       if (textOf(record.beanRoaster) !== null) contextWrite.coffeeRoaster = record.beanRoaster;
     }
-    if (loadedRecipeOf(workflow) !== globalId) extrasWrite[LOADED_RECIPE_KEY] = globalId;
     if (Object.keys(extrasWrite).length > 0) contextWrite.extras = extrasWrite;
     const write = {};
     if (Object.keys(contextWrite).length > 0) write.context = contextWrite;
@@ -1035,15 +1034,22 @@ var __decentSync = (() => {
   var READ_AFTER_CHANGE_MS = 2e3;
   var MAX_HOLD_MS = 1e4;
   var LoadedRecipes = class {
-    constructor(changes, log, transports, pollMs) {
+    constructor(changes, log, transports, pollMs, pushed = () => {
+    }) {
       __publicField(this, "changes", changes);
       __publicField(this, "log", log);
       __publicField(this, "pollMs", pollMs);
+      __publicField(this, "pushed", pushed);
       /** The latest Workflow Decaid reported. */
       __publicField(this, "latest");
-      /** The Loaded Recipe, by its global id, as the plugin keeps it in the Workflow; from the first Workflow until it decides. */
+      /** The Loaded Recipe, by its global id: from the first Workflow's DYE2 selection, once the recipes are read, until it decides. */
       __publicField(this, "loaded", null);
-      __publicField(this, "initialised", false);
+      /** The slot the first Workflow's DYE2 selection names, until the recipes are read; null for none. */
+      __publicField(this, "firstSlot");
+      /** Whether the plugin has decided on DYE2's selection since it loaded (`decide`). */
+      __publicField(this, "decided", false);
+      /** What DYE2's selection last answered, as its field in the Workflow names it (`dye2SelectionOf`); undefined while unread or 404. */
+      __publicField(this, "selected");
       /** The tablet's recipes that can be loaded, by slot, as last read. */
       __publicField(this, "recipes", /* @__PURE__ */ new Map());
       /** The slot each Recipe was last seen in, by global id, kept after the list loses it, so its selection can still be cleared. */
@@ -1085,8 +1091,20 @@ var __decentSync = (() => {
       __publicField(this, "pollTimer");
       __publicField(this, "stopped", false);
       __publicField(this, "failing", false);
+      /** Whether DYE2 pushed while the Workflow's changes were held back: its recipes are read once they are released (`pushed`). */
+      __publicField(this, "recipesDue", false);
       __publicField(this, "pushes");
-      this.pushes = new Dye2Pushes(transports, () => this.enqueue(() => this.check()));
+      this.pushes = new Dye2Pushes(transports, () => {
+        if (this.holding !== null || this.writing > 0) this.recipesDue = true;
+        else pushed();
+        this.enqueue(() => this.check());
+      });
+    }
+    /** Has DYE2's recipes read, where DYE2 pushed while the Workflow's changes were held back, once they are not. */
+    recipesAfterHold() {
+      if (!this.recipesDue || this.holding !== null || this.writing > 0) return;
+      this.recipesDue = false;
+      this.pushed();
     }
     start() {
       this.poll();
@@ -1113,20 +1131,17 @@ var __decentSync = (() => {
       } else this.enqueue(() => this.check());
     }
     /**
-     * Decaid's `workflowUpdated`, before the Workflow is queued. The first
-     * names the Loaded Recipe the plugin takes until it decides. While a
-     * Recipe is loaded, or the Workflow names another, the change is held back
-     * until a read of DYE2's selection after it decides on it (`check`). A
-     * change during a write of the plugin's is that write's echo, which its
+     * Decaid's `workflowUpdated`, before the Workflow is queued. The first's
+     * DYE2 selection names the Loaded Recipe the plugin takes until it decides.
+     * While a Recipe is loaded, or the Workflow names one, the change is held
+     * back until a read of DYE2's selection after it decides on it (`check`).
+     * A change during a write of the plugin's is that write's echo, which its
      * write holds.
      */
     observe(workflow) {
       if (this.stopped) return;
       this.latest = workflow;
-      if (!this.initialised) {
-        this.initialised = true;
-        this.loaded = loadedRecipeOf(workflow);
-      }
+      if (this.firstSlot === void 0) this.firstSlot = dye2SelectionOf(workflow).slot;
       if (this.captureOnly) return;
       if (this.writing > 0) {
         this.reportedDuringWrite = true;
@@ -1134,18 +1149,18 @@ var __decentSync = (() => {
       }
       this.observed++;
       this.holdUntilRead(workflow);
-      this.readSoon();
     }
     /**
      * Holds the Workflow's changes back until a read of DYE2's selection after
-     * them decides on them, while a Recipe is loaded, or the Workflow names one
-     * the plugin does not take as loaded, and DYE2 did not answer 404 last.
+     * them decides on them, while a Recipe is loaded, or the Workflow names
+     * one, and DYE2 did not answer 404 last; and reads it about 2 s after each.
      */
     holdUntilRead(workflow) {
-      if (!this.holding && (this.loaded !== null || loadedRecipeOf(workflow) !== this.loaded) && this.answer !== "unavailable") {
+      if (!this.holding && (this.loaded !== null || this.named(workflow) !== null) && this.answer !== "unavailable") {
         this.holding = { since: Date.now(), observed: this.observed };
         this.changes.hold();
       } else if (this.holding) this.holding.observed = this.observed;
+      if (this.holding) this.readSoon();
     }
     /**
      * DYE2's recipes as a read of them found them, whoever read them: the
@@ -1183,7 +1198,7 @@ var __decentSync = (() => {
     async mayWrite(globalId) {
       const answer = await readSelection();
       if (answer.kind === "unavailable") return true;
-      if (answer.kind === "recipe" && answer.slot !== null && this.recipes.get(answer.slot)?.globalId === globalId) return true;
+      if (answer.kind === "recipe" && answer.slot !== null && this.recipes.get(answer.slot)?.globalId === globalId) return selectedOn(answer, this.latest);
       return answer.kind === "none" && this.pendingSelect?.globalId === globalId;
     }
     selectionClearing(globalId) {
@@ -1331,19 +1346,38 @@ var __decentSync = (() => {
       this.enqueue(() => this.check(true));
       this.pollTimer = setTimeout(() => this.poll(), this.pollMs);
     }
-    /** Releases the change held back, once every change since is decided on, or it has waited too long. */
+    /**
+     * Releases the change held back, once every change since is decided on,
+     * no selection of the plugin's is still to land, as after its own write
+     * DYE2 clears its selection on, nor the Loaded Recipe moving to another
+     * slot, and the latest Workflow's DYE2 field names what DYE2 last answered;
+     * or once it has waited too long, when it goes as it is.
+     */
     releaseHold(seen) {
       const holding = this.holding;
       if (!holding) return;
       if (seen !== void 0 && Date.now() - holding.since < MAX_HOLD_MS) {
         if (seen < holding.observed) return;
-        if (!this.captureOnly && this.latest && loadedRecipeOf(this.latest) !== this.loaded) {
+        if (!this.captureOnly && (this.pendingSelect !== null || this.relocating !== null || !this.fieldCaughtUp())) {
           this.readSoon();
           return;
         }
       }
       this.holding = null;
       this.changes.release();
+      this.recipesAfterHold();
+    }
+    /** Whether the latest Workflow's DYE2 field names what DYE2's selection last answered, or that is unknown. */
+    fieldCaughtUp() {
+      const selected2 = this.selected;
+      if (selected2 === void 0 || this.latest === void 0) return true;
+      const field = dye2SelectionOf(this.latest);
+      return field.named === selected2.named && field.slot === selected2.slot;
+    }
+    /** The Recipe a Workflow's DYE2 selection names, by its slot among the tablet's recipes as last read, or null. */
+    named(workflow) {
+      const { slot } = dye2SelectionOf(workflow);
+      return slot === null ? null : this.recipes.get(Number(slot))?.globalId ?? null;
     }
     /**
      * Reads DYE2's selection, with whether DYE2 is loaded on the poll, and
@@ -1366,26 +1400,34 @@ var __decentSync = (() => {
             this.notLoadedSince = null;
             this.pushes.keepOpen();
           } else this.notLoadedSince ?? (this.notLoadedSince = Date.now());
+          this.changes.dye2Absent(this.unavailable());
         }
         if (this.captureOnly) {
           if (this.pendingClears.size > 0) await this.tryPending(await readSelection());
           return;
         }
         if (this.unavailable()) {
+          this.answer = "unavailable";
+          this.selected = void 0;
           this.pendingSelect = null;
-          await this.unload();
+          this.unload();
           return;
         }
         this.sawRecipes(await this.readRecipes());
+        if (this.firstSlot !== void 0) {
+          if (this.firstSlot !== null && !this.decided) this.loaded = this.recipes.get(Number(this.firstSlot))?.globalId ?? null;
+          this.firstSlot = null;
+        }
         let answer = await readSelection();
         answer = await this.tryPending(answer);
         if (answer.kind === "unavailable") {
           this.answer = "unavailable";
+          this.selected = void 0;
           return;
         }
+        this.selected = answer.kind === "recipe" ? { named: true, slot: answer.slot === null ? null : String(answer.slot) } : { named: answer.kind !== "none", slot: null };
         if (this.pendingSelect !== null || this.relocating !== null) return;
         await this.decide(answer);
-        await this.keepNamed();
       } finally {
         this.releaseHold(seen);
       }
@@ -1439,6 +1481,7 @@ var __decentSync = (() => {
     }
     /** Decides on DYE2's selection, as `check` reads it. */
     async decide(answer) {
+      this.decided = true;
       const previous = this.answer;
       if (answer.kind === "none") {
         if (previous === "unread" || previous === "unavailable") {
@@ -1446,18 +1489,18 @@ var __decentSync = (() => {
           return;
         }
         this.answer = "none";
-        await this.unload();
+        this.unload();
         return;
       }
       if (answer.kind === "favourite") {
         this.answer = "favourite";
-        await this.unload();
+        this.unload();
         return;
       }
       this.answer = "recipe";
       const recipe = answer.slot === null ? void 0 : this.recipes.get(answer.slot);
       if (!recipe || !selectedOn(answer, this.latest)) {
-        await this.unload();
+        this.unload();
         return;
       }
       if (recipe.globalId === this.loaded) this.armed = { fingerprint: answer.fingerprint, batch: answer.batch, grinder: answer.grinder };
@@ -1482,12 +1525,12 @@ var __decentSync = (() => {
       await this.ownWrite(async () => {
         const workflow = await this.workflowNow();
         const context = await this.loadContext(recipe.record);
-        let planned = loadWrite(workflow, recipe.record, globalId, context);
+        let planned = loadWrite(workflow, recipe.record, context);
         let answer;
         if (planned !== null) {
           answer = await request("PUT", "/workflow", planned.write);
           if (!answer.ok && "hotWaterData" in planned.write && machineMissing(answer)) {
-            planned = loadWrite(workflow, recipe.record, globalId, context, /* @__PURE__ */ new Set(["targetTemperature", "duration", "volume", "flow"]));
+            planned = loadWrite(workflow, recipe.record, context, /* @__PURE__ */ new Set(["targetTemperature", "duration", "volume", "flow"]));
             answer = planned === null ? void 0 : await request("PUT", "/workflow", planned.write);
           }
           if (answer && !answer.ok) throw new Error(`Decaid answered ${answer.status} loading the recipe in slot ${slot}: ${answer.text.slice(0, 200)}`);
@@ -1501,27 +1544,13 @@ var __decentSync = (() => {
       });
       if (this.pendingSelect?.globalId === globalId) await this.tryPending(await readSelection());
     }
-    /** Unloads the Loaded Recipe: the Workflow names none. */
-    async unload() {
+    /** Unloads the Loaded Recipe, which the server reads from DYE2's field. */
+    unload() {
       const globalId = this.loaded;
       if (globalId === null) return;
       this.loaded = null;
       this.armed = null;
       if (this.pendingSelect?.globalId === globalId) this.pendingSelect = null;
-      await this.keepNamed();
-    }
-    /** Keeps the Workflow naming the Loaded Recipe, or none, as Decaid holds it now. */
-    async keepNamed() {
-      const latest = this.latest;
-      if (!latest || loadedRecipeOf(latest) === this.loaded) return;
-      await this.ownWrite(async () => {
-        const workflow = await this.workflowNow();
-        if (loadedRecipeOf(workflow) === this.loaded) return workflow;
-        const answer = await request("PUT", "/workflow", { context: { extras: { [LOADED_RECIPE_KEY]: this.loaded } } });
-        if (!answer.ok) throw new Error(`Decaid answered ${answer.status} recording the Loaded Recipe: ${answer.text.slice(0, 200)}`);
-        const after = parsed2(answer.text);
-        return isObject4(after) ? after : void 0;
-      });
     }
     /**
      * Clears DYE2's selection while it still has that slot selected, leaving
@@ -1542,6 +1571,7 @@ var __decentSync = (() => {
           return;
         }
         this.answer = "none";
+        this.selected = { named: false, slot: null };
       } catch (error) {
         this.pendingClears.add(slot);
         throw error;
@@ -1567,6 +1597,7 @@ var __decentSync = (() => {
       } catch (error) {
         this.writing--;
         this.changes.release();
+        this.recipesAfterHold();
         throw error;
       }
       this.writing--;
@@ -1576,9 +1607,9 @@ var __decentSync = (() => {
       if (reported && this.latest) {
         this.observed++;
         this.holdUntilRead(this.latest);
-        this.readSoon();
       }
       this.changes.release();
+      this.recipesAfterHold();
     }
     /** The slot a Recipe is in on the tablet now, or null. */
     slotOf(globalId) {
@@ -2073,8 +2104,14 @@ var __decentSync = (() => {
   }
   async function writeLoadedRecipe(write, _log, posted) {
     const globalId = write.globalId.toLowerCase();
-    const clearing = LOADED_RECIPE_FIELD in write.fields;
-    if (!clearing && posted.loaded && !await posted.loaded.mayWrite(globalId)) return refused(write, null, ANOTHER_SELECTED);
+    if (DYE2_SELECTION_FIELD in write.fields) {
+      posted.loaded?.cleared(globalId);
+      const current = await request("GET", "/workflow");
+      const workflow = current.ok ? parsed3(current.text) : void 0;
+      if (!isObject5(workflow)) return refused(write, current.status, current.text);
+      return written(write, loadedRecipeParts(workflow), [DYE2_SELECTION_FIELD], (/* @__PURE__ */ new Date()).toISOString());
+    }
+    if (posted.loaded && !await posted.loaded.mayWrite(globalId)) return refused(write, null, ANOTHER_SELECTED);
     let hotWater = true;
     for (; ; ) {
       const current = await request("GET", "/workflow");
@@ -2095,8 +2132,7 @@ var __decentSync = (() => {
       const updated = answer.ok ? parsed3(answer.text) : void 0;
       if (clears && !isObject5(updated)) posted.loaded?.selectionKept(globalId);
       if (isObject5(updated)) {
-        if (clearing) posted.loaded?.cleared(globalId);
-        else posted.loaded?.written(globalId, workflow, updated, clears);
+        posted.loaded?.written(globalId, workflow, updated, clears);
         return written(write, loadedRecipeParts(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
       }
       const ofHotWater = Object.keys(fields).filter((field) => field.startsWith("hotWaterData."));
@@ -2115,8 +2151,6 @@ var __decentSync = (() => {
     return patch;
   }
   function loadedRecipeFields(write, workflow, hotWater) {
-    if (loadedRecipeOf(workflow) !== write.globalId.toLowerCase()) return {};
-    if (LOADED_RECIPE_FIELD in write.fields) return { [LOADED_RECIPE_FIELD]: null };
     return Object.fromEntries(
       Object.values(LOADED_RECIPE_PARTS).flatMap((part) => {
         const [first] = part;
@@ -2468,6 +2502,8 @@ var __decentSync = (() => {
       /** For each collection, the latest delivery queued, and the latest queued with a value. */
       __publicField(this, "queued", /* @__PURE__ */ new Map());
       __publicField(this, "wanted");
+      /** Whether DYE2's recipes alone are to be read, as after DYE2 pushes (`readRecipes`). */
+      __publicField(this, "recipesWanted", false);
       __publicField(this, "reading", false);
       __publicField(this, "stopped", false);
       __publicField(this, "pollTimer");
@@ -2483,6 +2519,17 @@ var __decentSync = (() => {
     /** Every collection, read again and sent in full, as on every welcome and whenever the server asks. */
     sendAll() {
       this.read("full");
+    }
+    /**
+     * DYE2's recipes, read again and sent if they changed, while connected: on
+     * each push from DYE2, which pushes after it records into its selected
+     * recipe, so the recording reaches the server then, not only on the poll
+     * (ADR-0022).
+     */
+    readRecipes() {
+      if (this.stopped || !this.outbox.connected) return;
+      this.recipesWanted = true;
+      void this.run();
     }
     schedulePoll() {
       this.pollTimer = setTimeout(() => {
@@ -2500,11 +2547,13 @@ var __decentSync = (() => {
       if (this.reading) return;
       this.reading = true;
       try {
-        while (this.wanted !== void 0 && !this.stopped) {
+        while ((this.wanted !== void 0 || this.recipesWanted) && !this.stopped) {
           const full = this.wanted === "full";
+          const sources = this.wanted === void 0 ? SOURCES.filter((source) => source.name === "dye2Recipes") : SOURCES;
           this.wanted = void 0;
+          this.recipesWanted = false;
           const sentLists = /* @__PURE__ */ new Set();
-          for (const source of SOURCES) {
+          for (const source of sources) {
             if (this.stopped) return;
             const parent = isLibraryList(source.name) ? parentList(source.name) : void 0;
             const sent = await (WRITTEN_LISTS.has(source.name) ? this.library.run(() => this.capture(source, full || parent !== void 0 && sentLists.has(parent))) : this.capture(source, full));
@@ -2773,6 +2822,8 @@ var __decentSync = (() => {
       __publicField(this, "extra", {});
       /** What the delivery `resent` carries besides the Workflow, carried into the one that replaces it. */
       __publicField(this, "resentExtra", {});
+      /** Whether DYE2 is not there to select anything, as every Workflow delivery says (`dye2Absent`). */
+      __publicField(this, "absent", false);
     }
     /** Decaid's `workflowUpdated`: the whole Workflow, sent on every load and every change. */
     workflowUpdated(payload) {
@@ -2817,6 +2868,11 @@ var __decentSync = (() => {
     }
     attach(extra) {
       this.extra = mergeExtra(this.extra, extra);
+    }
+    dye2Absent(absent) {
+      if (this.absent === absent) return;
+      this.absent = absent;
+      if (this.workflow && dye2SelectionOf(this.workflow).named) this.resend();
     }
     /**
      * Decaid's `stateUpdate`, which arrives several times a second while a
@@ -2874,7 +2930,7 @@ var __decentSync = (() => {
     queueWorkflow(workflow, observedAt = now()) {
       const extra = this.extra;
       this.extra = {};
-      const delivery = { type: "workflow", id: this.outbox.nextId(), observedAt, workflow, ...extra };
+      const delivery = { type: "workflow", id: this.outbox.nextId(), observedAt, workflow, ...extra, ...this.absent ? { dye2Absent: true } : {} };
       this.outbox.enqueue(delivery);
       return delivery.id;
     }
@@ -3704,7 +3760,12 @@ var __decentSync = (() => {
       this.shots = new ShotCapture(this.outbox, log);
       this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1e3, log);
       this.loadedRecipes = new LoadedRecipes(
-        { hold: () => this.machineEvents.hold(), release: () => this.machineEvents.release(), attach: (extra) => this.machineEvents.attach(extra) },
+        {
+          hold: () => this.machineEvents.hold(),
+          release: () => this.machineEvents.release(),
+          attach: (extra) => this.machineEvents.attach(extra),
+          dye2Absent: (absent) => this.machineEvents.dye2Absent(absent)
+        },
         log,
         {
           // DYE2's socket leaves one transport for a connection to the server.
@@ -3721,7 +3782,8 @@ var __decentSync = (() => {
           onEvent: (handle, listener) => this.host.transport.onEvent(handle, listener),
           close: (handle) => this.closeTransport(handle)
         },
-        settings.pollSeconds * 1e3
+        settings.pollSeconds * 1e3,
+        () => this.collections.readRecipes()
       );
       this.machineEvents = new MachineEvents(this.outbox, (workflow) => this.loadedRecipes.observe(workflow));
       const library = new LibraryAccess();

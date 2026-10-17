@@ -389,6 +389,15 @@ export interface WorkflowDelivery {
    * (interim for decentespresso/dye2#31).
    */
   loadBefore?: Record<string, LoadBefore>;
+  /**
+   * True while DYE2 is not there to select anything on the tablet: Decaid
+   * lists no DYE2, or lists it disabled, or not loaded for longer than twice
+   * the plugin's poll interval (ADR-0022). The Workflow's DYE2 selection
+   * (DYE2_SELECTION_FIELD) then names nothing, whatever DYE2 last wrote
+   * there. The plugin sends the Workflow again as this changes, where
+   * DYE2's field there names something.
+   */
+  dye2Absent?: boolean;
 }
 
 /** What a part of a Workflow held just before a load's write (`before`), and what the write put there (`written`). */
@@ -727,29 +736,35 @@ export const WORKFLOW_BASKET = ["context.extras.basketId", "context.extras.baske
 export const WORKFLOW_CLEARED = [WORKFLOW_GRINDER, WORKFLOW_BATCH, WORKFLOW_BASKET] as const;
 
 /**
- * The key in a Workflow's `context.extras` holding its Loaded Recipe's global
- * id (ADR-0022), which the plugin writes there as it records a load, and
- * sets to null as it unloads one. Decaid keeps a Workflow's `extras` whole,
- * merging a `PUT /workflow` into them key by key, and copies the Workflow's
- * context onto every Shot pulled with it, so each Shot names the Recipe
- * loaded when it was pulled, offline ones included.
+ * DYE2's selection, as DYE2 writes it into the Workflow by its path: on each
+ * change of which item it has selected, a clear included, `{kind, id}`, a
+ * recipe's id its Recipe Slot as text, or null (`syncSelectionMarker` in
+ * dye2:dye2-plugin/src/utils/workflow-record.ts, decentespresso/dye2#20).
+ * Decaid copies the Workflow onto every Shot pulled with it, offline ones
+ * included. The server reads the Machine's Loaded Recipe from it
+ * (ADR-0022); nothing of Decent Sync's writes it.
  */
-export const LOADED_RECIPE_KEY = "decentSyncRecipeId";
+export const DYE2_SELECTION_FIELD = "context.extras.dye.selection";
 
-/** The global id of the Recipe a Workflow names as its Loaded Recipe (LOADED_RECIPE_KEY), or null if it names none. */
-export function loadedRecipeOf(workflow: unknown): string | null {
-  const context = isObject(workflow) ? workflow.context : undefined;
-  const extras = isObject(context) ? context.extras : undefined;
-  const id = isObject(extras) ? extras[LOADED_RECIPE_KEY] : undefined;
-  return isGlobalId(id) ? id.toLowerCase() : null;
+/**
+ * What a Workflow's DYE2 selection (DYE2_SELECTION_FIELD) names: nothing
+ * (`named` false), as for a field null or absent; or an item, with the
+ * Recipe Slot of a recipe in one (`slot`, as its record's id, `isSlotId`),
+ * null for a favourite or a recipe in none.
+ */
+export function dye2SelectionOf(workflow: unknown): { named: boolean; slot: string | null } {
+  const selection = workflowValueAt(workflow, DYE2_SELECTION_FIELD);
+  if (!isObject(selection) || typeof selection.kind !== "string") return { named: false, slot: null };
+  const id = typeof selection.id === "number" ? String(selection.id) : selection.id;
+  return { named: true, slot: selection.kind === "recipe" && isSlotId(id) ? id : null };
 }
 
 /**
  * What the server writes into a tablet's Workflow for the Recipe it has
  * loaded (ADR-0022): the Recipe's fields that differ from what the Workflow
  * last held of them, as an edit of the Recipe made anywhere reaches every
- * Machine that has it loaded, or the clearing of its Loaded Recipe, as the
- * server unloads it. A `write` of this kind carries them, named by the
+ * Machine that has it loaded, or the clearing of DYE2's selection of it, as
+ * the server unloads it. A `write` of this kind carries them, named by the
  * Recipe's global id.
  */
 export const LOADED_RECIPE_KIND = "loadedRecipe";
@@ -822,9 +837,6 @@ export const LOADED_RECIPE_PARTS = {
 
 /** A part of a Workflow that follows its Loaded Recipe (LOADED_RECIPE_PARTS). */
 export type LoadedRecipePart = keyof typeof LOADED_RECIPE_PARTS;
-
-/** The field of a Workflow naming its Loaded Recipe (LOADED_RECIPE_KEY), by its path, which a write of LOADED_RECIPE_KIND clears. */
-export const LOADED_RECIPE_FIELD = `context.extras.${LOADED_RECIPE_KEY}`;
 
 /** The value a Workflow holds at a path, such as `context.extras.rpm`, a number naming an item of a list; undefined where it holds none. */
 export function workflowValueAt(workflow: unknown, path: string): unknown {
@@ -972,10 +984,12 @@ export const STEAM_ON_FROM = 135;
  * with `expected` the value the Workflow held of each part's first field as
  * the tablet last reported it, null for none, but for a Profile, which
  * carries none, as a skin overrides parts of the one it loads; or it names
- * LOADED_RECIPE_FIELD alone, null, to clear the Workflow's Loaded Recipe,
- * as the server unloads it, expecting the Recipe's global id. The plugin
- * reads the tablet's Workflow and writes nothing unless it still names that
- * Recipe as loaded (`loadedRecipeOf`); otherwise it sets, through
+ * DYE2_SELECTION_FIELD alone, null, as the server unloads the Recipe, which
+ * the plugin carries out by clearing DYE2's selection of the Recipe's slot,
+ * where DYE2 still has it selected, writing nothing into the Workflow
+ * itself: its answer's `writtenFields` names that field. Otherwise the
+ * plugin writes nothing unless DYE2 still has the Recipe's slot selected, or
+ * answers 404, and sets, through
  * `PUT /workflow` (`workflowPatch`), each part whose first field still holds
  * the value expected, or none, as Streamline clears the batch, Basket and
  * RPM once each Shot is stored, or the value written already, as one DYE2
@@ -1372,6 +1386,7 @@ function checkMachineEvent(object: Fields & { type: string }): Decoded<WorkflowD
       fields.instant("observedAt");
       fields.objectField("workflow");
       if (object.loadBefore !== undefined) fields.objectField("loadBefore");
+      fields.optionalBoolean("dye2Absent");
     });
   }
   return check<MachineStateDelivery>(object, "machineState", (fields) => {

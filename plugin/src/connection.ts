@@ -178,7 +178,12 @@ export class SyncConnection {
     this.shots = new ShotCapture(this.outbox, log);
     this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1000, log);
     this.loadedRecipes = new LoadedRecipes(
-      { hold: () => this.machineEvents.hold(), release: () => this.machineEvents.release(), attach: (extra) => this.machineEvents.attach(extra) },
+      {
+        hold: () => this.machineEvents.hold(),
+        release: () => this.machineEvents.release(),
+        attach: (extra) => this.machineEvents.attach(extra),
+        dye2Absent: (absent) => this.machineEvents.dye2Absent(absent),
+      },
       log,
       {
         // DYE2's socket leaves one transport for a connection to the server.
@@ -196,6 +201,7 @@ export class SyncConnection {
         close: (handle) => this.closeTransport(handle),
       },
       settings.pollSeconds * 1000,
+      () => this.collections.readRecipes(),
     );
     this.machineEvents = new MachineEvents(this.outbox, (workflow) => this.loadedRecipes.observe(workflow));
     const library = new LibraryAccess();

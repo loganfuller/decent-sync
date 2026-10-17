@@ -1,12 +1,10 @@
 import {
-  LOADED_RECIPE_KEY,
   LOADED_RECIPE_PARTS,
   type LoadBefore,
   type LoadedRecipePart,
   RECIPE_FIELD,
   dye2GlobalIdOf,
   isSlotId,
-  loadedRecipeOf,
   workflowValueAt,
 } from "@decent-sync/protocol";
 
@@ -191,10 +189,9 @@ export interface LoadWrite {
  * of the recipe's current dose, yield, grind setting, grinder, RPM, Basket,
  * Bean Batch with its Bean's name and roaster, and Profile, as DYE2 applies
  * them, a stale copy having applied others; of its four hot water settings,
- * which it keeps in its own field (RECIPE_FIELD); and the recipe's global
- * id (LOADED_RECIPE_KEY). Its brew temperature is DYE2's and Streamline's to
- * apply, and so is the Profile at it, which is written only where the
- * Workflow holds another. A value the recipe holds none of is left as the
+ * which it keeps in its own field (RECIPE_FIELD). Its brew temperature is
+ * DYE2's and Streamline's to apply, and so is the Profile at it, which is
+ * written only where the Workflow holds another. A value the recipe holds none of is left as the
  * Workflow has it, and so is one `omit` names. Null if the Workflow holds
  * all of it already. With it, each part it changes, by its name in
  * LOADED_RECIPE_PARTS, with what the Workflow held of it and what it
@@ -203,7 +200,6 @@ export interface LoadWrite {
 export function loadWrite(
   workflow: Record<string, unknown>,
   record: Record<string, unknown>,
-  globalId: string,
   load: LoadContext,
   omit: ReadonlySet<LoadedRecipePart> = new Set(),
 ): LoadWrite | null {
@@ -243,7 +239,6 @@ export function loadWrite(
     if (textOf(record.beanName) !== null) contextWrite.coffeeName = record.beanName;
     if (textOf(record.beanRoaster) !== null) contextWrite.coffeeRoaster = record.beanRoaster;
   }
-  if (loadedRecipeOf(workflow) !== globalId) extrasWrite[LOADED_RECIPE_KEY] = globalId;
   if (Object.keys(extrasWrite).length > 0) contextWrite.extras = extrasWrite;
 
   const write: Record<string, unknown> = {};

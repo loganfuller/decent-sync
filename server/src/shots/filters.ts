@@ -7,7 +7,7 @@ import { readGrinderId } from "../library/grinders.service.js";
 import { readProfileId } from "../library/profiles.service.js";
 import { readRecipeId } from "../library/recipes.service.js";
 import { type RecordFilters, queryValue, readRecordFilters, recordFilterSql } from "../record-filters.js";
-import { shotPulledWithSql, shotRecipeLinkedSql } from "./links.js";
+import { shotPulledWithSql, shotRecipeSql } from "./links.js";
 
 /**
  * What a Shots list is narrowed to: the filters every record list has, what
@@ -26,7 +26,7 @@ export interface ShotFilters extends RecordFilters {
   grinderId?: string | null;
   /** A Basket's id, or null for Shots linked to none. */
   basketId?: string | null;
-  /** A Recipe's id: Shots pulled with it loaded (`shotRecipeLinkedSql`); or null for Shots linked to none. */
+  /** A Recipe's id: Shots pulled with it loaded (`shotRecipeSql`); or null for Shots linked to none. */
   recipeId?: string | null;
   /** A Bean's id: Shots linked to any of its batches. */
   beanId?: string;
@@ -96,7 +96,7 @@ export function shotFilterSql(filters: ShotFilters): Prisma.Sql {
     conditions.push(Prisma.sql`s.library_batch_id IN (SELECT id FROM bean_batches WHERE bean_id = ${filters.beanId}::uuid)`);
   }
   if (filters.profileId !== undefined) conditions.push(shotPulledWithSql("s", filters.profileId));
-  if (filters.recipeId === null) conditions.push(Prisma.sql`NOT ${shotRecipeLinkedSql("s")}`);
-  else if (filters.recipeId !== undefined) conditions.push(Prisma.sql`s.recipe_id = ${filters.recipeId}::uuid AND ${shotRecipeLinkedSql("s")}`);
+  if (filters.recipeId === null) conditions.push(Prisma.sql`${shotRecipeSql("s")} IS NULL`);
+  else if (filters.recipeId !== undefined) conditions.push(Prisma.sql`s.recipe_id = ${filters.recipeId}::uuid AND ${shotRecipeSql("s")} IS NOT NULL`);
   return Prisma.join(conditions, " AND ");
 }

@@ -5,7 +5,7 @@ import {
   DYE2_NAMESPACE,
   LIBRARY_ITEM_KINDS,
   BREW_TEMPERATURE_FIELD,
-  LOADED_RECIPE_FIELD,
+  DYE2_SELECTION_FIELD,
   LOADED_RECIPE_KIND,
   LOADED_RECIPE_PARTS,
   SHOTS_STILL_TO_READ,
@@ -34,7 +34,6 @@ import {
   globalIdOf,
   isLibraryKind,
   isSlotId,
-  loadedRecipeOf,
   profileAtBrewTemperature,
   sameValue,
   workflowPatch,
@@ -694,27 +693,32 @@ async function clearWorkflow(write: LibraryWrite): Promise<WriteAnswer> {
 
 /**
  * Writes the fields of its Loaded Recipe that the server says the tablet's
- * Workflow is due (`LOADED_RECIPE_KIND`), or clears its Loaded Recipe,
- * through `PUT /workflow`, which Decaid merges into the Workflow: nothing
- * unless the Workflow still names that Recipe as loaded, and of the rest
- * each part whose first field still holds the value expected, or none
- * (`loadedRecipeFields`). A brew temperature moves every step of the
- * profile written, or else the Workflow's, by the same amount
- * (`profileAtBrewTemperature`). A write that is no clear is refused unless DYE2
- * still has the Recipe's slot selected, or answers 404
+ * Workflow is due (`LOADED_RECIPE_KIND`), through `PUT /workflow`, which
+ * Decaid merges into the Workflow: each part whose first field still holds
+ * the value expected, or none (`loadedRecipeFields`). A brew temperature
+ * moves every step of the profile written, or else the Workflow's, by the
+ * same amount (`profileAtBrewTemperature`). It is refused unless DYE2 still
+ * has the Recipe's slot selected, or answers 404
  * (`LoadedRecipeWrites.mayWrite`), and once made, one that changed the
  * profile, batch or grinder, which DYE2 clears its selection on, has the slot
- * selected again; a clear has DYE2's selection of the Recipe's slot cleared
- * (ADR-0022). Decaid refuses to change the hot water settings while no
- * machine is connected, so the rest is then written without them, the
- * Workflow read again first, and a write of only them is refused. Answers
- * with the Workflow's `context`, `hotWaterData` and `profile`, timed now, as
- * a Workflow carries no time.
+ * selected again (ADR-0022). Decaid refuses to change the hot water settings
+ * while no machine is connected, so the rest is then written without them,
+ * the Workflow read again first, and a write of only them is refused.
+ * Answers with the Workflow's `context`, `hotWaterData` and `profile`, timed
+ * now, as a Workflow carries no time. A write unloading the Recipe, naming
+ * DYE2_SELECTION_FIELD, has DYE2's selection of its slot cleared instead,
+ * the Workflow left as it is: DYE2 writes its field.
  */
 async function writeLoadedRecipe(write: LibraryWrite, _log: (message: string) => void, posted: ListPosted): Promise<WriteAnswer> {
   const globalId = write.globalId.toLowerCase();
-  const clearing = LOADED_RECIPE_FIELD in write.fields;
-  if (!clearing && posted.loaded && !(await posted.loaded.mayWrite(globalId))) return refused(write, null, ANOTHER_SELECTED);
+  if (DYE2_SELECTION_FIELD in write.fields) {
+    posted.loaded?.cleared(globalId);
+    const current = await request("GET", "/workflow");
+    const workflow = current.ok ? parsed(current.text) : undefined;
+    if (!isObject(workflow)) return refused(write, current.status, current.text);
+    return written(write, loadedRecipeParts(workflow), [DYE2_SELECTION_FIELD], new Date().toISOString());
+  }
+  if (posted.loaded && !(await posted.loaded.mayWrite(globalId))) return refused(write, null, ANOTHER_SELECTED);
   let hotWater = true;
   for (;;) {
     const current = await request("GET", "/workflow");
@@ -737,8 +741,7 @@ async function writeLoadedRecipe(write: LibraryWrite, _log: (message: string) =>
     // This write refused, the Workflow stayed, so DYE2 cleared nothing for it.
     if (clears && !isObject(updated)) posted.loaded?.selectionKept(globalId);
     if (isObject(updated)) {
-      if (clearing) posted.loaded?.cleared(globalId);
-      else posted.loaded?.written(globalId, workflow, updated, clears);
+      posted.loaded?.written(globalId, workflow, updated, clears);
       return written(write, loadedRecipeParts(updated), Object.keys(fields), new Date().toISOString());
     }
     const ofHotWater = Object.keys(fields).filter((field) => field.startsWith("hotWaterData."));
@@ -767,16 +770,13 @@ function loadedRecipePatch(fields: Readonly<Record<string, unknown>>, workflow: 
 }
 
 /**
- * The fields of a write of LOADED_RECIPE_KIND to set in the Workflow: none
- * unless it names the write's Recipe as loaded; the clearing of that, where
- * the write clears it; and otherwise each part of LOADED_RECIPE_PARTS the
- * write names, all its fields together, while the Workflow holds the value
- * expected of its first field, or none, or the write expects none, as of a
- * Profile, and its hot water settings only where `hotWater` says.
+ * The fields of a write of LOADED_RECIPE_KIND to set in the Workflow: each
+ * part of LOADED_RECIPE_PARTS the write names, all its fields together,
+ * while the Workflow holds the value expected of its first field, or none,
+ * or the write expects none, as of a Profile, and its hot water settings
+ * only where `hotWater` says.
  */
 function loadedRecipeFields(write: LibraryWrite, workflow: Record<string, unknown>, hotWater: boolean): Record<string, unknown> {
-  if (loadedRecipeOf(workflow) !== write.globalId.toLowerCase()) return {};
-  if (LOADED_RECIPE_FIELD in write.fields) return { [LOADED_RECIPE_FIELD]: null };
   return Object.fromEntries(
     Object.values(LOADED_RECIPE_PARTS).flatMap((part: readonly string[]) => {
       const [first] = part as [string];
