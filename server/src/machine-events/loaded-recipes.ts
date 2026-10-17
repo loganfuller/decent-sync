@@ -157,7 +157,7 @@ export async function takeInLoadedRecipe(
   // Taking part nowhere, as capture-only, only the Recipe the server last had as its Loaded Recipe is cleared: one loaded
   // since stays, as does one loaded on the tablet before it stopped that the server had not heard of yet, as while offline.
   const clearsNowhere = entry !== null || loadedBefore === named;
-  await followMachine(tx, tablet, workflow, named, recipe, loadedBefore === recipeId && !joining, clearsNowhere);
+  await followMachine(tx, tablet, workflow, named, recipe, loadedBefore === recipeId && !joining, clearsNowhere, loadBefore !== null);
 }
 
 /**
@@ -208,7 +208,9 @@ async function saveHeld(tx: Prisma.TransactionClient, tabletId: string, recipeId
  * One naming the Recipe its Machine went on having loaded (`recipe`, its
  * Loaded Recipe, and `continued`, as before this Workflow, not as the tablet
  * joins its Location) changes nothing: DYE2 records what changed into the
- * Recipe's record (`recordedByDye2`). Any other, as a load, or a Recipe
+ * Recipe's record (`recordedByDye2`); but one carrying the plugin's write of
+ * the load (`loadWritten`, its `loadBefore`) is held as it is, as that write
+ * set its parts. Any other, as a load, or a Recipe
  * its Machine has not loaded, is held as it is: a Recipe's fields that
  * differ from it are written into the Workflow, as a load from a stale copy
  * needs, or the Recipe is cleared from it (`loadedRecipeDue`).
@@ -221,6 +223,7 @@ async function followMachine(
   recipe: FollowedRecipe | null,
   continued: boolean,
   clears: boolean,
+  loadWritten: boolean,
 ): Promise<void> {
   if (named === null) {
     await tx.$executeRaw`DELETE FROM tablet_loaded_recipes WHERE tablet_id = ${tablet.tabletId}::uuid`;
@@ -233,10 +236,9 @@ async function followMachine(
     await tx.$executeRaw`DELETE FROM tablet_loaded_recipes WHERE tablet_id = ${tablet.tabletId}::uuid`;
     return;
   }
-  if (recipe !== null && continued && known?.recipeId === named) {
-    // DYE2 records the Workflow's changes into the Recipe's record, so the parts are held as they were.
-    return;
-  }
+  // DYE2 records the Workflow's changes into the Recipe's record, so the parts are held as they were: but after the
+  // plugin's own write of the load, as the Workflow then holds them, which no write is due to set again.
+  if (recipe !== null && continued && known?.recipeId === named && !loadWritten) return;
   await saveHeld(tx, tablet.tabletId, named, workflowParts(workflow, await libraryProfileOf(tx, workflow)));
 }
 
