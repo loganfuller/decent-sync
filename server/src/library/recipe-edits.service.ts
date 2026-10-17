@@ -98,9 +98,8 @@ export class RecipeEditsService {
    * setting kept as a starting point, and its Bean Batch where another, or
    * none, is chosen. What it uses is checked and offered at the Location as
    * an edit's is (`recipeEditValues`): a batch not there is added there, and
-   * a Profile, Basket or Tool not shown there is shown there. Its hot water
-   * is the Recipe's; its steam and flush, which no Recipe carries, are each
-   * Machine's own. It goes in the slot chosen, the Recipe
+   * a Profile, Basket or Tool not shown there is shown there. Its steam, hot
+   * water and flush settings are the Recipe's. It goes in the slot chosen, the Recipe
    * there taken out of it and kept, or the lowest free one, or none. The
    * Recipe copied is not changed. 404 for no such Recipe or Location, 403
    * for Staff not working at the Location, 400 for the Recipe's own

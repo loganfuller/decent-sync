@@ -251,7 +251,25 @@ var __decentSync = (() => {
   function isSlotId(value) {
     return typeof value === "string" && /^[1-9][0-9]{0,9}$/.test(value) && Number(value) <= MAX_SLOT;
   }
-  var RECIPE_FIELD = "decentSyncRecipe";
+  var RECIPE_SETTINGS = {
+    steamTemperature: { dye2: "steamTempC", workflow: "steamSettings.targetTemperature", whole: true },
+    steamDuration: { dye2: "steamTimeS", workflow: "steamSettings.duration", whole: true },
+    steamFlow: { dye2: "steamFlowMls", workflow: "steamSettings.flow", whole: false },
+    steamStopTemperature: { dye2: "steamStopAtTempC", workflow: "steamSettings.stopAtTemperature", whole: false },
+    hotWaterTemperature: { dye2: "hotWaterTempC", workflow: "hotWaterData.targetTemperature", whole: true },
+    hotWaterDuration: { dye2: "hotWaterTimeS", workflow: "hotWaterData.duration", whole: true },
+    hotWaterVolume: { dye2: "hotWaterMl", workflow: "hotWaterData.volume", whole: true },
+    hotWaterFlow: { dye2: "hotWaterFlowMls", workflow: "hotWaterData.flow", whole: false },
+    flushTemperature: { dye2: "flushTempC", workflow: "rinseData.targetTemperature", whole: true },
+    flushDuration: { dye2: "flushS", workflow: "rinseData.duration", whole: true },
+    flushFlow: { dye2: "flushFlowMls", workflow: "rinseData.flow", whole: false }
+  };
+  var RECIPE_SETTING_NAMES = Object.keys(RECIPE_SETTINGS);
+  var MACHINE_SETTING_PARTS = ["steamSettings", "hotWaterData", "rinseData"];
+  function steamOff(workflow) {
+    const temperature = workflowValueAt(workflow, RECIPE_SETTINGS.steamTemperature.workflow);
+    return typeof temperature === "number" && temperature < STEAM_ON_FROM;
+  }
   function dye2GlobalIdOf(record) {
     const id = isObject(record) ? record[GLOBAL_ID_KEY] : void 0;
     return isGlobalId(id) ? id.toLowerCase() : null;
@@ -338,11 +356,18 @@ var __decentSync = (() => {
     rpm: ["context.extras.rpm"],
     basket: ["context.extras.basketId", "context.extras.basketName"],
     batch: ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"],
-    targetTemperature: ["hotWaterData.targetTemperature"],
-    duration: ["hotWaterData.duration"],
-    volume: ["hotWaterData.volume"],
-    flow: ["hotWaterData.flow"],
-    brewTemperature: [BREW_TEMPERATURE_FIELD]
+    brewTemperature: [BREW_TEMPERATURE_FIELD],
+    steamTemperature: [RECIPE_SETTINGS.steamTemperature.workflow],
+    steamDuration: [RECIPE_SETTINGS.steamDuration.workflow],
+    steamFlow: [RECIPE_SETTINGS.steamFlow.workflow],
+    steamStopTemperature: [RECIPE_SETTINGS.steamStopTemperature.workflow],
+    hotWaterTemperature: [RECIPE_SETTINGS.hotWaterTemperature.workflow],
+    hotWaterDuration: [RECIPE_SETTINGS.hotWaterDuration.workflow],
+    hotWaterVolume: [RECIPE_SETTINGS.hotWaterVolume.workflow],
+    hotWaterFlow: [RECIPE_SETTINGS.hotWaterFlow.workflow],
+    flushTemperature: [RECIPE_SETTINGS.flushTemperature.workflow],
+    flushDuration: [RECIPE_SETTINGS.flushDuration.workflow],
+    flushFlow: [RECIPE_SETTINGS.flushFlow.workflow]
   };
   function workflowValueAt(workflow, path) {
     let value = workflow;
@@ -365,6 +390,7 @@ var __decentSync = (() => {
   function itemIdRule(kind) {
     return isLibraryKind(kind) ? LIBRARY_ITEM_KINDS[kind].id : GLOBAL_ITEM_ID;
   }
+  var STEAM_ON_FROM = 135;
   var ANOTHER_ITEMS_RECORD = "The record carries another item's global id";
   var RECORD_CHANGED = "The record changed since the plugin last read the list";
   var SHOTS_STILL_TO_READ = "More Shots are still to be sent than a delete reads; ask again once they are";
@@ -902,19 +928,16 @@ var __decentSync = (() => {
     if (Object.keys(contextWrite).length > 0) write.context = contextWrite;
     const key = profileKey(load.profile);
     if (!omit.has("profile") && key !== null && key !== profileKey(workflow.profile)) write.profile = load.profile;
-    const own = isObject2(record[RECIPE_FIELD]) ? record[RECIPE_FIELD] : {};
-    const hotWater = isObject2(own.hotWaterData) ? own.hotWaterData : {};
-    const held = isObject2(workflow.hotWaterData) ? workflow.hotWaterData : {};
-    const hotWaterWrite = Object.fromEntries(
-      HOT_WATER.flatMap((field) => {
-        const value = numberOf(hotWater[field]);
-        return value !== null && !sameNumber(value, numberOf(held[field])) && changes(field, value) ? [[field, value]] : [];
-      })
-    );
-    if (Object.keys(hotWaterWrite).length > 0) write.hotWaterData = hotWaterWrite;
+    const settings = RECIPE_SETTING_NAMES.flatMap((setting) => {
+      const { dye2, workflow: path } = RECIPE_SETTINGS[setting];
+      const value = numberOf(variables[dye2]);
+      if (value === null || sameNumber(value, numberOf(workflowValueAt(workflow, path)))) return [];
+      if (setting === "steamTemperature" && steamOff(workflow)) return [];
+      return changes(setting, value) ? [[path, value]] : [];
+    });
+    Object.assign(write, workflowPatch(Object.fromEntries(settings)));
     return Object.keys(write).length > 0 ? { write, before } : null;
   }
-  var HOT_WATER = ["targetTemperature", "duration", "volume", "flow"];
   function numberOf(value) {
     if (typeof value === "number") return Number.isFinite(value) ? value : null;
     if (typeof value === "string" && /^\s*[+-]?\d+(\.\d+)?\s*$/.test(value)) return Number(value);
@@ -1029,6 +1052,36 @@ var __decentSync = (() => {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
+  // src/streamline.ts
+  var PATH = "/store/streamline-app/last-steam-temp";
+  async function keepStreamlineSteamTemperature(temperature, log) {
+    if (typeof temperature !== "number" || !Number.isFinite(temperature) || temperature < STEAM_ON_FROM) return;
+    try {
+      const held = await request("GET", PATH);
+      if (!held.ok) {
+        log(`Could not read Streamline's last-steam-temp: Decaid answered ${held.status}. Streamline may set the steam temperature back.`);
+        return;
+      }
+      const stored = parsed2(held.text);
+      if (stored === null || stored === temperature) return;
+      if (typeof stored !== "number" || !Number.isFinite(stored)) {
+        log("Streamline's last-steam-temp holds something other than a number, so it is left as it is.");
+        return;
+      }
+      const set = await request("POST", PATH, temperature);
+      if (!set.ok) log(`Could not set Streamline's last-steam-temp: Decaid answered ${set.status}. Streamline may set the steam temperature back.`);
+    } catch (error) {
+      log(`Could not set Streamline's last-steam-temp: Decaid did not answer (${error instanceof Error ? error.message : String(error)}). Streamline may set the steam temperature back.`);
+    }
+  }
+  function parsed2(text) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return void 0;
+    }
+  }
+
   // src/loaded-recipes.ts
   var RECIPES = `/store/${DYE2_NAMESPACE}/recipes`;
   var READ_AFTER_CHANGE_MS = 2e3;
@@ -1133,10 +1186,9 @@ var __decentSync = (() => {
     /**
      * Decaid's `workflowUpdated`, before the Workflow is queued. The first's
      * DYE2 selection names the Loaded Recipe the plugin takes until it decides.
-     * While a Recipe is loaded, or the Workflow names one, the change is held
-     * back until a read of DYE2's selection after it decides on it (`check`).
-     * A change during a write of the plugin's is that write's echo, which its
-     * write holds.
+     * While a selection of the plugin's is to be made, the change is held back
+     * until it is (`holdUntilRead`). A change during a write of the plugin's is
+     * that write's echo, which its write holds.
      */
     observe(workflow) {
       if (this.stopped) return;
@@ -1148,15 +1200,17 @@ var __decentSync = (() => {
         return;
       }
       this.observed++;
-      this.holdUntilRead(workflow);
+      this.holdUntilRead();
     }
     /**
-     * Holds the Workflow's changes back until a read of DYE2's selection after
-     * them decides on them, while a Recipe is loaded, or the Workflow names
-     * one, and DYE2 did not answer 404 last; and reads it about 2 s after each.
+     * Holds the Workflow's changes back while a selection of the plugin's is to
+     * be made, as after its own write DYE2 clears its selection on, or the
+     * Loaded Recipe's move to another slot, and DYE2 did not answer 404 last,
+     * until a read of DYE2's selection after them finds it made
+     * (`releaseHold`); and reads it about 2 s after each.
      */
-    holdUntilRead(workflow) {
-      if (!this.holding && (this.loaded !== null || this.named(workflow) !== null) && this.answer !== "unavailable") {
+    holdUntilRead() {
+      if (!this.holding && (this.pendingSelect !== null || this.relocating !== null) && this.answer !== "unavailable") {
         this.holding = { since: Date.now(), observed: this.observed };
         this.changes.hold();
       } else if (this.holding) this.holding.observed = this.observed;
@@ -1374,11 +1428,6 @@ var __decentSync = (() => {
       const field = dye2SelectionOf(this.latest);
       return field.named === selected2.named && field.slot === selected2.slot;
     }
-    /** The Recipe a Workflow's DYE2 selection names, by its slot among the tablet's recipes as last read, or null. */
-    named(workflow) {
-      const { slot } = dye2SelectionOf(workflow);
-      return slot === null ? null : this.recipes.get(Number(slot))?.globalId ?? null;
-    }
     /**
      * Reads DYE2's selection, with whether DYE2 is loaded on the poll, and
      * decides: a selection of a recipe in a slot carrying a global id, made on
@@ -1511,8 +1560,12 @@ var __decentSync = (() => {
      * selected, or answers 404, writes into the Workflow what applying a DYE2
      * recipe leaves out, or a stale copy got wrong (`loadWrite`), and tells the
      * server what it replaced, on the next Workflow delivery. Decaid refuses
-     * to change the hot water settings while no machine is connected, so the
-     * rest is then written without them. A write that changed the profile,
+     * to change the steam, hot water and flush settings while no machine is
+     * connected, so the rest is then written without them. A steam
+     * temperature the recipe holds is kept as the one Streamline turns steam
+     * back on at (`keepStreamlineSteamTemperature`), written into the
+     * Workflow or not, as one into a Workflow whose steam is off is not
+     * (interim, until decentespresso/streamline-js#156). A write that changed the profile,
      * batch or grinder, which DYE2 clears its selection on, has the slot
      * selected again, where the Workflow it wrote over still held what DYE2's
      * selection was made on (`armed`, `reselectAfter`).
@@ -1529,19 +1582,21 @@ var __decentSync = (() => {
         let answer;
         if (planned !== null) {
           answer = await request("PUT", "/workflow", planned.write);
-          if (!answer.ok && "hotWaterData" in planned.write && machineMissing(answer)) {
-            planned = loadWrite(workflow, recipe.record, context, /* @__PURE__ */ new Set(["targetTemperature", "duration", "volume", "flow"]));
+          if (!answer.ok && MACHINE_SETTING_PARTS.some((part) => part in planned.write) && machineMissing(answer)) {
+            planned = loadWrite(workflow, recipe.record, context, new Set(RECIPE_SETTING_NAMES));
             answer = planned === null ? void 0 : await request("PUT", "/workflow", planned.write);
           }
           if (answer && !answer.ok) throw new Error(`Decaid answered ${answer.status} loading the recipe in slot ${slot}: ${answer.text.slice(0, 200)}`);
         }
-        const after = answer ? parsed2(answer.text) : workflow;
+        const after = answer ? parsed3(answer.text) : workflow;
         if (planned && Object.keys(planned.before).length > 0) this.changes.attach({ loadBefore: planned.before });
         this.loaded = globalId;
         this.armed = armed;
         if (planned !== null && isObject4(after) && clearsSelection(workflow, planned.write)) this.reselectAfter(globalId, slot, workflow, after);
         return isObject4(after) ? after : void 0;
       });
+      const variables = isObject4(recipe.record.dashboardVariables) ? recipe.record.dashboardVariables : {};
+      await keepStreamlineSteamTemperature(variables[RECIPE_SETTINGS.steamTemperature.dye2], this.log);
       if (this.pendingSelect?.globalId === globalId) await this.tryPending(await readSelection());
     }
     /** Unloads the Loaded Recipe, which the server reads from DYE2's field. */
@@ -1584,8 +1639,8 @@ var __decentSync = (() => {
      * a barista's change made in the moment around it, which Decaid's merge of
      * the write keeps where the write did not set the same field. So where
      * any was reported, the Workflow as last reported is held back in turn
-     * until a read of DYE2's selection decides on it. Where none was, the
-     * Workflow is as Decaid answered it (`work`'s answer).
+     * while a selection of the plugin's is to be made (`holdUntilRead`). Where
+     * none was, the Workflow is as Decaid answered it (`work`'s answer).
      */
     async ownWrite(work) {
       this.writing++;
@@ -1606,7 +1661,7 @@ var __decentSync = (() => {
       if (!reported && answered) this.latest = answered;
       if (reported && this.latest) {
         this.observed++;
-        this.holdUntilRead(this.latest);
+        this.holdUntilRead();
       }
       this.changes.release();
       this.recipesAfterHold();
@@ -1623,7 +1678,7 @@ var __decentSync = (() => {
      */
     async readRecipes() {
       const answer = await request("GET", RECIPES);
-      const value = answer.ok ? parsed2(answer.text) : void 0;
+      const value = answer.ok ? parsed3(answer.text) : void 0;
       if (value === void 0) throw new Error(`Decaid answered ${answer.status} reading DYE2's recipes`);
       return value;
     }
@@ -1631,7 +1686,7 @@ var __decentSync = (() => {
     async readRecord(path) {
       const answer = await request("GET", path);
       if (answer.status === 404) return null;
-      const record = answer.ok ? parsed2(answer.text) : void 0;
+      const record = answer.ok ? parsed3(answer.text) : void 0;
       if (record === void 0) throw new Error(`Decaid answered ${answer.status} reading ${path}`);
       return record;
     }
@@ -1651,7 +1706,7 @@ var __decentSync = (() => {
     /** The Workflow as Decaid holds it now. Throws if Decaid does not answer with one. */
     async workflowNow() {
       const answer = await request("GET", "/workflow");
-      const workflow = answer.ok ? parsed2(answer.text) : void 0;
+      const workflow = answer.ok ? parsed3(answer.text) : void 0;
       if (!isObject4(workflow)) throw new Error(`Decaid answered ${answer.status} reading the Workflow`);
       return workflow;
     }
@@ -1659,7 +1714,7 @@ var __decentSync = (() => {
   function machineMissing(answer) {
     return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");
   }
-  function parsed2(text) {
+  function parsed3(text) {
     try {
       return JSON.parse(text);
     } catch {
@@ -1964,7 +2019,7 @@ var __decentSync = (() => {
     const path = `${route.records}/${encodeURIComponent(remove.localId)}`;
     const current = await request("GET", path);
     if (current.status === 404) return deleted(remove);
-    const record = current.ok ? parsed3(current.text) : void 0;
+    const record = current.ok ? parsed4(current.text) : void 0;
     if (!isObject5(record)) return refused(remove, current.status, current.text);
     const carried = globalIdOf(record);
     if (carried !== null && carried !== remove.globalId.toLowerCase()) return refused(remove, null, ANOTHER_ITEMS_RECORD);
@@ -1976,7 +2031,7 @@ var __decentSync = (() => {
       const under = routeOf(child)?.listUnder;
       if (!under) return refused(remove, null, `This plugin cannot delete the ${child} records under a ${kind}`);
       const listed = await request("GET", under(path));
-      const children = listed.ok ? parsed3(listed.text) : void 0;
+      const children = listed.ok ? parsed4(listed.text) : void 0;
       if (!Array.isArray(children)) return refused(remove, listed.status, listed.text);
       const ids = new Set(children.filter(isObject5).flatMap((record2) => typeof record2.id === "string" ? [record2.id] : []));
       const named = await namedByShot(child, ids);
@@ -1993,7 +2048,7 @@ var __decentSync = (() => {
     const path = `/profiles/${encodeURIComponent(remove.localId)}`;
     const current = await request("GET", path);
     if (current.status === 404) return deleted(remove);
-    const record = current.ok ? parsed3(current.text) : void 0;
+    const record = current.ok ? parsed4(current.text) : void 0;
     if (!isObject5(record)) return refused(remove, current.status, current.text);
     const steps = stepsKey(isObject5(record.profile) ? record.profile.steps : void 0);
     const named = await namedByShot("profile", new Set(steps === null ? [remove.localId] : [remove.localId, steps]));
@@ -2030,7 +2085,7 @@ var __decentSync = (() => {
     const path = `${records}/${encodeURIComponent(leave.localId)}`;
     const current = await request("GET", path);
     if (current.status === 404) return "gone";
-    const record = current.ok ? parsed3(current.text) : void 0;
+    const record = current.ok ? parsed4(current.text) : void 0;
     if (!isObject5(record)) return current;
     return setAsideRecord(leave, record, path);
   }
@@ -2038,13 +2093,13 @@ var __decentSync = (() => {
     if (globalIdOf(record) !== null) return "taken";
     if (record.archived === true) return "setAside";
     const archived = await request("PUT", path, { archived: true, extras: isObject5(record.extras) ? record.extras : {} });
-    const updated = archived.ok ? parsed3(archived.text) : void 0;
+    const updated = archived.ok ? parsed4(archived.text) : void 0;
     return isObject5(updated) && updated.archived === true ? "setAside" : archived;
   }
   async function hideProfile(leave, record) {
     if (record.visibility !== "visible") return "setAside";
     const hidden = await setVisibility(leave.localId, "hidden");
-    const updated = hidden.ok ? parsed3(hidden.text) : void 0;
+    const updated = hidden.ok ? parsed4(hidden.text) : void 0;
     return isObject5(updated) && updated.visibility !== "visible" ? "setAside" : hidden;
   }
   function deleted(remove) {
@@ -2072,20 +2127,20 @@ var __decentSync = (() => {
       if (parent && "refused" in parent) return refused(write, parent.refused.status, parent.refused.text);
       const body = { profile: write.fields.profile, ...parent?.record ? { parentId } : {}, ...isObject5(metadata) ? { metadata } : {} };
       const made = await request("POST", "/profiles", body);
-      const created = made.ok ? parsed3(made.text) : void 0;
+      const created = made.ok ? parsed4(made.text) : void 0;
       if (!isObject5(created) || typeof created.id !== "string") return refused(write, made.status, made.text);
       record = created;
       writtenFields.push(...Object.keys(body));
     }
     if (record.id !== write.globalId || typeof visibility !== "string" || record.visibility === visibility) return written(write, record, writtenFields);
     const again = await setVisibility(write.globalId, visibility).catch(() => void 0);
-    const updated = again?.ok ? parsed3(again.text) : void 0;
+    const updated = again?.ok ? parsed4(again.text) : void 0;
     if (!isObject5(updated) || updated.id !== write.globalId) return written(write, record, writtenFields);
     return written(write, updated, [...writtenFields, "visibility"]);
   }
   async function clearWorkflow(write) {
     const current = await request("GET", "/workflow");
-    const workflow = current.ok ? parsed3(current.text) : void 0;
+    const workflow = current.ok ? parsed4(current.text) : void 0;
     if (!isObject5(workflow)) return refused(write, current.status, current.text);
     const fields = Object.fromEntries(
       WORKFLOW_CLEARED.flatMap((group) => {
@@ -2098,27 +2153,31 @@ var __decentSync = (() => {
     );
     if (Object.keys(fields).length === 0) return written(write, workflowContext(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
     const answer = await request("PUT", "/workflow", workflowPatch(fields));
-    const updated = answer.ok ? parsed3(answer.text) : void 0;
+    const updated = answer.ok ? parsed4(answer.text) : void 0;
     if (!isObject5(updated)) return refused(write, answer.status, answer.text);
     return written(write, workflowContext(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
   }
-  async function writeLoadedRecipe(write, _log, posted) {
+  async function writeLoadedRecipe(write, log, posted) {
     const globalId = write.globalId.toLowerCase();
     if (DYE2_SELECTION_FIELD in write.fields) {
       posted.loaded?.cleared(globalId);
       const current = await request("GET", "/workflow");
-      const workflow = current.ok ? parsed3(current.text) : void 0;
+      const workflow = current.ok ? parsed4(current.text) : void 0;
       if (!isObject5(workflow)) return refused(write, current.status, current.text);
       return written(write, loadedRecipeParts(workflow), [DYE2_SELECTION_FIELD], (/* @__PURE__ */ new Date()).toISOString());
     }
     if (posted.loaded && !await posted.loaded.mayWrite(globalId)) return refused(write, null, ANOTHER_SELECTED);
-    let hotWater = true;
+    let machineSettings = true;
     for (; ; ) {
       const current = await request("GET", "/workflow");
-      const workflow = current.ok ? parsed3(current.text) : void 0;
+      const workflow = current.ok ? parsed4(current.text) : void 0;
       if (!isObject5(workflow)) return refused(write, current.status, current.text);
-      const fields = loadedRecipeFields(write, workflow, hotWater);
-      if (Object.keys(fields).length === 0) return written(write, loadedRecipeParts(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
+      const fields = loadedRecipeFields(write, workflow, machineSettings);
+      const steam = STEAM_TEMPERATURE in fields || STEAM_TEMPERATURE in write.fields && steamOff(workflow) ? write.fields[STEAM_TEMPERATURE] : void 0;
+      if (Object.keys(fields).length === 0) {
+        await keepStreamlineSteamTemperature(steam, log);
+        return written(write, loadedRecipeParts(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
+      }
       const patch = loadedRecipePatch(fields, workflow);
       const clears = clearsSelection(workflow, patch);
       if (clears) posted.loaded?.selectionClearing(globalId);
@@ -2129,16 +2188,21 @@ var __decentSync = (() => {
         if (clears) posted.loaded?.selectionUnsettled(globalId);
         throw error;
       }
-      const updated = answer.ok ? parsed3(answer.text) : void 0;
+      const updated = answer.ok ? parsed4(answer.text) : void 0;
       if (clears && !isObject5(updated)) posted.loaded?.selectionKept(globalId);
       if (isObject5(updated)) {
         posted.loaded?.written(globalId, workflow, updated, clears);
+        await keepStreamlineSteamTemperature(steam, log);
         return written(write, loadedRecipeParts(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
       }
-      const ofHotWater = Object.keys(fields).filter((field) => field.startsWith("hotWaterData."));
-      if (ofHotWater.length === 0 || ofHotWater.length === Object.keys(fields).length || !machineMissing(answer)) return refused(write, answer.status, answer.text);
-      hotWater = false;
+      const ofMachine = Object.keys(fields).filter(isMachineSetting);
+      if (ofMachine.length === 0 || ofMachine.length === Object.keys(fields).length || !machineMissing(answer)) return refused(write, answer.status, answer.text);
+      machineSettings = false;
     }
+  }
+  var STEAM_TEMPERATURE = RECIPE_SETTINGS.steamTemperature.workflow;
+  function isMachineSetting(field) {
+    return MACHINE_SETTING_PARTS.some((part) => field.startsWith(`${part}.`));
   }
   var ANOTHER_SELECTED = "DYE2 has another recipe selected on the tablet, which the plugin follows first";
   function loadedRecipePatch(fields, workflow) {
@@ -2150,11 +2214,12 @@ var __decentSync = (() => {
     }
     return patch;
   }
-  function loadedRecipeFields(write, workflow, hotWater) {
+  function loadedRecipeFields(write, workflow, machineSettings) {
     return Object.fromEntries(
       Object.values(LOADED_RECIPE_PARTS).flatMap((part) => {
         const [first] = part;
-        if (!(first in write.fields) || !hotWater && first.startsWith("hotWaterData.")) return [];
+        if (!(first in write.fields) || !machineSettings && isMachineSetting(first)) return [];
+        if (first === STEAM_TEMPERATURE && steamOff(workflow)) return [];
         const held = workflowValueAt(workflow, first);
         const expected = write.expected?.[first];
         if (held !== void 0 && held !== null && expected !== void 0 && !sameValue(held, expected) && !sameValue(held, write.fields[first])) return [];
@@ -2165,7 +2230,7 @@ var __decentSync = (() => {
   function loadedRecipeParts(workflow) {
     return {
       context: isObject5(workflow.context) ? workflow.context : {},
-      hotWaterData: isObject5(workflow.hotWaterData) ? workflow.hotWaterData : {},
+      ...Object.fromEntries(MACHINE_SETTING_PARTS.map((part) => [part, isObject5(workflow[part]) ? workflow[part] : {}])),
       ...isObject5(workflow.profile) ? { profile: workflow.profile } : {}
     };
   }
@@ -2188,7 +2253,7 @@ var __decentSync = (() => {
         else profile[field] = fields[field];
       }
       const answer = await request("PUT", `/profiles/${encodeURIComponent(id)}`, { profile });
-      const updated = answer.ok ? parsed3(answer.text) : void 0;
+      const updated = answer.ok ? parsed4(answer.text) : void 0;
       if (!isObject5(updated) || typeof updated.id !== "string") return refused(write, answer.status, answer.text);
       if (updated.id !== id) return written(write, updated, text);
       record = updated;
@@ -2200,7 +2265,7 @@ var __decentSync = (() => {
           if (writtenFields.length === 0) throw error;
           return void 0;
         });
-        const updated = answer?.ok ? parsed3(answer.text) : void 0;
+        const updated = answer?.ok ? parsed4(answer.text) : void 0;
         if (!isObject5(updated) || updated.id !== id) {
           return writtenFields.length === 0 ? refused(write, answer?.status ?? null, answer?.text ?? "") : written(write, record, writtenFields);
         }
@@ -2219,7 +2284,7 @@ var __decentSync = (() => {
   async function heldProfile(id) {
     const answer = await request("GET", `/profiles/${encodeURIComponent(id)}`);
     if (answer.status === 404) return { record: void 0 };
-    const record = answer.ok ? parsed3(answer.text) : void 0;
+    const record = answer.ok ? parsed4(answer.text) : void 0;
     return isObject5(record) && record.id === id ? { record } : { refused: answer };
   }
   function setVisibility(id, visibility) {
@@ -2228,7 +2293,7 @@ var __decentSync = (() => {
   async function create(route, write) {
     const listed = await request("GET", route.list);
     if (!listed.ok) return refused(write, listed.status, listed.text);
-    const parsedList = parsed3(listed.text);
+    const parsedList = parsed4(listed.text);
     const records = Array.isArray(parsedList) ? parsedList.filter(isObject5) : [];
     const held = records.find((record2) => globalIdOf(record2) === write.globalId.toLowerCase());
     if (held) return written(write, held, []);
@@ -2242,27 +2307,27 @@ var __decentSync = (() => {
     const body = { ...write.fields, extras: { [GLOBAL_ID_KEY]: write.globalId } };
     for (const field of route.deferred) delete body[field];
     const made = await request("POST", path, body);
-    const record = made.ok ? parsed3(made.text) : void 0;
+    const record = made.ok ? parsed4(made.text) : void 0;
     if (!isObject5(record) || typeof record.id !== "string") return refused(write, made.status, made.text);
     const later = Object.fromEntries(route.deferred.flatMap((field) => field in write.fields && write.fields[field] !== (record[field] ?? null) ? [[field, write.fields[field]]] : []));
     const writtenFields = Object.keys(write.fields);
     if (Object.keys(later).length === 0) return written(write, record, writtenFields);
     const again = await request("PUT", `${route.records}/${encodeURIComponent(record.id)}`, later).catch(() => void 0);
-    const updated = again?.ok ? parsed3(again.text) : void 0;
+    const updated = again?.ok ? parsed4(again.text) : void 0;
     return written(write, isObject5(updated) && typeof updated.id === "string" ? updated : record, writtenFields);
   }
   async function update(route, write, localId) {
     const path = `${route.records}/${encodeURIComponent(localId)}`;
     const current = await request("GET", path);
     if (!current.ok) return { answer: current, written: [] };
-    const parsedRecord = parsed3(current.text);
+    const parsedRecord = parsed4(current.text);
     const record = isObject5(parsedRecord) ? parsedRecord : {};
     const extras = isObject5(record.extras) ? record.extras : {};
     const fields = settable(write, (field) => record[field]);
     return { answer: await request("PUT", path, { ...fields, extras: { ...extras, [GLOBAL_ID_KEY]: write.globalId } }), written: Object.keys(fields) };
   }
   function answerTo(write, answer, writtenFields) {
-    const record = answer.ok ? parsed3(answer.text) : void 0;
+    const record = answer.ok ? parsed4(answer.text) : void 0;
     if (isObject5(record) && typeof record.id === "string") return written(write, record, writtenFields);
     return refused(write, answer.status, answer.text);
   }
@@ -2284,7 +2349,7 @@ var __decentSync = (() => {
   function refused(write, status, error) {
     return { type: "writeRefused", id: write.id, kind: write.kind, globalId: write.globalId, status, error: error.slice(0, MAX_REFUSAL_LENGTH) };
   }
-  function parsed3(text) {
+  function parsed4(text) {
     try {
       return JSON.parse(text);
     } catch {
@@ -2317,7 +2382,7 @@ var __decentSync = (() => {
   }
   async function readList({ path, key }) {
     const answer = await request("GET", path);
-    const value = answer.ok ? parsed3(answer.text) : void 0;
+    const value = answer.ok ? parsed4(answer.text) : void 0;
     if (value === void 0) return { refused: answer };
     if (value === null) return { records: [] };
     const records = dye2Records(value, key);
@@ -2735,11 +2800,11 @@ var __decentSync = (() => {
     return `${SEQUENCE_KEY}.${seq % MAX_KEPT}`;
   }
   function parseSequence(value) {
-    const parsed4 = parse(value);
-    const first = parsed4?.first;
-    const next = parsed4?.next;
+    const parsed5 = parse(value);
+    const first = parsed5?.first;
+    const next = parsed5?.next;
     if (!isCount(first) || !isCount(next) || first > next || next - first > MAX_KEPT) return { first: 0, next: 0 };
-    return { first, next, token: typeof parsed4?.token === "string" ? parsed4.token : "" };
+    return { first, next, token: typeof parsed5?.token === "string" ? parsed5.token : "" };
   }
   function tokenHash(token) {
     let hash = 2166136261;
@@ -2750,16 +2815,16 @@ var __decentSync = (() => {
     return hash.toString(16).padStart(8, "0");
   }
   function parseSlot(value, seq) {
-    const parsed4 = parse(value);
-    if (parsed4?.seq !== seq || parsed4.delivery === void 0) return void 0;
-    const decoded = decodeMachineEvent(JSON.stringify(parsed4.delivery));
+    const parsed5 = parse(value);
+    if (parsed5?.seq !== seq || parsed5.delivery === void 0) return void 0;
+    const decoded = decodeMachineEvent(JSON.stringify(parsed5.delivery));
     return decoded.ok ? decoded.message : void 0;
   }
   function parse(value) {
     if (typeof value !== "string") return void 0;
     try {
-      const parsed4 = JSON.parse(value);
-      return typeof parsed4 === "object" && parsed4 !== null && !Array.isArray(parsed4) ? parsed4 : void 0;
+      const parsed5 = JSON.parse(value);
+      return typeof parsed5 === "object" && parsed5 !== null && !Array.isArray(parsed5) ? parsed5 : void 0;
     } catch {
       return void 0;
     }

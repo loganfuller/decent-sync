@@ -187,7 +187,7 @@ Machine that takes their hardware over. Staff read them as Admins do.
   Everything else paired, such as the machine itself, is in `others`.
 
 The Machine page shows the paired devices, the app, machine and advanced
-settings, the steam, hot water and rinse settings of the current Workflow, and
+settings, the steam, hot water and flush settings of the current Workflow, and
 how many of each library collection its tablet reported, loaded every 30 s
 rather than every 5 s as the Machine's status is.
 

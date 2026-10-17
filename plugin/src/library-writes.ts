@@ -8,6 +8,8 @@ import {
   DYE2_SELECTION_FIELD,
   LOADED_RECIPE_KIND,
   LOADED_RECIPE_PARTS,
+  MACHINE_SETTING_PARTS,
+  RECIPE_SETTINGS,
   SHOTS_STILL_TO_READ,
   GLOBAL_ID_KEY,
   type ItemDeleted,
@@ -36,6 +38,7 @@ import {
   isSlotId,
   profileAtBrewTemperature,
   sameValue,
+  steamOff,
   workflowPatch,
   workflowValueAt,
 } from "@decent-sync/protocol";
@@ -45,6 +48,7 @@ import type { WorkflowChanges } from "./machine-events.js";
 import type { Outbox } from "./outbox.js";
 import { clearsSelection, stepsKey } from "./loaded-recipe-rules.js";
 import { type LoadedRecipeWrites, machineMissing } from "./loaded-recipes.js";
+import { keepStreamlineSteamTemperature } from "./streamline.js";
 import { randomUuid } from "./tablet-id.js";
 
 // The Library items the server shares, written to this tablet through
@@ -701,15 +705,20 @@ async function clearWorkflow(write: LibraryWrite): Promise<WriteAnswer> {
  * has the Recipe's slot selected, or answers 404
  * (`LoadedRecipeWrites.mayWrite`), and once made, one that changed the
  * profile, batch or grinder, which DYE2 clears its selection on, has the slot
- * selected again (ADR-0022). Decaid refuses to change the hot water settings
- * while no machine is connected, so the rest is then written without them,
- * the Workflow read again first, and a write of only them is refused.
- * Answers with the Workflow's `context`, `hotWaterData` and `profile`, timed
- * now, as a Workflow carries no time. A write unloading the Recipe, naming
+ * selected again (ADR-0022). A steam temperature is left out of a Workflow
+ * whose steam is off (`steamOff`), as it would turn steam on, and kept as
+ * the one Streamline turns steam back on at, written or not
+ * (`keepStreamlineSteamTemperature`, interim until
+ * decentespresso/streamline-js#156). Decaid refuses to change the steam, hot
+ * water and flush settings while no machine is connected, so the rest is
+ * then written without them, the Workflow read again first, and a write of
+ * only them is refused. Answers with the Workflow's `context`, steam, hot
+ * water and flush settings and `profile`, timed now, as a Workflow carries
+ * no time. A write unloading the Recipe, naming
  * DYE2_SELECTION_FIELD, has DYE2's selection of its slot cleared instead,
  * the Workflow left as it is: DYE2 writes its field.
  */
-async function writeLoadedRecipe(write: LibraryWrite, _log: (message: string) => void, posted: ListPosted): Promise<WriteAnswer> {
+async function writeLoadedRecipe(write: LibraryWrite, log: (message: string) => void, posted: ListPosted): Promise<WriteAnswer> {
   const globalId = write.globalId.toLowerCase();
   if (DYE2_SELECTION_FIELD in write.fields) {
     posted.loaded?.cleared(globalId);
@@ -719,13 +728,18 @@ async function writeLoadedRecipe(write: LibraryWrite, _log: (message: string) =>
     return written(write, loadedRecipeParts(workflow), [DYE2_SELECTION_FIELD], new Date().toISOString());
   }
   if (posted.loaded && !(await posted.loaded.mayWrite(globalId))) return refused(write, null, ANOTHER_SELECTED);
-  let hotWater = true;
+  let machineSettings = true;
   for (;;) {
     const current = await request("GET", "/workflow");
     const workflow = current.ok ? parsed(current.text) : undefined;
     if (!isObject(workflow)) return refused(write, current.status, current.text);
-    const fields = loadedRecipeFields(write, workflow, hotWater);
-    if (Object.keys(fields).length === 0) return written(write, loadedRecipeParts(workflow), [], new Date().toISOString());
+    const fields = loadedRecipeFields(write, workflow, machineSettings);
+    // The steam temperature carried, set in the Workflow or left out of one whose steam is off, is Streamline's to turn steam back on at.
+    const steam = STEAM_TEMPERATURE in fields || (STEAM_TEMPERATURE in write.fields && steamOff(workflow)) ? write.fields[STEAM_TEMPERATURE] : undefined;
+    if (Object.keys(fields).length === 0) {
+      await keepStreamlineSteamTemperature(steam, log);
+      return written(write, loadedRecipeParts(workflow), [], new Date().toISOString());
+    }
     const patch = loadedRecipePatch(fields, workflow);
     const clears = clearsSelection(workflow, patch);
     if (clears) posted.loaded?.selectionClearing(globalId);
@@ -742,13 +756,22 @@ async function writeLoadedRecipe(write: LibraryWrite, _log: (message: string) =>
     if (clears && !isObject(updated)) posted.loaded?.selectionKept(globalId);
     if (isObject(updated)) {
       posted.loaded?.written(globalId, workflow, updated, clears);
+      await keepStreamlineSteamTemperature(steam, log);
       return written(write, loadedRecipeParts(updated), Object.keys(fields), new Date().toISOString());
     }
-    const ofHotWater = Object.keys(fields).filter((field) => field.startsWith("hotWaterData."));
-    // Hot water alone, which Decaid refuses while no machine is connected, is refused, so the plugin writes it once the machine is back.
-    if (ofHotWater.length === 0 || ofHotWater.length === Object.keys(fields).length || !machineMissing(answer)) return refused(write, answer.status, answer.text);
-    hotWater = false;
+    const ofMachine = Object.keys(fields).filter(isMachineSetting);
+    // Those alone, which Decaid refuses while no machine is connected, are refused, so the plugin writes them once the machine is back.
+    if (ofMachine.length === 0 || ofMachine.length === Object.keys(fields).length || !machineMissing(answer)) return refused(write, answer.status, answer.text);
+    machineSettings = false;
   }
+}
+
+/** The Workflow field holding its steam temperature. */
+const STEAM_TEMPERATURE = RECIPE_SETTINGS.steamTemperature.workflow;
+
+/** Whether a Workflow field is one of the steam, hot water and flush settings Decaid writes to the machine (MACHINE_SETTING_PARTS). */
+function isMachineSetting(field: string): boolean {
+  return MACHINE_SETTING_PARTS.some((part) => field.startsWith(`${part}.`));
 }
 
 /** Why the plugin refuses a write of the server's into the Workflow for its Loaded Recipe while DYE2 has another selected. */
@@ -773,14 +796,16 @@ function loadedRecipePatch(fields: Readonly<Record<string, unknown>>, workflow: 
  * The fields of a write of LOADED_RECIPE_KIND to set in the Workflow: each
  * part of LOADED_RECIPE_PARTS the write names, all its fields together,
  * while the Workflow holds the value expected of its first field, or none,
- * or the write expects none, as of a Profile, and its hot water settings
- * only where `hotWater` says.
+ * or the write expects none, as of a Profile; its steam, hot water and
+ * flush settings only where `machineSettings` says; and a steam temperature
+ * only where the Workflow's steam is on (`steamOff`).
  */
-function loadedRecipeFields(write: LibraryWrite, workflow: Record<string, unknown>, hotWater: boolean): Record<string, unknown> {
+function loadedRecipeFields(write: LibraryWrite, workflow: Record<string, unknown>, machineSettings: boolean): Record<string, unknown> {
   return Object.fromEntries(
     Object.values(LOADED_RECIPE_PARTS).flatMap((part: readonly string[]) => {
       const [first] = part as [string];
-      if (!(first in write.fields) || (!hotWater && first.startsWith("hotWaterData."))) return [];
+      if (!(first in write.fields) || (!machineSettings && isMachineSetting(first))) return [];
+      if (first === STEAM_TEMPERATURE && steamOff(workflow)) return [];
       const held = workflowValueAt(workflow, first);
       const expected = write.expected?.[first];
       // One holding the value written already is written too, so its answer has the server hold it: as where DYE2 recorded
@@ -791,11 +816,11 @@ function loadedRecipeFields(write: LibraryWrite, workflow: Record<string, unknow
   );
 }
 
-/** A Workflow's `context`, `hotWaterData` and `profile`, as Decaid holds them, which hold the parts that follow its Loaded Recipe. */
+/** A Workflow's `context`, steam, hot water and flush settings and `profile`, as Decaid holds them, which hold the parts that follow its Loaded Recipe. */
 function loadedRecipeParts(workflow: Record<string, unknown>): Record<string, unknown> {
   return {
     context: isObject(workflow.context) ? workflow.context : {},
-    hotWaterData: isObject(workflow.hotWaterData) ? workflow.hotWaterData : {},
+    ...Object.fromEntries(MACHINE_SETTING_PARTS.map((part) => [part, isObject(workflow[part]) ? workflow[part] : {}])),
     ...(isObject(workflow.profile) ? { profile: workflow.profile } : {}),
   };
 }

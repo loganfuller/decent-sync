@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, RECIPE_FIELD, globalIdOf } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { DYE2_NAMESPACE, dye2List } from "./support/simulated-dye2.js";
@@ -121,11 +121,13 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
       basketId: basket.id,
       toolIds: [tool.id],
       toolAttributes: { [tool.id]: [{ key: "Needles", value: "10" }] },
-      hotWaterMode: "temp",
+      steamTemperature: 150,
+      steamStopTemperature: 0,
       hotWaterVolume: 120,
       hotWaterTemperature: 85,
       hotWaterDuration: 30,
       hotWaterFlow: 6,
+      flushDuration: 4,
     });
     await expect.poll(() => slotOn(lab.tablets[0]!, 2)?.[GLOBAL_ID_KEY]).toBe(original.id);
     const originalHistory = await versions(original.id);
@@ -167,13 +169,18 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
           drink: 40,
           grind: 2.5,
           rpm: 1000,
-          hotWaterMode: "temp",
+          steamTempC: 150,
+          steamStopAtTempC: 0,
+          hotWaterTempC: 85,
+          hotWaterTimeS: 30,
+          hotWaterMl: 120,
+          hotWaterFlowMls: 6,
+          flushS: 4,
           grinderId: localId(tablet.grinders(), cafeGrinder.id),
           basketId: localId(dye2List(tablet, "baskets") as Record_[], basket.id),
           equipmentIds: [toolId],
           equipmentCustom: { [toolId]: [{ key: "Needles", value: "10" }] },
         },
-        [RECIPE_FIELD]: { hotWaterData: { targetTemperature: 85, duration: 30, volume: 120, flow: 6 } },
       });
       expect(localId(tablet.grinders(), labGrinder.id)).toBeUndefined();
     }

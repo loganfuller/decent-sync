@@ -11,7 +11,8 @@ import { field, rows } from "./support/locators.js";
 // Recipe form, moved between slots, taken out of its slot, Archived and
 // restored; what the form offers at the Location; a Recipe whose batch is
 // finished there flagged; its Conflicts; and what Staff may change; and a
-// Recipe copied to another Location (ticket #144). Simulated tablets running
+// Recipe copied to another Location (ticket #144); its steam, hot water and
+// flush settings, each held or the Machine's own (ticket #173). Simulated tablets running
 // the built plugin save Profiles, which have no REST create, and make
 // Conflicts; what each Location's tablets are written is
 // server/test/library-recipe-management.test.ts's and
@@ -74,6 +75,8 @@ test("Staff create a Recipe in slot 6 at their Location with a batch from elsewh
     const details = samsPage.getByLabel("Recipe", { exact: true });
     await expect(field(details, "Profile")).toHaveText("Uptown Bloom");
     await expect(field(details, "Bean Batch")).toHaveText("Guji, roasted 2026-10-01");
+    // A new Recipe holds no steam, hot water or flush setting.
+    await expect(field(samsPage.getByLabel("Flush", { exact: true }), "Flush time")).toHaveText("Machine's own");
 
     await samsPage.getByRole("button", { name: "Edit the Recipe" }).click();
     const edit = samsPage.getByRole("form", { name: "Edit Lab Guji" });
@@ -259,6 +262,49 @@ test("the form clears a Recipe's Bean saved on a tablet with no batch of it at i
   await expect.poll(() => slotOn(tablet, 1)?.beanId ?? null).toBeNull();
 });
 
+test("a Recipe's page shows its steam, hot water and flush settings, each it holds none of as the Machine's own, and the form sets and clears them", async ({ page }) => {
+  const lab = await createLocation(page, "Settings lab");
+  const recipe = await createRecipe(page, lab, 1, { name: "Settings Cappuccino", steamTemperature: 150, steamStopTemperature: 0, hotWaterVolume: 200 });
+
+  await page.goto(`/library/recipes/${recipe.id}`);
+  const steam = page.getByLabel("Steam", { exact: true });
+  const hotWater = page.getByLabel("Hot water", { exact: true });
+  const flush = page.getByLabel("Flush", { exact: true });
+  const shown = async (scope: typeof steam, expected: Record<string, string>) => {
+    for (const [term, text] of Object.entries(expected)) await expect(field(scope, term), term).toHaveText(text);
+  };
+  await shown(steam, { "Steam temperature": "150 °C", "Steam time": "Machine's own", "Steam flow": "Machine's own", "Milk stop": "Off" });
+  await shown(hotWater, { "Hot water temperature": "Machine's own", "Hot water time": "Machine's own", "Hot water volume": "200 ml", "Hot water flow": "Machine's own" });
+  await shown(flush, { "Flush temperature": "Machine's own", "Flush time": "Machine's own", "Flush flow": "Machine's own" });
+  // DYE2's hot water mode is only what its stepper shows: not shown or edited here.
+  await expect(page.getByLabel("Recipe", { exact: true }).locator("dt", { hasText: /^Hot water by$/ })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Edit the Recipe" }).click();
+  const form = page.getByRole("form", { name: "Edit Settings Cappuccino" });
+  await expect(form.getByLabel("Hot water by")).toHaveCount(0);
+  await expect(form.getByLabel("Steam temperature (°C)")).toHaveValue("150");
+  await expect(form.getByLabel("Flush time (s)")).toHaveAttribute("placeholder", "Machine's own");
+  // An empty input clears a setting; one outside DYE2's range is refused by the server, saying why, and nothing is saved.
+  await form.getByLabel("Steam temperature (°C)").fill("");
+  await form.getByLabel("Steam time (s)").fill("0");
+  await form.getByLabel("Hot water time (s)").fill("3");
+  await form.getByLabel("Flush time (s)").fill("10");
+  await form.getByLabel("Flush flow (ml/s)").fill("4.5");
+  await form.getByRole("button", { name: "Save" }).click();
+  // Shown above the form, scrolled into view.
+  await expect(form.getByText("hotWaterDuration must be a whole number from 5 to 120")).toBeInViewport();
+  await form.getByLabel("Hot water time (s)").fill("30");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(form).toBeHidden();
+
+  await shown(steam, { "Steam temperature": "Machine's own", "Steam time": "0 s", "Milk stop": "Off" });
+  await shown(hotWater, { "Hot water time": "30 s", "Hot water volume": "200 ml" });
+  await shown(flush, { "Flush temperature": "Machine's own", "Flush time": "10 s", "Flush flow": "4.5 ml/s" });
+  const { recipe: saved } = (await (await page.request.get(`/api/recipes/${recipe.id}`)).json()) as { recipe: { content: Record_ } };
+  baseExpect(saved.content).not.toHaveProperty("steamTemperature");
+  baseExpect(saved.content).toMatchObject({ steamDuration: 0, steamStopTemperature: 0, hotWaterDuration: 30, flushDuration: 10, flushFlow: 4.5, hotWaterMode: "vol" });
+});
+
 test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: the Recipe there leaves its slot, and the copy's history names the original", async ({
   page,
 }) => {
@@ -285,7 +331,6 @@ test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: th
     grinderId: labGrinder.id,
     grindSetting: 2.5,
     basketId: basket.id,
-    hotWaterMode: "temp",
     hotWaterTemperature: 85,
   });
   await createRecipe(page, uptown, 1, { name: "Copy Uptown House" });

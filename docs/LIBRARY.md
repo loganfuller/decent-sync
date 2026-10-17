@@ -23,7 +23,10 @@ shared each Location's steam, hot water and rinse settings between its
 Machines, ticket [#137](https://github.com/loganfuller/decent-sync/issues/137)
 took hot water out of them, and ticket
 [#190](https://github.com/loganfuller/decent-sync/issues/190) the rest, each
-Machine's own (Steam and rinse settings, below). Ticket
+Machine's own, until ticket
+[#173](https://github.com/loganfuller/decent-sync/issues/173) had a Recipe
+hold every steam, hot water and flush setting, as DYE2's recipe does (Steam,
+hot water and flush settings, below). Ticket
 [#87](https://github.com/loganfuller/decent-sync/issues/87) creates and edits
 Beans, Bean Batches and Grinders in the management interface, Archives and
 restores them, adds and finishes batches at Locations there, and lets an
@@ -46,8 +49,8 @@ tablet's map, so Shots are filtered by them and each item's page lists its
 Shots (`SHOTS.md`, Links to the Library). Ticket
 [#130](https://github.com/loganfuller/decent-sync/issues/130) had the plugin
 set the values Streamline remembers of the settings it writes, until
-Streamline itself took a change made elsewhere (Steam and rinse settings,
-below). Ticket
+Streamline itself took a change made elsewhere (Steam, hot water and flush
+settings, below). Ticket
 [#135](https://github.com/loganfuller/decent-sync/issues/135) describes each
 kind of Library item once on each side, so milestone 3's kinds are each
 added in one place (Adding a Library kind, below). Ticket
@@ -522,16 +525,27 @@ tablets, below).
   Tool holds no attributes unless given some, as DYE2's page saves one. Hard
   deletes come with the Shots that name them.
 - **Recipes.** A Recipe is created at a Location, which never changes, with
-  every field DYE2's recipe editor saves but steam, flush, the barista and
-  the drinker (`RECIPE_FIELDS` in `kinds.ts`): its name, beverage, Bean
-  Batch, Profile, dose, yield, Grinder, grind setting, RPM, brew
-  temperature, Basket, Tools with each Tool's attributes for it
+  every field DYE2's recipe editor saves but the barista, the drinker and
+  its steam and hot water modes (`RECIPE_FIELDS` in `kinds.ts`): its name,
+  beverage, Bean Batch, Profile, dose, yield, Grinder, grind setting, RPM,
+  brew temperature, Basket, Tools with each Tool's attributes for it
   (`toolAttributes`, by the Tool's global id, as DYE2's `equipmentCustom`
-  holds them by its own), hot water mode, volume, temperature, duration and
-  flow, and whether it shows on the dashboard. Its steam mode stays as a
-  tablet saved it, a new one's by flow, as DYE2's editor makes one. A new one
-  shows on the dashboard and takes hot water by volume unless given
-  otherwise. What it newly uses is checked against its Location as it is
+  holds them by its own), its eleven steam, hot water and flush settings
+  (Steam, hot water and flush settings, below), and whether it shows on the
+  dashboard. Its page shows each setting, one it holds none of as "Machine's
+  own", and its editor sets or clears any of them. Each is checked against
+  the range DYE2's editor offers, a whole number where Decaid's field is an
+  int (`NumberRange` in `item-input.ts`), and refused with 400 otherwise:
+  a steam temperature from 135 to 170 °C, with no "Off"; a milk stop of 0
+  (off) or from 30 to 80 °C; a hot water time from 5 to 120 s; a hot water
+  flow from 0.5 to 8 ml/s; a flush temperature from 5 to 95 °C; a flush flow
+  from 1 to 8 ml/s; and a steam time, steam flow, hot water volume, hot
+  water temperature or flush time of 0 or more. Its steam and hot water
+  modes, only which value DYE2's stepper shows, stay as a tablet saved them,
+  a new one's by flow and by volume, as DYE2's editor makes one, and are
+  not set here (400). A new one shows on the dashboard unless given
+  otherwise, and holds no steam, hot water or flush setting, so a Machine
+  loading it keeps its own. What it newly uses is checked against its Location as it is
   set, under each item's row lock, but not what it uses already, so a Tool
   Archived since stays beside a new one: its Grinder is one of the
   Location's, not Archived, and a Bean Batch, of a Bean not Archived,
@@ -574,9 +588,8 @@ tablets, below).
   with no batch takes that Bean's batch most recently added there, or none,
   keeping the Bean, offered there, as a Bean set alone does. An item a hard
   delete left the Recipe naming is left out of the copy (`withoutDeleted`),
-  as tablets are written none. Its hot water is the Recipe's;
-  its steam and flush, which no Recipe carries, are each Machine's own (Steam
-  and rinse settings, below). It goes in the slot chosen, the Recipe there
+  as tablets are written none. Its steam, hot water and flush settings are
+  the Recipe's. It goes in the slot chosen, the Recipe there
   taken out of it and kept there, or the lowest free one, or none, under
   that Location's lock, as a new Recipe does. Its history starts with the copy: its first
   version names the Recipe it was copied from and that Recipe's Location
@@ -1074,10 +1087,13 @@ never matched (ADR-0018).
   `beverage`, `beanId`, `beanBatchId`, `profileId` (Decaid's id),
   `grinderId`, `basketId`, `toolIds` and `toolAttributes` (DYE2's
   `equipmentCustom`, by each Tool's global id), `dose`, `yield`, `ratio`,
-  `grindSetting`, `rpm`, `brewTemperature`, `showOnDashboard`, the four hot
-  water settings `hotWaterVolume`, `hotWaterTemperature`, `hotWaterDuration`
-  and `hotWaterFlow`, and DYE2's `steamMode` and `hotWaterMode`, a field it
-  holds no value for left out. A record names what it uses by the tablet's
+  `grindSetting`, `rpm`, `brewTemperature`, `showOnDashboard`, the eleven
+  steam, hot water and flush settings (`steamTemperature`, `steamDuration`,
+  `steamFlow`, `steamStopTemperature`, `hotWaterTemperature`,
+  `hotWaterDuration`, `hotWaterVolume`, `hotWaterFlow`, `flushTemperature`,
+  `flushDuration` and `flushFlow`; Steam, hot water and flush settings,
+  below), and DYE2's `steamMode` and `hotWaterMode`, a field it holds no
+  value for left out. A record names what it uses by the tablet's
   own ids, read through the tablet's map: one the map does not hold, as one
   of the tablet's own, names nothing. A record is compared and written by
   its fields' paths (`recipeView`), a field of its `dashboardVariables` as
@@ -1092,17 +1108,19 @@ never matched (ADR-0018).
   Shot's Profile is (`profileOfSql` in `shots/links.ts`); a snapshot that is
   none of the Library's changes none, and is written over with the Recipe's. A barista or
   drinker typed into a recipe is not shared: it is no field of a Recipe, and
-  is written back blank. Its steam and flush values are no field of a
-  Recipe either (below).
-- **Steam and flush.** DYE2 keeps a recipe's steam time (`steamTimeS`) or
-  flow (`steamFlowMls`), by its steam mode, and its flush time (`flushS`),
-  which DYE2's dashboard and Streamline's DYE strip merge into the Workflow
-  as they apply it. They are no field of a Recipe, as a Machine's steam and
-  rinse settings are its own (Steam and rinse settings, below): a change of
-  one is no edit, and the server never writes one, so each tablet's record
-  keeps those it holds, and applying it sets them on that Machine alone. The
-  Recipe's steam mode (`steamMode`) is a field of its content, taken in as
-  any is.
+  is written back blank.
+- **Steam, hot water and flush.** Each setting is taken in from DYE2's
+  field of it in `dashboardVariables`, as `steamTempC`, one the record holds
+  none of holding none (`RECIPE_SETTINGS` in `protocol/`). A steam
+  temperature below 135 °C (`STEAM_ON_FROM`), as DYE2's editor saves "Off"
+  as 0 and DYE2 records a Machine's steam turned off, is no edit, and the
+  Recipe's is written back over it (`steamOffPaths`): steam on and off is
+  each Machine's own (`WORKFLOW-AND-STATE.md`, The Loaded Recipe). The steam
+  and hot water modes (`steamMode`, `hotWaterMode`) are DYE2's display
+  choice, which value its stepper shows: fields of the content, taken in as
+  any is and written to every tablet, but applied to nothing, as a DE1
+  always uses both a steam time and a steam flow, and all four hot water
+  values.
 - **Its Bean Batch** is DYE2's `beanBatchId`, beside the Bean
   (decentespresso/dye2#27). A batch picked with its Bean in DYE2's editor is
   the Recipe's. A Bean picked with no batch, or with one of another Bean,
@@ -1115,9 +1133,6 @@ never matched (ADR-0018).
   Recipe stays loaded without it (`WORKFLOW-AND-STATE.md`).
 - **A saved 0 is a value**, as a milk stop of 0 is off. DYE2 saves a blank
   field as `null` (decentespresso/dye2#29), which holds none.
-- **Hot water.** A record holds the volume by `hotWaterMl` and the
-  temperature by `hotWaterTempC`, which DYE2's editor shows by the
-  Recipe's mode. A save that leaves one out changes none of them.
 - **Its Grinder** is one of its Location's: a record naming another, or one
   Archived, changes none. **Its Tools** the tablet holds no record of, which
   were never written to it, stay the Recipe's whatever the tablet's record
@@ -1181,22 +1196,25 @@ written (`recipeRecord` in `recipe-intake.ts`) holds:
 - the Recipe's content, naming its Bean, Bean Batch, Grinder, Basket and
   Tools by the tablet's own ids, each left out where the tablet holds no
   record of it, and its Profile by Decaid's id;
-- all four hot water settings in the record's own field
-  (`decentSyncRecipe`, RECIPE_FIELD in `protocol/`), and its volume and
-  temperature in `dashboardVariables`, both whatever its mode, as DYE2
-  holds each once it moves in the Workflow, so no write takes out one DYE2
-  records back; a mode of volume where it names none, as the management
-  interface shows it;
+- each steam, hot water and flush setting it holds in DYE2's field of it in
+  `dashboardVariables`, blank where it holds none, so applying the record
+  leaves the Machine's own, and its steam and hot water modes, a hot water
+  mode of volume where it names none, as the management interface shows
+  it;
 - the names DYE2 copies, the Bean's roaster among them, and `title`,
   `subtitle` and the embedded `workflow`, built as DYE2's
   `buildRecipeWorkflow` builds them, with the Bean's name, roaster and batch
-  together, null where it holds none, the full Profile and the tablet's
-  grinder id, so DYE2 and Streamline apply it the same way, and the steam,
-  hot water and flush settings and field flags (`extras.dye`) DYE2 copies
-  into the tablet's record of it there, which the server does not derive
-  and Streamline does not apply from it (`withHeldWorkflowSettings`); no
-  Recipe id, as DYE2's selection names the Recipe in the Workflow once a
-  recipe is applied and selected (ADR-0022, decentespresso/dye2#20);
+  together, null where it holds none, the full Profile, the tablet's
+  grinder id, and each steam, hot water and flush setting it holds in
+  partial `steamSettings`, `hotWaterData` and `rinseData`, none where it
+  holds none of them, so DYE2 and Streamline apply it the same way, once
+  Streamline's strip applies those settings
+  (decentespresso/streamline-js#154), and so the settings DYE2 copies there
+  as it records are the ones the server writes; with the field flags
+  (`extras.dye`) DYE2's editor saves into the tablet's record of it there,
+  which the server does not derive (`withHeldFieldFlags`); no Recipe id,
+  as DYE2's selection names the Recipe in the Workflow once a recipe is
+  applied and selected (ADR-0022, decentespresso/dye2#20);
 - the full Profile in `profileSnapshot`, as the Library holds it, so it
   applies where the Profile is hidden, or the tablet lacks it, and in the
   embedded `workflow` at the Recipe's brew temperature, its first step at it
@@ -1212,8 +1230,7 @@ written (`recipeRecord` in `recipe-intake.ts`) holds:
 
 A record is written where any of that differs from what it holds, as when an
 item it names is created on the tablet, renamed, or its Profile edited, or
-a save left its embedded Workflow behind its dial. No steam or flush value
-is written: the record keeps those the tablet's record holds.
+a save left its embedded Workflow behind its dial.
 
 So a recipe saved in DYE2 in a slot on one tablet is written to that slot on
 every tablet at its Location, and to no other Location's; an edit on any
@@ -1221,14 +1238,14 @@ tablet, in DYE2's editor or recorded by DYE2, reaches every
 tablet there; and a recipe gone from a tablet's list empties its slot on the
 others. DYE2 records into the recipe it has selected the
 change a barista made in the Workflow of a Machine with it loaded, its dose,
-yield, grind setting, RPM, Basket, brew temperature and hot water volume and
-temperature, each where the record holds one, as the Machine's edit of its
-Loaded Recipe; the Workflow's change of those is no edit, but what DYE2
-records stale is written back (`recordedByDye2`, `WORKFLOW-AND-STATE.md`,
-Following the Recipe). A field of a record that sets the Recipe's value its
-tablet's own latest edit set already is no edit (`withoutOwnEdits`), so a
-change the Workflow brought that DYE2 records too, as a hot water duration,
-is one edit. Recipes are read through the REST API (below), and managed in the
+yield, grind setting, RPM, Basket, brew temperature and steam, hot water and
+flush settings, each where the record holds one, and a steam, hot water or
+flush setting it holds none of once it moves, as the Machine's edit of its
+Loaded Recipe; the Workflow's own change is no edit, but what DYE2 records
+stale, or as steam turned off, is written back (`recordedByDye2`,
+`WORKFLOW-AND-STATE.md`, Following the Recipe). A field of a record that
+sets the Recipe's value its tablet's own latest edit set already is no edit
+(`withoutOwnEdits`), so the same edit reaching the server twice is one. Recipes are read through the REST API (below), and managed in the
 management interface (Editing in the management interface, above).
 
 ## Writing to tablets
@@ -1566,9 +1583,11 @@ The plugin's next report then holds the record as written, which changes
 nothing (ADR-0003). If the connection drops before the answer arrives, the
 tablet's next report shows the record carrying its global id, which maps it.
 
-Decaid refuses (500, `DeviceNotConnectedException`) to change hot water
-settings while no machine is connected to the tablet, as the change goes to
-the machine, so a Loaded Recipe's write of hot water alone is refused then,
+Decaid refuses (500, `DeviceNotConnectedException`) to change the steam,
+hot water and flush settings while no machine is connected to the tablet,
+as the change goes to the machine (`MACHINE_SETTING_PARTS` in `protocol/`),
+so a load and a Loaded Recipe's write are then written without them, and a
+Loaded Recipe's write of only them is refused,
 and skipped until what is due changes or the tablet reconnects, as any
 refused write is (`WORKFLOW-AND-STATE.md`, Following the Recipe). A tablet
 often connects before its machine, and its plugin reconnects once the
@@ -1627,42 +1646,74 @@ mismatched connection's that reported its hardware:
 Everything is in PostgreSQL, so every instance reads the same, whichever
 holds the tablet's connection.
 
-## Steam and rinse settings
+## Steam, hot water and flush settings
 
-A Machine's steam and rinse settings are its own, as the rest of its
-Workflow is, and nothing syncs them until
-[#173](https://github.com/loganfuller/decent-sync/issues/173) makes them the
-Recipe's. Ticket #86 shared them between a Location's Machines, and ticket
-#190 took them out again (ADR-0014, superseded): a change of them on a
-tablet, by a barista, by a skin or by a recipe applied, is stored with the
-Workflow as any change is (`WORKFLOW-AND-STATE.md`), but is no edit and
-reaches no other Machine; nothing the server writes changes them; and a
-Machine joining a Location keeps its own. Ticket #190's migration
+A Recipe holds any of eleven steam, hot water and flush settings, as DYE2's
+recipe does (decentespresso/dye2#23), and a Machine follows those it holds
+while the Recipe is loaded (`WORKFLOW-AND-STATE.md`, The Loaded Recipe;
+ADR-0022). Each is optional: one the Recipe holds none of is the Machine's
+own, which a load leaves alone. 0 is a value, and a milk stop of 0 is off.
+Each has a field of the Recipe's content, DYE2's field of it in a record's
+`dashboardVariables`, and the Workflow field holding it (`RECIPE_SETTINGS` in
+`protocol/`):
+
+| Setting | Content field | DYE2 field | Workflow field |
+|---|---|---|---|
+| steam temperature | `steamTemperature` | `steamTempC` | `steamSettings.targetTemperature` |
+| steam time | `steamDuration` | `steamTimeS` | `steamSettings.duration` |
+| steam flow | `steamFlow` | `steamFlowMls` | `steamSettings.flow` |
+| milk stop | `steamStopTemperature` | `steamStopAtTempC` | `steamSettings.stopAtTemperature` |
+| hot water temperature | `hotWaterTemperature` | `hotWaterTempC` | `hotWaterData.targetTemperature` |
+| hot water time | `hotWaterDuration` | `hotWaterTimeS` | `hotWaterData.duration` |
+| hot water volume | `hotWaterVolume` | `hotWaterMl` | `hotWaterData.volume` |
+| hot water flow | `hotWaterFlow` | `hotWaterFlowMls` | `hotWaterData.flow` |
+| flush temperature | `flushTemperature` | `flushTempC` | `rinseData.targetTemperature` |
+| flush time | `flushDuration` | `flushS` | `rinseData.duration` |
+| flush flow | `flushFlow` | `flushFlowMls` | `rinseData.flow` |
+
+Decaid calls the flush settings `rinseData`; Decent Sync calls them flush
+everywhere else. Ticket #86 shared steam, hot water and rinse settings
+between a Location's Machines, ticket #137 had hot water follow the Loaded
+Recipe instead, and ticket #190 took the rest out (ADR-0014, superseded),
+each Machine's own until #173. Ticket #190's migration
 (`server/prisma/migrations/20261022000000_location_settings_removed`)
 dropped each Location's settings, each tablet's as it last had them and
 each Machine's sharing of them, and deleted their versions and Conflicts,
 keeping nothing (ADR-0016).
 
-DYE2's recipes still hold a steam time or flow and a flush time, which
-applying one merges into the Workflow. The server neither takes them in nor
-writes them, so each tablet's records keep their own, and applying one sets
-them on that Machine alone (Taking in a tablet's recipes, above). A Recipe's
-steam mode is still its own field, so a switch of it on one tablet reaches
-the others, whose records may then hold no value of the new mode until
-#173 writes the Recipe's.
+The settings are written into, and taken in from, DYE2's fields of a
+recipe record, and each held one into the record's embedded Workflow
+(Taking in a tablet's recipes, above). A change of one that DYE2 records
+into the selected recipe is an edit of the Loaded Recipe, under its
+stale-value rules, and reaches every Machine with it loaded through the
+Loaded Recipe write. A change with no Recipe loaded is stored with the
+Workflow as any change is, but is no edit and reaches no other Machine, and
+a Machine joining a Location keeps its own until it loads a Recipe.
+
+Steam on and off stays each Machine's own: a Workflow's steam temperature
+below 135 °C (`STEAM_ON_FROM`) is its steam turned off, as Decaid judges it,
+which never changes a Recipe, and the plugin writes no steam temperature
+into a Workflow whose steam is off (ADR-0022, Steam on and off). So a steam
+edit made on one Machine reaches another whose steam is off without turning
+it on.
 
 Streamline, a skin, remembers what the barista last set for some of the
-steam, hot water and rinse settings in Decaid's store, under
+steam, hot water and flush settings in Decaid's store, under
 `streamline-app`. The builds Decent Sync supports adopt a value the
 Workflow holds that differs from the one remembered, rather than pushing
 theirs back (ADR-0021, ADR-0017; the evidence is in `AI_RUNTIME_NOTES.md`,
-Skins). The plugin sets nothing of Streamline's:
-`keepStreamlineSteamTemperature` (`plugin/src/streamline.ts`), which set the
-steam temperature Streamline remembers to match a Location's, is kept
-unused until #173 calls it on each load and Loaded Recipe edit (ADR-0021).
+Skins), but turn steam back on at the steam temperature they remember
+(`last-steam-temp`). So with each load and each Loaded Recipe write
+carrying a steam temperature of 135 °C or more, written into the Workflow
+or left out of one whose steam is off, the plugin sets `last-steam-temp` to
+it, where that key holds a number (`keepStreamlineSteamTemperature` in
+`plugin/src/streamline.ts`), until Streamline turns steam back on at the
+selected recipe's (decentespresso/streamline-js#156, ADR-0021).
 
-`server/test/machine-steam-settings.test.ts` covers this through Seam 1,
-with the built plugin running the simulated DYE2, and
+`server/test/recipe-settings.test.ts` covers this through Seam 1, with the
+built plugin running the simulated DYE2, whose tablet writes a Workflow's
+flush settings to `/machine/settings` as Decaid writes them to the machine,
+where DYE2 reads its flush temperature and flow; and
 `server/test/joining.test.ts` a joining Machine keeping its own.
 
 ## Joining a Location
@@ -1705,8 +1756,8 @@ it.
   or recipe, removed from DYE2's list: so the slots the Location leaves
   empty are emptied, and another Location's Recipes leave its list (Taking
   in a tablet's recipes, above). Its
-  Workflow's steam, hot water and rinse settings stay its own (Steam and
-  rinse settings, above).
+  Workflow's steam, hot water and flush settings stay its own until it
+  loads a Recipe (Steam, hot water and flush settings, above).
 - **Its Workflow's grinder, batch and Basket.** The Workflow taken in as
   the tablet joins is judged against the tablet's map, which still holds
   what the tablet held before (`takeInWorkflowContext`, which `takeInWorkflow`
@@ -1722,8 +1773,8 @@ it.
   them (v0.9.0 added the burrs), and `extras.basketId` and
   `extras.basketName`, as Streamline's `clearDyeWorkflowContext` clears
   them (`WORKFLOW_GRINDER`, `WORKFLOW_BATCH`, `WORKFLOW_BASKET` in
-  `protocol/`); the profile, dose, yield, grinder setting, RPM and hot water
-  stay. A grinder, batch or Basket the map does not hold, one of the
+  `protocol/`); the profile, dose, yield, grinder setting, RPM and steam,
+  hot water and flush settings stay. A grinder, batch or Basket the map does not hold, one of the
   tablet's own, is cleared if the Library leaves it out, or will, as the
   Location offers Grinders, or batches or Beans, or shows Baskets, already
   (What it holds of its own, below); otherwise it joins the Library at the
@@ -1966,8 +2017,9 @@ Every endpoint requires the account session; Staff read them as Admins do.
   as for a new one, moves it, the Recipe in that slot taking its old one, or
   takes it out of its slot (null). `PUT /api/recipes/:id/archived`, with `{
   archived }`, Archives it, out of its slot, or restores it, in none. Each
-  returns `{ recipe }`. 400 for a field that is not one a Recipe takes, a
-  value DYE2 would not save, an item the Library does not have, or
+  returns `{ recipe }`. 400 for a field that is not one a Recipe takes, as
+  its steam and hot water modes, a value DYE2 would not save, as a steam,
+  hot water or flush setting out of its editor's range, an item the Library does not have, or
   `toolAttributes` naming a Tool the Recipe does not use; 409 for another
   Location's Grinder, an Archived item, putting an Archived Recipe in a
   slot, or a Recipe whose Location no longer exists; 404 for no such Recipe

@@ -57,10 +57,17 @@ const FIELD_LABELS: Readonly<Record<string, string>> = {
   showOnDashboard: "Shown on the dashboard",
   hotWaterMode: "Hot water by",
   steamMode: "Steam by",
-  hotWaterVolume: "Hot water volume (ml)",
+  steamTemperature: "Steam temperature (°C)",
+  steamDuration: "Steam time (s)",
+  steamFlow: "Steam flow (ml/s)",
+  steamStopTemperature: "Milk stop (°C)",
   hotWaterTemperature: "Hot water temperature (°C)",
-  hotWaterDuration: "Hot water duration (s)",
+  hotWaterDuration: "Hot water time (s)",
+  hotWaterVolume: "Hot water volume (ml)",
   hotWaterFlow: "Hot water flow (ml/s)",
+  flushTemperature: "Flush temperature (°C)",
+  flushDuration: "Flush time (s)",
+  flushFlow: "Flush flow (ml/s)",
 };
 
 /** A field's name as people read it: a Location's state of the item names the Location, and a field of its content is spelled out, as `roastDate` is "Roast date". */

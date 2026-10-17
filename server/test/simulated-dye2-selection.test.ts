@@ -34,7 +34,8 @@ afterAll(() => Promise.all(tablets.map((tablet) => tablet.unload())));
 
 /** A tablet loaded as the recording's was when its selection's steps began, and the context of each Workflow change on it, in order. */
 function load(dye2: SimulatedDye2): { tablet: SimulatedTablet; events: unknown[] } {
-  const tablet = SimulatedTablet.load({ settings: {}, api: recordedDye2MainTablet("10001"), dye2, timeScale: TIME_SCALE });
+  // Recorded on Decaid's simulated machine, which keeps no flush settings written to it.
+  const tablet = SimulatedTablet.load({ settings: {}, api: recordedDye2MainTablet("10001"), dye2, timeScale: TIME_SCALE, keepsFlushSettings: false });
   tablets.push(tablet);
   const events: unknown[] = [];
   tablet.onWorkflowChange((workflow) => events.push(structuredClone(workflow.context ?? null)));

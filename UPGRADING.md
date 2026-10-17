@@ -95,32 +95,44 @@ Up to v0.2.13 it pushed those values back over any change made elsewhere,
 so this plugin used to set Streamline's remembered values before writing a
 Location's settings. Streamline's builds since
 [decentespresso/streamline-js#109](https://github.com/decentespresso/streamline-js/pull/109)
-keep a change made elsewhere instead, so this release sets none of them.
+keep a change made elsewhere instead, so this release sets none of them
+but the steam temperature Streamline turns steam back on at, which it keeps
+at the Loaded Recipe's
+([decentespresso/streamline-js#156](https://github.com/decentespresso/streamline-js/issues/156)).
 Run such a build on every tablet that uses Streamline, as the build from
 `main` above is.
 
-### Hot water settings are no longer shared
+### Recipes hold steam, hot water and flush settings, which Locations no longer share
 
-Each Machine's hot water volume, temperature, time and flow are its own, and
-a Recipe it loads sets them. The upgrade drops the hot water settings each
-Location had, with their history and Conflicts, and leaves each Machine's
-Workflow holding the hot water it has now, so set any Machine's hot water you
-want otherwise on its tablet.
+A Location's Machines no longer share their steam, hot water and rinse
+settings. Each Location's page no longer shows or changes them, nor has a
+switch for each Machine's sharing of them, and the upgrade deletes them,
+with their history and Conflicts, migrating nothing: each Machine's Workflow
+keeps the settings it has now.
 
-### Steam and rinse settings are no longer shared
+Instead a Recipe holds any of DYE2's steam, hot water and flush settings, and
+a Machine loading it takes those it holds, keeping its own for the rest. As
+each tablet's recipes are taken in (Recipes are shared through DYE2's
+recipes, below), the values its DYE2 recipes hold become the Recipe's, as
+their other fields do, but a steam temperature of "Off" or below 135 °C,
+which no Recipe holds. Every tablet's recipes are then rewritten with the
+Recipe's values, so each tablet's own steam and flush values are replaced,
+and one the Recipe holds none of is left blank, so applying the recipe
+leaves the Machine's own. A recipe record keeps the `decentSyncRecipe` field
+earlier builds of the plugin wrote, which nothing reads any more. Set each
+Recipe's settings on its page in the management interface or in DYE2's
+editor; a change DYE2 records on a Machine with the Recipe loaded becomes
+the Recipe's too, and reaches every Machine with it loaded.
 
-A Location's Machines no longer share their steam and rinse settings. Each
-Machine keeps its own, and nothing syncs them until a later release makes
-them the Recipe's ([#173](https://github.com/loganfuller/decent-sync/issues/173)):
-a change on one tablet stays on that Machine, and a Machine joining a
-Location keeps its own. Each Location's page no longer shows or changes them,
-nor has a switch for each Machine's sharing of them, and the upgrade deletes
-them, with their history and Conflicts, leaving each Machine's Workflow
-holding the steam and rinse settings it has now. Applying a recipe, in DYE2
-or in Streamline's DYE strip, still sets the steam and flush values that
-tablet's copy of it holds, so one saved there with a blank steam or flush
-field can set it to 0 on that Machine. Set each Machine's steam and rinse as
-you want them on its tablet.
+Steam on and off stays each Machine's own: turning steam off never changes a
+Recipe, and a Recipe's steam edit reaches a Machine whose steam is off
+without turning it on. Streamline's DYE strip does not apply a recipe's
+steam, hot water and flush settings yet
+([decentespresso/streamline-js#154](https://github.com/decentespresso/streamline-js/issues/154)),
+so the plugin writes them as the Recipe loads; flush temperature and flow set
+on Streamline's settings page reach the Recipe only at that Machine's next
+Workflow change, and opening that page puts Streamline's saved flush
+temperature and flow back, which then become the Recipe's.
 
 ### Baskets and Tools are shared through DYE2's lists
 
@@ -148,7 +160,7 @@ other tablet there has reported yet becomes a new Recipe in that slot, and
 one in a slot another tablet's recipe already took is an edit of that
 Recipe, its fields merged with the latest read winning, and the others kept
 as Conflicts. So make sure each Location's tablets hold the same recipe in
-each slot before upgrading, or turn sharing off for a Machine whose recipes
+each slot before upgrading, its steam, hot water and flush values included, or turn sharing off for a Machine whose recipes
 are to stay as they are. A recipe removed from a tablet's list is taken out
 of its slot and kept.
 

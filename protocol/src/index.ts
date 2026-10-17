@@ -507,15 +507,53 @@ export function isSlotId(value: unknown): value is string {
 }
 
 /**
- * The top-level field of a DYE2 recipe record holding what a Recipe keeps
- * that DYE2's recipe does not (ADR-0005), which DYE2 and Streamline keep when
- * they save, as they keep the global id's field: all four of its hot water
- * settings, by Decaid's names for them in a Workflow's `hotWaterData`
- * (`targetTemperature`, `duration`, `volume` and `flow`), each null where the
- * Recipe has none; DYE2's record holds the volume and temperature too. Its
- * Bean Batch is DYE2's own `beanBatchId`, beside the Bean.
+ * The steam, hot water and flush settings a Recipe may hold, as DYE2's recipe
+ * does (decentespresso/dye2#23): each by its name in a Recipe's content, with
+ * DYE2's name for it in a recipe record's `dashboardVariables` and the path
+ * of the Workflow field holding it (`MACHINE_MAP` in
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at 2cf631c), and whether
+ * Decaid keeps it as a whole number (`SteamSettings`, `HotWaterData` and
+ * `RinseData` in decaid:lib/src/models/data/workflow.dart). Each is
+ * optional: one a Recipe holds none of is the Machine's own, which loading
+ * it leaves alone. 0 is a value, as a milk stop of 0 is off. Decaid calls
+ * the flush settings `rinseData`.
  */
-export const RECIPE_FIELD = "decentSyncRecipe";
+export const RECIPE_SETTINGS = {
+  steamTemperature: { dye2: "steamTempC", workflow: "steamSettings.targetTemperature", whole: true },
+  steamDuration: { dye2: "steamTimeS", workflow: "steamSettings.duration", whole: true },
+  steamFlow: { dye2: "steamFlowMls", workflow: "steamSettings.flow", whole: false },
+  steamStopTemperature: { dye2: "steamStopAtTempC", workflow: "steamSettings.stopAtTemperature", whole: false },
+  hotWaterTemperature: { dye2: "hotWaterTempC", workflow: "hotWaterData.targetTemperature", whole: true },
+  hotWaterDuration: { dye2: "hotWaterTimeS", workflow: "hotWaterData.duration", whole: true },
+  hotWaterVolume: { dye2: "hotWaterMl", workflow: "hotWaterData.volume", whole: true },
+  hotWaterFlow: { dye2: "hotWaterFlowMls", workflow: "hotWaterData.flow", whole: false },
+  flushTemperature: { dye2: "flushTempC", workflow: "rinseData.targetTemperature", whole: true },
+  flushDuration: { dye2: "flushS", workflow: "rinseData.duration", whole: true },
+  flushFlow: { dye2: "flushFlowMls", workflow: "rinseData.flow", whole: false },
+} as const satisfies Record<string, { dye2: string; workflow: string; whole: boolean }>;
+
+/** One of the settings a Recipe may hold (RECIPE_SETTINGS). */
+export type RecipeSetting = keyof typeof RECIPE_SETTINGS;
+
+/** The settings a Recipe may hold, in the order RECIPE_SETTINGS lists them. */
+export const RECIPE_SETTING_NAMES = Object.keys(RECIPE_SETTINGS) as RecipeSetting[];
+
+/**
+ * The parts of a Workflow holding the settings a Recipe may hold, which
+ * Decaid writes to the machine as they change, and refuses to change while
+ * no machine is connected (`De1Controller.updateWorkflowSettings`).
+ */
+export const MACHINE_SETTING_PARTS = ["steamSettings", "hotWaterData", "rinseData"] as const;
+
+/**
+ * Whether a Workflow's steam is off: its steam temperature below
+ * STEAM_ON_FROM, as Decaid judges it, or none. A Workflow none of whose
+ * fields says otherwise has steam on.
+ */
+export function steamOff(workflow: unknown): boolean {
+  const temperature = workflowValueAt(workflow, RECIPE_SETTINGS.steamTemperature.workflow);
+  return typeof temperature === "number" && temperature < STEAM_ON_FROM;
+}
 
 /**
  * The global id a DYE2 record carries in its own top-level field,
@@ -810,14 +848,15 @@ export function shiftedTemperatures(base: readonly unknown[], first: number): nu
 
 /**
  * The parts of a Workflow that follow its Loaded Recipe (ADR-0022): its
- * dose, yield, grind setting, RPM, Basket, Bean Batch, four hot water
- * settings and brew temperature, and its Grinder and Profile, a change of
- * which there unloads it instead; each with the fields of the Workflow that
- * hold it, by their paths, its id or value first. A write of
- * LOADED_RECIPE_KIND sets a part's fields together: a Grinder with its
- * model, a Basket with its name, and a Bean Batch with its Bean's name and
- * roaster, as DYE2 and a load write them, a Profile whole, and a brew
- * temperature as BREW_TEMPERATURE_FIELD says.
+ * dose, yield, grind setting, RPM, Basket, Bean Batch, brew temperature and
+ * the eleven steam, hot water and flush settings (RECIPE_SETTINGS, each part
+ * named as the setting), and its Grinder and Profile, a change of which
+ * there unloads it instead; each with the fields of the Workflow that hold
+ * it, by their paths, its id or value first. A write of LOADED_RECIPE_KIND
+ * sets a part's fields together: a Grinder with its model, a Basket with its
+ * name, and a Bean Batch with its Bean's name and roaster, as DYE2 and a
+ * load write them, a Profile whole, and a brew temperature as
+ * BREW_TEMPERATURE_FIELD says.
  */
 export const LOADED_RECIPE_PARTS = {
   profile: ["profile"],
@@ -828,11 +867,18 @@ export const LOADED_RECIPE_PARTS = {
   rpm: ["context.extras.rpm"],
   basket: ["context.extras.basketId", "context.extras.basketName"],
   batch: ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"],
-  targetTemperature: ["hotWaterData.targetTemperature"],
-  duration: ["hotWaterData.duration"],
-  volume: ["hotWaterData.volume"],
-  flow: ["hotWaterData.flow"],
   brewTemperature: [BREW_TEMPERATURE_FIELD],
+  steamTemperature: [RECIPE_SETTINGS.steamTemperature.workflow],
+  steamDuration: [RECIPE_SETTINGS.steamDuration.workflow],
+  steamFlow: [RECIPE_SETTINGS.steamFlow.workflow],
+  steamStopTemperature: [RECIPE_SETTINGS.steamStopTemperature.workflow],
+  hotWaterTemperature: [RECIPE_SETTINGS.hotWaterTemperature.workflow],
+  hotWaterDuration: [RECIPE_SETTINGS.hotWaterDuration.workflow],
+  hotWaterVolume: [RECIPE_SETTINGS.hotWaterVolume.workflow],
+  hotWaterFlow: [RECIPE_SETTINGS.hotWaterFlow.workflow],
+  flushTemperature: [RECIPE_SETTINGS.flushTemperature.workflow],
+  flushDuration: [RECIPE_SETTINGS.flushDuration.workflow],
+  flushFlow: [RECIPE_SETTINGS.flushFlow.workflow],
 } as const satisfies Record<string, readonly [string, ...string[]]>;
 
 /** A part of a Workflow that follows its Loaded Recipe (LOADED_RECIPE_PARTS). */
@@ -848,7 +894,7 @@ export function workflowValueAt(workflow: unknown, path: string): unknown {
 /**
  * The body of a `PUT /workflow` setting each field given by its path to its
  * value, null clearing it: Decaid merges a Workflow's `context`, its
- * `extras` and its `hotWaterData` key by key.
+ * `extras`, and its steam, hot water and flush settings key by key.
  */
 export function workflowPatch(fields: Readonly<Record<string, unknown>>): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
@@ -958,7 +1004,7 @@ export const STEAM_ON_FROM = 135;
  * Recipe; refuses a slot holding another item's record; and otherwise adds a
  * record with `fields` and its `capturedAt`. To update one, it sets each of
  * `fields` the record still holds as expected, a null one left out. Either
- * way the global id goes in the record's own field, beside RECIPE_FIELD.
+ * way the global id goes in the record's own field.
  *
  * A write of WORKFLOW_KIND clears the grinder, batch and Basket of the
  * tablet's Workflow, as its Machine joins a Location that does not offer
@@ -995,12 +1041,15 @@ export const STEAM_ON_FROM = 135;
  * RPM once each Shot is stored, or the value written already, as one DYE2
  * recorded that the server did not hold, or that expects none: a part a
  * barista changed since is kept, which its Workflow change brings to the
- * server.
- * Decaid refuses to change the hot water settings while no machine is
- * connected, so the rest is then written without them. Its answer's
- * `record` is the Workflow's `context`, `hotWaterData` and `profile` as
- * Decaid returned them, timed as a WORKFLOW_KIND write's is, and the
- * Workflow change it causes is sent after the answer, as that write's is.
+ * server. A steam temperature is never written into a Workflow whose steam
+ * is off (`steamOff`), as it would turn steam on: the plugin leaves it out,
+ * and keeps it as the one Streamline turns steam back on at (ADR-0021).
+ * Decaid refuses to change the steam, hot water and flush settings while no
+ * machine is connected (MACHINE_SETTING_PARTS), so the rest is then written
+ * without them. Its answer's `record` is the Workflow's `context`, its
+ * steam, hot water and flush settings and its `profile` as Decaid returned
+ * them, timed as a WORKFLOW_KIND write's is, and the Workflow change it
+ * causes is sent after the answer, as that write's is.
  */
 export interface LibraryWrite {
   type: "write";

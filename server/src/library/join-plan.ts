@@ -100,8 +100,8 @@ export interface WorkflowOffers {
  * find: its grinder's if its Location does not offer the Grinder its
  * `context.grinderId` names, its batch's if it does not offer that batch,
  * and its Basket's if it does not show the Basket its
- * `context.extras.basketId` names. Its profile, dose, yield and hot water
- * stay, and so does a grinder, batch or Basket it offers, or that is
+ * `context.extras.basketId` names. Its profile, dose, yield and steam, hot
+ * water and flush settings stay, and so does a grinder, batch or Basket it offers, or that is
  * unknown, as one the tablet's map does not hold that joins the Library at a
  * Location offering none of its kind yet, with this report or the next.
  * Null if nothing is to be cleared.

@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { RECIPE_FIELD, profileAtBrewTemperature, shiftedTemperatures } from "@decent-sync/protocol";
+import { RECIPE_SETTINGS, RECIPE_SETTING_NAMES, type RecipeSetting, profileAtBrewTemperature, shiftedTemperatures, workflowValueAt } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import { armedOn, clearsSelection, dye2Fingerprint, loadWrite, profileKey, selectedOn, vacatedSlots } from "../src/loaded-recipe-rules.js";
 
@@ -90,9 +90,29 @@ describe("DYE2's fingerprint of a profile", () => {
 
 describe("recording a load", () => {
   const batch = "6f741a24-ceb9-4ec6-aa51-750c6e9fec26";
-  const hotWater = { targetTemperature: 85, duration: 40, volume: 120, flow: 7.5 };
-  /** Slot 1 as the server writes it: its Bean Batch beside its Bean, as DYE2 holds one, and all four hot water settings in its own field. */
-  const written = (): Record_ => ({ ...recipe("1"), beanBatchId: batch, [RECIPE_FIELD]: { hotWaterData: hotWater } });
+  /** Every steam, hot water and flush setting, held by slot 1 as the server writes it. */
+  const settings: Record<RecipeSetting, number> = {
+    steamTemperature: 150,
+    steamDuration: 25,
+    steamFlow: 1.4,
+    steamStopTemperature: 60,
+    hotWaterTemperature: 85,
+    hotWaterDuration: 40,
+    hotWaterVolume: 120,
+    hotWaterFlow: 7.5,
+    flushTemperature: 88,
+    flushDuration: 4,
+    flushFlow: 5.5,
+  };
+  /** Slot 1 as the server writes it: its Bean Batch beside its Bean, as DYE2 holds one, and every setting in its `dashboardVariables`. */
+  const written = (): Record_ => {
+    const record: Record_ = { ...recipe("1"), beanBatchId: batch };
+    for (const setting of RECIPE_SETTING_NAMES) (record.dashboardVariables as Record_)[RECIPE_SETTINGS[setting].dye2] = settings[setting];
+    return record;
+  };
+  /** The settings the write sets, by the Workflow's paths. */
+  const settingsWritten = (write: Record_) =>
+    Object.fromEntries(RECIPE_SETTING_NAMES.flatMap((setting) => (workflowValueAt(write, RECIPE_SETTINGS[setting].workflow) === undefined ? [] : [[setting, workflowValueAt(write, RECIPE_SETTINGS[setting].workflow)]])));
   const adaptive = library.profiles.find((candidate) => candidate.profile.title === "Adaptive v3")!.profile;
   /** Slot 1's Profile at its brew temperature, as the Workflow embedded in its record holds it. */
   const profile = profileAtBrewTemperature(adaptive, 92)!;
@@ -104,7 +124,7 @@ describe("recording a load", () => {
    */
   const appliedAtOwnTemperatures = (): Record_ => ({ ...applied("dye2-applies", "applySlot1"), profile: structuredClone(adaptive) });
 
-  it("writes what the Workflow lacks of the recipe's current values, its batch and hot water, with what each part held, but no brew temperature or Recipe id", () => {
+  it("writes what the Workflow lacks of the recipe's current values, its batch and its steam, hot water and flush settings, with what each part held, but no brew temperature or Recipe id", () => {
     const workflow = appliedAtOwnTemperatures();
     const write = loadWrite(workflow, written(), { profile })!;
     expect(write.write.context).toEqual({
@@ -113,7 +133,10 @@ describe("recording a load", () => {
       coffeeRoaster: "Fixture Roasters",
       extras: { basketId: basket, basketName: "Fixture 18g Precision" },
     });
-    expect(write.write.hotWaterData).toEqual(hotWater);
+    // Only those the Workflow holds otherwise, as partial parts Decaid merges.
+    const differing = RECIPE_SETTING_NAMES.filter((setting) => workflowValueAt(workflow, RECIPE_SETTINGS[setting].workflow) !== settings[setting]);
+    expect(differing.length).toBeGreaterThan(6);
+    expect(settingsWritten(write.write)).toEqual(Object.fromEntries(differing.map((setting) => [setting, settings[setting]])));
     // DYE2 and Streamline apply the recipe's brew temperature themselves (decentespresso/dye2#26): the profile's is left.
     expect(write.write).not.toHaveProperty("profile");
     const context = workflow.context as Record_;
@@ -121,9 +144,7 @@ describe("recording a load", () => {
       batch: { before: context.beanBatchId ?? null, written: batch },
       basket: { before: (context.extras as Record_).basketId ?? null, written: basket },
       ...Object.fromEntries(
-        Object.entries(hotWater)
-          .filter(([field, value]) => (workflow.hotWaterData as Record_)[field] !== value)
-          .map(([field, value]) => [field, { before: (workflow.hotWaterData as Record_)[field] ?? null, written: value }]),
+        differing.map((setting) => [setting, { before: workflowValueAt(workflow, RECIPE_SETTINGS[setting].workflow) ?? null, written: settings[setting] }]),
       ),
     });
   });
@@ -145,17 +166,28 @@ describe("recording a load", () => {
     const first = loadWrite(workflow, record, { profile })!.write;
     const after = structuredClone(workflow);
     after.context = { ...(after.context as Record_), ...(first.context as Record_), extras: { ...((after.context as Record_).extras as Record_), ...((first.context as Record_).extras as Record_) } };
-    after.hotWaterData = { ...(after.hotWaterData as Record_), ...(first.hotWaterData as Record_) };
+    for (const part of ["steamSettings", "hotWaterData", "rinseData"]) after[part] = { ...(after[part] as Record_), ...(first[part] as Record_) };
     expect(loadWrite(after, record, { profile })).toBeNull();
-    const bare = { ...record, beanBatchId: null, [RECIPE_FIELD]: { hotWaterData: { targetTemperature: null, duration: null, volume: null, flow: null } } };
-    expect(loadWrite(after, bare, { profile: null })).toBeNull();
+    // A setting the recipe holds none of is the Machine's own.
+    const bare = { ...record, beanBatchId: null, dashboardVariables: { ...(record.dashboardVariables as Record_), steamTempC: null, flushS: null } };
+    const otherwise = { ...after, steamSettings: { ...(after.steamSettings as Record_), targetTemperature: 160 }, rinseData: { ...(after.rinseData as Record_), duration: 9 } };
+    expect(loadWrite(otherwise, bare, { profile: null })).toBeNull();
   });
 
-  it("leaves out what it is told to, as the hot water while Decaid refuses it for want of a machine", () => {
+  it("writes no steam temperature into a Workflow whose steam is off, but the rest of its steam settings", () => {
+    const workflow = appliedAtOwnTemperatures();
+    workflow.steamSettings = { ...(workflow.steamSettings as Record_), targetTemperature: 0, duration: 0 };
+    const write = loadWrite(workflow, written(), { profile })!;
+    expect(write.write.steamSettings).toEqual({ duration: 25, flow: 1.4, stopAtTemperature: 60 });
+    expect(write.before).not.toHaveProperty("steamTemperature");
+    expect(write.before.steamDuration).toEqual({ before: 0, written: 25 });
+  });
+
+  it("leaves out what it is told to, as the steam, hot water and flush settings while Decaid refuses them for want of a machine", () => {
     const workflow = applied("dye2-applies", "applySlot1");
-    const write = loadWrite(workflow, written(), { profile }, new Set(["targetTemperature", "duration", "volume", "flow"]))!;
-    expect(write.write).not.toHaveProperty("hotWaterData");
-    expect(Object.keys(write.before)).not.toContain("volume");
+    const write = loadWrite(workflow, written(), { profile }, new Set(RECIPE_SETTING_NAMES))!;
+    for (const part of ["steamSettings", "hotWaterData", "rinseData"]) expect(write.write).not.toHaveProperty(part);
+    expect(Object.keys(write.before)).not.toContain("hotWaterVolume");
   });
 });
 

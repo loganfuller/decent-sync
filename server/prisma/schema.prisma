@@ -1319,12 +1319,11 @@ model LoadedRecipe {
 /// The Loaded Recipe each tablet's Workflow last named (ADR-0022, ticket
 /// #146), with the parts of it that follow the Recipe as the Workflow held
 /// them, reported or as Decaid returned the plugin's write of them, so the
-/// plugin's own write is never read as the tablet's edit. A change of a
-/// part from these, while the Workflow still names the Recipe its Machine
-/// has loaded, is an edit of the Recipe; a Recipe's field that differs from
-/// them is written into the Workflow; and a Recipe named that is not its
-/// Machine's Loaded Recipe, as one taken out of its slot, is cleared from
-/// the Workflow.
+/// plugin's own write is never read as the tablet's edit. A Recipe's field
+/// that differs from them is written into the Workflow; and a Recipe named
+/// that is not its Machine's Loaded Recipe, as one taken out of its slot, is
+/// cleared from the Workflow. DYE2 records a change of them into the
+/// Recipe's record (#173).
 model TabletLoadedRecipe {
   tabletId      String    @id @map("tablet_id") @db.Uuid
   tablet        Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
@@ -1335,9 +1334,6 @@ model TabletLoadedRecipe {
   /// Workflow held it: a number, the grind setting's text, or the tablet's id
   /// for its Basket or Bean Batch; null for none.
   held          Json      @db.JsonB
-  /// The latest edit of the Recipe the Workflow has seen, as
-  /// `TabletBean.contentSeenAt` (ADR-0020); null if none.
-  contentSeenAt DateTime? @map("content_seen_at") @db.Timestamptz(3)
 
   @@index([recipeId])
   @@map("tablet_loaded_recipes")

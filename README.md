@@ -5,8 +5,8 @@ running [Decaid](https://github.com/decentespresso/decaid) to one self-hosted
 server. The target design lets Machines at several Locations share a Library
 of Beans, Bean Batches, Grinders and Profiles, each Location offering its own
 part of it.
-Machines at the same location share grinders, recipes and steam settings,
-working like the groups of one commercial espresso machine. The
+Machines at the same location share grinders and recipes, with the steam,
+hot water and flush settings each recipe holds, working like the groups of one commercial espresso machine. The
 server collects every shot and steam record they produce, and a web management
 interface shows machines, stock and analytics across all locations.
 
@@ -43,7 +43,7 @@ where its batches are, a Grinder belongs to the Location where it was created,
 and a Profile is shown or hidden at each Location. Archiving, hiding or
 deleting one on a tablet acts at that tablet's Location only; a Grinder
 archived or deleted there is Archived. Each Machine keeps its own steam, hot
-water and rinse settings. An edit made on a tablet or in the management
+water and flush settings, but those the Recipe it has loaded holds. An edit made on a tablet or in the management
 interface reaches every tablet that holds the item, merged field by field with
 the latest edit winning; each item keeps its history, and an edit that lost to one made without seeing it is kept as a
 Conflict, whose value the management interface uses or dismisses. The
@@ -81,8 +81,7 @@ The target sharing scopes are:
 |---|---|
 | Beans, bean batches, profiles, baskets and tools | every location, each offering its own part: the profiles, baskets and tools shown there, the batches at that location and their beans, and each batch's stock there |
 | Grinders, recipes and their slots | machines at the same location |
-| Steam and rinse settings | not shared: each machine keeps its own, until a recipe holds them ([#173](https://github.com/loganfuller/decent-sync/issues/173)) |
-| Profile, dose, yield, batch, grinder, basket and hot water settings in use | not shared: each machine has its own, which loading a recipe sets |
+| Profile, dose, yield, batch, grinder, basket, and steam, hot water and flush settings in use | not shared: each machine has its own, which loading a recipe sets; turning steam off never changes a recipe |
 
 - A **machine** is the hardware, identified by model and serial. Replacing its
   tablet doesn't make it a new machine.

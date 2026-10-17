@@ -36,6 +36,7 @@ import {
   recipeRecord,
   recipeView,
   savedInEditor,
+  steamOffPaths,
   tabletIds,
   withoutOwnEdits,
 } from "./recipe-intake.js";
@@ -54,8 +55,9 @@ import {
 // tablet's own ids and carrying what DYE2 derives from them, regenerated
 // (recipe-intake.ts), and its global id in a top-level field of its own,
 // beside the server's map per tablet; a slot that is emptied is removed from
-// the list (holdings.ts). Each record's steam and flush values are the
-// tablet's own, neither written nor taken in (recipe-intake.ts).
+// the list (holdings.ts). A steam temperature that turns steam off, as
+// DYE2's editor saves for "Off", is no edit, and the Recipe's is written
+// back (recipe-intake.ts).
 //
 // Under the locks equipment.ts takes, in the same order: the Machine's row,
 // the tablet's, the Location's, under which its slots are decided, then the
@@ -423,13 +425,15 @@ export async function recordRecipeWritten(
       if (here && saved) await heldAfterEditorSave(tx, tablet, itemId, content);
       const unwritten = Object.fromEntries(Object.entries(editedContent(recipeView(known.record), view, null)).filter(([path]) => !written.has(path)));
       const recorded = here && !saved ? await recordedByDye2(tx, tablet, itemId, content, item.fieldEdits, unwritten) : new Set<string>();
+      // Steam turned off, taken in as no edit (`libraryValues`), is written back over too.
+      const steamOff = steamOffPaths(answered.values).length > 0;
       for (const path of recorded) delete answered.values[path];
       const paths = editedPaths(answered.values);
       // Edited on the tablet before the plugin wrote: judged by what the record had seen before.
       const values = paths.length === 0 || !here ? {} : withoutOwnEdits(libraryValues(view, paths, content, await context(view)), content, readFieldEdits(item.fieldEdits), tablet.tabletId);
       edited = await editContent(tx, ref, { values, at, seenAt: known.contentSeenAt }, source);
       const now = await recordFor(tx, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, localId, itemId);
-      stale = (answered.stale || recorded.size > 0) && !holdsRecipe(view, now);
+      stale = (answered.stale || recorded.size > 0 || steamOff) && !holdsRecipe(view, now);
       answeredBefore = { beforeWrite: answered.beforeWrite };
     } else if (!linked) {
       // Created in a slot the server removed another record from, which the tablet held there just before.

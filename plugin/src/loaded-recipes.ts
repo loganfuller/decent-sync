@@ -1,8 +1,9 @@
-import { DYE2_NAMESPACE, dye2Records, dye2SelectionOf } from "@decent-sync/protocol";
+import { DYE2_NAMESPACE, MACHINE_SETTING_PARTS, RECIPE_SETTINGS, RECIPE_SETTING_NAMES, dye2Records, dye2SelectionOf } from "@decent-sync/protocol";
 import { type Answer, request } from "./decaid.js";
 import { Dye2Pushes, type Dye2State, type SelectionAnswer, type Transports, postSelection, readDye2State, readSelection } from "./dye2-selection.js";
 import type { WorkflowChanges } from "./machine-events.js";
 import { type ArmedOn, type LoadContext, armedOn, clearsSelection, loadWrite, loadable, selectedOn, vacatedSlots } from "./loaded-recipe-rules.js";
+import { keepStreamlineSteamTemperature } from "./streamline.js";
 
 // Each Machine's Loaded Recipe (ADR-0022): the recipe DYE2 has selected on
 // the tablet, where it is in a Recipe Slot carrying a Recipe's global id
@@ -23,25 +24,23 @@ import { type ArmedOn, type LoadContext, armedOn, clearsSelection, loadWrite, lo
 // a change of profile, batch or grinder (dye2#18, #19), or of anything else,
 // unloads it.
 //
-// DYE2 writes its field by a request of its own after the change of the
-// Workflow that changed its selection. So while a Recipe is loaded, or the
-// Workflow's field names one, each change of the Workflow is held back
-// (`WorkflowChanges`) until a read of the selection about 2 s after it, past
-// DYE2's 1.5 s wait before it records, decides on it, and the Workflow's
-// field names what DYE2 answered: the server never reads a recipe applied
-// from DYE2's dashboard, whose hot water the Workflow still reports beside
-// the Recipe loaded before, as an edit of that one (until #173).
-//
 // Besides following DYE2, the plugin selects the slot again after a write
 // of its own that changes the profile, batch or grinder, which DYE2 clears
-// its selection on as it would a barista's (`clearsSelection`), holding the
-// Workflow's changes meanwhile, so the server reads no unload; and clears the
-// selection of a slot whose recipe leaves it. On a Capture-only Machine it
-// selects nothing, and makes only the clears already due.
+// its selection on as it would a barista's (`clearsSelection`), and selects
+// a Loaded Recipe moved to another slot there. DYE2 writes its field by a
+// request of its own after the change of the Workflow that changed its
+// selection, so while such a selection of the plugin's is to be made, each
+// change of the Workflow is held back (`WorkflowChanges`) until it is made
+// and the Workflow's field names what DYE2 answered, read about 2 s after
+// each change: the server reads no unload meanwhile. Nothing else is held:
+// DYE2 records into the Recipe's record every change of the Workflow that
+// edits it. The plugin also clears the selection of a slot whose recipe
+// leaves it. On a Capture-only Machine it selects nothing, and makes only the
+// clears already due.
 
 const RECIPES = `/store/${DYE2_NAMESPACE}/recipes`;
 
-/** How long after a change of the Workflow it holds back the plugin reads DYE2's selection: past DYE2's 1.5 s wait before it records. */
+/** How long after a change of the Workflow it holds back the plugin reads DYE2's selection: past DYE2's 1.5 s wait before it writes its field. */
 const READ_AFTER_CHANGE_MS = 2_000;
 
 /**
@@ -224,10 +223,9 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   /**
    * Decaid's `workflowUpdated`, before the Workflow is queued. The first's
    * DYE2 selection names the Loaded Recipe the plugin takes until it decides.
-   * While a Recipe is loaded, or the Workflow names one, the change is held
-   * back until a read of DYE2's selection after it decides on it (`check`).
-   * A change during a write of the plugin's is that write's echo, which its
-   * write holds.
+   * While a selection of the plugin's is to be made, the change is held back
+   * until it is (`holdUntilRead`). A change during a write of the plugin's is
+   * that write's echo, which its write holds.
    */
   observe(workflow: Record<string, unknown>): void {
     if (this.stopped) return;
@@ -240,16 +238,18 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       return;
     }
     this.observed++;
-    this.holdUntilRead(workflow);
+    this.holdUntilRead();
   }
 
   /**
-   * Holds the Workflow's changes back until a read of DYE2's selection after
-   * them decides on them, while a Recipe is loaded, or the Workflow names
-   * one, and DYE2 did not answer 404 last; and reads it about 2 s after each.
+   * Holds the Workflow's changes back while a selection of the plugin's is to
+   * be made, as after its own write DYE2 clears its selection on, or the
+   * Loaded Recipe's move to another slot, and DYE2 did not answer 404 last,
+   * until a read of DYE2's selection after them finds it made
+   * (`releaseHold`); and reads it about 2 s after each.
    */
-  private holdUntilRead(workflow: Record<string, unknown>): void {
-    if (!this.holding && (this.loaded !== null || this.named(workflow) !== null) && this.answer !== "unavailable") {
+  private holdUntilRead(): void {
+    if (!this.holding && (this.pendingSelect !== null || this.relocating !== null) && this.answer !== "unavailable") {
       this.holding = { since: Date.now(), observed: this.observed };
       this.changes.hold();
     } else if (this.holding) this.holding.observed = this.observed;
@@ -507,12 +507,6 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     return field.named === selected.named && field.slot === selected.slot;
   }
 
-  /** The Recipe a Workflow's DYE2 selection names, by its slot among the tablet's recipes as last read, or null. */
-  private named(workflow: Record<string, unknown>): string | null {
-    const { slot } = dye2SelectionOf(workflow);
-    return slot === null ? null : (this.recipes.get(Number(slot))?.globalId ?? null);
-  }
-
   /**
    * Reads DYE2's selection, with whether DYE2 is loaded on the poll, and
    * decides: a selection of a recipe in a slot carrying a global id, made on
@@ -661,8 +655,12 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * selected, or answers 404, writes into the Workflow what applying a DYE2
    * recipe leaves out, or a stale copy got wrong (`loadWrite`), and tells the
    * server what it replaced, on the next Workflow delivery. Decaid refuses
-   * to change the hot water settings while no machine is connected, so the
-   * rest is then written without them. A write that changed the profile,
+   * to change the steam, hot water and flush settings while no machine is
+   * connected, so the rest is then written without them. A steam
+   * temperature the recipe holds is kept as the one Streamline turns steam
+   * back on at (`keepStreamlineSteamTemperature`), written into the
+   * Workflow or not, as one into a Workflow whose steam is off is not
+   * (interim, until decentespresso/streamline-js#156). A write that changed the profile,
    * batch or grinder, which DYE2 clears its selection on, has the slot
    * selected again, where the Workflow it wrote over still held what DYE2's
    * selection was made on (`armed`, `reselectAfter`).
@@ -679,8 +677,8 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       let answer: Answer | undefined;
       if (planned !== null) {
         answer = await request("PUT", "/workflow", planned.write);
-        if (!answer.ok && "hotWaterData" in planned.write && machineMissing(answer)) {
-          planned = loadWrite(workflow, recipe.record, context, new Set(["targetTemperature", "duration", "volume", "flow"]));
+        if (!answer.ok && MACHINE_SETTING_PARTS.some((part) => part in planned!.write) && machineMissing(answer)) {
+          planned = loadWrite(workflow, recipe.record, context, new Set(RECIPE_SETTING_NAMES));
           answer = planned === null ? undefined : await request("PUT", "/workflow", planned.write);
         }
         if (answer && !answer.ok) throw new Error(`Decaid answered ${answer.status} loading the recipe in slot ${slot}: ${answer.text.slice(0, 200)}`);
@@ -692,6 +690,8 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       if (planned !== null && isObject(after) && clearsSelection(workflow, planned.write)) this.reselectAfter(globalId, slot, workflow, after);
       return isObject(after) ? after : undefined;
     });
+    const variables = isObject(recipe.record.dashboardVariables) ? recipe.record.dashboardVariables : {};
+    await keepStreamlineSteamTemperature(variables[RECIPE_SETTINGS.steamTemperature.dye2], this.log);
     if (this.pendingSelect?.globalId === globalId) await this.tryPending(await readSelection());
   }
 
@@ -737,8 +737,8 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * a barista's change made in the moment around it, which Decaid's merge of
    * the write keeps where the write did not set the same field. So where
    * any was reported, the Workflow as last reported is held back in turn
-   * until a read of DYE2's selection decides on it. Where none was, the
-   * Workflow is as Decaid answered it (`work`'s answer).
+   * while a selection of the plugin's is to be made (`holdUntilRead`). Where
+   * none was, the Workflow is as Decaid answered it (`work`'s answer).
    */
   private async ownWrite(work: () => Promise<Record<string, unknown> | undefined>): Promise<void> {
     this.writing++;
@@ -759,7 +759,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     if (!reported && answered) this.latest = answered;
     if (reported && this.latest) {
       this.observed++;
-      this.holdUntilRead(this.latest);
+      this.holdUntilRead();
     }
     this.changes.release();
     this.recipesAfterHold();
@@ -823,7 +823,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
  */
 type PendingSelect = { slot: number; globalId: string; on?: ArmedOn };
 
-/** Whether Decaid refused a Workflow change as no machine is connected, which it needs to change the hot water settings. */
+/** Whether Decaid refused a Workflow change as no machine is connected, which it needs to change the steam, hot water and flush settings. */
 export function machineMissing(answer: Answer): boolean {
   return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");
 }
