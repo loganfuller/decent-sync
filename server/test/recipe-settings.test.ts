@@ -172,12 +172,16 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     const { a, b, c, one } = await lab("Steamed", 49011);
     const ownOnB = setting(b, "steamDuration");
     const edits = await editsOf(one, "steamDuration");
+    const received = a.received.length;
     await a.changeSettings({ steamSettings: { duration: 27 } });
     await expect.poll(async () => (await recipe(one)).content.steamDuration, { timeout: 15_000 }).toBe(27);
     await expect.poll(() => [setting(c, "steamDuration"), recorded(c, "steamDuration")], { timeout: 15_000 }).toEqual([27, 27]);
     expect(await editsOf(one, "steamDuration")).toBe(edits + 1);
     await settle();
     expect(setting(b, "steamDuration")).toBe(ownOnB);
+    // A's record, which DYE2 recorded the steam time into, embedding it as the server derives it, is not written again.
+    const recipeWrites = a.received.slice(received).filter((frame) => (frame as Record_).type === "write" && (frame as Record_).kind === "recipe");
+    expect(recipeWrites).toEqual([]);
   });
 
   it("takes a held flush time changed 10, 6, 10 and 6 on C past its first espresso since the load each time, writing nothing back", async () => {
