@@ -41,6 +41,7 @@ one of the Workflow change made before `selectWithBatch` arrived within it.
 | `recording.json` | `select`, slot 1 applied on the dashboard, then one change of the Workflow per step from the script: `grind`, `dose`, `yieldInContext`, `brewTemperature` (every step 1 degree up), `hotWaterActiveMode` and `hotWaterOtherMode`, `steamActiveMode` and `steamOtherMode`, `flush`, `debounced` (two grinds 300 ms apart), `echo` (the grind set off the recipe's, then slot 1 selected from the script, then a change within 3 s), `afterEcho`, `profileChange`; slot 1 applied again, then `targetWeightOnly` (its profile with only `target_weight` changed), `rpm` (`extras.rpm`), `basket` (`extras.basketId` and `basketName`), `machineSettingAdopted` (the steam temperature, which slot 1 does not hold), `batchFromEmpty` (a batch set, none having been armed) and `batchSwitch` (the other batch); slot 1 applied again, then `grinderSwitch` (the other grinder); a batch set and the grinder cleared, then `selectWithBatch`, slot 1 selected from the script, and `batchCleared`; and, after a restart and slot 2 applied on the dashboard, `shot`, a Shot pulled |
 | `restore.json` | `clearBeforeRestore`, `POST .../selection {}`; `storedAfterClear`, DYE2's stored selection then; `restoreEmpty`, `restoreRecipe` and `restoreDrifted`: a value written to `POST /store/dye2.reaplugin/selection`, then DYE2 disabled and enabled, and its selection read ten times at once and again 1.5 s later; `driftedClearedOnChange`, a Workflow change after the drifted restore |
 | `streamline.json` | Streamline's DYE strip, nothing selected in DYE2: `started`, what Streamline wrote as its page loaded; `applySlot2`; `drinkTile` and `doseTile`, a tap of each tile's `+`; `applySlot2Again`; after a restart, `restarted`, the page loaded again; `writtenBeforeShot`, a batch, coffee, Basket, barista, drinker and note written from the script; `shotCleared`, a Shot pulled with Streamline open; `wake`, `loadProfileForWake` called on the selected recipe's profile, and `wakeOtherProfile`, on `Adaptive v3`; after a restart and the page loaded again, `writtenBeforeShotNoSelection` and `shotClearedNoSelection`, the same with nothing selected; `selectedOnDashboard`, slot 1 applied on DYE2's dashboard; `applyRetried`, slot 2 applied on the strip with its first two selections answered 503 by the recording (`injected` on those answers); `applySlot2BeforeOff`; and `stripOff`, its DYE2 switch turned off |
+| `machine-settings.json` | Recorded on a Decaid of its own (below). `library`, not exchanges: its beans, batches and grinders, made as for the other files but under ids of their own, `Adaptive v3`, Decaid's default Workflow and the simulated machine's settings. DYE2's recipe editor, each step as in `recipes.json`: `saveMachineSettings`, slot 1 saved as `Fixture Machine Espresso` with Bean, `Adaptive v3`, Grinder, dose 18, yield 36, grind 2.5, steam by time 30 then by flow 1.2, flush 5, hot water by volume 150 then by temperature 85, and every Machine Settings field: steam temperature 150, milk stop 60, hot water time 30 and flow 4, flush temperature 90 and flow 6; `editMachineSettings`, steam switched to time and set to 32, flush flow 5; `switchModeOnly`, only hot water switched to volume; `steamOff`, steam temperature set by its `Off` preset; `steamBackOn`, steam temperature typed as 150; `clearMilkStopTyped`, an empty milk stop typed; and `clearMilkStop`, the milk stop stepper blanked by the script. Then steps as in `dye2-applies.json`, with the machine's settings read in `after` too: `steamOffInWorkflow`, `PUT /workflow` of a steam temperature of 0 from the script; `applyMachineSettings`, slot 1's pill tapped on a dashboard opened afresh; and `changeAfterApply`, a grind set from the script past DYE2's echo window |
 | `fingerprints.json` | Not exchanges: after each recipe selected (`dashboardSlot1`, `dashboardSlot2`, `streamlineSlot2`), the Workflow's profile as the last `workflowUpdated` event carried it to plugins, as `GET /workflow` answered it, and the `profileFingerprint` DYE2 answered |
 
 ## How they were recorded
@@ -102,6 +103,19 @@ port 8080.
   again. Shots are pulled with `PUT /api/v1/machine/state/espresso`. Those
   requests are not in the files. It reads `DECAID` and `SKIN` from the
   environment for other addresses.
+- **`machine-settings.json`** was recorded later the same day, on another
+  such Decaid with new data, DYE2 copied in and the recorder installed as
+  above, its port 8080 published as `localhost:18080`, with nothing of
+  Streamline's: `DECAID=http://localhost:18080 node
+  server/test/fixtures/decaid/dye2-2cf631c/record.mjs <output dir>
+  --machine-settings`, which makes the beans, batches and grinders and
+  records only that file. DYE2 was copied from its repository's archive of
+  2cf631c, as GitHub serves it. The editor offers no way to blank one
+  field: an empty value typed puts back the one shown (`makeValueEditable`
+  in `dye2:dye2-plugin/src/pages/recipe-edit.ts`, `clearMilkStopTyped`).
+  So for `clearMilkStop` the script set the milk stop stepper's text to
+  `—`, which the editor shows for a field not held (`renderRecipe`) and its
+  save reads as blank (`machineValues`).
 
 ## Edits
 
@@ -129,6 +143,33 @@ last, peak-pressure and peak-flow samples, in their order. DYE2's
   a batch, as the editor's Bean chips pick none, each flagged in
   `extras.dye`; its profile at the recipe's brew temperature; and every
   machine setting the recipe holds, as partial parts.
+- **The editor's Machine Settings** (`machine-settings.json`) are saved as
+  every other field: only what changed, in `dashboardVariables` as
+  `steamTempC`, `steamStopAtTempC`, `hotWaterTimeS`, `hotWaterFlowMls`,
+  `flushTempC` and `flushFlowMls`, beside `steamTimeS`, `steamFlowMls`,
+  `hotWaterMl`, `hotWaterTempC` and `flushS`. A mode switch parks the value
+  shown, so a recipe holds both of a pair, and a switch alone saves only
+  `steamMode` or `hotWaterMode` (`switchModeOnly`). The steam temperature's
+  `Off` is saved as `steamTempC: 0`, and the embedded `workflow`'s
+  `steamSettings.targetTemperature` is 0 with it. A blank field is saved as
+  null, kept in `dashboardVariables` (`steamStopAtTempC: null`), and left
+  out of the embedded `workflow` (`stopAtTemperature` goes); an empty value
+  typed changes nothing but `capturedAt`. The embedded `workflow` holds each
+  setting held, as partial `steamSettings`, `hotWaterData` and `rinseData`.
+- **DYE2's dashboard apply of every machine setting**
+  (`applyMachineSettings`): the whole Workflow, each held setting laid over
+  its part, so the recipe's steam temperature 150 turned on steam the
+  Workflow had off (0), and a setting not held, the milk stop, kept the
+  Workflow's (`stopAtTemperature: 0`). Decaid wrote the changed parts to the
+  machine, whose settings then answered the steam, hot water and flush flows
+  sent, but still a flush temperature of 25 and timeout of 10: Decaid's
+  simulated machine keeps neither (`MockDe1.setFlushTemperature` and
+  `setFlushTimeout` in `decaid:lib/src/models/device/impl/mock_de1/` do
+  nothing). So the selection armed `flushTempC` 25, and the next Workflow
+  change (`changeAfterApply`) recorded the grind and that 25 over the
+  recipe's flush temperature of 90. On a real DE1 Decaid writes the flush
+  temperature to the machine too (`_writeFlushSettings` in
+  `decaid:lib/src/controllers/de1_controller.dart`); that was not recorded.
 - **DYE2's dashboard apply** reads the recipes again first (dye2#28), then
   sends the whole Workflow it read as it opened with the recipe's dose,
   yield, grind (as a number), RPM, Grinder, barista and drinker, its Bean's

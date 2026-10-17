@@ -8,6 +8,10 @@
 // and enabled and Streamline's files at c006dac served at SKIN:
 //
 //   RESTART_DECAID=<command> node server/test/fixtures/decaid/dye2-2cf631c/record.mjs <output dir>
+//
+// With `--machine-settings` after the output dir, it records only
+// machine-settings.json, on a Decaid of its own, and needs neither
+// Streamline nor RESTART_DECAID.
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -153,9 +157,10 @@ async function recordedPage(browser, { viewport = { width: 1280, height: 800 }, 
 
 /**
  * A step: the exchanges `act` gives, then, as `after` asks, DYE2's selection,
- * its stored selection, its recipes and the Workflow read once DYE2 would
- * have recorded, the pushes heard on `changed` meanwhile, and the context of
- * each Workflow Decaid sent plugins in a `workflowUpdated` (`events`).
+ * its stored selection, its recipes, the Workflow and the machine's settings
+ * read once DYE2 would have recorded, the pushes heard on `changed`
+ * meanwhile, and the context of each Workflow Decaid sent plugins in a
+ * `workflowUpdated` (`events`).
  */
 async function step(act, { after = ["selection", "recipes"], settleMs = RECORDED_MS } = {}) {
   const mark = changed.heard.length;
@@ -167,6 +172,7 @@ async function step(act, { after = ["selection", "recipes"], settleMs = RECORDED
   if (after.includes("stored")) reads.push(await api("GET", STORED_SELECTION));
   if (after.includes("recipes")) reads.push(await api("GET", RECIPES));
   if (after.includes("workflow")) reads.push(await api("GET", "/workflow"));
+  if (after.includes("machine")) reads.push(await api("GET", "/machine/settings"));
   return {
     exchanges,
     after: reads,
@@ -305,8 +311,8 @@ async function recordBaskets(browser) {
   return steps;
 }
 
-async function recordRecipes(browser) {
-  const r = await recordedPage(browser);
+/** DYE2's recipe editor on a recorded page: opening a slot's tab, its steppers, name combos, tools, chips and Save. */
+function recipeEditor(r) {
   const { page } = r;
   const open = async (tab) => {
     await page.goto(DYE2("recipe-edit"));
@@ -349,6 +355,13 @@ async function recordRecipes(browser) {
     await page.waitForURL(/dashboard/, { waitUntil: "commit" });
     return r.take(2000);
   };
+  return { open, stepper, combo, tools, chip, save };
+}
+
+async function recordRecipes(browser) {
+  const r = await recordedPage(browser);
+  const { page } = r;
+  const { open, stepper, combo, tools, chip, save } = recipeEditor(r);
   const steps = {};
 
   log("slot 1: every field, a Profile from the library");
@@ -895,60 +908,197 @@ async function recordStreamline(browser) {
   return steps;
 }
 
+// ---- The Machine Settings of DYE2's recipe editor, and its dashboard applying them (machine-settings.json).
+
+/**
+ * DYE2's recipe editor saving slot 1 with every machine setting, editing
+ * them, setting the steam temperature Off, blanking the milk stop, and
+ * DYE2's dashboard applying the recipe while the Workflow's steam is off,
+ * then a Workflow change once it is selected.
+ */
+async function recordMachineSettings(browser) {
+  const r = await recordedPage(browser);
+  const { page } = r;
+  const { open, stepper, chip, save } = recipeEditor(r);
+  const machine = async () => {
+    await page.locator("#re-machine-toggle").click();
+    await page.locator("#re-machine-rows").waitFor();
+  };
+  const mode = (kind, value) => page.locator(`.re-${kind}-mode[data-mode="${value}"]`).click();
+  const steps = {};
+
+  log("machine settings: slot 1 with every one");
+  await open(0);
+  await page.locator("#re-name-input").fill("Fixture Machine Espresso");
+  await chip("re-bean-chips", "Fixture Ethiopia");
+  await chip("re-profile-chips", "Adaptive v3");
+  await chip("re-grinder-chips", "Fixture Grinder 64");
+  await stepper("re-dose", 18);
+  await stepper("re-drink", 36);
+  await stepper("re-grind", 2.5);
+  // Each mode's value typed in turn: the toggle parks the value shown on the slot (stashModeValue), so the recipe holds both.
+  await mode("steam", "time");
+  await stepper("re-steam", 30);
+  await mode("steam", "flow");
+  await stepper("re-steam", 1.2);
+  await stepper("re-flush", 5);
+  await mode("hotwater", "vol");
+  await stepper("re-hotwater", 150);
+  await mode("hotwater", "temp");
+  await stepper("re-hotwater", 85);
+  await machine();
+  await stepper("re-steam-temp", 150);
+  await stepper("re-milk-stop", 60);
+  await stepper("re-hw-time", 30);
+  await stepper("re-hw-flow", 4);
+  await stepper("re-flush-temp", 90);
+  await stepper("re-flush-flow", 6);
+  steps.saveMachineSettings = await save();
+
+  log("machine settings: steam time and flush flow changed, steam shown by time");
+  await open(0);
+  await mode("steam", "time");
+  await stepper("re-steam", 32);
+  await machine();
+  await stepper("re-flush-flow", 5);
+  steps.editMachineSettings = await save();
+
+  log("machine settings: only the hot water mode switched");
+  await open(0);
+  await mode("hotwater", "vol");
+  steps.switchModeOnly = await save();
+
+  log("machine settings: steam temperature Off");
+  await open(0);
+  await machine();
+  await page.locator('#re-steam-temp-presets .dye-preset[data-preset="Off"]').click();
+  steps.steamOff = await save();
+
+  log("machine settings: steam temperature back on");
+  await open(0);
+  await machine();
+  await stepper("re-steam-temp", 150);
+  steps.steamBackOn = await save();
+
+  log("machine settings: the milk stop typed blank");
+  // The editor's own way to type a value: an empty one puts back what it showed (makeValueEditable).
+  await open(0);
+  await machine();
+  await stepper("re-milk-stop", "");
+  steps.clearMilkStopTyped = await save();
+
+  log("machine settings: the milk stop blank");
+  // The editor has no way to blank one field, so the stepper is set to what it shows for a field not held (renderRecipe), which its save reads as blank.
+  await open(0);
+  await machine();
+  await page.locator("#re-milk-stop-value").evaluate((element) => (element.textContent = "—"));
+  steps.clearMilkStop = await save();
+  await r.context.close();
+
+  // DYE2's dashboard applying slot 1 with the Workflow's steam off, then a Workflow change from Node once it is selected.
+  steps.steamOffInWorkflow = await step(() => put({ steamSettings: { targetTemperature: 0 } }), { after: ["selection", "workflow", "machine"] });
+  const dashboard = await recordedPage(browser, { keepRead: dashboardReads });
+  await dashboard.page.goto(DYE2("dashboard"));
+  await dashboard.take(3000);
+  log("machine settings: slot 1 applied on the dashboard");
+  steps.applyMachineSettings = await step(
+    async () => {
+      await dashboard.page.locator('#dye-recipe-pills .dye-recipe-pill:not(.dye-pill-recent)[title="Fixture Machine Espresso"]').click();
+      return dashboard.take(1500);
+    },
+    { after: ["selection", "stored", "recipes", "workflow", "machine"] },
+  );
+  await dashboard.context.close();
+  // Past DYE2's 3 s echo window.
+  await wait(3500);
+  steps.changeAfterApply = await step(() => put({ context: { grinderSetting: "2.6" } }), { after: ["selection", "recipes", "workflow", "machine"] });
+  return steps;
+}
+
 const keys = async () => Object.fromEntries(await Promise.all(["recipes", "baskets", "equipment"].map(async (key) => [key, (await api("GET", `/store/dye2.reaplugin/${key}`)).response.body])));
 
 changed = listen("dye2.reaplugin", "changed");
 recorder = listen("workflow-recorder.reaplugin", "workflow");
 if ((await changed.opened) !== 101 || (await recorder.opened) !== 101) throw new Error("A socket did not open");
 await seedLibrary();
-const library = {
-  beans: (await api("GET", "/beans")).response.body,
-  beanBatches: (await api("GET", "/bean-batches")).response.body,
-  grinders: (await api("GET", "/grinders")).response.body,
-  // The bundled profiles the recipes use: slot 1's, picked from the library, and the one slot 2 reads from the Workflow.
-  profiles: (await api("GET", "/profiles")).response.body.filter((record) => ["Adaptive v3", "Classic Italian espresso"].includes(record.profile.title)),
-  workflow: await workflow(),
-  machineSettings: (await api("GET", "/machine/settings")).response.body,
-};
-write("store.json", await recordStore());
-const browser = await chromium.launch();
-try {
-  write("tools.json", await recordTools(browser));
-  write("baskets.json", await recordBaskets(browser));
-  write("recipes.json", await recordRecipes(browser));
-  write("dye2-applies.json", await recordDye2Applies(browser));
-  const shotId = await pullShot();
-  const pulled = await api("GET", `/shots/${shotId}`);
-  const edited = await recordEditShot(browser, shotId);
-  write("shot.json", { pulled, ...edited, edited: await api("GET", `/shots/${shotId}`) });
-  write("keys.json", await keys());
-
-  // A favourite, and a Shot pulled with a batch so DYE2 has a recent favourite; then nothing selected, on Classic Italian espresso.
-  const favouriteId = await makeFavourite(browser);
-  const ethiopia = await beanNamed("Fixture Ethiopia");
-  await api("PUT", "/workflow", { context: { beanBatchId: (await batchOf(ethiopia)).id, coffeeName: ethiopia.name, coffeeRoaster: ethiopia.roaster } });
-  await restartDecaid();
-  await pullShot();
-  await api("PUT", "/workflow", { profile: (await profileTitled("Classic Italian espresso")).profile });
-  await api("POST", SELECTION, {});
-  await wait(2000);
-  write("library.json", {
-    ...library,
-    recipes: (await api("GET", RECIPES)).response.body,
-    baskets: (await api("GET", "/store/dye2.reaplugin/baskets")).response.body,
-    favourite: favouriteId,
-    selectionWorkflow: await workflow(),
-    storedSelection: (await api("GET", STORED_SELECTION)).response.body,
-  });
-  write("plugins.json", await recordPlugins());
-  write("dashboard.json", await recordDashboard(browser, favouriteId));
-  write("recording.json", await recordRecording(browser));
-  write("restore.json", await recordRestore());
-  write("streamline.json", await recordStreamline(browser));
-  write("fingerprints.json", fingerprints);
-} finally {
-  await browser.close();
-  changed.socket.close();
-  recorder.socket.close();
-}
+if (process.argv[3] === "--machine-settings") await recordMachineSettingsFile();
+else await recordAll();
 log("done");
+
+/**
+ * Only machine-settings.json, on a Decaid of its own whose data is new: the
+ * library, as `recordAll` makes it but for baskets and tools, then the
+ * Machine Settings steps.
+ */
+async function recordMachineSettingsFile() {
+  const library = {
+    beans: (await api("GET", "/beans")).response.body,
+    beanBatches: (await api("GET", "/bean-batches")).response.body,
+    grinders: (await api("GET", "/grinders")).response.body,
+    profiles: (await api("GET", "/profiles")).response.body.filter((record) => record.profile.title === "Adaptive v3"),
+    workflow: await workflow(),
+    machineSettings: (await api("GET", "/machine/settings")).response.body,
+  };
+  const browser = await chromium.launch();
+  try {
+    write("machine-settings.json", { library, ...(await recordMachineSettings(browser)) });
+  } finally {
+    await browser.close();
+    changed.socket.close();
+    recorder.socket.close();
+  }
+}
+
+/** Every other file, from one run on a Decaid whose data is new. */
+async function recordAll() {
+  const library = {
+    beans: (await api("GET", "/beans")).response.body,
+    beanBatches: (await api("GET", "/bean-batches")).response.body,
+    grinders: (await api("GET", "/grinders")).response.body,
+    // The bundled profiles the recipes use: slot 1's, picked from the library, and the one slot 2 reads from the Workflow.
+    profiles: (await api("GET", "/profiles")).response.body.filter((record) => ["Adaptive v3", "Classic Italian espresso"].includes(record.profile.title)),
+    workflow: await workflow(),
+    machineSettings: (await api("GET", "/machine/settings")).response.body,
+  };
+  write("store.json", await recordStore());
+  const browser = await chromium.launch();
+  try {
+    write("tools.json", await recordTools(browser));
+    write("baskets.json", await recordBaskets(browser));
+    write("recipes.json", await recordRecipes(browser));
+    write("dye2-applies.json", await recordDye2Applies(browser));
+    const shotId = await pullShot();
+    const pulled = await api("GET", `/shots/${shotId}`);
+    const edited = await recordEditShot(browser, shotId);
+    write("shot.json", { pulled, ...edited, edited: await api("GET", `/shots/${shotId}`) });
+    write("keys.json", await keys());
+
+    // A favourite, and a Shot pulled with a batch so DYE2 has a recent favourite; then nothing selected, on Classic Italian espresso.
+    const favouriteId = await makeFavourite(browser);
+    const ethiopia = await beanNamed("Fixture Ethiopia");
+    await api("PUT", "/workflow", { context: { beanBatchId: (await batchOf(ethiopia)).id, coffeeName: ethiopia.name, coffeeRoaster: ethiopia.roaster } });
+    await restartDecaid();
+    await pullShot();
+    await api("PUT", "/workflow", { profile: (await profileTitled("Classic Italian espresso")).profile });
+    await api("POST", SELECTION, {});
+    await wait(2000);
+    write("library.json", {
+      ...library,
+      recipes: (await api("GET", RECIPES)).response.body,
+      baskets: (await api("GET", "/store/dye2.reaplugin/baskets")).response.body,
+      favourite: favouriteId,
+      selectionWorkflow: await workflow(),
+      storedSelection: (await api("GET", STORED_SELECTION)).response.body,
+    });
+    write("plugins.json", await recordPlugins());
+    write("dashboard.json", await recordDashboard(browser, favouriteId));
+    write("recording.json", await recordRecording(browser));
+    write("restore.json", await recordRestore());
+    write("streamline.json", await recordStreamline(browser));
+    write("fingerprints.json", fingerprints);
+  } finally {
+    await browser.close();
+    changed.socket.close();
+    recorder.socket.close();
+  }
+}

@@ -8,6 +8,7 @@ import {
   dye2Keys,
   dye2Library,
   dye2List,
+  dye2MachineSettingsLibrary,
   dye2MainRecording,
   dye2Recording,
   dye2StoreExchanges,
@@ -32,7 +33,8 @@ const tablets: SimulatedTablet[] = [];
 afterAll(() => Promise.all(tablets.map((tablet) => tablet.unload())));
 
 function load(api = dye2Library(), dye2?: SimulatedDye2): SimulatedTablet {
-  const tablet = SimulatedTablet.load({ settings: {}, api, dye2, timeScale: TIME_SCALE });
+  // Recorded on Decaid's simulated machine, which keeps no flush time or temperature written to it.
+  const tablet = SimulatedTablet.load({ settings: {}, api, dye2, timeScale: TIME_SCALE, keepsFlushSettings: false });
   tablets.push(tablet);
   return tablet;
 }
@@ -43,6 +45,21 @@ const waitTablet = (ms: number) => new Promise((resolve) => setTimeout(resolve, 
 /** The list a step's last write posted. */
 function posted(step: Dye2Exchange[]): unknown {
   return step.filter(({ request }) => request.method === "POST" && request.path.startsWith(`/store/${DYE2_NAMESPACE}/`)).at(-1)!.request.body;
+}
+
+/**
+ * Checks a step made again on the tablet: its reads once DYE2 would have
+ * recorded, the pushes DYE2 made since `pushes` and the context of each
+ * Workflow change since `changes`, as recorded.
+ */
+async function expectAfter(tablet: SimulatedTablet, dye2: SimulatedDye2, events: unknown[], step: Dye2Step, pushes: number, changes: number): Promise<void> {
+  await waitTablet(2000);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const answers: DecaidAnswer[] = [];
+  for (const { request } of step.after) answers.push(await tablet.callApi(request.method, request.path));
+  expect(answers).toEqual(step.after.map(({ response }) => response));
+  expect(dye2.pushes.slice(pushes)).toEqual(step.pushes);
+  expect(events.slice(changes)).toEqual(step.events);
 }
 
 describe("The simulated tablet's plugin storage", () => {
@@ -101,16 +118,7 @@ describe("DYE2's pages replayed on a simulated tablet", () => {
     for (const field of ["dose", "drink", "brewC", "steamFlowMls", "flushS", "hotWaterMl", "grind", "rpm", "steamTempC"]) expect(blank.dashboardVariables).not.toHaveProperty(field);
   });
 
-  /** Checks an apply made again: its reads once DYE2 would have recorded, its pushes and the context of each Workflow change, as recorded. */
-  async function checkAfter(step: Dye2Step, pushes: number, changes: number): Promise<void> {
-    await waitTablet(2000);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    const answers: DecaidAnswer[] = [];
-    for (const { request } of step.after) answers.push(await tablet.callApi(request.method, request.path));
-    expect(answers).toEqual(step.after.map(({ response }) => response));
-    expect(dye2.pushes.slice(pushes)).toEqual(step.pushes);
-    expect(events.slice(changes)).toEqual(step.events);
-  }
+  const checkAfter = (step: Dye2Step, pushes: number, changes: number) => expectAfter(tablet, dye2, events, step, pushes, changes);
 
   it("applying a recipe on DYE2's dashboard sends the Workflow recorded, then selects it, which marks the Workflow", async () => {
     // As the recording did before saving slot 2: the Workflow's profile set to the one slot 2 reads.
@@ -144,6 +152,93 @@ describe("DYE2's pages replayed on a simulated tablet", () => {
     await waitTablet(2500);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(dye2List(tablet, "recipes")).toEqual(dye2Keys().recipes);
+  });
+});
+
+describe("DYE2's Machine Settings replayed on a simulated tablet", () => {
+  runAsSteps();
+  const recorded = dye2Recording("machine-settings");
+  const dye2 = new SimulatedDye2();
+  const tablet = load(dye2MachineSettingsLibrary(), dye2);
+  const events: unknown[] = [];
+  tablet.onWorkflowChange((workflow) => events.push(structuredClone(workflow.context ?? null)));
+  const slot1 = () => (dye2List(tablet, "recipes") as { id: string; dashboardVariables: Record_; workflow: Record_ }[]).find((recipe) => recipe.id === "1")!;
+
+  it("DYE2's recipe editor saves every machine setting as recorded: both values of each mode, Off as 0 and a blank as null", async () => {
+    const save = async (name: "saveMachineSettings" | "editMachineSettings" | "switchModeOnly" | "steamOff" | "steamBackOn" | "clearMilkStopTyped" | "clearMilkStop") => {
+      const step = recorded[name];
+      expect(await saveInDye2(tablet, step), name).toEqual(posted(step));
+      expect(dye2List(tablet, "recipes"), name).toEqual(posted(step));
+      return slot1();
+    };
+    let slot = await save("saveMachineSettings");
+    expect(slot.dashboardVariables).toMatchObject({
+      steamMode: "flow",
+      steamTimeS: 30,
+      steamFlowMls: 1.2,
+      hotWaterMode: "temp",
+      hotWaterMl: 150,
+      hotWaterTempC: 85,
+      steamTempC: 150,
+      steamStopAtTempC: 60,
+      hotWaterTimeS: 30,
+      hotWaterFlowMls: 4,
+      flushTempC: 90,
+      flushS: 5,
+      flushFlowMls: 6,
+    });
+    expect([slot.workflow.steamSettings, slot.workflow.hotWaterData, slot.workflow.rinseData]).toEqual([
+      { targetTemperature: 150, duration: 30, flow: 1.2, stopAtTemperature: 60 },
+      { targetTemperature: 85, duration: 30, volume: 150, flow: 4 },
+      { targetTemperature: 90, duration: 5, flow: 6 },
+    ]);
+    slot = await save("editMachineSettings");
+    expect(slot.dashboardVariables).toMatchObject({ steamMode: "time", steamTimeS: 32, steamFlowMls: 1.2, flushFlowMls: 5 });
+    // A mode switched alone changes only the mode.
+    const before = slot.dashboardVariables;
+    slot = await save("switchModeOnly");
+    expect(slot.dashboardVariables).toEqual({ ...before, hotWaterMode: "vol" });
+    slot = await save("steamOff");
+    expect([slot.dashboardVariables.steamTempC, (slot.workflow.steamSettings as Record_).targetTemperature]).toEqual([0, 0]);
+    slot = await save("steamBackOn");
+    expect(slot.dashboardVariables.steamTempC).toBe(150);
+    // An empty value typed puts back the one shown: the save changes nothing but when it was made.
+    const typed = slot.dashboardVariables;
+    slot = await save("clearMilkStopTyped");
+    expect(slot.dashboardVariables).toEqual(typed);
+    slot = await save("clearMilkStop");
+    expect(slot.dashboardVariables).toHaveProperty("steamStopAtTempC", null);
+    expect(slot.workflow.steamSettings).toEqual({ targetTemperature: 150, duration: 32, flow: 1.2 });
+  });
+
+  it("applying it on DYE2's dashboard sends every machine setting it holds, turning on steam the Workflow had off, then selects it", async () => {
+    const off = recorded.steamOffInWorkflow;
+    let [pushes, changes] = [dye2.pushes.length, events.length];
+    expect(await replayWrites(tablet, off)).toEqual(off.exchanges.map(({ response }) => response));
+    await expectAfter(tablet, dye2, events, off, pushes, changes);
+    const step = recorded.applyMachineSettings;
+    [pushes, changes] = [dye2.pushes.length, events.length];
+    const page = await openDye2Dashboard(tablet);
+    const applied = await page.applyRecipe("1");
+    const writes = step.exchanges.filter(({ request }) => request.method !== "GET");
+    expect(page.lastSent).toEqual(writes[0]!.request.body);
+    expect(page.lastSent).toMatchObject({
+      steamSettings: { targetTemperature: 150, duration: 32, flow: 1.2, stopAtTemperature: 0 },
+      hotWaterData: { targetTemperature: 85, duration: 30, volume: 150, flow: 4 },
+      rinseData: { targetTemperature: 90, duration: 5, flow: 5 },
+    });
+    expect([applied.workflow, applied.selection]).toEqual(writes.map(({ response }) => response));
+    await expectAfter(tablet, dye2, events, step, pushes, changes);
+  });
+
+  it("a Workflow change once it is selected is recorded with the flush temperature the machine reports", async () => {
+    // Past DYE2's echo window, as recorded.
+    await waitTablet(3000);
+    const step = recorded.changeAfterApply;
+    const [pushes, changes] = [dye2.pushes.length, events.length];
+    expect(await replayWrites(tablet, step)).toEqual(step.exchanges.map(({ response }) => response));
+    await expectAfter(tablet, dye2, events, step, pushes, changes);
+    expect(dye2.recorded.at(-1)).toEqual({ kind: "recipe", id: "1", patch: { grind: 2.6, flushTempC: 25 } });
   });
 });
 

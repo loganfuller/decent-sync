@@ -10,7 +10,7 @@ import { batchesOf, createBatch, deleteBatch, deleteBean, listedBatches, updateB
 import { type DecaidAnswer, createBean, listedBeans, updateBean, withDecaidClock } from "./decaid-beans.js";
 import { createGrinder, deleteGrinder, listedGrinders, updateGrinder } from "./decaid-grinders.js";
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
-import { updateWorkflow } from "./decaid-workflow.js";
+import { machineSettingsWritten, updateWorkflow } from "./decaid-workflow.js";
 import type { SimulatedDye2 } from "./simulated-dye2.js";
 import { rememberSecret, watchLog } from "./secrets.js";
 import { opened } from "./test-scope.js";
@@ -1516,10 +1516,10 @@ export class SimulatedTablet {
    * takes is sent to the plugin in a `workflowUpdated` event before Decaid
    * answers, as its PluginManager broadcasts the change as the Workflow is
    * set, so the plugin hears of its own write while it awaits the answer.
-   * Its flush settings, where they changed, Decaid writes to the machine
-   * (`De1Controller.updateFlushSettings`), so `GET /machine/settings` reads
-   * them back from it after, as DYE2 reads its flush temperature and flow,
-   * on a machine that keeps them (`keepsFlushSettings`).
+   * The steam, hot water and flush settings it writes to the machine are the
+   * machine's settings from then on, as `GET /machine/settings` answers them
+   * (`machineSettingsWritten`), the flush time and temperature only on a
+   * machine that keeps them (`keepsFlushSettings`).
    */
   private writeWorkflow(body: unknown): DecaidAnswer {
     const current = this.api["/workflow"];
@@ -1527,10 +1527,9 @@ export class SimulatedTablet {
     const { answer, workflow } = updateWorkflow(current as Record<string, unknown>, typeof body === "string" ? JSON.parse(body) : body, this.machineConnected);
     if (workflow) {
       const settings = this.api["/machine/settings"];
-      const rinse = workflow.rinseData as Record<string, unknown> | undefined;
-      const changed = JSON.stringify(rinse) !== JSON.stringify((current as Record<string, unknown>).rinseData);
-      if (this.keepsFlushSettings && rinse && changed && typeof settings === "object" && settings !== null && !Array.isArray(settings)) {
-        this.api = { ...this.api, "/machine/settings": { ...settings, flushTemp: rinse.targetTemperature, flushFlow: rinse.flow, flushTimeout: rinse.duration } };
+      const written = machineSettingsWritten(current as Record<string, unknown>, workflow, this.keepsFlushSettings);
+      if (typeof settings === "object" && settings !== null && !Array.isArray(settings) && Object.keys(written).length > 0) {
+        this.api = { ...this.api, "/machine/settings": { ...settings, ...written } };
       }
       this.setWorkflow(workflow);
     }
