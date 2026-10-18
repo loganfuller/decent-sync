@@ -160,6 +160,7 @@ in the `db-data` volume. These variables in `.env` configure the stack:
 | `DECENT_SYNC_PORT` | the host port the server is published on (default 3000); keep `PUBLIC_URL` in step |
 | `POSTGRES_PASSWORD` | the database password (default `decent_sync`); letters and digits only, since it goes into a URL. It takes effect only when the volume is first created |
 | `POSTGRES_PORT` | the loopback port PostgreSQL is published on, for backups and inspection (default 5432) |
+| `CLIENT_ADDRESS_HEADER` | optional: the request header a reverse proxy puts the tablet's address in, such as `X-Forwarded-For` (see [On the internet](#on-the-internet)) |
 
 To upgrade, pull the newer image and restart:
 
@@ -215,6 +216,16 @@ the reverse proxy:
 fly.io's proxy cannot limit one route's request rate, but it can cap the
 connections it sends each machine: see `[http_service.concurrency]` in the
 fly.io example below.
+
+Behind a reverse proxy, every tablet's connection comes from the proxy, so
+Machines show the proxy's address rather than the tablet's. Set
+`CLIENT_ADDRESS_HEADER` to the header the proxy puts the client's address in,
+usually `X-Forwarded-For`: Caddy sets it, and nginx does with
+`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`. The server
+takes the header's last comma-separated entry, the one the nearest proxy
+added, when it is an IP address, and the connection's own address otherwise.
+Any client can send that header, so set it only when every request reaches the
+server through a proxy that sets or overwrites it.
 
 ### fly.io
 
@@ -291,6 +302,9 @@ primary_region = "yyz"
 
 [env]
   PUBLIC_URL = "https://my-decent-sync.fly.dev"
+  # So Machines show each tablet's address, not fly.io's proxy's. fly.io puts
+  # the app's own address last in X-Forwarded-For, so use its own header.
+  CLIENT_ADDRESS_HEADER = "Fly-Client-IP"
 
 [http_service]
   internal_port = 3000
@@ -428,6 +442,7 @@ required variable is missing or invalid.
 | `WEB_DIST_DIR` | the built management interface (default `web/dist`) |
 | `SYNC_HELLO_TIMEOUT_SECONDS` | how long a plugin connection has to send `hello` (default 10) |
 | `SYNC_HEARTBEAT_SECONDS` | how often plugins send a heartbeat (default 30); a connection silent for three is closed |
+| `CLIENT_ADDRESS_HEADER` | the request header, such as `X-Forwarded-For` or `X-Real-IP`, whose last entry, when an IP address, is a tablet's address instead of the connection's (default unset: the connection's). Set it only when every request reaches the server through a proxy that sets or overwrites that header ([On the internet](#on-the-internet)) |
 
 On startup the server applies pending database migrations, then serves the
 REST API under `/api`, the plugin's WebSocket at `/sync`, and the management

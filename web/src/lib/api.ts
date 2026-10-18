@@ -208,7 +208,7 @@ export interface Takeover {
   replacement: TakeoverConnection;
 }
 
-/** A connection in a takeover: its tablet, the address the server saw it come from, and what its plugin reported. */
+/** A connection in a takeover: its tablet, the address it came from, and what its plugin reported. */
 export interface TakeoverConnection {
   tabletId: string;
   remoteAddress: string;

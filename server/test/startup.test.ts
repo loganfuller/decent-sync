@@ -37,4 +37,15 @@ describe("server startup", () => {
     expect(result.stderr).toContain("PUBLIC_URL must start with http:// or https://");
     expect(result.stderr).toContain("PUBLIC_URL must be an origin only");
   });
+
+  it("refuses a CLIENT_ADDRESS_HEADER that is not an HTTP header name, naming the variable", () => {
+    const result = start({
+      DATABASE_URL: "postgresql://localhost:5432/decent_sync",
+      PUBLIC_URL: "https://sync.example.com",
+      CLIENT_ADDRESS_HEADER: "X Forwarded For",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("CLIENT_ADDRESS_HEADER must be an HTTP header name, such as X-Forwarded-For or X-Real-IP, not X Forwarded For");
+  });
 });

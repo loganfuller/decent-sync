@@ -14,7 +14,7 @@ import type { PrismaService } from "../prisma.service.js";
 export interface TakeoverConnectionView {
   /** The tablet it came from. */
   tabletId: string;
-  /** The address it came from, as the server saw it: behind a proxy, the proxy's. */
+  /** The address it came from: its socket's, or the client's as CLIENT_ADDRESS_HEADER gives it (`clientAddress`). */
   remoteAddress: string;
   /** The connection id, plugin and Decaid versions its `hello` reported. */
   connectionId: string | null;

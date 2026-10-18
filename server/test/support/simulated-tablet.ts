@@ -1990,9 +1990,13 @@ export class RawConnection {
     });
   }
 
-  /** Connects to the sync endpoint of a server's public http(s):// URL. */
-  static async open(serverUrl: string): Promise<RawConnection> {
-    const socket = new WebSocket(`${serverUrl.replace(/^http/, "ws")}${SYNC_PATH}`);
+  /**
+   * Connects to the sync endpoint of a server's public http(s):// URL. The
+   * plugin cannot send `headers` on the upgrade request, but a reverse proxy
+   * in front of the server can add them.
+   */
+  static async open(serverUrl: string, headers?: Record<string, string>): Promise<RawConnection> {
+    const socket = new WebSocket(`${serverUrl.replace(/^http/, "ws")}${SYNC_PATH}`, { headers });
     await new Promise<void>((resolve, reject) => {
       socket.once("open", resolve);
       socket.once("error", reject);
@@ -2006,8 +2010,13 @@ export class RawConnection {
    * Connects, sends the `hello` and resolves once the server welcomes it,
    * then keeps the connection alive with heartbeats every `heartbeatMs`.
    */
-  static async welcomed(serverUrl: string, hello: Record<string, unknown>, heartbeatMs = 300): Promise<RawConnection> {
-    const raw = await RawConnection.open(serverUrl);
+  static async welcomed(
+    serverUrl: string,
+    hello: Record<string, unknown>,
+    heartbeatMs = 300,
+    headers?: Record<string, string>,
+  ): Promise<RawConnection> {
+    const raw = await RawConnection.open(serverUrl, headers);
     try {
       raw.send(hello);
       const answer = await raw.message(0);
