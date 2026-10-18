@@ -177,6 +177,7 @@ export class SyncConnection {
     );
     this.shots = new ShotCapture(this.outbox, log);
     this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1000, log);
+    const skins = tellSkins(host, log);
     this.loadedRecipes = new LoadedRecipes(
       {
         hold: () => this.machineEvents.hold(),
@@ -202,6 +203,7 @@ export class SyncConnection {
       },
       settings.pollSeconds * 1000,
       () => this.collections.readRecipes(),
+      skins.workflowWritten,
     );
     this.machineEvents = new MachineEvents(
       this.outbox,
@@ -219,7 +221,7 @@ export class SyncConnection {
         if (this.sentHardware !== null) this.machineAway = true;
       },
       log,
-      tellSkins(host, log),
+      skins,
     );
     this.tabletId = new TabletId(this.storage, log);
   }

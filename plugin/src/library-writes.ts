@@ -48,6 +48,7 @@ import type { WorkflowChanges } from "./machine-events.js";
 import type { Outbox } from "./outbox.js";
 import { clearsSelection, stepsKey } from "./loaded-recipe-rules.js";
 import { type LoadedRecipeWrites, machineMissing } from "./loaded-recipes.js";
+import type { Skins } from "./skins.js";
 import { keepStreamlineSteamTemperature } from "./streamline.js";
 import { randomUuid } from "./tablet-id.js";
 
@@ -78,7 +79,8 @@ import { randomUuid } from "./tablet-id.js";
 // a record, so one its Location stops offering is removed from the list. A
 // recipe's id is its Recipe Slot, and the plugin keeps the list in slot
 // order whenever it writes it. Once Decaid takes a post of DYE2's recipes,
-// the skins listening for changes are told (`ListPosted`, skins.ts).
+// or a write into the Workflow that changes it, the skins listening for
+// changes are told (`ListPosted`, skins.ts).
 
 /** Where a kind's records live in Decaid's API, for the kinds whose records the plugin writes as they are (`recordWriter`). */
 interface Route {
@@ -139,11 +141,13 @@ interface LibraryKindWriter extends KindWriter {
  * Told each time Decaid takes a post of one of DYE2's lists, under its key,
  * and never when nothing was posted. It must not throw. It carries the
  * Loaded Recipe's part in the writes (`LoadedRecipeWrites`), where there is
- * one.
+ * one, and what is told of each write into the Workflow Decaid takes.
  */
 export interface ListPosted {
   (key: Dye2Key): void;
   loaded?: LoadedRecipeWrites;
+  /** Told of each `PUT /workflow` Decaid took, with the Workflow read before it and the one Decaid answered (`Skins.workflowWritten`). It must not throw. */
+  workflowWritten: Skins["workflowWritten"];
 }
 
 /** Whether a Shot this plugin queued since it loaded, or has yet to send, names one of a kind's records (`LibraryWrites.namedByShot`). */
@@ -298,7 +302,7 @@ export class LibraryAccess {
  * edit (ADR-0003).
  */
 export class LibraryWrites {
-  /** Told of each post of one of DYE2's lists Decaid took, carrying the Loaded Recipe's part in them. */
+  /** Told of each post of one of DYE2's lists and each write into the Workflow Decaid took, carrying the Loaded Recipe's part in them. */
   private readonly posted: ListPosted;
 
   constructor(
@@ -310,10 +314,10 @@ export class LibraryWrites {
     /** Told when Decaid refuses a write into the Workflow as no machine is connected. */
     private readonly machineMissing: () => void,
     private readonly log: (message: string) => void,
-    /** Told of each post of one of DYE2's lists Decaid took. */
-    posted: ListPosted,
+    /** Told of each post of one of DYE2's lists and each write into the Workflow Decaid took. */
+    skins: Skins,
   ) {
-    this.posted = Object.assign((key: Dye2Key) => posted(key), { loaded });
+    this.posted = Object.assign((key: Dye2Key) => skins.listPosted(key), { loaded, workflowWritten: skins.workflowWritten });
     outbox.watch((delivery) => {
       if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shotId, delivery.shot);
     });
@@ -672,10 +676,11 @@ async function writeProfile(write: LibraryWrite): Promise<WriteAnswer> {
  * field of its `context` merged in as null is cleared, and a key of its
  * `extras` set to null. A grinder, batch or Basket a barista picked since
  * stays whole, though another grinder may be of the same model, while one a
- * skin relabelled is still cleared. Answers with the Workflow's `context`,
+ * skin relabelled is still cleared. A clear Decaid takes is told of
+ * (`ListPosted.workflowWritten`). Answers with the Workflow's `context`,
  * timed now, as a Workflow carries no time.
  */
-async function clearWorkflow(write: LibraryWrite): Promise<WriteAnswer> {
+async function clearWorkflow(write: LibraryWrite, _log: (message: string) => void, posted: ListPosted): Promise<WriteAnswer> {
   const current = await request("GET", "/workflow");
   const workflow = current.ok ? parsed(current.text) : undefined;
   if (!isObject(workflow)) return refused(write, current.status, current.text);
@@ -692,6 +697,7 @@ async function clearWorkflow(write: LibraryWrite): Promise<WriteAnswer> {
   const answer = await request("PUT", "/workflow", workflowPatch(fields));
   const updated = answer.ok ? parsed(answer.text) : undefined;
   if (!isObject(updated)) return refused(write, answer.status, answer.text);
+  posted.workflowWritten(workflow, updated);
   return written(write, workflowContext(updated), Object.keys(fields), new Date().toISOString());
 }
 
@@ -712,9 +718,10 @@ async function clearWorkflow(write: LibraryWrite): Promise<WriteAnswer> {
  * decentespresso/streamline-js#156). Decaid refuses to change the steam, hot
  * water and flush settings while no machine is connected, so the rest is
  * then written without them, the Workflow read again first, and a write of
- * only them is refused. Answers with the Workflow's `context`, steam, hot
- * water and flush settings and `profile`, timed now, as a Workflow carries
- * no time. A write unloading the Recipe, naming
+ * only them is refused. A write Decaid takes is told of
+ * (`ListPosted.workflowWritten`). Answers with the Workflow's `context`,
+ * steam, hot water and flush settings and `profile`, timed now, as a
+ * Workflow carries no time. A write unloading the Recipe, naming
  * DYE2_SELECTION_FIELD, has DYE2's selection of its slot cleared instead,
  * the Workflow left as it is: DYE2 writes its field.
  */
@@ -755,6 +762,7 @@ async function writeLoadedRecipe(write: LibraryWrite, log: (message: string) => 
     // This write refused, the Workflow stayed, so DYE2 cleared nothing for it.
     if (clears && !isObject(updated)) posted.loaded?.selectionKept(globalId);
     if (isObject(updated)) {
+      posted.workflowWritten(workflow, updated);
       posted.loaded?.written(globalId, workflow, updated, clears);
       await keepStreamlineSteamTemperature(steam, log);
       return written(write, loadedRecipeParts(updated), Object.keys(fields), new Date().toISOString());

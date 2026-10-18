@@ -1088,11 +1088,13 @@ var __decentSync = (() => {
   var MAX_HOLD_MS = 1e4;
   var LoadedRecipes = class {
     constructor(changes, log, transports, pollMs, pushed = () => {
+    }, workflowWritten = () => {
     }) {
       __publicField(this, "changes", changes);
       __publicField(this, "log", log);
       __publicField(this, "pollMs", pollMs);
       __publicField(this, "pushed", pushed);
+      __publicField(this, "workflowWritten", workflowWritten);
       /** The latest Workflow Decaid reported. */
       __publicField(this, "latest");
       /** The Loaded Recipe, by its global id: from the first Workflow's DYE2 selection, once the recipes are read, until it decides. */
@@ -1561,9 +1563,10 @@ var __decentSync = (() => {
      * recipe leaves out, or a stale copy got wrong (`loadWrite`), and tells the
      * server what it replaced, on the next Workflow delivery. Decaid refuses
      * to change the steam, hot water and flush settings while no machine is
-     * connected, so the rest is then written without them. A steam
-     * temperature the recipe holds is kept as the one Streamline turns steam
-     * back on at (`keepStreamlineSteamTemperature`), written into the
+     * connected, so the rest is then written without them. A write Decaid
+     * takes is told of (`workflowWritten`). A steam temperature the recipe
+     * holds is kept as the one Streamline turns steam back on at
+     * (`keepStreamlineSteamTemperature`), written into the
      * Workflow or not, as one into a Workflow whose steam is off is not
      * (interim, until decentespresso/streamline-js#156). A write that changed the profile,
      * batch or grinder, which DYE2 clears its selection on, has the slot
@@ -1589,6 +1592,7 @@ var __decentSync = (() => {
           if (answer && !answer.ok) throw new Error(`Decaid answered ${answer.status} loading the recipe in slot ${slot}: ${answer.text.slice(0, 200)}`);
         }
         const after = answer ? parsed3(answer.text) : workflow;
+        if (answer && isObject4(after)) this.workflowWritten(workflow, after);
         if (planned && Object.keys(planned.before).length > 0) this.changes.attach({ loadBefore: planned.before });
         this.loaded = globalId;
         this.armed = armed;
@@ -1890,13 +1894,13 @@ var __decentSync = (() => {
     }
   };
   var LibraryWrites = class {
-    constructor(library, outbox, workflow, loaded, machineMissing2, log, posted) {
+    constructor(library, outbox, workflow, loaded, machineMissing2, log, skins) {
       __publicField(this, "library", library);
       __publicField(this, "outbox", outbox);
       __publicField(this, "workflow", workflow);
       __publicField(this, "machineMissing", machineMissing2);
       __publicField(this, "log", log);
-      /** Told of each post of one of DYE2's lists Decaid took, carrying the Loaded Recipe's part in them. */
+      /** Told of each post of one of DYE2's lists and each write into the Workflow Decaid took, carrying the Loaded Recipe's part in them. */
       __publicField(this, "posted");
       /**
        * The batch, Grinder, profile, basket and tool records each Shot this
@@ -1909,7 +1913,7 @@ var __decentSync = (() => {
       __publicField(this, "shotsName", /* @__PURE__ */ new Map());
       /** The Shots still to be sent that `namedByShot` read. */
       __publicField(this, "shotsRead", /* @__PURE__ */ new Set());
-      this.posted = Object.assign((key) => posted(key), { loaded });
+      this.posted = Object.assign((key) => skins.listPosted(key), { loaded, workflowWritten: skins.workflowWritten });
       outbox.watch((delivery) => {
         if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shotId, delivery.shot);
       });
@@ -2138,7 +2142,7 @@ var __decentSync = (() => {
     if (!isObject5(updated) || updated.id !== write.globalId) return written(write, record, writtenFields);
     return written(write, updated, [...writtenFields, "visibility"]);
   }
-  async function clearWorkflow(write) {
+  async function clearWorkflow(write, _log, posted) {
     const current = await request("GET", "/workflow");
     const workflow = current.ok ? parsed4(current.text) : void 0;
     if (!isObject5(workflow)) return refused(write, current.status, current.text);
@@ -2155,6 +2159,7 @@ var __decentSync = (() => {
     const answer = await request("PUT", "/workflow", workflowPatch(fields));
     const updated = answer.ok ? parsed4(answer.text) : void 0;
     if (!isObject5(updated)) return refused(write, answer.status, answer.text);
+    posted.workflowWritten(workflow, updated);
     return written(write, workflowContext(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
   }
   async function writeLoadedRecipe(write, log, posted) {
@@ -2191,6 +2196,7 @@ var __decentSync = (() => {
       const updated = answer.ok ? parsed4(answer.text) : void 0;
       if (clears && !isObject5(updated)) posted.loaded?.selectionKept(globalId);
       if (isObject5(updated)) {
+        posted.workflowWritten(workflow, updated);
         posted.loaded?.written(globalId, workflow, updated, clears);
         await keepStreamlineSteamTemperature(steam, log);
         return written(write, loadedRecipeParts(updated), Object.keys(fields), (/* @__PURE__ */ new Date()).toISOString());
@@ -3511,7 +3517,7 @@ var __decentSync = (() => {
   var SKIN_ENDPOINT = "skin";
   var CHANGED_ENDPOINT = "changed";
   var SKIN_ANSWER = { version: 1, surfaces: [], live: { endpoint: CHANGED_ENDPOINT } };
-  var RECIPES_CHANGED = { what: "workflow" };
+  var WORKFLOW_CHANGED = { what: "workflow" };
   function answerHttp(request2) {
     if (request2.endpoint !== SKIN_ENDPOINT) return json(404, { error: "Not found" });
     if (request2.method !== "GET") return { ...json(405, { error: "Only GET is answered" }), headers: { "Content-Type": "application/json", Allow: "GET" } };
@@ -3521,12 +3527,19 @@ var __decentSync = (() => {
     return { status, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
   }
   function tellSkins(host, log) {
-    return (key) => {
-      if (key !== "recipes") return;
+    const push = (what) => {
       try {
-        host.emit(CHANGED_ENDPOINT, RECIPES_CHANGED);
+        host.emit(CHANGED_ENDPOINT, WORKFLOW_CHANGED);
       } catch (error) {
-        log(`Could not tell skins that DYE2's recipes changed: ${error instanceof Error ? error.message : String(error)}`);
+        log(`Could not tell skins that ${what} changed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+    return {
+      listPosted: (key) => {
+        if (key === "recipes") push("DYE2's recipes");
+      },
+      workflowWritten: (before, after) => {
+        if (!sameValue(before, after)) push("the Workflow");
       }
     };
   }
@@ -3874,6 +3887,7 @@ var __decentSync = (() => {
       );
       this.shots = new ShotCapture(this.outbox, log);
       this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1e3, log);
+      const skins = tellSkins(host, log);
       this.loadedRecipes = new LoadedRecipes(
         {
           hold: () => this.machineEvents.hold(),
@@ -3898,7 +3912,8 @@ var __decentSync = (() => {
           close: (handle) => this.closeTransport(handle)
         },
         settings.pollSeconds * 1e3,
-        () => this.collections.readRecipes()
+        () => this.collections.readRecipes(),
+        skins.workflowWritten
       );
       this.machineEvents = new MachineEvents(
         this.outbox,
@@ -3916,7 +3931,7 @@ var __decentSync = (() => {
           if (this.sentHardware !== null) this.machineAway = true;
         },
         log,
-        tellSkins(host, log)
+        skins
       );
       this.tabletId = new TabletId(this.storage, log);
     }

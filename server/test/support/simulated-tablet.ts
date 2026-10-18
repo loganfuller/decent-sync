@@ -107,10 +107,11 @@ import { opened } from "./test-scope.js";
 // - `host.emit`, given only to a plugin whose manifest declares `emit`,
 //   sends its payload, through JSON, to the sockets open on the plugin's
 //   WebSocket endpoint of that name, keeping nothing for one opened later:
-//   `emits` lists what it sent, and `pushes` what a skin listening on an
-//   endpoint the manifest declares heard (`_handlePluginSocketEndpoint` in
-//   plugins_handler.dart); `failEmits` makes it throw. `callEndpoint` calls
-//   one of the plugin's HTTP endpoints as a skin does through
+//   `emits` lists what it sent, `onEmit` is called with each as it is sent,
+//   and `pushes` lists what a skin listening on an endpoint the manifest
+//   declares heard (`_handlePluginSocketEndpoint` in plugins_handler.dart);
+//   `failEmits` makes it throw. `callEndpoint` calls one of the plugin's
+//   HTTP endpoints as a skin does through
 //   `/api/v1/plugins/{id}/{endpoint}`, answered only for an `http` endpoint
 //   the manifest declares, with `api` (`_handlePluginApiEndpoint`). The
 //   manifest's `api` entries must each be shaped as Decaid's
@@ -632,6 +633,8 @@ export class SimulatedTablet {
   readonly emits: { event: string; payload: unknown }[] = [];
   /** Makes `host.emit` throw this, as when Decaid refuses it, until cleared. */
   failEmits?: Error;
+  /** Called with each push as the plugin emits it, before `host.emit` returns, as a skin hearing it at once would: a test reads what the tablet holds then. */
+  onEmit?: (event: string, payload: unknown) => void;
   /** Decaid's storage for the plugin, which outlasts this load. */
   readonly storage: PluginStorage;
   /** The Decaid API routes the plugin requested, in order, such as "/machine/info". */
@@ -1025,7 +1028,9 @@ export class SimulatedTablet {
   private emit(event: unknown, payload: unknown): void {
     if (this.failEmits) throw this.failEmits;
     if (this.unloaded) return;
-    this.emits.push({ event: String(event), payload: payload === undefined ? null : JSON.parse(JSON.stringify(payload)) });
+    const sent = { event: String(event), payload: payload === undefined ? null : JSON.parse(JSON.stringify(payload)) };
+    this.emits.push(sent);
+    this.onEmit?.(sent.event, sent.payload);
   }
 
   /**

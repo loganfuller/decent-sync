@@ -1565,8 +1565,10 @@ tablet's list of batches to show it does not.
   taken a post of DYE2's recipes, whether a write, a removal, a set-aside or
   a delete made it, the plugin pushes `{"what":"workflow"}` on its `changed`
   endpoint, so Streamline's dashboard re-reads them (ticket #168,
-  `plugin/src/skins.ts`, `AI_RUNTIME_NOTES.md`, Skins). A write that posts
-  nothing pushes nothing, and a push Decaid refuses is only logged.
+  `plugin/src/skins.ts`, `AI_RUNTIME_NOTES.md`, Skins), as it does once
+  Decaid has taken a write into the Workflow that changed it (ticket #207).
+  A write that posts nothing pushes nothing, and a push Decaid refuses is
+  only logged.
 - To set aside a record the Library leaves out (`leaveOut`), it reads the
   record, and archives a bean, bean batch or grinder (`PUT /beans/{id}`,
   `/bean-batches/{id}` or `/grinders/{id}` with `archived`, its `extras`
@@ -1796,7 +1798,10 @@ it.
   tablet reported, so one a skin relabelled is still cleared, and a
   Workflow naming another since, reported or in the write's answer, drops
   that part of the clear (`clearStillDue`), which otherwise expects what
-  the Workflow holds now. It is due only as the tablet joins: a batch
+  the Workflow holds now. Once Decaid takes a clear that cleared
+  something, the plugin pushes `{"what":"workflow"}` on its `changed`
+  endpoint, so a skin reads the Workflow again (ticket #207,
+  `AI_RUNTIME_NOTES.md`, Skins). It is due only as the tablet joins: a batch
   finished at the Location later leaves the Workflow as it is (ADR-0008).
   A clear the plugin is carrying out as its Machine moves back, within one
   write, to a Location that offers the grinder, batch or Basket is not
