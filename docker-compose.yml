@@ -16,6 +16,7 @@ services:
     environment:
       DATABASE_URL: postgresql://decent_sync:${POSTGRES_PASSWORD:-decent_sync}@db:5432/decent_sync
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
+      CLIENT_ADDRESS_HEADER: ${CLIENT_ADDRESS_HEADER:-}
     ports:
       - "${DECENT_SYNC_PORT:-3000}:3000"
     depends_on:

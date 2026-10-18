@@ -108,7 +108,7 @@ export interface MachineStateView {
 export interface HelloConnection {
   /** Written to its Machine's row if the hello is accepted, marking the connection that holds the Machine. */
   sessionId: string;
-  /** The address it came from, as the server saw it. */
+  /** The address it came from: its socket's, or the client's as CLIENT_ADDRESS_HEADER gives it (`clientAddress`). */
   remoteAddress: string;
 }
 

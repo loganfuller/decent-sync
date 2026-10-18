@@ -18,6 +18,12 @@ export interface Config {
   helloTimeoutMs: number;
   /** How often plugins send a heartbeat; a connection silent for three intervals is closed. */
   heartbeatIntervalMs: number;
+  /**
+   * The request header, lower-cased, whose last comma-separated entry, if an
+   * IP address, is a sync connection's address instead of its socket's. Set
+   * only behind a proxy that sets or overwrites it, as any client can send it.
+   */
+  clientAddressHeader?: string;
 }
 
 /** A reason the server cannot start that its message fully explains. */
@@ -57,6 +63,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const port = parsePort(env.PORT, problems);
   const helloTimeoutMs = parseSeconds("SYNC_HELLO_TIMEOUT_SECONDS", env.SYNC_HELLO_TIMEOUT_SECONDS, 10, problems);
   const heartbeatIntervalMs = parseSeconds("SYNC_HEARTBEAT_SECONDS", env.SYNC_HEARTBEAT_SECONDS, 30, problems);
+  const clientAddressHeader = parseHeaderName("CLIENT_ADDRESS_HEADER", env.CLIENT_ADDRESS_HEADER, problems);
 
   if (problems.length > 0) throw new ConfigError(problems);
 
@@ -68,6 +75,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     webDistDir: path.resolve(env.WEB_DIST_DIR?.trim() || path.join(serverDir, "../web/dist")),
     helloTimeoutMs,
     heartbeatIntervalMs,
+    clientAddressHeader,
   };
 }
 
@@ -114,4 +122,14 @@ function parseSeconds(name: string, value: string | undefined, defaultSeconds: n
     problems.push(`${name} must be a positive number of seconds, not ${raw}`);
   }
   return Math.round(seconds * 1000);
+}
+
+/** An HTTP header name (a token, RFC 9110), lower-cased, or undefined when blank. */
+function parseHeaderName(name: string, value: string | undefined, problems: string[]): string | undefined {
+  const raw = value?.trim();
+  if (!raw) return undefined;
+  if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(raw)) {
+    problems.push(`${name} must be an HTTP header name, such as X-Forwarded-For or X-Real-IP, not ${raw}`);
+  }
+  return raw.toLowerCase();
 }

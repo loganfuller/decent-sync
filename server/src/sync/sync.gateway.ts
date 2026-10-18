@@ -64,6 +64,7 @@ import { type CaptureDelivery, SetAsideDeliveriesService } from "../set-aside-de
 import { ShotsService } from "../shots/shots.service.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { hashSecret } from "../secrets.js";
+import { clientAddress } from "./client-address.js";
 import { HandledDeliveries, type IndexRequest } from "./handled-deliveries.js";
 import type { Hardware, Identity, Reporter } from "./identity.js";
 import { type AwaitedWrite, TabletWriter, type WriteOutcome } from "./tablet-writer.js";
@@ -94,6 +95,7 @@ interface Session {
   /** Written to its Machine's row once its hello is accepted, marking the connection that holds the Machine. */
   id: string;
   socket: WebSocket;
+  /** The address it came from (`clientAddress`). */
   remote: string;
   /** The token's Machine, once its `hello` is accepted. */
   machine?: { id: string; name: string };
@@ -271,7 +273,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     const session: Session = {
       id: randomUUID(),
       socket,
-      remote: request.socket.remoteAddress ?? "an unknown address",
+      remote: clientAddress(request, this.config.clientAddressHeader),
       queue: Promise.resolve(),
       chunks: new Reassembly(),
       handled: new HandledDeliveries(),

@@ -218,7 +218,7 @@ model Machine {
   reportedSerial      String?               @map("reported_serial")
   firmware            String?
   /// The connection id, plugin and Decaid versions of the latest accepted
-  /// `hello`, and the address its connection came from as the server saw it.
+  /// `hello`, and the address its connection came from (`clientAddress`).
   connectionId        String?               @map("connection_id")
   pluginVersion       String?               @map("plugin_version")
   decaidVersion       String?               @map("decaid_version")
