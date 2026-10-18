@@ -342,7 +342,11 @@ follows the selection, writing nothing of it into the Workflow.
   135 °C or more, written or left out for steam off, the plugin sets
   Streamline's `last-steam-temp` to it where that key holds a number
   (`keepStreamlineSteamTemperature`, interim until
-  decentespresso/streamline-js#156).
+  decentespresso/streamline-js#156). Once Decaid takes a load's write,
+  where it changed the Workflow, the plugin pushes `{"what":"workflow"}`
+  on its `changed` endpoint, so Streamline's tiles show the steam, hot
+  water and flush settings its strip left out at once rather than at its
+  20 s poll (ticket #207, `AI_RUNTIME_NOTES.md`, Skins).
 - **An unload on a change of grinder or batch.** DYE2 clears its selection
   itself on a change of the Workflow's batch or grinder off the one it held
   as the recipe was selected, a clear of either included, another batch of
@@ -624,7 +628,11 @@ the parts to the Recipe's content both ways.
   batch or grinder, as the plugin is selecting the slot again. Decaid
   refuses the steam, hot water and flush settings while no machine is
   connected: the rest is written, and those once the machine is back and
-  the plugin reconnects. A write is made to the Workflow of a Machine only
+  the plugin reconnects. Once Decaid takes a write that changed the
+  Workflow, the plugin pushes `{"what":"workflow"}` on its `changed`
+  endpoint, as after a load (A load, above): a skin reads the Workflow on
+  the push after the Recipe's record, written first, before the write
+  reaches it. A write is made to the Workflow of a Machine only
   while its Loaded Recipe is the Recipe its Workflow's DYE2 field names; a
   Machine with no Loaded Recipe keeps its own steam, hot water and flush
   settings.

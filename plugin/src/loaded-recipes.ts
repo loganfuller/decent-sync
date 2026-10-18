@@ -3,6 +3,7 @@ import { type Answer, request } from "./decaid.js";
 import { Dye2Pushes, type Dye2State, type SelectionAnswer, type Transports, postSelection, readDye2State, readSelection } from "./dye2-selection.js";
 import type { WorkflowChanges } from "./machine-events.js";
 import { type ArmedOn, type LoadContext, armedOn, clearsSelection, loadWrite, loadable, selectedOn, vacatedSlots } from "./loaded-recipe-rules.js";
+import type { Skins } from "./skins.js";
 import { keepStreamlineSteamTemperature } from "./streamline.js";
 
 // Each Machine's Loaded Recipe (ADR-0022): the recipe DYE2 has selected on
@@ -177,6 +178,8 @@ export class LoadedRecipes implements LoadedRecipeWrites {
      * server reads the Workflow a recording followed, as a load's, first.
      */
     private readonly pushed: () => void = () => {},
+    /** Told of each write into the Workflow Decaid took, with the Workflow read before it and the one Decaid answered (`Skins.workflowWritten`). */
+    private readonly workflowWritten: Skins["workflowWritten"] = () => {},
   ) {
     this.pushes = new Dye2Pushes(transports, () => {
       if (this.holding !== null || this.writing > 0) this.recipesDue = true;
@@ -656,9 +659,10 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * recipe leaves out, or a stale copy got wrong (`loadWrite`), and tells the
    * server what it replaced, on the next Workflow delivery. Decaid refuses
    * to change the steam, hot water and flush settings while no machine is
-   * connected, so the rest is then written without them. A steam
-   * temperature the recipe holds is kept as the one Streamline turns steam
-   * back on at (`keepStreamlineSteamTemperature`), written into the
+   * connected, so the rest is then written without them. A write Decaid
+   * takes is told of (`workflowWritten`). A steam temperature the recipe
+   * holds is kept as the one Streamline turns steam back on at
+   * (`keepStreamlineSteamTemperature`), written into the
    * Workflow or not, as one into a Workflow whose steam is off is not
    * (interim, until decentespresso/streamline-js#156). A write that changed the profile,
    * batch or grinder, which DYE2 clears its selection on, has the slot
@@ -684,6 +688,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
         if (answer && !answer.ok) throw new Error(`Decaid answered ${answer.status} loading the recipe in slot ${slot}: ${answer.text.slice(0, 200)}`);
       }
       const after = answer ? parsed(answer.text) : workflow;
+      if (answer && isObject(after)) this.workflowWritten(workflow, after);
       if (planned && Object.keys(planned.before).length > 0) this.changes.attach({ loadBefore: planned.before });
       this.loaded = globalId;
       this.armed = armed;

@@ -1,8 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { ANOTHER_ITEMS_RECORD, GLOBAL_ID_KEY, RECORD_CHANGED, type ServerMessage } from "@decent-sync/protocol";
+import {
+  ANOTHER_ITEMS_RECORD,
+  DYE2_SELECTION_FIELD,
+  GLOBAL_ID_KEY,
+  LOADED_RECIPE_KIND,
+  RECORD_CHANGED,
+  type ServerMessage,
+  WORKFLOW_BASKET,
+  WORKFLOW_BATCH,
+  WORKFLOW_GRINDER,
+  WORKFLOW_KIND,
+} from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { DYE2_NAMESPACE, dye2List } from "./support/simulated-dye2.js";
+import { DYE2_NAMESPACE, SimulatedDye2, dye2List } from "./support/simulated-dye2.js";
 import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
 import { type SimulatedTablet, settingsFor } from "./support/simulated-tablet.js";
 import { StandInServer } from "./support/stand-in-server.js";
@@ -10,12 +21,16 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Ticket #168: the plugin tells the skins listening on its `changed`
 // endpoint, as Streamline's dashboard does, each time it has written DYE2's
-// recipes, so a dashboard left visible shows the change (ADR-0005). Through
-// the built plugin in simulated tablets: against a stand-in server for each
-// kind of write and for the writes that post nothing, as the real server
-// reaches most of those only in a race, and against two server instances
-// sharing PostgreSQL for Recipes changed in the management interface. Serials
-// are made up, from 46001.
+// recipes, so a dashboard left visible shows the change (ADR-0005). Ticket
+// #207: and each time it has changed the Workflow, by the server's writes of
+// a Loaded Recipe and clears of the Workflow's Grinder, Bean Batch and
+// Basket, and by its own loads of a recipe DYE2 selected, so Streamline's
+// tiles show the change at once rather than at their 20 s poll. Through the
+// built plugin in simulated tablets: against a stand-in server for each
+// kind of write and for the writes that post or change nothing, as the real
+// server reaches most of those only in a race, and against two server
+// instances sharing PostgreSQL for Recipes changed in the management
+// interface. Serials are made up, from 46001.
 
 type Record_ = Record<string, unknown>;
 
@@ -229,6 +244,264 @@ describe("Telling skins of each write to DYE2's recipes", () => {
     await tablet.waitForLog(/^Could not tell skins that DYE2's recipes changed: PluginPermissionError: .* requires manifest permission emit$/);
     // The next write is told of again.
     expect((await pushesFor(write({ name: "Heard" }, globalId, "5", { name: "Unheard" }))).pushes).toEqual([PUSH]);
+  });
+});
+
+describe("Telling skins of each write of the server's into the Workflow", () => {
+  let server: StandInServer;
+  let tablet: SimulatedTablet;
+  let asked = 0;
+  const recipe = randomUUID();
+
+  beforeAll(async () => {
+    server = await StandInServer.start();
+    // Without DYE2, which answers 404, so the plugin writes a Loaded Recipe as it would with the Recipe's slot selected.
+    tablet = tablets.load({ settings: settingsFor({ token: "stand-in token 46005", serverUrl: server.url }), api: emptyLibrary(46005) });
+    await server.welcomed();
+  });
+  afterAll(() => server?.stop());
+
+  const id = () => `skin-workflow-${++asked}`;
+  const context = () => tablet.workflow().context as Record_;
+  /** The server's write of its Loaded Recipe into the Workflow, setting `fields` where it holds `expected`. */
+  const loaded = (fields: Record_, expected?: Record_): ServerMessage & { id: string } => ({
+    type: "write",
+    id: id(),
+    kind: LOADED_RECIPE_KIND,
+    globalId: recipe,
+    localId: null,
+    fields,
+    ...(expected ? { expected } : {}),
+  });
+  /** The server's clear of each group of the Workflow's fields whose id it holds as `expected`, as its Machine joins a Location. */
+  const clear = (expected: Record_): ServerMessage & { id: string } => {
+    const groups = [WORKFLOW_GRINDER, WORKFLOW_BATCH, WORKFLOW_BASKET].filter(([first]) => first in expected);
+    return { type: "write", id: id(), kind: WORKFLOW_KIND, globalId: randomUUID(), localId: null, fields: Object.fromEntries(groups.flat().map((field) => [field, null])), expected };
+  };
+  const workflowPuts = () => tablet.writes.filter((write) => write === "PUT /workflow").length;
+  const refusePuts = () => {
+    tablet.refuseWrites = ({ method, route }) => (method === "PUT" && route === "/workflow" ? { status: 500, body: { error: "Internal server error", message: "Disk full" } } : undefined);
+  };
+
+  /** Asks the plugin, and resolves with its answer, the pushes the request led to, and the Workflow the tablet held as each was made. */
+  async function pushesFor(request: ServerMessage & { id: string }): Promise<{ answer: Record_; pushes: unknown[]; held: Record_[] }> {
+    const before = tablet.pushes("changed").length;
+    const held: Record_[] = [];
+    tablet.onEmit = () => held.push(structuredClone(tablet.workflow()));
+    try {
+      const answer = await server.ask(request);
+      return { answer, pushes: tablet.pushes("changed").slice(before), held };
+    } finally {
+      tablet.onEmit = undefined;
+    }
+  }
+
+  it("pushes once after a Loaded Recipe write Decaid takes, with the Workflow holding what it wrote", async () => {
+    const { answer, pushes, held } = await pushesFor(loaded({ "context.targetDoseWeight": 19, "context.targetYield": 40 }, { "context.targetDoseWeight": 18, "context.targetYield": 36 }));
+    expect(answer).toMatchObject({ type: "written", kind: LOADED_RECIPE_KIND, writtenFields: ["context.targetDoseWeight", "context.targetYield"] });
+    expect(pushes).toEqual([PUSH]);
+    expect(held).toEqual([expect.objectContaining({ context: expect.objectContaining({ targetDoseWeight: 19, targetYield: 40 }) })]);
+  });
+
+  it("pushes nothing for a Loaded Recipe write that leaves the Workflow as it was, that Decaid refuses, or that unloads the Recipe", async () => {
+    // Held already, as after a write whose answer was lost: written again, so its answer has the server hold it, changing nothing.
+    const puts = workflowPuts();
+    const held = await pushesFor(loaded({ "context.targetDoseWeight": 19 }, { "context.targetDoseWeight": 18 }));
+    expect(held.answer).toMatchObject({ type: "written", writtenFields: ["context.targetDoseWeight"] });
+    expect(workflowPuts()).toBe(puts + 1);
+    expect(held.pushes).toEqual([]);
+
+    // Changed on the tablet since, which the write leaves as it is: nothing is written.
+    const changed = await pushesFor(loaded({ "context.targetDoseWeight": 21 }, { "context.targetDoseWeight": 17 }));
+    expect(changed.answer).toMatchObject({ type: "written", writtenFields: [] });
+    expect(changed.pushes).toEqual([]);
+
+    refusePuts();
+    try {
+      const refused = await pushesFor(loaded({ "context.targetDoseWeight": 21 }, { "context.targetDoseWeight": 19 }));
+      expect(refused.answer).toMatchObject({ type: "writeRefused", status: 500 });
+      expect(refused.pushes).toEqual([]);
+    } finally {
+      tablet.refuseWrites = undefined;
+    }
+
+    // An unload clears DYE2's selection, writing nothing into the Workflow.
+    const puts2 = workflowPuts();
+    const unloaded = await pushesFor(loaded({ [DYE2_SELECTION_FIELD]: null }));
+    expect(unloaded.answer).toMatchObject({ type: "written", writtenFields: [DYE2_SELECTION_FIELD] });
+    expect(unloaded.pushes).toEqual([]);
+    expect(workflowPuts()).toBe(puts2);
+    expect(context()).toMatchObject({ targetDoseWeight: 19, targetYield: 40 });
+  });
+
+  it("pushes once after a clear of the Workflow's Grinder, Bean Batch and Basket that clears something, and nothing for one that clears nothing or that Decaid refuses", async () => {
+    const { grinderId } = context();
+    const { basketId } = context().extras as Record_;
+    expect([grinderId, basketId]).toEqual([expect.any(String), expect.any(String)]);
+
+    refusePuts();
+    try {
+      const refused = await pushesFor(clear({ "context.grinderId": grinderId }));
+      expect(refused.answer).toMatchObject({ type: "writeRefused", status: 500 });
+      expect(refused.pushes).toEqual([]);
+    } finally {
+      tablet.refuseWrites = undefined;
+    }
+
+    // The Workflow names another Grinder now.
+    const puts = workflowPuts();
+    const other = await pushesFor(clear({ "context.grinderId": randomUUID() }));
+    expect(other.answer).toMatchObject({ type: "written", writtenFields: [] });
+    expect(other.pushes).toEqual([]);
+    expect(workflowPuts()).toBe(puts);
+
+    const cleared = await pushesFor(clear({ "context.grinderId": grinderId, "context.extras.basketId": basketId }));
+    expect(cleared.answer).toMatchObject({ type: "written", writtenFields: [...WORKFLOW_GRINDER, ...WORKFLOW_BASKET] });
+    expect(cleared.pushes).toEqual([PUSH]);
+    expect(cleared.held).toHaveLength(1);
+    const clearedContext = cleared.held[0]!.context as Record_;
+    // Decaid drops a field of the context merged in as null, and keeps a key of its extras as null.
+    expect(clearedContext).not.toHaveProperty("grinderId");
+    expect((clearedContext.extras as Record_).basketId ?? null).toBeNull();
+  });
+
+  it("answers each write as it would have when Decaid refuses the push, and logs why", async () => {
+    const { beanBatchId } = context();
+    expect(beanBatchId).toEqual(expect.any(String));
+    tablet.failEmits = new Error("PluginPermissionError: Plugin decent-sync.reaplugin requires manifest permission emit");
+    const pushed = tablet.emits.length;
+    try {
+      expect(await server.ask(loaded({ "context.targetYield": 44 }, { "context.targetYield": 40 }))).toMatchObject({
+        type: "written",
+        writtenFields: ["context.targetYield"],
+        record: { context: expect.objectContaining({ targetYield: 44 }) },
+      });
+      expect(await server.ask(clear({ "context.beanBatchId": beanBatchId }))).toMatchObject({ type: "written", writtenFields: [...WORKFLOW_BATCH] });
+    } finally {
+      tablet.failEmits = undefined;
+    }
+    expect(context().targetYield).toBe(44);
+    expect(context()).not.toHaveProperty("beanBatchId");
+    expect(tablet.emits.length).toBe(pushed);
+    await tablet.waitForLogs(/^Could not tell skins that the Workflow changed: PluginPermissionError: .* requires manifest permission emit$/, 2);
+    // The next write is told of again.
+    expect((await pushesFor(loaded({ "context.targetYield": 45 }, { "context.targetYield": 44 }))).pushes).toEqual([PUSH]);
+  });
+
+  // Last: the machine coming back has the plugin reconnect.
+  it("pushes once after a Loaded Recipe write retried without its steam, hot water and flush settings, as no machine is connected, and not for the attempt Decaid refused", async () => {
+    tablet.machineConnected = false;
+    try {
+      const puts = workflowPuts();
+      const { answer, pushes, held } = await pushesFor(loaded({ "context.targetDoseWeight": 20, "steamSettings.duration": 60 }, { "context.targetDoseWeight": 19, "steamSettings.duration": 120 }));
+      expect(answer).toMatchObject({ type: "written", writtenFields: ["context.targetDoseWeight"] });
+      expect(workflowPuts()).toBe(puts + 2);
+      expect(pushes).toEqual([PUSH]);
+      expect(held).toEqual([expect.objectContaining({ context: expect.objectContaining({ targetDoseWeight: 20 }), steamSettings: expect.objectContaining({ duration: 120 }) })]);
+    } finally {
+      tablet.connectMachine();
+    }
+  });
+});
+
+describe("Telling skins of each load of a recipe DYE2 selected", () => {
+  let server: StandInServer;
+  let tablet: SimulatedTablet;
+  const [one, two, three] = [randomUUID(), randomUUID(), randomUUID()];
+
+  beforeAll(async () => {
+    server = await StandInServer.start();
+    // Timers ten times faster: the plugin polls every 0.5 s, and DYE2 takes its own marker in the Workflow as its echo for 0.3 s.
+    tablet = tablets.load({
+      settings: { ...settingsFor({ token: "stand-in token 46006", serverUrl: server.url }), PollSeconds: 5 },
+      timeScale: 10,
+      api: {
+        ...emptyLibrary(46006),
+        [RECIPES]: [
+          { id: "1", name: "Skin load 20 g", [GLOBAL_ID_KEY]: one, dashboardVariables: { dose: 20 } },
+          { id: "2", name: "Skin load 18 g", [GLOBAL_ID_KEY]: two, dashboardVariables: { dose: 18 } },
+          { id: "3", name: "Skin load 22 g", [GLOBAL_ID_KEY]: three, dashboardVariables: { dose: 22 } },
+        ],
+      },
+      dye2: new SimulatedDye2(),
+    });
+    await server.welcomed();
+  });
+  afterAll(() => server?.stop());
+
+  const dose = () => (tablet.workflow().context as Record_).targetDoseWeight;
+  /** Selects the recipe in that slot in DYE2, as Streamline's strip does once it has applied it, here without applying it. */
+  const select = async (slot: string) => expect((await tablet.callApi("POST", `/plugins/${DYE2_NAMESPACE}/selection`, { kind: "recipe", id: slot })).status).toBe(200);
+  /** How many times the plugin read the Workflow, as each load does before it writes. */
+  const workflowReads = () => tablet.requests.filter((route) => route === "/workflow").length - tablet.writes.filter((write) => write === "PUT /workflow").length;
+  /** The Workflow deliveries telling the server what a load wrote over, one per load that wrote. */
+  const loadsDelivered = () => server.received.filter((message) => message.type === "workflow" && message.loadBefore !== undefined).length;
+
+  /** Runs `work`, and resolves with the pushes made meanwhile and the Workflow the tablet held as each was made. */
+  async function pushesDuring(work: () => Promise<void>): Promise<{ pushes: unknown[]; held: Record_[] }> {
+    const before = tablet.pushes("changed").length;
+    const held: Record_[] = [];
+    tablet.onEmit = () => held.push(structuredClone(tablet.workflow()));
+    try {
+      await work();
+      return { pushes: tablet.pushes("changed").slice(before), held };
+    } finally {
+      tablet.onEmit = undefined;
+    }
+  }
+
+  it("pushes once after a load's write Decaid takes, with the Workflow holding what it wrote, and nothing for a load the Workflow holds already", async () => {
+    const { pushes, held } = await pushesDuring(async () => {
+      // Slot 2's dose is the Workflow's, so its load writes nothing.
+      const reads = workflowReads();
+      await select("2");
+      await expect.poll(workflowReads).toBeGreaterThan(reads);
+      const delivered = loadsDelivered();
+      await select("1");
+      await expect.poll(loadsDelivered).toBe(delivered + 1);
+    });
+    expect(dose()).toBe(20);
+    expect(pushes).toEqual([PUSH]);
+    expect(held).toEqual([expect.objectContaining({ context: expect.objectContaining({ targetDoseWeight: 20 }) })]);
+
+    // A Loaded Recipe write for slot 2's Recipe while DYE2 has slot 1 selected is refused, and pushes nothing.
+    const before = tablet.pushes("changed").length;
+    const refused = await server.ask({ type: "write", id: "skin-load-1", kind: LOADED_RECIPE_KIND, globalId: two, localId: null, fields: { "context.targetYield": 40 }, expected: { "context.targetYield": 36 } });
+    expect(refused).toMatchObject({ type: "writeRefused", error: expect.stringContaining("another recipe selected") });
+    expect(tablet.pushes("changed").length).toBe(before);
+  });
+
+  it("pushes nothing for a load's write Decaid refuses, and once when the load is made again and Decaid takes it", async () => {
+    tablet.refuseWrites = ({ method, route }) => (method === "PUT" && route === "/workflow" ? { status: 500, body: { error: "Internal server error", message: "Disk full" } } : undefined);
+    const refused = await pushesDuring(async () => {
+      await select("3");
+      await tablet.waitForLog(/^DYE2's selection could not be followed: Decaid answered 500 loading the recipe in slot 3/);
+    });
+    tablet.refuseWrites = undefined;
+    expect(refused.pushes).toEqual([]);
+    expect(dose()).toBe(20);
+
+    const delivered = loadsDelivered();
+    const again = await pushesDuring(() => expect.poll(loadsDelivered).toBe(delivered + 1));
+    expect(dose()).toBe(22);
+    expect(again.pushes).toEqual([PUSH]);
+    expect(again.held).toEqual([expect.objectContaining({ context: expect.objectContaining({ targetDoseWeight: 22 }) })]);
+  });
+
+  it("loads as it would have when Decaid refuses the push, and logs why", async () => {
+    tablet.failEmits = new Error("PluginPermissionError: Plugin decent-sync.reaplugin requires manifest permission emit");
+    const pushed = tablet.emits.length;
+    const logged = tablet.logs.filter((log) => log.startsWith("Could not tell skins that the Workflow changed")).length;
+    try {
+      const delivered = loadsDelivered();
+      await select("1");
+      await expect.poll(loadsDelivered).toBe(delivered + 1);
+    } finally {
+      tablet.failEmits = undefined;
+    }
+    expect(dose()).toBe(20);
+    expect(tablet.emits.length).toBe(pushed);
+    await tablet.waitForLogs(/^Could not tell skins that the Workflow changed: PluginPermissionError: .* requires manifest permission emit$/, logged + 1);
   });
 });
 
