@@ -89,7 +89,7 @@ describe("Client addresses", () => {
     expect(addresses(recorded)).toEqual(["203.0.113.7", "2001:db8::1:7"]);
   });
 
-  it("records the socket's address when the header is missing, or its last entry is not an IP address", async () => {
+  it("records the socket's address when the header is missing, or its last entry is not an IP address without a zone id", async () => {
     expect(addresses(await takeover(realIp, {}, { "X-Forwarded-For": "203.0.113.7" }))).toEqual([SOCKET_ADDRESS, SOCKET_ADDRESS]);
     expect(addresses(await takeover(realIp, { "X-Real-IP": "not-an-ip" }, { "X-Real-IP": "203.0.113.7:1234" }))).toEqual([
       SOCKET_ADDRESS,
@@ -99,6 +99,7 @@ describe("Client addresses", () => {
       SOCKET_ADDRESS,
       SOCKET_ADDRESS,
     ]);
-    expect(unset.output() + realIp.output() + forwarded.output()).not.toMatch(/not-an-ip|203\.0\.113\.7:1234|\[2001:db8::7\]/);
+    // An IPv6 address with a zone id, which isIP accepts, however long.
+    expect(addresses(await takeover(forwarded, { "X-Forwarded-For": `fe80::1%${"x".repeat(1000)}` }))).toEqual([SOCKET_ADDRESS, SOCKET_ADDRESS]);
   });
 });
