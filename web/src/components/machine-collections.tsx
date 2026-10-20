@@ -228,7 +228,9 @@ function settingEntries(value: unknown): [string, string][] {
 /**
  * Each sensor's calibration, by Decaid's names for the sensor and for its
  * calibration now and as it left the factory, alphabetically: the
- * `measuredValue` of each, which holds the calibration (rest_v1.yml).
+ * `measuredValue` of each, which holds the calibration (rest_v1.yml). To
+ * five decimal places at most, not three: the machine keeps each in signed
+ * Q16.16, steps of 1/65536, so any two it can hold still differ when shown.
  */
 function sensorCalibrations(value: unknown): [target: string, entries: [string, string][]][] {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
@@ -238,7 +240,13 @@ function sensorCalibrations(value: unknown): [target: string, entries: [string, 
     .sort((a, b) => a.localeCompare(b, "en"))
     .map((target) => {
       const calibrations = part(value, target);
-      return [target, (["current", "factory"] as const).map((source) => [source, settingText(part(part(calibrations, source), "measuredValue"))])];
+      return [
+        target,
+        (["current", "factory"] as const).map((source) => {
+          const measured = part(part(calibrations, source), "measuredValue");
+          return [source, typeof measured === "number" ? String(Number(measured.toFixed(5))) : settingText(measured)];
+        }),
+      ];
     });
 }
 

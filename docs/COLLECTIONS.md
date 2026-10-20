@@ -174,7 +174,9 @@ answers as sent, by target and source:
 
 The calibration is always in `measuredValue`. For `flow` and `pressure`,
 which are ratiometric, `de1ReportedValue` is 1.0; for `temperature`, an
-offset, it is 0.0 (`rest_v1.yml`). Decaid answers 500 while no machine was
+offset, it is 0.0 (`rest_v1.yml`). The machine keeps each in signed Q16.16,
+so the Machine page shows them to five decimal places at most, not three as
+other settings: any two values it can hold then still differ when shown. Decaid answers 500 while no machine was
 ever connected, 503 if the machine disconnects mid-read, and 504 if it
 doesn't answer in time.
 
