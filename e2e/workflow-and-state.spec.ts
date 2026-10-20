@@ -106,6 +106,7 @@ test("the Machine page asks for its status every 5 s, and for the rest every 30 
     "/collections/machineSettings",
     "/collections/advancedSettings",
     "/collections/machineCalibration",
+    "/collections/sensorCalibration",
     "/set-aside-deliveries",
   ].map((path) => `${status}${path}`);
   const times = (path: string) => requested.filter((requestedPath) => requestedPath === path).length;

@@ -7,12 +7,14 @@ import { waitForLockWaits } from "./support/lock-waits.js";
 import {
   type DecaidApi,
   RawConnection,
+  Refusal,
   type SimulatedTablet,
   type SimulatedTabletOptions,
   de1ProOnDecaid090,
   derivedDe1Pro,
   helloWith,
   manyProfiles,
+  sensorCalibration,
   settingsFor,
   simulatedDevices,
   simulatedDevicesSwitchedOff,
@@ -109,6 +111,16 @@ describe("Library, settings and paired devices", () => {
   const gaps = (times: number[]) => times.slice(1).map((time, index) => time - times[index]!);
   /** Where the machine's own settings are read, which Decaid reads from the machine itself on each request. */
   const MACHINE_SETTINGS_ROUTES = ["/machine/settings", "/machine/settings/advanced", "/machine/calibration"];
+  /** Where the sensor calibration is read, each route once for its current calibration and once for its factory one. */
+  const SENSOR_CALIBRATION_ROUTES = ["/machine/calibration/flow", "/machine/calibration/pressure", "/machine/calibration/temperature"];
+  /** The sensor calibration Decaid answers from `served`, by target and source, as the plugin reports it. */
+  const sensorCalibrationIn = (served: DecaidApi) =>
+    Object.fromEntries(
+      ["flow", "pressure", "temperature"].map((target) => [
+        target,
+        { current: served[`/machine/calibration/${target}?source=current`], factory: served[`/machine/calibration/${target}?source=factory`] },
+      ]),
+    );
 
   async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
     return RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
@@ -153,6 +165,7 @@ describe("Library, settings and paired devices", () => {
       machineSettings: value("/machine/settings"),
       advancedSettings: value("/machine/settings/advanced"),
       machineCalibration: value("/machine/calibration"),
+      sensorCalibration: { available: true, value: sensorCalibrationIn(served) },
       pairedDevices: { available: true, value: paired(served["/devices"]) },
       scaleInfo: value("/scale/info"),
       sensors: value("/sensors"),
@@ -762,6 +775,80 @@ describe("Library, settings and paired devices", () => {
       } finally {
         await standIn.stop();
       }
+    });
+  });
+
+  describe("The sensor calibration, which Decaid reads from the machine on each request and which changes only when calibrated", () => {
+    it("is read on every welcome and whenever the server asks for everything, and not on polls or the machine settings' interval", async () => {
+      const standIn = await StandInServer.start();
+      try {
+        const served = derivedDe1Pro({ serial: "32002" });
+        const tablet = tablets.load({
+          settings: { ...settingsFor({ token: "stand-in token 32002", serverUrl: standIn.url }), PollSeconds: 5 },
+          api: served,
+          // Ten times faster, so a minute is 6 s.
+          timeScale: 10,
+        });
+        const sent = () => standIn.received.filter((message) => message.type === "collection" && message.name === "sensorCalibration");
+        const reads = () => SENSOR_CALIBRATION_ROUTES.map((route) => readTimes(tablet, route).length);
+        await expect.poll(() => sent().length).toBe(1);
+        expect(sent()[0]).toMatchObject({ available: true, value: sensorCalibrationIn(served) });
+        // Each target's current and factory calibration.
+        expect(reads()).toEqual([2, 2, 2]);
+
+        // Derived: its temperature sensor recalibrated. Two more reads of the machine's own settings on their interval,
+        // and two minutes of polls, read it no more.
+        const recalibrated = { ...served, ...sensorCalibration({ temperature: -0.5 }) };
+        tablet.serve(recalibrated);
+        await polls(tablet, 2, "/machine/settings");
+        await polls(tablet, 1);
+        expect(reads()).toEqual([2, 2, 2]);
+        expect(sent()).toHaveLength(1);
+
+        standIn.send({ type: "requestCollections" });
+        await expect.poll(() => sent().length).toBe(2);
+        expect(sent()[1]).toMatchObject({ available: true, value: sensorCalibrationIn(recalibrated) });
+        expect(reads()).toEqual([4, 4, 4]);
+
+        // A reconnect reads and sends it again, unchanged.
+        tablet.dropConnections();
+        await expect.poll(() => sent().length).toBe(3);
+        expect(sent()[2]).toMatchObject({ available: true, value: sensorCalibrationIn(recalibrated) });
+        expect(reads()).toEqual([6, 6, 6]);
+      } finally {
+        await standIn.stop();
+      }
+    });
+
+    it("is reported unavailable if any one of its six reads fails, keeping the value known", async () => {
+      const machine = await api.createMachine("Sensor calibration unavailable");
+      const served = derivedDe1Pro({ serial: "30801" });
+      const tablet = load(machine, { api: served });
+      await expect.poll(() => allReported(machine)).toBe(true);
+      const known = sensorCalibrationIn(served);
+      expect(await collection(machine, "sensorCalibration")).toMatchObject({ available: true, value: known });
+
+      // Derived: the machine doesn't answer the last of the six in time, which Decaid answers 504 (de1handler.dart).
+      tablet.serve({ ...served, "/machine/calibration/temperature?source=factory": new Refusal(504, { error: "BleTimeoutException" }) });
+      tablet.dropConnections();
+      await expect.poll(async () => (await collection(machine, "sensorCalibration"))?.available).toBe(false);
+      expect(await collection(machine, "sensorCalibration")).toMatchObject({ value: known });
+
+      // The first fails, and the five after it are not read.
+      await allAcknowledged(tablet);
+      tablet.serve(served);
+      tablet.failNextApiReads("/machine/calibration/flow", 1);
+      const before = SENSOR_CALIBRATION_ROUTES.map((route) => readTimes(tablet, route).length);
+      const delivered = deliveries(tablet, "sensorCalibration").length;
+      tablet.dropConnections();
+      await expect.poll(() => deliveries(tablet, "sensorCalibration").length).toBe(delivered + 1);
+      expect(deliveries(tablet, "sensorCalibration").at(-1)).toMatchObject({ available: false });
+      expect(SENSOR_CALIBRATION_ROUTES.map((route) => readTimes(tablet, route).length)).toEqual([before[0]! + 1, before[1], before[2]]);
+
+      // Read in full again, it is available.
+      tablet.dropConnections();
+      await expect.poll(async () => (await collection(machine, "sensorCalibration"))?.available).toBe(true);
+      expect(await collection(machine, "sensorCalibration")).toMatchObject({ value: known });
     });
   });
 

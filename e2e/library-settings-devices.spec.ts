@@ -66,9 +66,18 @@ test("the Machine page shows paired devices, settings and the library, and follo
     await expect(field(machineSettings, term)).toHaveText(value);
   }
   await expect(field(settings.getByRole("region", { name: "Advanced settings" }), "heaterIdleTemp")).toHaveText("98");
-  const calibration = settings.getByRole("region", { name: "Calibration" });
-  await expect(calibration).toContainText(/^CalibrationReported at \w{3} \d+, \d{4}/);
+  const calibration = settings.getByRole("region", { name: "Flow calibration" });
+  await expect(calibration).toContainText(/^Flow calibrationReported at \w{3} \d+, \d{4}/);
   await expect(field(calibration, "flowMultiplier")).toHaveText("0.596");
+  // Its pressure sensor recalibrated since it left the factory (sensorCalibration).
+  const sensorCalibration = settings.getByRole("region", { name: "Sensor calibration" });
+  await expect(sensorCalibration).toContainText(/^Sensor calibrationReported at \w{3} \d+, \d{4}/);
+  const calibrated: [target: string, current: string, factory: string][] = [["flow", "1", "1"], ["pressure", "1.023", "1"], ["temperature", "0", "0"]];
+  for (const [target, current, factory] of calibrated) {
+    const list = sensorCalibration.getByLabel(target, { exact: true });
+    await expect(field(list, "current")).toHaveText(current);
+    await expect(field(list, "factory")).toHaveText(factory);
+  }
   const appSettings = settings.getByRole("region", { name: "App settings" });
   await expect(field(appSettings, "gatewayMode")).toHaveText("disabled");
   await expect(field(appSettings, "simulatedDevices")).toHaveText("machine, bengle, scale, sensor");
@@ -103,7 +112,7 @@ test("a Machine whose tablet has reported nothing says so", async ({ page }) => 
   await page.getByRole("link", { name: "Spare 2", exact: true }).click();
   await expect(page.getByRole("region", { name: "Paired devices" })).toContainText("Its tablet has not reported its paired devices yet.");
   const settings = page.getByRole("region", { name: "Settings" });
-  for (const name of ["App settings", "Machine settings", "Advanced settings"]) {
+  for (const name of ["App settings", "Machine settings", "Advanced settings", "Flow calibration", "Sensor calibration"]) {
     await expect(settings.getByRole("region", { name })).toContainText("Not reported yet");
   }
   await expect(settings.getByRole("region", { name: "Steam, hot water and rinse" })).toContainText("Its tablet has not reported its Workflow yet.");

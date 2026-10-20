@@ -15,7 +15,8 @@ export const SETTINGS = {
   appSettings: "App settings",
   machineSettings: "Machine settings",
   advancedSettings: "Advanced settings",
-  machineCalibration: "Calibration",
+  machineCalibration: "Flow calibration",
+  sensorCalibration: "Sensor calibration",
 } as const;
 
 /** The library collections shown: each kind's list (`LIBRARY_KINDS`), then DYE2's keys that are none of them. */
@@ -83,9 +84,10 @@ export function PairedDevicesCard({ devices }: { devices: PairedDevices }) {
 }
 
 /**
- * The Machine's latest app, machine and advanced settings and its flow
- * calibration, and the steam, hot water and rinse settings of its current
- * Workflow, so calibration differences between Machines can be spotted.
+ * The Machine's latest app, machine and advanced settings and its flow and
+ * sensor calibration, and the steam, hot water and rinse settings of its
+ * current Workflow, so calibration differences between Machines can be
+ * spotted.
  */
 export function SettingsCard({
   settings,
@@ -122,7 +124,14 @@ export function SettingsCard({
           <section key={name} aria-label={SETTINGS[name]} className="grid content-start gap-2">
             <h3 className="font-medium">{SETTINGS[name]}</h3>
             <p className="text-sm text-muted-foreground">{reportText(settings[name])}</p>
-            {settings[name] && <SettingsList label={SETTINGS[name]} entries={settingEntries(settings[name].value)} />}
+            {settings[name] &&
+              (name === "sensorCalibration" ? (
+                sensorCalibrations(settings[name].value).map(([target, entries]) => (
+                  <SettingsList key={target} label={target} title={target} entries={entries} />
+                ))
+              ) : (
+                <SettingsList label={SETTINGS[name]} entries={settingEntries(settings[name].value)} />
+              ))}
           </section>
         ))}
       </CardContent>
@@ -214,6 +223,23 @@ function settingEntries(value: unknown): [string, string][] {
   return Object.entries(value as Record<string, unknown>)
     .sort(([a], [b]) => a.localeCompare(b, "en"))
     .map(([key, part]) => [key, settingText(part)]);
+}
+
+/**
+ * Each sensor's calibration, by Decaid's names for the sensor and for its
+ * calibration now and as it left the factory, alphabetically: the
+ * `measuredValue` of each, which holds the calibration (rest_v1.yml).
+ */
+function sensorCalibrations(value: unknown): [target: string, entries: [string, string][]][] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
+  const part = (object: unknown, key: string): unknown =>
+    typeof object === "object" && object !== null && !Array.isArray(object) ? (object as Record<string, unknown>)[key] : undefined;
+  return Object.keys(value)
+    .sort((a, b) => a.localeCompare(b, "en"))
+    .map((target) => {
+      const calibrations = part(value, target);
+      return [target, (["current", "factory"] as const).map((source) => [source, settingText(part(part(calibrations, source), "measuredValue"))])];
+    });
 }
 
 function settingText(value: unknown): string {
