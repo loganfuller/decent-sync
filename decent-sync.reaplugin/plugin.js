@@ -2554,12 +2554,13 @@ var __decentSync = (() => {
     { name: "appSettings", path: "/settings" },
     { name: "machineSettings", path: "/machine/settings" },
     { name: "advancedSettings", path: "/machine/settings/advanced" },
+    { name: "machineCalibration", path: "/machine/calibration" },
     { name: "pairedDevices", path: "/devices", select: pairedDevices },
     { name: "scaleInfo", path: "/scale/info" },
     { name: "sensors", path: "/sensors" }
   ];
   var WRITTEN_LISTS = new Set(LIBRARY_LISTS);
-  var MACHINE_SETTINGS = /* @__PURE__ */ new Set(["machineSettings", "advancedSettings"]);
+  var MACHINE_SETTINGS = /* @__PURE__ */ new Set(["machineSettings", "advancedSettings", "machineCalibration"]);
   var MACHINE_SETTINGS_MS = 6e4;
   var CollectionCapture = class {
     constructor(outbox, library, pollMs, sawRecipes = () => {

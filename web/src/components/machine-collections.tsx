@@ -11,7 +11,12 @@ import { LIBRARY_KINDS } from "@/lib/library-kinds";
 // version may send others or fewer.
 
 /** The settings collections shown, by the name the REST API gives them. */
-export const SETTINGS = { appSettings: "App settings", machineSettings: "Machine settings", advancedSettings: "Advanced settings" } as const;
+export const SETTINGS = {
+  appSettings: "App settings",
+  machineSettings: "Machine settings",
+  advancedSettings: "Advanced settings",
+  machineCalibration: "Calibration",
+} as const;
 
 /** The library collections shown: each kind's list (`LIBRARY_KINDS`), then DYE2's keys that are none of them. */
 const LIBRARY: [name: string, title: string][] = [
@@ -78,9 +83,9 @@ export function PairedDevicesCard({ devices }: { devices: PairedDevices }) {
 }
 
 /**
- * The Machine's latest app, machine and advanced settings, and the steam,
- * hot water and rinse settings of its current Workflow, so calibration
- * differences between Machines can be spotted.
+ * The Machine's latest app, machine and advanced settings and its flow
+ * calibration, and the steam, hot water and rinse settings of its current
+ * Workflow, so calibration differences between Machines can be spotted.
  */
 export function SettingsCard({
   settings,
@@ -213,8 +218,9 @@ function settingEntries(value: unknown): [string, string][] {
 
 function settingText(value: unknown): string {
   if (value === null || value === undefined) return "None";
-  // To two decimal places at most: Decaid sends 2.500000000000001 for 2.5.
-  if (typeof value === "number") return String(Number(value.toFixed(2)));
+  // To three decimal places at most, as the machine keeps its flow calibration (calFlowEst, in thousandths): Decaid
+  // sends 2.500000000000001 for 2.5.
+  if (typeof value === "number") return String(Number(value.toFixed(3)));
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "string") return value === "" ? "Empty" : value;
   if (Array.isArray(value)) return value.length > 0 ? value.map(settingText).join(", ") : "None";

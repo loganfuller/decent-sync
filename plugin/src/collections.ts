@@ -36,6 +36,7 @@ const SOURCES: readonly Source[] = [
   { name: "appSettings", path: "/settings" },
   { name: "machineSettings", path: "/machine/settings" },
   { name: "advancedSettings", path: "/machine/settings/advanced" },
+  { name: "machineCalibration", path: "/machine/calibration" },
   { name: "pairedDevices", path: "/devices", select: pairedDevices },
   { name: "scaleInfo", path: "/scale/info" },
   { name: "sensors", path: "/sensors" },
@@ -49,12 +50,15 @@ const SOURCES: readonly Source[] = [
 const WRITTEN_LISTS: ReadonlySet<CollectionName> = new Set(LIBRARY_LISTS);
 
 /**
- * The machine's own settings, which Decaid v0.9.0 keeps no copy of: it
- * answers each by reading the machine's values one at a time over its
- * Bluetooth or USB connection, 15 reads for the two, on the link the scale
- * also uses (`de1handler.dart`).
+ * The machine's own settings, which Decaid v0.9.0 answers on each request by
+ * reading the machine's values one at a time over its Bluetooth or USB
+ * connection, 14 reads for the three, on the link the scale also uses
+ * (`de1handler.dart`). Only the advanced settings' `heaterVoltage` and
+ * `refillKitSetting` are what Decaid holds rather than reads (`UnifiedDe1`).
+ * Decaid also keeps the flow calibration it reads, which each Shot records
+ * (`UnifiedDe1.cachedFlowEstimation`).
  */
-const MACHINE_SETTINGS: ReadonlySet<CollectionName> = new Set(["machineSettings", "advancedSettings"]);
+const MACHINE_SETTINGS: ReadonlySet<CollectionName> = new Set(["machineSettings", "advancedSettings", "machineCalibration"]);
 /** How often the machine's own settings are read while connected, unless the poll interval is longer. */
 const MACHINE_SETTINGS_MS = 60_000;
 

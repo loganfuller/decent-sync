@@ -213,7 +213,9 @@ export class Refusal {
  * (de1pro-v0.9.0/). Its scale is off, so `/scale/info` answers 503, and DYE2 has
  * never written its equipment, which therefore answers `null`. Its DYE2
  * recipes and baskets are in an older DYE2's shape than simulated-dye2.ts
- * replays.
+ * replays. Its flow calibration is derived, not recorded: Decaid's answer to
+ * `GET /machine/calibration` (de1handler.dart) holding the value its Shot
+ * recorded (`workflow.machine.flowCalibration` in shot-espresso.json).
  */
 export function de1ProOnDecaid090(): DecaidApi {
   return {
@@ -230,6 +232,7 @@ export function de1ProOnDecaid090(): DecaidApi {
     "/store/dye2.reaplugin/baskets": readFixture("dye2-baskets.json"),
     "/machine/settings": readFixture("machine-settings.json"),
     "/machine/settings/advanced": readFixture("machine-settings-advanced.json"),
+    "/machine/calibration": { flowMultiplier: 1.1 },
     "/devices": readFixture("devices.json"),
     "/scale/info": new Refusal(503, readFixture("scale-info-no-scale.json")),
     "/sensors": readFixture("sensors.json"),
@@ -1378,7 +1381,7 @@ export class SimulatedTablet {
       return written.etag && written.status === 200 ? conditional(JSON.stringify(written.body), headers) : response(written.status, JSON.stringify(written.body));
     }
     if (method !== "GET") throw new Error(`The simulated tablet's API carries out no ${method} ${route}`);
-    if (["/machine/info", "/machine/settings", "/machine/settings/advanced"].includes(route) && !this.machineConnected) {
+    if (["/machine/info", "/machine/settings", "/machine/settings/advanced", "/machine/calibration"].includes(route) && !this.machineConnected) {
       // de1handler.dart answers a DeviceNotConnectedException with a 500.
       const refusal = machineNotConnected();
       return response(refusal.status, JSON.stringify(refusal.body));

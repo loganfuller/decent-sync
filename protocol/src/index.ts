@@ -427,6 +427,7 @@ export interface MachineStateDelivery {
  *   (`DYE2_LISTS`): its recipes, tools and baskets, taken into the Library
  *   and written to (ADR-0005);
  * - `appSettings`, `machineSettings` and `advancedSettings`;
+ * - `machineCalibration`, the machine's flow calibration;
  * - `pairedDevices`, the device inventory without devices only discovered nearby;
  * - `scaleInfo`, the connected scale's firmware and battery level;
  * - `sensors`.
@@ -442,6 +443,7 @@ export const COLLECTION_NAMES = [
   "appSettings",
   "machineSettings",
   "advancedSettings",
+  "machineCalibration",
   "pairedDevices",
   "scaleInfo",
   "sensors",

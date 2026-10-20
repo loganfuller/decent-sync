@@ -108,7 +108,7 @@ describe("Library, settings and paired devices", () => {
   /** The time between each of the times given and the next. */
   const gaps = (times: number[]) => times.slice(1).map((time, index) => time - times[index]!);
   /** Where the machine's own settings are read, which Decaid reads from the machine itself on each request. */
-  const MACHINE_SETTINGS_ROUTES = ["/machine/settings", "/machine/settings/advanced"];
+  const MACHINE_SETTINGS_ROUTES = ["/machine/settings", "/machine/settings/advanced", "/machine/calibration"];
 
   async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
     return RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
@@ -152,6 +152,7 @@ describe("Library, settings and paired devices", () => {
       appSettings: value("/settings"),
       machineSettings: value("/machine/settings"),
       advancedSettings: value("/machine/settings/advanced"),
+      machineCalibration: value("/machine/calibration"),
       pairedDevices: { available: true, value: paired(served["/devices"]) },
       scaleInfo: value("/scale/info"),
       sensors: value("/sensors"),
@@ -182,15 +183,18 @@ describe("Library, settings and paired devices", () => {
     const initial = sentCounts(tablet);
     expect(Object.values(initial).every((count) => count === 1)).toBe(true);
 
-    // Derived: the tablet's machine settings recalibrated, read on their own interval, and its DYE2 recipe renamed in DYE2.
+    // Derived: the tablet's machine settings and flow calibration changed, read on their own interval, and its DYE2
+    // recipe renamed in DYE2.
     const recalibrated = { ...(served["/machine/settings"] as object), steamFlow: 1.5 };
+    const calibration = { flowMultiplier: 0.6 };
     const recipes = (served["/store/dye2.reaplugin/recipes"] as Record<string, unknown>[]).map((recipe) => ({ ...recipe, name: "Sep 26th Eth, coarser" }));
-    served = { ...served, "/machine/settings": recalibrated, "/store/dye2.reaplugin/recipes": recipes };
+    served = { ...served, "/machine/settings": recalibrated, "/machine/calibration": calibration, "/store/dye2.reaplugin/recipes": recipes };
     tablet.serve(served);
     await expect.poll(async () => (await collection(machine, "machineSettings"))?.value).toEqual(recalibrated);
+    await expect.poll(async () => (await collection(machine, "machineCalibration"))?.value).toEqual(calibration);
     await expect.poll(async () => (await collection(machine, "dye2Recipes"))?.value).toEqual(recipes);
     await polls(tablet, 5);
-    expect(sentCounts(tablet)).toEqual({ ...initial, machineSettings: 2, dye2Recipes: 2 });
+    expect(sentCounts(tablet)).toEqual({ ...initial, machineSettings: 2, machineCalibration: 2, dye2Recipes: 2 });
     // The library's lists were read with their ETags, which Decaid answered 304.
     expect(tablet.requests.filter((route) => route === "/beans").length).toBeGreaterThan(5);
     await allAcknowledged(tablet);
@@ -200,7 +204,7 @@ describe("Library, settings and paired devices", () => {
     tablet.dropConnections();
     await tablet.waitForLogs(/^Connected to /, 2);
     await expect.poll(() => sentCounts(tablet)).toEqual(
-      Object.fromEntries(COLLECTION_NAMES.map((name) => [name, initial[name]! + (name === "machineSettings" || name === "dye2Recipes" ? 2 : 1)])),
+      Object.fromEntries(COLLECTION_NAMES.map((name) => [name, initial[name]! + (["machineSettings", "machineCalibration", "dye2Recipes"].includes(name) ? 2 : 1)])),
     );
     const resent = tablet.sent.slice(sentBefore).filter((frame): frame is Frame => frameType(frame) === "collection");
     expect(resent.find((frame) => frame.name === "beans")).toMatchObject({ available: true, value: served["/beans"] });
@@ -226,7 +230,7 @@ describe("Library, settings and paired devices", () => {
     await expect.poll(async () => (await collection(machine, "grinders"))?.available).toBe(false);
     await expect.poll(async () => (await collection(machine, "machineSettings"))?.available).toBe(false);
     const after = await collections(machine);
-    for (const name of ["scaleInfo", "grinders", "machineSettings", "advancedSettings"]) {
+    for (const name of ["scaleInfo", "grinders", "machineSettings", "advancedSettings", "machineCalibration"]) {
       expect(after[name]).toEqual({ available: false, value: before[name]!.value });
     }
     const scaleInfo = (await collection(machine, "scaleInfo"))!;
@@ -237,7 +241,7 @@ describe("Library, settings and paired devices", () => {
     expect((await pairedDevices(machine)).scale).toEqual(device("scale", "MockScale", "Mock Scale", "disconnected"));
     // Sent once each time the collection became unavailable.
     await polls(tablet, 3);
-    expect(sentCounts(tablet)).toMatchObject({ scaleInfo: 2, grinders: 2, machineSettings: 2, advancedSettings: 2, dye2Equipment: 1 });
+    expect(sentCounts(tablet)).toMatchObject({ scaleInfo: 2, grinders: 2, machineSettings: 2, advancedSettings: 2, machineCalibration: 2, dye2Equipment: 1 });
     // A DYE2 key whose read fails is unavailable, never taken as empty.
     tablet.failNextApiReads("/store/dye2.reaplugin/equipment", 1_000);
     await expect.poll(async () => (await collection(machine, "dye2Equipment"))?.available).toBe(false);
@@ -694,6 +698,8 @@ describe("Library, settings and paired devices", () => {
       await expect.poll(async () => (await collection(machine, "machineSettings"))?.value).toMatchObject({ steamFlow: 1.5 });
       for (const route of MACHINE_SETTINGS_ROUTES) expect(readTimes(tablet, route).filter((time) => time > changedAt).length).toBeGreaterThanOrEqual(1);
       expect(deliveries(tablet, "machineSettings")).toHaveLength(2);
+      // Read with them, but unchanged, so not sent again.
+      expect(deliveries(tablet, "machineCalibration")).toHaveLength(1);
 
       // Its dose, which Decaid does not write to the machine: nothing reads them but their interval, a minute after their last read.
       await allAcknowledged(tablet);
@@ -739,20 +745,20 @@ describe("Library, settings and paired devices", () => {
           timeScale: 10,
         });
         const sent = (name: string) => standIn.received.filter((message) => message.type === "collection" && message.name === name).length;
-        await expect.poll(() => [sent("machineSettings"), sent("advancedSettings")]).toEqual([1, 1]);
+        await expect.poll(() => [sent("machineSettings"), sent("advancedSettings"), sent("machineCalibration")]).toEqual([1, 1, 1]);
         const [welcomed] = readTimes(tablet, "/machine/settings");
 
         // A third of the way to their next read, which is then 4 s away.
         await expect.poll(() => tablet.readClock()).toBeGreaterThan(welcomed! + 20_000);
         const askedAt = tablet.readClock();
         standIn.send({ type: "requestCollections" });
-        await expect.poll(() => [sent("machineSettings"), sent("advancedSettings")]).toEqual([2, 2]);
+        await expect.poll(() => [sent("machineSettings"), sent("advancedSettings"), sent("machineCalibration")]).toEqual([2, 2, 2]);
         // Their next read comes a minute after that one, not after the welcome's, and finds them unchanged.
-        const since = () => readTimes(tablet, "/machine/settings").filter((time) => time > askedAt);
-        await expect.poll(() => since().length).toBeGreaterThanOrEqual(2);
-        expect(since()[1]! - since()[0]!).toBeGreaterThan(55_000);
+        const since = (route: string) => readTimes(tablet, route).filter((time) => time > askedAt);
+        await expect.poll(() => Math.min(...MACHINE_SETTINGS_ROUTES.map((route) => since(route).length))).toBeGreaterThanOrEqual(2);
+        for (const route of MACHINE_SETTINGS_ROUTES) expect(since(route)[1]! - since(route)[0]!).toBeGreaterThan(55_000);
         await polls(tablet, 1);
-        expect([sent("machineSettings"), sent("advancedSettings")]).toEqual([2, 2]);
+        expect([sent("machineSettings"), sent("advancedSettings"), sent("machineCalibration")]).toEqual([2, 2, 2]);
       } finally {
         await standIn.stop();
       }
