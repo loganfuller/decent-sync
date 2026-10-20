@@ -218,8 +218,9 @@ function settingEntries(value: unknown): [string, string][] {
 
 function settingText(value: unknown): string {
   if (value === null || value === undefined) return "None";
-  // To two decimal places at most: Decaid sends 2.500000000000001 for 2.5.
-  if (typeof value === "number") return String(Number(value.toFixed(2)));
+  // To three decimal places at most, as the machine keeps its flow calibration (calFlowEst, in thousandths): Decaid
+  // sends 2.500000000000001 for 2.5.
+  if (typeof value === "number") return String(Number(value.toFixed(3)));
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "string") return value === "" ? "Empty" : value;
   if (Array.isArray(value)) return value.length > 0 ? value.map(settingText).join(", ") : "None";

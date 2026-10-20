@@ -33,7 +33,8 @@ test.afterAll(async () => {
 
 test("the Machine page shows paired devices, settings and the library, and follows a machine and scale switched off", async ({ page }) => {
   const { machine: { id }, token } = await createMachine(page, "Bar 2");
-  const served = { ...de1ProOnDecaid090(), ...simulatedLibrary(), ...simulatedDevices() };
+  // Derived: a flow calibration in thousandths, as the machine keeps it (calFlowEst).
+  const served = { ...de1ProOnDecaid090(), ...simulatedLibrary(), ...simulatedDevices(), "/machine/calibration": { flowMultiplier: 0.596 } };
   // Polls every 5 s of the tablet's time, and reads the machine's own settings every 60 s, which runs fifty times faster here.
   const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api: served, timeScale: 50 });
   tablets.push(tablet);
@@ -67,7 +68,7 @@ test("the Machine page shows paired devices, settings and the library, and follo
   await expect(field(settings.getByRole("region", { name: "Advanced settings" }), "heaterIdleTemp")).toHaveText("98");
   const calibration = settings.getByRole("region", { name: "Calibration" });
   await expect(calibration).toContainText(/^CalibrationReported at \w{3} \d+, \d{4}/);
-  await expect(field(calibration, "flowMultiplier")).toHaveText("1.1");
+  await expect(field(calibration, "flowMultiplier")).toHaveText("0.596");
   const appSettings = settings.getByRole("region", { name: "App settings" });
   await expect(field(appSettings, "gatewayMode")).toHaveText("disabled");
   await expect(field(appSettings, "simulatedDevices")).toHaveText("machine, bengle, scale, sensor");

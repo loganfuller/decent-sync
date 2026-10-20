@@ -124,14 +124,19 @@ tests (`plugin/test/change-detection.test.ts`):
 Decaid's plugin `fetch` passes request headers and gives response headers
 through `headers.get` (`PluginManager` in
 `decaid:lib/src/plugins/plugin_manager.dart`). Decaid answers the machine and
-advanced settings and its flow calibration by reading each one from the
-machine's memory over its Bluetooth or USB connection (`UnifiedDe1`), sixteen
-reads each time, on the link the scale also uses, which is why the plugin
-reads them less often than the rest.
+advanced settings and the flow calibration by reading them from the machine's
+memory over its Bluetooth or USB connection (`UnifiedDe1`), fourteen reads
+each time, on the link the scale also uses, which is why the plugin reads them
+less often than the rest. Only the advanced settings' `heaterVoltage` and
+`refillKitSetting` are what Decaid holds rather than reads: the voltage it read
+as the machine connected, and the refill kit setting it last wrote (`auto` as
+the machine connects), each until written through Decaid.
 
 `machineCalibration` is the machine's flow estimation multiplier, Decaid's
-`flowMultiplier` (the DE1's `calFlowEst`), which scales the flow the machine
-reports, and which each Shot records as `workflow.machine.flowCalibration`.
+`flowMultiplier` (the DE1's `calFlowEst`, kept in thousandths), which scales
+the flow the machine reports, and which each Shot records as
+`workflow.machine.flowCalibration`. The Machine page shows settings to three
+decimal places at most, so a change of a thousandth shows.
 Something other than a person may change it, such as an auto flow calibration
 plugin rewriting it per profile; a change reaches the server by the
 collection's next interval. The `volumeFlowMultiplier`,
