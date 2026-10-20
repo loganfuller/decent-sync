@@ -56,8 +56,8 @@ A read is unavailable when it fails or has nothing to report: any status but
 `/scale/info` 503 while no scale is), a fetch that fails or times out, or
 `null` for a collection read from Decaid's API. `sensorCalibration` is
 unavailable if any of its six reads is, and its later reads are then not
-made: a partial set would be compared with another Machine's complete one. It is sent as unavailable,
-never as an empty collection. One of DYE2's keys never written answers `null`
+made: a partial set would be compared with another Machine's complete one.
+It is sent as unavailable, never as an empty collection. One of DYE2's keys never written answers `null`
 too (`KvStoreHandler` in
 `decaid:lib/src/services/webserver/kv_store_handler.dart`), which DYE2 reads
 as an empty list, and so does the plugin, which sends it as one
@@ -84,8 +84,8 @@ send is decided by `plugin/src/change-detection.ts`, a pure module with module
 tests (`plugin/test/change-detection.test.ts`):
 
 - While connected, every poll interval the plugin reads each collection but
-  the machine's own settings and its sensor calibration, one after another, and sends one that changed
-  since it was last queued: it became available or unavailable, or its ETag
+  the machine's own settings and its sensor calibration, one after another,
+  and sends one that changed since it was last queued: it became available or unavailable, or its ETag
   differs, or, without one, a hash of its JSON does. The library's lists are
   read with the last ETag in `If-None-Match`; Decaid's 304 sends nothing.
   While disconnected it does not poll.
@@ -176,9 +176,9 @@ The calibration is always in `measuredValue`. For `flow` and `pressure`,
 which are ratiometric, `de1ReportedValue` is 1.0; for `temperature`, an
 offset, it is 0.0 (`rest_v1.yml`). The machine keeps each in signed Q16.16,
 so the Machine page shows them to five decimal places at most, not three as
-other settings: any two values it can hold then still differ when shown. Decaid answers 500 while no machine was
-ever connected, 503 if the machine disconnects mid-read, and 504 if it
-doesn't answer in time.
+other settings: any two values it can hold then still differ when shown.
+Decaid answers 500 while no machine was ever connected, 503 if the machine
+disconnects mid-read, and 504 if it doesn't answer in time.
 
 ## Server
 
