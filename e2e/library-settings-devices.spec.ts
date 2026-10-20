@@ -3,6 +3,7 @@ import { expect as baseExpect, type Locator, test } from "@playwright/test";
 import {
   SimulatedTablet,
   de1ProOnDecaid090,
+  sensorCalibration,
   settingsFor,
   simulatedDevices,
   simulatedDevicesSwitchedOff,
@@ -33,8 +34,15 @@ test.afterAll(async () => {
 
 test("the Machine page shows paired devices, settings and the library, and follows a machine and scale switched off", async ({ page }) => {
   const { machine: { id }, token } = await createMachine(page, "Bar 2");
-  // Derived: a flow calibration in thousandths, as the machine keeps it (calFlowEst).
-  const served = { ...de1ProOnDecaid090(), ...simulatedLibrary(), ...simulatedDevices(), "/machine/calibration": { flowMultiplier: 0.596 } };
+  // Derived: a flow calibration in thousandths, as the machine keeps it (calFlowEst), and a pressure sensor recalibrated
+  // by the least step the machine can hold, a 65536th (signed Q16.16).
+  const served = {
+    ...de1ProOnDecaid090(),
+    ...simulatedLibrary(),
+    ...simulatedDevices(),
+    "/machine/calibration": { flowMultiplier: 0.596 },
+    ...sensorCalibration({ pressure: 1 + 1 / 65536 }),
+  };
   // Polls every 5 s of the tablet's time, and reads the machine's own settings every 60 s, which runs fifty times faster here.
   const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api: served, timeScale: 50 });
   tablets.push(tablet);
@@ -66,9 +74,18 @@ test("the Machine page shows paired devices, settings and the library, and follo
     await expect(field(machineSettings, term)).toHaveText(value);
   }
   await expect(field(settings.getByRole("region", { name: "Advanced settings" }), "heaterIdleTemp")).toHaveText("98");
-  const calibration = settings.getByRole("region", { name: "Calibration" });
-  await expect(calibration).toContainText(/^CalibrationReported at \w{3} \d+, \d{4}/);
+  const calibration = settings.getByRole("region", { name: "Flow calibration" });
+  await expect(calibration).toContainText(/^Flow calibrationReported at \w{3} \d+, \d{4}/);
   await expect(field(calibration, "flowMultiplier")).toHaveText("0.596");
+  // Its pressure sensor's recalibration shows, to five decimal places.
+  const sensors = settings.getByRole("region", { name: "Sensor calibration" });
+  await expect(sensors).toContainText(/^Sensor calibrationReported at \w{3} \d+, \d{4}/);
+  const calibrated: [target: string, current: string, factory: string][] = [["flow", "1", "1"], ["pressure", "1.00002", "1"], ["temperature", "0", "0"]];
+  for (const [target, current, factory] of calibrated) {
+    const list = sensors.getByLabel(target, { exact: true });
+    await expect(field(list, "current")).toHaveText(current);
+    await expect(field(list, "factory")).toHaveText(factory);
+  }
   const appSettings = settings.getByRole("region", { name: "App settings" });
   await expect(field(appSettings, "gatewayMode")).toHaveText("disabled");
   await expect(field(appSettings, "simulatedDevices")).toHaveText("machine, bengle, scale, sensor");
@@ -103,7 +120,7 @@ test("a Machine whose tablet has reported nothing says so", async ({ page }) => 
   await page.getByRole("link", { name: "Spare 2", exact: true }).click();
   await expect(page.getByRole("region", { name: "Paired devices" })).toContainText("Its tablet has not reported its paired devices yet.");
   const settings = page.getByRole("region", { name: "Settings" });
-  for (const name of ["App settings", "Machine settings", "Advanced settings"]) {
+  for (const name of ["App settings", "Machine settings", "Advanced settings", "Flow calibration", "Sensor calibration"]) {
     await expect(settings.getByRole("region", { name })).toContainText("Not reported yet");
   }
   await expect(settings.getByRole("region", { name: "Steam, hot water and rinse" })).toContainText("Its tablet has not reported its Workflow yet.");

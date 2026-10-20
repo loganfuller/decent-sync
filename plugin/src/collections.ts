@@ -16,13 +16,20 @@ import { type LibraryAccess, libraryListPath } from "./library-writes.js";
 import { utcTime } from "./local-time.js";
 import type { Outbox } from "./outbox.js";
 
-interface Source {
+type Source = {
   name: CollectionName;
-  /** The route under Decaid's API, with its query. */
-  path: string;
   /** Turns Decaid's response into the collection, or null if it has nothing to report. */
   select?: (value: unknown) => unknown;
-}
+} & (
+  | {
+      /** The route under Decaid's API, with its query. */
+      path: string;
+    }
+  | {
+      /** Reads the collection where it is more than one route's answer. */
+      read: () => Promise<Reading>;
+    }
+);
 
 /**
  * Where each collection is read, in Decaid v0.9.0's API (rest_v1.yml): the
@@ -37,6 +44,7 @@ const SOURCES: readonly Source[] = [
   { name: "machineSettings", path: "/machine/settings" },
   { name: "advancedSettings", path: "/machine/settings/advanced" },
   { name: "machineCalibration", path: "/machine/calibration" },
+  { name: "sensorCalibration", read: readSensorCalibration },
   { name: "pairedDevices", path: "/devices", select: pairedDevices },
   { name: "scaleInfo", path: "/scale/info" },
   { name: "sensors", path: "/sensors" },
@@ -63,12 +71,20 @@ const MACHINE_SETTINGS: ReadonlySet<CollectionName> = new Set(["machineSettings"
 const MACHINE_SETTINGS_MS = 60_000;
 
 /**
+ * Collections read only on full reads (`sendAll`): the sensor calibration,
+ * six requests the machine answers one at a time on the link the scale also
+ * uses, which change only through a deliberate calibration.
+ */
+const FULL_READS_ONLY: ReadonlySet<CollectionName> = new Set(["sensorCalibration"]);
+
+/**
  * The tablet's library, settings and paired devices, through the outbox.
  * Decaid has no event for them, so while connected the plugin reads each one
  * every poll interval and sends it, whole, when it changed
  * (change-detection.ts), but for the machine's own settings
  * (`MACHINE_SETTINGS`), read every 60 s, or every poll interval if longer,
- * and whenever a Workflow change wrote them (`readMachineSettings`).
+ * and whenever a Workflow change wrote them (`readMachineSettings`), and the
+ * sensor calibration (`FULL_READS_ONLY`), read only on full reads.
  * On every welcome it reads every one again and sends it whatever it is,
  * which also covers whatever changed while the plugin was disconnected, and
  * counts as a read of the machine's settings for their interval. Reads run
@@ -206,6 +222,8 @@ export class CollectionCapture {
               this.machineSettingsTimer = undefined;
             }
             if (!machineSettings) continue;
+          } else if (FULL_READS_ONLY.has(source.name)) {
+            if (!full) continue;
           } else if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
           const parent = isLibraryList(source.name) ? parentList(source.name) : undefined;
           const sent = await (WRITTEN_LISTS.has(source.name)
@@ -225,7 +243,10 @@ export class CollectionCapture {
   private async capture(source: Source, full: boolean): Promise<boolean> {
     const last = this.last.get(source.name);
     // A key of Decaid's store DYE2 never wrote is an empty list, as DYE2 reads it (ADR-0005).
-    const reading = selected(source, await readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name)));
+    const reading = selected(
+      source,
+      await ("read" in source ? source.read() : readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name))),
+    );
     if (this.stopped) return false;
     if (source.name === "dye2Recipes" && reading.kind === "value") this.sawRecipes(reading.value);
     const decision = decide(last, reading, full);
@@ -267,6 +288,31 @@ export class CollectionCapture {
     }
     return { updatedAt: value.map((record: unknown) => utcTime((record as { updatedAt?: unknown } | null)?.updatedAt)) };
   }
+}
+
+/** The machine's sensors that Decaid reads calibration for, and the calibrations of each (`De1CalibrationTarget`, `De1CalibrationSource`). */
+const SENSOR_CALIBRATION_TARGETS = ["flow", "pressure", "temperature"] as const;
+const SENSOR_CALIBRATION_SOURCES = ["current", "factory"] as const;
+
+/**
+ * The firmware's calibration of each sensor, as it is now and as it left the
+ * factory: each of Decaid's answers to `GET /machine/calibration/{target}`
+ * as sent, by target and source, such as `{ flow: { current, factory } }`.
+ * Read one at a time, and unavailable if any read fails, as a partial set
+ * would be compared with another Machine's complete one.
+ */
+async function readSensorCalibration(): Promise<Reading> {
+  const value: Record<string, Record<string, unknown>> = {};
+  for (const target of SENSOR_CALIBRATION_TARGETS) {
+    const calibrations: Record<string, unknown> = {};
+    for (const source of SENSOR_CALIBRATION_SOURCES) {
+      const reading = await readCollection(`/machine/calibration/${target}?source=${source}`, null);
+      if (reading.kind !== "value") return { kind: "unavailable" };
+      calibrations[source] = reading.value;
+    }
+    value[target] = calibrations;
+  }
+  return { kind: "value", value, etag: null };
 }
 
 function selected(source: Source, reading: Reading): Reading {

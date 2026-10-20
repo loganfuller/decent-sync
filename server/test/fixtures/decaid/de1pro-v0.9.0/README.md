@@ -22,6 +22,8 @@ charging mode `longevity`, scale power mode `displayOff`, and a battery at
 51% and not charging. The simulated tablet (`de1ProOnDecaid090` in
 `server/test/support/simulated-tablet.ts`) answers `/info` and `/settings`
 from here, and everything else from `../de1pro-v0.8.7/`, but for
-`/machine/calibration`, which was not recorded: it answers Decaid's
-`{"flowMultiplier": …}` (`de1handler.dart`) with 1.1, the flow calibration
-`../de1pro-v0.8.7/shot-espresso.json` recorded.
+`/machine/calibration` and `/machine/calibration/{target}`, which were not
+recorded. It answers Decaid's `{"flowMultiplier": …}` (`de1handler.dart`)
+with 1.1, the flow calibration `../de1pro-v0.8.7/shot-espresso.json`
+recorded, and each sensor calibration with derived values in Decaid's shape
+(`sensorCalibration` there).

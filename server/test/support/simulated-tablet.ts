@@ -215,7 +215,8 @@ export class Refusal {
  * recipes and baskets are in an older DYE2's shape than simulated-dye2.ts
  * replays. Its flow calibration is derived, not recorded: Decaid's answer to
  * `GET /machine/calibration` (de1handler.dart) holding the value its Shot
- * recorded (`workflow.machine.flowCalibration` in shot-espresso.json).
+ * recorded (`workflow.machine.flowCalibration` in shot-espresso.json). So is
+ * its sensor calibration (`sensorCalibration`).
  */
 export function de1ProOnDecaid090(): DecaidApi {
   return {
@@ -233,10 +234,33 @@ export function de1ProOnDecaid090(): DecaidApi {
     "/machine/settings": readFixture("machine-settings.json"),
     "/machine/settings/advanced": readFixture("machine-settings-advanced.json"),
     "/machine/calibration": { flowMultiplier: 1.1 },
+    ...sensorCalibration(),
     "/devices": readFixture("devices.json"),
     "/scale/info": new Refusal(503, readFixture("scale-info-no-scale.json")),
     "/sensors": readFixture("sensors.json"),
   };
+}
+
+/**
+ * Derived, not recorded: Decaid's answers to `GET
+ * /machine/calibration/{target}?source=` (de1handler.dart), each under its
+ * route and query, for a machine whose pressure sensor was recalibrated
+ * after it shipped, by the values given. The flow and pressure calibrations
+ * are ratiometric, so Decaid reports them with a `de1ReportedValue` of 1;
+ * the temperature calibration, an offset, with 0 (`MockDe1.readCalibration`).
+ * Each value is one the machine can hold, in signed Q16.16.
+ */
+export function sensorCalibration(current: { flow?: number; pressure?: number; temperature?: number } = {}): DecaidApi {
+  const factory = { flow: 1, pressure: 1, temperature: 0 };
+  const now = { ...factory, pressure: 1.0234375, ...current };
+  return Object.fromEntries(
+    (["flow", "pressure", "temperature"] as const).flatMap((target) =>
+      (["current", "factory"] as const).map((source) => [
+        `/machine/calibration/${target}?source=${source}`,
+        { target, source, de1ReportedValue: target === "temperature" ? 0 : 1, measuredValue: (source === "current" ? now : factory)[target] },
+      ]),
+    ),
+  );
 }
 
 /**
@@ -1381,7 +1405,7 @@ export class SimulatedTablet {
       return written.etag && written.status === 200 ? conditional(JSON.stringify(written.body), headers) : response(written.status, JSON.stringify(written.body));
     }
     if (method !== "GET") throw new Error(`The simulated tablet's API carries out no ${method} ${route}`);
-    if (["/machine/info", "/machine/settings", "/machine/settings/advanced", "/machine/calibration"].includes(route) && !this.machineConnected) {
+    if ((["/machine/info", "/machine/settings", "/machine/settings/advanced"].includes(route) || route.startsWith("/machine/calibration")) && !this.machineConnected) {
       // de1handler.dart answers a DeviceNotConnectedException with a 500.
       const refusal = machineNotConnected();
       return response(refusal.status, JSON.stringify(refusal.body));
@@ -1428,9 +1452,14 @@ export class SimulatedTablet {
     if (store === "store" && namespace === encodeURIComponent(this.pluginId) && rest.length === 0) {
       return response(200, JSON.stringify(this.storage.readThroughApi(key === undefined ? undefined : decodeURIComponent(key))));
     }
-    // A key of Decaid's store is read under the route its writes keep it at.
+    // A key of Decaid's store is read under the route its writes keep it at, and a sensor calibration under its route
+    // and source, the current one unless the query names another (de1handler.dart).
     const stored = this.keptInStore(route);
-    const served = stored ? storeRoute(stored.namespace, stored.key) : route;
+    const served = stored
+      ? storeRoute(stored.namespace, stored.key)
+      : route.startsWith("/machine/calibration/")
+        ? `${route}?source=${new URL(url).searchParams.get("source") ?? "current"}`
+        : route;
     const answer = this.api[served];
     if (answer instanceof Refusal) return response(answer.status, JSON.stringify(answer.body));
     // A key of plugin storage nothing has written (KvStoreHandler in kv_store_handler.dart).

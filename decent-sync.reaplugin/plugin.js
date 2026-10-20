@@ -2555,6 +2555,7 @@ var __decentSync = (() => {
     { name: "machineSettings", path: "/machine/settings" },
     { name: "advancedSettings", path: "/machine/settings/advanced" },
     { name: "machineCalibration", path: "/machine/calibration" },
+    { name: "sensorCalibration", read: readSensorCalibration },
     { name: "pairedDevices", path: "/devices", select: pairedDevices },
     { name: "scaleInfo", path: "/scale/info" },
     { name: "sensors", path: "/sensors" }
@@ -2562,6 +2563,7 @@ var __decentSync = (() => {
   var WRITTEN_LISTS = new Set(LIBRARY_LISTS);
   var MACHINE_SETTINGS = /* @__PURE__ */ new Set(["machineSettings", "advancedSettings", "machineCalibration"]);
   var MACHINE_SETTINGS_MS = 6e4;
+  var FULL_READS_ONLY = /* @__PURE__ */ new Set(["sensorCalibration"]);
   var CollectionCapture = class {
     constructor(outbox, library, pollMs, sawRecipes = () => {
     }) {
@@ -2668,6 +2670,8 @@ var __decentSync = (() => {
                 this.machineSettingsTimer = void 0;
               }
               if (!machineSettings) continue;
+            } else if (FULL_READS_ONLY.has(source.name)) {
+              if (!full) continue;
             } else if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
             const parent = isLibraryList(source.name) ? parentList(source.name) : void 0;
             const sent = await (WRITTEN_LISTS.has(source.name) ? this.library.run(() => this.capture(source, full || parent !== void 0 && sentLists.has(parent))) : this.capture(source, full));
@@ -2682,7 +2686,10 @@ var __decentSync = (() => {
     /** Reads a collection, and queues it if it is to be sent. Says whether a value was queued. */
     async capture(source, full) {
       const last = this.last.get(source.name);
-      const reading = selected(source, await readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name)));
+      const reading = selected(
+        source,
+        await ("read" in source ? source.read() : readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name)))
+      );
       if (this.stopped) return false;
       if (source.name === "dye2Recipes" && reading.kind === "value") this.sawRecipes(reading.value);
       const decision = decide(last, reading, full);
@@ -2717,6 +2724,21 @@ var __decentSync = (() => {
       return { updatedAt: value.map((record) => utcTime(record?.updatedAt)) };
     }
   };
+  var SENSOR_CALIBRATION_TARGETS = ["flow", "pressure", "temperature"];
+  var SENSOR_CALIBRATION_SOURCES = ["current", "factory"];
+  async function readSensorCalibration() {
+    const value = {};
+    for (const target of SENSOR_CALIBRATION_TARGETS) {
+      const calibrations = {};
+      for (const source of SENSOR_CALIBRATION_SOURCES) {
+        const reading = await readCollection(`/machine/calibration/${target}?source=${source}`, null);
+        if (reading.kind !== "value") return { kind: "unavailable" };
+        calibrations[source] = reading.value;
+      }
+      value[target] = calibrations;
+    }
+    return { kind: "value", value, etag: null };
+  }
   function selected(source, reading) {
     if (reading.kind !== "value" || !source.select) return reading;
     const value = source.select(reading.value);

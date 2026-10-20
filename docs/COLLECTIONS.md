@@ -46,6 +46,7 @@ Each is read from Decaid v0.9.0's API (`decaid:assets/api/rest_v1.yml`):
 | `machineSettings` | `GET /machine/settings` | content |
 | `advancedSettings` | `GET /machine/settings/advanced` | content |
 | `machineCalibration` | `GET /machine/calibration` | content |
+| `sensorCalibration` | `GET /machine/calibration/{flow,pressure,temperature}?source={current,factory}`, six reads | content |
 | `pairedDevices` | `GET /devices`, without devices only discovered nearby | content |
 | `scaleInfo` | `GET /scale/info` | content |
 | `sensors` | `GET /sensors` | content |
@@ -53,8 +54,10 @@ Each is read from Decaid v0.9.0's API (`decaid:assets/api/rest_v1.yml`):
 A read is unavailable when it fails or has nothing to report: any status but
 200 or 304 (the machine's settings answer 500 while no machine is connected,
 `/scale/info` 503 while no scale is), a fetch that fails or times out, or
-`null` for a collection read from Decaid's API. It is sent as unavailable,
-never as an empty collection. One of DYE2's keys never written answers `null`
+`null` for a collection read from Decaid's API. `sensorCalibration` is
+unavailable if any of its six reads is, and its later reads are then not
+made: a partial set would be compared with another Machine's complete one.
+It is sent as unavailable, never as an empty collection. One of DYE2's keys never written answers `null`
 too (`KvStoreHandler` in
 `decaid:lib/src/services/webserver/kv_store_handler.dart`), which DYE2 reads
 as an empty list, and so does the plugin, which sends it as one
@@ -81,8 +84,8 @@ send is decided by `plugin/src/change-detection.ts`, a pure module with module
 tests (`plugin/test/change-detection.test.ts`):
 
 - While connected, every poll interval the plugin reads each collection but
-  the machine's own settings, one after another, and sends one that changed
-  since it was last queued: it became available or unavailable, or its ETag
+  the machine's own settings and its sensor calibration, one after another,
+  and sends one that changed since it was last queued: it became available or unavailable, or its ETag
   differs, or, without one, a hash of its JSON does. The library's lists are
   read with the last ETag in `If-None-Match`; Decaid's 304 sends nothing.
   While disconnected it does not poll.
@@ -107,6 +110,12 @@ tests (`plugin/test/change-detection.test.ts`):
   the Machine's Location changes, after sending its latest Workflow again
   (`LIBRARY.md`, Joining a Location). Either counts as a read of the
   machine's own settings for their interval.
+- It reads the sensor calibration (`sensorCalibration`) only on those full
+  reads, on every `welcome` and `requestCollections`: never on a poll, on the
+  machine settings' interval or after a Workflow change. Its six reads each
+  go to the machine (below), and its values change only through a deliberate
+  calibration (`PUT` on the same route), so a recalibration reaches the
+  server on the tablet's next reconnect or `requestCollections`.
 - Whenever it sends the beans, it sends the bean batches in full after them,
   changed or not, as the server takes in a batch only once it knows the
   batch's bean (`LIBRARY.md`). The library's lists the server writes to (the
@@ -142,8 +151,34 @@ plugin rewriting it per profile; a change reaches the server by the
 collection's next interval. The `volumeFlowMultiplier`,
 `hotWaterFlowMultiplier` and `weightFlowMultiplier` in `appSettings` are not
 calibration but Decaid's lookahead times, in seconds, for stopping at a volume
-or weight (`ShotSequencer`, `HotWaterSequencer`). The firmware's own flow, pressure and temperature
-calibration (`GET /machine/calibration/{target}`) is not read.
+or weight (`ShotSequencer`, `HotWaterSequencer`).
+
+`sensorCalibration` is the firmware's own calibration of the machine's flow,
+pressure and temperature sensors, separate from the flow estimation
+multiplier: the corrections the machine applies to what each sensor reads, as
+they are now and as they left the factory. Comparing the two shows whether a
+Machine's sensors were recalibrated after it shipped, which helps when two
+Machines at a Location report different pressure or temperature for the same
+Recipe. Decaid answers each target and source by a request over the machine's
+A012 calibration characteristic (`UnifiedDe1.readCalibration`), on the link
+the scale also uses, and keeps no copy. The plugin reports Decaid's six
+answers as sent, by target and source:
+
+```json
+{
+  "flow": { "current": { "target": "flow", "source": "current", "de1ReportedValue": 1.0, "measuredValue": 1.0 }, "factory": { ... } },
+  "pressure": { "current": { ... }, "factory": { ... } },
+  "temperature": { "current": { ... }, "factory": { ... } }
+}
+```
+
+The calibration is always in `measuredValue`. For `flow` and `pressure`,
+which are ratiometric, `de1ReportedValue` is 1.0; for `temperature`, an
+offset, it is 0.0 (`rest_v1.yml`). The machine keeps each in signed Q16.16,
+so the Machine page shows them to five decimal places at most, not three as
+other settings: any two values it can hold then still differ when shown.
+Decaid answers 500 while no machine was ever connected, 503 if the machine
+disconnects mid-read, and 504 if it doesn't answer in time.
 
 ## Server
 
@@ -221,7 +256,8 @@ Machine that takes their hardware over. Staff read them as Admins do.
   Everything else paired, such as the machine itself, is in `others`.
 
 The Machine page shows the paired devices, the app, machine and advanced
-settings, the flow calibration, the steam, hot water and flush settings of the
+settings, the flow calibration, the sensor calibration (each sensor's current
+and factory `measuredValue`), the steam, hot water and flush settings of the
 current Workflow, and how many of each library collection its tablet reported,
 loaded every 30 s rather than every 5 s as the Machine's status is.
 
