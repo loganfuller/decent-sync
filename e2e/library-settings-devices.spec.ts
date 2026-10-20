@@ -65,6 +65,9 @@ test("the Machine page shows paired devices, settings and the library, and follo
     await expect(field(machineSettings, term)).toHaveText(value);
   }
   await expect(field(settings.getByRole("region", { name: "Advanced settings" }), "heaterIdleTemp")).toHaveText("98");
+  const calibration = settings.getByRole("region", { name: "Calibration" });
+  await expect(calibration).toContainText(/^CalibrationReported at \w{3} \d+, \d{4}/);
+  await expect(field(calibration, "flowMultiplier")).toHaveText("1.1");
   const appSettings = settings.getByRole("region", { name: "App settings" });
   await expect(field(appSettings, "gatewayMode")).toHaveText("disabled");
   await expect(field(appSettings, "simulatedDevices")).toHaveText("machine, bengle, scale, sensor");

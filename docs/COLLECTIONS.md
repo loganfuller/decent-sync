@@ -45,6 +45,7 @@ Each is read from Decaid v0.9.0's API (`decaid:assets/api/rest_v1.yml`):
 | `appSettings` | `GET /settings` | content |
 | `machineSettings` | `GET /machine/settings` | content |
 | `advancedSettings` | `GET /machine/settings/advanced` | content |
+| `machineCalibration` | `GET /machine/calibration` | content |
 | `pairedDevices` | `GET /devices`, without devices only discovered nearby | content |
 | `scaleInfo` | `GET /scale/info` | content |
 | `sensors` | `GET /sensors` | content |
@@ -85,10 +86,10 @@ tests (`plugin/test/change-detection.test.ts`):
   differs, or, without one, a hash of its JSON does. The library's lists are
   read with the last ETag in `If-None-Match`; Decaid's 304 sends nothing.
   While disconnected it does not poll.
-- It reads the machine's own settings (`machineSettings` and
-  `advancedSettings`) on their own interval, 60 s from the end of their last
-  read, or the poll interval where that is longer, as Decaid answers them by
-  reading the machine (below). Nothing needs them fresher: the server only stores them,
+- It reads the machine's own settings (`machineSettings`, `advancedSettings`
+  and `machineCalibration`) on their own interval, 60 s from the end of their
+  last read, or the poll interval where that is longer, as Decaid answers them
+  by reading the machine (below). Nothing needs them fresher: the server only stores them,
   and a Machine's page in the management interface loads them every 30 s.
   While connected it also reads them at once after a `workflowUpdated` whose
   steam, hot water or flush settings (`steamSettings`, `hotWaterData` or
@@ -123,10 +124,21 @@ tests (`plugin/test/change-detection.test.ts`):
 Decaid's plugin `fetch` passes request headers and gives response headers
 through `headers.get` (`PluginManager` in
 `decaid:lib/src/plugins/plugin_manager.dart`). Decaid answers the machine and
-advanced settings by reading each one from the machine's memory over its
-Bluetooth or USB connection (`UnifiedDe1`), fifteen reads each time, on the
-link the scale also uses, which is why the plugin reads them less often than
-the rest.
+advanced settings and its flow calibration by reading each one from the
+machine's memory over its Bluetooth or USB connection (`UnifiedDe1`), sixteen
+reads each time, on the link the scale also uses, which is why the plugin
+reads them less often than the rest.
+
+`machineCalibration` is the machine's flow estimation multiplier, Decaid's
+`flowMultiplier` (the DE1's `calFlowEst`), which scales the flow the machine
+reports, and which each Shot records as `workflow.machine.flowCalibration`.
+Something other than a person may change it, such as an auto flow calibration
+plugin rewriting it per profile; a change reaches the server by the
+collection's next interval. The `volumeFlowMultiplier`,
+`hotWaterFlowMultiplier` and `weightFlowMultiplier` in `appSettings` are not
+calibration but Decaid's lookahead times, in seconds, for stopping at a volume
+or weight (`ShotSequencer`, `HotWaterSequencer`). The firmware's own flow, pressure and temperature
+calibration (`GET /machine/calibration/{target}`) is not read.
 
 ## Server
 
@@ -204,9 +216,9 @@ Machine that takes their hardware over. Staff read them as Admins do.
   Everything else paired, such as the machine itself, is in `others`.
 
 The Machine page shows the paired devices, the app, machine and advanced
-settings, the steam, hot water and flush settings of the current Workflow, and
-how many of each library collection its tablet reported, loaded every 30 s
-rather than every 5 s as the Machine's status is.
+settings, the flow calibration, the steam, hot water and flush settings of the
+current Workflow, and how many of each library collection its tablet reported,
+loaded every 30 s rather than every 5 s as the Machine's status is.
 
 `server/test/collections.test.ts` covers this through Seam 1, with the built
 plugin and raw frames on two instances sharing PostgreSQL, and
