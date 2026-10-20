@@ -754,9 +754,9 @@ describe("Library, settings and paired devices", () => {
         standIn.send({ type: "requestCollections" });
         await expect.poll(() => [sent("machineSettings"), sent("advancedSettings"), sent("machineCalibration")]).toEqual([2, 2, 2]);
         // Their next read comes a minute after that one, not after the welcome's, and finds them unchanged.
-        const since = () => readTimes(tablet, "/machine/settings").filter((time) => time > askedAt);
-        await expect.poll(() => since().length).toBeGreaterThanOrEqual(2);
-        expect(since()[1]! - since()[0]!).toBeGreaterThan(55_000);
+        const since = (route: string) => readTimes(tablet, route).filter((time) => time > askedAt);
+        await expect.poll(() => Math.min(...MACHINE_SETTINGS_ROUTES.map((route) => since(route).length))).toBeGreaterThanOrEqual(2);
+        for (const route of MACHINE_SETTINGS_ROUTES) expect(since(route)[1]! - since(route)[0]!).toBeGreaterThan(55_000);
         await polls(tablet, 1);
         expect([sent("machineSettings"), sent("advancedSettings"), sent("machineCalibration")]).toEqual([2, 2, 2]);
       } finally {

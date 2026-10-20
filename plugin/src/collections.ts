@@ -50,10 +50,11 @@ const SOURCES: readonly Source[] = [
 const WRITTEN_LISTS: ReadonlySet<CollectionName> = new Set(LIBRARY_LISTS);
 
 /**
- * The machine's own settings, which Decaid v0.9.0 keeps no copy of: it
- * answers each by reading the machine's values one at a time over its
- * Bluetooth or USB connection, 16 reads for the three, on the link the scale
- * also uses (`de1handler.dart`).
+ * The machine's own settings, which Decaid v0.9.0 answers on each request by
+ * reading the machine's values one at a time over its Bluetooth or USB
+ * connection, 16 reads for the three, on the link the scale also uses
+ * (`de1handler.dart`). It keeps a copy only of the flow calibration, which
+ * each Shot records (`UnifiedDe1.cachedFlowEstimation`).
  */
 const MACHINE_SETTINGS: ReadonlySet<CollectionName> = new Set(["machineSettings", "advancedSettings", "machineCalibration"]);
 /** How often the machine's own settings are read while connected, unless the poll interval is longer. */
