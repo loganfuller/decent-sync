@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, RECIPE_SLOT_FIELD, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { DYE2_NAMESPACE, dye2List } from "./support/simulated-dye2.js";
@@ -11,8 +11,10 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // Location's, keeping its Bean Batch, added there, unless another is chosen,
 // and its Profile, Basket and Tools shown there. That Location's tablets,
 // through the built plugin in simulated tablets on two server instances
-// sharing PostgreSQL, hold it by their own ids. Its history names the Recipe
-// copied, which is not changed. Serials are made up, from 46001.
+// sharing PostgreSQL, hold it by their own ids, under a record id of its own
+// (ticket #216), the Recipe its slot took it from kept there in none. Its
+// history names the Recipe copied, which is not changed. Serials are made
+// up, from 46001.
 
 type Record_ = Record<string, unknown>;
 
@@ -89,11 +91,15 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
   const grinderAt = async (location: LocationView, model: string) =>
     (await api.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: location.id, content: { model } }, 201)).grinder;
 
-  /** The tablet's recipe in a slot, if it holds one there. */
-  const slotOn = (tablet: SimulatedTablet, slot: number): Record_ | undefined => {
+  /** The tablet's recipe records, in its list's order. */
+  const recordsOn = (tablet: SimulatedTablet): Record_[] => {
     const list = dye2List(tablet, "recipes");
-    return Array.isArray(list) ? (list as Record_[]).find((record) => record.id === String(slot)) : undefined;
+    return Array.isArray(list) ? (list as Record_[]) : [];
   };
+  /** The tablet's recipe in a slot, by its `stripSlot`, if it holds one there. */
+  const slotOn = (tablet: SimulatedTablet, slot: number): Record_ | undefined => recordsOn(tablet).find((record) => record[RECIPE_SLOT_FIELD] === slot);
+  /** The tablet's record of a Recipe, by the global id it carries. */
+  const recordOf = (tablet: SimulatedTablet, recipeId: string): Record_ | undefined => recordsOn(tablet).find((record) => record[GLOBAL_ID_KEY] === recipeId);
   /** The tablet's own id for its record of a Library item, by the global id the record carries. */
   const localId = (records: Record_[], id: string) => records.find((record) => globalIdOf(record) === id || record[GLOBAL_ID_KEY] === id)?.id;
 
@@ -183,10 +189,18 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
         },
       });
       expect(localId(tablet.grinders(), labGrinder.id)).toBeUndefined();
+      // The cafe's Recipe it took slot 1 from is still there, in no slot.
+      await expect.poll(() => recordOf(tablet, before.id)?.[RECIPE_SLOT_FIELD]).toBeNull();
     }
+    // The copy has a record id of its own, the same on both cafe tablets, which is neither the original's nor that of the
+    // Recipe it took the slot from.
+    const copyIds = cafe.tablets.map((tablet) => recordOf(tablet, copied.id)!.id);
+    expect(copyIds[1]).toBe(copyIds[0]);
+    expect(copyIds[0]).not.toBe(recordOf(lab.tablets[0]!, original.id)!.id);
+    expect(copyIds[0]).not.toBe(recordOf(cafe.tablets[0]!, before.id)!.id);
     // The lab's tablet keeps the original in slot 2 alone.
     expect(slotOn(lab.tablets[0]!, 2)?.[GLOBAL_ID_KEY]).toBe(original.id);
-    expect(slotOn(lab.tablets[0]!, 1)).toBeUndefined();
+    expect(recordsOn(lab.tablets[0]!).map((record) => record[GLOBAL_ID_KEY])).toEqual([original.id]);
 
     // The copy's history starts with it, naming the Recipe it was copied from and its Location.
     const history = await versions(copied.id);
@@ -252,7 +266,7 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
     const added = await labTablet.addBean({ roaster: "Roux", name: "Bean-only copy Sidamo" });
     await expect.poll(() => globalIdOf(labTablet.beans().find((held) => held.id === added.id) ?? {})).toBeTruthy();
     const bean = { id: String(globalIdOf(labTablet.beans().find((held) => held.id === added.id)!)) };
-    const list = (dye2List(labTablet, "recipes") as Record_[]).map((record) => (record.id === "1" ? { ...record, beanId: added.id } : record));
+    const list = recordsOn(labTablet).map((record) => (record[GLOBAL_ID_KEY] === original.id ? { ...record, beanId: added.id } : record));
     expect((await labTablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, list)).status).toBe(200);
     await expect.poll(async () => (await recipe(original.id)).content.beanId).toBe(bean.id);
     const uptownBatch = (
