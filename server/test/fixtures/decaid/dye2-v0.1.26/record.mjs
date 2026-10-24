@@ -13,7 +13,7 @@
 // DYE2 left them, DYE2's latest release (v0.1.26) from GitHub.
 import fs from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
@@ -45,7 +45,7 @@ const log = (message) => console.log(new Date().toISOString(), message);
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const out = process.argv[2];
-if (!out) throw new Error("Usage: record.mjs <output dir>");
+if (!out) throw new Error("Usage: record.mjs <output dir> [--compact]");
 fs.mkdirSync(out, { recursive: true });
 const write = (file, value) => fs.writeFileSync(path.join(out, file), JSON.stringify(trimmed(value), null, 2) + "\n");
 
@@ -65,6 +65,71 @@ function trimmed(value) {
     result.measurements = samples.filter((_, index) => kept.has(index));
   }
   return result;
+}
+
+/** Files whose profiles stay whole: the fingerprint and restart-check evidence. */
+const WHOLE_PROFILES = new Set(["fingerprints.json", "restart.json", "library.json"]);
+const isProfile = (value) => value !== null && typeof value === "object" && !Array.isArray(value) && typeof value.title === "string" && Array.isArray(value.steps) && "tank_temperature" in value;
+
+/**
+ * The recordings made smaller, once every file is written: in each file, in
+ * document order, a read of DYE2's `recipes`, of `/workflow`, or of one of
+ * DYE2's keys in `loading.json`'s snapshots, whose answer is the same as the
+ * last one read or posted before it in that file, keeps its status and
+ * `unchanged: true` in place of its body; and outside `WHOLE_PROFILES`, each
+ * whole profile is `{"$profile": "<title>/<hash>"}`, one copy of each kept in
+ * `library.json`'s `profileCopies`.
+ */
+function compactAll(dir) {
+  // store.json is the store's own answers, kept as they are.
+  const files = fs.readdirSync(dir).filter((file) => file.endsWith(".json") && file !== "store.json");
+  const copies = {};
+  for (const file of files) {
+    const last = {};
+    const seen = (key, body) => {
+      const text = JSON.stringify(body);
+      if (last[key] === text) return true;
+      last[key] = text;
+      return false;
+    };
+    const keyOf = (route) => (route === RECIPES ? "recipes" : route === "/workflow" ? "workflow" : null);
+    const walk = (value) => {
+      if (Array.isArray(value)) return value.map(walk);
+      if (value === null || typeof value !== "object") return value;
+      if (value.request && value.response && typeof value.request.path === "string") {
+        const key = keyOf(value.request.path.split("?")[0]);
+        if (key && value.request.method === "POST" && key === "recipes") seen(key, value.request.body);
+        if (key && value.request.method === "GET" && value.response.status === 200 && "body" in value.response && seen(key, value.response.body)) {
+          return { request: value.request, response: { status: value.response.status, unchanged: true } };
+        }
+        return value;
+      }
+      if (value.values && value.keys && "workflow" in value) {
+        // A snapshot of DYE2's keys (loading.json).
+        const values = Object.fromEntries(Object.entries(value.values).map(([key, body]) => [key, seen(`key:${key}`, body) ? { unchanged: true } : body]));
+        return { ...value, values, workflow: seen("workflow", value.workflow) ? { unchanged: true } : value.workflow };
+      }
+      return Object.fromEntries(Object.entries(value).map(([key, field]) => [key, walk(field)]));
+    };
+    const byRef = (value) => {
+      if (Array.isArray(value)) return value.map(byRef);
+      if (value === null || typeof value !== "object") return value;
+      if (isProfile(value)) {
+        const text = JSON.stringify(value);
+        const ref = `${value.title}/${createHash("sha256").update(text).digest("hex").slice(0, 10)}`;
+        copies[ref] = value;
+        return { $profile: ref };
+      }
+      return Object.fromEntries(Object.entries(value).map(([key, field]) => [key, byRef(field)]));
+    };
+    let value = walk(JSON.parse(fs.readFileSync(path.join(dir, file), "utf8")));
+    if (!WHOLE_PROFILES.has(file)) value = byRef(value);
+    fs.writeFileSync(path.join(dir, file), JSON.stringify(value, null, 2) + "\n");
+  }
+  const libraryFile = path.join(dir, "library.json");
+  const library = JSON.parse(fs.readFileSync(libraryFile, "utf8"));
+  library.profileCopies = Object.fromEntries(Object.keys(copies).sort().map((ref) => [ref, copies[ref]]));
+  fs.writeFileSync(libraryFile, JSON.stringify(library, null, 2) + "\n");
 }
 
 function parse(text) {
@@ -467,21 +532,27 @@ async function snapshot() {
 /**
  * DYE2 v0.1.26 installed from its latest GitHub release over the bundled
  * DYE2, its first load, on the keys seeded: the install's exchange, then
- * DYE2's keys and the Workflow read at once and 1, 3 and 6 s on, and the
+ * DYE2's keys and the Workflow read as it installs, over 6 s, and the
  * Workflows plugins were sent meanwhile.
  */
 async function recordInstall() {
   const eventMark = recorder.heard.length;
   const started = Date.now();
-  const install = await api("POST", "/plugins/install/github-release", { repo: "decentespresso/dye2" });
+  let answeredAtMs;
+  const installing = api("POST", "/plugins/install/github-release", { repo: "decentespresso/dye2" }).then((exchange) => {
+    answeredAtMs = Date.now() - started;
+    return exchange;
+  });
   const reads = [];
-  for (const at of [0, 1000, 3000, 6000]) {
+  for (const at of [0, 250, 500, 750, 1000, 1250, 1500, 2000, 3000, 6000]) {
     await wait(Math.max(0, started + at - Date.now()));
     reads.push({ atMs: Date.now() - started, ...(await snapshot()) });
   }
+  const install = await installing;
   const events = recorder.heard.slice(eventMark);
   return {
     exchanges: [install],
+    answeredAtMs,
     listed: await plugins(),
     reads,
     events: events.map(({ payload }) => payload.workflow?.context ?? null),
@@ -867,17 +938,24 @@ async function recordRestart(browser) {
     await restartDecaid();
     return [];
   }, { ...reads, settleMs: 1000 });
+  // The recipe's record changed while DYE2 runs, as the plugin's write of `recipes` would (its profile's last step at 8.5 bar), then Decaid restarted.
+  const changedProfile = (profile) => profile && { ...profile, steps: profile.steps.map((s, i, all) => (i === all.length - 1 ? { ...s, pressure: 8.5 } : s)) };
+  const withChangedProfile = (list) =>
+    list.map((recipe) => (recipe?.name === "Fixture Library Recipe" ? { ...recipe, profileSnapshot: changedProfile(recipe.profileSnapshot), workflow: { ...recipe.workflow, profile: changedProfile(recipe.workflow.profile) } } : recipe));
+  const unchanged = await recipes();
+  steps.decaidRestartRecordChanged = await step(async () => {
+    const written = await api("POST", RECIPES, withChangedProfile(unchanged));
+    await restartDecaid();
+    return [written];
+  }, { after: ["selection", "stored", "recipes", "workflow"], settleMs: 1000 });
+  steps.recordRestoredAfterDecaidRestart = { exchanges: [await api("POST", RECIPES, unchanged)] };
   steps.disableEnableAfterRestart = await step(async () => [...(await reloadDye2()), ...(await readTwice())], { ...reads, settleMs: 3000 });
 
   // The recipe's record changed while DYE2 was away, as another writer of `recipes` would: its profile's last step at 8.5 bar.
   const before = await recipes();
-  const changedProfile = (profile) => profile && { ...profile, steps: profile.steps.map((s, i, all) => (i === all.length - 1 ? { ...s, pressure: 8.5 } : s)) };
   steps.recordProfileChangedWhileAway = await step(async () => {
     const disabled = await api("POST", "/plugins/dye2.reaplugin/disable");
-    const edited = before.map((recipe) =>
-      recipe?.name === "Fixture Library Recipe" ? { ...recipe, profileSnapshot: changedProfile(recipe.profileSnapshot), workflow: { ...recipe.workflow, profile: changedProfile(recipe.workflow.profile) } } : recipe,
-    );
-    const written = await api("POST", RECIPES, edited);
+    const written = await api("POST", RECIPES, withChangedProfile(before));
     const enabled = await api("POST", "/plugins/dye2.reaplugin/enable");
     await wait(500);
     if (changed.closed) await openChanged();
@@ -901,6 +979,8 @@ async function recordRestart(browser) {
     const profile = (await workflow()).profile;
     return { ...profile, steps: profile.steps.map((s) => ({ ...s, temperature: s.temperature + 1 })) };
   };
+  // The recipe applied again on DYE2's dashboard, its profile now the recipe's own: DYE2's baseline is the profile it found as it loaded (decentespresso/dye2#38).
+  steps.reapplyAfterLiveChange = await select();
   steps.selectBeforeRecordAfterRestart = await select();
   steps.reloadBeforeRecord = await step(reloadDye2, { ...reads, settleMs: 3000 });
   steps.recordAfterRestart = await step(async () => changeAndRecord({ context: { targetDoseWeight: 21 }, profile: await raise(), steamSettings: { stopAtTemperature: 60 } }), {
@@ -1041,6 +1121,12 @@ const keys = async () => Object.fromEntries(await Promise.all(["recipes", "baske
 
 // ---- One run, on a Decaid whose data is new.
 
+if (process.argv[3] === "--compact") {
+  // Compacts recordings already written to <output dir>, written before compaction was part of the run.
+  compactAll(out);
+  process.exit(0);
+}
+
 log("installing the recorder");
 const recorderSource = {
   manifest: JSON.parse(fs.readFileSync(path.join(HERE, "workflow-recorder", "manifest.json"), "utf8")),
@@ -1097,4 +1183,5 @@ try {
   changed.socket.close();
   recorder.socket.close();
 }
+compactAll(out);
 log("done");
