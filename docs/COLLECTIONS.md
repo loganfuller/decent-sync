@@ -182,7 +182,13 @@ its current calibration as factory. Streamline's settings page reads no
 factory values for the same reason, reasoned for firmware 1357 rather than
 measured (the comment above `SENSOR_CAL_PREV_KEY` in
 `streamline-js:src/settings/settings.js`), and shows the value from before its
-own last write instead. Other firmware versions are untested.
+own last write instead. A reset reaches no factory value either. On the same
+day and machine, the calibration characteristic's reset command (2), which
+de1app's `de1_send_calibration` calls a reset to factory settings and
+Decaid's API never sends, was sent for the temperature target through
+Decaid's raw machine WebSocket. The machine acknowledged it and changed
+nothing, both at the original value and after the value was moved by 0.5 °C,
+and no other machine setting changed. Other firmware versions are untested.
 
 The calibration is always in `measuredValue`. For `flow` and `pressure`,
 which are ratiometric, `de1ReportedValue` is 1.0; for `temperature`, an
