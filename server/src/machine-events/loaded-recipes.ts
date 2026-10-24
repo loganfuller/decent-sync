@@ -121,7 +121,7 @@ export async function takeInLoadedRecipe(
   observedAt: string,
   entry: CurrentEntry | null,
   joining: boolean,
-  extra: Pick<WorkflowDelivery, "dye2Absent"> & { mapped?: true } = {},
+  extra: Pick<WorkflowDelivery, "dye2Absent"> = {},
 ): Promise<void> {
   const recordId = extra.dye2Absent ? null : dye2RecipeIdOf(workflow);
   const named = recordId === null ? null : await mappedRecipe(tx, tablet.tabletId, recordId);
@@ -130,7 +130,7 @@ export async function takeInLoadedRecipe(
   // Taking part nowhere, as capture-only, only the Recipe the server last had as its Loaded Recipe is cleared: one loaded
   // since stays, as does one loaded on the tablet before it stopped that the server had not heard of yet, as while offline.
   const clearsNowhere = entry !== null || (named !== null && loadedBefore === named);
-  await followMachine(tx, tablet, workflow, observedAt, recordId, named, recipe, loadedBefore === (recipe?.id ?? null) && !joining, joining, clearsNowhere, extra.mapped === true);
+  await followMachine(tx, tablet, workflow, observedAt, recordId, named, recipe, loadedBefore === (recipe?.id ?? null) && !joining, joining, clearsNowhere);
 }
 
 /**
@@ -232,7 +232,6 @@ async function followMachine(
   continued: boolean,
   joining: boolean,
   clears: boolean,
-  mapped = false,
 ): Promise<void> {
   if (recordId === null) return forgetNamed(tx, tablet.tabletId);
   const known = await namedRecipe(tx, tablet.tabletId);
@@ -262,10 +261,8 @@ async function followMachine(
   // named: a load gains the Recipe what it holds none of, and the parts it holds that the Workflow does not are written.
   if (!joining && !continued) await recordFromWorkflow(tx, tablet, recipe, null, now, observedAt);
   const target = await targetParts(tx, tablet.tabletId, recipe.id);
-  // Named again with its Machine still having it loaded, as after an upgrade forgot it, or named before the map held its
-  // record, as one DYE2's save-recipe made of the Workflow and named at once, a change since being the barista's: taken as
-  // it stood.
-  const base = target !== null && ((continued && known === null) || mapped) ? ({ ...target } as BaseParts) : target === null ? {} : heldAlready(target, now);
+  // Named again with its Machine still having it loaded, as after an upgrade forgot it: taken as it stood.
+  const base = continued && target !== null && known === null ? { ...target } as BaseParts : target === null ? {} : heldAlready(target, now);
   await saveNamed(tx, tablet.tabletId, { recordId, recipeId: recipe.id, namedAt, held: now, base });
 }
 
@@ -369,11 +366,9 @@ async function targetParts(tx: Prisma.TransactionClient, tabletId: string, recip
  * taken in as the Workflow naming it, from when the plugin observed it
  * first naming it (`named_at`), so a Shot pulled meanwhile is pulled with
  * it, under the locks the report holds (the Machine's row, the tablet's,
- * then its Location's). The Workflow is taken as holding the Recipe as it
- * stands, as one `save-recipe` made from it, so nothing is written into it:
- * a change made since is the barista's. A Workflow naming a Recipe the map
- * held already, as one of the Location the Machine left, never loads
- * another the map gives that id later.
+ * then its Location's). A Workflow naming a Recipe the map held already, as
+ * one of the Location the Machine left, never loads another the map gives
+ * that id later.
  */
 export async function recipeMapped(tx: Prisma.TransactionClient, tablet: ReportingTablet, recordId: string): Promise<void> {
   const known = await namedRecipe(tx, tablet.tabletId);
@@ -382,7 +377,7 @@ export async function recipeMapped(tx: Prisma.TransactionClient, tablet: Reporti
     SELECT workflow FROM workflow_events WHERE machine_id = ${tablet.machineId}::uuid ORDER BY id DESC LIMIT 1`;
   if (!latest || dye2RecipeIdOf(latest.workflow) !== recordId) return;
   const entry = await currentEntry(tx, tablet.machineId);
-  await takeInLoadedRecipe(tx, tablet, latest.workflow, known.namedAt.toISOString(), entry, false, { mapped: true });
+  await takeInLoadedRecipe(tx, tablet, latest.workflow, known.namedAt.toISOString(), entry, false);
 }
 
 /**

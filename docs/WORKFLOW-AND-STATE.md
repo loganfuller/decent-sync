@@ -438,11 +438,7 @@ already (`base`). A Workflow naming nothing forgets it.
   is taken in as that Workflow naming it, from `named_at`, so it is loaded
   from then, never before the Machine's latest entry (`recipeMapped`); and
   the Shots the tablet reported naming that id are linked to it
-  (`linkRecipeShots`, `SHOTS.md`). That Workflow is taken as holding the
-  Recipe as it stands (`base`), as the recipe was made from it, so nothing
-  is written into it, and a change a barista made since stays; the plugin
-  writes no load either, as its read of the tablet's recipes finds the
-  record it named gaining a global id. A Workflow naming a record the map held
+  (`linkRecipeShots`, `SHOTS.md`). A Workflow naming a record the map held
   already, as one of the Location the Machine left, never takes this path,
   so it never loads another Recipe the map gives that id later.
 

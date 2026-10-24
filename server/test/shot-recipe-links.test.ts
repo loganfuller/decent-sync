@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, dye2GlobalIdOf, dye2RecipeIdOf } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, RECIPE_SETTINGS, dye2GlobalIdOf, dye2RecipeIdOf, workflowValueAt } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { recipeIdInWorkflow, recipeNamedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
@@ -15,6 +15,7 @@ import {
   dye2PagesKeys,
   dye2Recording,
   openDye2Dashboard,
+  openDye2RecipeEditor,
   recordedDye2MainTablet,
   replayWrites,
   selectRecipeInDye2,
@@ -350,31 +351,36 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     await expect.poll(() => recipeRecords(neverUsed)).toEqual(recipeRecords(tablet));
   });
 
-  it("keeps a change made on the Machine after save-recipe and before its record was taken in, writing nothing of the new Recipe into the Workflow", async () => {
+  it("writes the settings Streamline's strip leaves out of a recipe made in DYE2's editor and applied before its record was taken in, which the Machine's next change keeps", async () => {
     let unread = false;
     const apiDelayMs = (method: string, path: string) => (unread && method === "GET" && path === RECIPES ? 30_000 : 0);
-    const { machine, tablet } = await lab("Saved then changed", 49111, { apiDelayMs });
+    const { machine, tablet } = await lab("Made then applied", 49111, { apiDelayMs });
+    tablet.connectMachine();
     const streamline = await startStreamline(tablet);
-    const dose = () => (tablet.workflow().context as Record_ | undefined)?.targetDoseWeight;
+    const hotWater = () => workflowValueAt(tablet.workflow(), RECIPE_SETTINGS.hotWaterDuration.workflow);
+    const own = hotWater();
+    expect(own).not.toBe(47);
 
+    // Before the plugin reads it: a new recipe saved in DYE2's editor in slot 5, applied from Streamline's strip, which applies
+    // no hot water time (decentespresso/streamline-js#154).
     unread = true;
-    const saved = await streamline.saveToRecipe(5);
-    expect(saved.status).toBe(200);
-    const { id: savedId } = saved.body as { id: string };
-    const savedDose = dose();
-    await tablet.changeSettings({ context: { targetDoseWeight: 21.7 } });
-    expect(savedDose).not.toBe(21.7);
+    const { saved } = await (await openDye2RecipeEditor(tablet, { slot: 5 })).set({ name: "Made then applied", hotWaterTimeS: 47 }).save();
+    const savedId = String(saved.id);
+    await streamline.applyRecipe(5);
+    expect([recipeIdInWorkflow(tablet), hotWater()]).toEqual([savedId, own]);
     await settle();
 
-    // Taken in: the Workflow the recipe was made from is taken as holding it, so the dose changed since stays.
-    const received = tablet.received.length;
+    // Taken in, it is loaded, and the load writes its hot water time, which DYE2's save of the next change keeps.
     unread = false;
     await expect.poll(() => dye2GlobalIdOf(recordWithId(tablet, savedId)), { timeout: 15_000 }).toEqual(expect.any(String));
     const savedRecipe = dye2GlobalIdOf(recordWithId(tablet, savedId))!;
     await loads(machine, savedRecipe);
+    await expect.poll(hotWater, { timeout: 15_000 }).toBe(47);
+    await tablet.changeSettings({ context: { grinderSetting: "3.4" } });
+    await expect.poll(async () => (await recipe(savedRecipe)).content.grindSetting, { timeout: 15_000 }).toBe(3.4);
     await settle();
-    expect([recipeIdInWorkflow(tablet), dose()]).toEqual([savedId, 21.7]);
-    expect(tablet.received.slice(received).filter((frame) => (frame as Record_).type === "write" && (frame as Record_).kind === "loadedRecipe")).toEqual([]);
+    const recorded = (recordWithId(tablet, savedId)?.dashboardVariables ?? {}) as Record_;
+    expect([(await recipe(savedRecipe)).content.hotWaterDuration, hotWater(), recorded.hotWaterTimeS]).toEqual([47, 47, 47]);
   });
 
   it("links a Shot to the Basket its Workflow named, and to the one DYE2's Edit Shot page sets", async () => {
