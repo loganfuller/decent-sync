@@ -167,7 +167,7 @@ test("with every slot holding a Recipe, a new Recipe's next free slot says so an
   await expect(page.getByRole("option")).toHaveText(["A slot of my choosing"]);
 });
 
-test("a slotted Recipe whose Bean Batch is finished at its Location is flagged", async ({ page }) => {
+test("a Recipe whose Bean Batch is finished at its Location is flagged", async ({ page }) => {
   const lab = await createLocation(page, "Finished lab");
   const batch = await createBatch(page, "Finished Kenya", lab);
   const recipe = await createRecipe(page, lab, 1, { name: "Finished Kenya Espresso", beanBatchId: batch.id });
