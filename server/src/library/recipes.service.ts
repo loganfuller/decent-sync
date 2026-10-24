@@ -31,9 +31,9 @@ export interface RecipeView {
   /** The items its content names, each with what the management interface names it by (`RecipeUses`). */
   uses: RecipeUses;
   /**
-   * Whether it is in a slot and names a Bean Batch that is not at its
-   * Location now: finished there, or Archived, as a slotted Recipe whose dial
-   * needs the next roast.
+   * Whether it is not Archived, so on every tablet at its Location, and names
+   * a Bean Batch that is not at its Location now: finished there, or
+   * Archived, as a Recipe whose dial needs the next roast.
    */
   batchFinished: boolean;
 }
@@ -178,7 +178,7 @@ function view(row: RecipeRow, location: LocationView | null, { names, at }: Name
     createdAt: row.createdAt.toISOString(),
     content,
     uses,
-    batchFinished: row.slot !== null && beanBatch !== null && !beanBatch.atLocation,
+    batchFinished: !row.archived && beanBatch !== null && !beanBatch.atLocation,
   };
 }
 
