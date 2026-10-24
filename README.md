@@ -415,7 +415,7 @@ them ([ADR-0017](docs/adr/0017-supported-versions.md)).
 |---|---|
 | Server URL | the server's `PUBLIC_URL`, such as `https://sync.example.com` |
 | Token | the Machine's token (stored securely by Decaid) |
-| Poll interval | seconds between checks for changes to the library, app settings, paired devices, scale, sensors and Steam Records (default 30, at least 5); the machine's own settings are read every 60 s, or this often if longer, and whenever a Workflow change writes them |
+| Poll interval | seconds between checks for changes to the library, Tablet Settings, paired devices, scale, sensors and Steam Records (default 30, at least 5); the machine's own settings are read every 60 s, or this often if longer, and whenever a Workflow change writes them |
 
 ## Development
 
@@ -526,7 +526,7 @@ holding its spec, tickets and pull requests.
    [#134](https://github.com/loganfuller/decent-sync/issues/134).
 4. **[Machine management](https://github.com/loganfuller/decent-sync/milestone/4).**
    Each Machine's Machine Settings and its Tablet's Tablet Settings edited in
-   the management interface, live while it is connected (ADR-0023), then
+   the management interface, live while its Tablet is connected (ADR-0023), then
    commands such as sleep and wake. Spec:
    [#220](https://github.com/loganfuller/decent-sync/issues/220).
 5. **Analytics.** Broader views across Machines and Locations, and Barista

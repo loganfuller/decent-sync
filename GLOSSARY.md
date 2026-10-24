@@ -32,7 +32,7 @@ The app baristas use on a tablet in place of Decaid's own screens, such as Strea
 _Avoid_: Theme, front end
 
 **Machine Settings**:
-What a machine's firmware is set to apart from what its workflow sets, such as its fan threshold, heater and sensor calibration.
+What a machine's firmware is set to apart from what its workflow sets, such as its fan threshold, heater settings and sensor calibration. Not DYE2's "machine settings" of a recipe, which are its steam, hot water and flush settings.
 _Avoid_: Machine config, DE1 settings
 
 **Tablet Settings**:
@@ -40,7 +40,7 @@ Decaid's own settings on a tablet, such as how it uses its scale and charges, an
 _Avoid_: App settings, preferences, config
 
 **Settings Edit**:
-A change to a machine's or tablet's settings made in the management interface, kept with who made it and when, and what came of it.
+A change to a machine's or tablet's settings made through the server, as in the management interface, kept with who made it and when, and what came of it.
 _Avoid_: Settings change, command
 
 **Connection Id**:
@@ -84,7 +84,7 @@ A person who can change everything on the server, including machines, tokens and
 The person who pulled a shot, as named on the tablet. A barista doesn't need an account.
 
 **Staff**:
-A person who works at one or more locations. They can edit the library's shared content anywhere, and move machines, change what their locations offer, manage recipes and record stock there.
+A person who works at one or more locations. They can edit the library's shared content anywhere, and move machines, edit machines' settings, change what their locations offer, manage recipes and record stock there.
 _Avoid_: User (when the role matters), barista (a barista may not have an account)
 
 ## Coffee
