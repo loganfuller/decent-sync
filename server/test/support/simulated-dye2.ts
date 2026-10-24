@@ -22,17 +22,19 @@ import { type DecaidApi, type SimulatedTablet, derivedDe1Pro } from "./simulated
 // recorded list gives what was recorded; `replayWrites` replays a recorded
 // step's Workflow writes.
 //
-// The recorded data (fixtures/decaid/dye2-2cf631c/, recorded from the builds
-// supported before) names the recording's beans, grinders and profiles by
-// their ids: load the tablet with `dye2Library()` for those ids to be the
-// tablet's.
+// The recorded data (fixtures/decaid/dye2-v0.1.26/, whose README lists the
+// steps and says what they show) names the recording's beans, batches,
+// grinders, baskets and profiles by their ids: load the tablet with
+// `dye2Library()` for those ids to be the tablet's. DYE2's equipment and
+// baskets pages were recorded at 2cf631c (fixtures/decaid/dye2-2cf631c/),
+// and save as v0.1.26's do (`dye2PagesRecording`).
 //
 // DYE2 itself, the recipe id it reads from the Workflow and clears on a
 // profile change, its derived selection, its `record` and `save-recipe`, its
 // migrations and pushes, is `SimulatedDye2` below; its pages are
-// `openDye2Dashboard`, `selectRecipeInDye2` and `openDye2RecipeEditor`.
-// Streamline's DYE strip, tiles, wake and remembered values are
-// simulated-streamline.ts.
+// `openDye2Dashboard`, `selectRecipeInDye2`, `openDye2RecipeEditor` and
+// `saveRecipeFromFavouriteEditor`. Streamline's DYE strip, tiles, wake and
+// remembered values are simulated-streamline.ts.
 
 /** DYE2's namespace in Decaid's store. */
 export const DYE2_NAMESPACE = "dye2.reaplugin";
@@ -40,107 +42,139 @@ export const DYE2_NAMESPACE = "dye2.reaplugin";
 /** The keys DYE2 keeps its lists under: recipes, baskets, and its tools as `equipment`. */
 export type Dye2Key = "recipes" | "baskets" | "equipment";
 
-/** A request DYE2 or Streamline sent, and what Decaid answered. */
+/** A request DYE2, Streamline or the recording script sent, and what Decaid answered. */
 export interface Dye2Exchange {
   request: { method: "GET" | "POST" | "PUT" | "DELETE"; path: string; body?: unknown };
-  /** `injected` marks an answer the recording gave in Decaid's stead. */
-  response: { status: number; body: unknown; injected?: boolean };
+  response: { status: number; body: unknown };
 }
 
 /**
- * A recorded step of a selection's life: its exchanges, the reads made once
- * DYE2 would have recorded (`after`), the pushes heard on DYE2's `changed`
- * socket meanwhile, and the context of each Workflow Decaid sent plugins in
- * a `workflowUpdated` (`events`).
+ * A recorded step: its exchanges, the reads made 2.5 s after it, once DYE2
+ * had followed (`after`), the pushes heard on DYE2's `changed` socket
+ * meanwhile, the context of each Workflow Decaid sent plugins in a
+ * `workflowUpdated` (`events`), and when each push and event came.
  */
 export interface Dye2Step {
   exchanges: Dye2Exchange[];
   after: Dye2Exchange[];
   pushes: unknown[];
   events: (Record<string, unknown> | null)[];
+  timing: { pushes: number[]; events: number[] };
 }
 
 type Record_ = Record<string, unknown>;
 
-/** The recorded steps of each file, by name. */
-export interface Dye2Recordings {
-  /** DYE2's equipment page: creating three tools, editing one and deleting another. */
-  tools: Record<"createWdtTool" | "createPuckScreen" | "createSpareTamper" | "editWdtTool" | "deleteSpareTamper", Dye2Exchange[]>;
-  /** DYE2's baskets page: creating two baskets and editing one. */
-  baskets: Record<"create18gBasket" | "create20gBasket" | "edit18gBasket", Dye2Exchange[]>;
-  /** DYE2's recipe editor: saving slots 1 and 2, editing slot 1, and saving slot 3 with only its name typed, its other fields blank. */
-  recipes: Record<"saveSlot1" | "saveSlot2" | "editSlot1" | "saveBlankSlot3", Dye2Exchange[]>;
-  /** DYE2's dashboard: applying, and so selecting, each recipe, slot 1 again, then picking a basket for the next Shot. */
-  "dye2-applies": Record<"applySlot1" | "applySlot2" | "applyBlankSlot3" | "applySlot1Again" | "pickBasket", Dye2Step>;
-  /**
-   * Recorded on a Decaid of its own (`library`): DYE2's recipe editor saving
-   * slot 1 with every machine setting, then editing them, switching a mode
-   * alone, setting the steam temperature Off and back on, and blanking the
-   * milk stop; the Workflow's steam turned off, slot 1 applied on DYE2's
-   * dashboard, and a Workflow change once it is selected.
-   */
-  "machine-settings": Record<"saveMachineSettings" | "editMachineSettings" | "switchModeOnly" | "steamOff" | "steamBackOn" | "clearMilkStopTyped" | "clearMilkStop", Dye2Exchange[]> &
-    Record<"steamOffInWorkflow" | "applyMachineSettings" | "changeAfterApply", Dye2Step> & { library: Record_ };
+/** The files of fixtures/decaid/dye2-v0.1.26/. */
+export type Dye2File =
+  | "library"
+  | "store"
+  | "loading"
+  | "plugins"
+  | "recipes"
+  | "shot"
+  | "dye2-applies"
+  | "dashboard"
+  | "recording"
+  | "unloads"
+  | "restart"
+  | "save-recipe"
+  | "streamline"
+  | "fingerprints"
+  | "keys";
+
+const supportDir = path.dirname(fileURLToPath(import.meta.url));
+const fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.26");
+const pagesFixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-2cf631c");
+
+function readJson<T>(dir: string, file: string): T {
+  return JSON.parse(fs.readFileSync(path.join(dir, `${file}.json`), "utf8")) as T;
 }
 
-const fixtures = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../fixtures/decaid/dye2-2cf631c");
-
-function readFixture<T>(file: string): T {
-  return JSON.parse(fs.readFileSync(path.join(fixtures, `${file}.json`), "utf8")) as T;
+/**
+ * A file of the recording, its shorthands expanded as `compactAll` in its
+ * record.mjs made them (the README's Edits), in document order: each answer
+ * to a read of DYE2's `recipes` or the Workflow marked `"unchanged": true` is
+ * the last answer to a read of that route, or for `recipes` the last list
+ * posted, before it; in loading.json's snapshots each key's and the
+ * Workflow's `{"unchanged": true}` is the last snapshot's (a snapshot's
+ * Workflow and a read of it count as one); and each `{"$profile": name}` is
+ * the copy of that profile in library.json's `profileCopies`.
+ */
+export function dye2Recording<T = Record_>(file: Dye2File): T {
+  const raw = readJson<unknown>(fixtures, file);
+  if (file === "library") return raw as T;
+  const copies = (readJson<Record_>(fixtures, "library").profileCopies ?? {}) as Record_;
+  const last = new Map<string, unknown>();
+  const isUnchanged = (value: unknown) => !!value && typeof value === "object" && !Array.isArray(value) && (value as Record_).unchanged === true && Object.keys(value as Record_).length === 1;
+  const profiles = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(profiles);
+    if (!value || typeof value !== "object") return value;
+    const record = value as Record_;
+    if (Object.keys(record).length === 1 && typeof record.$profile === "string") return structuredClone(copies[record.$profile]);
+    return Object.fromEntries(Object.entries(record).map(([key, field]) => [key, profiles(field)]));
+  };
+  const keyOf = (route: string) => (route === `/store/${DYE2_NAMESPACE}/recipes` ? "recipes" : route === "/workflow" ? "workflow" : null);
+  const walk = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(walk);
+    if (!value || typeof value !== "object") return value;
+    const record = value as Record_;
+    const request = record.request as Dye2Exchange["request"] | undefined;
+    if (request && record.response && typeof request.path === "string") {
+      const key = keyOf(request.path.split("?")[0]!);
+      const { unchanged, ...response } = record.response as Record_;
+      if (key === "recipes" && request.method === "POST") last.set(key, request.body);
+      if (key && request.method === "GET" && response.status === 200) {
+        if (unchanged) response.body = structuredClone(last.get(key));
+        else last.set(key, response.body);
+      }
+      return { ...record, response };
+    }
+    if (record.values && record.keys && "workflow" in record) {
+      const values = Object.fromEntries(
+        Object.entries(record.values as Record_).map(([key, body]) => {
+          if (isUnchanged(body)) return [key, structuredClone(last.get(`key:${key}`))];
+          last.set(`key:${key}`, body);
+          return [key, body];
+        }),
+      );
+      let workflow = record.workflow;
+      if (isUnchanged(workflow)) workflow = structuredClone(last.get("workflow"));
+      else last.set("workflow", workflow);
+      return { ...record, values, workflow };
+    }
+    return Object.fromEntries(Object.entries(record).map(([key, field]) => [key, walk(field)]));
+  };
+  return walk(profiles(raw)) as T;
 }
 
-/** The recorded steps of one of DYE2's pages. */
-export function dye2Recording<File extends keyof Dye2Recordings>(file: File): Dye2Recordings[File] {
-  return readFixture(file);
-}
-
-/** Another file of the recording (fixtures/decaid/dye2-2cf631c/): its library, DYE2's listing, and the Shot it pulled. */
-export function dye2MainRecording<T = Record<string, unknown>>(file: "library" | "plugins" | "dashboard" | "recording" | "restore" | "streamline" | "fingerprints" | "shot"): T {
-  return readFixture(file);
+/** The recorded steps of DYE2's equipment (`tools`) or baskets page, recorded at 2cf631c, whose pages save as v0.1.26's do (fixtures/decaid/dye2-2cf631c/). */
+export function dye2PagesRecording(file: "tools" | "baskets"): Record<string, Dye2Exchange[]> {
+  return readJson(pagesFixtures, file);
 }
 
 /** What Decaid's store answered a key never written, a POST, a read, a DELETE and a DELETE of a key it no longer held. */
 export function dye2StoreExchanges(): Dye2Exchange[] {
-  return readFixture("store");
+  return dye2Recording("store");
 }
 
-/** DYE2's three lists as the recording left them once its pages' steps were done, before its selection's. */
-export function dye2Keys(): Record<Dye2Key, Record_[]> {
-  return readFixture("keys");
+/** DYE2's keys at the end of the recording (keys.json): its recipes, baskets, tools (`equipment`, never written: null), mirrored selection and migration flags. */
+export function dye2Keys(): { recipes: Record_[]; baskets: Record_[]; equipment: Record_[] | null; selection: unknown } & Record<string, unknown> {
+  return dye2Recording("keys");
 }
 
 /**
- * The library and Workflow of the recording's tablet when DYE2 started:
- * two beans, a batch of each and two grinders, the two bundled profiles its
- * recipes use, and Decaid's default Workflow. Merge it into a tablet's API.
+ * The library and Workflow of the recording's tablet: two beans, a batch of
+ * each, two grinders, the two bundled profiles its recipes use, and
+ * Decaid's default Workflow. Merge it into a tablet's API.
  */
 export function dye2Library(): DecaidApi {
-  const library = readFixture<Record<string, unknown>>("library");
+  const library = dye2Recording<Record_>("library");
   return {
     "/beans": library.beans,
     "/bean-batches": library.beanBatches,
     "/grinders": library.grinders,
     "/profiles": library.profiles,
     "/workflow": library.workflow,
-  };
-}
-
-/**
- * The library and Workflow of the tablet machine-settings.json was recorded
- * on, a Decaid of its own, before DYE2 wrote anything: its beans, batches and
- * grinders, made as for the other files but under ids of their own,
- * `Adaptive v3`, Decaid's default Workflow and the simulated machine's
- * settings. Merge it into a tablet's API.
- */
-export function dye2MachineSettingsLibrary(): DecaidApi {
-  const { library } = dye2Recording("machine-settings");
-  return {
-    "/beans": library.beans,
-    "/bean-batches": library.beanBatches,
-    "/grinders": library.grinders,
-    "/profiles": library.profiles,
-    "/workflow": library.workflow,
-    "/machine/settings": library.machineSettings,
   };
 }
 
@@ -160,51 +194,50 @@ function scenarioBeans(beans: unknown, scenario: string | undefined): Record_[] 
   return (beans as Record_[]).map((bean) => (scenario === undefined ? bean : { ...bean, name: `${scenario} ${String(bean.name)}` }));
 }
 
+/** DYE2's one-time migrations marked done in its store, as on a tablet where DYE2 v0.1.26 has loaded once: merge into a tablet's API so a `SimulatedDye2` runs none. */
+export function dye2Migrated(): DecaidApi {
+  return Object.fromEntries(["selectionMigrated", "recipesMigrated", "favSlotsMigrated", "favProfilesMigrated"].map((key) => [`/store/${DYE2_NAMESPACE}/${key}`, true]));
+}
+
 /**
- * The recording's tablet, with this serial, as DYE2's pages found it: its
- * library and Workflow (dye2Library()), and DYE2's baskets and tools as its
- * pages' steps left them, but no recipes. Its beans' names start with
- * `scenario`.
+ * The recording's tablet, with this serial, as DYE2's recipe editor found it
+ * (recipes.json): its library and Workflow (dye2Library()), DYE2's baskets
+ * as library.json lists them and its migrations done, but no recipes and no
+ * tools. Its beans' names start with `scenario`.
  */
 export function recordedDye2Tablet(serial: string, scenario: string): DecaidApi {
   const library = dye2Library();
-  const keys = dye2Keys();
   return {
     ...dye2NeverUsed(serial),
     ...library,
+    ...dye2Migrated(),
     "/beans": scenarioBeans(library["/beans"], scenario),
-    [`/store/${DYE2_NAMESPACE}/baskets`]: keys.baskets,
-    [`/store/${DYE2_NAMESPACE}/equipment`]: keys.equipment,
+    [`/store/${DYE2_NAMESPACE}/baskets`]: dye2Recording<Record_>("library").baskets,
   };
 }
 
 /**
- * The recording's tablet, with this serial, as its selection's steps began
- * (plugins.json onwards): its beans, batches, grinders, profiles and
- * Workflow, its simulated machine's settings, and DYE2's baskets and its
- * three recipes (slot 1 on `Adaptive v3`, slot 2 on `Classic Italian
- * espresso` and the blank slot 3), ids `1` to `3` and no `stripSlot` key, and
- * none of DYE2's migration flags, so a `SimulatedDye2` migrates them as it
- * loads. Its beans' names start with `scenario` where one is given.
+ * The recording's tablet, with this serial, as its pages' steps left it
+ * (library.json, after recipes.json): its beans, batches, grinders,
+ * profiles, its simulated machine's settings, the Workflow then
+ * (`workflowAfterEditor`, naming no recipe), and DYE2's baskets, its eight
+ * recipes and its migrations done. Its beans' names start with `scenario`
+ * where one is given.
  */
 export function recordedDye2MainTablet(serial: string, scenario?: string): DecaidApi {
-  const library = readFixture<Record<string, unknown>>("library");
+  const library = dye2Recording<Record_>("library");
   return {
     ...dye2NeverUsed(serial),
+    ...dye2Migrated(),
     "/beans": scenarioBeans(library.beans, scenario),
     "/bean-batches": library.beanBatches,
     "/grinders": library.grinders,
     "/profiles": library.profiles,
-    "/workflow": library.selectionWorkflow,
+    "/workflow": library.workflowAfterEditor,
     "/machine/settings": library.machineSettings,
     [`/store/${DYE2_NAMESPACE}/recipes`]: library.recipes,
     [`/store/${DYE2_NAMESPACE}/baskets`]: library.baskets,
   };
-}
-
-/** DYE2's one-time migrations marked done in its store, as on a tablet where DYE2 v0.1.26 has loaded once: merge into a tablet's API so a `SimulatedDye2` runs none. */
-export function dye2Migrated(): DecaidApi {
-  return Object.fromEntries(["selectionMigrated", "recipesMigrated", "favSlotsMigrated", "favProfilesMigrated"].map((key) => [`/store/${DYE2_NAMESPACE}/${key}`, true]));
 }
 
 /**
@@ -216,6 +249,18 @@ export function dye2Selection(tablet: SimulatedTablet): { kind: string; id: stri
   const selected = tablet.dye2?.selected();
   return selected ? { kind: selected.kind, id: selected.id } : null;
 }
+
+/**
+ * What DYE2 makes up as it saves: the time (`new Date()`, `Date.now()`), a
+ * new recipe's id in its pages (`newId`, `crypto.randomUUID()`) and in
+ * `save-recipe` (`recipe-<base-36 time><4 random>`). A test replaying the
+ * recording sets them to what was recorded, and puts them back.
+ */
+export const dye2Generated = {
+  now: (): Date => new Date(),
+  uuid: (): string => randomUUID(),
+  saveRecipeId: (): string => `recipe-${dye2Generated.now().getTime().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+};
 
 /** The list DYE2 keeps at that key on the tablet, as `GET /store/dye2.reaplugin/{key}` answers it: null if never written. */
 export function dye2List(tablet: SimulatedTablet, key: Dye2Key): unknown {
@@ -343,10 +388,13 @@ function asList(value: unknown): Record_[] {
 // the id first appeared (`workflowChanged`): a profile moved off the
 // baseline's clears the id, with `PUT /workflow {"context":{"extras":{"dye":
 // {"recipeId":null}}}}`, whatever else the same PUT sent. Nothing clears it
-// on another batch or grinder. A load loses the baseline; as it loads DYE2
-// looks at the Workflow once (`onLoad`'s `trackWorkflow(wf, true)`), and with
-// no baseline compares the recipe record's own profile (`idProfileChanged`).
-// It then mirrors the selection it derives (`deriveSelection`: the recipe the
+// on another batch or grinder. A load loses the baseline. As it loads, DYE2
+// would look at the Workflow once (`onLoad`'s `trackWorkflow(wf, true)`)
+// and, with no baseline, compare the recipe record's own profile
+// (`idProfileChanged`); but Decaid sends it the Workflow in a
+// `workflowUpdated` as it loads it, handled first, which takes the Workflow
+// as found as the baseline, so that check never clears anything
+// (fixtures/decaid/dye2-v0.1.26/restart.json). It then mirrors the selection it derives (`deriveSelection`: the recipe the
 // id names, else a favourite or recent matching the Workflow) to its store
 // key `selection`, `{}` for none, and pushes `{"what":"workflow"}` on its
 // `changed` socket, only when the selection or its `modified` changed
@@ -401,36 +449,6 @@ export type Dye2State = "loaded" | "unloaded" | "disabled" | "absent";
 
 /** DYE2's HTTP endpoints a test can hold or fail. */
 export type Dye2Endpoint = "selection" | "record" | "save-recipe";
-
-/** The endpoints DYE2's manifest at v0.1.26 declares (dye2:dye2.reaplugin/manifest.json), all `http` but `changed`. */
-const DYE2_ENDPOINTS = [
-  "dashboard",
-  "grinders",
-  "baskets",
-  "equipment",
-  "grinder-picker",
-  "basket-picker",
-  "bean-picker",
-  "roasters",
-  "add-bean",
-  "profile-picker",
-  "edit-shot",
-  "auto-favs",
-  "auto-fav-edit",
-  "recipe-edit",
-  "select-recipe",
-  "bc-import",
-  "recent-favs",
-  "selection",
-  "record",
-  "save-recipe",
-  "skin",
-  "changed",
-  "plotly",
-];
-
-/** The version DYE2's manifest at v0.1.26 still names, which `GET /plugins` lists. */
-const DYE2_MANIFEST_VERSION = "0.1.24";
 
 /** An empty baseline, for a record made without one (`EMPTY_BASELINE` in plugin.ts). */
 const EMPTY_BASELINE: Dye2Baseline = { kind: "recipe", id: "", profileFingerprint: null, armedBrewC: null, armedBeanBatchId: null, armedGrinderId: null, armedMachine: null };
@@ -734,11 +752,9 @@ function healRecipes(rows: Record_[]): Record_[] {
   return dye2DedupeRecipeSlots(dropSuggestedRecipes(dye2MigrateRecipeSlots(rows)));
 }
 
-/** DYE2's entry in `GET /plugins`: as recorded while it was loaded (plugins.json), with v0.1.26's version and endpoints, its `loaded` and `autoLoad` set by `listing()`. */
+/** DYE2's entry in `GET /plugins` as recorded once v0.1.26 was installed (plugins.json), its `loaded` and `autoLoad` set by `listing()`. */
 function recordedDye2Listing(): Record_ {
-  const { loaded } = dye2MainRecording<{ loaded: { listed: Record_[] } }>("plugins");
-  const listed = loaded.listed[0]!;
-  return { ...listed, version: DYE2_MANIFEST_VERSION, api: DYE2_ENDPOINTS.map((id) => ({ id, type: id === "changed" ? "websocket" : "http", data: {} })) };
+  return dye2Recording<{ listed: Record_[] }>("plugins").listed[0]!;
 }
 
 /** A turn of the event loop later, as Decaid answers a storage command. */
@@ -760,7 +776,7 @@ export class SimulatedDye2 {
   readonly recorded: { id: string; patch: Record_ }[] = [];
   /** Each recipe `save-recipe` made, in order: its id, name and strip slot. */
   readonly saved: { id: string; name: string; stripSlot: number | null }[] = [];
-  /** Each `recipeId` DYE2 cleared on a profile change, in order: the record id, and whether it was compared with the recipe's own profile, as after a load. */
+  /** Each `recipeId` DYE2 cleared on a profile change, in order: the record id, and whether the check was a load's (`cold`). */
   readonly cleared: { id: string; cold: boolean }[] = [];
   private tablet: SimulatedTablet | undefined;
   private installed: boolean;
@@ -817,9 +833,10 @@ export class SimulatedDye2 {
    * Loads DYE2, as Decaid does at start, on `POST .../enable` or on a reload
    * (`onLoad`), with no baseline: it reads its migration flags, answered in a
    * later turn, and runs each migration not done yet; refreshes its recent
-   * favourites, pushing once that is done; and reads the Workflow, checking
-   * the recipe it names against the recipe's own profile (`trackWorkflow(wf,
-   * true)`). Resolves once all of that is done.
+   * favourites, pushing once that is done; takes the Workflow as found as
+   * the baseline for the recipe it names (the load's `workflowUpdated`); and
+   * reads the Workflow, checking that recipe against the baseline
+   * (`trackWorkflow(wf, true)`). Resolves once all of that is done.
    */
   load(): Promise<void> {
     if (!this.installed) throw new Error("DYE2 is not installed on the tablet");
@@ -971,10 +988,22 @@ export class SimulatedDye2 {
     if (this.loadedNow) this.refreshRecents();
   }
 
-  /** `onLoad`, then its storage reads answered (`onEvent(storageRead)`). */
+  /**
+   * `onLoad`, the `workflowUpdated` Decaid sends a plugin as it loads it
+   * (`loadPlugin` in decaid:lib/src/plugins/plugin_manager.dart), and the
+   * storage reads answered (`onEvent(storageRead)`). That event is handled
+   * first, as an ordinary change with no baseline, so it takes the Workflow's
+   * profile as the baseline, and the restart check `onLoad` makes once it has
+   * read the Workflow compares that profile with itself: as recorded
+   * (restart.json), a recipe stays named across every load, its record's or
+   * the Workflow's profile changed while DYE2 was away or not.
+   */
   private async onLoad(generation: number): Promise<void> {
     this.refreshRecents();
-    const cold = this.liveWorkflow().then((workflow) => {
+    const read = this.liveWorkflow();
+    const loaded = this.tablet?.workflow();
+    if (loaded) this.trackWorkflow(loaded, false);
+    const cold = read.then((workflow) => {
       if (generation === this.generation) this.trackWorkflow(workflow, true);
     });
     await nextTurn();
@@ -1214,7 +1243,7 @@ export class SimulatedDye2 {
           recipes.map((recipe) => recipe && (recipe.name || recipe.title)),
         );
       const stripSlot = explicitRecipeSlot(asked?.slot);
-      const id = `recipe-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      const id = dye2Generated.saveRecipeId();
       workflow = withMachineSettings(workflow, await this.readMachineSettings());
       // Its own markDye: recipeId and selection stay out.
       const { dye: _, ...extras } = (context.extras ?? {}) as Record_;
@@ -1245,7 +1274,7 @@ export class SimulatedDye2 {
           profileSnapshot: workflow.profile,
           dashboardVariables,
           workflow: { context: { ...context, extras }, profile: workflow.profile, steamSettings: workflow.steamSettings, hotWaterData: workflow.hotWaterData, rinseData: workflow.rinseData },
-          capturedAt: new Date().toISOString(),
+          capturedAt: dye2Generated.now().toISOString(),
         }),
       ) as Record_;
       const list = recipes.map((recipe) => (stripSlot != null && recipe && recipe.stripSlot === stripSlot ? { ...recipe, stripSlot: null } : recipe));
@@ -1485,7 +1514,7 @@ async function updateRecipe(tablet: SimulatedTablet, id: string, patch: Record_)
   const list = read.status === 200 ? asList(read.body) : [];
   const fresh = list.find((item) => item && item.id === id) ?? {};
   const { dashboardVariables, ...rest } = patch;
-  const item: Record_ = { ...fresh, ...rest, id, capturedAt: new Date().toISOString() };
+  const item: Record_ = { ...fresh, ...rest, id, capturedAt: dye2Generated.now().toISOString() };
   if (!fresh.id && item.stripSlot === undefined) item.stripSlot = null;
   if (dashboardVariables) item.dashboardVariables = { ...((fresh.dashboardVariables ?? {}) as Record_), ...(dashboardVariables as Record_) };
   item.title = item.name || "Recipe";
@@ -1987,7 +2016,7 @@ export class Dye2RecipeEditor {
   ) {
     const stored = target.id ? recipes.find((recipe) => recipe && recipe.id === target.id) : undefined;
     this.baselineRecord = structuredClone(stored ?? {});
-    this.recipe = stored ? { ...stored } : { id: target.id ?? randomUUID() };
+    this.recipe = stored ? { ...stored } : { id: target.id ?? dye2Generated.uuid() };
     this.id = String(this.recipe.id);
     this.stripSlot = this.recipe.stripSlot == null ? null : (this.recipe.stripSlot as number);
     if (target.slot !== undefined && Number.isInteger(target.slot) && target.slot >= 1 && target.slot <= 5) {
@@ -2203,4 +2232,50 @@ export class Dye2RecipeEditor {
     await this.tablet.callApi("POST", `/plugins/${DYE2_NAMESPACE}/selection`, { kind: "recipe", id: String(saved.id) });
     return true;
   }
+}
+
+/**
+ * SAVE TO RECIPE on the Auto Favourites page's add card, only its title typed
+ * (dye2:dye2-plugin/src/pages/auto-fav-edit.ts): the page reads the tools and
+ * the Workflow (`snapshotFromWorkflow`), its lookups naming the profile by
+ * title alone, the Bean by name and the Grinder and Basket by id and name
+ * (`collectFavData`), and saves a recipe of them under a new id in no slot
+ * (`updateRecipe`), with no `showOnStreamlineDashboard` and no profile but its
+ * title, so its embedded `workflow` holds none. DYE2 v0.1.26 saves no
+ * favourite of its own. Resolves with the recipe saved.
+ */
+export async function saveRecipeFromFavouriteEditor(tablet: SimulatedTablet, title: string): Promise<Record_> {
+  await tablet.callApi("GET", `/store/${DYE2_NAMESPACE}/equipment`);
+  const { body } = await tablet.callApi("GET", "/workflow");
+  const workflow = (body ?? {}) as Record_;
+  const context = (workflow.context ?? {}) as Record_;
+  const extras = (context.extras ?? {}) as Record_;
+  const profile = (workflow.profile ?? {}) as Record_;
+  const grind = context.grinderSetting != null ? String(context.grinderSetting).trim() : "";
+  return updateRecipe(tablet, dye2Generated.uuid(), {
+    stripSlot: null,
+    name: title || context.coffeeName || "Recipe",
+    beverage: "",
+    beanName: context.coffeeName || null,
+    beanRoaster: context.coffeeRoaster || null,
+    beanBatchId: context.beanBatchId || null,
+    profileId: null,
+    profileTitle: profile.title || null,
+    profileSnapshot: null,
+    barista: context.baristaName || null,
+    drinker: context.drinkerName || null,
+    dashboardVariables: {
+      dose: context.targetDoseWeight ?? null,
+      drink: context.targetYield ?? null,
+      grind: grind === "" ? null : Number.isNaN(Number(grind)) ? grind : Number(grind),
+      rpm: extras.rpm ?? null,
+      grinderId: context.grinderId || null,
+      grinderModel: context.grinderModel || null,
+      basketId: extras.basketId || null,
+      basketName: extras.basketName || null,
+      equipmentIds: [],
+      equipmentNames: [],
+      equipmentCustom: {},
+    },
+  });
 }

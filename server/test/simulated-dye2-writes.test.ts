@@ -1,40 +1,46 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   DYE2_NAMESPACE,
   type Dye2Exchange,
+  SimulatedDye2,
+  dye2Generated,
   dye2Keys,
   dye2Library,
   dye2List,
-  dye2MachineSettingsLibrary,
+  dye2PagesRecording,
   dye2Recording,
   dye2StoreExchanges,
+  openDye2RecipeEditor,
+  recordedDye2Tablet,
   saveInDye2,
+  saveRecipeFromFavouriteEditor,
 } from "./support/simulated-dye2.js";
-import { SimulatedTablet, de1ProOnDecaid090 } from "./support/simulated-tablet.js";
+import { type DecaidApi, SimulatedTablet, de1ProOnDecaid090 } from "./support/simulated-tablet.js";
 import { runAsSteps } from "./support/steps.js";
 
-// The simulated tablet's plugin storage, and the helper that replays DYE2's
-// pages' saves on it (`saveInDye2`), against what DYE2's pages were recorded
-// writing on Decaid v0.9.0's Linux release (fixtures/decaid/dye2-2cf631c/,
-// recorded from DYE2 `main` at 2cf631c, whose equipment and baskets pages
-// save as v0.1.26's do). No settings are given, so the plugin does not
-// connect, and only Decaid's API is used.
+// The simulated tablet's plugin storage, the simulated DYE2's first load, its
+// recipe editor, and the helper that replays DYE2's pages' saves on a tablet
+// (`saveInDye2`), against what they were recorded doing on Decaid v0.9.0's
+// Linux release: DYE2 v0.1.26 (fixtures/decaid/dye2-v0.1.26/, whose README
+// says what each step was), and DYE2's equipment and baskets pages at 2cf631c
+// (fixtures/decaid/dye2-2cf631c/), which save as v0.1.26's do. No settings are
+// given, so the plugin does not connect.
 
 type Record_ = Record<string, unknown>;
 
 const tablets: SimulatedTablet[] = [];
 afterAll(() => Promise.all(tablets.map((tablet) => tablet.unload())));
 
-function load(api = dye2Library()): SimulatedTablet {
+function load(api: DecaidApi = dye2Library(), dye2?: SimulatedDye2): SimulatedTablet {
   // Recorded on Decaid's simulated machine, which keeps no flush time or temperature written to it.
-  const tablet = SimulatedTablet.load({ settings: {}, api, keepsFlushSettings: false });
+  const tablet = SimulatedTablet.load({ settings: {}, api, dye2, keepsFlushSettings: false });
   tablets.push(tablet);
   return tablet;
 }
 
 /** The list a step's last write posted. */
-function posted(step: Dye2Exchange[]): unknown {
-  return step.filter(({ request }) => request.method === "POST" && request.path.startsWith(`/store/${DYE2_NAMESPACE}/`)).at(-1)!.request.body;
+function posted(step: Dye2Exchange[]): Record_[] {
+  return step.filter(({ request }) => request.method === "POST" && request.path.startsWith(`/store/${DYE2_NAMESPACE}/`)).at(-1)!.request.body as Record_[];
 }
 
 describe("The simulated tablet's plugin storage", () => {
@@ -64,128 +70,148 @@ describe("The simulated tablet's plugin storage", () => {
   });
 });
 
-describe("DYE2's pages replayed on a simulated tablet", () => {
-  runAsSteps();
-  const tablet = load();
-  const tools = dye2Recording("tools");
-  const baskets = dye2Recording("baskets");
-  const recipes = dye2Recording("recipes");
+describe("The simulated DYE2's first load, as DYE2 v0.1.26 was recorded installing over the keys an earlier DYE2 left", () => {
+  const { seeded, install } = dye2Recording<{
+    seeded: { values: Record<string, unknown>; workflow: Record_ };
+    install: { reads: { values: Record<string, unknown>; workflow: Record_ }[] };
+  }>("loading");
 
-  it("DYE2's equipment and baskets pages leave the tools and baskets they were recorded writing", async () => {
-    for (const step of Object.values(tools)) expect(await saveInDye2(tablet, step)).toEqual(posted(step));
-    for (const step of Object.values(baskets)) expect(await saveInDye2(tablet, step)).toEqual(posted(step));
-    expect(dye2List(tablet, "equipment")).toEqual(dye2Keys().equipment);
-    expect(dye2List(tablet, "baskets")).toEqual(dye2Keys().baskets);
-  });
-
-  it("DYE2's recipe editor saves each slot as recorded, leaving blank fields out", async () => {
-    for (const step of Object.values(recipes)) {
-      expect(await saveInDye2(tablet, step)).toEqual(posted(step));
-      expect(dye2List(tablet, "recipes")).toEqual(posted(step));
+  it("migrates its recipes once, clears the stored selection and its Workflow marker, and sets each flag", async () => {
+    const dye2 = new SimulatedDye2();
+    const api: DecaidApi = { ...dye2Library(), "/workflow": seeded.workflow, "/machine/settings": dye2Recording<Record_>("library").machineSettings };
+    for (const [key, value] of Object.entries(seeded.values)) api[`/store/${DYE2_NAMESPACE}/${key}`] = value;
+    const tablet = load(api, dye2);
+    await dye2.settled();
+    const final = install.reads.at(-1)!;
+    // Recent favourites and the Shot index are not simulated.
+    for (const key of ["recipes", "baskets", "selection", "selectionMigrated", "recipesMigrated", "favSlotsMigrated", "favProfilesMigrated"]) {
+      expect(tablet.storeValue(DYE2_NAMESPACE, key), key).toEqual(final.values[key]);
     }
-    const blank = (dye2List(tablet, "recipes") as { id: string; dashboardVariables: Record_ }[]).find((recipe) => recipe.id === "3")!;
-    for (const field of ["dose", "drink", "brewC", "steamFlowMls", "flushS", "hotWaterMl", "grind", "rpm", "steamTempC"]) expect(blank.dashboardVariables).not.toHaveProperty(field);
+    expect(tablet.workflow()).toEqual(final.workflow);
   });
 });
 
-describe("DYE2's Machine Settings replayed on a simulated tablet", () => {
-  runAsSteps();
-  const recorded = dye2Recording("machine-settings");
-  const tablet = load(dye2MachineSettingsLibrary());
-  const slot1 = () => (dye2List(tablet, "recipes") as { id: string; dashboardVariables: Record_; workflow: Record_ }[]).find((recipe) => recipe.id === "1")!;
-
-  it("DYE2's recipe editor saves every machine setting as recorded: both values of each mode, Off as 0 and a blank as null", async () => {
-    const save = async (name: "saveMachineSettings" | "editMachineSettings" | "switchModeOnly" | "steamOff" | "steamBackOn" | "clearMilkStopTyped" | "clearMilkStop") => {
-      const step = recorded[name];
-      expect(await saveInDye2(tablet, step), name).toEqual(posted(step));
-      expect(dye2List(tablet, "recipes"), name).toEqual(posted(step));
-      return slot1();
-    };
-    let slot = await save("saveMachineSettings");
-    expect(slot.dashboardVariables).toMatchObject({
-      steamMode: "flow",
-      steamTimeS: 30,
-      steamFlowMls: 1.2,
-      hotWaterMode: "temp",
-      hotWaterMl: 150,
-      hotWaterTempC: 85,
-      steamTempC: 150,
-      steamStopAtTempC: 60,
-      hotWaterTimeS: 30,
-      hotWaterFlowMls: 4,
-      flushTempC: 90,
-      flushS: 5,
-      flushFlowMls: 6,
-    });
-    expect([slot.workflow.steamSettings, slot.workflow.hotWaterData, slot.workflow.rinseData]).toEqual([
-      { targetTemperature: 150, duration: 30, flow: 1.2, stopAtTemperature: 60 },
-      { targetTemperature: 85, duration: 30, volume: 150, flow: 4 },
-      { targetTemperature: 90, duration: 5, flow: 6 },
-    ]);
-    slot = await save("editMachineSettings");
-    expect(slot.dashboardVariables).toMatchObject({ steamMode: "time", steamTimeS: 32, steamFlowMls: 1.2, flushFlowMls: 5 });
-    // A mode switched alone changes only the mode.
-    const before = slot.dashboardVariables;
-    slot = await save("switchModeOnly");
-    expect(slot.dashboardVariables).toEqual({ ...before, hotWaterMode: "vol" });
-    slot = await save("steamOff");
-    expect([slot.dashboardVariables.steamTempC, (slot.workflow.steamSettings as Record_).targetTemperature]).toEqual([0, 0]);
-    slot = await save("steamBackOn");
-    expect(slot.dashboardVariables.steamTempC).toBe(150);
-    // An empty value typed puts back the one shown: the save changes nothing but when it was made.
-    const typed = slot.dashboardVariables;
-    slot = await save("clearMilkStopTyped");
-    expect(slot.dashboardVariables).toEqual(typed);
-    slot = await save("clearMilkStop");
-    expect(slot.dashboardVariables).toHaveProperty("steamStopAtTempC", null);
-    expect(slot.workflow.steamSettings).toEqual({ targetTemperature: 150, duration: 32, flow: 1.2 });
+describe("DYE2's equipment and baskets pages replayed on a simulated tablet", () => {
+  it("leave the tools and baskets they were recorded writing", async () => {
+    const tablet = load();
+    for (const file of ["tools", "baskets"] as const) {
+      const steps = Object.values(dye2PagesRecording(file));
+      for (const step of steps) expect(await saveInDye2(tablet, step)).toEqual(posted(step));
+      expect(dye2List(tablet, file === "tools" ? "equipment" : "baskets")).toEqual(posted(steps.at(-1)!));
+    }
   });
-});
 
-describe("DYE2's pages replayed on a tablet holding other data", () => {
-  type Recipe = { id: string; name: string; dashboardVariables: Record_ };
-  const recipe = (tablet: SimulatedTablet, id: string) => (dye2List(tablet, "recipes") as Recipe[]).find((item) => item.id === id);
+  it("keep the items they do not touch, and a new tool named as one held is not written", async () => {
+    const tools = dye2PagesRecording("tools");
+    const held = [...posted(tools.deleteSpareTamper!), { id: "fixture-derived-tool", name: "Fixture Derived Tamper", createdAt: "2026-01-02T03:04:05.000Z" }];
+    const tablet = load({ ...dye2Library(), "/store/dye2.reaplugin/equipment": held });
+    await saveInDye2(tablet, tools.createWdtTool!);
+    expect(dye2List(tablet, "equipment")).toEqual(held);
+    await saveInDye2(tablet, tools.editWdtTool!);
+    expect((dye2List(tablet, "equipment") as { name: string }[]).map((tool) => tool.name)).toEqual(["Fixture WDT Tool", "Fixture Puck Screen", "Fixture Derived Tamper"]);
+  });
 
-  /** Derived from the recorded lists: a slot 4 copied from slot 3, and a tool the recording never made. */
-  function loadDerived(): SimulatedTablet {
-    const keys = dye2Keys();
-    const recipes = keys.recipes as Recipe[];
-    const slot4 = { ...recipes.find((item) => item.id === "3")!, id: "4", name: "Fixture Derived Recipe" };
-    const tool = { ...keys.equipment[1], id: "fixture-derived-tool", name: "Fixture Derived Tamper" };
-    return load({
-      ...dye2Library(),
-      "/store/dye2.reaplugin/recipes": [...recipes, slot4],
-      "/store/dye2.reaplugin/equipment": [...keys.equipment, tool],
-    });
-  }
-
-  it("DYE2's edit and deletion of tools another tablet holds under its own ids change those, keeping when each was made", async () => {
-    // Derived: the tools as DYE2 read them before editing one, under ids of another tablet's DYE2, made earlier there.
-    const tools = dye2Recording("tools");
+  it("edit and delete tools another tablet holds under its own ids, keeping when each was made", async () => {
+    const tools = dye2PagesRecording("tools");
     const elsewhere = (tool: Record_) => ({ ...tool, id: `elsewhere-${String(tool.id)}` });
-    const read = tools.editWdtTool[0]!.response.body as Record_[];
+    const read = tools.editWdtTool![0]!.response.body as Record_[];
     const held: Record_[] = read.map((tool) => ({ ...elsewhere(tool), createdAt: "2026-01-02T03:04:05.000Z" }));
     const tablet = load({ ...dye2Library(), "/store/dye2.reaplugin/equipment": held });
-    await saveInDye2(tablet, tools.editWdtTool, elsewhere);
-    const edited = (posted(tools.editWdtTool) as Record_[]).find((tool) => tool.name === "Fixture WDT Tool")!;
+    await saveInDye2(tablet, tools.editWdtTool!, elsewhere);
+    const edited = posted(tools.editWdtTool!).find((tool) => tool.name === "Fixture WDT Tool")!;
     const afterEdit = held.map((tool) => (tool.name === "Fixture WDT Tool" ? { ...tool, custom: edited.custom } : tool));
     expect(dye2List(tablet, "equipment")).toEqual(afterEdit);
-    await saveInDye2(tablet, tools.deleteSpareTamper, elsewhere);
+    await saveInDye2(tablet, tools.deleteSpareTamper!, elsewhere);
     expect(dye2List(tablet, "equipment")).toEqual(afterEdit.filter((tool) => tool.name !== "Fixture Spare Tamper"));
   });
+});
 
-  it("DYE2's saves keep the items they do not touch, and a new tool named as one held is not written", async () => {
-    const tablet = loadDerived();
-    const recipes = dye2Recording("recipes");
-    const tools = dye2Recording("tools");
-    const slot4 = recipe(tablet, "4");
-    await saveInDye2(tablet, recipes.editSlot1);
-    expect(recipe(tablet, "4")).toEqual(slot4);
-    expect(recipe(tablet, "1")!.dashboardVariables).toMatchObject({ dose: 18.5, grind: 2.7, hotWaterTempC: 88 });
-    const equipment = dye2List(tablet, "equipment");
-    await saveInDye2(tablet, tools.createWdtTool);
-    expect(dye2List(tablet, "equipment")).toEqual(equipment);
-    await saveInDye2(tablet, tools.editWdtTool);
-    expect((dye2List(tablet, "equipment") as { name: string }[]).map((tool) => tool.name)).toEqual(["Fixture WDT Tool", "Fixture Puck Screen", "Fixture Derived Tamper"]);
+describe("DYE2's recipe editor made again as recorded", () => {
+  runAsSteps();
+  const steps = dye2Recording<Record<string, Dye2Exchange[]>>("recipes");
+  const library = dye2Recording<{ beans: Record_[]; grinders: Record_[]; profiles: { id: string; profile: Record_ }[]; baskets: Record_[]; workflow: Record_ }>("library");
+  const { install } = dye2Recording<{ install: { reads: { workflow: Record_ }[] } }>("loading");
+  const first = steps.newInEmptySlot!.find(({ request }) => request.method === "GET")!.response.body;
+  const tablet = load({ ...recordedDye2Tablet("10001", ""), "/beans": library.beans, "/workflow": install.reads.at(-1)!.workflow, "/store/dye2.reaplugin/recipes": first });
+  const generated = { ...dye2Generated };
+  afterEach(() => Object.assign(dye2Generated, generated));
+  const recipeNamed = (name: string) => (dye2List(tablet, "recipes") as Record_[]).find((recipe) => recipe.name === name)!;
+
+  /** Makes DYE2's clock and new ids what the step saved, for the recipe the step changed. */
+  function asRecorded(step: Dye2Exchange[], changedId?: string): void {
+    const before = (step.find(({ request }) => request.method === "GET" && request.path.endsWith("/recipes"))?.response.body ?? []) as Record_[];
+    const saved = posted(step).find((recipe) => (changedId ? recipe.id === changedId : !before.some((held) => held.id === recipe.id)))!;
+    dye2Generated.now = () => new Date(String(saved.capturedAt));
+    dye2Generated.uuid = () => String(saved.id);
+  }
+
+  /** Checks the step's post was what the editor saved. */
+  const expectPosted = (step: Dye2Exchange[]) => expect(dye2List(tablet, "recipes")).toEqual(posted(step));
+
+  it("saves a new recipe under a UUID in the empty slot targeted, a mode switch keeping the value its form showed for the mode left", async () => {
+    const step = steps.newInEmptySlot!;
+    asRecorded(step);
+    const ethiopia = library.beans.find((bean) => bean.name === "Fixture Ethiopia")!;
+    const adaptive = library.profiles.find((record) => record.profile.title === "Adaptive v3")!;
+    const editor = await openDye2RecipeEditor(tablet);
+    await editor
+      .tapSlot(5)
+      .set({ name: "Fixture Slot Recipe", bean: { id: String(ethiopia.id), name: String(ethiopia.name), roaster: String(ethiopia.roaster) } })
+      .pickProfile(adaptive.id)
+      .set({
+        grinderId: String(library.grinders.find((grinder) => grinder.model === "Fixture Grinder 64")!.id),
+        basketId: String(library.baskets.find((basket) => basket.name === "Fixture 18g Precision")!.id),
+        dose: 18,
+        drink: 36,
+        brewC: 92,
+        steam: { mode: "time", value: 30 },
+        flushS: 5,
+        hotWater: { mode: "temp", value: 85 },
+        grind: 2.5,
+        rpm: 900,
+      })
+      .save();
+    expectPosted(step);
+  });
+
+  it("saves the recipe read from the Workflow in no slot (replayed: Read From is not simulated)", async () => {
+    const step = steps.newInNoSlot!;
+    expect(await saveInDye2(tablet, step)).toEqual(posted(step));
+  });
+
+  it("moves a recipe onto a held slot, taking it from its holder, and takes one off the strip", async () => {
+    const libraryRecipe = String(recipeNamed("Fixture Library Recipe").id);
+    asRecorded(steps.moveToHeldSlot!, libraryRecipe);
+    await (await openDye2RecipeEditor(tablet, { id: libraryRecipe })).tapSlot(1).save();
+    expectPosted(steps.moveToHeldSlot!);
+    const slotRecipe = String(recipeNamed("Fixture Slot Recipe").id);
+    asRecorded(steps.takeOffStrip!, slotRecipe);
+    await (await openDye2RecipeEditor(tablet, { id: slotRecipe })).tapSlot(5).save();
+    expectPosted(steps.takeOffStrip!);
+  });
+
+  it("saves only the fields edited, hides a recipe from Streamline keeping its slot, and saves the Machine Settings, Off as 0", async () => {
+    const libraryRecipe = String(recipeNamed("Fixture Library Recipe").id);
+    const slotRecipe = String(recipeNamed("Fixture Slot Recipe").id);
+    asRecorded(steps.editFields!, libraryRecipe);
+    await (await openDye2RecipeEditor(tablet, { id: libraryRecipe })).set({ dose: 19.5, grind: 3.2 }).save();
+    expectPosted(steps.editFields!);
+    asRecorded(steps.hideFromStreamline!, "3");
+    await (await openDye2RecipeEditor(tablet, { id: "3" })).set({ showOnStreamlineDashboard: false }).save();
+    expectPosted(steps.hideFromStreamline!);
+    asRecorded(steps.saveMachineSettings!, slotRecipe);
+    await (await openDye2RecipeEditor(tablet, { id: slotRecipe })).set({ steamTempC: 150, steamStopAtTempC: 60, hotWaterTimeS: 30, hotWaterFlowMls: 4, flushTempC: 90, flushFlowMls: 6 }).save();
+    expectPosted(steps.saveMachineSettings!);
+    asRecorded(steps.steamOff!, slotRecipe);
+    await (await openDye2RecipeEditor(tablet, { id: slotRecipe })).set({ steamTempC: 0 }).save();
+    expectPosted(steps.steamOff!);
+  });
+
+  it("saves a recipe from the Auto Favourites page's add card, in no slot, its profile by title alone", async () => {
+    const step = steps.newFromFavouriteEditor!;
+    asRecorded(step);
+    expect(tablet.workflow()).toEqual(step.find(({ request }) => request.path === "/workflow")!.response.body);
+    await saveRecipeFromFavouriteEditor(tablet, "Fixture Favourite Recipe");
+    expectPosted(step);
   });
 });
