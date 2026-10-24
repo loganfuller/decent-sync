@@ -5,7 +5,7 @@ import {
   DYE2_NAMESPACE,
   LIBRARY_ITEM_KINDS,
   BREW_TEMPERATURE_FIELD,
-  DYE2_SELECTION_FIELD,
+  DYE2_RECIPE_FIELD,
   LOADED_RECIPE_KIND,
   LOADED_RECIPE_PARTS,
   MACHINE_SETTING_PARTS,
@@ -23,6 +23,7 @@ import {
   type LibraryWrite,
   type ListUnrecognised,
   MAX_REFUSAL_LENGTH,
+  RECIPE_SLOT_FIELD,
   WORKFLOW_CLEARED,
   WORKFLOW_KIND,
   type WriteRefused,
@@ -31,11 +32,13 @@ import {
   childKinds,
   dye2GlobalIdOf,
   dye2Key,
+  dye2RecipeIdOf,
   dye2Records,
   equipmentMatchKey,
   globalIdOf,
   isLibraryKind,
-  isSlotId,
+  isRecipeSlot,
+  isRecordId,
   profileAtBrewTemperature,
   sameValue,
   steamOff,
@@ -44,10 +47,9 @@ import {
 } from "@decent-sync/protocol";
 import { type Answer, readShot, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
-import type { WorkflowChanges } from "./machine-events.js";
 import type { Outbox } from "./outbox.js";
-import { clearsSelection, stepsKey } from "./loaded-recipe-rules.js";
-import { type LoadedRecipeWrites, machineMissing } from "./loaded-recipes.js";
+import { clearRecipe, stepsKey } from "./loaded-recipe-rules.js";
+import { type LoadedRecipeWrites, machineMissing, putNamingRecipe } from "./loaded-recipes.js";
 import type { Skins } from "./skins.js";
 import { keepStreamlineSteamTemperature } from "./streamline.js";
 import { randomUuid } from "./tablet-id.js";
@@ -77,10 +79,11 @@ import { randomUuid } from "./tablet-id.js";
 // the answer says so. A record carries its global id in a top-level field of
 // its own, which DYE2 keeps when it saves. DYE2 can neither archive nor hide
 // a record, so one its Location stops offering is removed from the list. A
-// recipe's id is its Recipe Slot, and the plugin keeps the list in slot
-// order whenever it writes it. Once Decaid takes a post of DYE2's recipes,
-// or a write into the Workflow that changes it, the skins listening for
-// changes are told (`ListPosted`, skins.ts).
+// recipe's id is its record id, the same on every tablet at its Location,
+// and its Recipe Slot its `stripSlot`, which one record holds at a time.
+// Once Decaid takes a post of DYE2's recipes, or a write into the Workflow
+// that changes it, the skins listening for changes are told (`ListPosted`,
+// skins.ts).
 
 /** Where a kind's records live in Decaid's API, for the kinds whose records the plugin writes as they are (`recordWriter`). */
 interface Route {
@@ -148,6 +151,8 @@ export interface ListPosted {
   loaded?: LoadedRecipeWrites;
   /** Told of each `PUT /workflow` Decaid took, with the Workflow read before it and the one Decaid answered (`Skins.workflowWritten`). It must not throw. */
   workflowWritten: Skins["workflowWritten"];
+  /** For a write into the Workflow, told of each Workflow Decaid answers it with (`LoadedRecipeWrites.ownWrite`). It must not throw. */
+  answered?: (workflow: Record<string, unknown>) => void;
 }
 
 /** Whether a Shot this plugin queued since it loaded, or has yet to send, names one of a kind's records (`LibraryWrites.namedByShot`). */
@@ -299,7 +304,8 @@ export class LibraryAccess {
  * (`workflowUpdated`), around when it answers the write. That change is
  * held back until the answer is queued, so the server takes in the answer
  * first and finds the change is the plugin's own write, not the tablet's
- * edit (ADR-0003).
+ * edit (ADR-0003), and it is not saved into the Loaded Recipe
+ * (`LoadedRecipeWrites.ownWrite`).
  */
 export class LibraryWrites {
   /** Told of each post of one of DYE2's lists and each write into the Workflow Decaid took, carrying the Loaded Recipe's part in them. */
@@ -308,9 +314,8 @@ export class LibraryWrites {
   constructor(
     private readonly library: LibraryAccess,
     private readonly outbox: Outbox,
-    private readonly workflow: WorkflowChanges,
-    /** The Machine's Loaded Recipe, which the server's writes of it, and moves of it to another slot, keep in step with DYE2's selection. */
-    loaded: LoadedRecipeWrites,
+    /** The Machine's Loaded Recipe, which the plugin's writes into the Workflow and of DYE2's recipes keep in step. */
+    private readonly loaded: LoadedRecipeWrites,
     /** Told when Decaid refuses a write into the Workflow as no machine is connected. */
     private readonly machineMissing: () => void,
     private readonly log: (message: string) => void,
@@ -415,16 +420,13 @@ export class LibraryWrites {
     if (!writerOf(write.kind)?.changesWorkflow) {
       return this.library.run(async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write, this.log, this.posted))));
     }
-    return this.library.run(async () => {
-      this.workflow.hold();
-      try {
-        const answer = await carryOut(write, this.log, this.posted);
+    return this.library.run(() =>
+      this.loaded.ownWrite(async (answered) => {
+        const answer = await carryOut(write, this.log, Object.assign((key: Dye2Key) => this.posted(key), this.posted, { answered }));
         if (answer.type === "writeRefused" && answer.status === 500 && answer.error.includes("DeviceNotConnectedException")) this.machineMissing();
         this.outbox.enqueue(answer);
-      } finally {
-        this.workflow.release();
-      }
-    });
+      }),
+    );
   }
 }
 
@@ -697,6 +699,7 @@ async function clearWorkflow(write: LibraryWrite, _log: (message: string) => voi
   const answer = await request("PUT", "/workflow", workflowPatch(fields));
   const updated = answer.ok ? parsed(answer.text) : undefined;
   if (!isObject(updated)) return refused(write, answer.status, answer.text);
+  posted.answered?.(updated);
   posted.workflowWritten(workflow, updated);
   return written(write, workflowContext(updated), Object.keys(fields), new Date().toISOString());
 }
@@ -707,13 +710,13 @@ async function clearWorkflow(write: LibraryWrite, _log: (message: string) => voi
  * Decaid merges into the Workflow: each part whose first field still holds
  * the value expected, or none (`loadedRecipeFields`). A brew temperature
  * moves every step of the profile written, or else the Workflow's, by the
- * same amount (`profileAtBrewTemperature`). It is refused unless DYE2 still
- * has the Recipe's slot selected, or answers 404
- * (`LoadedRecipeWrites.mayWrite`), and once made, one that changed the
- * profile, batch or grinder, which DYE2 clears its selection on, has the slot
- * selected again (ADR-0022). A steam temperature is left out of a Workflow
- * whose steam is off (`steamOff`), as it would turn steam on, and kept as
- * the one Streamline turns steam back on at, written or not
+ * same amount (`profileAtBrewTemperature`). It is refused unless the
+ * Workflow still names the recipe the write expects (DYE2_RECIPE_FIELD), so
+ * it never lands in a recipe a barista applied in the moment between; a
+ * write changing the profile, which DYE2 clears that field on, is made as
+ * two (`putNamingRecipe`, ADR-0022). A steam temperature is left out of a
+ * Workflow whose steam is off (`steamOff`), as it would turn steam on, and
+ * kept as the one Streamline turns steam back on at, written or not
  * (`keepStreamlineSteamTemperature`, interim until
  * decentespresso/streamline-js#156). Decaid refuses to change the steam, hot
  * water and flush settings while no machine is connected, so the rest is
@@ -722,24 +725,31 @@ async function clearWorkflow(write: LibraryWrite, _log: (message: string) => voi
  * (`ListPosted.workflowWritten`). Answers with the Workflow's `context`,
  * steam, hot water and flush settings and `profile`, timed now, as a
  * Workflow carries no time. A write unloading the Recipe, naming
- * DYE2_SELECTION_FIELD, has DYE2's selection of its slot cleared instead,
- * the Workflow left as it is: DYE2 writes its field.
+ * DYE2_RECIPE_FIELD alone, clears that field, as DYE2 does, while it still
+ * names the recipe expected, and otherwise writes nothing.
  */
 async function writeLoadedRecipe(write: LibraryWrite, log: (message: string) => void, posted: ListPosted): Promise<WriteAnswer> {
-  const globalId = write.globalId.toLowerCase();
-  if (DYE2_SELECTION_FIELD in write.fields) {
-    posted.loaded?.cleared(globalId);
+  const expected = write.expected?.[DYE2_RECIPE_FIELD];
+  const recordId = typeof expected === "string" ? expected : null;
+  if (DYE2_RECIPE_FIELD in write.fields) {
     const current = await request("GET", "/workflow");
     const workflow = current.ok ? parsed(current.text) : undefined;
     if (!isObject(workflow)) return refused(write, current.status, current.text);
-    return written(write, loadedRecipeParts(workflow), [DYE2_SELECTION_FIELD], new Date().toISOString());
+    if (recordId === null || dye2RecipeIdOf(workflow) !== recordId) return written(write, loadedRecipeParts(workflow), [], new Date().toISOString());
+    const answer = await request("PUT", "/workflow", clearRecipe());
+    const updated = answer.ok ? parsed(answer.text) : undefined;
+    if (!isObject(updated)) return refused(write, answer.status, answer.text);
+    posted.answered?.(updated);
+    posted.workflowWritten(workflow, updated);
+    return written(write, loadedRecipeParts(updated), [DYE2_RECIPE_FIELD], new Date().toISOString());
   }
-  if (posted.loaded && !(await posted.loaded.mayWrite(globalId))) return refused(write, null, ANOTHER_SELECTED);
+  if (recordId === null) return refused(write, null, "A write of the Loaded Recipe must name the recipe the Workflow is to name");
   let machineSettings = true;
   for (;;) {
     const current = await request("GET", "/workflow");
     const workflow = current.ok ? parsed(current.text) : undefined;
     if (!isObject(workflow)) return refused(write, current.status, current.text);
+    if (dye2RecipeIdOf(workflow) !== recordId) return refused(write, null, ANOTHER_RECIPE);
     const fields = loadedRecipeFields(write, workflow, machineSettings);
     // The steam temperature carried, set in the Workflow or left out of one whose steam is off, is Streamline's to turn steam back on at.
     const steam = STEAM_TEMPERATURE in fields || (STEAM_TEMPERATURE in write.fields && steamOff(workflow)) ? write.fields[STEAM_TEMPERATURE] : undefined;
@@ -747,23 +757,13 @@ async function writeLoadedRecipe(write: LibraryWrite, log: (message: string) => 
       await keepStreamlineSteamTemperature(steam, log);
       return written(write, loadedRecipeParts(workflow), [], new Date().toISOString());
     }
-    const patch = loadedRecipePatch(fields, workflow);
-    const clears = clearsSelection(workflow, patch);
-    if (clears) posted.loaded?.selectionClearing(globalId);
-    let answer: Answer;
-    try {
-      answer = await request("PUT", "/workflow", patch);
-    } catch (error) {
-      // Decaid did not answer: the write may have landed, so the slot is selected again once DYE2 has none.
-      if (clears) posted.loaded?.selectionUnsettled(globalId);
-      throw error;
-    }
-    const updated = answer.ok ? parsed(answer.text) : undefined;
-    // This write refused, the Workflow stayed, so DYE2 cleared nothing for it.
-    if (clears && !isObject(updated)) posted.loaded?.selectionKept(globalId);
-    if (isObject(updated)) {
+    let updated: Record<string, unknown> | undefined;
+    const answer = await putNamingRecipe(workflow, loadedRecipePatch(fields, workflow), recordId, (workflow) => {
+      updated = workflow;
+      posted.answered?.(workflow);
+    });
+    if (answer.ok && updated !== undefined) {
       posted.workflowWritten(workflow, updated);
-      posted.loaded?.written(globalId, workflow, updated, clears);
       await keepStreamlineSteamTemperature(steam, log);
       return written(write, loadedRecipeParts(updated), Object.keys(fields), new Date().toISOString());
     }
@@ -782,8 +782,8 @@ function isMachineSetting(field: string): boolean {
   return MACHINE_SETTING_PARTS.some((part) => field.startsWith(`${part}.`));
 }
 
-/** Why the plugin refuses a write of the server's into the Workflow for its Loaded Recipe while DYE2 has another selected. */
-const ANOTHER_SELECTED = "DYE2 has another recipe selected on the tablet, which the plugin follows first";
+/** Why the plugin refuses a write of the server's into the Workflow for its Loaded Recipe once the Workflow names another recipe. */
+const ANOTHER_RECIPE = "The Workflow names another recipe now, which the plugin reports first";
 
 /**
  * The body of a `PUT /workflow` setting the fields of a write of
@@ -1032,8 +1032,8 @@ function dye2Writer(key: Dye2Key): LibraryKindWriter {
     list: path,
     write: (write, _log, posted) => (key === "recipes" ? writeRecipe(list(posted), write) : writeInList(list(posted), write)),
     // A hard-deleted item's record is removed as one its Location no longer shows is. A Shot names a basket or tool by its
-    // id here, so one a Shot this plugin has yet to send names is kept, as a batch is (`deleteRecord`); none names a recipe
-    // by its id here, its slot.
+    // id here, so one a Shot this plugin has yet to send names is kept, as a batch is (`deleteRecord`); a Recipe is named
+    // only by a Shot linked to it, which the server judges (hard-deletes.ts).
     remove: async (remove, namedByShot, posted) => {
       if (key !== "recipes") {
         const named = await namedByShot(key === "baskets" ? "basket" : "tool", new Set([remove.localId]));
@@ -1070,32 +1070,23 @@ async function readList({ path, key }: ListPath): Promise<Dye2List> {
   const value = answer.ok ? parsed(answer.text) : undefined;
   if (value === undefined) return { refused: answer };
   if (value === null) return { records: [] };
-  const records = dye2Records(value, key);
+  const records = dye2Records(value);
   return records === null ? { unrecognised: true } : { records: [...records] };
 }
 
 /**
- * Posts one of DYE2's lists back whole, DYE2's recipes in slot order, as
- * every tablet at a Location holds them (ADR-0005): DYE2 adds a recipe saved
- * in a new slot at the end. A post Decaid takes is told of (`ListPosted`).
+ * Posts one of DYE2's lists back whole. A post Decaid takes is told of
+ * (`ListPosted`). Before a post of DYE2's recipes removing the record the
+ * Workflow names, or giving its id to another Recipe's, the Workflow's
+ * recipe is cleared (`LoadedRecipeWrites.beforePost`, ADR-0022).
  */
 async function postList({ path, key, posted }: ListPath, records: Record<string, unknown>[], before: readonly Record<string, unknown>[]): Promise<Answer> {
-  const ordered = key === "recipes" ? [...records].sort((a, b) => Number(a.id) - Number(b.id)) : records;
-  // The Loaded Recipe moving to another slot is cleared from DYE2's selection first, so DYE2 never records into a recipe
-  // put in its old slot, and selected in its new one after, and so is a slot whose recipe the post removes or replaces
-  // (ADR-0022).
-  if (key === "recipes") await posted.loaded?.moving(before, ordered);
-  let answer: Answer;
-  try {
-    answer = await request("POST", path, ordered);
-  } catch (error) {
-    if (key === "recipes") posted.loaded?.postUnsettled();
-    throw error;
-  }
+  if (key === "recipes") await posted.loaded?.beforePost(before, records);
+  const answer = await request("POST", path, records);
   if (answer.ok) {
     posted(key);
-    if (key === "recipes") posted.loaded?.posted(ordered);
-  } else if (key === "recipes") posted.loaded?.notPosted(before);
+    if (key === "recipes") posted.loaded?.posted(records);
+  }
   return answer;
 }
 
@@ -1198,19 +1189,22 @@ async function leaveOutOfList(path: ListPath, leave: LeaveOut): Promise<ItemLeft
 /**
  * Writes a Recipe to DYE2's recipes (`LibraryWrite`), whose fields are
  * named by their paths in the record (`dashboardVariables.dose`). To create
- * one, in the slot `fields.id` names: a record there already carrying its
- * global id, made by a write whose answer was lost, is the answer, and
- * nothing is written; a record there without a global id, saved in that
- * slot before the tablet reported it, becomes the Recipe's, and only the
- * global id is written to it (`linked`), so the server takes what it holds
- * as an edit of the Recipe; a record there carrying another item's global
- * id is left as it is, and the write refused, as the server removes it
- * first; otherwise a record is added with the write's fields and its
+ * one, under the record id `fields.id` names: a record of that id already
+ * carrying its global id, made by a write whose answer was lost, is the
+ * answer, and nothing is written; one without a global id, saved before the
+ * tablet reported it, becomes the Recipe's, and only the global id is
+ * written to it (`linked`), so the server takes what it holds as an edit of
+ * the Recipe; one carrying another item's global id is left as it is, and
+ * the write refused, as the server removes it first; otherwise a record is
+ * added at the end of the list with the write's fields and its
  * `capturedAt`, as DYE2 stamps one. To update one, each path it still holds
  * as the server expects is set, a null one left out. Either way the record
- * carries the global id in its own field, and the list is posted back, in
- * slot order, only where it changed. The answer is timed now, as DYE2's
- * records carry no edit time.
+ * carries the global id in its own field, and the list is posted back only
+ * where it changed. A Recipe Slot the record is put in (RECIPE_SLOT_FIELD)
+ * is taken from any other record in it, as DYE2's editor takes one
+ * (`takeSlot` in dye2:dye2-plugin/src/pages/recipe-edit.ts at v0.1.26), so
+ * one record holds each slot. The answer is timed now, as DYE2's records
+ * carry no edit time.
  */
 async function writeRecipe(path: ListPath, write: LibraryWrite): Promise<WriteAnswer> {
   const list = await readList(path);
@@ -1219,25 +1213,28 @@ async function writeRecipe(path: ListPath, write: LibraryWrite): Promise<WriteAn
   const { records } = list;
   const globalId = write.globalId.toLowerCase();
   const now = new Date().toISOString();
-  const { id: slot, ...fields } = write.fields;
+  const { id: recordId, ...fields } = write.fields;
   let index: number;
   let record: Record<string, unknown>;
   let writtenFields: string[];
   let linked = false;
   if (write.localId === null) {
-    if (!isSlotId(slot)) return refused(write, null, "A Recipe to create must name its slot");
-    index = records.findIndex((candidate) => candidate.id === slot);
+    if (!isRecordId(recordId)) return refused(write, null, "A Recipe to create must name its record id");
+    index = records.findIndex((candidate) => candidate.id === recordId);
     if (index !== -1) {
       const held = records[index]!;
       const carried = dye2GlobalIdOf(held);
       if (carried === globalId) return written(write, held, [], now);
-      if (carried !== null) return refused(write, 409, `Slot ${slot} holds another item's record`);
+      if (carried !== null) return refused(write, 409, `The record ${recordId} is another item's`);
       record = { ...held, [GLOBAL_ID_KEY]: write.globalId };
       writtenFields = [];
       linked = true;
     } else {
       index = records.length;
-      record = { ...atPaths({}, withValues(fields)), id: slot, capturedAt: now, [GLOBAL_ID_KEY]: write.globalId };
+      record = { ...atPaths({}, withValues(fields)), id: recordId, capturedAt: now, [GLOBAL_ID_KEY]: write.globalId };
+      // A recipe in no slot holds its slot as null, not none: Streamline places recipes by their ids, as before DYE2 v0.1.25,
+      // while no record holds the field (`recipeStripCells` in streamline-js:src/modules/dye-selection.js).
+      if (RECIPE_SLOT_FIELD in fields) record[RECIPE_SLOT_FIELD] = fields[RECIPE_SLOT_FIELD] ?? null;
       writtenFields = Object.keys(fields);
     }
   } else {
@@ -1251,6 +1248,10 @@ async function writeRecipe(path: ListPath, write: LibraryWrite): Promise<WriteAn
   }
   const before = [...records];
   records[index] = record;
+  const slot = record[RECIPE_SLOT_FIELD];
+  if (isRecipeSlot(slot)) {
+    for (const [at, other] of records.entries()) if (at !== index && other[RECIPE_SLOT_FIELD] === slot) records[at] = { ...other, [RECIPE_SLOT_FIELD]: null };
+  }
   const posted = await postList(path, records, before);
   if (!posted.ok) return refused(write, posted.status, posted.text);
   const answer = written(write, record, writtenFields, now);
@@ -1267,7 +1268,11 @@ function valueAt(record: Record<string, unknown>, path: string): unknown {
   return isObject(variables) ? variables[path.slice(DASHBOARD.length + 1)] : undefined;
 }
 
-/** The record with each path set to its value, a null one left out, as a record leaves out a field it holds no value for. */
+/**
+ * The record with each path set to its value, a null one left out, as a
+ * record leaves out a field it holds no value for; but a recipe's slot
+ * (RECIPE_SLOT_FIELD), which a recipe in none holds as null.
+ */
 function atPaths(record: Record<string, unknown>, values: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = { ...record };
   let variables: Record<string, unknown> | undefined;
@@ -1279,7 +1284,7 @@ function atPaths(record: Record<string, unknown>, values: Record<string, unknown
       target = variables;
       field = path.slice(DASHBOARD.length + 1);
     }
-    if (value === null) delete target[field];
+    if (value === null && path !== RECIPE_SLOT_FIELD) delete target[field];
     else target[field] = value;
   }
   if (variables) result[DASHBOARD] = variables;

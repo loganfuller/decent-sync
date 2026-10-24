@@ -71,61 +71,23 @@ describe("Workflow changes held while the plugin writes into the Workflow", () =
     expect(kept()).toEqual([dosed(18), dosed(19), dosed(20), dosed(20)]);
   });
 
-  it("holds the changes of state reported while held, and sends them after the Workflow once released", () => {
+  it("sends the changes of state reported while held at once, ahead of the Workflow held", () => {
     const { machineEvents, deliveries } = events();
     machineEvents.workflowUpdated(dosed(18));
     machineEvents.hold();
     machineEvents.workflowUpdated(dosed(19));
     machineEvents.stateUpdate(state("espresso"));
-    expect(deliveries.map((delivery) => delivery.type)).toEqual(["workflow"]);
+    expect(deliveries.map((delivery) => (delivery.type === "workflow" ? delivery.workflow : delivery.state))).toEqual([dosed(18), "espresso"]);
     machineEvents.release();
-    expect(deliveries.map((delivery) => (delivery.type === "workflow" ? delivery.workflow : delivery.state))).toEqual([dosed(18), dosed(19), "espresso"]);
-    machineEvents.stateUpdate(state("idle"));
-    expect(deliveries.at(-1)).toMatchObject({ type: "machineState", state: "idle" });
-  });
-
-  it("attaches a load's values to the next Workflow delivery, keeping each part's earliest before across loads", () => {
-    const { machineEvents, deliveries } = events();
-    machineEvents.hold();
-    machineEvents.attach({ loadBefore: { batch: { before: "b0", written: "b1" } } });
-    machineEvents.attach({ loadBefore: { batch: { before: "b1", written: "b2" }, rpm: { before: 800, written: 900 } } });
-    machineEvents.workflowUpdated(dosed(18));
-    machineEvents.release();
-    expect(deliveries[0]).toMatchObject({
-      type: "workflow",
-      loadBefore: { batch: { before: "b0", written: "b2" }, rpm: { before: 800, written: 900 } },
-    });
-    machineEvents.workflowUpdated(dosed(19));
-    expect(deliveries[1]).not.toHaveProperty("loadBefore");
-  });
-
-  it("carries a load's values into the welcome's resend that replaces the delivery carrying them", () => {
-    const { machineEvents, deliveries, superseded } = events();
-    machineEvents.workflowUpdated(dosed(18));
-    machineEvents.attach({ loadBefore: { basket: { before: "k0", written: "k1" } } });
-    machineEvents.welcome();
-    expect(deliveries[1]).toMatchObject({ loadBefore: { basket: { before: "k0", written: "k1" } } });
-    machineEvents.welcome();
-    expect(superseded.has(deliveries[1]!.id)).toBe(true);
-    expect(deliveries[2]).toMatchObject({ loadBefore: { basket: { before: "k0", written: "k1" } } });
-  });
-
-  it("does not carry a load's values into a resend replacing a delivery already sent, which the server took them from", () => {
-    const { machineEvents, deliveries, sent } = events();
-    machineEvents.workflowUpdated(dosed(18));
-    machineEvents.attach({ loadBefore: { basket: { before: "k0", written: "k1" } } });
-    machineEvents.welcome();
-    sent.add(deliveries[1]!.id);
-    machineEvents.welcome();
-    expect(deliveries[2]).not.toHaveProperty("loadBefore");
+    expect(deliveries.map((delivery) => (delivery.type === "workflow" ? delivery.workflow : delivery.state))).toEqual([dosed(18), "espresso", dosed(19)]);
   });
 });
 
 describe("DYE2 absent", () => {
-  it("sends a Workflow whose DYE2 field names a recipe again as DYE2 goes and comes back, every delivery meanwhile saying so, and once held, as released", () => {
+  it("sends a Workflow naming a recipe again as DYE2 goes and comes back, every delivery meanwhile saying so, and once held, as released", () => {
     const { machineEvents, deliveries } = events();
     const absent = () => deliveries.flatMap((delivery) => (delivery.type === "workflow" ? [[delivery.workflow, delivery.dye2Absent ?? false]] : []));
-    const selected = (dose: number): Workflow => ({ context: { targetDoseWeight: dose, extras: { dye: { v: 1, selection: { kind: "recipe", id: "1" } } } } });
+    const selected = (dose: number): Workflow => ({ context: { targetDoseWeight: dose, extras: { dye: { v: 1, recipeId: "4b1f0a3e-6c1d-4e7a-9a52-1f0d3c7b2e81" } } } });
     machineEvents.workflowUpdated(selected(18));
     machineEvents.dye2Absent(false);
     machineEvents.dye2Absent(true);
@@ -142,7 +104,7 @@ describe("DYE2 absent", () => {
     expect(absent().at(-1)).toEqual([selected(19), false]);
   });
 
-  it("sends a Workflow whose DYE2 field names nothing no more often as DYE2 goes, as the server reads none from it anyway", () => {
+  it("sends a Workflow naming no recipe no more often as DYE2 goes, as the server reads none from it anyway", () => {
     const { machineEvents, queued, deliveries } = events();
     machineEvents.workflowUpdated(dosed(18));
     machineEvents.dye2Absent(true);

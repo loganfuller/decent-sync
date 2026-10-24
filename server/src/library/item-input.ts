@@ -1,4 +1,4 @@
-import type { LibraryKind } from "@decent-sync/protocol";
+import { type LibraryKind, RECIPE_SLOTS, isRecipeSlot } from "@decent-sync/protocol";
 import { BadRequestException } from "@nestjs/common";
 import { type EditableContent, KINDS } from "./kinds.js";
 
@@ -272,10 +272,7 @@ export function readGrinderLocation(body: unknown): string {
  */
 export type SlotChoice = number | "next" | null;
 
-/** The highest Recipe Slot, the largest whole number PostgreSQL's `integer` holds. */
-const MAX_SLOT = 2_147_483_647;
-
-/** A Recipe Slot from a request's `slot`: a whole number from 1, `next`, or null for none. */
+/** A Recipe Slot from a request's `slot`: a whole number from 1 to RECIPE_SLOTS, `next`, or null for none. */
 export function readSlot(body: unknown): SlotChoice {
   const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
   if (!Object.prototype.hasOwnProperty.call(fields, "slot")) {
@@ -286,8 +283,8 @@ export function readSlot(body: unknown): SlotChoice {
 
 function slotOf(slot: unknown): SlotChoice {
   if (slot === null || slot === "next") return slot;
-  if (typeof slot === "number" && Number.isSafeInteger(slot) && slot > 0 && slot <= MAX_SLOT) return slot;
-  throw new BadRequestException(`slot must be a whole number from 1 to ${MAX_SLOT}, next for the lowest one free, or null for none`);
+  if (isRecipeSlot(slot)) return slot;
+  throw new BadRequestException(`slot must be a whole number from 1 to ${RECIPE_SLOTS}, next for the lowest one free, or null for none`);
 }
 
 /**

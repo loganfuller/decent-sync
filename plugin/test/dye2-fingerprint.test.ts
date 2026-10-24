@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { dye2Fingerprint } from "../src/loaded-recipe-rules.js";
+import { dye2Fingerprint } from "@decent-sync/protocol";
 
 // The plugin tells DYE2's change of profile as DYE2 does, by its fingerprint
 // of the Workflow's profile: checked byte for byte against the

@@ -1,11 +1,21 @@
 import fs from "node:fs";
-import { RECIPE_SETTINGS, RECIPE_SETTING_NAMES, type RecipeSetting, profileAtBrewTemperature, shiftedTemperatures, workflowValueAt } from "@decent-sync/protocol";
+import {
+  RECIPE_SETTINGS,
+  RECIPE_SETTING_NAMES,
+  type RecipeSetting,
+  dye2Fingerprint,
+  dye2RecipeIdOf,
+  profileAtBrewTemperature,
+  shiftedTemperatures,
+  workflowValueAt,
+} from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { armedOn, clearsSelection, dye2Fingerprint, loadWrite, profileKey, selectedOn, vacatedSlots } from "../src/loaded-recipe-rules.js";
+import { changesProfile, clearRecipe, loadWrite, loadable, profileKey, vacatedIds, withRecipe } from "../src/loaded-recipe-rules.js";
 
-// Module tests for what the plugin writes into the Workflow as DYE2's
-// selection loads a Recipe (ADR-0022), and how it reads DYE2's fingerprint of
-// a profile. With what DYE2 at 2cf631c and Streamline at c006dac were
+// Module tests for what the plugin writes into the Workflow as it loads a
+// Recipe the Workflow names (ADR-0022), how it tells a write that changes
+// the profile, as DYE2 fingerprints one, and which records a post of DYE2's
+// recipes takes from the Workflow. With what DYE2 and Streamline were
 // recorded holding and applying on Decaid's Linux release
 // (server/test/fixtures/decaid/dye2-2cf631c/), or records derived from them
 // by the named changes.
@@ -86,6 +96,31 @@ describe("DYE2's fingerprint of a profile", () => {
   it("leaves out the target weight and volume, as DYE2's does, so a yield set in Streamline is no change of profile (dye2#18)", () => {
     expect(dye2Fingerprint({ ...profile, target_weight: 40, target_volume: 50 })).toBe(dye2Fingerprint(profile));
   });
+
+  it("reads a step limiter of value 0 as none, as Streamline sends it, so a profile Streamline sent is the same profile (dye2#32)", () => {
+    const steps = (profile.steps as Record_[]).map((step) => ({ ...step, limiter: { value: 0, range: 0.6 } }));
+    expect(dye2Fingerprint({ ...profile, steps })).toBe(dye2Fingerprint({ ...profile, steps: steps.map((step) => ({ ...step, limiter: null })) }));
+    expect(dye2Fingerprint({ ...profile, steps: steps.map(({ limiter: _, ...step }) => step) })).toBe(dye2Fingerprint({ ...profile, steps }));
+    expect(dye2Fingerprint({ ...profile, steps: steps.map((step) => ({ ...step, limiter: { value: 2, range: 0.6 } })) })).not.toBe(dye2Fingerprint({ ...profile, steps }));
+  });
+});
+
+describe("a write that changes the profile, as DYE2 fingerprints one", () => {
+  const workflow = applied("dye2-applies", "applySlot1");
+
+  it("is one writing another profile, not one moving its temperatures or writing the dial alone", () => {
+    expect(changesProfile(workflow, { profile: { ...(workflow.profile as Record_), title: "Another" } })).toBe(true);
+    expect(changesProfile(workflow, { profile: profileAtBrewTemperature(workflow.profile, 90) })).toBe(false);
+    expect(changesProfile(workflow, { context: { targetDoseWeight: 19.5 } })).toBe(false);
+  });
+
+  it("is made naming the recipe again, merged into the write, after a write clearing it", () => {
+    expect(dye2RecipeIdOf(clearRecipe())).toBeNull();
+    expect(clearRecipe()).toEqual({ context: { extras: { dye: { recipeId: null } } } });
+    const named = withRecipe({ context: { targetDoseWeight: 19.5, extras: { basketId: "b" } }, profile: { title: "Another" } }, "recipe-1");
+    expect(named).toEqual({ context: { targetDoseWeight: 19.5, extras: { basketId: "b", dye: { recipeId: "recipe-1" } } }, profile: { title: "Another" } });
+    expect(withRecipe({}, "7a1e")).toEqual({ context: { extras: { dye: { recipeId: "7a1e" } } } });
+  });
 });
 
 describe("recording a load", () => {
@@ -124,10 +159,10 @@ describe("recording a load", () => {
    */
   const appliedAtOwnTemperatures = (): Record_ => ({ ...applied("dye2-applies", "applySlot1"), profile: structuredClone(adaptive) });
 
-  it("writes what the Workflow lacks of the recipe's current values, its batch and its steam, hot water and flush settings, with what each part held, but no brew temperature or Recipe id", () => {
+  it("writes what the Workflow lacks of the recipe's current values, its batch and its steam, hot water and flush settings, but no brew temperature or recipe id", () => {
     const workflow = appliedAtOwnTemperatures();
     const write = loadWrite(workflow, written(), { profile })!;
-    expect(write.write.context).toEqual({
+    expect(write.context).toEqual({
       beanBatchId: batch,
       coffeeName: "Fixture Ethiopia",
       coffeeRoaster: "Fixture Roasters",
@@ -136,17 +171,9 @@ describe("recording a load", () => {
     // Only those the Workflow holds otherwise, as partial parts Decaid merges.
     const differing = RECIPE_SETTING_NAMES.filter((setting) => workflowValueAt(workflow, RECIPE_SETTINGS[setting].workflow) !== settings[setting]);
     expect(differing.length).toBeGreaterThan(6);
-    expect(settingsWritten(write.write)).toEqual(Object.fromEntries(differing.map((setting) => [setting, settings[setting]])));
+    expect(settingsWritten(write)).toEqual(Object.fromEntries(differing.map((setting) => [setting, settings[setting]])));
     // DYE2 and Streamline apply the recipe's brew temperature themselves (decentespresso/dye2#26): the profile's is left.
-    expect(write.write).not.toHaveProperty("profile");
-    const context = workflow.context as Record_;
-    expect(write.before).toEqual({
-      batch: { before: context.beanBatchId ?? null, written: batch },
-      basket: { before: (context.extras as Record_).basketId ?? null, written: basket },
-      ...Object.fromEntries(
-        differing.map((setting) => [setting, { before: workflowValueAt(workflow, RECIPE_SETTINGS[setting].workflow) ?? null, written: settings[setting] }]),
-      ),
-    });
+    expect(write).not.toHaveProperty("profile");
   });
 
   it("writes the recipe's current dial over a stale copy's, and its Profile at its brew temperature where the Workflow's is another", () => {
@@ -155,15 +182,15 @@ describe("recording a load", () => {
     Object.assign(record.dashboardVariables as Record_, { dose: 19.5, drink: 40, grind: 2.9, rpm: 950 });
     const other = profileAtBrewTemperature(library.profiles.find((candidate) => candidate.profile.title !== "Adaptive v3")!.profile, 92)!;
     const write = loadWrite(workflow, record, { profile: other })!;
-    expect(write.write.context).toMatchObject({ targetDoseWeight: 19.5, targetYield: 40, grinderSetting: "2.9", extras: { rpm: 950 } });
-    expect(write.before).toMatchObject({ dose: { before: 18.5, written: 19.5 }, grind: { written: "2.9" }, rpm: { written: 950 } });
-    expect(write.write.profile).toEqual(other);
+    expect(write.context).toMatchObject({ targetDoseWeight: 19.5, targetYield: 40, grinderSetting: "2.9", extras: { rpm: 950 } });
+    expect(write.profile).toEqual(other);
+    expect(changesProfile(workflow, write)).toBe(true);
   });
 
   it("writes nothing to a Workflow holding it all, and leaves a value the recipe holds none of", () => {
     const workflow = appliedAtOwnTemperatures();
     const record = written();
-    const first = loadWrite(workflow, record, { profile })!.write;
+    const first = loadWrite(workflow, record, { profile })!;
     const after = structuredClone(workflow);
     after.context = { ...(after.context as Record_), ...(first.context as Record_), extras: { ...((after.context as Record_).extras as Record_), ...((first.context as Record_).extras as Record_) } };
     for (const part of ["steamSettings", "hotWaterData", "rinseData"]) after[part] = { ...(after[part] as Record_), ...(first[part] as Record_) };
@@ -178,79 +205,43 @@ describe("recording a load", () => {
     const workflow = appliedAtOwnTemperatures();
     workflow.steamSettings = { ...(workflow.steamSettings as Record_), targetTemperature: 0, duration: 0 };
     const write = loadWrite(workflow, written(), { profile })!;
-    expect(write.write.steamSettings).toEqual({ duration: 25, flow: 1.4, stopAtTemperature: 60 });
-    expect(write.before).not.toHaveProperty("steamTemperature");
-    expect(write.before.steamDuration).toEqual({ before: 0, written: 25 });
+    expect(write.steamSettings).toEqual({ duration: 25, flow: 1.4, stopAtTemperature: 60 });
   });
 
   it("leaves out what it is told to, as the steam, hot water and flush settings while Decaid refuses them for want of a machine", () => {
     const workflow = applied("dye2-applies", "applySlot1");
     const write = loadWrite(workflow, written(), { profile }, new Set(RECIPE_SETTING_NAMES))!;
-    for (const part of ["steamSettings", "hotWaterData", "rinseData"]) expect(write.write).not.toHaveProperty(part);
-    expect(Object.keys(write.before)).not.toContain("hotWaterVolume");
+    for (const part of ["steamSettings", "hotWaterData", "rinseData"]) expect(write).not.toHaveProperty(part);
   });
 });
 
-describe("whether DYE2's selection holds for the Workflow, as DYE2 judges it", () => {
-  const workflow = applied("dye2-applies", "applySlot1");
-  const context = workflow.context as Record_;
-  const BATCH = "837c5af9-aa43-44ed-a857-5009969e3217";
-  /** The Workflow with its `context` changed so. */
-  const withContext = (change: Record_) => ({ ...workflow, context: { ...context, ...change } });
-  /** A selection made on the Workflow, with the batch given. */
-  const armed = { fingerprint: dye2Fingerprint(workflow.profile), batch: BATCH, grinder: context.grinderId as string };
-
-  it("holds on the profile, batch and grinder it was made on, a brew temperature changed, or a batch set where it was made on none", () => {
-    expect(selectedOn(armed, withContext({ beanBatchId: BATCH }))).toBe(true);
-    expect(selectedOn(armed, { ...withContext({ beanBatchId: BATCH }), profile: profileAtBrewTemperature(workflow.profile, 90) })).toBe(true);
-    expect(selectedOn({ ...armed, batch: null }, withContext({ beanBatchId: "another" }))).toBe(true);
-    expect(selectedOn({ fingerprint: null, batch: null, grinder: null }, workflow)).toBe(true);
-  });
-
-  it("holds on what a Workflow holds, as a selection made on it now", () => {
-    expect(armedOn(withContext({ beanBatchId: BATCH }))).toEqual(armed);
-    expect(selectedOn(armedOn(workflow), withContext({ beanBatchId: BATCH }))).toBe(true);
-    expect(selectedOn(armedOn(withContext({ beanBatchId: BATCH })), withContext({ beanBatchId: "another" }))).toBe(false);
-  });
-
-  it("does not hold on another profile, batch or grinder, or a batch or grinder cleared, nor before a Workflow is seen", () => {
-    const other = { ...(workflow.profile as Record_), title: "Another" };
-    expect(selectedOn(armed, { ...withContext({ beanBatchId: BATCH }), profile: other })).toBe(false);
-    expect(selectedOn(armed, withContext({ beanBatchId: "another" }))).toBe(false);
-    expect(selectedOn(armed, withContext({ beanBatchId: null }))).toBe(false);
-    expect(selectedOn(armed, withContext({ beanBatchId: BATCH, grinderId: "another" }))).toBe(false);
-    expect(selectedOn(armed, withContext({ beanBatchId: BATCH, grinderId: "" }))).toBe(false);
-    expect(selectedOn(armed, undefined)).toBe(false);
-  });
-
-  it("is cleared by a write changing the profile, batch or grinder, and not by one of the dial", () => {
-    const at = (context: Record_) => ({ context });
-    expect(clearsSelection(workflow, at({ targetDoseWeight: 19.5, grinderSetting: "3.3" }))).toBe(false);
-    expect(clearsSelection(workflow, { profile: profileAtBrewTemperature(workflow.profile, 90) })).toBe(false);
-    expect(clearsSelection(workflow, { profile: { ...(workflow.profile as Record_), title: "Another" } })).toBe(true);
-    expect(clearsSelection(workflow, at({ beanBatchId: BATCH }))).toBe(true);
-    expect(clearsSelection(withContext({ beanBatchId: BATCH }), at({ beanBatchId: null }))).toBe(true);
-    expect(clearsSelection(workflow, at({ grinderId: "another" }))).toBe(true);
-    expect(clearsSelection(workflow, at({ grinderId: context.grinderId }))).toBe(false);
-  });
-});
-
-describe("the slots a post of DYE2's recipes vacates", () => {
+describe("the records a post of DYE2's recipes vacates", () => {
   const LAB = "1b3d5f7a-9c1e-4a3b-8d5f-7a9c1e3b5d7f";
   const UPTOWN = "3d5f7b9c-2e4a-4c6d-8f9b-9c2e4a6d8f1b";
-  /** One of the recording's recipes in a slot, carrying a Recipe's global id or none. */
-  const inSlot = (slot: string, globalId: string | null = null): Record_ => ({ ...keys.recipes[0], id: slot, ...(globalId === null ? {} : { decentSyncId: globalId }) });
+  /** One of the recording's recipes under an id, carrying a Recipe's global id or none. */
+  const record = (id: string, globalId: string | null = null): Record_ => ({ ...keys.recipes[0], id, ...(globalId === null ? {} : { decentSyncId: globalId }) });
 
-  it("names each slot whose recipe the post removes, or replaces with another Recipe's, as a Machine joining another Location", () => {
-    // The tablet's own recipe in slot 1 removed, and the lab's Recipe in slot 2 replaced with Uptown's.
-    expect(vacatedSlots([inSlot("1"), inSlot("2", LAB)], [inSlot("2", UPTOWN)])).toEqual([1, 2]);
-    expect(vacatedSlots([inSlot("2", LAB)], [])).toEqual([2]);
+  it("names each record the post removes, or gives to another Recipe's, as a Machine joining another Location whose Recipe has its id", () => {
+    // The tablet's own recipe removed, and the lab's Recipe under "2" replaced with Uptown's, saved under that slot number.
+    expect(vacatedIds([record("1"), record("2", LAB)], [record("2", UPTOWN)])).toEqual(["1", "2"]);
+    expect(vacatedIds([record("2", LAB)], [])).toEqual(["2"]);
   });
 
-  it("names none the post keeps, writes, gives its global id or fills", () => {
-    expect(vacatedSlots([inSlot("2", LAB)], [{ ...inSlot("2", LAB), name: "Renamed" }])).toEqual([]);
+  it("names none the post keeps, writes, gives its global id or adds", () => {
+    expect(vacatedIds([record("2", LAB)], [{ ...record("2", LAB), name: "Renamed", stripSlot: 4 }])).toEqual([]);
     // A Location taking the tablet's own recipe in writes its global id into it: the same recipe.
-    expect(vacatedSlots([inSlot("1")], [inSlot("1", UPTOWN)])).toEqual([]);
-    expect(vacatedSlots([], [inSlot("3", UPTOWN)])).toEqual([]);
+    expect(vacatedIds([record("8b0f…")], [record("8b0f…", UPTOWN)])).toEqual([]);
+    expect(vacatedIds([], [record("3", UPTOWN)])).toEqual([]);
+  });
+});
+
+describe("the records that can be a Loaded Recipe", () => {
+  it("are those carrying a Recipe's global id, in a Recipe Slot or not, by their ids", () => {
+    const LAB = "1b3d5f7a-9c1e-4a3b-8d5f-7a9c1e3b5d7f";
+    const records = [
+      { ...keys.recipes[0], id: "recipe-mh2k1", stripSlot: null, decentSyncId: LAB },
+      { ...keys.recipes[0], id: "3", stripSlot: 3 },
+    ];
+    expect([...loadable(records).entries()].map(([id, { globalId }]) => [id, globalId])).toEqual([["recipe-mh2k1", LAB]]);
   });
 });

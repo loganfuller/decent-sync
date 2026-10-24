@@ -8,7 +8,7 @@ import { machineNotFound } from "../machines/input.js";
 import type { MachineStateView } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
-import { type LoadedRecipeView, espressoStarted, loadedRecipeHistory, takeInLoadedRecipe } from "./loaded-recipes.js";
+import { type LoadedRecipeView, loadedRecipeHistory, takeInLoadedRecipe } from "./loaded-recipes.js";
 
 /** A page of a history, as `readPage` reads it from a request. */
 type Page = { limit: number; offset: number };
@@ -78,7 +78,7 @@ export class MachineEventsService {
       if (reporter.identity.kind !== "mismatch" && credit.machineId === reporter.machineId) {
         const tablet = { machineId: reporter.machineId, tabletId: reporter.tabletId };
         return takeInWorkflow(tx, tablet, message.workflow, (entry, joining) =>
-          takeInLoadedRecipe(tx, tablet, message.workflow, message.observedAt, entry, joining, { loadBefore: message.loadBefore, dye2Absent: message.dye2Absent }),
+          takeInLoadedRecipe(tx, tablet, message.workflow, message.observedAt, entry, joining, { dye2Absent: message.dye2Absent }),
         );
       }
       return undefined;
@@ -90,10 +90,6 @@ export class MachineEventsService {
     await this.prisma.$transaction(async (tx) => {
       const credit = await creditFirstDelivery(tx, reporter, message.id);
       if (!credit) return;
-      // Decaid reports each substate of a Shot, and the plugin resends the state on every welcome: only a change into
-      // espresso from the latest state stored is one starting.
-      const [latest] = await tx.$queryRaw<{ state: string }[]>`
-        SELECT state FROM machine_state_events WHERE ${heldBy(credit)} ORDER BY id DESC LIMIT 1`;
       await tx.$executeRaw`
         INSERT INTO machine_state_events (machine_id, pending_machine_id, observed_at, state, substate)
         SELECT ${credit.machineId}::uuid, ${credit.pendingMachineId}::uuid, ${message.observedAt}::timestamptz, ${state}, ${substate}
@@ -101,11 +97,6 @@ export class MachineEventsService {
           SELECT 1 FROM (SELECT state, substate FROM machine_state_events WHERE ${heldBy(credit)} ORDER BY id DESC LIMIT 1) AS latest
           WHERE latest.state = ${state} AND latest.substate = ${substate}
         )`;
-      // The first espresso started since a load, from the Machine's own tablet, ends the window a part set back to what
-      // the load's write replaced is stale in (ADR-0022).
-      if (state === "espresso" && latest?.state !== "espresso" && reporter.identity.kind !== "mismatch" && credit.machineId === reporter.machineId) {
-        await espressoStarted(tx, reporter.machineId);
-      }
     });
   }
 

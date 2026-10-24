@@ -237,8 +237,8 @@ export class TabletWriter {
    * it was asked to remove it (RECORD_CHANGED), and is asked to report its
    * lists again: nothing more is written until a report of that list
    * arrives, taken in or not (`reported`), so
-   * no write planned without the change, such as the moved Recipe's in its
-   * new slot, leaves the changed record behind.
+   * no write planned without the change, such as another Recipe's under
+   * the record's id, leaves the changed record behind.
    */
   awaitReport(list: TakenInList): void {
     this.awaitingLists.add(list);
@@ -274,8 +274,8 @@ export class TabletWriter {
    * The tablet holds the item's record no more, as removed from its list, or
    * found to be another item's, whether or not that answers a write awaited:
    * a write of the item due from now on is a new one, whatever was written or
-   * skipped before, as when a Recipe moved to another slot and back is
-   * written again in the slot its record was removed from.
+   * skipped before, as when a Recipe Archived and restored is written again
+   * under the id its record was removed from.
    */
   recordGone(kind: WrittenKind, globalId: string): void {
     this.lastWritten.delete(writeKey(kind, globalId));

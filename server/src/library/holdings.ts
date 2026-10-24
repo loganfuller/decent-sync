@@ -69,16 +69,17 @@ export interface ShownEquipment {
   contentDecidedAt: Date | null;
 }
 
-/** A Recipe in a slot of a Location (ADR-0005), with the record each tablet there is to hold of it. */
+/** A Recipe of a Location, not Archived (ADR-0005), with the record each tablet there is to hold of it. */
 export interface OfferedRecipe {
   id: string;
-  slot: number;
+  /** The id of its record on every tablet at its Location. */
+  recordId: string;
   /** The record the tablet is to hold of it, by the paths the server writes (`recipeRecord` in recipe-intake.ts): naming what it uses by the tablet's ids. */
   record: Record<string, unknown>;
   contentDecidedAt: Date | null;
 }
 
-/** What a Location offers, and its state of each batch the tablet holds. Each list is in the order to write it: oldest first, but Recipes in slot order. */
+/** What a Location offers, and its state of each batch the tablet holds. Each list is in the order to write it: oldest first, but Recipes in slot order, then the rest. */
 export interface LocationOffer {
   beans: readonly OfferedBean[];
   /** The batches it offers, then the other batches the tablet holds. */
@@ -91,7 +92,7 @@ export interface LocationOffer {
   baskets: readonly ShownEquipment[];
   /** The Tools it shows, but those Archived. */
   tools: readonly ShownEquipment[];
-  /** Its Recipes in their slots, in slot order. */
+  /** Its Recipes not Archived, in slot order, then those in no slot. */
   recipes: readonly OfferedRecipe[];
 }
 
@@ -127,7 +128,7 @@ export interface TabletHoldings {
   profiles: readonly HeldRecord[];
   baskets: readonly HeldRecord[];
   tools: readonly HeldRecord[];
-  /** Its records in DYE2's recipes, each under its slot there. */
+  /** Its records in DYE2's recipes, each under its id there. */
   recipes: readonly HeldRecord[];
 }
 
@@ -237,8 +238,8 @@ export function writeKey(kind: WrittenKind, globalId: string): string {
  * tablet holds visible that the Location does not show, hidden. Then each
  * Basket, and each Tool, the Location shows that the tablet lacks, created,
  * and each the tablet holds that it does not show, removed from DYE2's
- * list, as DYE2 cannot hide one (ADR-0005). Last, the Location's Recipes in
- * their slots, which name those items by the tablet's ids
+ * list, as DYE2 cannot hide one (ADR-0005). Last, the Location's Recipes not
+ * Archived, which name those items by the tablet's ids
  * (`recipeWrites`). Items in
  * `skipped` (`writeKey`) are left out, and so is a batch whose Bean the
  * tablet holds no record of yet: its Bean is written first. Every record the
@@ -363,27 +364,27 @@ export function equipmentWrites(kind: "basket" | "tool", offer: LocationOffer, h
 
 /**
  * The writes of Recipes (ADR-0005): each record the tablet holds that is not
- * in its Recipe's slot at the Location, as one taken out of its slot, moved
- * to another or another Location's, removed from DYE2's list first, so its
- * slot is free; then each Recipe in a slot that the tablet lacks there,
- * created under its slot's number, and each it holds there written where its
- * record differs from what it is to hold (`OfferedRecipe.record`).
+ * of one of the Location's Recipes under its record id, as one Archived or
+ * another Location's, removed from DYE2's list first, so its id is free;
+ * then each Recipe the tablet lacks, created under its record id, and each
+ * it holds written where its record differs from what it is to hold
+ * (`OfferedRecipe.record`), its slot included.
  */
 export function recipeWrites(offer: LocationOffer, held: TabletHoldings): (PlannedWrite | PlannedRemove)[] {
   const writes: (PlannedWrite | PlannedRemove)[] = [];
   const offered = new Map(offer.recipes.map((recipe) => [recipe.id, recipe]));
-  const inSlot = new Map<string, HeldRecord>();
+  const holds = new Map<string, HeldRecord>();
   for (const record of held.recipes) {
     const recipe = offered.get(record.itemId);
-    if (recipe && String(recipe.slot) === record.localId) inSlot.set(recipe.id, record);
+    if (recipe && recipe.recordId === record.localId) holds.set(recipe.id, record);
     else writes.push({ remove: true, kind: "recipe", globalId: record.itemId, localId: record.localId, decidedAt: null, expected: record.record });
   }
   for (const recipe of offer.recipes) {
-    const record = inSlot.get(recipe.id);
+    const record = holds.get(recipe.id);
     if (record) {
       pushUpdate(writes, "recipe", recipe.id, { ...record, content: withHeldFieldFlags(recipe.record, record.record), contentDecidedAt: recipe.contentDecidedAt }, {}, null);
     } else {
-      writes.push({ kind: "recipe", globalId: recipe.id, localId: null, fields: { ...recipe.record, id: String(recipe.slot) }, decidedAt: null, contentDecidedAt: recipe.contentDecidedAt });
+      writes.push({ kind: "recipe", globalId: recipe.id, localId: null, fields: { ...recipe.record, id: recipe.recordId }, decidedAt: null, contentDecidedAt: recipe.contentDecidedAt });
     }
   }
   return writes;

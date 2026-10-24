@@ -59,8 +59,8 @@ export function standing(entry: CurrentEntry): string {
  * holds, changed (`update`), or a record of a Library item by the global id
  * it carries, or of another Location's Recipe (`map`); a Basket or Tool the
  * map does not hold whose name matches a Library item's (`link`); a recipe
- * the map does not hold saved in a slot of the Location's Recipe (`edit`);
- * and a new one (`add`).
+ * the map does not hold saved under the record id of the Location's Recipe
+ * (`edit`); and a new one (`add`).
  */
 export type PlannedRecord = "map" | "update" | "link" | "edit" | "add";
 
@@ -73,10 +73,11 @@ export type PlannedRecord = "map" | "update" | "link" | "edit" | "add";
  * Tool matched by name, at a Location that shows none of the kind yet, is
  * shown there (`shown`). Every other record, the tablet's own, is left out,
  * removed from DYE2's list and not kept (`leftOut`), unless the Location has
- * none of the kind yet (`bringing`): a Location with no Recipes in its slots
- * takes the tablet's in their slots, and one that shows no Basket, or no
- * Tool, takes the tablet's own and shows them (`brought`). A recipe saved in
- * a slot the Location fills is its own, never that Recipe's.
+ * none of the kind yet (`bringing`): a Location with no Recipes, but those
+ * Archived, takes the tablet's in, with their ids and slots, and one that
+ * shows no Basket, or no Tool, takes the tablet's own and shows them
+ * (`brought`). A recipe saved under the record id of the Location's Recipe
+ * is its own, never that Recipe's.
  */
 export function joiningRecord(step: PlannedRecord, bringing: boolean): "theItem" | "shown" | "leftOut" | "brought" {
   if (step === "add") return bringing ? "brought" : "leftOut";

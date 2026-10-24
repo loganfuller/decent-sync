@@ -1,55 +1,21 @@
-import {
-  type LoadBefore,
-  MACHINE_SETTING_PARTS,
-  type MachineStateDelivery,
-  type WorkflowDelivery,
-  dye2SelectionOf,
-  sameValue,
-} from "@decent-sync/protocol";
+import { MACHINE_SETTING_PARTS, type MachineStateDelivery, type WorkflowDelivery, dye2RecipeIdOf, sameValue } from "@decent-sync/protocol";
 
 /**
  * Holds back the changes of the tablet's Workflow the plugin sends while it
  * writes into it, clearing its grinder, batch and Basket (`LibraryWrites`)
- * or a Loaded Recipe (`LoadedRecipes`), or decides on them, and sends the latest once released
- * (`MachineEvents`), with the changes of the machine's state held meanwhile
- * after it.
+ * or for its Loaded Recipe (`LoadedRecipes`), or saves a change of it into
+ * the Loaded Recipe, and sends the latest once released (`MachineEvents`).
  */
 export interface WorkflowChanges {
   hold(): void;
   release(): void;
   /**
-   * What the next Workflow delivery queued carries besides the Workflow
-   * (`WorkflowDelivery.loadBefore`), released or not: a
-   * load's values, each part's earliest `before` kept where several loads
-   * come before one delivery.
-   */
-  attach(extra: WorkflowExtra): void;
-  /**
-   * Whether DYE2 is not there to select anything (`WorkflowDelivery.dye2Absent`),
-   * which every Workflow delivery queued from then on carries: the latest
-   * Workflow is sent again as it changes, where DYE2's field there names
-   * something, which the server reads otherwise then.
+   * Whether DYE2 is not there (`WorkflowDelivery.dye2Absent`), which every
+   * Workflow delivery queued from then on carries: the latest Workflow is
+   * sent again as it changes, where it names a recipe, which the server
+   * reads otherwise then.
    */
   dye2Absent(absent: boolean): void;
-}
-
-/** What a Workflow delivery may carry besides the Workflow (`WorkflowDelivery`). */
-export interface WorkflowExtra {
-  loadBefore?: Record<string, LoadBefore>;
-}
-
-/** Two extras as one: each part's earliest `before` and latest `written`. */
-export function mergeExtra(earlier: WorkflowExtra, later: WorkflowExtra): WorkflowExtra {
-  const merged: WorkflowExtra = { ...earlier };
-  if (later.loadBefore) {
-    const parts: Record<string, LoadBefore> = { ...(earlier.loadBefore ?? {}) };
-    for (const [part, value] of Object.entries(later.loadBefore)) {
-      const kept = parts[part];
-      parts[part] = kept ? { before: kept.before, written: value.written } : value;
-    }
-    merged.loadBefore = parts;
-  }
-  return merged;
 }
 
 /** What MachineEvents needs of the plugin's one outbox (`Outbox`). */
@@ -73,10 +39,12 @@ export class MachineEvents implements WorkflowChanges {
   private workflow: Record<string, unknown> | undefined;
   private reportedAt = now();
   /**
-   * How many of the plugin's writes into the Workflow are under way: the
-   * server's (`LibraryWrites`), whose answers the server reads first,
-   * and a Loaded Recipe's (`LoadedRecipes`), whose echo is no change of the
-   * tablet's. A change Decaid reports meanwhile is sent once none is.
+   * How many of the plugin's writes into the Workflow, and saves of its
+   * changes into the Loaded Recipe, are under way: the server's writes
+   * (`LibraryWrites`), whose answers the server reads first, a Loaded
+   * Recipe's (`LoadedRecipes`), whose echo is no change of the tablet's, and
+   * a save, whose recipes the server reads first. A change Decaid reports
+   * meanwhile is sent once none is.
    */
   private holds = 0;
   /**
@@ -94,18 +62,7 @@ export class MachineEvents implements WorkflowChanges {
   private resent: string | undefined;
   /** The state and substate last queued, so repeated state updates send nothing. */
   private state: { state: string; substate: string } | undefined;
-  /**
-   * The changes of state reported while held, each as observed, queued once
-   * released, after the Workflow: so the server reads a Workflow change
-   * reported before a change of state, as a DYE2 dashboard's send before an
-   * espresso, before it (ADR-0022). Lost if the plugin stops meanwhile.
-   */
-  private heldStates: MachineStateDelivery[] = [];
-  /** What the next Workflow delivery queued carries besides the Workflow (`attach`). */
-  private extra: WorkflowExtra = {};
-  /** What the delivery `resent` carries besides the Workflow, carried into the one that replaces it. */
-  private resentExtra: WorkflowExtra = {};
-  /** Whether DYE2 is not there to select anything, as every Workflow delivery says (`dye2Absent`). */
+  /** Whether DYE2 is not there, as every Workflow delivery says (`dye2Absent`). */
   private absent = false;
 
   constructor(
@@ -154,29 +111,18 @@ export class MachineEvents implements WorkflowChanges {
     if (this.heldChange && this.workflow) {
       this.heldChange = false;
       const resend = this.heldResend && !this.heldReport;
-      const extra = this.extra;
       // A change held back keeps the time it was reported, so a Shot pulled after it is not taken for one before it.
       const id = this.queueWorkflow(this.workflow, resend ? now() : this.reportedAt);
-      if (resend) {
-        this.resent = id;
-        this.resentExtra = extra;
-      }
+      if (resend) this.resent = id;
       this.heldResend = false;
       this.heldReport = false;
     }
-    const states = this.heldStates;
-    this.heldStates = [];
-    for (const delivery of states) this.outbox.enqueue(delivery);
-  }
-
-  attach(extra: WorkflowExtra): void {
-    this.extra = mergeExtra(this.extra, extra);
   }
 
   dye2Absent(absent: boolean): void {
     if (this.absent === absent) return;
     this.absent = absent;
-    if (this.workflow && dye2SelectionOf(this.workflow).named) this.resend();
+    if (this.workflow && dye2RecipeIdOf(this.workflow) !== null) this.resend();
   }
 
   /**
@@ -190,9 +136,7 @@ export class MachineEvents implements WorkflowChanges {
     if (typeof state !== "string" || state === "" || typeof substate !== "string" || substate === "") return;
     if (this.state?.state === state && this.state.substate === substate) return;
     this.state = { state, substate };
-    const delivery: MachineStateDelivery = { type: "machineState", id: this.outbox.nextId(), observedAt: now(), state, substate };
-    if (this.holds > 0) this.heldStates.push(delivery);
-    else this.outbox.enqueue(delivery);
+    this.outbox.enqueue({ type: "machineState", id: this.outbox.nextId(), observedAt: now(), state, substate });
   }
 
   /**
@@ -222,26 +166,18 @@ export class MachineEvents implements WorkflowChanges {
    */
   resend(): void {
     if (!this.workflow) return;
-    // What it carried is carried into the delivery that replaces it, only where it was dropped unsent: one sent may have
-    // reached the server, which takes what it carried once, and an espresso since may have closed it.
-    if (this.resent !== undefined && this.outbox.supersede(this.resent)) this.extra = mergeExtra(this.resentExtra, this.extra);
+    if (this.resent !== undefined) this.outbox.supersede(this.resent);
     this.resent = undefined;
-    this.resentExtra = {};
     // Sent once the writes under way are answered, which they may hold already.
     if (this.holds > 0) {
       this.heldChange = true;
       this.heldResend = true;
-    } else {
-      this.resentExtra = this.extra;
-      this.resent = this.queueWorkflow(this.workflow);
-    }
+    } else this.resent = this.queueWorkflow(this.workflow);
   }
 
-  /** Queues the Workflow as observed now, with what is attached to the next delivery (`attach`), returning its delivery's id. */
+  /** Queues the Workflow as observed now, returning its delivery's id. */
   private queueWorkflow(workflow: Record<string, unknown>, observedAt = now()): string {
-    const extra = this.extra;
-    this.extra = {};
-    const delivery: WorkflowDelivery = { type: "workflow", id: this.outbox.nextId(), observedAt, workflow, ...extra, ...(this.absent ? { dye2Absent: true } : {}) };
+    const delivery: WorkflowDelivery = { type: "workflow", id: this.outbox.nextId(), observedAt, workflow, ...(this.absent ? { dye2Absent: true } : {}) };
     this.outbox.enqueue(delivery);
     return delivery.id;
   }

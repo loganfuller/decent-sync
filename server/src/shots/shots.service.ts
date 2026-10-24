@@ -8,7 +8,7 @@ import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
 import { extractCurves, extractShot, object, shotHardware, shotVersion, string } from "./extraction.js";
 import { type ShotFilters, shotFilterSql } from "./filters.js";
-import { claimListed, nameLoadedRecipe, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
+import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
 const SHOT_LOCK = 4_000_003;
@@ -46,7 +46,7 @@ export class ShotsService {
       // whole. A full record older than an early edit only adds its curves.
       const reported = !stored || stored.newer;
       const record = reported ? incoming : stored.record;
-      const { recipeSlot, ...metadata } = extractShot(record);
+      const { recipeRecordId, ...metadata } = extractShot(record);
       // The pull time needs the curves too, so it is set with them; edits never load or rewrite them.
       const curves = full ? extractCurves(record, measurements) : stored;
       // The first full record credits the Shot, with its Machine's row locked, and sets the pull time
@@ -54,7 +54,7 @@ export class ShotsService {
       // that Machine's Location History, or the adoption of a Pending Machine's Shot.
       const credit = full && !stored?.hasFullRecord ? await this.credit(tx, incoming, reporter) : null;
       // Its ids are the reporting tablet's, so they resolve through its map, after the Machine's row lock credit takes.
-      const links = reported ? { tabletId: reporter.tabletId, ...(await resolveLinks(tx, reporter.tabletId, message.shotId, { ...metadata, recipeSlot })) } : null;
+      const links = reported ? { tabletId: reporter.tabletId, ...(await resolveLinks(tx, reporter.tabletId, message.shotId, { ...metadata, recipeRecordId })) } : null;
       const data = {
         ...metadata,
         ...links,
@@ -74,7 +74,6 @@ export class ShotsService {
         await tx.$executeRaw`UPDATE shots SET version_at = ${version}::timestamptz WHERE id = ${message.shotId}`;
       }
       if (credit) await creditShotLocation(tx, message.shotId);
-      await nameLoadedRecipe(tx, message.shotId);
       // The Recipe it is linked to is not hard-deleted until the Shot is stored, which the delete then finds linked to it:
       // whatever this delivery stores, as a full record after an early edit sets the Machine and time the link reads.
       await tx.$queryRaw`SELECT 1 FROM recipes WHERE id = (SELECT ${shotRecipeSql("s")} FROM shots AS s WHERE s.id = ${message.shotId}) FOR KEY SHARE`;
