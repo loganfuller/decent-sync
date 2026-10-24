@@ -17,13 +17,27 @@ import { changesProfile, clearRecipe, loadWrite, loadable, profileKey, vacatedId
 // the profile, as DYE2 fingerprints one, and which records a post of DYE2's
 // recipes takes from the Workflow. With what DYE2 and Streamline were
 // recorded holding and applying on Decaid's Linux release
-// (server/test/fixtures/decaid/dye2-2cf631c/), or records derived from them
+// (server/test/fixtures/decaid/dye2-v0.1.26/), or records derived from them
 // by the named changes.
 
 type Record_ = Record<string, unknown>;
 
+function read<T>(file: string): T {
+  return JSON.parse(fs.readFileSync(new URL(`../../server/test/fixtures/decaid/dye2-v0.1.26/${file}.json`, import.meta.url), "utf8")) as T;
+}
+
+const library = read<{ profiles: { id: string; profile: Record_ }[]; workflow: Record_; profileCopies: Record<string, Record_> }>("library");
+
+/** A file of the recording, each `{"$profile": name}` in it the copy of that profile in library.json (its README's Edits). */
 function fixture<T>(file: string): T {
-  return JSON.parse(fs.readFileSync(new URL(`../../server/test/fixtures/decaid/dye2-2cf631c/${file}.json`, import.meta.url), "utf8")) as T;
+  const profiles = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(profiles);
+    if (!value || typeof value !== "object") return value;
+    const record = value as Record_;
+    if (Object.keys(record).length === 1 && typeof record.$profile === "string") return structuredClone(library.profileCopies[record.$profile]);
+    return Object.fromEntries(Object.entries(record).map(([key, field]) => [key, profiles(field)]));
+  };
+  return profiles(read(file)) as T;
 }
 
 interface Exchange {
@@ -38,7 +52,6 @@ function applied(file: "dye2-applies" | "streamline", step: string): Record_ {
 }
 
 const keys = fixture<{ recipes: Record_[] }>("keys");
-const library = fixture<{ profiles: { id: string; profile: Record_ }[]; workflow: Record_ }>("library");
 const recipe = (slot: string) => structuredClone(keys.recipes.find((record) => record.id === slot)!);
 const temperatures = (profile: unknown) => ((profile as Record_).steps as Record_[]).map((step) => step.temperature);
 
@@ -106,7 +119,7 @@ describe("DYE2's fingerprint of a profile", () => {
 });
 
 describe("a write that changes the profile, as DYE2 fingerprints one", () => {
-  const workflow = applied("dye2-applies", "applySlot1");
+  const workflow = applied("dye2-applies", "applyFromSelectRecipe");
 
   it("is one writing another profile, not one moving its temperatures or writing the dial alone", () => {
     expect(changesProfile(workflow, { profile: { ...(workflow.profile as Record_), title: "Another" } })).toBe(true);
@@ -124,8 +137,8 @@ describe("a write that changes the profile, as DYE2 fingerprints one", () => {
 });
 
 describe("recording a load", () => {
-  const batch = "6f741a24-ceb9-4ec6-aa51-750c6e9fec26";
-  /** Every steam, hot water and flush setting, held by slot 1 as the server writes it. */
+  const batch = "78bfdaaf-0fe9-49f3-9db4-b7d6c1f514d7";
+  /** Every steam, hot water and flush setting, held by recipe `1` as the server writes it. */
   const settings: Record<RecipeSetting, number> = {
     steamTemperature: 150,
     steamDuration: 25,
@@ -139,7 +152,7 @@ describe("recording a load", () => {
     flushDuration: 4,
     flushFlow: 5.5,
   };
-  /** Slot 1 as the server writes it: its Bean Batch beside its Bean, as DYE2 holds one, and every setting in its `dashboardVariables`. */
+  /** Recipe `1` as the server writes it: its Bean Batch beside its Bean, as DYE2 holds one, and every setting in its `dashboardVariables`. */
   const written = (): Record_ => {
     const record: Record_ = { ...recipe("1"), beanBatchId: batch };
     for (const setting of RECIPE_SETTING_NAMES) (record.dashboardVariables as Record_)[RECIPE_SETTINGS[setting].dye2] = settings[setting];
@@ -149,15 +162,15 @@ describe("recording a load", () => {
   const settingsWritten = (write: Record_) =>
     Object.fromEntries(RECIPE_SETTING_NAMES.flatMap((setting) => (workflowValueAt(write, RECIPE_SETTINGS[setting].workflow) === undefined ? [] : [[setting, workflowValueAt(write, RECIPE_SETTINGS[setting].workflow)]])));
   const adaptive = library.profiles.find((candidate) => candidate.profile.title === "Adaptive v3")!.profile;
-  /** Slot 1's Profile at its brew temperature, as the Workflow embedded in its record holds it. */
+  /** Recipe `1`'s Profile at its brew temperature, as the Workflow embedded in its record holds it. */
   const profile = profileAtBrewTemperature(adaptive, 92)!;
   const basket = (recipe("1").dashboardVariables as Record_).basketId as string;
   /**
-   * Slot 1 applied on DYE2's dashboard, but for the Profile at its own step
+   * Recipe `1` applied from DYE2's Select Recipe, but for the Profile at its own step
    * temperatures, as a skin applying it from a copy read before its brew
    * temperature changed.
    */
-  const appliedAtOwnTemperatures = (): Record_ => ({ ...applied("dye2-applies", "applySlot1"), profile: structuredClone(adaptive) });
+  const appliedAtOwnTemperatures = (): Record_ => ({ ...applied("dye2-applies", "applyFromSelectRecipe"), profile: structuredClone(adaptive) });
 
   it("writes what the Workflow lacks of the recipe's current values, its batch and its steam, hot water and flush settings, but no brew temperature or recipe id", () => {
     const workflow = appliedAtOwnTemperatures();
@@ -209,7 +222,7 @@ describe("recording a load", () => {
   });
 
   it("leaves out what it is told to, as the steam, hot water and flush settings while Decaid refuses them for want of a machine", () => {
-    const workflow = applied("dye2-applies", "applySlot1");
+    const workflow = applied("dye2-applies", "applyFromSelectRecipe");
     const write = loadWrite(workflow, written(), { profile }, new Set(RECIPE_SETTING_NAMES))!;
     for (const part of ["steamSettings", "hotWaterData", "rinseData"]) expect(write).not.toHaveProperty(part);
   });
