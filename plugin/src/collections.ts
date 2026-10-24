@@ -290,27 +290,23 @@ export class CollectionCapture {
   }
 }
 
-/** The machine's sensors that Decaid reads calibration for, and the calibrations of each (`De1CalibrationTarget`, `De1CalibrationSource`). */
+/** The machine's sensors that Decaid reads calibration for (`De1CalibrationTarget`). */
 const SENSOR_CALIBRATION_TARGETS = ["flow", "pressure", "temperature"] as const;
-const SENSOR_CALIBRATION_SOURCES = ["current", "factory"] as const;
 
 /**
- * The firmware's calibration of each sensor, as it is now and as it left the
- * factory: each of Decaid's answers to `GET /machine/calibration/{target}`
- * as sent, by target and source, such as `{ flow: { current, factory } }`.
- * Read one at a time, and unavailable if any read fails, as a partial set
- * would be compared with another Machine's complete one.
+ * The firmware's current calibration of each sensor: Decaid's answer to
+ * `GET /machine/calibration/{target}` as sent, by target, such as
+ * `{ flow, pressure, temperature }`. Not the factory calibration
+ * (`?source=factory`), which DE1 firmware answers with the current one
+ * (COLLECTIONS.md). Read one at a time, and unavailable if any read fails,
+ * as a partial set would be compared with another Machine's complete one.
  */
 async function readSensorCalibration(): Promise<Reading> {
-  const value: Record<string, Record<string, unknown>> = {};
+  const value: Record<string, unknown> = {};
   for (const target of SENSOR_CALIBRATION_TARGETS) {
-    const calibrations: Record<string, unknown> = {};
-    for (const source of SENSOR_CALIBRATION_SOURCES) {
-      const reading = await readCollection(`/machine/calibration/${target}?source=${source}`, null);
-      if (reading.kind !== "value") return { kind: "unavailable" };
-      calibrations[source] = reading.value;
-    }
-    value[target] = calibrations;
+    const reading = await readCollection(`/machine/calibration/${target}`, null);
+    if (reading.kind !== "value") return { kind: "unavailable" };
+    value[target] = reading.value;
   }
   return { kind: "value", value, etag: null };
 }

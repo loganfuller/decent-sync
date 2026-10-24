@@ -46,7 +46,7 @@ Each is read from Decaid v0.9.0's API (`decaid:assets/api/rest_v1.yml`):
 | `machineSettings` | `GET /machine/settings` | content |
 | `advancedSettings` | `GET /machine/settings/advanced` | content |
 | `machineCalibration` | `GET /machine/calibration` | content |
-| `sensorCalibration` | `GET /machine/calibration/{flow,pressure,temperature}?source={current,factory}`, six reads | content |
+| `sensorCalibration` | `GET /machine/calibration/{flow,pressure,temperature}`, three reads | content |
 | `pairedDevices` | `GET /devices`, without devices only discovered nearby | content |
 | `scaleInfo` | `GET /scale/info` | content |
 | `sensors` | `GET /sensors` | content |
@@ -55,7 +55,7 @@ A read is unavailable when it fails or has nothing to report: any status but
 200 or 304 (the machine's settings answer 500 while no machine is connected,
 `/scale/info` 503 while no scale is), a fetch that fails or times out, or
 `null` for a collection read from Decaid's API. `sensorCalibration` is
-unavailable if any of its six reads is, and its later reads are then not
+unavailable if any of its three reads is, and its later reads are then not
 made: a partial set would be compared with another Machine's complete one.
 It is sent as unavailable, never as an empty collection. One of DYE2's keys never written answers `null`
 too (`KvStoreHandler` in
@@ -112,7 +112,7 @@ tests (`plugin/test/change-detection.test.ts`):
   machine's own settings for their interval.
 - It reads the sensor calibration (`sensorCalibration`) only on those full
   reads, on every `welcome` and `requestCollections`: never on a poll, on the
-  machine settings' interval or after a Workflow change. Its six reads each
+  machine settings' interval or after a Workflow change. Its three reads each
   go to the machine (below), and its values change only through a deliberate
   calibration (`PUT` on the same route), so a recalibration reaches the
   server on the tablet's next reconnect or `requestCollections`.
@@ -156,21 +156,33 @@ or weight (`ShotSequencer`, `HotWaterSequencer`).
 `sensorCalibration` is the firmware's own calibration of the machine's flow,
 pressure and temperature sensors, separate from the flow estimation
 multiplier: the corrections the machine applies to what each sensor reads, as
-they are now and as they left the factory. Comparing the two shows whether a
-Machine's sensors were recalibrated after it shipped, which helps when two
-Machines at a Location report different pressure or temperature for the same
-Recipe. Decaid answers each target and source by a request over the machine's
-A012 calibration characteristic (`UnifiedDe1.readCalibration`), on the link
-the scale also uses, and keeps no copy. The plugin reports Decaid's six
-answers as sent, by target and source:
+they are now. Comparing them across Machines helps when two at a Location
+report different pressure or temperature for the same Recipe. Decaid answers
+each target by a request over the machine's A012 calibration characteristic
+(`UnifiedDe1.readCalibration`), on the link the scale also uses, and keeps no
+copy. The plugin reports Decaid's three answers as sent, by target:
 
 ```json
 {
-  "flow": { "current": { "target": "flow", "source": "current", "de1ReportedValue": 1.0, "measuredValue": 1.0 }, "factory": { ... } },
-  "pressure": { "current": { ... }, "factory": { ... } },
-  "temperature": { "current": { ... }, "factory": { ... } }
+  "flow": { "target": "flow", "source": "current", "de1ReportedValue": 1.0, "measuredValue": 1.0 },
+  "pressure": { ... },
+  "temperature": { ... }
 }
 ```
+
+It leaves out the factory calibration (`?source=factory`): the DE1's
+firmware answers that read with the current calibration. On 2026-10-24, on
+the test tablet's DE1Pro with firmware 1358 under Decaid 0.9.0, all six
+reads (three targets, `current` and `factory`) agreed; after moving the
+temperature calibration by 0.5 °C (Decaid's read-then-write), the `factory`
+read moved with it, and it moved back when the value was restored. Decaid
+takes only a reply tagged as a factory read for that target
+(`UnifiedDe1Calibration._calibrationRequest`), so the firmware itself tags
+its current calibration as factory. Streamline's settings page reads no
+factory values for the same reason, reasoned for firmware 1357 rather than
+measured (the comment above `SENSOR_CAL_PREV_KEY` in
+`streamline-js:src/settings/settings.js`), and shows the value from before its
+own last write instead. Other firmware versions are untested.
 
 The calibration is always in `measuredValue`. For `flow` and `pressure`,
 which are ratiometric, `de1ReportedValue` is 1.0; for `temperature`, an
@@ -256,10 +268,10 @@ Machine that takes their hardware over. Staff read them as Admins do.
   Everything else paired, such as the machine itself, is in `others`.
 
 The Machine page shows the paired devices, the app, machine and advanced
-settings, the flow calibration, the sensor calibration (each sensor's current
-and factory `measuredValue`), the steam, hot water and flush settings of the
-current Workflow, and how many of each library collection its tablet reported,
-loaded every 30 s rather than every 5 s as the Machine's status is.
+settings, the flow calibration, the sensor calibration (each sensor's
+`measuredValue`), the steam, hot water and flush settings of the current
+Workflow, and how many of each library collection its tablet reported, loaded
+every 30 s rather than every 5 s as the Machine's status is.
 
 `server/test/collections.test.ts` covers this through Seam 1, with the built
 plugin and raw frames on two instances sharing PostgreSQL, and

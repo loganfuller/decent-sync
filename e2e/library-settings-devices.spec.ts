@@ -80,12 +80,11 @@ test("the Machine page shows paired devices, settings and the library, and follo
   // Its pressure sensor's recalibration shows, to five decimal places.
   const sensors = settings.getByRole("region", { name: "Sensor calibration" });
   await expect(sensors).toContainText(/^Sensor calibrationReported at \w{3} \d+, \d{4}/);
-  const calibrated: [target: string, current: string, factory: string][] = [["flow", "1", "1"], ["pressure", "1.00002", "1"], ["temperature", "0", "0"]];
-  for (const [target, current, factory] of calibrated) {
-    const list = sensors.getByLabel(target, { exact: true });
-    await expect(field(list, "current")).toHaveText(current);
-    await expect(field(list, "factory")).toHaveText(factory);
+  const calibrated: [target: string, value: string][] = [["flow", "1"], ["pressure", "1.00002"], ["temperature", "0"]];
+  for (const [target, value] of calibrated) {
+    await expect(field(sensors, target)).toHaveText(value);
   }
+  await expect(sensors).not.toContainText("factory");
   const appSettings = settings.getByRole("region", { name: "App settings" });
   await expect(field(appSettings, "gatewayMode")).toHaveText("disabled");
   await expect(field(appSettings, "simulatedDevices")).toHaveText("machine, bengle, scale, sensor");

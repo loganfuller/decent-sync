@@ -428,8 +428,8 @@ export interface MachineStateDelivery {
  *   and written to (ADR-0005);
  * - `appSettings`, `machineSettings` and `advancedSettings`;
  * - `machineCalibration`, the machine's flow calibration;
- * - `sensorCalibration`, the firmware's flow, pressure and temperature sensor
- *   calibration, as it is now and as it left the factory;
+ * - `sensorCalibration`, the firmware's current flow, pressure and temperature
+ *   sensor calibration;
  * - `pairedDevices`, the device inventory without devices only discovered nearby;
  * - `scaleInfo`, the connected scale's firmware and battery level;
  * - `sensors`.

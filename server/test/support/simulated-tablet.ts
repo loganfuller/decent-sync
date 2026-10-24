@@ -243,23 +243,20 @@ export function de1ProOnDecaid090(): DecaidApi {
 
 /**
  * Derived, not recorded: Decaid's answers to `GET
- * /machine/calibration/{target}?source=` (de1handler.dart), each under its
- * route and query, for a machine whose pressure sensor was recalibrated
- * after it shipped, by the values given. The flow and pressure calibrations
- * are ratiometric, so Decaid reports them with a `de1ReportedValue` of 1;
- * the temperature calibration, an offset, with 0 (`MockDe1.readCalibration`).
- * Each value is one the machine can hold, in signed Q16.16.
+ * /machine/calibration/{target}` (de1handler.dart), the current calibration,
+ * for a machine whose pressure sensor was recalibrated, by the values given.
+ * The flow and pressure calibrations are ratiometric, so Decaid reports them
+ * with a `de1ReportedValue` of 1; the temperature calibration, an offset,
+ * with 0 (`MockDe1.readCalibration`). Each value is one the machine can
+ * hold, in signed Q16.16.
  */
 export function sensorCalibration(current: { flow?: number; pressure?: number; temperature?: number } = {}): DecaidApi {
-  const factory = { flow: 1, pressure: 1, temperature: 0 };
-  const now = { ...factory, pressure: 1.0234375, ...current };
+  const now = { flow: 1, pressure: 1.0234375, temperature: 0, ...current };
   return Object.fromEntries(
-    (["flow", "pressure", "temperature"] as const).flatMap((target) =>
-      (["current", "factory"] as const).map((source) => [
-        `/machine/calibration/${target}?source=${source}`,
-        { target, source, de1ReportedValue: target === "temperature" ? 0 : 1, measuredValue: (source === "current" ? now : factory)[target] },
-      ]),
-    ),
+    (["flow", "pressure", "temperature"] as const).map((target) => [
+      `/machine/calibration/${target}`,
+      { target, source: "current", de1ReportedValue: target === "temperature" ? 0 : 1, measuredValue: now[target] },
+    ]),
   );
 }
 
@@ -1452,14 +1449,9 @@ export class SimulatedTablet {
     if (store === "store" && namespace === encodeURIComponent(this.pluginId) && rest.length === 0) {
       return response(200, JSON.stringify(this.storage.readThroughApi(key === undefined ? undefined : decodeURIComponent(key))));
     }
-    // A key of Decaid's store is read under the route its writes keep it at, and a sensor calibration under its route
-    // and source, the current one unless the query names another (de1handler.dart).
+    // A key of Decaid's store is read under the route its writes keep it at.
     const stored = this.keptInStore(route);
-    const served = stored
-      ? storeRoute(stored.namespace, stored.key)
-      : route.startsWith("/machine/calibration/")
-        ? `${route}?source=${new URL(url).searchParams.get("source") ?? "current"}`
-        : route;
+    const served = stored ? storeRoute(stored.namespace, stored.key) : route;
     const answer = this.api[served];
     if (answer instanceof Refusal) return response(answer.status, JSON.stringify(answer.body));
     // A key of plugin storage nothing has written (KvStoreHandler in kv_store_handler.dart).

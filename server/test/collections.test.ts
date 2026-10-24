@@ -111,16 +111,11 @@ describe("Library, settings and paired devices", () => {
   const gaps = (times: number[]) => times.slice(1).map((time, index) => time - times[index]!);
   /** Where the machine's own settings are read, which Decaid reads from the machine itself on each request. */
   const MACHINE_SETTINGS_ROUTES = ["/machine/settings", "/machine/settings/advanced", "/machine/calibration"];
-  /** Where the sensor calibration is read, each route once for its current calibration and once for its factory one. */
+  /** Where the sensor calibration is read, each route once. */
   const SENSOR_CALIBRATION_ROUTES = ["/machine/calibration/flow", "/machine/calibration/pressure", "/machine/calibration/temperature"];
-  /** The sensor calibration Decaid answers from `served`, by target and source, as the plugin reports it. */
+  /** The sensor calibration Decaid answers from `served`, by target, as the plugin reports it. */
   const sensorCalibrationIn = (served: DecaidApi) =>
-    Object.fromEntries(
-      ["flow", "pressure", "temperature"].map((target) => [
-        target,
-        { current: served[`/machine/calibration/${target}?source=current`], factory: served[`/machine/calibration/${target}?source=factory`] },
-      ]),
-    );
+    Object.fromEntries(["flow", "pressure", "temperature"].map((target) => [target, served[`/machine/calibration/${target}`]]));
 
   async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
     return RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
@@ -793,8 +788,8 @@ describe("Library, settings and paired devices", () => {
         const reads = () => SENSOR_CALIBRATION_ROUTES.map((route) => readTimes(tablet, route).length);
         await expect.poll(() => sent().length).toBe(1);
         expect(sent()[0]).toMatchObject({ available: true, value: sensorCalibrationIn(served) });
-        // Each target's current and factory calibration.
-        expect(reads()).toEqual([2, 2, 2]);
+        // Each target's current calibration, and not its factory one.
+        expect(reads()).toEqual([1, 1, 1]);
 
         // Derived: its temperature sensor recalibrated. Two more reads of the machine's own settings on their interval,
         // and two minutes of polls, read it no more.
@@ -802,25 +797,25 @@ describe("Library, settings and paired devices", () => {
         tablet.serve(recalibrated);
         await polls(tablet, 2, "/machine/settings");
         await polls(tablet, 1);
-        expect(reads()).toEqual([2, 2, 2]);
+        expect(reads()).toEqual([1, 1, 1]);
         expect(sent()).toHaveLength(1);
 
         standIn.send({ type: "requestCollections" });
         await expect.poll(() => sent().length).toBe(2);
         expect(sent()[1]).toMatchObject({ available: true, value: sensorCalibrationIn(recalibrated) });
-        expect(reads()).toEqual([4, 4, 4]);
+        expect(reads()).toEqual([2, 2, 2]);
 
         // A reconnect reads and sends it again, unchanged.
         tablet.dropConnections();
         await expect.poll(() => sent().length).toBe(3);
         expect(sent()[2]).toMatchObject({ available: true, value: sensorCalibrationIn(recalibrated) });
-        expect(reads()).toEqual([6, 6, 6]);
+        expect(reads()).toEqual([3, 3, 3]);
       } finally {
         await standIn.stop();
       }
     });
 
-    it("is reported unavailable if any one of its six reads fails, keeping the value known", async () => {
+    it("is reported unavailable if any one of its three reads fails, keeping the value known", async () => {
       const machine = await api.createMachine("Sensor calibration unavailable");
       const served = derivedDe1Pro({ serial: "30801" });
       const tablet = load(machine, { api: served });
@@ -828,13 +823,13 @@ describe("Library, settings and paired devices", () => {
       const known = sensorCalibrationIn(served);
       expect(await collection(machine, "sensorCalibration")).toMatchObject({ available: true, value: known });
 
-      // Derived: the machine doesn't answer the last of the six in time, which Decaid answers 504 (de1handler.dart).
-      tablet.serve({ ...served, "/machine/calibration/temperature?source=factory": new Refusal(504, { error: "BleTimeoutException" }) });
+      // Derived: the machine doesn't answer the last of the three in time, which Decaid answers 504 (de1handler.dart).
+      tablet.serve({ ...served, "/machine/calibration/temperature": new Refusal(504, { error: "BleTimeoutException" }) });
       tablet.dropConnections();
       await expect.poll(async () => (await collection(machine, "sensorCalibration"))?.available).toBe(false);
       expect(await collection(machine, "sensorCalibration")).toMatchObject({ value: known });
 
-      // The first fails, and the five after it are not read.
+      // The first fails, and the two after it are not read.
       await allAcknowledged(tablet);
       tablet.serve(served);
       tablet.failNextApiReads("/machine/calibration/flow", 1);
