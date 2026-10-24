@@ -31,6 +31,18 @@ _Avoid_: Machine, client, install
 The app baristas use on a tablet in place of Decaid's own screens, such as Streamline. It reads and changes the machine's workflow through Decaid's API, as the plugin does.
 _Avoid_: Theme, front end
 
+**Machine Settings**:
+What a machine's firmware is set to apart from what its workflow sets, such as its fan threshold, heater and sensor calibration.
+_Avoid_: Machine config, DE1 settings
+
+**Tablet Settings**:
+Decaid's own settings on a tablet, such as how it uses its scale and charges, and when it puts the machine to sleep and wakes it. They go with the tablet when it moves to another machine.
+_Avoid_: App settings, preferences, config
+
+**Settings Edit**:
+A change to a machine's or tablet's settings made in the management interface, kept with who made it and when, and what came of it.
+_Avoid_: Settings change, command
+
 **Connection Id**:
 The id Decaid uses to reach a machine: a Bluetooth address or a USB id. The server remembers a machine's connection ids as aliases, but they are not its identity.
 _Avoid_: Machine id, MAC (when a USB id is possible)
