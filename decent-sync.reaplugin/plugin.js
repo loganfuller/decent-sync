@@ -2725,17 +2725,12 @@ var __decentSync = (() => {
     }
   };
   var SENSOR_CALIBRATION_TARGETS = ["flow", "pressure", "temperature"];
-  var SENSOR_CALIBRATION_SOURCES = ["current", "factory"];
   async function readSensorCalibration() {
     const value = {};
     for (const target of SENSOR_CALIBRATION_TARGETS) {
-      const calibrations = {};
-      for (const source of SENSOR_CALIBRATION_SOURCES) {
-        const reading = await readCollection(`/machine/calibration/${target}?source=${source}`, null);
-        if (reading.kind !== "value") return { kind: "unavailable" };
-        calibrations[source] = reading.value;
-      }
-      value[target] = calibrations;
+      const reading = await readCollection(`/machine/calibration/${target}`, null);
+      if (reading.kind !== "value") return { kind: "unavailable" };
+      value[target] = reading.value;
     }
     return { kind: "value", value, etag: null };
   }

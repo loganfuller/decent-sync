@@ -124,14 +124,12 @@ export function SettingsCard({
           <section key={name} aria-label={SETTINGS[name]} className="grid content-start gap-2">
             <h3 className="font-medium">{SETTINGS[name]}</h3>
             <p className="text-sm text-muted-foreground">{reportText(settings[name])}</p>
-            {settings[name] &&
-              (name === "sensorCalibration" ? (
-                sensorCalibrations(settings[name].value).map(([target, entries]) => (
-                  <SettingsList key={target} label={target} title={target} entries={entries} />
-                ))
-              ) : (
-                <SettingsList label={SETTINGS[name]} entries={settingEntries(settings[name].value)} />
-              ))}
+            {settings[name] && (
+              <SettingsList
+                label={SETTINGS[name]}
+                entries={(name === "sensorCalibration" ? sensorCalibrations : settingEntries)(settings[name].value)}
+              />
+            )}
           </section>
         ))}
       </CardContent>
@@ -226,27 +224,19 @@ function settingEntries(value: unknown): [string, string][] {
 }
 
 /**
- * Each sensor's calibration, by Decaid's names for the sensor and for its
- * calibration now and as it left the factory, alphabetically: the
- * `measuredValue` of each, which holds the calibration (rest_v1.yml). To
- * five decimal places at most, not three: the machine keeps each in signed
- * Q16.16, steps of 1/65536, so any two it can hold still differ when shown.
+ * Each sensor's current calibration, by Decaid's name for the sensor,
+ * alphabetically: the `measuredValue` of each, which holds the calibration
+ * (rest_v1.yml). To five decimal places at most, not three: the machine
+ * keeps each in signed Q16.16, steps of 1/65536, so any two it can hold
+ * still differ when shown.
  */
-function sensorCalibrations(value: unknown): [target: string, entries: [string, string][]][] {
+function sensorCalibrations(value: unknown): [target: string, value: string][] {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
-  const part = (object: unknown, key: string): unknown =>
-    typeof object === "object" && object !== null && !Array.isArray(object) ? (object as Record<string, unknown>)[key] : undefined;
-  return Object.keys(value)
-    .sort((a, b) => a.localeCompare(b, "en"))
-    .map((target) => {
-      const calibrations = part(value, target);
-      return [
-        target,
-        (["current", "factory"] as const).map((source) => {
-          const measured = part(part(calibrations, source), "measuredValue");
-          return [source, typeof measured === "number" ? String(Number(measured.toFixed(5))) : settingText(measured)];
-        }),
-      ];
+  return Object.entries(value as Record<string, unknown>)
+    .sort(([a], [b]) => a.localeCompare(b, "en"))
+    .map(([target, calibration]) => {
+      const measured = typeof calibration === "object" && calibration !== null ? (calibration as Record<string, unknown>).measuredValue : undefined;
+      return [target, typeof measured === "number" ? String(Number(measured.toFixed(5))) : settingText(measured)];
     });
 }
 
