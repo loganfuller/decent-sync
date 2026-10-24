@@ -4,7 +4,7 @@ Decent Sync is one repository containing the plugin, server and management inter
 
 ## Before implementation
 
-- Read `GLOSSARY.md` and ADRs 0001–0022 in `docs/adr/`, then the spec of the ticket's milestone ([milestone 3](https://github.com/loganfuller/decent-sync/issues/134), [milestone 2](https://github.com/loganfuller/decent-sync/issues/77) or [milestone 1](https://github.com/loganfuller/decent-sync/issues/1)) and the assigned ticket. ADR-0010 is superseded by ADR-0012, and ADR-0014 by ticket #190 (a Location shares no steam, hot water or flush settings; a Recipe holds them, ADR-0022); ADR-0005 and ADR-0022 are interim.
+- Read `GLOSSARY.md` and ADRs 0001–0023 in `docs/adr/`, then the spec of the ticket's milestone ([milestone 4](https://github.com/loganfuller/decent-sync/issues/220), [milestone 3](https://github.com/loganfuller/decent-sync/issues/134), [milestone 2](https://github.com/loganfuller/decent-sync/issues/77) or [milestone 1](https://github.com/loganfuller/decent-sync/issues/1)) and the assigned ticket. ADR-0010 is superseded by ADR-0012, and ADR-0014 by ticket #190 (a Location shares no steam, hot water or flush settings; a Recipe holds them, ADR-0022); ADR-0005 and ADR-0022 are interim.
 - For orientation or a task spanning files, read `docs/AI_REPO_MAP.md`. Open known files directly.
 - Use the glossary's terms. Surface conflicts between a ticket, spec and ADR rather than silently choosing one. Inspect code to establish current behavior; use the spec and accepted ADRs for target behavior.
 
@@ -37,7 +37,7 @@ References written `<name>:<path>` are relative to that checkout. Use an existin
 |---|---|---|
 | `decaid` | [decentespresso/decaid](https://github.com/decentespresso/decaid), `$DECAID_DIR` | Verify host behavior in source at the oldest supported version (ADR-0017) and the version under investigation |
 | `dye2` | [decentespresso/dye2](https://github.com/decentespresso/dye2), existing checkout | Verify recipe, equipment and basket storage shapes, record ids and `stripSlot`, how DYE2 applies a recipe and names it in the Workflow, when it clears it, and how it saves dial-in changes into it (`record`, `save-recipe`); milestone 3 writes them (ADR-0005, ADR-0022) |
-| `streamline-js` | [decentespresso/streamline-js](https://github.com/decentespresso/streamline-js), existing checkout | Verify the settings Streamline remembers, and that it adopts a Workflow change made elsewhere (ADR-0021), and how its DYE strip places DYE2 recipes by `stripSlot`, applies them, names them in the Workflow and has DYE2 save into them (ADR-0005, ADR-0022) |
+| `streamline-js` | [decentespresso/streamline-js](https://github.com/decentespresso/streamline-js), existing checkout | Verify the settings Streamline remembers, and that it adopts a Workflow change made elsewhere (ADR-0021), and how its DYE strip places DYE2 recipes by `stripSlot`, applies them, names them in the Workflow and has DYE2 save into them (ADR-0005, ADR-0022), and its settings page's routes, ranges and restore of machine settings (ADR-0023) |
 | `decent-sync-plugin` | [loganfuller/decent-sync-plugin](https://github.com/loganfuller/decent-sync-plugin), `$DECENT_SYNC_PLUGIN_DIR` | Archived prototype, read-only prior art only |
 
 ## Task references

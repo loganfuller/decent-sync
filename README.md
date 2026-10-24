@@ -418,7 +418,7 @@ lets its DYE strip apply a recipe holding a grinder or Basket
 |---|---|
 | Server URL | the server's `PUBLIC_URL`, such as `https://sync.example.com` |
 | Token | the Machine's token (stored securely by Decaid) |
-| Poll interval | seconds between checks for changes to the library, app settings, paired devices, scale, sensors and Steam Records (default 30, at least 5); the machine's own settings are read every 60 s, or this often if longer, and whenever a Workflow change writes them |
+| Poll interval | seconds between checks for changes to the library, Tablet Settings, paired devices, scale, sensors and Steam Records (default 30, at least 5); the machine's own settings are read every 60 s, or this often if longer, and whenever a Workflow change writes them |
 
 ## Development
 
@@ -527,10 +527,15 @@ holding its spec, tickets and pull requests.
    Recording Location moves is in milestone 1, and what a move changes in a
    tablet's Library is in milestone 2. Spec:
    [#134](https://github.com/loganfuller/decent-sync/issues/134).
-4. **Stock.** Deliveries, transfers, counts and the coffee each shot uses.
+4. **[Machine management](https://github.com/loganfuller/decent-sync/milestone/4).**
+   Each Machine's Machine Settings and its Tablet's Tablet Settings edited in
+   the management interface, live while its Tablet is connected (ADR-0023), then
+   commands such as sleep and wake. Spec:
+   [#220](https://github.com/loganfuller/decent-sync/issues/220).
 5. **Analytics.** Broader views across Machines and Locations, and Barista
    grouping, including who dialled each Recipe. Machine status, Shot filtering and comparison with the
    previous Shot on the same Machine are already in milestone 1.
+6. **Stock.** Deliveries, transfers, counts and the coffee each shot uses.
 
 ## License
 
