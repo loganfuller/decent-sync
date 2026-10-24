@@ -1097,6 +1097,8 @@ var __decentSync = (() => {
       });
       /** How many loads the plugin has decided on, so a save asked for before one is not made after it. */
       __publicField(this, "loads", 0);
+      /** The id of the record the Workflow named as the plugin last decided on it, null for none. */
+      __publicField(this, "namedRecord", null);
       /**
        * The save into the Loaded Recipe waiting its turn, with the Recipe, load
        * and profile of the change that asked for it: one more change of the same
@@ -1199,22 +1201,25 @@ var __decentSync = (() => {
     /**
      * Decides on the latest Workflow, once the recipes are read: one naming a
      * Recipe the plugin has not loaded loads it (`loadRecipe`), but on the
-     * plugin's first decision, which takes it as loaded; a change of it
-     * (`changed`) naming the Loaded Recipe is saved into it (`saveSoon`), but
-     * for one changing the profile from `previous`, as DYE2 fingerprints one,
-     * which DYE2 clears the recipe on. A read of the recipes (`changed` false)
-     * saves nothing.
+     * plugin's first decision, which takes it as loaded, and where the record
+     * it named already only came to carry the Recipe's global id; a change of
+     * it (`changed`) naming the Loaded Recipe is saved into it (`saveSoon`),
+     * but for one changing the profile from `previous`, as DYE2 fingerprints
+     * one, which DYE2 clears the recipe on. A read of the recipes (`changed`
+     * false) saves nothing.
      */
     decide(previous, changed) {
       const workflow = this.latest;
       if (workflow === void 0 || this.records === null || this.stopped) return;
       const recordId = dye2RecipeIdOf(workflow);
       const globalId = (recordId === null ? void 0 : this.records.get(recordId))?.globalId ?? null;
+      const joined = !changed && recordId !== null && recordId === this.namedRecord && this.loaded === null;
+      this.namedRecord = recordId;
       if (globalId !== this.loaded) {
         const first = this.loaded === void 0;
         this.loaded = globalId;
         this.loads++;
-        if (globalId !== null && !first && this.sharing()) {
+        if (globalId !== null && !first && !joined && this.sharing()) {
           void this.library.run(() => this.loadRecipe(globalId)).catch((error) => this.failed(error));
         }
         return;

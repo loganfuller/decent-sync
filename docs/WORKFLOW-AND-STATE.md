@@ -438,7 +438,11 @@ already (`base`). A Workflow naming nothing forgets it.
   is taken in as that Workflow naming it, from `named_at`, so it is loaded
   from then, never before the Machine's latest entry (`recipeMapped`); and
   the Shots the tablet reported naming that id are linked to it
-  (`linkRecipeShots`, `SHOTS.md`). A Workflow naming a record the map held
+  (`linkRecipeShots`, `SHOTS.md`). That Workflow is taken as holding the
+  Recipe as it stands (`base`), as the recipe was made from it, so nothing
+  is written into it, and a change a barista made since stays; the plugin
+  writes no load either, as its read of the tablet's recipes finds the
+  record it named gaining a global id. A Workflow naming a record the map held
   already, as one of the Location the Machine left, never takes this path,
   so it never loads another Recipe the map gives that id later.
 
@@ -582,13 +586,14 @@ parts to the Recipe's content both ways.
   Workflow change the write causes is sent after the answer, which records
   what Decaid returned as the Workflow's (`recordLoadedRecipeWritten`),
   where it still names the record: each part the write set held as Decaid
-  returned it, and each part the write carried, by the latest edit it
-  carried, as taken by the Workflow (`base`), written or not, so a part a
-  barista changed meanwhile, which the plugin kept, or a steam temperature
-  left out of a Workflow whose steam is off, is not written again until the
+  returned it, and, by the latest edit the write carried, as taken by the
+  Workflow (`base`) each part it set, each it left out that the Workflow
+  holds as the Recipe does, or holds otherwise than before as a barista
+  changed it meanwhile, which the plugin kept, and a steam temperature left
+  out of a Workflow whose steam is off, so none is written again until the
   Recipe changes. Decaid refuses the steam, hot water and flush settings
-  while no machine is connected: the rest is written, and those once the
-  machine is back and the plugin reconnects. Once Decaid takes a write that
+  while no machine is connected: the rest is written, and those, still due,
+  once the machine is back and the plugin reconnects. Once Decaid takes a write that
   changed the Workflow, the plugin pushes `{"what":"workflow"}` on its
   `changed` endpoint, as after a load (A load, above): a skin reads the
   Workflow on the push after the Recipe's record, written first, before the

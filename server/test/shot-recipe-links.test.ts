@@ -350,6 +350,33 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     await expect.poll(() => recipeRecords(neverUsed)).toEqual(recipeRecords(tablet));
   });
 
+  it("keeps a change made on the Machine after save-recipe and before its record was taken in, writing nothing of the new Recipe into the Workflow", async () => {
+    let unread = false;
+    const apiDelayMs = (method: string, path: string) => (unread && method === "GET" && path === RECIPES ? 30_000 : 0);
+    const { machine, tablet } = await lab("Saved then changed", 49111, { apiDelayMs });
+    const streamline = await startStreamline(tablet);
+    const dose = () => (tablet.workflow().context as Record_ | undefined)?.targetDoseWeight;
+
+    unread = true;
+    const saved = await streamline.saveToRecipe(5);
+    expect(saved.status).toBe(200);
+    const { id: savedId } = saved.body as { id: string };
+    const savedDose = dose();
+    await tablet.changeSettings({ context: { targetDoseWeight: 21.7 } });
+    expect(savedDose).not.toBe(21.7);
+    await settle();
+
+    // Taken in: the Workflow the recipe was made from is taken as holding it, so the dose changed since stays.
+    const received = tablet.received.length;
+    unread = false;
+    await expect.poll(() => dye2GlobalIdOf(recordWithId(tablet, savedId)), { timeout: 15_000 }).toEqual(expect.any(String));
+    const savedRecipe = dye2GlobalIdOf(recordWithId(tablet, savedId))!;
+    await loads(machine, savedRecipe);
+    await settle();
+    expect([recipeIdInWorkflow(tablet), dose()]).toEqual([savedId, 21.7]);
+    expect(tablet.received.slice(received).filter((frame) => (frame as Record_).type === "write" && (frame as Record_).kind === "loadedRecipe")).toEqual([]);
+  });
+
   it("links a Shot to the Basket its Workflow named, and to the one DYE2's Edit Shot page sets", async () => {
     const { tablet } = await lab("Basket", 49021);
     // The 18g Basket written into the Workflow on the tablet, as recorded, with no Recipe loaded.

@@ -98,6 +98,8 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   };
   /** How many loads the plugin has decided on, so a save asked for before one is not made after it. */
   private loads = 0;
+  /** The id of the record the Workflow named as the plugin last decided on it, null for none. */
+  private namedRecord: string | null = null;
   /**
    * The save into the Loaded Recipe waiting its turn, with the Recipe, load
    * and profile of the change that asked for it: one more change of the same
@@ -227,22 +229,27 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   /**
    * Decides on the latest Workflow, once the recipes are read: one naming a
    * Recipe the plugin has not loaded loads it (`loadRecipe`), but on the
-   * plugin's first decision, which takes it as loaded; a change of it
-   * (`changed`) naming the Loaded Recipe is saved into it (`saveSoon`), but
-   * for one changing the profile from `previous`, as DYE2 fingerprints one,
-   * which DYE2 clears the recipe on. A read of the recipes (`changed` false)
-   * saves nothing.
+   * plugin's first decision, which takes it as loaded, and where the record
+   * it named already only came to carry the Recipe's global id; a change of
+   * it (`changed`) naming the Loaded Recipe is saved into it (`saveSoon`),
+   * but for one changing the profile from `previous`, as DYE2 fingerprints
+   * one, which DYE2 clears the recipe on. A read of the recipes (`changed`
+   * false) saves nothing.
    */
   private decide(previous: Record<string, unknown> | undefined, changed: boolean): void {
     const workflow = this.latest;
     if (workflow === undefined || this.records === null || this.stopped) return;
     const recordId = dye2RecipeIdOf(workflow);
     const globalId = (recordId === null ? undefined : this.records.get(recordId))?.globalId ?? null;
+    // The record the Workflow named before it carried a Recipe's global id, as one DYE2's save-recipe made and named at
+    // once, which the server took in since: the Workflow holds what it was made from, and a change since is the barista's.
+    const joined = !changed && recordId !== null && recordId === this.namedRecord && this.loaded === null;
+    this.namedRecord = recordId;
     if (globalId !== this.loaded) {
       const first = this.loaded === undefined;
       this.loaded = globalId;
       this.loads++;
-      if (globalId !== null && !first && this.sharing()) {
+      if (globalId !== null && !first && !joined && this.sharing()) {
         void this.library.run(() => this.loadRecipe(globalId)).catch((error: unknown) => this.failed(error));
       }
       return;

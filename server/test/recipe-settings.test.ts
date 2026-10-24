@@ -323,6 +323,25 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     expect([(await recipe(one)).content.steamTemperature, await editsOf(one, "steamTemperature")]).toEqual([160, edits]);
   });
 
+  it("writes a hot water setting edited while C's machine is away once it is back, never saving C's old one into the Recipe", async () => {
+    const { a, c, one } = await lab("Unplugged", 49131);
+    const dose = (tablet: SimulatedTablet) => workflowValueAt(tablet.workflow(), "context.targetDoseWeight");
+    // Decaid refuses the hot water settings with no machine, and takes the rest of the write.
+    c.machineConnected = false;
+    await patch(one, { dose: 19.3, hotWaterDuration: 41 });
+    await expect.poll(() => [dose(c), recorded(c, "hotWaterDuration")], { timeout: 15_000 }).toEqual([19.3, 41]);
+    await settle();
+    expect(setting(c, "hotWaterDuration")).toBe(HELD.hotWaterDuration);
+
+    // Once the machine is back, the hot water time is written, and C's next change, which DYE2 saves, keeps it.
+    c.connectMachine();
+    await expect.poll(() => setting(c, "hotWaterDuration"), { timeout: 15_000 }).toBe(41);
+    await c.changeSettings({ context: { grinderSetting: "3.4" } });
+    await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(3.4);
+    await settle();
+    expect([(await recipe(one)).content.hotWaterDuration, setting(a, "hotWaterDuration"), setting(c, "hotWaterDuration")]).toEqual([41, 41, 41]);
+  });
+
   it("takes a steam temperature of Off saved in DYE2's editor as no edit, writing the Recipe's back into the record", async () => {
     const { a, c, one } = await lab("Editor", 49061);
     const edits = await editsOf(one, "steamTemperature");
