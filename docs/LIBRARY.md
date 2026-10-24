@@ -89,7 +89,7 @@ Location is a Capture-only Machine, and so is one an Admin turned sharing
 off for (`machines.sharing`, on by default): its tablet's beans, bean
 batches, grinders and profiles, and its Workflow, are captured as in
 milestone 1 (`COLLECTIONS.md`, `WORKFLOW-AND-STATE.md`), but not taken into
-the Library, and nothing is written to it, not even a hard delete's. Its page says it is capture-only, and why.
+the Library, and nothing of the Library is written to it, not even a hard delete's (Settings Edits still reach it, ADR-0023). Its page says it is capture-only, and why.
 
 - **The capture-only switch.** Only an Admin turns it, under the Machine's
   row lock, which taking in its tablet's reports and recording its answers
