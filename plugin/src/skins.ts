@@ -16,8 +16,8 @@ import type { Dye2Key } from "./library-writes.js";
 // The plugin shows nothing on the dashboard, so it answers with no surfaces,
 // and pushes once it has written DYE2's recipes, or changed the Workflow:
 // the server's writes of the Loaded Recipe and its clears of the Workflow's
-// grinder, batch and Basket, and the plugin's loads of a recipe DYE2
-// selected. Decaid sends a push only to the sockets open at the time, so a
+// grinder, batch and Basket, the plugin's loads of a recipe the Workflow
+// names, and its clears of that recipe. Decaid sends a push only to the sockets open at the time, so a
 // skin without one catches up as it does without the plugin.
 
 /** The plugin's HTTP endpoint a skin asks what to show (manifest.json). */
