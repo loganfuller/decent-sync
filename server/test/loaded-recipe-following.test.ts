@@ -302,6 +302,30 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(() => context(c).grinderSetting, { timeout: 15_000 }).toBe("9.9");
   });
 
+  it("keeps an RPM cleared on A while the plugin's read for writing a Recipe edit of it was on its way, writing the edit into none", async () => {
+    let slow = false;
+    let reading = false;
+    // 25 s at the tablet's pace, within Decaid's 30 s fetch timeout: half a second here. Answered as it is then.
+    const { a, c, one } = await lab("Cleared meanwhile", 48261, {
+      apiDelayMs: (method, path) => {
+        if (!slow || method !== "GET" || path !== "/workflow") return 0;
+        reading = true;
+        return 25_000;
+      },
+    });
+    expect(extras(a).rpm).toBe(900);
+    slow = true;
+    await patch(one, { rpm: 1333 });
+    // The plugin reads A's Workflow to write the edit, and the barista clears the RPM before Decaid answers.
+    await expect.poll(() => reading, { timeout: 15_000 }).toBe(true);
+    await a.changeSettings({ context: { extras: { rpm: null } } });
+    await expect.poll(() => extras(c).rpm, { timeout: 15_000 }).toBe(1333);
+    slow = false;
+    await settle();
+    expect(extras(a).rpm ?? null).toBeNull();
+    expect((await recipe(one)).content.rpm).toBe(1333);
+  });
+
   it("follows a grind DYE2 saved and an editor save made while A was offline, which reach the server in one report, writing a later edit into A's Workflow", async () => {
     // A's recipes are read at a welcome, not at its poll.
     const { machines, a, c, one } = await lab("Coalesced", 48171, { pollSeconds: 3600 });

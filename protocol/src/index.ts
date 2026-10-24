@@ -1058,9 +1058,9 @@ export const STEAM_ON_FROM = 135;
  * barista applied in the moment between. An unload sets DYE2_RECIPE_FIELD
  * null, as DYE2 does, and nothing else. Otherwise the plugin sets, through
  * `PUT /workflow` (`workflowPatch`), each part whose first field still holds
- * the value expected, or none, or the value written already, as one DYE2
- * saved that the server did not hold, or that expects none: a part a
- * barista changed since is kept, which its Workflow change brings to the
+ * the value expected, or the value written already, as one DYE2 saved that
+ * the server did not hold, or that expects none: a part a barista changed
+ * since, or cleared, is kept, which its Workflow change brings to the
  * server. A write that changes the profile, as DYE2 fingerprints one
  * (`dye2Fingerprint`), which DYE2 clears DYE2_RECIPE_FIELD on, is made as two:
  * DYE2_RECIPE_FIELD cleared, then the write with the Recipe's id set there

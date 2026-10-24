@@ -709,7 +709,7 @@ async function clearWorkflow(write: LibraryWrite, _log: (message: string) => voi
  * Writes the fields of its Loaded Recipe that the server says the tablet's
  * Workflow is due (`LOADED_RECIPE_KIND`), through `PUT /workflow`, which
  * Decaid merges into the Workflow: each part whose first field still holds
- * the value expected, or none (`loadedRecipeFields`). A brew temperature
+ * the value expected (`loadedRecipeFields`). A brew temperature
  * moves every step of the profile written, or else the Workflow's, by the
  * same amount (`profileAtBrewTemperature`). It is refused unless the
  * Workflow still names the recipe the write expects (DYE2_RECIPE_FIELD), so
@@ -805,10 +805,12 @@ function loadedRecipePatch(fields: Readonly<Record<string, unknown>>, workflow: 
 /**
  * The fields of a write of LOADED_RECIPE_KIND to set in the Workflow: each
  * part of LOADED_RECIPE_PARTS the write names, all its fields together,
- * while the Workflow holds the value expected of its first field, or none,
- * or the write expects none, as of a Profile; its steam, hot water and
- * flush settings only where `machineSettings` says; and a steam temperature
- * only where the Workflow's steam is on (`steamOff`).
+ * while the Workflow holds the value expected of its first field, or the
+ * value written already, or the write expects none, as of a Profile: one a
+ * barista changed since, or cleared, which stays the Machine's own, is
+ * kept; its steam, hot water and flush settings only where
+ * `machineSettings` says; and a steam temperature only where the
+ * Workflow's steam is on (`steamOff`).
  */
 function loadedRecipeFields(write: LibraryWrite, workflow: Record<string, unknown>, machineSettings: boolean): Record<string, unknown> {
   return Object.fromEntries(
@@ -820,7 +822,7 @@ function loadedRecipeFields(write: LibraryWrite, workflow: Record<string, unknow
       const expected = write.expected?.[first];
       // One holding the value written already is written too, so its answer has the server hold it: as where DYE2 recorded
       // a change the server did not hold, as of a report bringing a save of DYE2's editor with it.
-      if (held !== undefined && held !== null && expected !== undefined && !sameValue(held, expected) && !sameValue(held, write.fields[first])) return [];
+      if (expected !== undefined && !sameValue(held, expected) && !sameValue(held, write.fields[first])) return [];
       return part.filter((field) => field in write.fields).map((field) => [field, write.fields[field]]);
     }),
   );
