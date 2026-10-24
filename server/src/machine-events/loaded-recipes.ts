@@ -504,9 +504,9 @@ async function tabletLocals(tx: Prisma.TransactionClient, tabletId: string) {
  * (`contentSeen`), as taken by the Workflow, written or not, so a part a
  * barista changed meanwhile, which the plugin keeps, or a steam temperature
  * it left out of a Workflow whose steam is off, is not written again until
- * the Recipe changes. A Workflow naming another recipe by then is taken in
- * from the Workflow the plugin sends after it. The answer to an unload,
- * which cleared the recipe, leaves nothing named. Recorded only while the
+ * the Recipe changes. The answer to an unload, which cleared the recipe, or
+ * one whose Workflow names another recipe or none by then, leaves nothing
+ * named: the Workflow the plugin sends after it brings what it names. Recorded only while the
  * answering connection holds its Machine, under the Machine's and the
  * tablet's locks, then its Location's and the Recipe's.
  */
@@ -524,12 +524,12 @@ export async function recordLoadedRecipeWritten(
     await lockTablet(tx, tablet.tabletId);
     const known = await namedRecipe(tx, tablet.tabletId);
     if (known === null || known.recipeId !== recipeId.toLowerCase()) return "recorded";
-    // Unloaded: the Workflow names nothing now, as the one the plugin sends after it.
-    if (written.has(DYE2_RECIPE_FIELD)) {
+    // Unloaded, or the Workflow names another recipe or none by now, which the Workflow the plugin sends after it brings:
+    // nothing is due for the one it named.
+    if (written.has(DYE2_RECIPE_FIELD) || dye2RecipeIdOf(record) !== known.recordId) {
       await forgetNamed(tx, tablet.tabletId);
       return "recorded";
     }
-    if (dye2RecipeIdOf(record) !== known.recordId) return "recorded";
     const locationId = await sharingLocation(tx, tablet.machineId);
     if (locationId !== null) await lockLocation(tx, locationId);
     const [row] = await tx.$queryRaw<{ id: string; content: unknown; fieldEdits: unknown }[]>`
