@@ -122,12 +122,18 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
   async function lab(
     scenario: string,
     serial: number,
-    options: { instance?: TestServer; pollSeconds?: number; dye2?: SimulatedDye2; apiDelayMs?: (method: string, path: string) => number } = {},
+    options: { instance?: TestServer; pollSeconds?: number; dye2?: SimulatedDye2; apiDelayMs?: (method: string, path: string) => number; answerOnArrival?: boolean } = {},
   ) {
     const here: LocationView = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machine = await api.createMachine(`${scenario} lab 1`, here.id);
     const dye2 = options.dye2 ?? new SimulatedDye2();
-    const tablet = syncingTablet(machine, options.instance ?? server, { api: recordedDye2MainTablet(String(serial), scenario), dye2, pollSeconds: options.pollSeconds, apiDelayMs: options.apiDelayMs });
+    const tablet = syncingTablet(machine, options.instance ?? server, {
+      api: recordedDye2MainTablet(String(serial), scenario),
+      dye2,
+      pollSeconds: options.pollSeconds,
+      apiDelayMs: options.apiDelayMs,
+      answerOnArrival: options.answerOnArrival,
+    });
     await api.waitForOnline(machine);
     await expect.poll(() => [ETHIOPIA, BRAZIL].map((id) => dye2GlobalIdOf(record(tablet, id))), { timeout: 15_000 }).not.toContain(null);
     const ethiopia = dye2GlobalIdOf(record(tablet, ETHIOPIA))!;
@@ -451,6 +457,32 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect(dye2.recorded.filter((recorded) => recorded.id === BRAZIL)).toEqual([]);
     expect((await recipe(brazil)).content).toEqual(held);
     expect(context(tablet)).toMatchObject({ targetDoseWeight: 19, grinderSetting: "3" });
+  });
+
+  it("saves nothing into another Recipe applied while a save's read of the Workflow, which still named the first, was on its way back", async () => {
+    let slow = false;
+    // The save's read of the Workflow is answered as it arrives, naming the Ethiopia, but reaches the plugin half a second
+    // later (25 s of the tablet's clock, which runs 50 times faster).
+    const { machine, tablet, dye2, ethiopia, brazil } = await lab("Late read", 47171, {
+      answerOnArrival: true,
+      apiDelayMs: (method, path) => (slow && method === "GET" && path === "/workflow" ? 25_000 : 0),
+    });
+    await selectRecipeInDye2(tablet, ETHIOPIA);
+    await loads(machine, ethiopia);
+    await expect.poll(() => extras(tablet).basketId, { timeout: 15_000 }).toBe(BASKET_18);
+    await settle();
+    const held = (await recipe(brazil)).content;
+    slow = true;
+    await tablet.changeSettings({ context: { grinderSetting: "3.4" } });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect((await (await openDye2Dashboard(tablet)).applyRecipe(BRAZIL)).workflow?.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    slow = false;
+    await loads(machine, brazil);
+    await expect.poll(() => extras(tablet).basketId, { timeout: 15_000 }).toBe(BASKET_20);
+    await settle();
+    expect(dye2.recorded.filter((recorded) => recorded.id === BRAZIL)).toEqual([]);
+    expect((await recipe(brazil)).content).toEqual(held);
   });
 
   it("keeps the Recipe loaded through another grinder, a batch of another Bean and a batch cleared, which DYE2 clears nothing on, a Shot pulled on another Bean's batch linked to it", async () => {

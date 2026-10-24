@@ -264,10 +264,11 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * save waiting its turn covers the changes of the same Recipe, load and
    * profile after it. As DYE2 saves into the recipe the live Workflow names,
    * the save is made only while that Workflow, read just before, still
-   * names that Recipe on that profile, and no load was decided on since: a
-   * recipe applied meanwhile, whose load write is still to come, or a
-   * change of profile, which DYE2 clears the recipe on, is not saved into
-   * it. A save that fails is tried again at the next change.
+   * names that Recipe on that profile, and no load was decided on since,
+   * judged again once Decaid answered that read: a recipe applied
+   * meanwhile, whose load write is still to come, or a change of profile,
+   * which DYE2 clears the recipe on, is not saved into it. A save that
+   * fails is tried again at the next change.
    */
   private saveSoon(save: SaveFor): void {
     const queued = this.queuedSave;
@@ -277,11 +278,13 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     void this.library
       .run(async () => {
         if (this.queuedSave === save) this.queuedSave = null;
-        if (this.stopped || this.loaded !== save.globalId || this.loads !== save.load || !this.sharing()) return;
+        const current = () => !this.stopped && this.loaded === save.globalId && this.loads === save.load && this.sharing();
+        if (!current()) return;
         const workflow = await workflowNow();
         const recordId = dye2RecipeIdOf(workflow);
         const named = recordId === null ? undefined : this.records?.get(recordId)?.globalId;
-        if (named !== save.globalId || dye2Fingerprint(workflow.profile) !== save.fingerprint) return;
+        // Judged again once Decaid answered, as a recipe applied while its answer was on its way is decided on meanwhile.
+        if (named !== save.globalId || dye2Fingerprint(workflow.profile) !== save.fingerprint || !current()) return;
         if ((await recordIntoRecipe()) === "saved") await this.reportRecipes();
         this.failing = false;
       })
