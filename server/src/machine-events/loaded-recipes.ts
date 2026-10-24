@@ -268,9 +268,22 @@ async function followMachine(
 async function profileChanged(tx: Prisma.TransactionClient, machineId: string, workflow: unknown): Promise<boolean> {
   const rows = await tx.$queryRaw<{ workflow: unknown }[]>`
     SELECT workflow FROM workflow_events WHERE machine_id = ${machineId}::uuid ORDER BY id DESC LIMIT 2`;
-  const profile = (value: unknown) => dye2Fingerprint(isObject(value) ? value.profile : undefined);
+  // PostgreSQL keeps a jsonb object's keys in an order of its own, so the stored Workflow's profile and the one delivered
+  // are fingerprinted with their keys in one order.
+  const profile = (value: unknown) => dye2Fingerprint(sortedKeys(isObject(value) ? value.profile : undefined));
   const previous = rows.length === 2 ? rows[1]!.workflow : undefined;
   return previous !== undefined && profile(previous) !== profile(workflow);
+}
+
+/** A copy of the value with each object's keys sorted, arrays kept in their order. */
+function sortedKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortedKeys);
+  if (!isObject(value)) return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sortedKeys(value[key])]),
+  );
 }
 
 /**
