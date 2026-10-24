@@ -485,8 +485,10 @@ export async function recordedByDye2(
     const basket = content[RECIPE_FIELDS.basket];
     const recipeValue = part === "basket" ? (typeof basket === "string" ? (locals?.local("basket", basket) ?? null) : null) : readParts({ [part]: content[RECIPE_FIELDS[part]] })[part];
     held[part] = savedValue;
-    // A write of the server's still to land: never of a part the Recipe holds none of, which it writes none of.
-    const unwritten = recipeValue !== null && known.held[part] !== null && samePart(part, known.held[part], savedValue) && !samePart(part, recipeValue, savedValue);
+    // A write of the server's still to land: never of a part the Recipe holds none of, which it writes none of, nor of one
+    // the Workflow took the Recipe's value of already, as a change DYE2 could not save at once, saved at a later one.
+    const pending = !(part in known.base) || !samePart(part, known.base[part], recipeValue);
+    const unwritten = recipeValue !== null && pending && known.held[part] !== null && samePart(part, known.held[part], savedValue) && !samePart(part, recipeValue, savedValue);
     if (samePart(part, recipeValue, savedValue) || unwritten) stale.add(path);
     else base[part] = savedValue;
   }
