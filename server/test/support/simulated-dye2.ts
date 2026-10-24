@@ -402,9 +402,6 @@ export type Dye2State = "loaded" | "unloaded" | "disabled" | "absent";
 /** DYE2's HTTP endpoints a test can hold or fail. */
 export type Dye2Endpoint = "selection" | "record" | "save-recipe";
 
-/** The Workflow field DYE2 reads the recipe being dialled in from (`recipeIdOf`). */
-export const DYE2_RECIPE_ID_PATH = ["context", "extras", "dye", "recipeId"] as const;
-
 /** The endpoints DYE2's manifest at v0.1.26 declares (dye2:dye2.reaplugin/manifest.json), all `http` but `changed`. */
 const DYE2_ENDPOINTS = [
   "dashboard",
