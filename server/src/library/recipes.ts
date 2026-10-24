@@ -401,9 +401,10 @@ async function takeOutOfSlot(tx: Prisma.TransactionClient, recipeId: string, loc
  * merged with Conflicts, but for one the Library left out as the tablet
  * joined, which the Recipe is written over. Recorded only while the
  * answering connection holds its Machine, under the Machine's and the
- * tablet's locks. Nothing is recorded when the record does not carry the
- * Recipe's global id, or the map holds it as another Recipe's, or when the
- * Library no longer has the Recipe.
+ * tablet's locks, then the Recipe's Location's and its row's. Nothing is
+ * recorded when the record does not carry the Recipe's global id, or the
+ * map holds it as another Recipe's, or when the Library no longer has the
+ * Recipe.
  */
 export async function recordRecipeWritten(
   prisma: PrismaService,
@@ -420,6 +421,10 @@ export async function recordRecipeWritten(
   return prisma.$transaction(async (tx): Promise<AnswerRecorded> => {
     if (!(await lockHeldMachine(tx, tablet))) return "released";
     await lockTablet(tx, tablet.tabletId);
+    // Its Location's lock first, which a Recipe's slots, its edits and the Loaded Recipe a Workflow names take before its
+    // row, as this answer may move it (`moveSlots`) or load it (`recipeMapped`); the Location a Recipe belongs to never changes.
+    const [owner] = await tx.$queryRaw<{ locationId: string | null }[]>`SELECT location_id::text AS "locationId" FROM recipes WHERE id = ${itemId}::uuid`;
+    if (owner?.locationId) await lockLocation(tx, owner.locationId);
     // Its row locked, as an edit of it would, for its content before this answer.
     const [item] = await tx.$queryRaw<{ content: unknown; fieldEdits: unknown; locationId: string | null; slot: number | null }[]>`
       SELECT content, field_edits AS "fieldEdits", location_id::text AS "locationId", slot FROM recipes WHERE id = ${itemId}::uuid FOR NO KEY UPDATE`;

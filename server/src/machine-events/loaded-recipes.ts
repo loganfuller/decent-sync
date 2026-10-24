@@ -211,7 +211,8 @@ async function forgetNamed(tx: Prisma.TransactionClient, tabletId: string): Prom
  * as the Machine's: those Decent Sync records itself are the Recipe's
  * (`valuesFromWorkflow`), but for a change of profile, as DYE2 fingerprints
  * one, which DYE2 clears the recipe on a moment later; and the parts are
- * held as the Workflow holds them. Any other, as a load, is held as it is:
+ * held as the Workflow holds them, each it holds as the Recipe does taken
+ * as the Recipe's (`base`). Any other, as a load, is held as it is:
  * the Recipe gains from it each value it holds none of (`valuesFromWorkflow`
  * on a load), and its fields that differ from it are written into the
  * Workflow, as a load from a stale copy needs (`loadedRecipeDue`). One
@@ -247,6 +248,10 @@ async function followMachine(
     if (!(await profileChanged(tx, tablet.machineId, workflow))) {
       for (const part of await recordFromWorkflow(tx, tablet, recipe, known.held, now, observedAt)) base[part] = now[part];
     }
+    // A part the Workflow holds as the Recipe does has taken it, however it came there, as DYE2's editor applies a save
+    // of the Recipe again: a change of it on the Machine since, as a value cleared, is the Machine's own, not written back.
+    const target = await targetParts(tx, tablet.tabletId, recipe.id);
+    if (target !== null) Object.assign(base, heldAlready(target, now));
     await saveNamed(tx, tablet.tabletId, { recordId, recipeId: recipe.id, namedAt, held: now, base });
     return;
   }
