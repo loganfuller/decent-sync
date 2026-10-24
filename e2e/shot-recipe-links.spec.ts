@@ -1,18 +1,21 @@
 import { expect as baseExpect, type Browser, type Page, test } from "@playwright/test";
-import { dye2GlobalIdOf, dye2SelectionOf } from "@decent-sync/protocol";
+import { dye2GlobalIdOf, dye2RecipeIdOf } from "@decent-sync/protocol";
 import { shotFixture } from "../server/test/support/shot-fixtures.js";
-import { DYE2_NAMESPACE, SimulatedDye2, dye2Keys, dye2Library, dye2List, dye2Recording, openDye2Dashboard, saveInDye2 } from "../server/test/support/simulated-dye2.js";
+import { SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet, selectRecipeInDye2 } from "../server/test/support/simulated-dye2.js";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field, rows } from "./support/locators.js";
 
-// Shots linked to their Recipe and Basket (ticket #147): each Recipe's and
-// Basket's page lists its Shots, and the Shots list filters by them; an
-// Admin hard-deletes a Recipe no Shot was pulled with, which leaves every
-// tablet, but not one a Shot was, nor a Basket a Recipe names, and Staff
-// delete nothing. Simulated tablets running the built plugin act as DYE2
-// does with the steps recorded from it. Serials are made up, from 49501.
+// Shots linked to their Recipe and Basket (tickets #147 and #216): each
+// Recipe's and Basket's page lists its Shots, linked by the `recipeId` their
+// Workflow named, in a Recipe Slot or not, and the Shots list filters by
+// them; an Admin hard-deletes a Recipe no Shot was pulled with, which leaves
+// every tablet, but not one a Shot was, nor a Basket a Recipe names, and
+// Staff delete nothing. Simulated tablets running the built plugin act as
+// DYE2 v0.1.26 does with the steps recorded from it
+// (server/test/fixtures/decaid/dye2-v0.1.26/). Serials are made up, from
+// 49501.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
@@ -29,21 +32,21 @@ test.afterAll(async () => {
 
 test("each Recipe's and Basket's page lists its Shots, and the Shots list filters by Recipe and by Basket", async ({ page }) => {
   const { bar1, one, two } = await lab(page, "Uptown", 49501);
-  await pullWith(page, bar1, "1", one, "uptown-slot-1", 49501);
-  await pullWith(page, bar1, "2", two, "uptown-slot-2", 49501);
+  await pullWith(page, bar1, ETHIOPIA, one, "uptown-ethiopia", 49501);
+  await pullWith(page, bar1, BRAZIL, two, "uptown-brazil", 49501);
   const basket = (await recipe(page, two)).content.basketId as string;
 
   await page.goto(`/library/recipes/${one}`);
   const recipeShots = page.getByRole("table", { name: "Shots with this Recipe" });
   await expect(rows(recipeShots)).toHaveCount(1);
   await rows(recipeShots).first().getByRole("link").first().click();
-  await expect(page).toHaveURL(/\/shots\/uptown-slot-1$/);
+  await expect(page).toHaveURL(/\/shots\/uptown-ethiopia$/);
   const shot = page.getByLabel("Shot", { exact: true });
   await expect(field(shot, "Recipe")).toHaveText("Fixture Ethiopia Espresso");
   await field(shot, "Recipe").getByRole("link").click();
   await expect(page.getByRole("heading", { name: "Fixture Ethiopia Espresso", level: 1 })).toBeVisible();
 
-  // Slot 2's Shot, by its Recipe in the Shots list.
+  // The Brazil's Shot, by its Recipe in the Shots list.
   await page.goto(`/library/recipes/${two}`);
   await page.getByRole("link", { name: "Filter the Shots list by it" }).click();
   await expect(page).toHaveURL(new RegExp(`/shots\\?recipeId=${two}$`));
@@ -60,7 +63,7 @@ test("each Recipe's and Basket's page lists its Shots, and the Shots list filter
   await page.getByRole("option", { name: basketName, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`basketId=${basket}`));
   await expect(list.getByRole("link", { name: /./ }).first()).toBeVisible();
-  await page.goto(`/shots/uptown-slot-2`);
+  await page.goto(`/shots/uptown-brazil`);
   await expect(field(page.getByLabel("Shot", { exact: true }), "Basket")).toHaveText(basketName);
   await field(page.getByLabel("Shot", { exact: true }), "Basket").getByRole("link").click();
   await expect(page.getByRole("heading", { name: basketName, level: 1 })).toBeVisible();
@@ -72,7 +75,7 @@ test("an Admin hard-deletes a Recipe no Shot was pulled with from every tablet, 
   browser,
 }) => {
   const { location, bar1, bar2, one, two } = await lab(page, "Belmont", 49511);
-  await pullWith(page, bar1, "1", one, "belmont-slot-1", 49511);
+  await pullWith(page, bar1, ETHIOPIA, one, "belmont-ethiopia", 49511);
 
   // Staff working there see no Delete, and are refused one.
   await asStaff(browser, page, location, async (samsPage) => {
@@ -109,42 +112,42 @@ test("an Admin hard-deletes a Recipe no Shot was pulled with from every tablet, 
   baseExpect((await page.request.get(`/api/recipes/${two}`)).status()).toBe(404);
 });
 
+/** The record ids of the recording's Ethiopia, in no slot, and its Brazil, in slot 2, as DYE2 numbered recipes before v0.1.25 (fixtures/decaid/dye2-v0.1.26/library.json). */
+const ETHIOPIA = "1";
+const BRAZIL = "2";
+
 /**
- * A Location with two Machines: Bar 1, the recording's tablet running DYE2
- * at 2cf631c, whose DYE2 editor saves slots 1 and 2, and Bar 2,
- * whose tablet has no DYE2 lists, each written both.
+ * A Location with two Machines: Bar 1, the first there, the recording's
+ * tablet running DYE2 v0.1.26 (recordedDye2MainTablet), whose eight recipes
+ * become the Location's Recipes under their ids, its beans' names begun
+ * with the Location's, and Bar 2, whose tablet has no DYE2 lists, written
+ * every one of them. Resolves with the Recipes the Ethiopia and the Brazil
+ * are.
  */
 async function lab(page: Page, name: string, serial: number) {
   const location = await createLocation(page, name);
-  const recipes = dye2Recording("recipes");
-  const bar1 = await tabletAt(page, `${name} 1`, location, {
-    ...derivedDe1Pro({ serial: String(serial) }),
-    ...dye2Library(),
-    [`/store/${DYE2_NAMESPACE}/baskets`]: dye2Keys().baskets,
-    [`/store/${DYE2_NAMESPACE}/equipment`]: dye2Keys().equipment,
-    [`/store/${DYE2_NAMESPACE}/recipes`]: [],
-  });
+  const bar1 = await tabletAt(page, `${name} 1`, location, recordedDye2MainTablet(String(serial), name));
   const bar2 = await tabletAt(page, `${name} 2`, location, { ...derivedDe1Pro({ serial: String(serial + 1) }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS });
-  await saveInDye2(bar1, recipes.saveSlot1);
-  await saveInDye2(bar1, recipes.saveSlot2);
-  await saveInDye2(bar1, recipes.editSlot1);
-  const inSlot = (slot: string) => dye2GlobalIdOf(recipeRecords(bar1).find((record) => record.id === slot));
-  await expect.poll(() => [inSlot("1"), inSlot("2")]).not.toContain(null);
-  const [one, two] = [inSlot("1")!, inSlot("2")!];
+  const recordOf = (id: string) => dye2GlobalIdOf(recipeRecords(bar1).find((record) => record.id === id));
+  await expect.poll(() => [recordOf(ETHIOPIA), recordOf(BRAZIL)]).not.toContain(null);
+  const [one, two] = [recordOf(ETHIOPIA)!, recordOf(BRAZIL)!];
   for (const id of [one, two]) await expect.poll(() => recipeRecords(bar2).some((record) => dye2GlobalIdOf(record) === id)).toBe(true);
   return { location, bar1, bar2, one, two };
 }
 
 /**
- * Applies the slot on the tablet's DYE2 dashboard, then pulls a Shot with
- * the Workflow as it stands, its samples a tenth of a second apart, once
- * DYE2 names its selection there and the server has the Recipe loaded on a
- * Machine, as this Shot lasts too little to span the plugin's report of it,
- * and waits for the Shot to be linked to the Recipe.
+ * Applies the recipe on the tablet's DYE2 dashboard, by its pill where it
+ * shows one, as for one in a slot, and otherwise from DYE2's Select Recipe
+ * page, then pulls a Shot with the Workflow as it stands, its samples a
+ * tenth of a second apart, once the Workflow names it and the server has
+ * the Recipe loaded on a Machine, as this Shot lasts too little to span the
+ * plugin's report of it, and waits for the Shot to be linked to the Recipe.
  */
-async function pullWith(page: Page, tablet: SimulatedTablet, slot: string, recipeId: string, id: string, serial: number): Promise<void> {
-  baseExpect((await (await openDye2Dashboard(tablet)).applyRecipe(slot)).selection?.status).toBe(200);
-  await expect.poll(() => dye2SelectionOf(tablet.workflow()).slot).toBe(slot);
+async function pullWith(page: Page, tablet: SimulatedTablet, recordId: string, recipeId: string, id: string, serial: number): Promise<void> {
+  const dashboard = await openDye2Dashboard(tablet);
+  const applied = dashboard.recipePills().some((pill) => pill.id === recordId) ? await dashboard.applyRecipe(recordId) : (await selectRecipeInDye2(tablet, recordId)).applied;
+  baseExpect(applied?.workflow?.status).toBe(200);
+  await expect.poll(() => dye2RecipeIdOf(tablet.workflow())).toBe(recordId);
   await expect
     .poll(async () => {
       const { machines } = (await (await page.request.get("/api/machines")).json()) as { machines: { loadedRecipe: { recipe: { id: string } } | null }[] };
