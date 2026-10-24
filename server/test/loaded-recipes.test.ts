@@ -29,12 +29,12 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // recipe clears the field, which unloads it; another batch or grinder does
 // not, and nor does a restart of DYE2. The plugin has DYE2 save each change
 // of the Workflow while a Recipe is loaded (`record`), and reports the recipes
-// it saved at once; the server unloads one by having the plugin clear the
-// field. Through the built plugin in simulated tablets running DYE2 v0.1.26
-// and Streamline at cec5664 as recorded (fixtures/decaid/dye2-v0.1.26/), on
-// two server instances sharing one database, with assertions through the
-// REST API and what each simulated tablet holds. Serials are made up, from
-// 47001.
+// it saved at once, never into a recipe applied while the save waited its
+// turn; the server unloads one by having the plugin clear the field.
+// Through the built plugin in simulated tablets running DYE2 v0.1.26 and
+// Streamline at cec5664 as recorded (fixtures/decaid/dye2-v0.1.26/), on two
+// server instances sharing one database, with assertions through the REST
+// API and what each simulated tablet holds. Serials are made up, from 47001.
 
 type Record_ = Record<string, unknown>;
 
@@ -426,6 +426,31 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect(extras(tablet)).toMatchObject({ basketId: BASKET_18, rpm: 900 });
     // The server read no unload between the two.
     expect(await history(machine)).toMatchObject({ total: 1, entries: [{ recipe: { id: ethiopia }, unloadedAt: null }] });
+  });
+
+  it("saves nothing of a change made on one Recipe into another applied while that save waited its turn, which loads with its own Basket and dial", async () => {
+    let slow = false;
+    // The plugin's reads of DYE2's recipes, which its save into the Loaded Recipe takes its turn among, each half a second.
+    const { machine, tablet, dye2, ethiopia, brazil } = await lab("Next recipe", 47161, { apiDelayMs: (method, path) => (slow && method === "GET" && path === `/store/${DYE2_NAMESPACE}/recipes` ? 25_000 : 0) });
+    await selectRecipeInDye2(tablet, ETHIOPIA);
+    await loads(machine, ethiopia);
+    await expect.poll(() => extras(tablet).basketId, { timeout: 15_000 }).toBe(BASKET_18);
+    await settle();
+    const held = (await recipe(brazil)).content;
+    expect(held).toMatchObject({ dose: 19, grindSetting: 3 });
+    slow = true;
+    // A read under way: the save the grind change asks for waits behind it, and the Brazil's recipe is applied meanwhile.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await tablet.changeSettings({ context: { grinderSetting: "3.4" } });
+    expect((await (await openDye2Dashboard(tablet)).applyRecipe(BRAZIL)).workflow?.status).toBe(200);
+    slow = false;
+    await loads(machine, brazil);
+    // Its load writes its own Basket, and the Ethiopia's dial is saved into it nowhere.
+    await expect.poll(() => extras(tablet).basketId, { timeout: 15_000 }).toBe(BASKET_20);
+    await settle();
+    expect(dye2.recorded.filter((recorded) => recorded.id === BRAZIL)).toEqual([]);
+    expect((await recipe(brazil)).content).toEqual(held);
+    expect(context(tablet)).toMatchObject({ targetDoseWeight: 19, grinderSetting: "3" });
   });
 
   it("keeps the Recipe loaded through another grinder, a batch of another Bean and a batch cleared, which DYE2 clears nothing on, a Shot pulled on another Bean's batch linked to it", async () => {

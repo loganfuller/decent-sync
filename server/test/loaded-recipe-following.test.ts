@@ -27,7 +27,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // from that Machine's tablet, once. Decent Sync records itself what DYE2
 // saves none of: a grinder, a batch of the Recipe's Bean, and a dose, yield,
 // grind setting, RPM or Basket the Recipe holds none of, which a load also
-// gains it from the Workflow. A batch of another Bean and a value cleared
+// gains it from the Workflow. A change made while the plugin writes into
+// the Workflow is saved too. A batch of another Bean and a value cleared
 // stay the Machine's own, and nothing unloads it but a change of profile,
 // which saves nothing into it. An edit of the Recipe from anywhere is written
 // into the Workflow of every Machine that has it loaded, but the one it was
@@ -135,8 +136,10 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
    * tablet there is written under their record ids, and the Ethiopia's (in no
    * slot) is applied from DYE2's Select Recipe page on A and C, and the
    * Brazil's (in slot 2) on D, which each loads. A's machine is connected.
+   * `apiDelayMs` slows the answers A's Decaid gives the plugin, as the
+   * simulated tablet's option of that name does.
    */
-  async function lab(scenario: string, serial: number, options: { pollSeconds?: number } = {}) {
+  async function lab(scenario: string, serial: number, options: { pollSeconds?: number; apiDelayMs?: (method: string, path: string) => number } = {}) {
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machines = {
       a: await api.createMachine(`${scenario} lab A`, here.id),
@@ -144,7 +147,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
       d: await api.createMachine(`${scenario} lab D`, here.id),
     };
     const dye2 = { a: new SimulatedDye2(), c: new SimulatedDye2(), d: new SimulatedDye2() };
-    const a = syncingTablet(machines.a, server, { api: recordedDye2MainTablet(String(serial), scenario), dye2: dye2.a, pollSeconds: options.pollSeconds });
+    const a = syncingTablet(machines.a, server, { api: recordedDye2MainTablet(String(serial), scenario), dye2: dye2.a, pollSeconds: options.pollSeconds, apiDelayMs: options.apiDelayMs });
     await api.waitForOnline(machines.a);
     await expect.poll(() => [ETHIOPIA, BRAZIL].map((id) => dye2GlobalIdOf(record(a, id))), { timeout: 15_000 }).not.toContain(null);
     const c = syncingTablet(machines.c, other, { api: dye2NeverUsed(String(serial + 1)), dye2: dye2.c });
@@ -239,6 +242,67 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await settle();
     expect((await recipe(one)).content).toMatchObject({ rpm: 1333, dose: 19.5 });
     expect([extras(c).rpm, context(c).targetDoseWeight]).toEqual([1333, 19.5]);
+  });
+
+  it("keeps an RPM cleared on A after DYE2's editor saved and applied it there and A changed on, writing the Recipe's back into none", async () => {
+    const { a, c, one } = await lab("Editor cleared", 48231);
+    // DYE2's editor on A saves the RPM and applies the recipe again, so A's Workflow holds it before the server takes it in.
+    await (await openDye2RecipeEditor(a, { id: ETHIOPIA })).set({ rpm: 1333 }).save();
+    await expect.poll(async () => (await recipe(one)).content.rpm, { timeout: 15_000 }).toBe(1333);
+    await expect.poll(() => [extras(a).rpm, extras(c).rpm], { timeout: 15_000 }).toEqual([1333, 1333]);
+    // A's next change, which DYE2 saves before its Workflow, holding the RPM, reaches the server.
+    await a.changeSettings({ context: { grinderSetting: "2.7" } });
+    await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(2.7);
+    await settle();
+    // A value cleared on A is A's own: the Recipe's is not written back over it.
+    const received = a.received.length;
+    await a.changeSettings({ context: { extras: { rpm: null } } });
+    await settle();
+    await settle();
+    expect(extras(a).rpm ?? null).toBeNull();
+    expect(loadedRecipeWrites(a, received)).toEqual([]);
+    expect((await recipe(one)).content.rpm).toBe(1333);
+    expect(extras(c).rpm).toBe(1333);
+  });
+
+  // Fails: the Workflow holding the RPM DYE2's editor applied reaches the server before the editor's save, so it is not
+  // taken as the Recipe's then (`heldAlready` against the Recipe as it was), and no Workflow of A's follows before the
+  // clear, which `followMachine` judges from that Workflow alone: base keeps the RPM before the save, and the Recipe's is
+  // written back over the clear. Taking each part the previous Workflow (`known.held`) holds as the Recipe does too would
+  // cover it.
+  it.fails("keeps an RPM cleared on A straight after DYE2's editor saved and applied it there, writing the Recipe's back into none", async () => {
+    const { a, c, one } = await lab("Editor cleared at once", 48251);
+    await (await openDye2RecipeEditor(a, { id: ETHIOPIA })).set({ rpm: 1333 }).save();
+    await expect.poll(async () => (await recipe(one)).content.rpm, { timeout: 15_000 }).toBe(1333);
+    await expect.poll(() => [extras(a).rpm, extras(c).rpm], { timeout: 15_000 }).toEqual([1333, 1333]);
+    await settle();
+    const received = a.received.length;
+    await a.changeSettings({ context: { extras: { rpm: null } } });
+    await settle();
+    await settle();
+    expect(extras(a).rpm ?? null).toBeNull();
+    expect(loadedRecipeWrites(a, received)).toEqual([]);
+  });
+
+  it("saves into the Recipe a grind changed on A while the plugin's write of a Recipe edit into A's Workflow waits for Decaid", async () => {
+    let slow = false;
+    // 25 s at the tablet's pace, within Decaid's 30 s fetch timeout: half a second here.
+    const { dye2, a, c, one } = await lab("During write", 48241, { apiDelayMs: (method, path) => (slow && method === "PUT" && path === "/workflow" ? 25_000 : 0) });
+    expect(context(a).grinderSetting).toBe("2.5");
+    const reads = a.requests.filter((route) => route === "/workflow").length;
+    slow = true;
+    await patch(one, { hotWaterVolume: 130 });
+    // The plugin reads the Workflow, then its write of the hot water waits; the barista's grind change lands meanwhile, and
+    // Decaid merges the write over it, answering with both.
+    await expect.poll(() => a.requests.filter((route) => route === "/workflow").length, { timeout: 15_000 }).toBeGreaterThan(reads);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await a.changeSettings({ context: { grinderSetting: "9.9" } });
+    await expect.poll(() => hotWater(a).volume, { timeout: 15_000 }).toBe(130);
+    slow = false;
+    expect(context(a).grinderSetting).toBe("9.9");
+    await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(9.9);
+    expect(dye2.a.recorded.map((recorded) => recorded.patch)).toContainEqual(expect.objectContaining({ grind: 9.9 }));
+    await expect.poll(() => context(c).grinderSetting, { timeout: 15_000 }).toBe("9.9");
   });
 
   it("follows a grind DYE2 saved and an editor save made while A was offline, which reach the server in one report, writing a later edit into A's Workflow", async () => {
