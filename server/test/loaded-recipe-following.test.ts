@@ -265,12 +265,9 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(extras(c).rpm).toBe(1333);
   });
 
-  // Fails: the Workflow holding the RPM DYE2's editor applied reaches the server before the editor's save, so it is not
-  // taken as the Recipe's then (`heldAlready` against the Recipe as it was), and no Workflow of A's follows before the
-  // clear, which `followMachine` judges from that Workflow alone: base keeps the RPM before the save, and the Recipe's is
-  // written back over the clear. Taking each part the previous Workflow (`known.held`) holds as the Recipe does too would
-  // cover it.
-  it.fails("keeps an RPM cleared on A straight after DYE2's editor saved and applied it there, writing the Recipe's back into none", async () => {
+  // The Workflow holding the RPM DYE2's editor applied reaches the server before the editor's save, so it is taken as the
+  // Recipe's only as the clear arrives, from the Workflow held before it (`followMachine`).
+  it("keeps an RPM cleared on A straight after DYE2's editor saved and applied it there, writing the Recipe's back into none", async () => {
     const { a, c, one } = await lab("Editor cleared at once", 48251);
     await (await openDye2RecipeEditor(a, { id: ETHIOPIA })).set({ rpm: 1333 }).save();
     await expect.poll(async () => (await recipe(one)).content.rpm, { timeout: 15_000 }).toBe(1333);
