@@ -386,7 +386,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
 
     // DYE2's editor on A picks the new batch for the recipe, which every Machine with the Recipe loaded is written.
     const held = record(a, ETHIOPIA)!;
-    const picked = (await localId(a, "/bean-batches", next))!;
+    const picked = String(await localId(a, "/bean-batches", next));
     await (await openDye2RecipeEditor(a, { id: ETHIOPIA })).set({ bean: { id: String(held.beanId), name: String(held.beanName), batchId: picked } }).save();
     await expect.poll(async () => (await recipe(one)).content.beanBatchId, { timeout: 15_000 }).toBe(next);
     for (const tablet of [a, c]) await expect.poll(async () => context(tablet).beanBatchId, { timeout: 15_000 }).toBe(await localId(tablet, "/bean-batches", next));
