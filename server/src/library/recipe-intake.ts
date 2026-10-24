@@ -473,14 +473,16 @@ function firstStepTemperature(profile: unknown): number | null {
 /**
  * The Workflow DYE2 embeds in a recipe, which Streamline applies, built as
  * DYE2's `buildRecipeWorkflow` builds it (dye2:dye2-plugin/src/utils/dev-api.ts
- * at 2cf631c) from the record's fields: its dose, yield (or its dose times
+ * at v0.1.26) from the record's fields: its dose, yield (or its dose times
  * its ratio), grind setting, RPM, Grinder and Basket by the tablet's ids,
  * barista and drinker, each only where the record holds one; its coffee,
  * roaster and Bean Batch together where it names a Bean, each null where it
  * holds none, so applying it clears a batch the Workflow held; and its full
- * Profile where it names one, at its brew temperature, as Streamline
- * applies the profile as it is (`profileAtBrewTemperature`,
- * decentespresso/dye2#26); and each steam, hot water and flush setting the
+ * Profile where it names one with steps, at its brew temperature, as
+ * Streamline applies the profile as it is (`profileAtBrewTemperature`,
+ * decentespresso/dye2#26), none where it holds no full Profile, as a stub
+ * of its id and title would merge into the Workflow's profile and rename its
+ * steps; and each steam, hot water and flush setting the
  * record holds, in partial `steamSettings`, `hotWaterData` and `rinseData`,
  * none where it holds none of them (`recipeMachineSettings`). DYE2's flags
  * of the fields it sets are left out.
@@ -512,7 +514,7 @@ export function recipeWorkflow(view: Readonly<RecipeView>): Record<string, unkno
     const snapshot = view.profileSnapshot;
     const brewTemperature = at("brewC");
     const shifted = isObject(snapshot) && typeof brewTemperature === "number" ? profileAtBrewTemperature(snapshot, brewTemperature) : null;
-    workflow.profile = isObject(snapshot) && Array.isArray(snapshot.steps) ? (shifted ?? snapshot) : { id: view.profileId, title: view.profileTitle };
+    if (isObject(snapshot) && Array.isArray(snapshot.steps) && snapshot.steps.length > 0) workflow.profile = shifted ?? snapshot;
   }
   const settings = RECIPE_SETTING_NAMES.flatMap((setting) => (present(at(RECIPE_SETTINGS[setting].dye2)) ? [[RECIPE_SETTINGS[setting].workflow, at(RECIPE_SETTINGS[setting].dye2)]] : []));
   return { ...workflow, ...workflowPatch(Object.fromEntries(settings)) };

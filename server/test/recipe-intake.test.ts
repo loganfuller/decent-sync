@@ -341,7 +341,7 @@ describe("DYE2's recipes as Recipes", () => {
     expect((recorded.workflow as Record_).hotWaterData).toEqual({ targetTemperature: 85, volume: 120 });
   });
 
-  it("builds a recipe's embedded Workflow as DYE2 does, from its yield or its dose times its ratio, with a Profile's id and title where it has no steps", () => {
+  it("builds a recipe's embedded Workflow as DYE2 does, from its yield or its dose times its ratio, with no Profile where it holds none whole", () => {
     const keptWorkflow = slot1.workflow as Record_;
     // DYE2's own, as recipe 1 holds it, holds the same dial, grinder, Basket, coffee, roaster, batch, people, Profile at
     // the recipe's brew temperature, and settings it holds. It holds its field flags too.
@@ -350,7 +350,9 @@ describe("DYE2's recipes as Recipes", () => {
     const { dye: _flags, ...extras } = context.extras as Record_;
     expect(recipeWorkflow({ ...view, profileSnapshot: adaptive })).toEqual({ ...keptWorkflow, context: { ...context, extras } });
     const ratio = recipeWorkflow({ ...view, "dashboardVariables.drink": null, "dashboardVariables.ratio": 2.2, profileSnapshot: null });
-    expect(ratio).toMatchObject({ context: { targetDoseWeight: 18, targetYield: 39.6 }, profile: { id: ADAPTIVE, title: "Adaptive v3" } });
+    expect(ratio).toMatchObject({ context: { targetDoseWeight: 18, targetYield: 39.6 } });
+    // A stub of its id and title would merge into the Workflow's profile, renaming its steps (`buildRecipeWorkflow` at v0.1.26).
+    expect(ratio).not.toHaveProperty("profile");
     expect(recipeWorkflow(recipeView(blank))).not.toHaveProperty("profile");
   });
 
